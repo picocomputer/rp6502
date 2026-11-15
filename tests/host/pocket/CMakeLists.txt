@@ -89,28 +89,30 @@ rp6502_add_module_test(pbridge
         ${POCKET_TB}/sdram_model.sv ${POCKET_TB}/tb_pbridge.sv
     TIMEOUT 300)
 
+# The whole-core tests start from snapshots of a machine that has booted,
+# which they keep in snap/ under this folder's build folder. How the
+# snapshots work, and what a test must do to keep them right, is in
+# tests/bench/tb_snap.h.
 if(RP6502_SOFT_CPU)
-    rp6502_add_machine_test(pocket FIRMWARE SPLIT
+    rp6502_add_machine_test(pocket FIRMWARE SPLIT SAVABLE
         TOP tb_pocket
         RTL ${POCKET_STACK}
         DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
         TIMEOUT 1200)
 
-    rp6502_add_machine_test(psleep FIRMWARE SPLIT
+    rp6502_add_machine_test(psleep FIRMWARE SPLIT SAVABLE
         TOP tb_pocket
         RTL ${POCKET_STACK}
         DEFS FILE_ROM="${FILE_ROM}" STREAM_ROM="${STREAM_ROM}"
             OPL_ROM="${OPL_ROM}" PCM_ROM="${PCM_ROM}"
             OPL_BEL_ROM="${OPL_BEL_ROM}" AUD_SST_ROM="${AUD_SST_ROM}"
             AUD_SNOOP_ROM="${AUD_SNOOP_ROM}" WAKECLK_ROM="${WAKECLK_ROM}"
-            ARGV_ROM="${ARGV_ROM}" SLEEPTRAP_ROM="${SLEEPTRAP_ROM}"
-            SLEEPEXEC_ROM="${SLEEPEXEC_ROM}"
+            SLEEPTRAP_ROM="${SLEEPTRAP_ROM}"
             ROMS_DIR="${RP6502_TEST_CORPUS}"
-        DEPENDS file_roms stream_roms aud_roms wakeclk_roms argv_roms
-            sleeptrap_roms
+        DEPENDS file_roms stream_roms aud_roms wakeclk_roms sleeptrap_roms
         TIMEOUT 1200)
 
-    rp6502_add_machine_test(pfile FIRMWARE SPLIT
+    rp6502_add_machine_test(pfile FIRMWARE SPLIT SAVABLE
         TOP tb_pocket
         RTL ${POCKET_STACK}
         DEFS FILE_ROM="${FILE_ROM}" FSTEST_ROM="${FSTEST_ROM}"

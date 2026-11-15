@@ -134,13 +134,10 @@ package for the RTL and a header for the firmware. The bitstream shows
 them at 0x80030000 and 0x80030004, and `firmware.bin` carries its own in
 the two words after its build stamp. `ver_check` compares them before
 the firmware uses any other register, so those two addresses never
-move. When either differs the firmware stops there. The 6502 stays in
-reset and the screen shows a blinking cursor in its first cell and
-nothing else. That is the whole error: no register can be trusted to
-say more. The video device draws nothing until it is told to, so the
-stop writes the least that shows a cursor: mode 0 on the first 16
-scanlines, the cursor's colour, and the cursor itself, lit for 30 frames
-and dark for 30.
+move. When either differs the firmware stops there and touches nothing
+more. The 6502 stays in reset and the screen stays black. A savestate
+load skips that check, so the engine refuses a load while the two words
+in `firmware.bin` differ from the bitstream's.
 
 Raise the savestate version when the blob changes: its header, what it
 holds, or the order or size of anything in it. Raise the register
@@ -171,8 +168,7 @@ so a load that waited for it would never be answered. Such a load is
 answered ok at once and kept, and the engine performs it when the reset
 is released. The firmware's first read of `SST_CTL` shows a wake on its
 way, so it stages no program first. If the engine then refuses the blob
-the answer stays ok: the host has had it, and what it gets is a machine
-that starts its program over. `SST_CTL` tells the firmware how the wake
+the answer stays ok: the host has had it. `SST_CTL` tells the firmware how the wake
 went: that the load came in reset, and for a refusal which check it
 was.
 
@@ -204,22 +200,13 @@ What the Pocket does with a sleep the core refuses is not documented:
 it may stay awake or power down anyway. If it powers down, the wake has
 no blob for that sleep. With no load asked for, the wake is a plain
 boot and the screen says nothing of it. With a load asked for and no
-blob written, the console shows `wake: no header` and the program
-starts. A blob left from an earlier sleep of the same firmware would be
+blob written, the console shows `wake: no header` and the 6502 stays in
+reset until the core is reloaded. A blob left from an earlier sleep of the same firmware would be
 taken for this one's and resumed.
 
 A write into the blob window is the first the firmware sees of a wake,
-in `SST_BLOB_SEEN`. `SST_BLOB_UNASKED` beside it says no load has been
-asked for, and `SST_BLOB_WRITING` that a word has been written since
-the firmware last cleared it, so the firmware can tell a blob that is
-still arriving from one the host has left. `SST_BLOB_WRITING` reads set
-on the clock `SST_BLOB_UNASKED` first does, so a blob is never seen
-unasked before it is seen arriving. The firmware drops a blob that has
-had no word written for two seconds and no load asked for. The host writes a
-blob at 3.4 MB/s or faster and the bridge gives any command 0.9 s, so
-two seconds of silence is a blob left behind. Dropping clears only
-`SST_BLOB_SEEN`: a load that comes later still finds the blob. A blob
-the host writes again while its load is in progress belongs to that
+in `SST_BLOB_SEEN`, and the machine stays stopped until a load comes. A
+blob the host writes again while its load is in progress belongs to that
 load, and is no new wake once the load is over.
 
 ### The architecture: one clock gate
@@ -304,28 +291,14 @@ machine half overwritten. It checks the header, the version, the
 length, the build stamp, the sum and the trailer. A refused blob writes
 nothing, and the engine names the check that refused it in `SST_CTL`.
 
-**A wake that does not resume starts the program over.** The firmware
-stops the program when the first of a wake shows, the blob or the load
+**A refused wake stops there.** The firmware stops the program when the first of a wake shows, the blob or the load
 command, and starts nothing until the wake is over, because the restore
 replaces the machine's memory but not a file the program creates or
 truncates before the load. A firmware that boots into a wake stages no
-program for the same reason. When the engine refuses the blob, or the
-firmware drops a blob no load came for, the console says why in one
-line, the line stays up for two seconds, and the ROM in slot 0 is
-staged and started as at boot.
-
-| The console's line | The wake |
-|---|---|
-| `wake: no header` | the file holds no blob |
-| `wake: version differs` | a blob of another format version |
-| `wake: length differs` | a blob of another length |
-| `wake: build differs` | a blob made by another `firmware.bin` |
-| `wake: checksum differs` | a word of the blob changed |
-| `wake: no trailer` | the blob's end is missing |
-| `wake: no load came` | a blob and, for two seconds, no load command |
-
-A refusal's line ends in `(asked in reset)` when the load command came
-while the Pocket held the core in reset.
+program for the same reason. When the engine refuses the blob, the
+console says `bad savestate` and the 6502 stays in reset until the user
+reloads the core. A refused load restored nothing, so it ends without
+waiting for the firmware.
 
 When the blob is good, with the
 machine still stopped, every array is written back through the engine's

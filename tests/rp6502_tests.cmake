@@ -112,7 +112,7 @@ rp6502_test_roms(wakeclk_roms host/pocket/wakeclk.py wakeclk)
 rp6502_test_roms(sleepasset_roms host/pocket/sleepasset.py
     sleepasset-a sleepasset-b)
 rp6502_test_roms(sleepfile_roms host/pocket/sleepfile.py sleepfile)
-rp6502_test_roms(sleeptrap_roms host/pocket/sleeptrap.py sleeptrap sleepexec)
+rp6502_test_roms(sleeptrap_roms host/pocket/sleeptrap.py sleeptrap)
 
 # rp6502_add_script_test(NAME <name> COMMAND <file> [<arg>...]
 #                        [TIMEOUT <seconds>])

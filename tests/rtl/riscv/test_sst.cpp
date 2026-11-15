@@ -8,6 +8,7 @@
 #include "Vwiring___024root.h"
 
 #include "tb_machine.h"
+#include "pocket_version.h"
 #include "utest.h"
 
 #include <cstdint>
@@ -44,12 +45,14 @@
 #define W_TOTAL (B_END + W_END)
 
 /* The firmware's build stamp is this word of the ROM block, and a blob's
- * header carries it in its fourth word. Here it is COUNTER's second
- * instruction. */
+ * header carries it in its fourth word. The two words after it are the
+ * versions the firmware was built for. The programs here start as the
+ * firmware does, with a jump over the three. */
 #define STAMP_WORD 1u
+#define HEAD_BYTES 16u
 
 #define SST_MAGIC 0x52365353u
-#define SST_VER 10u
+#define SST_VER POCKET_SST_VERSION
 #define SST_END_MAGIC 0x52365345u
 
 static Vwiring *dut;
@@ -137,10 +140,17 @@ static uint32_t xram_word(uint32_t w)
  * in the RAM block's word 1023 and its counts from word 1024 on. */
 #define MARK_WORD (TB_RAM_WORD + 1023u)
 #define REC_BASE (TB_RAM_WORD + 1024u)
-static const std::vector<uint32_t> COUNTER = {
+static std::vector<uint32_t> with_head(uint32_t stamp,
+                                       std::vector<uint32_t> body)
+{
+    body.insert(body.begin(), {0x0100006Fu, /* j 16 */
+                               stamp, POCKET_REG_VERSION, POCKET_SST_VERSION});
+    return body;
+}
+static const std::vector<uint32_t> COUNTER = with_head(0x5A5A5A5Au, {
     0x00041337, 0x5A500393, 0xFE732E23, 0x00000293,
     0x00128293, 0x00532023, 0x00430313, 0xFF5FF06F,
-};
+});
 
 static void power_on_with(const std::vector<uint32_t> &prog, int load)
 {
@@ -415,11 +425,13 @@ UTEST(sst, the_soft_cpus_registers_are_in_there)
     ASSERT_TRUE(blob_word(B_STATE + ST_RV + 6, &x6));
     ASSERT_TRUE(blob_word(B_STATE + ST_RV + 0, &dpc));
     /* COUNTER increments x5 before storing it, so a halt between the two
-     * leaves x5 one above the last stored value. */
+     * leaves x5 one above the last stored value, and it moves x6 on after
+     * the store, so a halt between those leaves x6 at the last record. */
     ASSERT_TRUE(x5 == count || x5 == count + 1);
-    ASSERT_EQ(0x41000u + count * 4u, x6);
-    /* The loop is words 4 to 7, which are byte addresses 16 to 28. */
-    ASSERT_TRUE(dpc >= 16 && dpc <= 28);
+    ASSERT_TRUE(x6 == 0x41000u + count * 4u
+                || x6 == 0x41000u + (count - 1) * 4u);
+    /* The loop is the body's words 4 to 7, after the header. */
+    ASSERT_TRUE(dpc >= HEAD_BYTES + 16 && dpc <= HEAD_BYTES + 28);
 }
 
 UTEST(sst, letting_go_lets_the_machine_run_again)
@@ -623,7 +635,7 @@ UTEST(sst, the_soft_cpus_registers_go_back_in)
 
     const uint32_t MARK = 0x11110000u;
     const uint32_t PTR = 0x44000u;
-    stage_word(B_STATE + ST_RV + 0, 0x14u);
+    stage_word(B_STATE + ST_RV + 0, HEAD_BYTES + 0x14u);
     stage_word(B_STATE + ST_RV + 5, MARK);
     stage_word(B_STATE + ST_RV + 6, PTR);
     stage_word(B_STATE + ST_MACH + 0, 1);
@@ -965,10 +977,10 @@ UTEST(sst, the_console_queue_survives)
  * from the trap, and the count in x31 stored as the next record. The
  * handler at 0x60 waits 200 turns, checks mcause, steps mepc over the
  * ecall and returns. */
-#define T_LOOP 0x24u
-#define T_TRAP 0x60u
-#define T_WAIT 0x64u
-#define T_WAIT_END 0x68u
+#define T_LOOP (HEAD_BYTES + 0x24u)
+#define T_TRAP (HEAD_BYTES + 0x60u)
+#define T_WAIT (HEAD_BYTES + 0x64u)
+#define T_WAIT_END (HEAD_BYTES + 0x68u)
 static uint32_t rv_i(uint32_t imm, uint32_t rs1, uint32_t f3, uint32_t rd,
                      uint32_t op)
 {
@@ -992,11 +1004,11 @@ static std::vector<uint32_t> trapper(void)
                    MCAUSE = 0x342;
     std::vector<uint32_t> p(0x88 / 4, 0x00000013u);
     p[0x00 / 4] = 0x00041337;                       /* lui x6, 0x41 */
-    p[0x04 / 4] = rv_i(0x5A5, 0, 0, 7, 0x13);       /* the stamp word */
+    p[0x04 / 4] = rv_i(0x5A5, 0, 0, 7, 0x13);       /* addi x7, x0, 0x5A5 */
     p[0x08 / 4] = rv_i(0xFFC, 6, 2, 5, 0x03);       /* lw x5, -4(x6) */
     p[0x0C / 4] = rv_i(1, 5, 0, 5, 0x13);           /* addi x5, x5, 1 */
     p[0x10 / 4] = rv_s(0xFFC, 5, 6, 2);             /* sw x5, -4(x6) */
-    p[0x14 / 4] = rv_i(T_TRAP, 0, 0, 5, 0x13);      /* addi x5, x0, 0x60 */
+    p[0x14 / 4] = rv_i(T_TRAP, 0, 0, 5, 0x13);      /* addi x5, x0, T_TRAP */
     p[0x18 / 4] = rv_i(MTVEC, 5, 1, 0, 0x73);       /* csrw mtvec, x5 */
     p[0x1C / 4] = rv_i(MSTATUS, 8, 6, 0, 0x73);     /* csrsi mstatus, 8 */
     p[0x20 / 4] = rv_i(0, 0, 0, 31, 0x13);          /* addi x31, x0, 0 */
@@ -1018,7 +1030,7 @@ static std::vector<uint32_t> trapper(void)
     p[0x7C / 4] = rv_i(4, 29, 0, 29, 0x13);         /* addi x29, x29, 4 */
     p[0x80 / 4] = rv_i(MEPC, 29, 1, 0, 0x73);       /* csrw mepc, x29 */
     p[0x84 / 4] = 0x30200073;                       /* mret */
-    return p;
+    return with_head(0x7A7A7A7Au, p);
 }
 
 #define RV_PC() \
@@ -1125,7 +1137,7 @@ UTEST(sst, a_save_inside_the_trap_handler_resumes_in_a_new_core)
 UTEST(sst, a_refusal_names_its_check)
 {
     struct { int what; uint32_t why; } cases[] = {
-        {0, 1}, {1, 2}, {2, 3}, {3, 4}, {4, 5}, {5, 6}};
+        {0, 1}, {1, 2}, {2, 3}, {3, 4}, {4, 5}, {5, 6}, {6, 4}, {7, 4}};
     for (auto &c : cases)
     {
         power_on();
@@ -1146,6 +1158,13 @@ UTEST(sst, a_refusal_names_its_check)
             stage_word(B_XRAM + 3, 0xC0DE0002u);
         else if (c.what == 5)
             stage_word(B_END + 2, SST_END_MAGIC + 1);
+        /* A firmware built for another register layout or savestate
+         * version, under the stamp of the blob. */
+        else if (c.what == 6 || c.what == 7)
+        {
+            uint32_t at = STAMP_WORD + (c.what == 6 ? 1u : 2u);
+            tb_ram_put(at, tb_ram_word(at) + 1);
+        }
         load_and_wait();
         ASSERT_TRUE((int)dut->wiring_sst_load_done);
         ASSERT_TRUE((int)dut->wiring_sst_load_err);

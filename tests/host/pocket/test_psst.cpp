@@ -26,8 +26,6 @@
 #define CTL_UNDERRUN (1u << 2)
 #define CTL_RESTORE_ERR (1u << 3)
 #define CTL_LOAD_EARLY (1u << 4)
-#define CTL_BLOB_UNASKED (1u << 5)
-#define CTL_BLOB_WRITING (1u << 6)
 #define CTL_WHY(ctl) (((ctl) >> 8) & 7u)
 
 /* core_bridge_cmd's host command register and its first parameter, the
@@ -412,6 +410,24 @@ UTEST(psst, a_refused_load_says_so)
     ASSERT_FALSE((int)dut->tb_psst_load_ok);
 }
 
+/* A refused load restored nothing and ends without the firmware, which may
+ * be stopped: the request to the engine drops with no write to REG_CTL. */
+UTEST(psst, a_refused_load_ends_without_the_firmware)
+{
+    reset();
+    ASSERT_TRUE(hold_until_ack(1));
+    run(64);
+    ASSERT_TRUE((int)dut->tb_psst_load);
+    dut->sst_load_done = 1;
+    dut->sst_load_err = 1;
+    run(4);
+    ASSERT_FALSE((int)dut->tb_psst_load);
+    dut->sst_load_done = 0;
+    run(16);
+    ASSERT_FALSE((int)dut->tb_psst_load);
+    ASSERT_TRUE((mmio_read(REG_CTL) & CTL_RESTORE_ERR) != 0);
+}
+
 UTEST(psst, a_late_answer_is_reported_as_an_error)
 {
     reset();
@@ -545,7 +561,6 @@ UTEST(psst, a_load_asked_for_in_reset_answers_ok_at_once)
     uint32_t ctl = mmio_read(REG_CTL);
     ASSERT_TRUE((ctl & CTL_BLOB_SEEN) != 0);
     ASSERT_TRUE((ctl & CTL_LOAD_EARLY) != 0);
-    ASSERT_FALSE((ctl & CTL_BLOB_UNASKED) != 0);
 
     ASSERT_EQ(0, host_cmd(CMD_RESET_EXIT, 0));
     run(64);
@@ -564,8 +579,8 @@ UTEST(psst, a_load_asked_for_in_reset_answers_ok_at_once)
     ASSERT_TRUE((mmio_read(REG_CTL) & CTL_LOAD_EARLY) != 0);
 }
 
-/* The host has its ok and the machine it gets starts its program over,
- * so the answer stays ok. The firmware reads the refusal. */
+/* The host has its ok, so the answer stays ok. The firmware reads the
+ * refusal. */
 UTEST(psst, a_load_asked_for_in_reset_and_refused_still_answers_ok)
 {
     reset();
@@ -681,105 +696,6 @@ UTEST(psst, a_repeated_save_request_reads_the_same_blob_again)
     ASSERT_EQ((int)RES_OK, query(0));
 }
 
-UTEST(psst, a_blob_with_no_load_asked_for_can_be_dropped)
-{
-    reset();
-    ASSERT_EQ(0, host_cmd(CMD_RESET_EXIT, 0));
-    bridge_write(BLOB_BASE + 0x40);
-    run(64);
-    uint32_t ctl = mmio_read(REG_CTL);
-    ASSERT_TRUE((ctl & CTL_BLOB_SEEN) != 0);
-    ASSERT_TRUE((ctl & CTL_BLOB_UNASKED) != 0);
-    ASSERT_TRUE((ctl & CTL_BLOB_WRITING) != 0);
-
-    /* The mark of a write clears, and the next write sets it again. */
-    mmio_write(REG_CTL, CTL_BLOB_WRITING);
-    ctl = mmio_read(REG_CTL);
-    ASSERT_FALSE((ctl & CTL_BLOB_WRITING) != 0);
-    ASSERT_TRUE((ctl & CTL_BLOB_SEEN) != 0);
-    bridge_write(BLOB_BASE + 0x44);
-    run(64);
-    ASSERT_TRUE((mmio_read(REG_CTL) & CTL_BLOB_WRITING) != 0);
-
-    mmio_write(REG_CTL, CTL_BLOB_SEEN);
-    run(64);
-    ctl = mmio_read(REG_CTL);
-    ASSERT_FALSE((ctl & CTL_BLOB_SEEN) != 0);
-    ASSERT_FALSE((ctl & CTL_BLOB_UNASKED) != 0);
-    ASSERT_FALSE((int)dut->tb_psst_load);
-
-    /* A load asked for is itself a wake on its way, and it is not
-     * dropped. */
-    ASSERT_EQ((int)RES_BUSY, ask(1));
-    run(64);
-    ctl = mmio_read(REG_CTL);
-    ASSERT_TRUE((ctl & CTL_BLOB_SEEN) != 0);
-    ASSERT_FALSE((ctl & CTL_BLOB_UNASKED) != 0);
-    mmio_write(REG_CTL, CTL_BLOB_SEEN);
-    run(64);
-    ASSERT_TRUE((mmio_read(REG_CTL) & CTL_BLOB_SEEN) != 0);
-    ASSERT_TRUE((int)dut->tb_psst_load);
-}
-
-/* The firmware gives a blob two seconds from the last time it read it as
- * written. So a blob must not read as unasked on any clock before it reads
- * as written, or a firmware that has run for two seconds would give it up
- * at its first word. The register is read on every clk_sys clock, with the
- * write at every phase of the two clocks. */
-UTEST(psst, a_blob_reads_as_written_on_the_clock_it_first_reads_as_unasked)
-{
-    for (int phase = 0; phase < 6; phase++)
-    {
-        reset();
-        ASSERT_EQ(0, host_cmd(CMD_RESET_EXIT, 0));
-        run(phase);
-        dut->addr = REG_CTL;
-        dut->we = 0;
-        dut->stb = 1;
-        dut->bridge_addr = BLOB_BASE + 0x40;
-        dut->bridge_wr = 1;
-        bool unasked = false;
-        for (int i = 0; i < 64; i++)
-        {
-            tick();
-            if (t % BRG_PERIOD == 0)
-                dut->bridge_wr = 0;
-            uint32_t ctl = dut->tb_psst_rdata;
-            if (ctl & CTL_BLOB_UNASKED)
-            {
-                unasked = true;
-                ASSERT_TRUE((ctl & CTL_BLOB_WRITING) != 0);
-            }
-        }
-        dut->stb = 0;
-        ASSERT_TRUE(unasked);
-    }
-}
-
-/* A blob dropped and written again reads as written again with its first
- * word, though the firmware cleared the mark. */
-UTEST(psst, a_blob_seen_again_reads_as_written_again)
-{
-    reset();
-    ASSERT_EQ(0, host_cmd(CMD_RESET_EXIT, 0));
-    bridge_write(BLOB_BASE + 0x40);
-    run(64);
-    mmio_write(REG_CTL, CTL_BLOB_WRITING | CTL_BLOB_SEEN);
-    run(64);
-    ASSERT_EQ(0u, mmio_read(REG_CTL) & (CTL_BLOB_SEEN | CTL_BLOB_WRITING));
-    /* A load asked for and finished leaves no blob, and the blob after it
-     * is a new one. */
-    ASSERT_EQ((int)RES_BUSY, ask(1));
-    finish_load(0);
-    run(32);
-    mmio_write(REG_CTL, CTL_BLOB_WRITING);
-    bridge_write(BLOB_BASE + 0x40);
-    run(64);
-    uint32_t ctl = mmio_read(REG_CTL);
-    ASSERT_TRUE((ctl & CTL_BLOB_UNASKED) != 0);
-    ASSERT_TRUE((ctl & CTL_BLOB_WRITING) != 0);
-}
-
 /* The host can write the blob again while its load is with the engine or
  * the firmware, as a Reset Enter in the middle of a wake has it do. That
  * blob belongs to the load in progress: when the load is over no wake is
@@ -797,20 +713,16 @@ UTEST(psst, a_blob_written_again_during_its_load_is_no_new_wake)
     bridge_write(BLOB_BASE + 0x40);
     bridge_write(BLOB_BASE + 0x44);
     run(32);
-    uint32_t ctl = mmio_read(REG_CTL);
-    ASSERT_TRUE((ctl & CTL_BLOB_SEEN) != 0);
-    ASSERT_FALSE((ctl & CTL_BLOB_UNASKED) != 0);
+    ASSERT_TRUE((mmio_read(REG_CTL) & CTL_BLOB_SEEN) != 0);
     mmio_write(REG_CTL, CTL_RESTORED);
     run(8);
     dut->sst_load_done = 0;
     run(32);
-    ctl = mmio_read(REG_CTL);
-    ASSERT_FALSE((ctl & CTL_BLOB_SEEN) != 0);
-    ASSERT_FALSE((ctl & CTL_BLOB_UNASKED) != 0);
+    ASSERT_FALSE((mmio_read(REG_CTL) & CTL_BLOB_SEEN) != 0);
     /* The blob for the next wake is seen as ever. */
     bridge_write(BLOB_BASE + 0x40);
     run(32);
-    ASSERT_TRUE((mmio_read(REG_CTL) & CTL_BLOB_UNASKED) != 0);
+    ASSERT_TRUE((mmio_read(REG_CTL) & CTL_BLOB_SEEN) != 0);
 }
 
 /* The firmware refuses saves while a file is open for writing. A save

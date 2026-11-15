@@ -28,7 +28,8 @@ design uses 219 blocks, so 89 are free.
 - **Bitstream and firmware must match.** The bitstream shows its savestate
   version and its register layout version in two registers, and the
   firmware carries its own. It reads both first thing and stops if either
-  differs: the screen shows a blinking cursor and nothing else.
+  differs, touching nothing: the screen stays black. A savestate load is
+  refused while the firmware's two numbers differ from the bitstream's.
 
 ### The SDRAM's map
 
@@ -64,19 +65,11 @@ Timing after the last fit: setup 0.57 ns to spare, hold 0.11 ns.
 
 ### Wakes that fail
 
-Built: a load asked for in reset, a wake that does not resume starting the
-program over with a line saying why, no savestate while a file is open for
-writing, and the bitstream and firmware match check. Left to do:
+Built: a load asked for in reset; a refused wake prints `bad savestate`
+and stops; no savestate while a file is open for writing, from the moment
+the open is asked for; and the bitstream and firmware match check, which
+a savestate load cannot get round. Left to do:
 
-- **A load gets round the match check.** The engine refuses a load while
-  the ROM block's two numbers (offsets 8 and 12) differ from the
-  bitstream's.
-- **A core stopped at the cursor** must answer a save and a load and come
-  back to the cursor. Today it never ends a load, and the next save reads
-  busy for ever.
-- **The bitstream shows the blinking cursor from power-up**, and the
-  stopped firmware (sw/ver.c) touches no register.
-- **fs_std_opening** reads `SST_REFUSING` before it tests `fs_adrift()`.
 - **A blob arriving while a program runs** stops the program. The engine
   halts the CPU for a load by itself, so the stop may not be needed.
 - **Tests.** Two psleep cases cannot tell a resume from a restart. The
@@ -141,9 +134,9 @@ memories, and core's font builder writes whole 32-bit words.
 
 ### To clean up
 
-- **The sleep tests are slow.** Every one boots the firmware, loads a ROM,
-  saves and restores on its own. Boot once, keep the simulated machine, and
-  start each test from there.
+- **The sleep tests are still slow.** They start from booted machines now,
+  but the boot was a tenth of a round trip. Half of a round trip is the
+  host moving the blob over the bridge a word at a time, 8 to 15 seconds.
 - **A save during a cache miss** is only tested at the whole-core level,
   where it was found. It wants a test beside the engine's own.
 - **Hold margins in pocket.sdc** that nobody remembers the reason for.

@@ -5,7 +5,7 @@
 #
 # Programs for the sleep and wake trips of test_psleep.cpp.
 
-from rp6502_asm import API_A, OP_CLOSE, OP_EXEC, Asm, putc
+from rp6502_asm import API_A, OP_CLOSE, Asm, putc
 from rp6502_rom import main
 
 # A descriptor no program has open.
@@ -44,17 +44,5 @@ def trap():
     return p
 
 
-def exec_argv():
-    """Runs argv.rp6502 from the working directory. The argv block is one
-    offset, the zero pair that ends the table, then the name."""
-    p = Asm()
-    p.push_str("argv.rp6502")
-    p.pushw(0)
-    p.pushw(4)
-    p.call(OP_EXEC)
-    p.stp()
-    return p
-
-
-ROMS = {"sleeptrap": trap, "sleepexec": exec_argv}
+ROMS = {"sleeptrap": trap}
 main(globals())

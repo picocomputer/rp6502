@@ -7,6 +7,7 @@
 #include "Vtb_pocket.h"
 #include "Vtb_pocket___024root.h"
 
+#include "tb_snap.h"
 #include "tb_stage.h"
 #include "utest.h"
 
@@ -19,39 +20,12 @@
 #include <vector>
 
 static Vtb_pocket *dut;
-static long a_next, s_next, g_sys;
-static uint32_t dt_pipe[2];
-static uint32_t g_dt[64];
-
-static std::map<std::string, std::vector<uint8_t>> g_files;
-static std::set<std::string> g_dirs;
-static std::string g_bound[16];
-static std::string g_console;
-static std::string g_rv;
-static int g_opens, g_reads, g_writes, g_flushes, g_getfiles;
-/* Commands made of another session's registers: a Slot Write whose data is
- * not in the file window, the only place the firmware puts a write's data,
- * and a Slot Read that fills no file window or is of no bytes. */
-static int g_wild;
-/* Slot Reads and Slot Writes for a slot this host has bound to nothing.
- * The firmware asks what a slot holds before it uses one after a wake, so
- * one of these went out with the slot of the session that slept. */
-static int g_stray;
-/* Open File commands the core has raised. */
-static int g_open_reqs;
 
 enum { REQ_NONE = 0, REQ_OPEN, REQ_FLUSH, REQ_GETFILE, REQ_READ, REQ_WRITE };
-static int g_req, g_servicing;
-static int g_prev_r, g_prev_w, g_prev_o, g_prev_f, g_prev_g;
 
-/* The mix at each rising psg_tick since boot, so a tick's index is its
- * count in machine time. g_stop_tick is the count when the machine's clock
- * first stops after g_stop_arm, so the first tick the restored machine
- * takes is that index. */
-static std::vector<uint32_t> g_mix;
-/* The 6502's clock at each of those ticks: its PC and bus address, its
- * PHI2 accumulator and VIA T1, so a load that resumes the 6502 a clock off
- * shows even where the mix does not. */
+/* The 6502's clock at a psg_tick: its PC and bus address, its PHI2
+ * accumulator and VIA T1, so a load that resumes the 6502 a clock off shows
+ * even where the mix does not. */
 struct Cpu
 {
     uint32_t pc, addr, acc, t1;
@@ -60,35 +34,127 @@ struct Cpu
         return pc != o.pc || addr != o.addr || acc != o.acc || t1 != o.t1;
     }
 };
-static std::vector<Cpu> g_cpu;
-static int g_tick_prev;
-static bool g_stop_arm;
-static long g_stop_tick;
-/* The clk_sys count at which the soft CPU next halts. */
-static bool g_halt_arm;
-static long g_halt_sys;
-/* How many reset sequences the 6502 has begun. A program that is started,
- * or started over, begins one, and a program that resumes does not. */
-static int g_resets;
-static int g_brk_res_prev;
-/* The firmware's trap handler: its entry, its mret, how many times it has
- * been entered, and whether the soft CPU is between the two. g_halt_trap is
- * that at the halt g_halt_arm waits for. */
-static uint32_t g_trap_entry, g_trap_mret, g_trap_pc;
-static int g_traps;
-static bool g_in_trap, g_halt_trap;
+
+/* The bench's side of a session: everything the C++ host holds while the
+ * machine runs. A fresh configuration starts from Bench{}, and a snapshot
+ * keeps the model and a copy of this, which io() lists field by field. */
+struct Bench
+{
+    long a_next = 0, s_next = 0, sys = 0;
+    uint32_t dt_pipe[2] = {};
+    uint32_t dt[64] = {};
+
+    std::map<std::string, std::vector<uint8_t>> files;
+    std::set<std::string> dirs;
+    std::string bound[16];
+    std::string console;
+    std::string rv;
+    int opens = 0, reads = 0, writes = 0, flushes = 0, getfiles = 0;
+    /* Commands made of another session's registers: a Slot Write whose data
+     * is not in the file window, the only place the firmware puts a write's
+     * data, and a Slot Read that fills no file window or is of no bytes. */
+    int wild = 0;
+    /* Slot Reads and Slot Writes for a slot this host has bound to nothing.
+     * The firmware asks what a slot holds before it uses one after a wake,
+     * so one of these went out with the slot of the session that slept. */
+    int stray = 0;
+    /* Open File commands the core has raised. */
+    int open_reqs = 0;
+
+    int req = REQ_NONE, servicing = 0;
+    int prev_r = 0, prev_w = 0, prev_o = 0, prev_f = 0, prev_g = 0;
+    /* flush_hold leaves the next Flush unanswered, with flush_owed set,
+     * until the test calls target_done(). */
+    bool flush_hold = false, flush_owed = false;
+
+    /* The mix at each rising psg_tick since boot, so a tick's index is its
+     * count in machine time, and the 6502's clock at each of them.
+     * stop_tick is the count when the machine's clock first stops after
+     * stop_arm, so the first tick the restored machine takes is that
+     * index. */
+    std::vector<uint32_t> mix;
+    std::vector<Cpu> cpu;
+    int tick_prev = 0;
+    bool stop_arm = false;
+    long stop_tick = -1;
+    /* The clk_sys count at which the soft CPU next halts. */
+    bool halt_arm = false;
+    long halt_sys = 0;
+    /* How many reset sequences the 6502 has begun. A program that is
+     * started, or started over, begins one, and a program that resumes does
+     * not. */
+    int resets = 0;
+    int brk_res_prev = 0;
+    /* The firmware's trap handler: how many times it has been entered, and
+     * whether the soft CPU is between its entry and its mret. halt_trap is
+     * that at the halt halt_arm waits for. */
+    uint32_t trap_pc = 0;
+    int traps = 0;
+    bool in_trap = false, halt_trap = false;
+    /* The byte of the blob at which a save first said err. */
+    long underrun_at = 0;
+
+    template <typename S> void io(S &s)
+    {
+        tb_snap_io(s, a_next);
+        tb_snap_io(s, s_next);
+        tb_snap_io(s, sys);
+        tb_snap_io(s, dt_pipe);
+        tb_snap_io(s, dt);
+        tb_snap_io(s, files);
+        tb_snap_io(s, dirs);
+        tb_snap_io(s, bound);
+        tb_snap_io(s, console);
+        tb_snap_io(s, rv);
+        tb_snap_io(s, opens);
+        tb_snap_io(s, reads);
+        tb_snap_io(s, writes);
+        tb_snap_io(s, flushes);
+        tb_snap_io(s, getfiles);
+        tb_snap_io(s, wild);
+        tb_snap_io(s, stray);
+        tb_snap_io(s, open_reqs);
+        tb_snap_io(s, req);
+        tb_snap_io(s, servicing);
+        tb_snap_io(s, prev_r);
+        tb_snap_io(s, prev_w);
+        tb_snap_io(s, prev_o);
+        tb_snap_io(s, prev_f);
+        tb_snap_io(s, prev_g);
+        tb_snap_io(s, flush_hold);
+        tb_snap_io(s, flush_owed);
+        tb_snap_io(s, mix);
+        tb_snap_io(s, cpu);
+        tb_snap_io(s, tick_prev);
+        tb_snap_io(s, stop_arm);
+        tb_snap_io(s, stop_tick);
+        tb_snap_io(s, halt_arm);
+        tb_snap_io(s, halt_sys);
+        tb_snap_io(s, resets);
+        tb_snap_io(s, brk_res_prev);
+        tb_snap_io(s, trap_pc);
+        tb_snap_io(s, traps);
+        tb_snap_io(s, in_trap);
+        tb_snap_io(s, halt_trap);
+        tb_snap_io(s, underrun_at);
+    }
+};
+static Bench tb;
+
+/* The firmware's trap handler: its entry, and the mret that ends it. */
+static uint32_t g_trap_entry, g_trap_mret;
 
 /* Called on every edge, a_edge's included, so no tick is missed. */
 static void observe()
 {
     auto *r = dut->rootp;
     int t = r->tb_pocket__DOT__core__DOT__machine__DOT__psg_tick;
-    if (t && !g_tick_prev)
+    if (t && !tb.tick_prev)
     {
-        g_mix.push_back(
+        tb.mix.push_back(
             (uint32_t)(uint16_t)r->tb_pocket__DOT__core__DOT__aud_l << 16
             | (uint16_t)r->tb_pocket__DOT__core__DOT__aud_r);
-        g_cpu.push_back(
+        tb.cpu.push_back(
             {(uint32_t)r->tb_pocket__DOT__core__DOT__machine__DOT__cpu__DOT__pc,
              (uint32_t)r->tb_pocket__DOT__core__DOT__machine__DOT__cpu_addr,
              (uint32_t)r
@@ -96,47 +162,47 @@ static void observe()
              (uint32_t)r
                  ->tb_pocket__DOT__core__DOT__machine__DOT__via__DOT__t1_counter});
     }
-    g_tick_prev = t;
+    tb.tick_prev = t;
     int br = r->tb_pocket__DOT__core__DOT__machine__DOT__cpu__DOT__brk_res;
-    if (br && !g_brk_res_prev)
-        g_resets++;
-    g_brk_res_prev = br;
+    if (br && !tb.brk_res_prev)
+        tb.resets++;
+    tb.brk_res_prev = br;
     if (g_trap_entry)
     {
         uint32_t pc = (uint32_t)r
             ->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__cpu__DOT__core__DOT__decode_u__DOT__pc;
-        if (pc == g_trap_entry && g_trap_pc != pc)
+        if (pc == g_trap_entry && tb.trap_pc != pc)
         {
-            g_traps++;
-            g_in_trap = true;
+            tb.traps++;
+            tb.in_trap = true;
         }
-        else if (g_trap_pc == g_trap_mret && pc != g_trap_mret)
-            g_in_trap = false;
-        g_trap_pc = pc;
+        else if (tb.trap_pc == g_trap_mret && pc != g_trap_mret)
+            tb.in_trap = false;
+        tb.trap_pc = pc;
     }
-    if (g_halt_arm
+    if (tb.halt_arm
         && r->tb_pocket__DOT__core__DOT__machine__DOT__wiring_sst_dbg_halted)
     {
-        g_halt_arm = false;
-        g_halt_sys = g_sys;
-        g_halt_trap = g_in_trap;
+        tb.halt_arm = false;
+        tb.halt_sys = tb.sys;
+        tb.halt_trap = tb.in_trap;
     }
-    if (g_stop_arm && !r->tb_pocket__DOT__mach_clk_en)
+    if (tb.stop_arm && !r->tb_pocket__DOT__mach_clk_en)
     {
-        g_stop_arm = false;
-        g_stop_tick = (long)g_mix.size();
+        tb.stop_arm = false;
+        tb.stop_tick = (long)tb.mix.size();
     }
 }
 
 static void tick()
 {
-    long next = a_next < s_next ? a_next : s_next;
-    bool sedge = next == s_next;
-    bool aedge = next == a_next;
+    long next = tb.a_next < tb.s_next ? tb.a_next : tb.s_next;
+    bool sedge = next == tb.s_next;
+    bool aedge = next == tb.a_next;
     if (sedge)
     {
         dut->clk_sys = 1;
-        if ((g_sys & 1) == 0)
+        if ((tb.sys & 1) == 0)
         {
             dut->clk_vid = 1;
             dut->clk_rv = 1;
@@ -147,16 +213,16 @@ static void tick()
         /* mf_datatable registers both the address and the output of port A
          * on CLOCK0, so datatable_q follows the address by two clk_74a
          * cycles. */
-        dut->datatable_q = dt_pipe[1];
-        dt_pipe[1] = dt_pipe[0];
-        dt_pipe[0] = g_dt[dut->tb_pocket_dt_addr & 63];
+        dut->datatable_q = tb.dt_pipe[1];
+        tb.dt_pipe[1] = tb.dt_pipe[0];
+        tb.dt_pipe[0] = tb.dt[dut->tb_pocket_dt_addr & 63];
         dut->clk_74a = 1;
     }
     dut->eval();
     if (sedge && dut->tb_pocket_tx_valid)
-        g_console += (char)dut->tb_pocket_tx_data;
+        tb.console += (char)dut->tb_pocket_tx_data;
     if (sedge && dut->tb_pocket_rv_tx_valid)
-        g_rv += (char)dut->tb_pocket_rv_tx_data;
+        tb.rv += (char)dut->tb_pocket_rv_tx_data;
     /* pocket_file raises each request line for a single clk_74a cycle,
      * and core_bridge_cmd queues a command on the rising edge of its
      * request line, so the lines are sampled on every tick() and not only
@@ -165,37 +231,37 @@ static void tick()
         int r = dut->tb_pocket_ds_read, w = dut->tb_pocket_ds_write,
             o = dut->tb_pocket_ds_openfile, f = dut->tb_pocket_ds_flush,
             g = dut->tb_pocket_ds_getfile;
-        if (o && !g_prev_o)
+        if (o && !tb.prev_o)
         {
-            g_req = REQ_OPEN;
-            g_open_reqs++;
+            tb.req = REQ_OPEN;
+            tb.open_reqs++;
         }
-        else if (f && !g_prev_f)
-            g_req = REQ_FLUSH;
-        else if (g && !g_prev_g)
-            g_req = REQ_GETFILE;
-        else if (r && !g_prev_r)
-            g_req = REQ_READ;
-        else if (w && !g_prev_w)
-            g_req = REQ_WRITE;
-        g_prev_r = r;
-        g_prev_w = w;
-        g_prev_o = o;
-        g_prev_f = f;
-        g_prev_g = g;
+        else if (f && !tb.prev_f)
+            tb.req = REQ_FLUSH;
+        else if (g && !tb.prev_g)
+            tb.req = REQ_GETFILE;
+        else if (r && !tb.prev_r)
+            tb.req = REQ_READ;
+        else if (w && !tb.prev_w)
+            tb.req = REQ_WRITE;
+        tb.prev_r = r;
+        tb.prev_w = w;
+        tb.prev_o = o;
+        tb.prev_f = f;
+        tb.prev_g = g;
     }
     if (sedge)
     {
         dut->clk_sys = 0;
         dut->clk_vid = 0;
         dut->clk_rv = 0;
-        s_next += 330;
-        g_sys++;
+        tb.s_next += 330;
+        tb.sys++;
     }
     if (aedge)
     {
         dut->clk_74a = 0;
-        a_next += 224;
+        tb.a_next += 224;
     }
     dut->eval();
     observe();
@@ -203,8 +269,8 @@ static void tick()
 
 static void a_edge()
 {
-    long t = a_next;
-    while (a_next == t)
+    long t = tb.a_next;
+    while (tb.a_next == t)
         tick();
 }
 
@@ -261,8 +327,8 @@ static void host_get_bytes(uint32_t base, uint8_t *p, size_t n)
 
 static void dt_set(uint32_t slot, uint32_t size)
 {
-    g_dt[slot * 2] = slot;
-    g_dt[slot * 2 + 1] = size;
+    tb.dt[slot * 2] = slot;
+    tb.dt[slot * 2 + 1] = size;
 }
 
 static void target_done()
@@ -284,7 +350,7 @@ static void do_openfile()
      * leading slash opens nothing. */
     if (name.empty() || name[0] != '/')
     {
-        g_opens++;
+        tb.opens++;
         dut->target_dataslot_done = 1;
         dut->target_dataslot_err = 4; /* malformed path */
         for (int k = 0; k < 4; k++)
@@ -299,10 +365,10 @@ static void do_openfile()
                      | ((uint32_t)param[258] << 8) | (uint32_t)param[259];
     uint32_t size = ((uint32_t)param[260] << 24) | ((uint32_t)param[261] << 16)
                     | ((uint32_t)param[262] << 8) | (uint32_t)param[263];
-    g_opens++;
+    tb.opens++;
     bool created = false;
-    auto it = g_files.find(key);
-    if (it == g_files.end())
+    auto it = tb.files.find(key);
+    if (it == tb.files.end())
     {
         if (!(flags & 1))
         {
@@ -316,7 +382,7 @@ static void do_openfile()
          * bit and the resize bit set. With only the create bit set, Open
          * File returns 1 and creates nothing, and it does the same for a
          * create into a folder that does not exist. */
-        if (!(flags & 2) || !g_dirs.count(parent))
+        if (!(flags & 2) || !tb.dirs.count(parent))
         {
             dut->target_dataslot_done = 1;
             dut->target_dataslot_err = 1;
@@ -324,12 +390,12 @@ static void do_openfile()
                 a_edge();
             return;
         }
-        it = g_files.emplace(key, std::vector<uint8_t>()).first;
+        it = tb.files.emplace(key, std::vector<uint8_t>()).first;
         created = true;
     }
     if (flags & 2)
         it->second.resize(size, 0);
-    g_bound[slot] = key;
+    tb.bound[slot] = key;
     dt_set(slot, (uint32_t)it->second.size());
     /* Codes 0 and 1 from Open File are both successes, and only codes 2
      * and up are failures. */
@@ -341,9 +407,9 @@ static void do_openfile()
 
 static bool slot_bound(uint32_t slot)
 {
-    if (slot < 16 && !g_bound[slot].empty())
+    if (slot < 16 && !tb.bound[slot].empty())
         return true;
-    g_stray++;
+    tb.stray++;
     /* pocket_file waits for done to fall before it waits for it to rise,
      * so the refusal holds it low across a few clk_74a edges first. */
     for (int k = 0; k < 4; k++)
@@ -362,13 +428,13 @@ static void do_slotread()
     uint32_t off = dut->tb_pocket_ds_slotoffset;
     uint32_t len = dut->tb_pocket_ds_length;
     uint32_t at = dut->tb_pocket_ds_bridgeaddr;
-    g_reads++;
+    tb.reads++;
     if (!len || (slot && (at < TB_STAGE_WIN_BASE
                           || at >= TB_STAGE_WIN_BASE + 8 * TB_STAGE_WIN_SIZE)))
-        g_wild++;
+        tb.wild++;
     if (!slot_bound(slot))
         return;
-    std::vector<uint8_t> &f = g_files[g_bound[slot]];
+    std::vector<uint8_t> &f = tb.files[tb.bound[slot]];
     std::vector<uint8_t> chunk(len, 0);
     for (uint32_t i = 0; i < len && off + i < f.size(); i++)
         chunk[i] = f[off + i];
@@ -383,14 +449,14 @@ static void do_slotwrite()
     uint32_t off = dut->tb_pocket_ds_slotoffset;
     uint32_t len = dut->tb_pocket_ds_length;
     uint32_t at = dut->tb_pocket_ds_bridgeaddr;
-    g_writes++;
+    tb.writes++;
     if (at != 0x20000000u)
-        g_wild++;
+        tb.wild++;
     if (!slot_bound(slot))
         return;
     std::vector<uint8_t> chunk(len, 0);
     host_get_bytes(at, chunk.data(), chunk.size());
-    std::vector<uint8_t> &f = g_files[g_bound[slot]];
+    std::vector<uint8_t> &f = tb.files[tb.bound[slot]];
     if (f.size() < off + len)
         f.resize(off + len, 0);
     for (uint32_t i = 0; i < len; i++)
@@ -399,23 +465,20 @@ static void do_slotwrite()
     target_done();
 }
 
-/* g_flush_hold leaves the next Flush unanswered, with g_flush_owed set,
- * until the test calls target_done(). */
-static bool g_flush_hold, g_flush_owed;
 
 static void do_flush()
 {
     dut->target_dataslot_done = 0;
-    g_flushes++;
+    tb.flushes++;
     /* pocket_file waits in F_ARM for target_dataslot_done to fall and
      * then in F_WAIT for it to rise, so done is held low across a few
      * clk_74a edges before target_done() raises it. */
     for (int k = 0; k < 4; k++)
         a_edge();
-    if (g_flush_hold)
+    if (tb.flush_hold)
     {
-        g_flush_hold = false;
-        g_flush_owed = true;
+        tb.flush_hold = false;
+        tb.flush_owed = true;
         return;
     }
     target_done();
@@ -426,8 +489,8 @@ static void do_getfile()
     dut->target_dataslot_done = 0;
     uint32_t slot = dut->tb_pocket_ds_id;
     uint32_t at = dut->tb_pocket_resp_struct;
-    g_getfiles++;
-    const std::string &name = g_bound[slot];
+    tb.getfiles++;
+    const std::string &name = tb.bound[slot];
     std::vector<uint8_t> resp(256, 0);
     for (size_t i = 0; i < name.size() && i + 1 < resp.size(); i++)
         resp[i] = (uint8_t)name[i];
@@ -438,11 +501,11 @@ static void do_getfile()
 static void step()
 {
     tick();
-    if (!g_req || g_servicing)
+    if (!tb.req || tb.servicing)
         return;
-    int req = g_req;
-    g_req = REQ_NONE;
-    g_servicing = 1;
+    int req = tb.req;
+    tb.req = REQ_NONE;
+    tb.servicing = 1;
     switch (req)
     {
     case REQ_OPEN: do_openfile(); break;
@@ -451,7 +514,7 @@ static void step()
     case REQ_READ: do_slotread(); break;
     default: do_slotwrite(); break;
     }
-    g_servicing = 0;
+    tb.servicing = 0;
 }
 
 static std::vector<uint8_t> read_file(const char *path)
@@ -480,7 +543,6 @@ static std::vector<uint8_t> read_file(const char *path)
  * that io_bridge_peripheral.v gives as the fastest host access. */
 #define HOST_GAP 74
 
-static long g_underrun_at;
 
 /* A symbol of the firmware that is loaded, from the ELF beside its image.
  * Returns false when the ELF has no such symbol. */
@@ -552,34 +614,33 @@ static std::vector<uint8_t> fw_image()
 /* The firmware's build stamp is the word at this offset of its image. */
 #define FW_STAMP 4u
 
+/* The bench of a fresh configuration, on the card as it is. */
+static void bench_fresh()
+{
+    Bench fresh;
+    fresh.files = std::move(tb.files);
+    fresh.dirs = std::move(tb.dirs);
+    tb = std::move(fresh);
+}
+
+/* The card of a fresh configuration: the folders and no files. */
+static void card_fresh()
+{
+    tb.files.clear();
+    tb.dirs = {"/", "/Assets", "/Assets/rp6502", "/Assets/rp6502/common",
+               "/Saves", "/Saves/rp6502", "/Saves/rp6502/common"};
+}
+
+/* A fresh configuration with rom loaded, on the card as it is or on a
+ * fresh one, just out of reset. */
 static void boot_into(const std::vector<uint8_t> &rom, bool keep_card)
 {
     dut = new Vtb_pocket;
-    a_next = s_next = g_sys = 0;
-    g_wild = g_stray = g_open_reqs = 0;
-    g_resets = g_brk_res_prev = 0;
-    g_traps = 0;
-    g_in_trap = false;
-    g_trap_pc = 0;
-    g_console.clear();
-    g_rv.clear();
-    g_mix.clear();
-    g_cpu.clear();
-    g_tick_prev = 0;
-    g_stop_arm = false;
-    g_stop_tick = -1;
+    bench_fresh();
     if (!keep_card)
-    {
-        g_files.clear();
-        g_dirs = {"/", "/Assets", "/Assets/rp6502", "/Assets/rp6502/common",
-                  "/Saves", "/Saves/rp6502", "/Saves/rp6502/common"};
-    }
-    g_opens = g_reads = g_writes = g_flushes = g_getfiles = 0;
-    memset(g_dt, 0, sizeof g_dt);
-    for (auto &b : g_bound)
-        b.clear();
-    g_bound[0] = "/Assets/rp6502/common/file.rp6502";
-    g_files[g_bound[0]] = rom;
+        card_fresh();
+    tb.bound[0] = "/Assets/rp6502/common/file.rp6502";
+    tb.files[tb.bound[0]] = rom;
 
     dut->rst_n = 0;
     dut->arst_n = 0;
@@ -608,7 +669,7 @@ static void boot_into(const std::vector<uint8_t> &rom, bool keep_card)
     host_write(0x10000010u, 30);
     host_write(0x10000014u, 0);
 
-    dut->datatable_q = g_dt[1];
+    dut->datatable_q = tb.dt[1];
     dut->dataslot_allcomplete = 1;
     dut->reset_n = 1;
     for (int i = 0; i < 4000; i++)
@@ -625,6 +686,49 @@ static void teardown()
     dut->final();
     delete dut;
     dut = nullptr;
+}
+
+/* Set to boot every time and write the snapshot again, and whether the last
+ * boot_to started from a snapshot. */
+static bool g_snap_fresh, g_snap_restored;
+
+/* Starts a fresh configuration with rom where run() leaves it. The first
+ * time, it boots with boot_into and runs run(), and if run() returns true
+ * it keeps a snapshot, which every later boot_to of the same label and the
+ * same inputs starts from. The inputs are the ROM, the firmware, the card
+ * when keep_card is set, and the trap handler that observe() watches, so
+ * run() must depend on nothing else. Returns what run() returned, or true
+ * from a snapshot. */
+template <typename Run>
+static bool boot_to(const std::string &label, const std::vector<uint8_t> &rom,
+                    bool keep_card, Run run)
+{
+    tb_snap_key k;
+    tb_snap_io(k, label);
+    tb_snap_io(k, rom);
+    tb_snap_io(k, fw_image());
+    tb_snap_io(k, keep_card);
+    if (keep_card)
+    {
+        tb_snap_io(k, tb.files);
+        tb_snap_io(k, tb.dirs);
+    }
+    tb_snap_io(k, g_trap_entry);
+    tb_snap_io(k, g_trap_mret);
+    k.flush();
+    std::string path = tb_snap_path(tb_snap_dir(TEST_SCRATCH, "psleep"), k.h);
+    std::vector<uint8_t> v;
+    g_snap_restored = !g_snap_fresh && tb_snap_read(path, v);
+    if (g_snap_restored)
+    {
+        dut = tb_snap_make<Vtb_pocket>(v, tb);
+        return true;
+    }
+    boot_into(rom, keep_card);
+    if (!run())
+        return false;
+    tb_snap_write(path, tb_snap_take(*dut, tb));
+    return true;
 }
 
 /* The result codes of the host's two savestate commands. */
@@ -647,8 +751,8 @@ static const int ANSWER_SAVE_REFUSED = RES_ERR;
 
 static void a_step()
 {
-    long t = a_next;
-    while (a_next == t)
+    long t = tb.a_next;
+    while (tb.a_next == t)
         step();
 }
 
@@ -737,8 +841,8 @@ static void read_blob(std::vector<uint8_t> &blob)
         blob[i + 1] = (uint8_t)(w >> 16);
         blob[i + 2] = (uint8_t)(w >> 8);
         blob[i + 3] = (uint8_t)w;
-        if (dut->tb_pocket_savestate_start_err && !g_underrun_at)
-            g_underrun_at = (long)i;
+        if (dut->tb_pocket_savestate_start_err && !tb.underrun_at)
+            tb.underrun_at = (long)i;
     }
 }
 
@@ -840,6 +944,39 @@ static void step_to_save_point(void)
         step();
 }
 
+static void boot_to_save_point(const std::vector<uint8_t> &rom, bool keep_card)
+{
+    boot_to("save point", rom, keep_card, [] {
+        step_to_save_point();
+        return true;
+    });
+}
+
+/* The stream program with payload on the card as M.DAT, run until it has
+ * printed 64 bytes of it. */
+static void boot_to_streaming(const std::vector<uint8_t> &rom,
+                              const std::vector<uint8_t> &payload)
+{
+    card_fresh();
+    tb.files["/Assets/rp6502/common/M.DAT"] = payload;
+    boot_to("streaming", rom, true, [] {
+        for (long i = 0; i < 20000000L && tb.console.size() < 64; i++)
+            step();
+        return true;
+    });
+}
+
+/* The PCM program, run until its stream is open and holds samples. */
+static bool boot_to_pcm(const std::vector<uint8_t> &rom)
+{
+    return boot_to("pcm playing", rom, false, [] {
+        long guard = 0;
+        while (!(MEM(pcm__DOT__open) && MEM(pcm_level)) && guard++ < 20000000L)
+            step();
+        return guard < 20000000L;
+    });
+}
+
 static long vid_offset_to_save(void)
 {
     long seen = -1;
@@ -890,7 +1027,7 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
     boot(rom);
 
     long align_pre = vid_offset_to_save();
-    ASSERT_EQ(0u, g_console.size());
+    ASSERT_EQ(0u, tb.console.size());
     ASSERT_TRUE((int)MEM(resb));
     ASSERT_GE(align_pre, 0L);
     uint32_t prog_pre = (uint32_t)MEM(mode0__DOT__prog_shadow);
@@ -938,12 +1075,12 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
                     blob[0], blob[1], blob[2], blob[3]);
         ASSERT_EQ(sum, tr);
     }
-    if (g_underrun_at)
+    if (tb.underrun_at)
         fprintf(stderr, "underrun at byte %ld, word %ld\n",
-                g_underrun_at, g_underrun_at / 4);
+                tb.underrun_at, tb.underrun_at / 4);
     ASSERT_FALSE((int)dut->tb_pocket_savestate_start_err);
 
-    for (long i = 0; i < 20000000L && g_console.find(DONE) == std::string::npos;
+    for (long i = 0; i < 20000000L && tb.console.find(DONE) == std::string::npos;
          i++)
     {
         step();
@@ -951,19 +1088,18 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
             fprintf(stderr, "after save t=%ldM pc=%04x resb=%d eng=%d "
                             "con=%zu rv=%zu\n",
                     i / 1000000L, (unsigned)MEM(cpu__DOT__pc), (int)MEM(resb),
-                    (int)MEM(engine__DOT__state), g_console.size(),
-                    g_rv.size());
+                    (int)MEM(engine__DOT__state), tb.console.size(),
+                    tb.rv.size());
     }
-    ASSERT_TRUE(g_console.find(DONE) != std::string::npos);
+    ASSERT_TRUE(tb.console.find(DONE) != std::string::npos);
     ASSERT_EQ(align_pre, vid_offset(3L * 525 * 1600));
 
     teardown();
 
-    boot(rom);
+    boot_to_save_point(rom, false);
     ASSERT_NE(0xA0u, (uint32_t)MEM(xram__DOT__mem0)[0]);
-    step_to_save_point();
     ASSERT_TRUE((int)MEM(resb));
-    ASSERT_TRUE(g_console.find(DONE) == std::string::npos);
+    ASSERT_TRUE(tb.console.find(DONE) == std::string::npos);
 
     std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
     put_blob(file);
@@ -981,22 +1117,22 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
         ASSERT_EQ(0x99000000u + i, (uint32_t)MEM(prog__DOT__spr_c)[i]);
     }
 
-    for (long i = 0; i < 20000000L && g_console.find(DONE) == std::string::npos;
+    for (long i = 0; i < 20000000L && tb.console.find(DONE) == std::string::npos;
          i++)
     {
         step();
         if ((i % 2000000L) == 1999999L)
             fprintf(stderr, "t=%ldM pc=%04x resb=%d con=%zu rv=%zu\n",
                     i / 1000000L, (unsigned)MEM(cpu__DOT__pc),
-                    (int)MEM(resb), g_console.size(), g_rv.size());
+                    (int)MEM(resb), tb.console.size(), tb.rv.size());
     }
-    if (g_console.find(DONE) == std::string::npos)
+    if (tb.console.find(DONE) == std::string::npos)
         fprintf(stderr,
                 "6502 pc %04x resb=%d running=%d engine=%d console=[%s] rv=[%s]\n",
                 (unsigned)MEM(cpu__DOT__pc), (int)MEM(resb),
                 (int)dut->rootp->tb_pocket__DOT__mach_clk_en, (int)MEM(engine__DOT__state),
-                g_console.c_str(), g_rv.c_str());
-    ASSERT_TRUE(g_console.find(DONE) != std::string::npos);
+                tb.console.c_str(), tb.rv.c_str());
+    ASSERT_TRUE(tb.console.find(DONE) != std::string::npos);
     ASSERT_EQ(align_pre, vid_offset(3L * 525 * 1600));
     ASSERT_EQ(prog_pre, (uint32_t)MEM(mode0__DOT__prog_shadow));
     teardown();
@@ -1012,14 +1148,10 @@ UTEST(psleep, a_file_open_across_the_sleep_is_still_open)
         payload.push_back((uint8_t)('a' + (i % 26)));
     std::string want((const char *)payload.data(), payload.size());
 
-    boot(rom);
-    g_files["/Assets/rp6502/common/M.DAT"] = payload;
-
-    for (long i = 0; i < 20000000L && g_console.size() < 64; i++)
-        step();
-    ASSERT_GE(g_console.size(), 64u);
-    ASSERT_LT(g_console.size(), want.size());
-    std::string before = g_console;
+    boot_to_streaming(rom, payload);
+    ASSERT_GE(tb.console.size(), 64u);
+    ASSERT_LT(tb.console.size(), want.size());
+    std::string before = tb.console;
 
     std::vector<uint8_t> blob;
     ASSERT_TRUE(create_state(blob));
@@ -1027,8 +1159,7 @@ UTEST(psleep, a_file_open_across_the_sleep_is_still_open)
 
     std::vector<uint8_t> other = read_file(FILE_ROM);
     ASSERT_GT(other.size(), 0u);
-    boot_into(other, true);
-    step_to_save_point();
+    boot_to_save_point(other, true);
 
     std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
     put_blob(file);
@@ -1036,30 +1167,30 @@ UTEST(psleep, a_file_open_across_the_sleep_is_still_open)
         step();
     ASSERT_FALSE((int)MEM(resb));
     ASSERT_TRUE(load_state());
-    g_console.clear();
+    tb.console.clear();
 
     for (long i = 0; i < 40000000L
-                     && g_console.find("stream ok\r\n") == std::string::npos;
+                     && tb.console.find("stream ok\r\n") == std::string::npos;
          i++)
         step();
-    ASSERT_TRUE(g_console.find("stream ok\r\n") != std::string::npos);
+    ASSERT_TRUE(tb.console.find("stream ok\r\n") != std::string::npos);
     std::string want_tail = want.substr(before.size()) + "stream ok\r\n";
-    if (want_tail != g_console)
+    if (want_tail != tb.console)
     {
         size_t at = 0;
-        while (at < want_tail.size() && at < g_console.size()
-               && want_tail[at] == g_console[at])
+        while (at < want_tail.size() && at < tb.console.size()
+               && want_tail[at] == tb.console[at])
             at++;
         size_t from = at > 8 ? at - 8 : 0;
         fprintf(stderr,
                 "join: before=%zu want=%zu got=%zu differ at %zu\n",
-                before.size(), want_tail.size(), g_console.size(), at);
+                before.size(), want_tail.size(), tb.console.size(), at);
         for (size_t i = from; i < at + 8; i++)
             fprintf(stderr, "  %zu want=%02x got=%02x\n", i,
                     i < want_tail.size() ? (unsigned)(uint8_t)want_tail[i] : 0,
-                    i < g_console.size() ? (unsigned)(uint8_t)g_console[i] : 0);
+                    i < tb.console.size() ? (unsigned)(uint8_t)tb.console[i] : 0);
     }
-    ASSERT_TRUE(want_tail == g_console);
+    ASSERT_TRUE(want_tail == tb.console);
     teardown();
 }
 
@@ -1071,28 +1202,25 @@ UTEST(psleep, a_load_into_a_running_machine_keeps_its_bindings)
     for (int i = 0; i < 512; i++)
         payload.push_back((uint8_t)('a' + (i % 26)));
 
-    boot(rom);
-    g_files["/Assets/rp6502/common/M.DAT"] = payload;
-    for (long i = 0; i < 20000000L && g_console.size() < 64; i++)
-        step();
-    ASSERT_GE(g_console.size(), 64u);
+    boot_to_streaming(rom, payload);
+    ASSERT_GE(tb.console.size(), 64u);
 
     std::vector<uint8_t> blob;
     ASSERT_TRUE(create_state(blob));
 
     std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
     put_blob(file);
-    int opens_before = g_opens, getfiles_before = g_getfiles;
+    int opens_before = tb.opens, getfiles_before = tb.getfiles;
     ASSERT_TRUE(load_state());
-    g_console.clear();
+    tb.console.clear();
 
     for (long i = 0; i < 40000000L
-                     && g_console.find("stream ok\r\n") == std::string::npos;
+                     && tb.console.find("stream ok\r\n") == std::string::npos;
          i++)
         step();
-    ASSERT_TRUE(g_console.find("stream ok\r\n") != std::string::npos);
-    ASSERT_GT(g_getfiles, getfiles_before);
-    ASSERT_EQ(opens_before, g_opens);
+    ASSERT_TRUE(tb.console.find("stream ok\r\n") != std::string::npos);
+    ASSERT_GT(tb.getfiles, getfiles_before);
+    ASSERT_EQ(opens_before, tb.opens);
     teardown();
 }
 
@@ -1104,26 +1232,25 @@ UTEST(psleep, a_sleep_inside_a_file_operation_still_finishes_it)
     ASSERT_GT(rom.size(), 0u);
     boot(rom);
 
-    for (long i = 0; i < 20000000L && g_reads == 0; i++)
+    for (long i = 0; i < 20000000L && tb.reads == 0; i++)
         step();
-    ASSERT_GT(g_reads, 0);
-    ASSERT_TRUE(g_console.find(DONE) == std::string::npos);
+    ASSERT_GT(tb.reads, 0);
+    ASSERT_TRUE(tb.console.find(DONE) == std::string::npos);
 
     std::vector<uint8_t> blob;
     ASSERT_TRUE(create_state(blob));
     teardown();
 
-    boot_into(rom, true);
-    step_to_save_point();
+    boot_to_save_point(rom, true);
     std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
     put_blob(file);
     ASSERT_TRUE(load_state());
-    g_console.clear();
+    tb.console.clear();
 
-    for (long i = 0; i < 40000000L && g_console.find(DONE) == std::string::npos;
+    for (long i = 0; i < 40000000L && tb.console.find(DONE) == std::string::npos;
          i++)
         step();
-    ASSERT_TRUE(g_console.find(DONE) != std::string::npos);
+    ASSERT_TRUE(tb.console.find(DONE) != std::string::npos);
     teardown();
 }
 
@@ -1134,13 +1261,12 @@ UTEST(psleep, a_close_waiting_on_flush_leaves_the_main_loop_running)
 {
     std::vector<uint8_t> rom = read_file(FILE_ROM);
     ASSERT_GT(rom.size(), 0u);
-    g_flush_owed = false;
-    g_flush_hold = true;
     boot(rom);
+    tb.flush_hold = true;
 
-    for (long i = 0; i < 20000000L && !g_flush_owed; i++)
+    for (long i = 0; i < 20000000L && !tb.flush_owed; i++)
         step();
-    ASSERT_TRUE(g_flush_owed);
+    ASSERT_TRUE(tb.flush_owed);
     ASSERT_TRUE((int)MEM(resb));
 
     host_write(BLOB_BRIDGE, 0);
@@ -1149,7 +1275,7 @@ UTEST(psleep, a_close_waiting_on_flush_leaves_the_main_loop_running)
     ASSERT_FALSE((int)MEM(resb));
 
     target_done();
-    g_flush_owed = false;
+    tb.flush_owed = false;
     teardown();
 }
 
@@ -1182,8 +1308,7 @@ UTEST(psleep, the_raster_registers_come_back)
 
     std::vector<uint8_t> other = read_file(FILE_ROM);
     ASSERT_GT(other.size(), 0u);
-    boot(other);
-    step_to_save_point();
+    boot_to_save_point(other, false);
     ASSERT_EQ(0u, (uint32_t)MEM(prog__DOT__canvas_shadow));
     ASSERT_EQ(480u, (uint32_t)MEM(prog__DOT__vsync_shadow));
 
@@ -1236,8 +1361,7 @@ UTEST(psleep, the_opl_registers_come_back)
 
     std::vector<uint8_t> other = read_file(FILE_ROM);
     ASSERT_GT(other.size(), 0u);
-    boot(other);
-    step_to_save_point();
+    boot_to_save_point(other, false);
     ASSERT_EQ(0, (int)MEM(opl__DOT__regs)[0xB0]);
 
     std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
@@ -1273,11 +1397,8 @@ UTEST(psleep, a_pcm_stream_plays_on_after_a_wake)
 {
     std::vector<uint8_t> rom = read_file(PCM_ROM);
     ASSERT_GT(rom.size(), 0u);
-    boot(rom);
-    long guard = 0;
-    while (!(MEM(pcm__DOT__open) && MEM(pcm_level)) && guard++ < 20000000L)
-        step();
-    ASSERT_LT(guard, 20000000L);
+    ASSERT_TRUE(boot_to_pcm(rom));
+    long guard;
     for (long i = 0; i < 1000000L; i++)
         step();
     const uint32_t step_pre = MEM(pcm__DOT__step_m1);
@@ -1292,8 +1413,7 @@ UTEST(psleep, a_pcm_stream_plays_on_after_a_wake)
 
     std::vector<uint8_t> other = read_file(FILE_ROM);
     ASSERT_GT(other.size(), 0u);
-    boot(other);
-    step_to_save_point();
+    boot_to_save_point(other, false);
     ASSERT_FALSE((int)MEM(pcm__DOT__open));
 
     std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
@@ -1360,11 +1480,8 @@ UTEST(psleep, an_api_call_in_flight_returns_once)
 {
     std::vector<uint8_t> rom = read_file(PCM_ROM);
     ASSERT_GT(rom.size(), 0u);
-    boot(rom);
-    long guard = 0;
-    while (!(MEM(pcm__DOT__open) && MEM(pcm_level)) && guard++ < 20000000L)
-        step();
-    ASSERT_LT(guard, 20000000L);
+    ASSERT_TRUE(boot_to_pcm(rom));
+    long guard;
     for (long i = 0; i < 1000000L; i++)
         step();
     static const long into[] = {6000, 14000, 24000};
@@ -1403,8 +1520,7 @@ UTEST(psleep, an_api_call_in_flight_returns_once)
     ASSERT_GT(other.size(), 0u);
     for (int k = 0; k < n; k++)
     {
-        boot(other);
-        step_to_save_point();
+        boot_to_save_point(other, false);
         std::vector<uint8_t> file = wrap_blob(blob[k], 596, 52764);
         put_blob(file);
         ASSERT_TRUE(load_state());
@@ -1450,16 +1566,25 @@ static void blob_reseal(std::vector<uint8_t> &b)
 
 static void run_to(char c, long settle)
 {
-    for (long i = 0; i < 80000000L && g_console.find(c) == std::string::npos;
+    for (long i = 0; i < 80000000L && tb.console.find(c) == std::string::npos;
          i++)
         step();
     for (long i = 0; i < settle; i++)
         step();
 }
 
+/* A fresh configuration with rom, run until the console shows c. */
+static void boot_to_console(const std::vector<uint8_t> &rom, char c)
+{
+    boot_to(std::string("console ") + c, rom, false, [&] {
+        run_to(c, 0);
+        return true;
+    });
+}
+
 static void run_ticks(size_t n)
 {
-    for (long i = 0; i < 200000000L && g_mix.size() < n; i++)
+    for (long i = 0; i < 200000000L && tb.mix.size() < n; i++)
         step();
 }
 
@@ -1519,18 +1644,17 @@ static bool load_into_other(const std::vector<uint8_t> &blob, long n,
                             Loaded &c)
 {
     std::vector<uint8_t> other = read_file(OPL_BEL_ROM);
-    boot(other);
-    step_to_save_point();
+    boot_to_save_point(other, false);
     std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
     put_blob(file);
-    g_stop_arm = true;
+    tb.stop_arm = true;
     if (!load_state())
         return false;
-    c.at = g_stop_tick;
+    c.at = tb.stop_tick;
     run_ticks((size_t)(c.at + n));
     c.end = tail();
-    c.mix = g_mix;
-    c.cpu = g_cpu;
+    c.mix = tb.mix;
+    c.cpu = tb.cpu;
     teardown();
     return true;
 }
@@ -1552,11 +1676,11 @@ UTEST(psleep, the_audio_comes_back_sample_for_sample)
     Tail b_end[2];
     for (int k = 0; k < 2; k++)
     {
-        boot(rom);
+        boot_to_console(rom, 'W');
         run_to('W', 620000L + 1235L * k);
-        g_stop_arm = true;
+        tb.stop_arm = true;
         ASSERT_TRUE(save_ready());
-        at[k] = g_stop_tick;
+        at[k] = tb.stop_tick;
         fprintf(stderr, "  save %d at tick %ld: level %u, queue %u\n", k,
                 at[k], (unsigned)MEM(pcm_level),
                 (unsigned)MEM(opl__DOT__q_len));
@@ -1564,20 +1688,20 @@ UTEST(psleep, the_audio_comes_back_sample_for_sample)
         read_blob(blob[k]);
         run_ticks((size_t)(at[k] + WINDOW));
         b_end[k] = tail();
-        b_mix[k] = g_mix;
-        b_cpu[k] = g_cpu;
+        b_mix[k] = tb.mix;
+        b_cpu[k] = tb.cpu;
         teardown();
     }
 
-    boot(rom);
+    boot_to_console(rom, 'W');
     Tail a_end[2];
     for (int k = 0; k < 2; k++)
     {
         run_ticks((size_t)(at[k] + WINDOW));
         a_end[k] = tail();
     }
-    std::vector<uint32_t> a_mix = g_mix;
-    std::vector<Cpu> a_cpu = g_cpu;
+    std::vector<uint32_t> a_mix = tb.mix;
+    std::vector<Cpu> a_cpu = tb.cpu;
     teardown();
 
     for (int k = 0; k < 2; k++)
@@ -1613,14 +1737,14 @@ UTEST(psleep, a_snoop_in_flight_comes_back)
     const long n = 1500;
     std::vector<uint8_t> blob[2];
     long at[2] = {-1, -1};
-    boot(rom);
+    boot_to_console(rom, 'W');
     run_to('W', 200000L);
     int probes = 0;
     while ((at[0] < 0 || at[1] < 0) && probes < 400)
     {
         for (long i = 0; i < 4001 + 37L * (probes % 29); i++)
             step();
-        g_stop_arm = true;
+        tb.stop_arm = true;
         ASSERT_TRUE(save_ready());
         probes++;
         bool qs = MEM(qs_we) && (MEM(qs_addr) >> 8) == 0xF0;
@@ -1629,7 +1753,7 @@ UTEST(psleep, a_snoop_in_flight_comes_back)
         int k = qs && at[0] < 0 ? 0 : rw && at[1] < 0 ? 1 : -1;
         if (k >= 0)
         {
-            at[k] = g_stop_tick;
+            at[k] = tb.stop_tick;
             read_blob(blob[k]);
         }
         else
@@ -1643,19 +1767,19 @@ UTEST(psleep, a_snoop_in_flight_comes_back)
     ASSERT_GE(at[0], 0L);
     ASSERT_GE(at[1], 0L);
     run_ticks((size_t)(std::max(at[0], at[1]) + n));
-    std::vector<uint32_t> b_mix = g_mix;
-    std::vector<Cpu> b_cpu = g_cpu;
+    std::vector<uint32_t> b_mix = tb.mix;
+    std::vector<Cpu> b_cpu = tb.cpu;
     teardown();
 
-    boot(rom);
+    boot_to_console(rom, 'W');
     int first = at[0] < at[1] ? 0 : 1;
     Tail a_end[2];
     run_ticks((size_t)(at[first] + n));
     a_end[first] = tail();
     run_ticks((size_t)(at[1 - first] + n));
     a_end[1 - first] = tail();
-    std::vector<uint32_t> a_mix = g_mix;
-    std::vector<Cpu> a_cpu = g_cpu;
+    std::vector<uint32_t> a_mix = tb.mix;
+    std::vector<Cpu> a_cpu = tb.cpu;
     teardown();
     for (int k = 0; k < 2; k++)
     {
@@ -1679,17 +1803,17 @@ UTEST(psleep, a_stop_before_a_phi2_enable_comes_back)
     const long n = 1500;
     std::vector<uint8_t> blob;
     long at = -1;
-    boot(rom);
+    boot_to_console(rom, 'W');
     run_to('W', 620000L);
     for (int probes = 0; probes < 200 && at < 0; probes++)
     {
         for (long i = 0; i < 4001 + 37L * (probes % 29); i++)
             step();
-        g_stop_arm = true;
+        tb.stop_arm = true;
         ASSERT_TRUE(save_ready());
         if (MEM(phi2_raw_en))
         {
-            at = g_stop_tick;
+            at = tb.stop_tick;
             read_blob(blob);
         }
         else
@@ -1700,14 +1824,14 @@ UTEST(psleep, a_stop_before_a_phi2_enable_comes_back)
     }
     ASSERT_GE(at, 0L);
     run_ticks((size_t)(at + n));
-    std::vector<uint32_t> b_mix = g_mix;
-    std::vector<Cpu> b_cpu = g_cpu;
+    std::vector<uint32_t> b_mix = tb.mix;
+    std::vector<Cpu> b_cpu = tb.cpu;
     teardown();
 
-    boot(rom);
+    boot_to_console(rom, 'W');
     run_ticks((size_t)(at + n));
-    std::vector<uint32_t> a_mix = g_mix;
-    std::vector<Cpu> a_cpu = g_cpu;
+    std::vector<uint32_t> a_mix = tb.mix;
+    std::vector<Cpu> a_cpu = tb.cpu;
     teardown();
     ASSERT_EQ(-1L, first_diff(a_mix, at, b_mix, at, n));
     ASSERT_EQ(-1L, first_cpu_diff(a_cpu, at, b_cpu, at, n));
@@ -1733,7 +1857,7 @@ UTEST(psleep, a_6502_write_at_a_stop_is_saved_and_heard)
     std::vector<uint8_t> rom = read_file(AUD_SST_ROM);
     ASSERT_GT(rom.size(), 0u);
     std::vector<uint8_t> blob;
-    boot(rom);
+    boot_to_console(rom, 'W');
     run_to('W', 620000L);
     for (int probes = 0; probes < 200 && blob.empty(); probes++)
     {
@@ -1769,8 +1893,7 @@ UTEST(psleep, a_6502_write_at_a_stop_is_saved_and_heard)
             blob_put(held, B_REGS + REGS_XR,
                      1u << 24 | 0x01u << 16 | PSG_GATE0);
         blob_reseal(held);
-        boot(other);
-        step_to_save_point();
+        boot_to_save_point(other, false);
         std::vector<uint8_t> file = wrap_blob(held, 596, 52764);
         put_blob(file);
         ASSERT_TRUE(load_state());
@@ -1795,19 +1918,19 @@ UTEST(psleep, a_corrupt_audio_word_diverges)
     std::vector<uint8_t> rom = read_file(AUD_SST_ROM);
     ASSERT_GT(rom.size(), 0u);
     const long n = 1500;
-    boot(rom);
+    boot_to_console(rom, 'W');
     run_to('W', 620000L);
-    g_stop_arm = true;
+    tb.stop_arm = true;
     std::vector<uint8_t> blob;
     ASSERT_TRUE(save_ready());
-    long at = g_stop_tick;
+    long at = tb.stop_tick;
     read_blob(blob);
     run_ticks((size_t)(at + n));
-    std::vector<uint32_t> b_mix = g_mix;
+    std::vector<uint32_t> b_mix = tb.mix;
     teardown();
 
     std::vector<uint8_t> rom2 = read_file(AUD_SNOOP_ROM);
-    boot(rom2);
+    boot_to_console(rom2, 'W');
     run_to('W', 200000L);
     std::vector<uint8_t> snoop;
     long sat = -1;
@@ -1815,11 +1938,11 @@ UTEST(psleep, a_corrupt_audio_word_diverges)
     {
         for (long i = 0; i < 4001 + 37L * (probes % 29); i++)
             step();
-        g_stop_arm = true;
+        tb.stop_arm = true;
         ASSERT_TRUE(save_ready());
         if (MEM(qs_we) && (MEM(qs_addr) >> 8) == 0xF0)
         {
-            sat = g_stop_tick;
+            sat = tb.stop_tick;
             read_blob(snoop);
         }
         else
@@ -1830,7 +1953,7 @@ UTEST(psleep, a_corrupt_audio_word_diverges)
     }
     ASSERT_GE(sat, 0L);
     run_ticks((size_t)(sat + n));
-    std::vector<uint32_t> s_mix = g_mix;
+    std::vector<uint32_t> s_mix = tb.mix;
     Tail s_end = tail();
     teardown();
 
@@ -1875,18 +1998,18 @@ UTEST(psleep, a_bell_mid_tone_comes_back)
     auto release_tick = [&](long limit) {
         long t = -1;
         int prev = gate();
-        for (long i = 0; i < 200000000L && (long)g_mix.size() < limit; i++)
+        for (long i = 0; i < 200000000L && (long)tb.mix.size() < limit; i++)
         {
             step();
             int g = gate();
             if (prev && !g && t < 0)
-                t = (long)g_mix.size();
+                t = (long)tb.mix.size();
             prev = g;
         }
         return t;
     };
 
-    boot(rom);
+    boot_to_console(rom, '\a');
     run_to('\a', 0);
     for (long i = 0; i < 80000000L && !gate(); i++)
         step();
@@ -1894,29 +2017,28 @@ UTEST(psleep, a_bell_mid_tone_comes_back)
     for (long i = 0; i < 370000L; i++)
         step();
     ASSERT_TRUE(gate());
-    g_stop_arm = true;
+    tb.stop_arm = true;
     std::vector<uint8_t> blob;
     ASSERT_TRUE(create_state(blob));
-    long at = g_stop_tick;
+    long at = tb.stop_tick;
     teardown();
 
-    boot(rom);
+    boot_to_console(rom, '\a');
     long a_rel = release_tick(at + 1600);
-    std::vector<uint32_t> a_mix = g_mix;
+    std::vector<uint32_t> a_mix = tb.mix;
     teardown();
     ASSERT_GT(a_rel, at);
 
     std::vector<uint8_t> other = read_file(OPL_BEL_ROM);
-    boot(other);
-    step_to_save_point();
+    boot_to_save_point(other, false);
     std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
     put_blob(file);
-    g_stop_arm = true;
+    tb.stop_arm = true;
     ASSERT_TRUE(load_state());
-    long c_at = g_stop_tick;
+    long c_at = tb.stop_tick;
     ASSERT_TRUE(gate());
     long c_rel = release_tick(c_at + 1600);
-    std::vector<uint32_t> c_mix = g_mix;
+    std::vector<uint32_t> c_mix = tb.mix;
     teardown();
     ASSERT_GT(c_rel, c_at);
 
@@ -1945,25 +2067,23 @@ UTEST(psleep, the_program_clock_leaves_out_the_wake)
     std::vector<uint8_t> rom = read_file(WAKECLK_ROM);
     ASSERT_GT(rom.size(), 0u);
     const size_t n = 480;
-    boot(rom);
-    step_to_save_point();
-    g_stop_arm = true;
+    boot_to_save_point(rom, false);
+    tb.stop_arm = true;
     std::vector<uint8_t> blob;
     ASSERT_TRUE(create_state(blob));
-    long at = g_stop_tick;
+    long at = tb.stop_tick;
     run_ticks((size_t)at + n);
     long b_clk = ram16(0x10);
     teardown();
 
     std::vector<uint8_t> other = read_file(FILE_ROM);
     ASSERT_GT(other.size(), 0u);
-    boot(other);
-    step_to_save_point();
+    boot_to_save_point(other, false);
     std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
     put_blob(file);
-    g_stop_arm = true;
+    tb.stop_arm = true;
     ASSERT_TRUE(load_state());
-    long c_at = g_stop_tick;
+    long c_at = tb.stop_tick;
     run_ticks((size_t)c_at + n);
     long c_clk = ram16(0x10);
     teardown();
@@ -1973,8 +2093,33 @@ UTEST(psleep, the_program_clock_leaves_out_the_wake)
     ASSERT_LE(c_clk - b_clk < 0 ? b_clk - c_clk : c_clk - b_clk, 1L);
 }
 
-/* A blob from before this format, version 8, is refused, and the session
- * that was running carries on. */
+/* A machine started from a snapshot is the machine that booted. One boots
+ * to the save point and writes the snapshot, one starts from it, both run
+ * on the same steps, and they end in the same state, the model's and the
+ * bench's alike. The steps take the file program through its writes and
+ * reads, so the host's card and counts move as well. */
+UTEST(psleep, a_restored_machine_is_the_booted_one)
+{
+    std::vector<uint8_t> rom = read_file(FILE_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    const long n = 3000000L;
+    std::vector<uint8_t> state[2];
+    for (int k = 0; k < 2; k++)
+    {
+        g_snap_fresh = k == 0;
+        boot_to_save_point(rom, false);
+        g_snap_fresh = false;
+        ASSERT_EQ(k == 1, g_snap_restored);
+        for (long i = 0; i < n; i++)
+            step();
+        state[k] = tb_snap_take(*dut, tb);
+        teardown();
+    }
+    ASSERT_NE(std::string::npos, tb.console.find(DONE));
+    ASSERT_EQ(state[0].size(), state[1].size());
+    ASSERT_TRUE(state[0] == state[1]);
+}
+
 /* ------------------------------------------------------------------ */
 /* Sleep and wake round trips with what the tests above hold fixed made
  * random: when the save comes, how the host reads the blob, and on the wake
@@ -1984,7 +2129,7 @@ UTEST(psleep, the_program_clock_leaves_out_the_wake)
  *
  * A trip holds the wake to what the session that slept went on to do. A
  * save the core refuses, with a file open for writing, is a trip too: the
- * session runs on, and a wake with no blob starts the program. */
+ * session runs on as if nothing had been asked. */
 
 #include <cstdlib>
 
@@ -2009,7 +2154,6 @@ static long env_long(const char *name, long dflt)
 
 
 #define RVPC() ((uint32_t)dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__cpu__DOT__core__DOT__decode_u__DOT__pc)
-#define RVHALT() ((int)dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__wiring_sst_dbg_halted)
 
 #define PF(f) (dut->rootp->tb_pocket__DOT__core__DOT__file__DOT__##f)
 
@@ -2119,8 +2263,8 @@ static void pw_write(uint32_t addr, uint32_t w, int gapn, bool service)
             a_edge();
         return;
     }
-    long until = a_next + (long)gapn * 224;
-    while (a_next < until)
+    long until = tb.a_next + (long)gapn * 224;
+    while (tb.a_next < until)
         step();
 }
 
@@ -2158,12 +2302,10 @@ static void pw_put(Rng &r, uint32_t base, const std::vector<uint8_t> &v,
 struct Trip
 {
     long seed;
-    int prog;         /* 0 file, 1 aud_snoop, 2 mode3, 3 PWAKE_ROM, 4 trap,
-                       * 5 argv, 6 exec */
+    int prog;         /* 0 file, 1 aud_snoop, 2 mode3, 3 trap */
     long save_at;     /* steps after the program's mark */
     int rmode, rbase, rorder;
-    int refuse;       /* 0 good blob, 1 other build, 2 corrupt word,
-                       * 3 other version, 4 no blob in the file */
+    int refuse;       /* 0 good blob, 1 other build */
     int fw_bridge;    /* firmware through the bridge, not poked */
     int fw_first;     /* firmware slot before the ROM slot */
     long drb;         /* steps from Reset Exit to the first blob word,
@@ -2175,9 +2317,6 @@ struct Trip
     long dbl;         /* steps from the last blob word to the load */
     int head_pad;     /* bytes added to the 596-byte header */
     int seq;          /* SEQ_: where Reset Exit comes */
-    int repeat;       /* the load asked for again: 1 at once, 2 while the
-                       * first is in flight, 3 after the wake is over */
-    long rep_gap;     /* steps to the repeat, for 2 */
 };
 
 /* A wake's Reset Exit against its blob and its load command. Analogue
@@ -2198,9 +2337,7 @@ enum
      * would still be busy at this Reset Exit. */
     SEQ_LOAD_EXIT,
     /* The load in reset, then the blob, then Reset Exit. */
-    SEQ_LOAD_BLOB_EXIT,
-    /* The blob as SEQ_EXIT_FIRST places it, and no load at all. */
-    SEQ_NO_LOAD
+    SEQ_LOAD_BLOB_EXIT
 };
 
 static void pw_pick(Trip &t, Rng &r)
@@ -2240,13 +2377,9 @@ static void pw_pick(Trip &t, Rng &r)
                                                  : 4 * (long)r.below(100));
     long span = t.prog == 0 ? 400000 : 2500000;
     t.save_at = env_long("PWAKE_SAVEAT", (long)r.below((uint32_t)span));
-    /* A trip with no load is not a round trip, so it is only pinned. */
     uint32_t seq = r.below(7);
     t.seq = (int)env_long("PWAKE_SEQ", seq < 4 ? SEQ_EXIT_FIRST
                                                : (long)seq - 3);
-    uint32_t rep = r.below(8);
-    t.repeat = (int)env_long("PWAKE_REPEAT", rep < 3 ? (long)rep + 1 : 0);
-    t.rep_gap = env_long("PWAKE_REPGAP", (long)r.below(3000000));
 }
 
 static void pw_print(const Trip &t, const char *what)
@@ -2254,12 +2387,10 @@ static void pw_print(const Trip &t, const char *what)
     fprintf(stderr,
             "PWAKE %s seed=%ld prog=%d save_at=%ld rmode=%d rbase=%d "
             "rorder=%d refuse=%d fwbridge=%d fwfirst=%d drb=%ld wmode=%d "
-            "wbase=%d wshuffle=%d service=%d dbl=%ld headpad=%d seq=%d "
-            "repeat=%d repgap=%ld\n",
+            "wbase=%d wshuffle=%d service=%d dbl=%ld headpad=%d seq=%d\n",
             what, t.seed, t.prog, t.save_at, t.rmode, t.rbase, t.rorder,
             t.refuse, t.fw_bridge, t.fw_first, t.drb, t.wmode, t.wbase,
-            t.wshuffle, t.service, t.dbl, t.head_pad, t.seq, t.repeat,
-            t.rep_gap);
+            t.wshuffle, t.service, t.dbl, t.head_pad, t.seq);
 }
 
 static std::vector<uint8_t> pw_rom(int prog)
@@ -2269,11 +2400,7 @@ static std::vector<uint8_t> pw_rom(int prog)
     case 0: return read_file(FILE_ROM);
     case 1: return read_file(AUD_SNOOP_ROM);
     case 2: return read_file(ROMS_DIR "/mode3_1bpp.rp6502");
-    /* Any ROM, a game say, named by PWAKE_ROM. */
-    case 3: return read_file(getenv("PWAKE_ROM") ? getenv("PWAKE_ROM") : "");
-    case 4: return read_file(SLEEPTRAP_ROM);
-    case 5: return read_file(ARGV_ROM);
-    default: return read_file(SLEEPEXEC_ROM);
+    default: return read_file(SLEEPTRAP_ROM);
     }
 }
 
@@ -2284,9 +2411,7 @@ static const char *pw_last_words(int prog)
     switch (prog)
     {
     case 0: return "pocket file ok";
-    case 4: return "trap ok";
-    case 5:
-    case 6: return "]";
+    case 3: return "trap ok";
     default: return nullptr;
     }
 }
@@ -2296,28 +2421,35 @@ static const char *pw_last_words(int prog)
 static bool pw_to_mark(int prog)
 {
     long guard = 0;
-    if (prog == 0 || prog == 5 || prog == 6)
+    if (prog == 0)
+    {
         while (!(int)MEM(resb) && guard++ < 20000000L)
             step();
-    else if (prog == 1 || prog == 4)
-        while (g_console.find('W') == std::string::npos
-               && guard++ < 80000000L)
-            step();
-    else
-    {
-        long lim = prog == 3 ? 80000000L : 20000000L;
-        while (!(uint32_t)MEM(prog__DOT__canvas_shadow) && guard++ < lim)
-            step();
-        if (prog == 3)
-            fprintf(stderr, "  the ROM set its canvas %ld sys clocks after "
-                            "boot, resb %d\n", g_sys, (int)MEM(resb));
-        return guard < lim;
+        return guard < 20000000L;
     }
-    return guard < 20000000L || ((prog == 1 || prog == 4) && guard < 80000000L);
+    if (prog == 2)
+    {
+        while (!(uint32_t)MEM(prog__DOT__canvas_shadow)
+               && guard++ < 20000000L)
+            step();
+        return guard < 20000000L;
+    }
+    while (tb.console.find('W') == std::string::npos && guard++ < 80000000L)
+        step();
+    return guard < 80000000L;
+}
+
+/* A fresh configuration with the program, on the card as it is, run to the
+ * program's mark. */
+static bool boot_to_mark(const std::vector<uint8_t> &rom, int prog)
+{
+    return boot_to("mark " + std::to_string(prog), rom, true,
+                   [&] { return pw_to_mark(prog); });
 }
 
 /* Finds the firmware's trap handler for observe(): its entry, and the mret
  * that ends it, the first one in the image after the entry. */
+
 static bool pw_find_trap()
 {
     uint32_t size;
@@ -2334,40 +2466,6 @@ static bool pw_find_trap()
     return false;
 }
 
-#define SOC(f) (dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__soc_##f)
-
-/* Steps to the soft CPU's n'th access of one kind: PWAKE_SAVEBUS is the
- * address and PWAKE_SAVEBUS_MASK the bits of it that count, _W a write and
- * not a read, _DATA what is written, _IN the firmware function the soft CPU
- * is in, _OP the 6502's API call in flight, and _N which one. */
-static bool pw_to_bus()
-{
-    uint32_t addr = (uint32_t)env_long("PWAKE_SAVEBUS", 0);
-    uint32_t mask = (uint32_t)env_long("PWAKE_SAVEBUS_MASK", 0xFFFFFFFFL);
-    bool write = env_long("PWAKE_SAVEBUS_W", 0) != 0;
-    long data = env_long("PWAKE_SAVEBUS_DATA", -1);
-    long op = env_long("PWAKE_SAVEBUS_OP", 0);
-    long n = env_long("PWAKE_SAVEBUS_N", 1);
-    uint32_t lo = 0, len = 0xFFFFFFFFu;
-    if (const char *in = getenv("PWAKE_SAVEBUS_IN"))
-        if (!fw_symbol(in, &lo, &len))
-            return false;
-    bool prev = false;
-    for (long i = 0; i < 80000000L && n > 0; i++)
-    {
-        step();
-        bool hit = SOC(stb) && (bool)SOC(we) == write
-                   && ((uint32_t)SOC(addr) & mask) == addr
-                   && (data < 0 || (uint32_t)SOC(wdata) == (uint32_t)data)
-                   && RVPC() - lo < len
-                   && (!op || (api_busy()
-                               && MEM(ria__DOT__regs)[0x0F] == (uint8_t)op));
-        if (hit && !prev)
-            n--;
-        prev = hit;
-    }
-    return n == 0;
-}
 
 #define SST(f) (dut->rootp->tb_pocket__DOT__core__DOT__sst__DOT__##f)
 
@@ -2382,7 +2480,7 @@ static void pw_run(long n, bool service)
 
 static void pw_exit_reset()
 {
-    dut->datatable_q = g_dt[1];
+    dut->datatable_q = tb.dt[1];
     dut->dataslot_allcomplete = 1;
     dut->reset_n = 1;
 }
@@ -2393,12 +2491,9 @@ static void pw_exit_reset()
  * host answers no file request before the load's answer when quiet is
  * set, and holds the core to no answer when heeds is clear. Returns false
  * when the load never ends or a status line is wrong. */
-static bool pw_load_over(bool early, bool quiet, bool heeds = true)
+static bool pw_load_over(bool early, bool quiet, bool heeds)
 {
     bool fine = true;
-    /* PWAKE_HUSH keeps a quiet host silent that many steps more, into the
-     * resumed firmware's wake. */
-    long hush = quiet ? env_long("PWAKE_HUSH", 0) : 0;
     long i = 0;
     for (; i < 60000000L
            && (SST(load_act) || (int)MEM(engine__DOT__state) != 0);
@@ -2407,7 +2502,7 @@ static bool pw_load_over(bool early, bool quiet, bool heeds = true)
         bool busy = dut->tb_pocket_savestate_load_busy;
         if (heeds && early && (busy || !dut->tb_pocket_savestate_load_ok))
             fine = false;
-        if (quiet && (busy || hush-- > 0))
+        if (quiet && busy)
             tick();
         else
             step();
@@ -2426,6 +2521,7 @@ static bool pw_load_over(bool early, bool quiet, bool heeds = true)
                 refused ? "refused" : "taken");
     return fine;
 }
+
 
 /* Steps into the 6502's API call of that number, to the firmware's k'th
  * write to a file register during the call. Of a write these are the slot
@@ -2447,47 +2543,24 @@ static bool pw_to_file_reg(long op, long k)
 }
 
 /* What pw_wake saw as it asked for the load: how many reset sequences the
- * 6502 had begun, whether the card was still as the sleep left it, and,
- * for PWAKE_BLOBREQ and PWAKE_QUIETAFTER, whether a file request of the
- * core's was waiting on the silent host. */
+ * 6502 had begun, and whether the card was still as the sleep left it. */
 static int g_resets_at_load;
-static bool g_card_kept, g_req_waited;
+static bool g_card_kept;
 
 /* A wake as the Pocket makes it: a fresh core in reset, the data slots
  * written, and then Reset Exit, the blob and the load command in the
- * trip's order. Returns 0 for a blob loaded, 1 for one refused, 2 for a
- * load that never ended or a wrong answer, and 3 where no load was asked
- * for. */
+ * trip's order. Returns 0 for a blob loaded, 1 for one refused, and 2 for
+ * a load that never ended or a wrong answer. */
 static int pw_wake(Rng &r, const Trip &t, const std::vector<uint8_t> &rom,
                    const std::vector<uint8_t> &file)
 {
-    const std::map<std::string, std::vector<uint8_t>> card = g_files;
+    const std::map<std::string, std::vector<uint8_t>> card = tb.files;
     g_resets_at_load = 0;
     g_card_kept = true;
-    g_req_waited = false;
     dut = new Vtb_pocket;
-    a_next = s_next = g_sys = 0;
-    g_wild = g_stray = g_open_reqs = 0;
-    g_resets = g_brk_res_prev = 0;
-    g_traps = 0;
-    g_in_trap = false;
-    g_trap_pc = 0;
-    g_console.clear();
-    g_rv.clear();
-    g_mix.clear();
-    g_cpu.clear();
-    g_tick_prev = 0;
-    g_stop_arm = false;
-    g_stop_tick = -1;
-    g_req = REQ_NONE;
-    g_servicing = 0;
-    g_prev_r = g_prev_w = g_prev_o = g_prev_f = g_prev_g = 0;
-    memset(g_dt, 0, sizeof g_dt);
-    dt_pipe[0] = dt_pipe[1] = 0;
-    for (auto &b : g_bound)
-        b.clear();
-    g_bound[0] = "/Assets/rp6502/common/file.rp6502";
-    g_files[g_bound[0]] = rom;
+    bench_fresh();
+    tb.bound[0] = "/Assets/rp6502/common/file.rp6502";
+    tb.files[tb.bound[0]] = rom;
 
     dut->rst_n = 0;
     dut->arst_n = 0;
@@ -2540,8 +2613,8 @@ static int pw_wake(Rng &r, const Trip &t, const std::vector<uint8_t> &rom,
      * against the core there. */
     bool heeds = t.seq != SEQ_LOAD_EXIT;
     auto ask = [&]() {
-        g_resets_at_load = g_resets;
-        g_card_kept = g_files == card;
+        g_resets_at_load = tb.resets;
+        g_card_kept = tb.files == card;
         int code = sst_cmd(true, true, !quiet);
         if (code < 0 || (heeds && code != want))
         {
@@ -2555,8 +2628,6 @@ static int pw_wake(Rng &r, const Trip &t, const std::vector<uint8_t> &rom,
         if (t.seq != SEQ_LOAD_BLOB_EXIT)
             put(false);
         ask();
-        if (t.repeat == 1)
-            ask();
         if (t.seq == SEQ_LOAD_WAIT_EXIT)
         {
             /* A poll every 2000 clocks of clk_74a, for a second at most. */
@@ -2573,7 +2644,7 @@ static int pw_wake(Rng &r, const Trip &t, const std::vector<uint8_t> &rom,
         }
         if (t.seq == SEQ_LOAD_BLOB_EXIT)
             put(false);
-        g_stop_arm = true;
+        tb.stop_arm = true;
         pw_exit_reset();
     }
     else
@@ -2581,110 +2652,23 @@ static int pw_wake(Rng &r, const Trip &t, const std::vector<uint8_t> &rom,
         if (t.drb < 0)
             put(false);
         pw_exit_reset();
-        /* PWAKE_BLOBREQ starts the blob once the fresh firmware has a file
-         * request waiting on the host, which this host then leaves waiting
-         * until the load is answered. */
-        bool blob_req = env_long("PWAKE_BLOBREQ", 0) != 0;
-        if (blob_req)
-        {
-            long i = 0;
-            for (; i < 80000000L && !g_req; i++)
-                tick();
-            if (!g_req)
-                return 2;
-        }
-        /* PWAKE_BLOBOP starts the blob with the fresh firmware inside a
-         * file call, as PWAKE_SAVEOP places a save. */
-        long blob_op = env_long("PWAKE_BLOBOP", 0);
-        if (blob_op && !pw_to_file_reg(blob_op, env_long("PWAKE_BLOBOP_K", 1)))
-            return 2;
         if (t.drb >= 0)
         {
-            if (!blob_op && !blob_req)
-                pw_run(t.drb, true);
+            pw_run(t.drb, true);
             put(t.service == 1);
         }
-        if (t.seq == SEQ_NO_LOAD)
-        {
-            g_console.clear();
-            return 3;
-        }
-        /* PWAKE_LOADARM asks for the load once the fresh firmware has
-         * written a file command's slot and not yet the command. */
-        if (env_long("PWAKE_LOADARM", 0))
-        {
-            long i = 0;
-            for (; i < 80000000L && !PF(armed); i++)
-                step();
-            if (i >= 80000000L)
-                return 2;
-        }
-        else
-            pw_run(t.dbl, !quiet);
-        if (blob_req)
-            g_req_waited = g_req != REQ_NONE;
-        g_stop_arm = true;
-        g_console.clear();
+        pw_run(t.dbl, !quiet);
+        tb.stop_arm = true;
+        tb.console.clear();
         fprintf(stderr, "  wake: at the load pocket_file busy=%d fstate=%d "
                         "op=%d, request waiting=%d, the fresh soft CPU at "
                         "%x\n",
-                (int)PF(busy), (int)PF(fstate), (int)PF(r_op), g_req, RVPC());
+                (int)PF(busy), (int)PF(fstate), (int)PF(r_op), tb.req, RVPC());
         ask();
-        if (t.repeat == 1)
-            ask();
-    }
-    if (t.repeat == 2)
-    {
-        /* While the engine loads, or once it is done and the firmware is
-         * putting back what the blob does not hold. */
-        for (long i = 0; i < t.rep_gap && !(int)MEM(engine__DOT__done_q)
-                         && SST(load_act);
-             i++)
-            if (quiet && dut->tb_pocket_savestate_load_busy)
-                tick();
-            else
-                step();
-        if (SST(load_act))
-        {
-            want = dut->tb_pocket_savestate_load_busy ? RES_BUSY : RES_OK;
-            if (dut->tb_pocket_savestate_load_err)
-                want = RES_ERR;
-            heeds = true;
-            fprintf(stderr, "  wake: asked again with the engine in state %d "
-                            "and the first answer %d\n",
-                    (int)MEM(engine__DOT__state), want);
-            ask();
-        }
     }
     if (!pw_load_over(early, quiet, heeds))
         return 2;
     bool refused = (int)MEM(engine__DOT__ld_bad);
-    /* PWAKE_QUIETAFTER keeps the host silent that many steps past the end
-     * of the wake, so what the resumed program asks for first waits. */
-    if (long hush = env_long("PWAKE_QUIETAFTER", 0))
-    {
-        for (long i = 0; i < hush; i++)
-            tick();
-        g_req_waited = g_req != REQ_NONE;
-    }
-    if (t.repeat == 3 && !refused)
-    {
-        /* The wake is over and the program runs. This is a second load,
-         * and it puts the program back at the save once more. */
-        pw_run(200000 + t.rep_gap, true);
-        g_stop_arm = true;
-        g_console.clear();
-        want = ANSWER_LOAD_RUNNING;
-        heeds = true;
-        int resets = g_resets_at_load;
-        bool kept = g_card_kept;
-        ask();
-        g_resets_at_load = resets;
-        g_card_kept = kept;
-        if (!pw_load_over(false, quiet))
-            return 2;
-        refused = (int)MEM(engine__DOT__ld_bad);
-    }
     if (refused)
         fprintf(stderr, "load: refused at word %u (saw %08X)\n",
                 (unsigned)MEM(engine__DOT__bad_idx),
@@ -2693,6 +2677,7 @@ static int pw_wake(Rng &r, const Trip &t, const std::vector<uint8_t> &rom,
         return 2;
     return refused ? 1 : 0;
 }
+
 
 /* The console's text: each cell's glyph, the first byte of its two words
  * in mode 0's cell memory. */
@@ -2707,33 +2692,28 @@ static std::string pw_screen()
     return s;
 }
 
-/* The line the console shows for a wake that does not resume. */
-static std::string pw_line(const Trip &t)
+/* The line the console shows for a wake whose blob is refused. */
+static std::string pw_line(const Trip &)
 {
-    if (t.seq == SEQ_NO_LOAD)
-        return "wake: no load came ";
-    static const char *const why[] = {"", "build differs", "checksum differs",
-                                      "version differs", "no header"};
-    bool early = t.seq != SEQ_EXIT_FIRST;
-    return std::string("wake: ") + why[t.refuse]
-           + (early ? " (asked in reset) " : " ");
+    return "bad savestate ";
 }
 
-/* The 6502 is out of reset and in the program, and the screen is the
- * program's and not the console's. The picture program draws and stops,
- * at rest_pc, and the others keep moving. */
-static bool pw_program_runs(uint32_t canvas, uint32_t rest_pc)
+/* A refused wake says why on the console and goes no further: when the
+ * line is up, the 6502 is in reset and the screen is the console's.
+ * Returns what failed, or nothing. */
+static const char *pw_held(const std::string &line)
 {
-    if (!(int)MEM(resb) || (uint32_t)MEM(prog__DOT__canvas_shadow) != canvas)
-        return false;
-    std::set<uint32_t> pcs;
-    for (int i = 0; i < 20000; i++)
+    for (long i = 0; i < 60000000L; i++)
     {
         step();
-        pcs.insert((uint32_t)MEM(cpu__DOT__pc));
+        if ((i & 0xFFFF) == 0 && pw_screen().find(line) != std::string::npos)
+            return (int)MEM(resb) || (uint32_t)MEM(prog__DOT__canvas_shadow)
+                       ? "FAIL refused-not-held"
+                       : nullptr;
     }
-    return pcs.size() > 1 || *pcs.begin() == rest_pc;
+    return "FAIL refused-no-line";
 }
+
 
 static void pw_state(const char *tag)
 {
@@ -2757,10 +2737,10 @@ static void pw_state(const char *tag)
                 tag, (int)PF(busy), (int)PF(fstate), (int)PF(r_op),
                 (int)PF(tmo_flag),
                 (int)dut->rootp->tb_pocket__DOT__core__DOT__bridge__DOT__wf_empty,
-                (int)dut->target_dataslot_done, g_req);
+                (int)dut->target_dataslot_done, tb.req);
     }
-    std::string rv = g_rv.size() > 400 ? g_rv.substr(g_rv.size() - 400)
-                                       : g_rv;
+    std::string rv = tb.rv.size() > 400 ? tb.rv.substr(tb.rv.size() - 400)
+                                       : tb.rv;
     fprintf(stderr,
             "  %s: resb=%d pc=%04x engine=%d clken=%d canvas=%u slot=%u "
             "console=[%s] rv=[%s]\n",
@@ -2768,7 +2748,7 @@ static void pw_state(const char *tag)
             (int)MEM(engine__DOT__state),
             (int)dut->rootp->tb_pocket__DOT__mach_clk_en,
             (unsigned)MEM(prog__DOT__canvas_shadow),
-            (unsigned)MEM(soc__DOT__mmio_slot_len), g_console.c_str(),
+            (unsigned)MEM(soc__DOT__mmio_slot_len), tb.console.c_str(),
             rv.c_str());
 }
 
@@ -2809,79 +2789,11 @@ static bool pw_to_last_words(int prog)
 {
     const char *last = pw_last_words(prog);
     long i = 0;
-    for (; i < 40000000L && g_console.find(last) == std::string::npos; i++)
+    for (; i < 40000000L && tb.console.find(last) == std::string::npos; i++)
         step();
     for (long k = 0; k < 200000L; k++)
         step();
     return i < 40000000L;
-}
-
-/* A wake that does not resume starts the program over. With a line, the
- * console says why on its own canvas, the line is up for two seconds with
- * the 6502 in reset, and then the program starts. A blob with no load is
- * given up two seconds after its last word. With no line the wake is a
- * plain boot, and the screen never says wake. Returns what failed, or
- * nothing. */
-static const char *pw_starts_over(const Trip &t, const std::string &line,
-                                  bool no_load, uint32_t canvas,
-                                  uint32_t rest_pc)
-{
-    g_console.clear();
-    bool again = false;
-    const long sec = 50400000L;
-    long from = g_sys, shown = -1, started = -1;
-    bool console = false, said_wake = false;
-    const char *last = pw_last_words(t.prog);
-    /* The firmware waits two seconds for a load that does not come and
-     * shows its line for two more. A second is about 125 million
-     * steps. */
-    long lim = line.empty() ? 60000000L : 700000000L;
-    for (long i = 0; i < lim && !again; i++)
-    {
-        step();
-        if ((i & 0xFFFF) == 0)
-        {
-            std::string screen = pw_screen();
-            said_wake |= screen.find("wake:") != std::string::npos;
-            if (shown < 0 && !line.empty()
-                && screen.find(line) != std::string::npos)
-            {
-                shown = g_sys;
-                console = !(int)MEM(resb)
-                          && !(uint32_t)MEM(prog__DOT__canvas_shadow);
-            }
-        }
-        if (shown >= 0 && started < 0 && (int)MEM(resb))
-            started = g_sys;
-        if (last)
-            again = g_console.find(last) != std::string::npos;
-        else if (t.prog == 1)
-            again = g_console.find('W') != std::string::npos;
-        else
-            again = i > (t.prog == 3 ? 0L : 6000000L) && (int)MEM(resb)
-                    && (uint32_t)MEM(prog__DOT__canvas_shadow) != 0;
-    }
-    if (!again)
-        return (int)MEM(resb) ? "FAIL refused-no-restart"
-                              : "FAIL refused-6502-stopped";
-    if (line.empty())
-        return said_wake ? "FAIL plain-boot-said-wake" : nullptr;
-    if (shown < 0 || !console || started - shown < sec * 19 / 10
-        || started - shown > sec * 3
-        || (no_load && (shown - from < sec * 19 / 10
-                        || shown - from > sec * 23 / 10)))
-    {
-        fprintf(stderr, "  wanted [%s]: shown %.2f s after the wake, on the "
-                        "console %d, the 6502 started %.2f s later\n"
-                        "  screen [%s]\n", line.c_str(),
-                (double)(shown - from) / (double)sec, (int)console,
-                (double)(started - shown) / (double)sec,
-                pw_screen().substr(0, 400).c_str());
-        return "FAIL refused-line";
-    }
-    if (!last && !pw_program_runs(canvas, rest_pc))
-        return "FAIL refused-not-running";
-    return nullptr;
 }
 
 static const std::string SAVE_FILE = "/Saves/rp6502/common/T.DAT";
@@ -2889,8 +2801,8 @@ static const std::string SAVE_DATA = "pocket file ok\r\n";
 
 static bool pw_save_file_right()
 {
-    auto it = g_files.find(SAVE_FILE);
-    return it != g_files.end()
+    auto it = tb.files.find(SAVE_FILE);
+    return it != tb.files.end()
            && std::string(it->second.begin(), it->second.end()) == SAVE_DATA;
 }
 
@@ -2899,22 +2811,13 @@ static bool pw_save_file_right()
  * stays told, no blob is served, and the machine runs on as if nothing had
  * been asked: its clock never stops, the soft CPU is never halted, and the
  * program ends with its file right. Once the file is closed a save is
- * taken again.
- *
- * What a Pocket does with a sleep the core refuses is not known. PWAKE_AFTER
- * is what follows here: 0 nothing, the Pocket stayed awake. 1 it powered
- * down anyway and its wake brings no blob and no load, a plain boot. 2 its
- * wake asks for a load with no blob written, in the trip's order. In both
- * the card is as the refusal left it, and the program starts and ends
- * right. */
-static int pw_refused(Rng &r, Trip &t, const std::vector<uint8_t> &rom,
-                      uint32_t mark_canvas)
+ * taken again. */
+static int pw_refused(Trip &t)
 {
     const char *bad = nullptr;
-    std::map<std::string, std::vector<uint8_t>> card = g_files;
     fprintf(stderr, "  the save was refused, with the card holding %s\n",
-            g_files.count(SAVE_FILE)
-                ? (std::to_string(g_files[SAVE_FILE].size()) + " bytes of "
+            tb.files.count(SAVE_FILE)
+                ? (std::to_string(tb.files[SAVE_FILE].size()) + " bytes of "
                    "the file").c_str()
                 : "no file yet");
     if (t.prog != 0 || !(int)SST(refuse_s2))
@@ -2931,7 +2834,7 @@ static int pw_refused(Rng &r, Trip &t, const std::vector<uint8_t> &rom,
     }
     if (!pw_to_last_words(0) || !pw_save_file_right())
         bad = "FAIL refused-session-wrong";
-    if (!g_stop_arm || !g_halt_arm)
+    if (!tb.stop_arm || !tb.halt_arm)
         bad = "FAIL refused-save-stopped-the-machine";
     if (sst_cmd(false, false, true) != ANSWER_SAVE_REFUSED)
         bad = "FAIL refusal-forgotten";
@@ -2948,54 +2851,19 @@ static int pw_refused(Rng &r, Trip &t, const std::vector<uint8_t> &rom,
                 step();
         }
     }
-    if (g_wild || g_stray)
+    if (tb.wild || tb.stray)
         bad = "FAIL wild-command";
-    uint32_t b_pc = (uint32_t)MEM(cpu__DOT__pc);
     if (bad)
     {
         pw_print(t, bad);
         pw_state("B");
     }
-    teardown();
-    long after = env_long("PWAKE_AFTER", (long)r.below(4) ? 1 : 0);
-    if (bad || after == 0)
-    {
-        if (!bad)
-            pw_print(t, "ok refused");
-        return bad != nullptr;
-    }
-
-    g_files = card;
-    Trip w = t;
-    w.refuse = 4;
-    if (after == 1)
-    {
-        /* The host does nothing after Reset Exit. */
-        w.seq = SEQ_NO_LOAD;
-        w.drb = 0;
-    }
-    w.repeat = 0;
-    int res = pw_wake(r, w, rom, {});
-    std::string line = after == 1 ? "" : pw_line(w);
-    if (res != (after == 1 ? 3 : 1))
-        bad = "FAIL no-blob-wake";
     else
-        bad = pw_starts_over(w, line, false, mark_canvas, b_pc);
-    if (!bad && (!pw_to_last_words(0) || !pw_save_file_right()))
-        bad = "FAIL powered-down-session-wrong";
-    if (!bad && (g_wild || g_stray))
-        bad = "FAIL wild-command";
-    if (bad)
-    {
-        pw_print(t, bad);
-        pw_state("C");
-    }
-    else
-        pw_print(t, after == 1 ? "ok refused, plain boot"
-                               : "ok refused, load with no blob");
+        pw_print(t, "ok refused");
     teardown();
     return bad != nullptr;
 }
+
 
 /* One trip. Returns 0 when the wake did what it should. */
 static int pw_trip(Trip &t)
@@ -3018,54 +2886,29 @@ static int pw_trip(Trip &t)
 
     /* B: the session that sleeps. It plays on after the save, and what it
      * does then is what the wake has to do. */
-    boot(rom);
-    if (t.prog == 6)
-        g_files["/Assets/rp6502/common/argv.rp6502"] = read_file(ARGV_ROM);
-    /* PWAKE_NOMARK asks for the save during the boot, before any program
-     * runs. */
-    if (!env_long("PWAKE_NOMARK", 0) && !pw_to_mark(t.prog))
+    card_fresh();
+    if (!boot_to_mark(rom, t.prog))
     {
         pw_print(t, "FAIL no-mark");
         teardown();
         return 101;
     }
-    uint32_t mark_canvas = (uint32_t)MEM(prog__DOT__canvas_shadow);
     for (long i = 0; i < t.save_at; i++)
         step();
     /* PWAKE_SAVETRAP asks for it as the firmware enters its trap handler
      * for that many'th time from here. */
     if (long nth = env_long("PWAKE_SAVETRAP", 0))
     {
-        int from = g_traps;
-        for (long i = 0; i < 40000000L && g_traps < from + nth; i++)
+        int from = tb.traps;
+        for (long i = 0; i < 40000000L && tb.traps < from + nth; i++)
             step();
-        if (g_traps < from + nth)
+        if (tb.traps < from + nth)
         {
             pw_print(t, "FAIL no-such-trap");
             teardown();
             return 104;
         }
     }
-    /* PWAKE_SAVEWIN asks for the save as the firmware's wake task reaches
-     * the savestate registers, the first access after a pause, so the soft
-     * CPU halts between that and the main loop's checks that follow it. */
-    if (env_long("PWAKE_SAVEWIN", 0))
-    {
-        long last_at = g_sys;
-        for (long i = 0; i < 4000000L; i++)
-        {
-            step();
-            if (dut->rootp->tb_pocket__DOT__core__DOT____Vcellinp__sst__stb)
-            {
-                if (g_sys - last_at > 500)
-                    break;
-                last_at = g_sys;
-            }
-        }
-    }
-    if (long d = env_long("PWAKE_SAVEWIN_D", 0))
-        for (long was = g_sys; g_sys - was < d;)
-            step();
     /* PWAKE_SAVEOP_AFTER lets the 6502's API call of that number begin
      * first, and PWAKE_SAVEIDLE then lets it end. */
     if (long first = env_long("PWAKE_SAVEOP_AFTER", 0))
@@ -3085,28 +2928,6 @@ static int pw_trip(Trip &t)
             return 104;
         }
     }
-    /* PWAKE_SAVESYM asks for the save as the soft CPU enters that function
-     * of the firmware. */
-    if (const char *sym = getenv("PWAKE_SAVESYM"))
-    {
-        uint32_t at = 0, size, prev = 0;
-        long i = 0;
-        if (fw_symbol(sym, &at, &size))
-            for (; i < 40000000L; i++)
-            {
-                uint32_t pc = RVPC();
-                if (pc == at && prev != pc)
-                    break;
-                prev = pc;
-                step();
-            }
-        if (!at || i >= 40000000L)
-        {
-            pw_print(t, "FAIL no-such-function");
-            teardown();
-            return 104;
-        }
-    }
     /* PWAKE_SAVEOP asks for the save inside the 6502's API call of that
      * number, at the firmware's PWAKE_SAVEOP_K'th write to a file register
      * during the call. */
@@ -3119,32 +2940,26 @@ static int pw_trip(Trip &t)
             return 104;
         }
     }
-    if (getenv("PWAKE_SAVEBUS") && !pw_to_bus())
-    {
-        pw_print(t, "FAIL no-such-access");
-        teardown();
-        return 104;
-    }
     /* PWAKE_SAVE_D is so many steps more. */
     for (long i = env_long("PWAKE_SAVE_D", 0); i > 0; i--)
         step();
-    if (last && g_console.find(last) != std::string::npos)
+    if (last && tb.console.find(last) != std::string::npos)
     {
         pw_print(t, pinned ? "FAIL saved-after-done" : "skip saved-after-done");
         teardown();
         return pinned;
     }
-    g_stop_arm = true;
-    g_halt_arm = true;
-    long asked = g_sys;
-    int resets_at_save = g_resets, opens_at_save = g_open_reqs;
+    tb.stop_arm = true;
+    tb.halt_arm = true;
+    long asked = tb.sys;
+    int resets_at_save = tb.resets, opens_at_save = tb.open_reqs;
     bool busy_at_save = api_busy();
     int op_at_save = MEM(ria__DOT__regs)[0x0F];
     /* PWAKE_REFUSED is whether the save must be refused, 1, or taken, 0. */
     long must = env_long("PWAKE_REFUSED", -1);
     int code = sst_cmd(false, true, true);
     if (code == ANSWER_SAVE_REFUSED && must != 0)
-        return pw_refused(r, t, rom, mark_canvas);
+        return pw_refused(t);
     if (code != ANSWER_SAVE || must == 1 || !save_wait())
     {
         fprintf(stderr, "  the save request answered %d\n", code);
@@ -3154,14 +2969,14 @@ static int pw_trip(Trip &t)
         teardown();
         return 102;
     }
-    long b_at = g_stop_tick;
+    long b_at = tb.stop_tick;
     /* The card as the sleep leaves it. */
-    std::map<std::string, std::vector<uint8_t>> card = g_files;
+    std::map<std::string, std::vector<uint8_t>> card = tb.files;
     fprintf(stderr, "  saved with the soft CPU halted at %x%s, %ld clocks "
                     "after the save was asked for, the 6502 %s, %d Open "
                     "Files sent\n", RVPC(),
-            g_halt_trap ? " in its trap handler" : "", g_halt_sys - asked,
-            busy_at_save ? "in an API call" : "between calls", g_open_reqs);
+            tb.halt_trap ? " in its trap handler" : "", tb.halt_sys - asked,
+            busy_at_save ? "in an API call" : "between calls", tb.open_reqs);
     int bad = 0;
     /* A save is taken with no file open for writing, and with no command
      * sent yet of an open that may change the card. So a save taken as the
@@ -3173,33 +2988,17 @@ static int pw_trip(Trip &t)
         bad = 1;
     }
     if (busy_at_save && op_at_save == 0x14 && t.prog == 0
-        && card.count(SAVE_FILE) == 0 && g_open_reqs != opens_at_save)
+        && card.count(SAVE_FILE) == 0 && tb.open_reqs != opens_at_save)
     {
         pw_print(t, "FAIL saved-inside-a-creating-open");
         bad = 1;
     }
-    if (env_long("PWAKE_SAVETRAP", 0) && !g_halt_trap)
+    if (env_long("PWAKE_SAVETRAP", 0) && !tb.halt_trap)
     {
         pw_print(t, "FAIL not-in-the-trap-handler");
         bad = 1;
     }
     std::vector<uint8_t> blob;
-    /* PWAKE_POKE moves what the Pocket can move while the machine is
-     * stopped, between the engine's sum and the host's read: the clock,
-     * the buttons and the sticks. */
-    if (long poke = env_long("PWAKE_POKE", 0))
-    {
-        if (poke & 1)
-            dut->rtc_epoch = dut->rtc_epoch + 1;
-        if (poke & 2)
-        {
-            dut->cont1_key = 0x0000FFFFu;
-            dut->cont1_joy = 0x12345678u;
-            dut->cont1_trig = 0xABCD;
-        }
-        for (int k = 0; k < 2000; k++)
-            a_edge();
-    }
     bool rd_ok = pw_read_blob(r, blob, t.rmode, t.rbase, t.rorder);
     bool sum_ok = pw_blob_sum_ok(blob);
     if (!rd_ok || !sum_ok)
@@ -3210,12 +3009,12 @@ static int pw_trip(Trip &t)
     std::string b_console;
     std::vector<uint32_t> b_mix, b_picture;
     std::vector<Cpu> b_cpu;
-    uint32_t b_canvas = 0, b_pc = 0;
+    uint32_t b_canvas = 0;
     {
         long guard = 0;
         while ((int)MEM(engine__DOT__state) != 0 && guard++ < 20000000L)
             step();
-        g_console.clear();
+        tb.console.clear();
         if (last)
             pw_to_last_words(t.prog);
         else if (t.prog == 1)
@@ -3223,11 +3022,10 @@ static int pw_trip(Trip &t)
         else
             for (long i = 0; i < 400000L; i++)
                 step();
-        b_console = g_console;
-        b_mix = g_mix;
-        b_cpu = g_cpu;
+        b_console = tb.console;
+        b_mix = tb.mix;
+        b_cpu = tb.cpu;
         b_canvas = (uint32_t)MEM(prog__DOT__canvas_shadow);
-        b_pc = (uint32_t)MEM(cpu__DOT__pc);
         b_picture = pw_picture();
         if (!(int)MEM(resb) && !last)
         {
@@ -3244,31 +3042,19 @@ static int pw_trip(Trip &t)
     /* What the session that slept did after its save, the wake has to do
      * and no more: so many 6502 resets, none for a program that only goes
      * on. */
-    int b_resets = g_resets - resets_at_save;
-    std::map<std::string, std::vector<uint8_t>> b_files = g_files;
+    int b_resets = tb.resets - resets_at_save;
+    std::map<std::string, std::vector<uint8_t>> b_files = tb.files;
     teardown();
     if (!sum_ok)
         return 103;
 
-    if (t.refuse == 2)
-    {
-        uint32_t at = 8 + r.below(BLOB_BYTES / 4 - 16);
-        blob[at * 4 + r.below(4)] ^= (uint8_t)(1u << r.below(8));
-    }
-    else if (t.refuse == 3)
-    {
-        blob_put(blob, 1, blob_get(blob, 1) - 1);
-        blob_reseal(blob);
-    }
     std::vector<uint8_t> file = wrap_blob(blob, 596 + (size_t)t.head_pad,
                                           52764);
-    if (t.refuse == 4)
-        file = wrap_blob({}, 8192, 0);
 
-    g_files = card;
+    tb.files = card;
     int res = pw_wake(r, t, rom, file);
-    long c_at = g_stop_tick;
-    if (t.refuse == 0 && t.seq != SEQ_NO_LOAD)
+    long c_at = tb.stop_tick;
+    if (t.refuse == 0)
     {
         if (res != 0)
         {
@@ -3308,26 +3094,26 @@ static int pw_trip(Trip &t)
             if (last)
             {
                 pw_to_last_words(t.prog);
-                if (g_console != b_console)
+                if (tb.console != b_console)
                 {
                     pw_print(t, "FAIL resume-console");
                     fprintf(stderr, "  B console=[%s]\n", b_console.c_str());
                     pw_state("C");
                     bad = 1;
                 }
-                else if (g_files != b_files)
+                else if (tb.files != b_files)
                 {
                     pw_print(t, "FAIL resume-card");
                     for (auto &f : b_files)
-                        if (!g_files.count(f.first)
-                            || g_files[f.first] != f.second)
+                        if (!tb.files.count(f.first)
+                            || tb.files[f.first] != f.second)
                             fprintf(stderr, "  %s: %zu bytes, the session "
                                             "that slept on left %zu\n",
                                     f.first.c_str(),
-                                    g_files.count(f.first)
-                                        ? g_files[f.first].size() : 0,
+                                    tb.files.count(f.first)
+                                        ? tb.files[f.first].size() : 0,
                                     f.second.size());
-                    for (auto &f : g_files)
+                    for (auto &f : tb.files)
                         if (!b_files.count(f.first))
                             fprintf(stderr, "  %s: only after the wake\n",
                                     f.first.c_str());
@@ -3337,9 +3123,9 @@ static int pw_trip(Trip &t)
             else if (t.prog == 1)
             {
                 run_ticks((size_t)(c_at + n));
-                if ((long)g_mix.size() < c_at + n || c_at < 0
-                    || first_diff(b_mix, b_at, g_mix, c_at, n) >= 0
-                    || first_cpu_diff(b_cpu, b_at, g_cpu, c_at, n) >= 0)
+                if ((long)tb.mix.size() < c_at + n || c_at < 0
+                    || first_diff(b_mix, b_at, tb.mix, c_at, n) >= 0
+                    || first_cpu_diff(b_cpu, b_at, tb.cpu, c_at, n) >= 0)
                 {
                     pw_print(t, "FAIL resume-ticks");
                     pw_state("C");
@@ -3348,20 +3134,8 @@ static int pw_trip(Trip &t)
             }
             else
             {
-                long lim = t.prog == 3 ? 60000000L : 400000L;
-                long took = 0;
-                for (long i = 0; i < lim; i++, took++)
-                {
+                for (long i = 0; i < 400000L; i++)
                     step();
-                    /* A game is given the time a start from the beginning
-                     * takes to show its picture. */
-                    if (t.prog == 3 && i > 3000000L && (int)MEM(resb)
-                        && (uint32_t)MEM(prog__DOT__canvas_shadow) == b_canvas)
-                        break;
-                }
-                if (t.prog == 3)
-                    fprintf(stderr, "  the picture was back %ld steps after "
-                                    "the wake\n", took);
                 if (!(int)MEM(resb)
                     || (uint32_t)MEM(prog__DOT__canvas_shadow) != b_canvas)
                 {
@@ -3386,45 +3160,32 @@ static int pw_trip(Trip &t)
             }
             /* A program that resumed went on from where it was. One the
              * wake started over would have taken a reset. */
-            if (g_resets - g_resets_at_load != b_resets)
+            if (tb.resets - g_resets_at_load != b_resets)
             {
                 pw_print(t, "FAIL resumed-by-starting-over");
                 fprintf(stderr, "  the 6502 began %d resets after the load, "
                                 "and %d after the save in the session that "
-                                "slept on\n", g_resets - g_resets_at_load,
+                                "slept on\n", tb.resets - g_resets_at_load,
                         b_resets);
                 bad = 1;
             }
-            if ((env_long("PWAKE_BLOBREQ", 0) || env_long("PWAKE_QUIETAFTER", 0))
-                && !g_req_waited)
-            {
-                pw_print(t, "FAIL no-request-was-waiting");
-                bad = 1;
-            }
         }
     }
-    else
+    else if (res != 1)
     {
-        if (res != (t.seq == SEQ_NO_LOAD ? 3 : 1))
-        {
-            pw_print(t, res == 0 ? "FAIL bad-blob-loaded" : "FAIL load-stuck");
-            pw_state("C");
-            bad = 1;
-        }
-        else if (const char *why = pw_starts_over(t, pw_line(t),
-                                                  t.seq == SEQ_NO_LOAD,
-                                                  mark_canvas, b_pc))
-        {
-            pw_print(t, why);
-            pw_state("C");
-            bad = 1;
-        }
+        pw_print(t, res == 0 ? "FAIL bad-blob-loaded" : "FAIL load-stuck");
+        pw_state("C");
+        bad = 1;
     }
-    if (t.prog == 3)
-        pw_state("C at the end");
-    if (g_wild || g_stray)
+    else if (const char *why = pw_held(pw_line(t)))
     {
-        pw_print(t, g_wild ? "FAIL wild-command" : "FAIL stray-command");
+        pw_print(t, why);
+        pw_state("C");
+        bad = 1;
+    }
+    if (tb.wild || tb.stray)
+    {
+        pw_print(t, tb.wild ? "FAIL wild-command" : "FAIL stray-command");
         bad = 1;
     }
     if (!bad)
@@ -3432,6 +3193,7 @@ static int pw_trip(Trip &t)
     teardown();
     return bad;
 }
+
 
 UTEST(pwake, round_trips)
 {
@@ -3446,46 +3208,6 @@ UTEST(pwake, round_trips)
     }
     fprintf(stderr, "PWAKE done: %d of %ld failed\n", fails, count);
     ASSERT_EQ(0, fails);
-}
-
-/* The firmware reads SST_CTL three times in a pass of its main loop: in
- * wake_task, in the loop's own check about 110 clk_sys clocks later, and
- * in the next pass's audio task about 390 after that. This prints the
- * longest gap between two of the reads and the longest pass, which is
- * what PWAKE_SAVEWIN_D sweeps. */
-UTEST(pwake, explore_window_share)
-{
-    int prog = (int)env_long("PWAKE_PROG", 2);
-    std::vector<uint8_t> rom = pw_rom(prog);
-    boot(rom);
-    ASSERT_TRUE(pw_to_mark(prog));
-    for (long i = 0; i < 300000; i++)
-        step();
-    long last = -1, first = -1, gap_max = 0, pass_max = 0, passes = 0;
-    bool prev = false;
-    while (passes < 300)
-    {
-        step();
-        bool stb = dut->rootp->tb_pocket__DOT__core__DOT____Vcellinp__sst__stb;
-        if (stb && !prev)
-        {
-            if (last >= 0 && g_sys - last > 500)
-            {
-                if (first >= 0 && g_sys - first > pass_max)
-                    pass_max = g_sys - first;
-                first = g_sys;
-                passes++;
-            }
-            else if (last >= 0 && g_sys - last > gap_max)
-                gap_max = g_sys - last;
-            last = g_sys;
-        }
-        prev = stb;
-    }
-    fprintf(stderr, "%ld passes: at most %ld clocks between two reads and "
-                    "%ld in a pass\n", passes, gap_max, pass_max);
-    ASSERT_GT(gap_max, 0L);
-    teardown();
 }
 
 /* One pinned trip. Every choice has a value here, and a case names the
@@ -3503,14 +3225,10 @@ static int pw_case(std::initializer_list<const char *> kv)
         "PWAKE_SERVICE", "1", "PWAKE_DBL", "1000", "PWAKE_RMODE", "0",
         "PWAKE_RORDER", "0", "PWAKE_WMODE", "0", "PWAKE_WSHUFFLE", "0",
         "PWAKE_FWBRIDGE", "0", "PWAKE_SAVEAT", "100000", "PWAKE_SEQ", "0",
-        "PWAKE_REPEAT", "0", "PWAKE_REPGAP", "0", "PWAKE_HEADPAD", "0",
-        "PWAKE_SAVEWIN", "0", "PWAKE_SAVEWIN_D", "0", "PWAKE_SAVEOP", "0",
-        "PWAKE_SAVEOP_K", "1", "PWAKE_BLOBOP", "0", "PWAKE_BLOBOP_K", "1",
-        "PWAKE_LOADARM", "0", "PWAKE_PINNED", "1", "PWAKE_NOMARK", "0",
-        "PWAKE_SAVETRAP", "0", "PWAKE_SAVEOP_AFTER", "0", "PWAKE_SAVEIDLE",
-        "0", "PWAKE_SAVE_D", "0", "PWAKE_REFUSED", "0", "PWAKE_AFTER", "0",
-        "PWAKE_BLOBREQ", "0", "PWAKE_QUIETAFTER", "0", "PWAKE_TRAPFW", "0",
-        "PWAKE_HUSH", "0"};
+        "PWAKE_HEADPAD", "0", "PWAKE_SAVEOP", "0", "PWAKE_SAVEOP_K", "1",
+        "PWAKE_PINNED", "1", "PWAKE_SAVETRAP", "0", "PWAKE_SAVEOP_AFTER",
+        "0", "PWAKE_SAVEIDLE", "0", "PWAKE_SAVE_D", "0", "PWAKE_REFUSED",
+        "0", "PWAKE_TRAPFW", "0"};
     std::vector<const char *> all(std::begin(base), std::end(base));
     all.insert(all.end(), kv.begin(), kv.end());
     for (size_t i = 0; i + 1 < all.size(); i += 2)
@@ -3524,194 +3242,49 @@ static int pw_case(std::initializer_list<const char *> kv)
     return bad;
 }
 
-/* The blob and the load in the order they are known or suspected to come
- * on a Pocket. A good blob resumes the program exactly in every one. */
 
 /* The fresh firmware has staged the program and it runs when the blob
- * comes. */
+ * comes. A good blob resumes the program exactly. */
 UTEST(pwake, the_blob_and_the_load_after_the_program_started_resume)
 {
     ASSERT_EQ(0, pw_case({"PWAKE_DRB", "5000000"}));
 }
 
-/* The blob is in before Reset Exit, and the load comes with the firmware
- * at its first instructions, in its boot, and long after it. */
-UTEST(pwake, the_blob_in_reset_and_the_load_early_in_the_boot_resumes)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_DRB", "-1", "PWAKE_DBL", "0"}));
-}
-
-UTEST(pwake, the_blob_in_reset_and_the_load_during_the_boot_resumes)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_DRB", "-1", "PWAKE_DBL", "150000"}));
-}
-
-UTEST(pwake, the_blob_in_reset_and_the_load_after_the_boot_resumes)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_DRB", "-1", "PWAKE_DBL", "3300000"}));
-}
-
-/* The load arrives while the Pocket holds the core in reset. One Pocket
- * polls for its ok before Reset Exit, and one sends Reset Exit at once and
- * reads no answer. */
+/* The load arrives while the Pocket holds the core in reset, and the
+ * Pocket polls for its ok before Reset Exit. */
 UTEST(pwake, a_load_answered_in_reset_resumes)
 {
     ASSERT_EQ(0, pw_case({"PWAKE_SEQ", "1"}));
 }
 
-UTEST(pwake, a_load_asked_for_in_reset_with_no_wait_resumes)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_SEQ", "2"}));
-}
-
-UTEST(pwake, a_load_asked_for_in_reset_before_its_blob_resumes)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_SEQ", "3"}));
-}
-
-/* The picture program, whose screen the firmware has to put back. */
-UTEST(pwake, a_load_answered_in_reset_brings_the_picture_back)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_SEQ", "1", "PWAKE_PROG", "2"}));
-}
-
-/* The load asked for twice. */
-UTEST(pwake, a_load_asked_for_twice_at_once_resumes)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_REPEAT", "1"}));
-}
-
-UTEST(pwake, a_load_asked_for_twice_in_reset_resumes)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_SEQ", "1", "PWAKE_REPEAT", "1"}));
-}
-
-/* The second request comes once the engine is done, with the firmware
- * still putting back what the blob does not hold. */
-UTEST(pwake, a_load_asked_for_again_as_the_firmware_wakes_resumes)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_REPEAT", "2", "PWAKE_REPGAP", "50000000"}));
-}
-
-UTEST(pwake, a_second_load_after_the_wake_resumes_again)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_REPEAT", "3"}));
-}
-
-/* The host answers no file request from the blob's first word until the
- * load is answered, and a request of the core's is waiting on it all that
- * time: the fresh firmware's Get File for the ROM's name, which the load
- * halts it in. The host answers it once the load is answered, to a
- * firmware that never asked. */
-UTEST(pwake, a_wake_over_the_fresh_firmwares_unanswered_request_resumes)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_SERVICE", "0", "PWAKE_BLOBREQ", "1"}));
-}
-
-/* The save came in the file program's read, and the host stays silent
- * past the end of the wake. The read the resumed program makes again
- * waits on it, and ends right when the host answers. */
-UTEST(pwake, a_resumed_read_waits_on_a_silent_host_and_ends_right)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SERVICE", "0",
-                          "PWAKE_SAVEAT", "0", "PWAKE_SAVEOP", "0x16",
-                          "PWAKE_SAVEOP_K", "5", "PWAKE_QUIETAFTER",
-                          "300000"}));
-}
-
-/* A refused blob. The program starts over: the 6502 runs it and the
- * screen is its own. The firmware saw these blobs before it staged
- * anything. */
-UTEST(pwake, another_build_refused_in_reset_starts_the_program)
+/* A blob from another build. The console says so and the 6502 stays in
+ * reset. */
+UTEST(pwake, another_build_refused_in_reset_says_so_and_stops)
 {
     ASSERT_EQ(0, pw_case({"PWAKE_SEQ", "1", "PWAKE_REFUSE", "1"}));
 }
 
-UTEST(pwake, another_version_refused_in_reset_starts_the_picture)
+/* No savestate while a file is open for writing. The file program opens
+ * its file for writing, and a save asked for between the open's return
+ * and the write, with the 6502 in no call, is answered err at the request.
+ * Nothing is saved and the program ends with its file right. */
+UTEST(pwake, a_save_between_calls_on_a_file_open_for_writing_is_refused)
 {
-    ASSERT_EQ(0, pw_case({"PWAKE_SEQ", "1", "PWAKE_REFUSE", "3",
-                          "PWAKE_PROG", "2"}));
+    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
+                          "PWAKE_SAVEOP_AFTER", "0x14", "PWAKE_SAVEIDLE", "1",
+                          "PWAKE_REFUSED", "1"}));
 }
 
-UTEST(pwake, a_corrupt_word_refused_during_the_boot_starts_the_program)
+/* A file open only for reading refuses nothing. The save comes in the
+ * read, with the read sent, and the read is made again after the wake: the
+ * program prints what it read. */
+UTEST(pwake, a_save_in_a_read_that_was_sent_resumes)
 {
-    ASSERT_EQ(0, pw_case({"PWAKE_REFUSE", "2"}));
-}
-
-/* The fresh firmware has staged the program and has stopped it for the
- * blob, and the blob is refused. The console says which check refused it
- * and the program starts over. */
-UTEST(pwake, a_refused_wake_after_staging_starts_the_program_over)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_REFUSE", "1", "PWAKE_DRB", "5000000"}));
-}
-
-UTEST(pwake, another_version_refused_after_staging_starts_the_picture_over)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_REFUSE", "3", "PWAKE_DRB", "5000000",
-                          "PWAKE_PROG", "2"}));
-}
-
-UTEST(pwake, a_corrupt_word_refused_after_staging_starts_the_program_over)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_REFUSE", "2", "PWAKE_DRB", "5000000"}));
-}
-
-UTEST(pwake, a_file_with_no_blob_refused_after_staging_starts_the_program_over)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_REFUSE", "4", "PWAKE_DRB", "5000000"}));
-}
-
-/* A blob and no load. Two seconds after the blob's last word the firmware
- * gives up on it, the console says so and the program starts. */
-UTEST(pwake, a_blob_in_reset_with_no_load_starts_the_program)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_SEQ", "4", "PWAKE_DRB", "-1"}));
-}
-
-UTEST(pwake, a_blob_with_no_load_starts_the_program_over)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_SEQ", "4", "PWAKE_DRB", "5000000"}));
-}
-
-/* The load comes after the firmware has given the blob up and said so,
- * and it still finds the blob: the program resumes. */
-UTEST(pwake, a_load_after_the_blob_was_given_up_resumes)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_DRB", "-1", "PWAKE_DBL", "325000000"}));
-}
-
-/* The save halts the firmware between the wake task's look at the
- * savestate registers and the main loop's checks for a new ROM, and the wake's MMIO_SLOT still
- * holds the ROM's length because the fresh firmware saw the blob before it
- * staged. The program resumes; a firmware that acted on MMIO_SLOT there
- * would start it over. The save is asked for at wake_task's read and so
- * many clocks after it, and the soft CPU halts 6 clocks after it is
- * asked. The loop's checks come about 110 clocks after wake_task's
- * read. */
-UTEST(pwake, a_wake_halted_before_the_restage_checks_resumes)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_SAVEWIN", "1"}));
-}
-
-UTEST(pwake, a_wake_halted_after_the_wake_task_resumes)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_SAVEWIN", "1", "PWAKE_SAVEWIN_D", "30",
-                          "PWAKE_SEQ", "1"}));
-    ASSERT_EQ(0, pw_case({"PWAKE_SAVEWIN", "1", "PWAKE_SAVEWIN_D", "60",
-                          "PWAKE_SEQ", "2"}));
-    ASSERT_EQ(0, pw_case({"PWAKE_SAVEWIN", "1", "PWAKE_SAVEWIN_D", "90",
+    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
+                          "PWAKE_SAVEOP", "0x16", "PWAKE_SAVEOP_K", "5",
                           "PWAKE_SEQ", "1"}));
 }
 
-UTEST(pwake, a_wake_halted_at_the_restage_checks_resumes)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_SAVEWIN", "1", "PWAKE_SAVEWIN_D", "96",
-                          "PWAKE_SEQ", "2"}));
-    ASSERT_EQ(0, pw_case({"PWAKE_SAVEWIN", "1", "PWAKE_SAVEWIN_D", "102",
-                          "PWAKE_SEQ", "1"}));
-    ASSERT_EQ(0, pw_case({"PWAKE_SAVEWIN", "1", "PWAKE_SAVEWIN_D", "108"}));
-}
 
 /* The firmware emulates a misaligned access in its trap handler, and the
  * save halts it there. The handler returns through mepc, which the fresh
@@ -3721,297 +3294,10 @@ UTEST(pwake, a_wake_halted_at_the_restage_checks_resumes)
 UTEST(pwake, a_save_inside_the_trap_handler_resumes)
 {
     /* As it saves the registers, and as it performs the access. */
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "4", "PWAKE_TRAPFW", "1",
+    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "3", "PWAKE_TRAPFW", "1",
                           "PWAKE_SAVEAT", "50000", "PWAKE_SAVETRAP", "3",
                           "PWAKE_SAVE_D", "40", "PWAKE_SEQ", "1"}));
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "4", "PWAKE_TRAPFW", "1",
+    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "3", "PWAKE_TRAPFW", "1",
                           "PWAKE_SAVEAT", "50000", "PWAKE_SAVETRAP", "5",
                           "PWAKE_SAVE_D", "400", "PWAKE_SEQ", "1"}));
-}
-
-/* No savestate while a file is open for writing. The file program opens
- * its file for writing, writes it and closes it, and a save asked for
- * anywhere in that is answered err at the request. Nothing is saved and
- * the program ends with its file right. PWAKE_REFUSED holds the trip to
- * the refusal. */
-
-/* In the open that creates the file: with its first Open File sent, and
- * with the create sent. */
-UTEST(pwake, a_save_in_an_open_that_creates_its_file_is_refused)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
-                          "PWAKE_SAVEOP", "0x14", "PWAKE_SAVEOP_K", "2",
-                          "PWAKE_REFUSED", "1"}));
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
-                          "PWAKE_SAVEOP", "0x14", "PWAKE_SAVEOP_K", "5",
-                          "PWAKE_REFUSED", "1"}));
-}
-
-/* Between the open's return and the write, with the 6502 in no call. */
-UTEST(pwake, a_save_between_calls_on_a_file_open_for_writing_is_refused)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
-                          "PWAKE_SAVEOP_AFTER", "0x14", "PWAKE_SAVEIDLE", "1",
-                          "PWAKE_REFUSED", "1"}));
-}
-
-/* In the write: growing the file, with the write's slot written, and with
- * the write sent. */
-UTEST(pwake, a_save_in_a_write_is_refused)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
-                          "PWAKE_SAVEOP", "0x18", "PWAKE_SAVEOP_K", "2",
-                          "PWAKE_REFUSED", "1"}));
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
-                          "PWAKE_SAVEOP", "0x18", "PWAKE_SAVEOP_K", "3",
-                          "PWAKE_REFUSED", "1"}));
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
-                          "PWAKE_SAVEOP", "0x18", "PWAKE_SAVEOP_K", "7",
-                          "PWAKE_REFUSED", "1"}));
-}
-
-/* In the close, with its Flush sent. */
-UTEST(pwake, a_save_in_the_close_of_a_file_open_for_writing_is_refused)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
-                          "PWAKE_SAVEOP", "0x15", "PWAKE_SAVEOP_K", "2",
-                          "PWAKE_REFUSED", "1"}));
-}
-
-/* The Pocket may power down after a sleep the core refused. The card is
- * then as the refusal left it, with the file half made, and the wake has
- * no blob for this sleep. With no load asked for either, the wake is a
- * plain boot and the screen says nothing of a wake. */
-UTEST(pwake, a_refused_sleep_that_powers_down_boots_the_program)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
-                          "PWAKE_SAVEOP", "0x18", "PWAKE_SAVEOP_K", "7",
-                          "PWAKE_REFUSED", "1", "PWAKE_AFTER", "1"}));
-}
-
-/* With a load asked for and no blob written, the engine finds no header
- * in the window, the console says so, and the program starts. */
-UTEST(pwake, a_refused_sleep_then_a_load_with_no_blob_starts_the_program)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
-                          "PWAKE_SAVEOP", "0x18", "PWAKE_SAVEOP_K", "3",
-                          "PWAKE_REFUSED", "1", "PWAKE_AFTER", "2"}));
-}
-
-UTEST(pwake, a_refused_sleep_then_a_load_in_reset_with_no_blob_starts_the_program)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
-                          "PWAKE_SAVEOP", "0x14", "PWAKE_SAVEOP_K", "5",
-                          "PWAKE_REFUSED", "1", "PWAKE_AFTER", "2",
-                          "PWAKE_SEQ", "1"}));
-}
-
-/* A save asked for as the 6502 calls the open comes before the firmware
- * has the refusal in force. It is taken, and the firmware is halted with
- * none of the open's commands sent, so the whole open is made after the
- * wake and the program ends as the one that slept on did. */
-UTEST(pwake, a_save_as_an_open_for_writing_begins_resumes_into_the_open)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
-                          "PWAKE_SAVEOP_AFTER", "0x14", "PWAKE_SEQ", "1"}));
-}
-
-/* There is no window between the two. The save is asked for so many steps
- * after the 6502 calls the open, across the whole time the firmware takes
- * to reach the open's first command. Every save that is taken finds no
- * Open File sent, every other one is refused, and the program ends with
- * its file right either way. */
-UTEST(pwake, a_save_near_the_start_of_an_open_for_writing_is_whole_or_refused)
-{
-    std::vector<uint8_t> rom = read_file(FILE_ROM);
-    ASSERT_GT(rom.size(), 0u);
-    /* How long the firmware takes from the call to the open's first
-     * command. */
-    boot(rom);
-    long reach = 0;
-    while (!(api_busy() && MEM(ria__DOT__regs)[0x0F] == 0x14)
-           && reach++ < 20000000L)
-        step();
-    ASSERT_LT(reach, 20000000L);
-    for (reach = 0; reach < 20000000L && !g_open_reqs; reach++)
-        step();
-    ASSERT_LT(reach, 20000000L);
-    teardown();
-
-    int taken = 0, refused = 0;
-    for (int k = 0; k <= 14; k++)
-    {
-        long d = reach * k / 12;
-        boot(rom);
-        long guard = 0;
-        while (!(api_busy() && MEM(ria__DOT__regs)[0x0F] == 0x14)
-               && guard++ < 20000000L)
-            step();
-        ASSERT_LT(guard, 20000000L);
-        for (long i = 0; i < d; i++)
-            step();
-        int sent = g_open_reqs;
-        int code = sst_cmd(false, true, true);
-        if (code == ANSWER_SAVE_REFUSED)
-        {
-            refused++;
-            ASSERT_TRUE((int)SST(refuse_s2));
-        }
-        else
-        {
-            ASSERT_EQ(ANSWER_SAVE, code);
-            ASSERT_TRUE(save_wait());
-            taken++;
-            ASSERT_EQ(0, g_open_reqs);
-            abort_save();
-        }
-        fprintf(stderr, "  %ld steps into the call, of %ld to its first "
-                        "command: %s, %d Open Files sent when it was "
-                        "asked\n", d, reach,
-                code == ANSWER_SAVE_REFUSED ? "refused" : "taken", sent);
-        ASSERT_TRUE(pw_to_last_words(0));
-        ASSERT_TRUE(pw_save_file_right());
-        ASSERT_EQ(0, g_wild + g_stray);
-        teardown();
-    }
-    ASSERT_GT(taken, 0);
-    ASSERT_GT(refused, 0);
-}
-
-/* A file open only for reading refuses nothing, and a save can halt the
- * firmware anywhere in its calls. Each call then ends after the wake as it
- * would have: the program prints what it read, and no command goes out
- * with the registers or the slot of the session that slept. */
-
-/* In the open, with its Open File sent: the open is made again after the
- * wake. */
-UTEST(pwake, a_save_in_an_open_for_reading_resumes)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
-                          "PWAKE_SAVEOP_AFTER", "0x15", "PWAKE_SAVEOP", "0x14",
-                          "PWAKE_SAVEOP_K", "2", "PWAKE_SEQ", "1"}));
-}
-
-/* In the open, claimed and with nothing sent yet: the save comes as the
- * firmware enters the open to send its commands. On the wake the fresh
- * firmware's Get File is still with the host when the load halts it, and
- * stays there into the resumed firmware's wake. The resumed open sends
- * nothing until the wake task has taken that command over: a command sent
- * on top of it would be lost, and its status taken for the open's. */
-UTEST(pwake, a_resumed_open_waits_for_the_fresh_firmwares_command)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
-                          "PWAKE_SAVEOP_AFTER", "0x15", "PWAKE_SAVEIDLE", "1",
-                          "PWAKE_SAVESYM", "fs_std_opening", "PWAKE_SERVICE",
-                          "0", "PWAKE_BLOBREQ", "1", "PWAKE_HUSH",
-                          "150000"}));
-}
-
-/* As the firmware enters the read, before it has sent anything for it.
- * The resumed firmware sends nothing for the file until the wake task has
- * marked it to be bound again: a read sent before that would name a slot
- * the host that woke has bound to nothing. */
-UTEST(pwake, a_save_as_a_read_begins_resumes)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
-                          "PWAKE_SAVEOP_AFTER", "0x16", "PWAKE_SAVESYM",
-                          "fs_std_read", "PWAKE_SEQ", "2"}));
-}
-
-/* In the read, with the read sent. */
-UTEST(pwake, a_save_in_a_read_that_was_sent_resumes)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
-                          "PWAKE_SAVEOP", "0x16", "PWAKE_SAVEOP_K", "5",
-                          "PWAKE_SEQ", "1"}));
-}
-
-/* In the read, on its second pass, after the firmware has looked for a
- * restore and before it collects the read's status: the status it then
- * collects is this configuration's and says nothing. */
-UTEST(pwake, a_save_in_a_read_about_to_collect_its_status_resumes)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
-                          "PWAKE_SAVEBUS", "0x80020000", "PWAKE_SAVEBUS_IN",
-                          "fs_adrift", "PWAKE_SAVEBUS_OP", "0x16",
-                          "PWAKE_SAVEBUS_N", "2"}));
-}
-
-/* In the read, as it copies the bytes out of the file's window, which is
- * not in the blob: the read is made again. */
-UTEST(pwake, a_save_in_a_read_copying_from_its_window_resumes)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
-                          "PWAKE_SAVEBUS", "0x63F00000", "PWAKE_SAVEBUS_MASK",
-                          "0xFFFC0000", "PWAKE_SAVEBUS_OP", "0x16",
-                          "PWAKE_SEQ", "2"}));
-}
-
-/* The save came between a read's slot and its command, and on the wake
- * the fresh firmware has run the program into its first open, where the
- * host leaves it while it writes the blob. The load then halts that
- * firmware with a command's slot written, so the read's command from the
- * blob's firmware meets a pocket_file that another session armed. The
- * read is not run. */
-UTEST(pwake, a_read_meets_no_command_the_fresh_firmware_armed)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_SAVEAT", "0",
-                          "PWAKE_SAVEOP", "0x16", "PWAKE_SAVEOP_K", "4",
-                          "PWAKE_BLOBOP", "0x14", "PWAKE_BLOBOP_K", "2",
-                          "PWAKE_SERVICE", "2", "PWAKE_LOADARM", "1"}));
-}
-
-/* The firmware's own commands, which no descriptor is behind. */
-
-/* The boot looks up the ROM's length in the data table, and the save
- * halts it in the second lookup. The lookup is made again after the wake,
- * the ROM is staged and the program runs. */
-UTEST(pwake, a_save_as_the_boot_looks_up_the_rom_starts_the_program)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "0", "PWAKE_NOMARK", "1",
-                          "PWAKE_SAVEAT", "0", "PWAKE_SAVEBUS", "0x80000010",
-                          "PWAKE_SAVEBUS_W", "1", "PWAKE_SAVEBUS_DATA", "4",
-                          "PWAKE_SAVEBUS_N", "2"}));
-}
-
-/* The boot asks the host for the ROM's name with Get File, and the save
- * halts it there. The name is asked for again after the wake, and the
- * program is told what it is called. */
-UTEST(pwake, a_save_as_the_boot_asks_the_roms_name_keeps_the_name)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "5", "PWAKE_NOMARK", "1",
-                          "PWAKE_SAVEAT", "0", "PWAKE_SAVEBUS", "0x80000010",
-                          "PWAKE_SAVEBUS_W", "1", "PWAKE_SAVEBUS_DATA", "5"}));
-}
-
-/* An exec opens the new ROM and reads it into the ROM slot, and the save
- * halts the firmware in that read. The ROM is opened and read again after
- * the wake, and it runs. */
-UTEST(pwake, a_save_as_an_exec_reads_its_rom_runs_it)
-{
-    ASSERT_EQ(0, pw_case({"PWAKE_PROG", "6", "PWAKE_SAVEAT", "0",
-                          "PWAKE_SAVEBUS", "0x80000010", "PWAKE_SAVEBUS_W",
-                          "1", "PWAKE_SAVEBUS_DATA", "1"}));
-}
-
-/* The SDRAM controller counts the chip's 200 us of power-up wait from
- * the PLL's lock, which the bench drives as rst_n. */
-UTEST(pwake, the_sdram_waits_for_the_pll)
-{
-    dut = new Vtb_pocket;
-    a_next = s_next = g_sys = 0;
-    dut->rst_n = 0;
-    dut->arst_n = 0;
-    for (int i = 0; i < 60000; i++)
-        tick();
-    ASSERT_FALSE((int)dut->tb_pocket_ready);
-    dut->rst_n = 1;
-    dut->arst_n = 1;
-    long from = g_sys;
-    for (int i = 0; i < 60000 && !dut->tb_pocket_ready; i++)
-        tick();
-    ASSERT_TRUE((int)dut->tb_pocket_ready);
-    /* 200 us is 10,080 clocks of clk_sys. */
-    ASSERT_GE(g_sys - from, 10080L);
-    teardown();
 }

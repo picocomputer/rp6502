@@ -66,11 +66,6 @@ void main_restored(void)
     MMIO_SLOT = 0;
 }
 
-void main_restage(void)
-{
-    main_restaging = true;
-}
-
 static void main_stage(void)
 {
     rom_assets_reset();

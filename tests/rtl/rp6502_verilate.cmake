@@ -74,7 +74,7 @@ function(rp6502_add_module_test name)
 endfunction()
 
 function(rp6502_add_machine_test name)
-    cmake_parse_arguments(M "TRACE;FIRMWARE;SPLIT" "TOP;PREFIX;TIMEOUT"
+    cmake_parse_arguments(M "TRACE;FIRMWARE;SPLIT;SAVABLE" "TOP;PREFIX;TIMEOUT"
         "SOURCES;DEFS;RTL;DEPENDS" ${ARGN})
     if(NOT M_SOURCES)
         set(M_SOURCES test_${name}.cpp)
@@ -114,12 +114,18 @@ function(rp6502_add_machine_test name)
     if(M_TRACE)
         set(_trace TRACE)
     endif()
+    # A savable model can be written out and read back whole, which
+    # tb_snap.h does to start a test from a machine that has booted.
+    set(_savable)
+    if(M_SAVABLE)
+        set(_savable --savable)
+    endif()
     rp6502_model(_model
         TOP ${M_TOP}
         PREFIX ${M_PREFIX}
         RTL ${RP6502_MACHINE_SOURCES} ${M_RTL}
         ${_trace}
-        ARGS ${RP6502_RTL_VERILATOR_ARGS}
+        ARGS ${RP6502_RTL_VERILATOR_ARGS} ${_savable}
         INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
         DEPENDS rp6502_gen_assets)
     target_link_libraries(test_${name} PRIVATE ${_model})

@@ -708,6 +708,13 @@ static int fs_open_slot_as(int d, uint8_t flags, api_errno *err)
     return d;
 }
 
+/* An open changes the card when it leaves a descriptor that writes or may
+ * create its file. */
+static bool fs_changes(uint8_t flags)
+{
+    return (flags & (FS_WR | FS_CREAT)) != 0;
+}
+
 /* An open claims its descriptor here and sends nothing. fs_std_opening
  * runs its commands. */
 static int fs_open_card(const char *path, const char *root, uint8_t flags,
@@ -738,14 +745,10 @@ static int fs_open_card(const char *path, const char *root, uint8_t flags,
     }
     fs_pool[d].flags = flags;
     fs_pool[d].opening = true;
+    /* A file is open for writing from the moment it is asked for. */
+    if (fs_changes(flags))
+        SST_REFUSE = 1;
     return d;
-}
-
-/* An open changes the card when it leaves a descriptor that writes or may
- * create its file. */
-static bool fs_changes(uint8_t flags)
-{
-    return (flags & (FS_WR | FS_CREAT)) != 0;
 }
 
 bool fs_changing(void)
@@ -758,21 +761,23 @@ bool fs_changing(void)
 
 /* No open sends a command while a restore is open, because the session the
  * restore replaced can have left one in flight, which fs_restore takes over
- * first. An open that changes the card also waits for SST_REFUSING, which
- * wake_task raises for it, so no save lands in its commands and none
- * follows while its file is open for writing. Any other open can be saved
- * in the middle, and runs its commands again in the session that woke. */
+ * first. An open that changes the card sends nothing until the bitstream
+ * refuses savestates, which takes a few clocks to cross. Any other open can
+ * be saved in the middle, and runs its commands again in the session that
+ * woke. The refusal is read before the restore is looked for, so a restore
+ * that lands between the two is seen. */
 std_rw_result fs_std_opening(int desc, api_errno *err)
 {
     if (!fs_pool[desc].opening)
         return STD_OK;
+    uint8_t flags = fs_pool[desc].flags;
+    bool refusing = (SST_REFUSE & SST_REFUSING) != 0;
     if (fs_adrift())
         return STD_PENDING;
-    uint8_t flags = fs_pool[desc].flags;
     int got;
     if (fs_changes(flags))
     {
-        if (!(SST_REFUSE & SST_REFUSING))
+        if (!refusing)
             return STD_PENDING;
         got = fs_open_slot_as(desc, flags, err);
     }

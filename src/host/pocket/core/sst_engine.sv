@@ -188,7 +188,11 @@ module sst_engine #(
     localparam logic [31:0] SST_VERSION = pocket_version_pkg::SST_VERSION;
     /* The firmware's build stamp is this word of the ROM block, which
      * crt0.S places. A blob carries it in the header's fourth word, and a
-     * load takes only a blob made by the firmware that is loaded. */
+     * load takes only a blob made by the firmware that is loaded. The two
+     * words after it are the register layout and savestate versions the
+     * firmware was built for, and a load takes no blob while they differ
+     * from this bitstream's, because a load runs that firmware without its
+     * own check at the reset vector. */
     localparam int STAMP_WORD = 1;
 
     /* The audio region's flop words, written in the second pass. */
@@ -395,6 +399,7 @@ module sst_engine #(
     logic line_valid, line_pend;
     logic flush, empty;
     logic [31:0] stamp;
+    logic fw_match;
     always_comb ram_line = LINE_AW'(ROM_WORDS / 4)
         + LINE_AW'(off_q[RAM_AW-1:2]);
     logic [17:0] off_q;
@@ -834,7 +839,8 @@ module sst_engine #(
                         || (ld_idx == 18'(B_HDR + 1) && ld_word != SST_VERSION)
                         || (ld_idx == 18'(B_HDR + 2)
                             && ld_word != (32'(W_TOTAL) << 2))
-                        || (ld_idx == 18'(B_HDR + 3) && ld_word != stamp)
+                        || (ld_idx == 18'(B_HDR + 3)
+                            && (ld_word != stamp || !fw_match))
                         || (ld_idx == 18'(B_END) && ld_word != vsum)
                         || (ld_idx == 18'(B_END + 1)
                             && ld_word != 32'(W_TOTAL))
@@ -959,6 +965,10 @@ module sst_engine #(
                 else if (line_done) begin
                     line_pend <= 1'b0;
                     stamp <= line_rdata[32 * (STAMP_WORD % 4) +: 32];
+                    fw_match <= line_rdata[32 * (STAMP_WORD % 4 + 1) +: 32]
+                            == pocket_version_pkg::REG_VERSION
+                        && line_rdata[32 * (STAMP_WORD % 4 + 2) +: 32]
+                            == SST_VERSION;
                     state <= ld_verify ? S_LD_FETCH : S_READY;
                 end
 

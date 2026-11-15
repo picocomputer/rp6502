@@ -25,8 +25,6 @@
  * answer before it sends Reset Exit. Such a load answers ok at once and
  * keeps answering ok. The request is kept, the engine performs it when
  * the reset is released, and the firmware reads how it went in SST_CTL.
- * A blob the engine then refuses leaves a machine that starts its
- * program over, which is a machine the host can go on with.
  *
  * A request that arrives while a load is with the engine or the
  * firmware is acknowledged and answered with that load's status, and
@@ -96,12 +94,9 @@ module pocket_sst #(
      * save in progress, and no save begins from then until the firmware
      * writes it clear. */
     localparam logic [1:0] REG_REFUSE = 2'd1;
-    /* What a write to REG_CTL does, a bit each. CTL_DONE ends the load the
-     * firmware has finished with, CTL_SEEN drops a blob no load was asked
-     * for, and CTL_WRITING clears the mark a blob write leaves. */
+    /* A write to REG_CTL with CTL_DONE set ends the load the firmware has
+     * finished with. */
     localparam int CTL_DONE = 0;
-    localparam int CTL_SEEN = 1;
-    localparam int CTL_WRITING = 6;
 
     logic in_window, rd_edge;
     logic [17:0] rd_idx;
@@ -142,10 +137,6 @@ module pocket_sst #(
      * load_early marks a load asked for in reset. */
     logic load_act, load_fin, load_early, load_ok, load_bad;
     logic load_t;
-    /* wr_t toggles on every write into the window. unasked_q is a blob
-     * in the window that no load has been asked for. */
-    logic wr_t, unasked_q;
-    (* preserve *) logic drop_s1, drop_s2, drop_s3;
 
     always_comb begin
         pocket_sst_start_ack = savestate_start && start_q;
@@ -187,11 +178,6 @@ module pocket_sst #(
             load_ok <= 1'b0;
             load_bad <= 1'b0;
             load_t <= 1'b0;
-            wr_t <= 1'b0;
-            unasked_q <= 1'b0;
-            drop_s1 <= 1'b0;
-            drop_s2 <= 1'b0;
-            drop_s3 <= 1'b0;
             refuse_s1 <= 1'b0;
             refuse_s2 <= 1'b0;
             held <= 1'b0;
@@ -211,10 +197,6 @@ module pocket_sst #(
             ldone_s2 <= ldone_s1;
             lerr_s1 <= sst_load_err;
             lerr_s2 <= lerr_s1;
-            drop_s1 <= drop_t;
-            drop_s2 <= drop_s1;
-            drop_s3 <= drop_s2;
-            unasked_q <= blob_seen && !load_act;
 
             /* sst_engine keeps rvalid high for the previous request at
              * least until the new one has crossed into its clock domain,
@@ -252,10 +234,7 @@ module pocket_sst #(
              * sends the load command, so either is the first sign of a
              * restore. The firmware reads blob_seen as a restore to wait
              * for, so it is cleared when the engine has finished the
-             * load, or by the firmware when no load has been asked for.
-             * The firmware's drop comes first here, so a blob written or
-             * a load asked for on its clock is kept. */
-            if (drop_s2 != drop_s3 && !load_act) blob_seen <= 1'b0;
+             * load. */
             if (load_act && ldone_s2 && !load_fin) begin
                 load_fin <= 1'b1;
                 blob_seen <= 1'b0;
@@ -272,10 +251,7 @@ module pocket_sst #(
                 load_fin <= 1'b0;
                 blob_seen <= 1'b0;
             end
-            if (blob_hit) begin
-                blob_seen <= 1'b1;
-                wr_t <= !wr_t;
-            end
+            if (blob_hit) blob_seen <= 1'b1;
 
             if (start_hold && ready_s2) start_done <= 1'b1;
 
@@ -310,13 +286,10 @@ module pocket_sst #(
     end
 
     logic load_req;
-    logic drop_t, writing;
     (* preserve *) logic load_s1, load_s2, load_s3;
     (* preserve *) logic seen_s1, seen_s2;
     (* preserve *) logic under_s1, under_s2;
     (* preserve *) logic early_s1, early_s2;
-    (* preserve *) logic unasked_s1, unasked_s2;
-    (* preserve *) logic wr_s1, wr_s2, wr_s3;
     /* refuse_want is what the firmware last wrote. refuse_req, which
      * crosses, takes it only once the value before has come back in
      * echo, so no two changes are on their way at once and an echo that
@@ -328,8 +301,6 @@ module pocket_sst #(
     initial begin
         pocket_sst_rdata = '0;
         load_req = 1'b0;
-        drop_t = 1'b0;
-        writing = 1'b0;
         load_s1 = 1'b0;
         load_s2 = 1'b0;
         load_s3 = 1'b0;
@@ -339,11 +310,6 @@ module pocket_sst #(
         under_s2 = 1'b0;
         early_s1 = 1'b0;
         early_s2 = 1'b0;
-        unasked_s1 = 1'b0;
-        unasked_s2 = 1'b0;
-        wr_s1 = 1'b0;
-        wr_s2 = 1'b0;
-        wr_s3 = 1'b0;
         refuse_want = 1'b0;
         refuse_req = 1'b0;
         echo_s1 = 1'b0;
@@ -375,11 +341,6 @@ module pocket_sst #(
         under_s2 <= under_s1;
         early_s1 <= load_early;
         early_s2 <= early_s1;
-        unasked_s1 <= unasked_q;
-        unasked_s2 <= unasked_s1;
-        wr_s1 <= wr_t;
-        wr_s2 <= wr_s1;
-        wr_s3 <= wr_s2;
         echo_s1 <= refuse_s2;
         echo_s2 <= echo_s1;
         echo_s3 <= echo_s2;
@@ -389,20 +350,18 @@ module pocket_sst #(
         if (stb && we && addr[3:2] == REG_REFUSE) refuse_want <= wdata[0];
         if (echo_s2 == refuse_req) refuse_req <= refuse_want;
 
-        if (ctl_we && wdata[CTL_DONE]) load_req <= 1'b0;
-        if (ctl_we && wdata[CTL_SEEN]) drop_t <= !drop_t;
-        if (ctl_we && wdata[CTL_WRITING]) writing <= 1'b0;
+        /* A refused load restored nothing, so it ends by itself. A stopped
+         * firmware never writes CTL_DONE, and the engine would wait on it
+         * for good. sst_load_err stays set until the next load, so the
+         * firmware still reads the refusal. */
+        if ((ctl_we && wdata[CTL_DONE]) || (sst_load_done && sst_load_err))
+            load_req <= 1'b0;
 
-        /* These come after the clears, so a load request or a blob write
-         * that arrives in the same cycle as the firmware's clear is
-         * kept. load_req has no reset: a load asked for in reset is
-         * still here when the engine leaves it. */
+        /* This comes after the clear, so a load request that arrives in
+         * the same cycle as the firmware's clear is kept. load_req has no
+         * reset: a load asked for in reset is still here when the engine
+         * leaves it. */
         if (load_s2 != load_s3) load_req <= 1'b1;
-        if (wr_s2 != wr_s3) writing <= 1'b1;
-        /* A blob with no load asked for reads as written on the clock it
-         * first reads as unasked, so the firmware never sees it unasked
-         * and at rest before it has seen it arrive. */
-        if (unasked_s1 && !unasked_s2) writing <= 1'b1;
 
         /* A read of bit 0 returns sst_load_done and not load_req, so the
          * firmware reads it as set only after sst_engine has finished the
@@ -411,8 +370,7 @@ module pocket_sst #(
         if (stb)
             case (addr[3:2])
                 REG_CTL: pocket_sst_rdata <=
-                    {21'd0, sst_load_why, 1'b0, writing, unasked_s2,
-                     early_s2, sst_load_err, under_s2, seen_s2, sst_load_done};
+                    {21'd0, sst_load_why, 3'd0, early_s2, sst_load_err, under_s2, seen_s2, sst_load_done};
                 REG_REFUSE: pocket_sst_rdata <= {31'd0, refusing};
                 default: pocket_sst_rdata <= 32'd0;
             endcase
@@ -421,7 +379,7 @@ module pocket_sst #(
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_pocket_sst;
     always_comb unused_pocket_sst = we ^ (^addr[27:4]) ^ (^addr[1:0])
-        ^ (^wdata[31:7]) ^ (^wdata[5:2]) ^ (^bridge_addr[1:0]) ^ ready_s1
+        ^ (^wdata[31:1]) ^ (^bridge_addr[1:0]) ^ ready_s1
         ^ (^BLOB_BASE[18:0]) ^ (^BLOB_WINDOW);
     /* verilator lint_on UNUSEDSIGNAL */
 

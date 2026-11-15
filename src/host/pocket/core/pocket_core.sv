@@ -5,8 +5,7 @@
  */
 
 module pocket_core
-    import mem_pkg::*;
-    import pocket_version_pkg::*;
+    import mem_pkg::*, pocket_version_pkg::*;
 (
     output logic pocket_core_stop_req,
     input logic mach_running,

@@ -90,12 +90,7 @@
  *
  * SST_BLOB_SEEN is set by a bridge write into the blob window or by the
  * host's load command, and clears when the load finishes. While it is
- * set a wake is on its way. SST_BLOB_UNASKED is set beside it until the
- * load command comes. SST_BLOB_WRITING is set by every write into the
- * window and cleared by writing it to SST_CTL, so it tells a blob still
- * arriving from one the host has left. It reads set whenever
- * SST_BLOB_UNASKED first does. Writing SST_BLOB_SEEN to SST_CTL drops a
- * blob that no load was asked for.
+ * set a wake is on its way.
  *
  * SST_LOAD_EARLY is set when the last load command came while the host
  * held the core in reset. */
@@ -106,8 +101,6 @@
 #define SST_UNDERRUN 0x04u
 #define SST_RESTORE_ERR 0x08u
 #define SST_LOAD_EARLY 0x10u
-#define SST_BLOB_UNASKED 0x20u
-#define SST_BLOB_WRITING 0x40u
 #define SST_WHY(ctl) (((ctl) >> 8) & 7u)
 #define SST_WHY_NO_BLOB 1u
 #define SST_WHY_VERSION 2u
