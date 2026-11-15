@@ -110,6 +110,15 @@ and the Pocket don't drive or report keyboard LEDs yet, so that host work
 comes first. Deferred until then.
 
 The same host work covers NumLock: Sokol reports none, so its keypad always
-acts as with NumLock off. The emulator script's `key kpN` always types with
-NumLock on, so a script reaches NumLock off only through Shift, and never
-with Shift as a modifier.
+acts as with NumLock off.
+
+The emulator script is part of this. Its `lock num|caps|scroll` toggles a
+lock, but `key` does not look at the locks: it always types with NumLock on
+and takes Caps Lock from nowhere. To do with the LEDs:
+
+- **`key` follows the locks.** NumLock and Caps Lock as `lock` left them
+  decide what a key types, as on the RIA, so a script reaches the keypad with
+  NumLock off, and Shift there is a modifier.
+- **A script sets a lock** on or off, not only toggles it.
+- **A script reads the LEDs**, the three locks and what DECLL lit, to check
+  them the way it checks the screen.
