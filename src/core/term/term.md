@@ -62,17 +62,32 @@ except libretro in part.
 The terminal's LED command, DECLL (`CSI Ps q`), stays ignored. It lights a
 lamp without changing a lock, which no emulator can do.
 
-### What each emulator can read
+### Who owns each lock and its light
 
-| Emulator | From the operating system | Its own, toggled by the key |
-|---|---|---|
-| Windows | Num, Caps, Scroll | |
-| Linux | Num, Caps | Scroll |
-| macOS | Caps | Num, Scroll |
-| Web | Num, Caps, Scroll when a key is pressed; Safari only Caps | on Safari, Num and Scroll |
-| libretro | what the frontend sends in key events | all three, when the frontend sends none |
+"Us" is the machine's own keyboard code: a press of the lock key flips the
+lock. "The system" is the operating system the emulator runs on: it flips
+the lock and lights the LED, and the emulator reads the lock from it.
 
-A lock of its own starts with NumLock on and the others off.
+| Machine | Lock | Who owns the lock | Who lights the LED |
+|---|---|---|---|
+| Pico, USB and Bluetooth | all three | us | us. Works today. |
+| Pocket | all three | us. Works today. | nobody. The Pocket has no known way to reach the dock keyboard. |
+| Windows | all three | the system | the system |
+| Linux | Num, Caps | the system | the system |
+| Linux | Scroll | us. Linux has no Scroll Lock to read. | nobody |
+| macOS | Caps | the system | the system |
+| macOS | Num, Scroll | us. A Mac has neither. | nobody |
+| Web | all three | the system, read when a key is pressed | the system |
+| Web on Safari | Num, Scroll | us. Safari reports only Caps. | the system, for its own lock |
+| libretro | all three | the frontend, when it sends them | the system |
+| libretro, frontend sends none | all three | us | the system, for its own lock |
+
+A lock of ours on an emulator starts with NumLock on and the others off. No
+emulator lights an LED: the few that could would change the lock for the
+whole computer or work on one kind of Linux desktop only. So where the lock
+is ours and the system has one too (Safari, a libretro frontend that sends
+none), the keyboard's light shows the system's lock and can disagree with
+ours.
 
 ### Plan
 
