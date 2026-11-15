@@ -60,19 +60,32 @@ microsecond.
 
 Timing after the last fit: setup 0.78 ns to spare, hold 0.115 ns.
 
+## The SDRAM's map
+
+The ROM slot is 62 MB and stays 62 MB: a whole ROM has to load into it, so
+its size is a limit of the system. The top 2 MB is ours, for the CPU's
+memory, the savestate window, the file windows and the card files. Nothing
+may take from the ROM slot again, and the map's gate checks it.
+
+Today the ROM slot is 62.75 MB and the CPU's memory sits in what was its
+top 256 KB, because the last megabyte had only 48 KB free. Step 2 below
+moves it.
+
 ## Next
 
 1. **An underscore in front of the four card files**, so they sort apart
    from the ROMs in `Assets/rp6502/common`: `_firmware.bin`, `_fonts.bin`,
    `_oemcp.bin`, `_keyboard.bin`.
-2. **The cache's shape.** Measure 8 KB 2-way, 4 KB 4-way and 4 KB 2-way
+2. **The map.** The ROM slot ends at 62 MB, the CPU's memory moves into the
+   top 2 MB, and the gate holds the ROM slot at 62 MB.
+3. **The cache's shape.** Measure 8 KB 2-way, 4 KB 4-way and 4 KB 2-way
    against the 8 KB 4-way it has.
-3. **A smaller savestate.** Either 128 KB of memory instead of 256 KB, or
+4. **A smaller savestate.** Either 128 KB of memory instead of 256 KB, or
    keep 256 KB and leave the code out of the blob: code never changes and
    a wake loads `firmware.bin` again, so only data, heap and stack need
    saving. The second needs the blob to carry the firmware's build, and a
    wake to refuse a blob from another build.
-4. **The soft CPU at 50.4 MHz again.** It runs at 25.2 MHz because the
+5. **The soft CPU at 50.4 MHz again.** It runs at 25.2 MHz because the
    fitter could not close timing into the CPU's registers, and it was
    close. With 86 blocks free the fitter has room. The cache's hit path is
    longer than the block memory's was, which works against it.
