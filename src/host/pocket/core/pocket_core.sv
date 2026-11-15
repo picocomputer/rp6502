@@ -176,6 +176,9 @@ input logic clk_vid,
     logic stage_stall;
     always_comb stage_stall = stage_pend && !stage_rvalid;
 
+    logic [127:0] line_rdata;
+    logic line_done;
+
     pocket_sdram sdram (
         .clk(clk_sys),
         .rd_pend(stage_pend),
@@ -186,6 +189,12 @@ input logic clk_vid,
         .w_addr(w_addr),
         .w_data(w_data),
         .pocket_sdram_wtake(w_take),
+        .line_pend(1'b0),
+        .line_we(1'b0),
+        .line_addr('0),
+        .line_wdata('0),
+        .pocket_sdram_line_rdata(line_rdata),
+        .pocket_sdram_line_done(line_done),
         .pocket_sdram_ready(pocket_core_ready),
         .dram_cke(dram_cke),
         .dram_a(dram_a),
@@ -484,7 +493,8 @@ input logic clk_vid,
     always_comb unused_pocket_core_key = key_pending;
     logic unused_pocket_core;
     always_comb unused_pocket_core = ^{rx_taken, rv_exit_code, scanline,
-                                       stage_addr[27:26], stage_addr[0]};
+                                       stage_addr[27:26], stage_addr[0],
+                                       line_rdata, line_done};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

@@ -7,6 +7,18 @@
  * engine, never the 6502, and the floor they need is full-speed USB,
  * 1.5 MB/s. An access is ten clocks and more, so a clock spent here to
  * take arithmetic off a path costs nothing that matters.
+ *
+ * There are three clients. The read client and the write client move
+ * one 16-bit word. The line client moves a line, eight words that
+ * share a row: line_addr is the word address without its low three
+ * bits, and bits [16k+15:16k] of the line are word k. A line is eight
+ * READs or eight WRITEs on eight clocks, with the chip still at a
+ * burst length of one.
+ *
+ * line_pend stays high, with line_we, line_addr and line_wdata stable,
+ * until pocket_sdram_line_done rises. pocket_sdram_line_done falls
+ * after line_pend does. pocket_sdram_line_rdata holds a line that was
+ * read until the next line is taken.
  */
 
 module pocket_sdram #(
@@ -24,6 +36,13 @@ module pocket_sdram #(
     input logic [24:0] w_addr,
     input logic [15:0] w_data,
     output logic pocket_sdram_wtake,
+
+    input logic line_pend,
+    input logic line_we,
+    input logic [21:0] line_addr,
+    input logic [127:0] line_wdata,
+    output logic [127:0] pocket_sdram_line_rdata,
+    output logic pocket_sdram_line_done,
 
     output logic pocket_sdram_ready,
 
@@ -66,7 +85,7 @@ module pocket_sdram #(
     typedef enum logic [4:0] {
         S_BOOT, S_PALL, S_REF0, S_REF1, S_MRS, S_EMRS,
         S_IDLE, S_OPEN, S_REFRESH, S_PALL_R, S_PALL_I, S_PRE, S_ACT,
-        S_READ, S_WRITE, S_SREF_ENT, S_SREF, S_WAIT
+        S_READ, S_WRITE, S_DONE, S_SREF_ENT, S_SREF, S_WAIT
     } state_t;
     state_t state, after;
 
@@ -76,7 +95,9 @@ module pocket_sdram #(
     logic [9:0] idle_cnt;
     logic [3:0] sref_cnt;
 
+    /* For a line, op_addr[2:0] counts the eight words. */
     logic op_is_read;
+    logic op_is_line;
     logic [24:0] op_addr;
     logic [15:0] op_wdata;
 
@@ -84,7 +105,18 @@ module pocket_sdram #(
     logic held_valid;
     always_comb pocket_sdram_rvalid = held_valid && held_addr == rd_addr;
 
-    logic [3:0] rd_pipe;
+    /* The chip's clock is this clock inverted, so the chip samples a
+     * command half a clock after the clock that issues it. With CL2
+     * the data of a READ is good on the chip's second clock after the
+     * one that samples the READ, which is the falling edge two and a
+     * half clocks after its S_READ, and with reads back to back it is
+     * good at no other edge. dq_cap takes the bus on every falling
+     * edge, and rd_pipe[2] marks the clock, three after an S_READ,
+     * that takes that READ's word from dq_cap. */
+    logic [15:0] dq_cap;
+    logic [2:0] rd_pipe;
+    initial dq_cap = '0;
+    always_ff @(negedge clk) dq_cap <= dram_dq_in;
 
     logic [12:0] row_open[4];
     logic bank_active[4];
@@ -118,6 +150,7 @@ module pocket_sdram #(
         sref_cnt = '0;
         dram_cke = 1'b1;
         op_is_read = 1'b0;
+        op_is_line = 1'b0;
         op_addr = '0;
         op_wdata = '0;
         held_addr = '0;
@@ -129,6 +162,8 @@ module pocket_sdram #(
         end
         pocket_sdram_rdata = '0;
         pocket_sdram_wtake = 1'b0;
+        pocket_sdram_line_rdata = '0;
+        pocket_sdram_line_done = 1'b0;
         pocket_sdram_ready = 1'b0;
         dram_a = '0;
         dram_ba = '0;
@@ -153,12 +188,22 @@ module pocket_sdram #(
             end
         end
 
-        rd_pipe <= {rd_pipe[2:0], 1'b0};
-        if (rd_pipe[3]) begin
-            pocket_sdram_rdata <= dram_dq_in;
-            held_addr <= op_addr;
-            held_valid <= 1'b1;
+        /* A line's words arrive lowest first and shift down, so the
+         * eighth leaves word 0 in the low bits. */
+        rd_pipe <= {rd_pipe[1:0], 1'b0};
+        if (rd_pipe[2]) begin
+            if (op_is_line) begin
+                pocket_sdram_line_rdata <=
+                    {dq_cap, pocket_sdram_line_rdata[127:16]};
+            end else begin
+                pocket_sdram_rdata <= dq_cap;
+                held_addr <= op_addr;
+                held_valid <= 1'b1;
+            end
         end
+
+        if (!line_pend)
+            pocket_sdram_line_done <= 1'b0;
 
         case (state)
             S_BOOT: begin
@@ -210,11 +255,26 @@ module pocket_sdram #(
                 end else if (rd_pend && !pocket_sdram_rvalid) begin
                     idle_cnt <= '0;
                     op_is_read <= 1'b1;
+                    op_is_line <= 1'b0;
                     op_addr <= rd_addr;
+                    state <= S_OPEN;
+                end else if (line_pend && !pocket_sdram_line_done) begin
+                    idle_cnt <= '0;
+                    op_is_read <= !line_we;
+                    op_is_line <= 1'b1;
+                    op_addr <= {line_addr, 3'b000};
+                    /* A line to write waits in the register that a
+                     * line read fills, and leaves it a word a clock. */
+                    if (line_we) begin
+                        pocket_sdram_line_rdata <= line_wdata;
+                        if (held_addr[24:3] == line_addr)
+                            held_valid <= 1'b0;
+                    end
                     state <= S_OPEN;
                 end else if (w_avail) begin
                     idle_cnt <= '0;
                     op_is_read <= 1'b0;
+                    op_is_line <= 1'b0;
                     op_addr <= w_addr;
                     op_wdata <= w_data;
                     pocket_sdram_wtake <= 1'b1;
@@ -226,7 +286,7 @@ module pocket_sdram #(
                         held_valid <= 1'b0;
                     state <= S_OPEN;
                 end else begin
-                    if (!rd_pend && !w_avail)
+                    if (!rd_pend && !w_avail && !line_pend)
                         idle_cnt <= idle_cnt + 10'd1;
                     if (CLOSE_IDLE_ROWS && idle_cnt == 10'(IDLE_CLOSE)
                         && any_active)
@@ -268,7 +328,7 @@ module pocket_sdram #(
             S_SREF:
                 if (sref_cnt != 4'(SREF_MIN))
                     sref_cnt <= sref_cnt + 4'd1;
-                else if (rd_pend || w_avail) begin
+                else if (rd_pend || w_avail || line_pend) begin
                     dram_cke <= 1'b1;
                     /* Five clocks cover tXSR, 80 ns. The chip refreshes
                      * itself during self refresh, so the refresh count
@@ -288,9 +348,9 @@ module pocket_sdram #(
                 state <= S_WAIT;
             end
             /* No counter enforces tRAS, three clocks, because every
-             * ACTIVE is followed by its READ or WRITE before S_IDLE runs
-             * again, which puts at least eight clocks between an ACTIVE
-             * and any precharge. */
+             * ACTIVE is followed by its READs or WRITEs before S_IDLE
+             * runs again, which puts at least eight clocks between an
+             * ACTIVE and any precharge. */
             S_PRE: begin
                 {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b010;
                 dram_ba <= op_addr[24:23];
@@ -311,25 +371,49 @@ module pocket_sdram #(
                 state <= S_WAIT;
             end
             /* A10 low in a READ or WRITE leaves auto-precharge off, so
-             * the row stays open after the access. */
+             * the row stays open after the access.
+             *
+             * S_READ and S_WRITE run once for a word and eight times
+             * for a line. The word of a READ is taken three clocks
+             * after its S_READ, so S_DONE runs on the clock that takes
+             * the last one. The chip leaves the bus before that clock,
+             * and S_IDLE follows S_DONE, so the earliest WRITE drives
+             * the bus three clocks after the chip has left it. */
             S_READ: begin
                 {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b101;
                 dram_ba <= op_addr[24:23];
                 dram_a <= {3'b000, op_addr[9:0]};
                 rd_pipe[0] <= 1'b1;
-                wait_cnt <= 15'd3;
-                after <= S_IDLE;
-                state <= S_WAIT;
+                if (op_is_line && op_addr[2:0] != 3'd7) begin
+                    op_addr[2:0] <= op_addr[2:0] + 3'd1;
+                end else begin
+                    wait_cnt <= 15'd1;
+                    after <= S_DONE;
+                    state <= S_WAIT;
+                end
             end
             S_WRITE: begin
                 {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b100;
                 dram_ba <= op_addr[24:23];
                 dram_a <= {3'b000, op_addr[9:0]};
-                dram_dq_out <= op_wdata;
+                dram_dq_out <= op_is_line ? pocket_sdram_line_rdata[15:0]
+                                          : op_wdata;
                 dram_dq_oe <= 1'b1;
-                wait_cnt <= 15'd2; /* tWR */
-                after <= S_IDLE;
-                state <= S_WAIT;
+                if (op_is_line)
+                    pocket_sdram_line_rdata[111:0] <=
+                        pocket_sdram_line_rdata[127:16];
+                if (op_is_line && op_addr[2:0] != 3'd7) begin
+                    op_addr[2:0] <= op_addr[2:0] + 3'd1;
+                end else begin
+                    wait_cnt <= 15'd1; /* tWR, with S_DONE */
+                    after <= S_DONE;
+                    state <= S_WAIT;
+                end
+            end
+            S_DONE: begin
+                if (op_is_line)
+                    pocket_sdram_line_done <= 1'b1;
+                state <= S_IDLE;
             end
             S_WAIT: begin
                 if (wait_cnt == '0)

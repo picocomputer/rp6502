@@ -85,17 +85,13 @@ if {[get_collection_size [get_ports -nowarn {dram_clk}]] > 0} {
     set_input_delay  -clock dram_clk_pin -max  6.0 [get_ports {dram_dq[*]}]
     set_input_delay  -clock dram_clk_pin -min  2.5 [get_ports {dram_dq[*]}]
 
-    # S_READ sets rd_pipe[0], and pocket_sdram_rdata loads only when
-    # rd_pipe[3] is set, on the fourth clk_sys edge after the one that
-    # issues the READ. rd_pipe is an enable, so without this rule the
-    # analyzer times the data against the first clk_sys edge after the
-    # dram_clk_pin edge that launches it, 9.92 ns after launch, which
-    # leaves 3.92 ns after the 6.0 ns input delay. A multicycle of two
-    # leaves 23.76 ns.
-    set_multicycle_path -setup -from [get_ports {dram_dq[*]}] \
-        -to [get_registers {*pocket_sdram*pocket_sdram_rdata*}] 2
-    set_multicycle_path -hold  -from [get_ports {dram_dq[*]}] \
-        -to [get_registers {*pocket_sdram*pocket_sdram_rdata*}] 1
+    # pocket_sdram's dq_cap takes dram_dq on every falling edge of
+    # clk_sys, and nothing else is fed by the pins. The falling edge of
+    # clk_sys is the rising edge of dram_clk, so a word that one
+    # dram_clk_pin edge launches is latched on the next, a full period
+    # later: 19.84 ns, less the 6.0 ns input delay and the time dram_clk
+    # takes to reach its pad. That is the relation the analyzer uses
+    # without a multicycle rule, and none is given.
 }
 
 # pocket_sram loads pocket_sram_a and pocket_sram_dq_out for the soft

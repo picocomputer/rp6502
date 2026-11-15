@@ -18,6 +18,13 @@ module tb_psdram (
     input logic [15:0] w_data,
     output logic tb_psdram_wtake,
 
+    input logic line_pend,
+    input logic line_we,
+    input logic [21:0] line_addr,
+    input logic [127:0] line_wdata,
+    output logic [127:0] tb_psdram_line_rdata,
+    output logic tb_psdram_line_done,
+
     output logic tb_psdram_ready,
     output logic [31:0] tb_psdram_refreshes,
     output logic [31:0] tb_psdram_sref_clocks
@@ -41,6 +48,12 @@ module tb_psdram (
         .w_addr(w_addr),
         .w_data(w_data),
         .pocket_sdram_wtake(tb_psdram_wtake),
+        .line_pend(line_pend),
+        .line_we(line_we),
+        .line_addr(line_addr),
+        .line_wdata(line_wdata),
+        .pocket_sdram_line_rdata(tb_psdram_line_rdata),
+        .pocket_sdram_line_done(tb_psdram_line_done),
         .pocket_sdram_ready(tb_psdram_ready),
         .dram_cke(cke),
         .dram_a(a),
@@ -55,7 +68,7 @@ module tb_psdram (
     );
 
     sdram_model chip (
-        .clk(clk),
+        .clk(~clk),
         .rst_n(rst_n),
         .cke(cke),
         .a(a),

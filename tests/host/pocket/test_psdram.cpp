@@ -57,6 +57,78 @@ static uint16_t rd(uint32_t addr)
     return v;
 }
 
+/* A line is eight words, and word k is bits [16k+15:16k]. */
+struct line_t
+{
+    uint16_t w[8];
+};
+
+static line_t random_line()
+{
+    line_t l;
+    for (int k = 0; k < 8; k++)
+        l.w[k] = (uint16_t)rng();
+    return l;
+}
+
+static void line_start(uint32_t line, bool we, const line_t &l)
+{
+    dut->line_pend = 1;
+    dut->line_we = we;
+    dut->line_addr = line;
+    for (int k = 0; k < 8; k++)
+    {
+        uint32_t &word = dut->line_wdata[k / 2];
+        int shift = (k & 1) * 16;
+        word = (word & ~(0xFFFFu << shift)) | ((uint32_t)l.w[k] << shift);
+    }
+    dut->eval();
+}
+
+static line_t line_result()
+{
+    line_t l;
+    for (int k = 0; k < 8; k++)
+        l.w[k] = (uint16_t)(dut->tb_psdram_line_rdata[k / 2] >> ((k & 1) * 16));
+    return l;
+}
+
+/* Returns false if the line port breaks its handshake. */
+static bool line_finish()
+{
+    int guard = 0;
+    while (!dut->tb_psdram_line_done && guard++ < 2000)
+        clock_cycle();
+    if (!dut->tb_psdram_line_done)
+        return false;
+    dut->line_pend = 0;
+    clock_cycle();
+    return !dut->tb_psdram_line_done;
+}
+
+static bool line_wr(uint32_t line, const line_t &l)
+{
+    line_start(line, true, l);
+    return line_finish();
+}
+
+static bool line_rd(uint32_t line, line_t &l)
+{
+    line_start(line, false, line_t{});
+    if (!line_finish())
+        return false;
+    l = line_result();
+    return true;
+}
+
+static bool same(const line_t &a, const line_t &b)
+{
+    for (int k = 0; k < 8; k++)
+        if (a.w[k] != b.w[k])
+            return false;
+    return true;
+}
+
 UTEST(psdram, load_soak_and_refresh)
 {
     dut->rst_n = 0;
@@ -238,6 +310,452 @@ UTEST(psdram, held_read_vs_sleep)
     dut->rd_pend = 0;
     clock_cycle();
     ASSERT_TRUE(naps == 0 || (double)nap_clocks / naps >= 3.0);
+}
+
+/* The words of a line go to the addresses the word clients use, in
+ * every bank, at both ends of a row and at both ends of a bank. */
+UTEST(psdram, line_placement)
+{
+    std::map<uint32_t, line_t> ref;
+    for (uint32_t bank = 0; bank < 4; bank++)
+    {
+        const uint32_t rows[] = {0, 1, 0x0AAA, 0x1555, 8190, 8191};
+        for (uint32_t row : rows)
+        {
+            const uint32_t cols[] = {0, 1, 63, 126, 127};
+            for (uint32_t col : cols)
+                ref[bank << 20 | row << 7 | col] = random_line();
+        }
+    }
+    for (auto &e : ref)
+        ASSERT_TRUE(line_wr(e.first, e.second));
+    for (auto &e : ref)
+    {
+        line_t got;
+        ASSERT_TRUE(line_rd(e.first, got));
+        ASSERT_TRUE(same(got, e.second));
+    }
+    for (auto &e : ref)
+        for (uint32_t k = 0; k < 8; k++)
+            ASSERT_EQ(rd(e.first << 3 | k), e.second.w[k]);
+
+    /* Words written one at a time come back as a line, and the words
+     * on either side of a line are not touched by writing it. */
+    for (auto &e : ref)
+    {
+        if (rng() & 3)
+            continue;
+        uint32_t base = e.first << 3;
+        uint16_t below = 0, above = 0;
+        bool has_below = (base & 0x3FF) != 0;
+        bool has_above = (base & 0x3FF) != 0x3F8;
+        if (has_below)
+            wr(base - 1, below = (uint16_t)rng());
+        if (has_above)
+            wr(base + 8, above = (uint16_t)rng());
+        for (uint32_t k = 0; k < 8; k++)
+            wr(base + (k * 5 & 7), e.second.w[k * 5 & 7] = (uint16_t)rng());
+        line_t got;
+        ASSERT_TRUE(line_rd(e.first, got));
+        ASSERT_TRUE(same(got, e.second));
+        e.second = random_line();
+        ASSERT_TRUE(line_wr(e.first, e.second));
+        if (has_below)
+            ASSERT_EQ(rd(base - 1), below);
+        if (has_above)
+            ASSERT_EQ(rd(base + 8), above);
+        ASSERT_TRUE(line_rd(e.first, got));
+        ASSERT_TRUE(same(got, e.second));
+    }
+}
+
+/* The three clients ask at once and at random offsets from each other.
+ * The word clients stay off the lines that the line client writes and
+ * off each other's word, so the result does not depend on the order
+ * the controller picks. */
+UTEST(psdram, mixed_clients)
+{
+    const int LINES = 96;
+    uint32_t pool[LINES];
+    std::map<uint32_t, uint16_t> ref;
+    for (int i = 0; i < LINES; i++)
+    {
+        /* A third of the pool shares two rows, so rows are hit as
+         * well as missed. */
+        if (i < LINES / 3)
+            pool[i] = (i & 1 ? 0x2ABCDu << 7 : 0x00123u << 7) | (uint32_t)i;
+        else
+            pool[i] = (rng() & 0x3FFF80) | (uint32_t)i;
+        line_t l = random_line();
+        ASSERT_TRUE(line_wr(pool[i], l));
+        for (uint32_t k = 0; k < 8; k++)
+            ref[pool[i] << 3 | k] = l.w[k];
+    }
+
+    long start = g_clocks;
+    uint32_t refreshed = dut->tb_psdram_refreshes;
+    uint32_t slept = dut->tb_psdram_sref_clocks;
+    for (int trial = 0; trial < 6000; trial++)
+    {
+        int li = rng() % LINES, ri, wi;
+        do
+            ri = rng() % LINES;
+        while (ri == li);
+        do
+            wi = rng() % LINES;
+        while (wi == li || wi == ri);
+        uint32_t line = pool[li];
+        uint32_t ra = pool[ri] << 3 | (rng() & 7);
+        uint32_t wa = pool[wi] << 3 | (rng() & 7);
+        bool line_we = rng() & 1;
+        line_t l = random_line();
+        uint16_t wv = (uint16_t)rng();
+
+        uint32_t r = rng();
+        bool use_rd = r & 1, use_wr = r & 2, use_line = (r & 12) != 0;
+        int rd_at = (r >> 4) % 20, wr_at = (r >> 9) % 20;
+        int line_at = (r >> 14) % 20;
+        bool rd_done = !use_rd, wr_done = !use_wr, line_done = !use_line;
+        uint16_t rv = 0;
+        for (int t = 0; !(rd_done && wr_done && line_done); t++)
+        {
+            ASSERT_LT(t, 4000);
+            if (use_rd && t == rd_at)
+            {
+                dut->rd_pend = 1;
+                dut->rd_addr = ra;
+            }
+            if (use_wr && t == wr_at)
+            {
+                dut->w_avail = 1;
+                dut->w_addr = wa;
+                dut->w_data = wv;
+            }
+            if (use_line && t == line_at)
+                line_start(line, line_we, l);
+            dut->eval();
+            bool rvalid = dut->rd_pend && dut->tb_psdram_rvalid;
+            bool wtake = dut->tb_psdram_wtake;
+            bool ldone = dut->line_pend && dut->tb_psdram_line_done;
+            if (rvalid)
+                rv = dut->tb_psdram_rdata;
+            line_t got = line_result();
+            clock_cycle();
+            if (rvalid)
+            {
+                dut->rd_pend = 0;
+                rd_done = true;
+            }
+            if (wtake)
+            {
+                dut->w_avail = 0;
+                wr_done = true;
+            }
+            if (ldone)
+            {
+                dut->line_pend = 0;
+                line_done = true;
+                if (!line_we)
+                    for (uint32_t k = 0; k < 8; k++)
+                        ASSERT_EQ(got.w[k], ref[line << 3 | k]);
+            }
+        }
+        if (use_rd)
+            ASSERT_EQ(rv, ref[ra]);
+        if (use_wr)
+            ref[wa] = wv;
+        if (use_line && line_we)
+            for (uint32_t k = 0; k < 8; k++)
+                ref[line << 3 | k] = l.w[k];
+        /* Most trials follow the last one closely. A few leave the
+         * controller time to close its rows or to go to sleep. */
+        uint32_t gap = rng() % 64;
+        idle_for(gap == 0 ? 300 : gap == 1 ? 70 : gap < 12 ? gap : 1);
+        ASSERT_FALSE(dut->tb_psdram_line_done);
+    }
+    /* Refreshes are owed for the clocks spent awake. */
+    long awake = g_clocks - start - (long)(dut->tb_psdram_sref_clocks - slept);
+    ASSERT_GT((long)(dut->tb_psdram_refreshes - refreshed), awake / 504);
+
+    for (auto &e : ref)
+        ASSERT_EQ(rd(e.first), e.second);
+    for (int i = 0; i < LINES; i++)
+    {
+        line_t got;
+        ASSERT_TRUE(line_rd(pool[i], got));
+        for (uint32_t k = 0; k < 8; k++)
+            ASSERT_EQ(got.w[k], ref[pool[i] << 3 | k]);
+    }
+}
+
+/* Lines back to back with no other client keep the controller as busy
+ * as it can be, and the refreshes still come. */
+UTEST(psdram, line_soak_and_refresh)
+{
+    std::map<uint32_t, line_t> ref;
+    long start = g_clocks;
+    uint32_t refreshed = dut->tb_psdram_refreshes;
+    uint32_t slept = dut->tb_psdram_sref_clocks;
+    for (int i = 0; i < 6000; i++)
+    {
+        /* Bank 2, and each line is in a new row half of the time. */
+        uint32_t line = 2u << 20 | (rng() & 0x7FFu) << 3 | (rng() & 7);
+        if (rng() & 1)
+            line = 2u << 20 | 0x155u << 7 | (rng() & 127);
+        if (ref.count(line) && (rng() & 1))
+        {
+            line_start(line, false, line_t{});
+            int guard = 0;
+            while (!dut->tb_psdram_line_done && guard++ < 2000)
+                clock_cycle();
+            ASSERT_TRUE(same(line_result(), ref[line]));
+        }
+        else
+        {
+            line_start(line, true, ref[line] = random_line());
+            int guard = 0;
+            while (!dut->tb_psdram_line_done && guard++ < 2000)
+                clock_cycle();
+        }
+        /* The requester drops pend for the one clock the port asks
+         * for, then asks again. */
+        ASSERT_TRUE(dut->tb_psdram_line_done);
+        dut->line_pend = 0;
+        clock_cycle();
+        ASSERT_FALSE(dut->tb_psdram_line_done);
+    }
+    long elapsed = g_clocks - start;
+    ASSERT_EQ(dut->tb_psdram_sref_clocks, slept);
+    ASSERT_GT((long)(dut->tb_psdram_refreshes - refreshed), elapsed / 504);
+    /* A line is at most 22 clocks with a refresh in front of it. */
+    ASSERT_LT(elapsed, 6000L * 22);
+
+    for (int i = 0; i < 4000; i++)
+        clock_cycle();
+    slept = dut->tb_psdram_sref_clocks;
+    refreshed = dut->tb_psdram_refreshes;
+    for (int i = 0; i < 4000; i++)
+        clock_cycle();
+    ASSERT_EQ(dut->tb_psdram_sref_clocks - slept, 4000u);
+    ASSERT_EQ(dut->tb_psdram_refreshes, refreshed);
+
+    for (auto &e : ref)
+    {
+        line_t got;
+        ASSERT_TRUE(line_rd(e.first, got));
+        ASSERT_TRUE(same(got, e.second));
+    }
+}
+
+/* Lines that arrive after every length of idle, which meets the idle
+ * close, the refresh and the self refresh at every offset. */
+UTEST(psdram, sporadic_lines)
+{
+    const uint32_t lo = 0x000040u;  /* bank 0 */
+    const uint32_t hi = 0x3EC000u;  /* byte 0x3EC0000, bank 3 */
+    std::map<uint32_t, line_t> ref;
+    for (uint32_t i = 0; i < 12; i++)
+    {
+        ASSERT_TRUE(line_wr(lo + i * 0x81u, ref[lo + i * 0x81u] = random_line()));
+        ASSERT_TRUE(line_wr(hi + i, ref[hi + i] = random_line()));
+    }
+    for (int g = 0; g < 420; g++)
+    {
+        uint32_t i = (uint32_t)g % 12;
+        line_t got;
+        idle_for(g);
+        ASSERT_TRUE(line_rd(lo + i * 0x81u, got));
+        ASSERT_TRUE(same(got, ref[lo + i * 0x81u]));
+        idle_for(g);
+        if (g & 1)
+        {
+            ASSERT_TRUE(line_wr(hi + i, ref[hi + i] = random_line()));
+        }
+        else
+        {
+            ASSERT_TRUE(line_rd(hi + i, got));
+            ASSERT_TRUE(same(got, ref[hi + i]));
+        }
+    }
+}
+
+/* A line wakes the controller, and a self refresh that a line ends is
+ * no shorter than one that a word read ends. */
+UTEST(psdram, line_self_refresh_residency)
+{
+    line_t a = random_line(), b = random_line(), got;
+    ASSERT_TRUE(line_wr(0x000020u, a));
+    ASSERT_TRUE(line_wr(0x000120u, b));
+    int worst = 1 << 30;
+    for (int k = -8; k <= 10; k++)
+    {
+        ASSERT_TRUE(line_rd(0x000020u, got));
+        uint32_t s0 = dut->tb_psdram_sref_clocks;
+        int guard = 0;
+        while (dut->tb_psdram_sref_clocks == s0 && guard++ < 2000)
+            idle_for(1);
+        ASSERT_LT(guard, 2000);
+        if (k < 0)
+        {
+            int e = guard;
+            ASSERT_TRUE(line_rd(0x000020u, got));
+            s0 = dut->tb_psdram_sref_clocks;
+            idle_for(e + k);
+        }
+        else
+            idle_for(k);
+        if (k & 1)
+        {
+            ASSERT_TRUE(line_wr(0x000120u, b = random_line()));
+        }
+        ASSERT_TRUE(line_rd(0x000120u, got));
+        ASSERT_TRUE(same(got, b));
+        int total = (int)(dut->tb_psdram_sref_clocks - s0);
+        if (total > 0 && total < worst)
+            worst = total;
+    }
+    ASSERT_GE(worst, 3);
+    ASSERT_LT(worst, 1 << 30);
+
+    /* A line left pending after it is done keeps the controller awake,
+     * as a word read left pending does. */
+    line_start(0x000020u, false, line_t{});
+    uint32_t s0 = 0;
+    for (int i = 0; i < 3000; i++)
+    {
+        clock_cycle();
+        if (i == 100)
+        {
+            ASSERT_TRUE(dut->tb_psdram_line_done);
+            s0 = dut->tb_psdram_sref_clocks;
+        }
+    }
+    ASSERT_EQ(dut->tb_psdram_sref_clocks, s0);
+    ASSERT_TRUE(same(line_result(), a));
+    dut->line_pend = 0;
+    clock_cycle();
+}
+
+/* The word a read holds is the read client's answer for as long as it
+ * is asked for. A line read leaves it alone, a line written elsewhere
+ * leaves it alone, and a line written over it replaces it. */
+UTEST(psdram, held_read_vs_lines)
+{
+    const uint32_t line = 0x155AA5u;
+    const uint32_t other = 0x155AA6u;
+    line_t l = random_line(), o = random_line(), got;
+    ASSERT_TRUE(line_wr(line, l));
+    ASSERT_TRUE(line_wr(other, o));
+
+    for (uint32_t k = 0; k < 8; k++)
+    {
+        uint32_t a = line << 3 | k;
+        ASSERT_EQ(rd(a), l.w[k]);
+        dut->rd_pend = 1;
+        dut->rd_addr = a;
+        dut->eval();
+        ASSERT_TRUE(dut->tb_psdram_rvalid);
+
+        /* Lines read and written elsewhere, and this line read: the
+         * held word stays valid on every clock. */
+        for (int step = 0; step < 4; step++)
+        {
+            if (step == 0)
+                line_start(other, false, line_t{});
+            else if (step == 1)
+                line_start(other, true, o = random_line());
+            else if (step == 2)
+                line_start(line, false, line_t{});
+            else
+                line_start(0x2AA55Au, true, random_line());
+            int guard = 0;
+            while (!dut->tb_psdram_line_done && guard++ < 2000)
+            {
+                ASSERT_TRUE(dut->tb_psdram_rvalid);
+                ASSERT_EQ(dut->tb_psdram_rdata, l.w[k]);
+                clock_cycle();
+            }
+            ASSERT_TRUE(dut->tb_psdram_line_done);
+            ASSERT_TRUE(dut->tb_psdram_rvalid);
+            ASSERT_EQ(dut->tb_psdram_rdata, l.w[k]);
+            if (step == 0)
+                ASSERT_TRUE(same(line_result(), o));
+            if (step == 2)
+                ASSERT_TRUE(same(line_result(), l));
+            dut->line_pend = 0;
+            clock_cycle();
+        }
+
+        /* This line written: the held word is dropped as the line is
+         * taken, and the read client then answers with the new word
+         * and never again with the old one. */
+        line_t fresh = random_line();
+        fresh.w[k] = (uint16_t)~l.w[k];
+        line_start(line, true, fresh);
+        bool dropped = false;
+        int guard = 0;
+        while (!(dropped && dut->tb_psdram_rvalid) && guard++ < 2000)
+        {
+            if (!dut->tb_psdram_rvalid)
+                dropped = true;
+            if (dut->tb_psdram_line_done)
+                dut->line_pend = 0;
+            clock_cycle();
+        }
+        ASSERT_TRUE(dropped);
+        ASSERT_TRUE(dut->tb_psdram_rvalid);
+        ASSERT_EQ(dut->tb_psdram_rdata, fresh.w[k]);
+        ASSERT_FALSE(dut->line_pend);
+        dut->rd_pend = 0;
+        clock_cycle();
+        l = fresh;
+    }
+
+    /* A read and a write of its line asked for on the same clock: the
+     * read may be answered first with the old word, and once the line
+     * is done the answer is the new word. */
+    for (uint32_t k = 0; k < 8; k++)
+    {
+        uint32_t a = line << 3 | k;
+        (void)rd(other << 3);
+        line_t fresh = random_line();
+        fresh.w[k] = (uint16_t)~l.w[k];
+        dut->rd_pend = 1;
+        dut->rd_addr = a;
+        line_start(line, true, fresh);
+        int guard = 0;
+        while (!dut->tb_psdram_line_done && guard++ < 2000)
+        {
+            if (dut->tb_psdram_rvalid)
+                ASSERT_EQ(dut->tb_psdram_rdata, l.w[k]);
+            clock_cycle();
+        }
+        ASSERT_TRUE(dut->tb_psdram_line_done);
+        dut->line_pend = 0;
+        guard = 0;
+        do
+            clock_cycle();
+        while (!dut->tb_psdram_rvalid && guard++ < 2000);
+        ASSERT_EQ(dut->tb_psdram_rdata, fresh.w[k]);
+        dut->rd_pend = 0;
+        clock_cycle();
+        l = fresh;
+    }
+    ASSERT_TRUE(line_rd(line, got));
+    ASSERT_TRUE(same(got, l));
+    ASSERT_TRUE(line_rd(other, got));
+    ASSERT_TRUE(same(got, o));
+
+    /* A line that was read stays on the port while the word clients
+     * work, on this line and elsewhere. */
+    for (uint32_t k = 0; k < 8; k++)
+    {
+        wr(other << 3 | k, (uint16_t)~o.w[k]);
+        wr(0x0AA550u + k, (uint16_t)rng());
+        ASSERT_EQ(rd(other << 3 | k), (uint16_t)~o.w[k]);
+        ASSERT_EQ(rd(line << 3 | k), l.w[k]);
+        ASSERT_TRUE(same(line_result(), o));
+    }
 }
 
 UTEST_STATE();

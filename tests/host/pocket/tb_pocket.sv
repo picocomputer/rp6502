@@ -223,7 +223,7 @@ module tb_pocket (
     );
 
     sdram_model chip (
-        .clk(clk_sys),
+        .clk(~clk_sys),
         .rst_n(rst_n),
         .cke(cke),
         .a(a),
