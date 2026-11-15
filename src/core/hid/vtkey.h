@@ -51,23 +51,18 @@
  * VT52 mode, with the modifier number before the letter as xterm has it.
  * Plus and Keypad Comma are both the VT100's comma; divide and multiply have
  * xterm's letters. Otherwise the digits are their navigation keys, where
- * Keypad 5 sends nothing, the operators type their characters and Keypad
- * Comma types a comma. Keypad Enter is Enter except on the application
- * keypad. */
+ * Keypad 5 is xterm's Begin, ESC [ E, the operators type their characters
+ * and Keypad Comma types a comma. Keypad Enter is Enter, without Alt, except
+ * on the application keypad. */
 int vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t flags);
 
-/* What Ctrl makes of a character, as xterm and the Linux console make it:
- * Ctrl-@ through Ctrl-_ and Ctrl-` through Ctrl-~ are 0x00 to 0x1F, Space and
- * 2 are 0x00, 3 to 7 are ESC to 0x1F, 8 is DEL and / is 0x1F. A byte that is
- * C0 already types itself. -1 when Ctrl has nothing to say, which a ch of 0,
- * meaning no character, always gets. */
-int vtkey_ctrl(char ch);
-
 /* What a key's character sends, written with no NUL; returns the length, 0
- * for nothing. Ctrl makes the control byte and Alt puts ESC in front, where
- * a character Ctrl has nothing to say about is still typed. Ctrl alone on
- * such a character sends nothing. */
-int vtkey_char(char out[VTKEY_MAX], char ch, uint8_t flags);
+ * for no character. Ctrl makes the control byte, as xterm makes it: Ctrl-@
+ * through Ctrl-_ and Ctrl-` through Ctrl-~ are 0x00 to 0x1F, Space and 2 are
+ * 0x00, 3 to 7 are ESC to 0x1F, 8 and ? are DEL and / is 0x1F; any other
+ * character is typed as it is. Alt puts ESC in front. A keypad key's
+ * character is typed whatever Ctrl and Alt say. */
+int vtkey_char(char out[VTKEY_MAX], uint8_t usage, char ch, uint8_t flags);
 
 /* Whether a held key repeats (DECARM). A machine asks before it types a
  * repeat; the first press is always typed. */

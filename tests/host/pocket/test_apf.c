@@ -458,6 +458,8 @@ UTEST(apf, enter_tab_escape_and_backspace_ask_no_layout)
         ASSERT_TYPES(LGUI, HID_KEY_ARROW_UP, "\x1B[A");
         ASSERT_TYPES(LGUI, 0x10, "m");
         ASSERT_TYPES(LGUI | LCTRL, 0x10, "\r");
+        /* Ctrl types a character it has no control byte for. */
+        ASSERT_TYPES(LCTRL, 0x1E, "1");
         ASSERT_TYPES(LCTRL, HID_KEY_ENTER, "\r");
         ASSERT_TYPES(LCTRL, HID_KEY_BACKSPACE, "\b");
         ASSERT_TYPES(LALT, HID_KEY_ENTER, "\x1B\r");
@@ -489,7 +491,10 @@ UTEST(apf, the_keypad_follows_num_lock)
     ASSERT_TYPES(0, HID_KEY_KEYPAD_ADD, "+");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_COMMA, ",");
     ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_8, "\x1B[A");
-    ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_5, "");
+    ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_5, "\x1B[E");
+    /* A keypad key's character is typed whatever Ctrl says. */
+    ASSERT_TYPES(LCTRL, HID_KEY_KEYPAD_DIVIDE, "/");
+    ASSERT_TYPES(LCTRL, HID_KEY_KEYPAD_8, "8");
 
     ASSERT_TYPES(0, HID_KEY_NUM_LOCK, "");
     ASSERT_EQ(xram[AT_KEYBOARD] & 2, 0);
@@ -498,7 +503,9 @@ UTEST(apf, the_keypad_follows_num_lock)
     ASSERT_TYPES(0, HID_KEY_KEYPAD_1, "\x1B[F");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_0, "\x1B[2~");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_DECIMAL, "\x1B[3~");
-    ASSERT_TYPES(0, HID_KEY_KEYPAD_5, "");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_5, "\x1B[E");
+    ASSERT_TYPES(LALT, HID_KEY_KEYPAD_ADD, "+");
+    ASSERT_TYPES(LALT, HID_KEY_KEYPAD_ENTER, "\r");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_ADD, "+");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_COMMA, ",");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_ENTER, "\r");

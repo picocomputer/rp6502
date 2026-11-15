@@ -27,7 +27,7 @@ hostkey_result_t hostkey_press(uint8_t usage, uint8_t flags, char ch)
     char out[VTKEY_MAX];
     int n = vtkey_encode(out, usage, flags);
     if (n == VTKEY_CHAR)
-        n = vtkey_char(out, ch, flags);
+        n = vtkey_char(out, usage, ch, flags);
     if (!n)
         return HOSTKEY_NONE;
     manifold_keyboard_push(out, (size_t)n);

@@ -327,7 +327,7 @@ static void HOST_IN_RAM_FUNC keymap_queue_key(uint8_t modifier, uint8_t keycode,
                             oem_get_code_page_run());
         else
             flags &= (uint8_t)~VTKEY_ALT;
-        n = vtkey_char(seq, ch, flags);
+        n = vtkey_char(seq, k.keycode, ch, flags);
     }
     if (n)
         keymap_type(seq, n);

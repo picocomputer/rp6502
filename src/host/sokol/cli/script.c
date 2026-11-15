@@ -1396,8 +1396,6 @@ static bool script_command(const char *line)
                                   (alt ? VTKEY_ALT : 0) | (ctrl ? VTKEY_CTRL : 0));
         if (hostkey_press(hid, flags, ch) != HOSTKEY_NONE)
             return true;
-        if (ch && ctrl && !alt && vtkey_ctrl(ch) < 0)
-            return script_error("'%s' has no control byte", name);
         return script_error("'%s' sends nothing", name);
     }
 

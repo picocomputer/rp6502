@@ -10,10 +10,10 @@
 #include "machine.h"
 
 /* Keypad 1 to Keypad Decimal, in usage order: what they navigate to. Keypad 5
- * has no navigation key. */
+ * stays itself, the key xterm calls Begin. */
 static const uint8_t HOST_IN_RAM vtkey_keypad_nav_keys[] = {
     HID_KEY_END, HID_KEY_ARROW_DOWN, HID_KEY_PAGE_DOWN,
-    HID_KEY_ARROW_LEFT, HID_KEY_NONE, HID_KEY_ARROW_RIGHT,
+    HID_KEY_ARROW_LEFT, HID_KEY_KEYPAD_5, HID_KEY_ARROW_RIGHT,
     HID_KEY_HOME, HID_KEY_ARROW_UP, HID_KEY_PAGE_UP,
     HID_KEY_INSERT, HID_KEY_DELETE};
 
@@ -58,12 +58,50 @@ static char *HOST_IN_RAM_FUNC vtkey_number(char *out, unsigned n)
     return out;
 }
 
+static bool HOST_IN_RAM_FUNC vtkey_is_keypad(uint8_t usage)
+{
+    return (usage >= HID_KEY_KEYPAD_DIVIDE && usage <= HID_KEY_KEYPAD_DECIMAL) ||
+           usage == HID_KEY_KEYPAD_EQUAL || usage == HID_KEY_KEYPAD_COMMA;
+}
+
+/* What Ctrl makes of a character, as xterm makes it. */
+static char HOST_IN_RAM_FUNC vtkey_ctrl(char ch)
+{
+    unsigned char c = (unsigned char)ch;
+    if ((c >= '@' && c < 0x7F) || c == ' ')
+        return (char)(c & 0x1F);
+    if (c == '2')
+        return 0x00;
+    if (c >= '3' && c <= '7')
+        return (char)(c - '3' + 0x1B);
+    if (c == '8' || c == '?')
+        return 0x7F;
+    if (c == '/')
+        return 0x1F;
+    return ch;
+}
+
+int HOST_IN_RAM_FUNC vtkey_char(char out[VTKEY_MAX], uint8_t usage, char ch, uint8_t flags)
+{
+    char *p = out;
+    if (!ch)
+        return 0;
+    if (!vtkey_is_keypad(usage))
+    {
+        if (flags & VTKEY_CTRL)
+            ch = vtkey_ctrl(ch);
+        if (flags & VTKEY_ALT)
+            *p++ = '\33';
+    }
+    *p++ = ch;
+    return (int)(p - out);
+}
+
 int HOST_IN_RAM_FUNC vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t flags)
 {
     const term_t *t = &cells_term;
     char *p = out;
-    if ((usage >= HID_KEY_KEYPAD_DIVIDE && usage <= HID_KEY_KEYPAD_DECIMAL) ||
-        usage == HID_KEY_KEYPAD_EQUAL || usage == HID_KEY_KEYPAD_COMMA)
+    if (vtkey_is_keypad(usage))
     {
         /* Shift is spent on undoing NumLock, so it is not a modifier of
          * what the key then sends. */
@@ -92,17 +130,16 @@ int HOST_IN_RAM_FUNC vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t fl
             return (int)(p - out);
         }
         if (usage == HID_KEY_KEYPAD_ENTER)
+        {
             usage = HID_KEY_ENTER;
+            flags &= (uint8_t)~VTKEY_ALT;
+        }
         else if (usage == HID_KEY_KEYPAD_COMMA)
-            return vtkey_char(out, ',', flags);
+            return vtkey_char(out, usage, ',', flags);
         else if (numlock || usage < HID_KEY_KEYPAD_1 || usage > HID_KEY_KEYPAD_DECIMAL)
             return VTKEY_CHAR;
         else
-        {
             usage = vtkey_keypad_nav_keys[usage - HID_KEY_KEYPAD_1];
-            if (usage == HID_KEY_NONE)
-                return 0;
-        }
     }
     if (usage >= HID_KEY_ENTER && usage <= HID_KEY_TAB)
     {
@@ -123,10 +160,16 @@ int HOST_IN_RAM_FUNC vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t fl
             *p++ = '\n';
         return (int)(p - out);
     }
-    if (usage < HID_KEY_F1 || usage > HID_KEY_ARROW_UP)
-        return VTKEY_CHAR;
-    const char intro = vtkey_keys[usage - HID_KEY_F1].intro;
-    const uint8_t code = vtkey_keys[usage - HID_KEY_F1].code;
+    /* Begin sends ESC [ E, a cursor key in all but name. */
+    char intro = '[';
+    uint8_t code = 'E';
+    if (usage != HID_KEY_KEYPAD_5)
+    {
+        if (usage < HID_KEY_F1 || usage > HID_KEY_ARROW_UP)
+            return VTKEY_CHAR;
+        intro = vtkey_keys[usage - HID_KEY_F1].intro;
+        code = vtkey_keys[usage - HID_KEY_F1].code;
+    }
     if (!intro && !code)
         return 0;
     *p++ = '\33';
@@ -166,45 +209,6 @@ int HOST_IN_RAM_FUNC vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t fl
         }
         *p++ = '~';
     }
-    return (int)(p - out);
-}
-
-int HOST_IN_RAM_FUNC vtkey_ctrl(char ch)
-{
-    unsigned char c = (unsigned char)ch;
-    if (!c)
-        return -1;
-    if ((c >= '@' && c < 0x7F) || c == ' ')
-        return c & 0x1F;
-    if (c == '2')
-        return 0x00;
-    if (c >= '3' && c <= '7')
-        return c - '3' + 0x1B;
-    if (c == '8')
-        return 0x7F;
-    if (c == '/')
-        return 0x1F;
-    if (c < 0x20)
-        return c;
-    return -1;
-}
-
-int HOST_IN_RAM_FUNC vtkey_char(char out[VTKEY_MAX], char ch, uint8_t flags)
-{
-    char *p = out;
-    if (!ch)
-        return 0;
-    if (flags & VTKEY_CTRL)
-    {
-        int c = vtkey_ctrl(ch);
-        if (c >= 0)
-            ch = (char)c;
-        else if (!(flags & VTKEY_ALT))
-            return 0;
-    }
-    if (flags & VTKEY_ALT)
-        *p++ = '\33';
-    *p++ = ch;
     return (int)(p - out);
 }
 
