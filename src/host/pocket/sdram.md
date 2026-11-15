@@ -171,8 +171,9 @@ shows the blinking cursor and nothing else. To be built with the wake fix.
 
 ## Tuning, after that runs on a Pocket
 
-- **The main cache's shape.** 4, 8 and 16 KB; 2 and 4 ways; and replacing
-  the least recently used line where it replaces lines in turn today.
+- **The main cache's shape.** 8 KB and 4 ways is fast enough, and it gets
+  no bigger. Try 4 KB, 2 ways, and replacing the least recently used line
+  where it replaces lines in turn today, and shrink it if nothing slows.
 - **The RAM block's size**, which the savestate carries.
 - **The soft CPU at 50.4 MHz again.** It runs at 25.2 MHz because the
   fitter could not close timing into the CPU's registers, and it was
