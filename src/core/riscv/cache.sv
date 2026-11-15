@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The soft CPU's RAM is lines of four words that live behind the line
+/* The soft CPU's memory is lines of four words that live behind the line
  * port. This cache keeps SETS * WAYS of them in block memory and answers
  * a hit in the data phase with no wait.
  *
@@ -119,15 +119,15 @@ endmodule
 module cache #(
     parameter int SETS = 128,
     parameter int WAYS = 4,
-    parameter int RAM_WORDS = 65536
+    parameter int MEM_WORDS = 131072
 ) (
     input logic clk,
     input logic rst_n,
 
-    input logic [$clog2(RAM_WORDS)-1:0] req_word,
+    input logic [$clog2(MEM_WORDS)-1:0] req_word,
     input logic dph,
     input logic dph_write,
-    input logic [$clog2(RAM_WORDS)-1:0] dph_word,
+    input logic [$clog2(MEM_WORDS)-1:0] dph_word,
     input logic [3:0] dph_strb,
     input logic [31:0] wdata,
     output logic [31:0] cache_rdata,
@@ -139,13 +139,13 @@ module cache #(
 
     output logic cache_line_pend,
     output logic cache_line_we,
-    output logic [$clog2(RAM_WORDS)-3:0] cache_line_addr,
+    output logic [$clog2(MEM_WORDS)-3:0] cache_line_addr,
     output logic [127:0] cache_line_wdata,
     input logic line_done,
     input logic [127:0] line_rdata
 );
 
-    localparam int WORD_AW = $clog2(RAM_WORDS);
+    localparam int WORD_AW = $clog2(MEM_WORDS);
     localparam int SET_AW = $clog2(SETS);
     localparam int WAY_AW = $clog2(WAYS);
     localparam int TAG_W = WORD_AW - 2 - SET_AW;

@@ -9,10 +9,11 @@
  */
 
 module pocket_bridge #(
-    /* The soft CPU's RAM: 2**RAM_AW words of four bytes at the SDRAM
-     * byte address RAM_BASE. pocket_core sets both. */
-    parameter logic [31:0] RAM_BASE = 32'h03EC_0000,
-    parameter int RAM_AW = 16
+    /* The soft CPU's memory, its ROM block and its RAM block: 2**MEM_AW
+     * words of four bytes at the SDRAM byte address MEM_BASE. pocket_core
+     * sets both. */
+    parameter logic [31:0] MEM_BASE = 32'h03E0_0000,
+    parameter int MEM_AW = 17
 ) (
     input logic clk_74a,
     input logic arst_n,
@@ -166,17 +167,17 @@ module pocket_bridge #(
         .pocket_fifo_rdata({pocket_bridge_w_addr, pocket_bridge_w_data})
     );
 
-    /* A write into the soft CPU's RAM is the firmware loading, and it
+    /* A write into the soft CPU's memory is the firmware loading, and it
      * is taken only while the machine is in reset. Once the machine
-     * runs, the cache holds lines of that RAM and would not see a write
-     * behind it, so the write leaves the queue here and never reaches
-     * the SDRAM. The host is not known to rewrite the firmware slot
+     * runs, the cache holds lines of that memory and would not see a
+     * write behind it, so the write leaves the queue here and never
+     * reaches the SDRAM. The host is not known to rewrite the firmware slot
      * when it reloads a ROM into a running machine; if it does, this
      * is where it stops. */
     logic w_drop;
     always_comb begin
         w_drop = !wf_empty && pocket_bridge_run
-            && pocket_bridge_w_addr[24:RAM_AW+1] == RAM_BASE[25:RAM_AW+2];
+            && pocket_bridge_w_addr[24:MEM_AW+1] == MEM_BASE[25:MEM_AW+2];
         pocket_bridge_w_avail = !wf_empty && !w_drop;
         pocket_bridge_w_queued = !wf_empty;
     end
@@ -343,8 +344,8 @@ module pocket_bridge #(
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_pocket_bridge;
     always_comb unused_pocket_bridge = ^{bridge_addr[27:26],
-                                         RAM_BASE[31:26],
-                                         RAM_BASE[RAM_AW+1:0]};
+                                         MEM_BASE[31:26],
+                                         MEM_BASE[MEM_AW+1:0]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

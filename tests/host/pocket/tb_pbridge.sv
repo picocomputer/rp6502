@@ -52,7 +52,14 @@ module tb_pbridge (
     input logic rd_pend,
     input logic [24:0] rd_addr,
     output logic [15:0] tb_pbridge_rdata,
-    output logic tb_pbridge_rvalid
+    output logic tb_pbridge_rvalid,
+
+    input logic line_pend,
+    input logic line_we,
+    input logic [21:0] line_addr,
+    input logic [127:0] line_wdata,
+    output logic [127:0] tb_pbridge_line_rdata,
+    output logic tb_pbridge_line_done
 );
 
     logic dt_busy;
@@ -121,9 +128,6 @@ module tb_pbridge (
     logic [15:0] dq_c2m, dq_m2c;
     logic dq_oe;
 
-    logic [127:0] line_rdata;
-    logic line_done;
-
     pocket_sdram ctrl (
         .clk(clk_sys),
         .rd_pend(rd_pend),
@@ -134,12 +138,12 @@ module tb_pbridge (
         .w_addr(w_addr),
         .w_data(w_data),
         .pocket_sdram_wtake(w_take),
-        .line_pend(1'b0),
-        .line_we(1'b0),
-        .line_addr('0),
-        .line_wdata('0),
-        .pocket_sdram_line_rdata(line_rdata),
-        .pocket_sdram_line_done(line_done),
+        .line_pend(line_pend),
+        .line_we(line_we),
+        .line_addr(line_addr),
+        .line_wdata(line_wdata),
+        .pocket_sdram_line_rdata(tb_pbridge_line_rdata),
+        .pocket_sdram_line_done(tb_pbridge_line_done),
         .pocket_sdram_ready(tb_pbridge_ready),
         .dram_cke(cke),
         .dram_a(a),
@@ -173,7 +177,7 @@ module tb_pbridge (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_tb_pbridge;
-    always_comb unused_tb_pbridge = ^{dqm, refreshes, sref_clocks, line_rdata, line_done,
+    always_comb unused_tb_pbridge = ^{dqm, refreshes, sref_clocks,
                                       dt_busy, set_tz, set_tz_min,
                                       set_tz_sign, set_kb,
                                       rtc_epoch_s, rtc_valid_s};

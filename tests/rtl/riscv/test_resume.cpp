@@ -177,9 +177,9 @@ static void resume(void)
 }
 
 static const std::vector<uint32_t> COUNTER = {
-    0x40000313, // li  t1, 1024      x6  store base, word 256
+    0x00041337, // lui t1, 0x41      x6  store base, the RAM block's word 1024
     0x5A500393, // li  t2, 0x5A5     x7  the mark
-    0xFE732E23, // sw  t2, -4(t1)        word 255
+    0xFE732E23, // sw  t2, -4(t1)        its word 1023
     0x00000293, // li  t0, 0         x5
     0x00128293, // addi t0, t0, 1    <- loop
     0x00532023, // sw  t0, 0(t1)
@@ -187,9 +187,9 @@ static const std::vector<uint32_t> COUNTER = {
     0xFF5FF06F, // j   -12
 };
 
-#define MARK_WORD 255u
+#define MARK_WORD (TB_RAM_WORD + 1023u)
 #define MARK 0x000005A5u
-#define REC_BASE 256u
+#define REC_BASE (TB_RAM_WORD + 1024u)
 #define REC_MAX 512u
 
 static std::vector<uint32_t> record(void)

@@ -203,16 +203,15 @@ assign aux_scl = 1'bZ;
 assign vpll_feed = 1'bZ;
 
 
-// 0x03Fxxxxx is the megabyte that starts at savestate_addr. Its first
-// savestate_maxloadsize bytes are the blob window, and for reads inside
-// that window pocket_core returns pocket_sst's data on
-// file_bridge_rd_data.
+// The first pattern is the 512 KB blob window, savestate_maxloadsize bytes
+// at savestate_addr. For reads inside it pocket_core returns pocket_sst's
+// data on file_bridge_rd_data.
 always @(*) begin
     casex(bridge_addr)
     default: begin
         bridge_rd_data <= 0;
     end
-    32'h03Fxxxxx: begin
+    32'b0000_0011_1110_1xxx_xxxx_xxxx_xxxx_xxxx: begin
         bridge_rd_data <= file_bridge_rd_data;
     end
     32'h20xxxxxx: begin
@@ -264,9 +263,9 @@ end
     // against sst_engine and pocket_sst, and the address and the load size
     // against mmio.h.
     wire            savestate_supported = 1'b1;
-    wire    [31:0]  savestate_addr = 32'h03F0_0000;
-    wire    [31:0]  savestate_size = 32'd496976;
-    wire    [31:0]  savestate_maxloadsize = 32'd655360;
+    wire    [31:0]  savestate_addr = 32'h03E8_0000;
+    wire    [31:0]  savestate_size = 32'd300368;
+    wire    [31:0]  savestate_maxloadsize = 32'd524288;
 
     wire            savestate_start;
     wire            savestate_start_ack;

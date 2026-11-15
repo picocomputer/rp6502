@@ -10,7 +10,7 @@
         "extensions": [
           "rp6502"
         ],
-        "size_maximum": "0x03EC0000",
+        "size_maximum": "0x03E00000",
         "address": "0x00000000"
       },
       {
@@ -19,7 +19,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03FA0000"
+        "address": "0x03F00000"
       },
       {
         "name": "File 2",
@@ -27,7 +27,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03FA8000"
+        "address": "0x03F08000"
       },
       {
         "name": "File 3",
@@ -35,7 +35,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03FB0000"
+        "address": "0x03F10000"
       },
       {
         "name": "File 4",
@@ -43,7 +43,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03FB8000"
+        "address": "0x03F18000"
       },
       {
         "name": "File 5",
@@ -51,7 +51,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03FC0000"
+        "address": "0x03F20000"
       },
       {
         "name": "File 6",
@@ -59,7 +59,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03FC8000"
+        "address": "0x03F28000"
       },
       {
         "name": "File 7",
@@ -67,7 +67,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03FD0000"
+        "address": "0x03F30000"
       },
       {
         "name": "File 8",
@@ -75,7 +75,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03FD8000"
+        "address": "0x03F38000"
       },
       {
         "name": "Firmware",
@@ -84,7 +84,7 @@
         "parameters": "0x0",
         "filename": "firmware.bin",
         "size_maximum": "0x00040000",
-        "address": "0x03EC0000"
+        "address": "0x03E00000"
       }
     ]
   }

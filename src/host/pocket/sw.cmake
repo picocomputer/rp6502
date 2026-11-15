@@ -80,7 +80,12 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
     rp6502_log_flags(SW_LOG_FLAGS)
     # AUD_NATIVE_RATE is the 48 kHz the fabric mixes at, which pcm_step
     # divides by.
+    # stamp.h holds the time of this link, which crt0.S places in the image
+    # as the build stamp. It is written here and nowhere else, so a build
+    # with nothing to do leaves the firmware as it is.
     add_custom_command(OUTPUT ${SW_BIN}
+        COMMAND ${CMAKE_COMMAND} -DOUT=${RP6502_ASSETS}/stamp.h
+            -P ${SW_SRC}/stamp.cmake
         COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
             -msave-restore
             -Os -ffreestanding -nostartfiles
@@ -90,6 +95,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             -I ${CMAKE_CURRENT_LIST_DIR}
             -I ${RP6502_SRC}
             -I ${RP6502_GEN}
+            -I ${RP6502_ASSETS}
             "-DPICO_PROGRAM_NAME=\"RP6502-FPGA\""
             -DRP6502_EXFAT=0
             -DRP6502_LOCALE=EN
@@ -97,11 +103,13 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             -DRP6502_CRC32_SMALL
             -DAUD_NATIVE_RATE=48000
             ${SW_LOG_FLAGS}
-            -T ${SW_SRC}/link.ld -Wl,--no-warn-rwx-segments
+            -T ${SW_SRC}/link.ld
             -o ${RP6502_ASSETS}/sw.elf
             ${SW_SOURCES}
         COMMAND ${RISCV_OBJCOPY} -O binary ${RP6502_ASSETS}/sw.elf ${SW_BIN}
+        BYPRODUCTS ${RP6502_ASSETS}/stamp.h
         DEPENDS ${SW_SOURCES} ${SW_HEADERS} ${SW_SRC}/link.ld
+            ${SW_SRC}/stamp.cmake
             ${RP6502_GEN}/rsmp_half.h
         COMMENT "Cross-compiling the soft CPU firmware"
         VERBATIM)

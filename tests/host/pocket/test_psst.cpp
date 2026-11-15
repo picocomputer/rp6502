@@ -15,8 +15,8 @@
 #define BRG_PERIOD 2
 #define SYS_PERIOD 3
 
-#define BLOB_BASE 0x03F00000u
-#define BLOB_WINDOW 0x000A0000u
+#define BLOB_BASE 0x03E80000u
+#define BLOB_WINDOW 0x00080000u
 
 #define REG_CTL 0x00u
 
@@ -25,7 +25,7 @@
 #define CTL_UNDERRUN (1u << 2)
 #define CTL_RESTORE_ERR (1u << 3)
 
-#define BLOB_WORDS 124244u
+#define BLOB_WORDS 75092u
 
 static Vpocket_sst *dut;
 static long t;

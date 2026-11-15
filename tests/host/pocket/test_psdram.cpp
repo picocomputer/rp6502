@@ -552,7 +552,7 @@ UTEST(psdram, line_soak_and_refresh)
 UTEST(psdram, sporadic_lines)
 {
     const uint32_t lo = 0x000040u;  /* bank 0 */
-    const uint32_t hi = 0x3EC000u;  /* byte 0x3EC0000, bank 3 */
+    const uint32_t hi = 0x3E0000u;  /* byte 0x3E00000, bank 3 */
     std::map<uint32_t, line_t> ref;
     for (uint32_t i = 0; i < 12; i++)
     {

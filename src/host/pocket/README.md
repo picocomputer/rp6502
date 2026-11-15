@@ -27,14 +27,36 @@ The part's 55 ns access time fits inside the 6502's shortest cycle at
 conflicts, so every access takes the same time and the 6502 runs at
 exactly the clock that was requested.
 
-**The SDRAM holds the soft CPU's 256 KB**, the firmware and everything
-the firmware keeps, at 0x03EC0000, between the ROM and the savestate
-window. In front of it is an 8 KB cache in block memory, in `cache.sv`:
-four ways of 128 sets, with lines of 16 bytes. A hit answers in one
-clock, as block memory would. A miss holds the soft CPU while the SDRAM
-controller reads the line, eight words back to back, after writing out
-the line it replaces if the soft CPU stored to that one. The rest of
-the block memory is XRAM, the video and the audio.
+**The SDRAM holds the soft CPU's memory**, in two blocks as on a
+microcontroller. The ROM block is 256 KB of code and constants, which
+the Pocket loads from `firmware.bin` and nothing writes afterwards: a
+store to it is dropped. The RAM block is 64 KB of data, heap and stack.
+The startup code copies the data's first values from the ROM block and
+clears the rest. In front of both is one 8 KB cache in block memory,
+in `cache.sv`: four ways of 128 sets, with lines of 16 bytes. A hit
+answers in one clock, as block memory would. A miss holds the soft CPU
+while the SDRAM controller reads the line, eight words back to back,
+after writing out the line it replaces if the soft CPU stored to that
+one. The rest of the block memory is XRAM, the video and the audio.
+
+**The SDRAM's map.** The ROM slot is the first 62 MB and stays 62 MB,
+because a whole ROM has to load into it. Everything else is in the
+2 MB above:
+
+| Address | Size | Use |
+|---|---|---|
+| 0x00000000 | 62 MB | The ROM slot |
+| 0x03E00000 | 256 KB | The soft CPU's ROM block, `firmware.bin` |
+| 0x03E40000 | 64 KB | The soft CPU's RAM block |
+| 0x03E50000 | 192 KB | Spare, for the RAM block to grow into |
+| 0x03E80000 | 512 KB | The savestate window |
+| 0x03F00000 | 256 KB | Eight file windows of 32 KB |
+| 0x03F40000 | 4 KB | Get File scratch |
+
+The 512 KB from 0x03E00000 are the soft CPU's addresses 0 to 0x7FFFF.
+The rest, up to 64 MB, is spare. `stage_map_gate.py` checks every place
+that states this map against the others, and fails if the ROM slot is
+anything but 62 MB.
 
 Analogue's port list has no chip enable for the SRAM, so the part is
 always selected and the byte enables are the only deselect.
@@ -81,8 +103,19 @@ documentation fixes the order in both directions: a create signals
 completion before the data is copied out, and a load has the blob
 written into the core as ordinary bridge writes before 0x00A4 arrives.
 
-The blob is 485 KB, and the savestate engine, `sst_engine.sv`, makes it
-in logic rather than in firmware.
+The blob is 293 KB, and the savestate engine, `sst_engine.sv`, makes it
+in logic rather than in firmware. It holds the soft CPU's RAM block and
+none of its ROM block, which a wake loads from `firmware.bin` again.
+The Pocket saves it with a header in front and a thumbnail behind,
+about 53 KB more, and the window it is written back into is 512 KB.
+
+**A state belongs to the firmware that made it.** The firmware carries
+a build stamp, the time it was linked, in the word after its reset
+jump. A save reads the stamp from the ROM block and puts it in the
+blob's header, and a load reads it again and refuses a blob that names
+another build, as it refuses another blob version. That catches a card
+whose `firmware.bin` changed while the Pocket slept: the state's stack
+and data would not fit the new code.
 
 ### The architecture: one clock gate
 
@@ -156,11 +189,12 @@ stays halted when its halt request drops.
 ### Restoring
 
 The engine checks the whole staged blob before it writes any of it,
-because a blob found bad partway through writing would leave the
-machine half overwritten. Then, with the machine still stopped, every
-array is written back through the engine's ports, the audio's among
-them, the soft CPU's memory is written into the SDRAM and its cache
-emptied, and the flop state (6502, VIA, the RW engine's pending write,
+its version, its build stamp and its sum, because a blob found bad
+partway through writing would leave the machine half overwritten. A
+refused blob changes nothing and the machine runs on. Then, with the
+machine still stopped, every array is written back through the engine's
+ports, the audio's among them, the soft CPU's RAM block is written into
+the SDRAM and its cache emptied, and the flop state (6502, VIA, the RW engine's pending write,
 resb, the 6502's clock rate and phase, the microsecond counter) is held
 in the engine until the steps below write it back. The RIA window's and
 the audio's flops are fetched from the staging store again in step 3.
@@ -566,12 +600,14 @@ that the build makes:
   `core.json` names it; the conventional name is `bitstream.rbf_r` and
   the loader reads whichever file the manifest names.
 - `Assets/rp6502/common/firmware.bin` is the soft CPU's firmware,
-  `sw.bin` from the build tree's `assets` directory. The host loads it
-  at 0x03EC0000, which the soft CPU sees as address zero, and it may be
-  as large as the 256 KB there. It is the only file the build puts in
-  `Assets/rp6502/common/`. The fonts, the code page tables and the
-  keyboard layouts are constants in it. The bitstream holds no glyphs,
-  so the firmware copies them to the video device at every boot.
+  `sw.bin` from the build tree's `assets` directory. It is the image of
+  the ROM block: the code, the constants and the data's first values.
+  The host loads it at 0x03E00000, which the soft CPU sees as address
+  zero, and it may be as large as the 256 KB there. It is the only file
+  the build puts in `Assets/rp6502/common/`. The fonts, the code page
+  tables and the keyboard layouts are constants in it. The bitstream
+  holds no glyphs, so the firmware copies them to the video device at
+  every boot.
 - `Cores/Rumbledethumps.RP6502/icon.bin` and
   `Platforms/_images/rp6502.bin` are here already, made by
   `src/host/pocket/gen/image_gen.py`. Both use one format: two bytes a

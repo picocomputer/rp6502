@@ -27,6 +27,9 @@ static long g_run_rise = -1, g_run_fall = -1;
 /* Set by a clk_sys edge that finds the machine running with a write
  * still in the bridge's queue. */
 static bool g_run_queued;
+/* Called after every clk_sys edge, to drive the controller's other two
+ * clients. */
+static void (*g_on_sys)(void);
 
 /* clk_sys has period 330 and clk_74a has period 224, which is the ratio
  * of 74.25 MHz to 50.4 MHz. */
@@ -68,6 +71,8 @@ static void advance_to(long t_end)
                 g_run_fall = g_sys_edges;
             if (dut->tb_pbridge_run && dut->tb_pbridge_w_queued)
                 g_run_queued = true;
+            if (g_on_sys)
+                g_on_sys();
         }
         if (aedge)
         {
@@ -137,6 +142,7 @@ static void power_up(int *utest_result)
     g_slot_lens.clear();
     g_run_rise = g_run_fall = -1;
     g_run_queued = false;
+    g_on_sys = nullptr;
     a_next = 224;
     s_next = 330;
     dut->rst_n = 0;
@@ -298,9 +304,9 @@ UTEST(pbridge, the_machine_waits_for_the_write_queue)
 
     /* 400 idle clocks puts the SDRAM in self refresh. */
     advance_to(s_next + 330L * 400);
-    const uint32_t RAM = 0x03EC0000u;
+    const uint32_t MEM = 0x03E00000u;
     for (uint32_t i = 0; i < 3; i++)
-        host_word(RAM + i * 4, 0xC0DE0000u + i, 1);
+        host_word(MEM + i * 4, 0xC0DE0000u + i, 1);
     dut->reset_n = 1;
 
     long queued_edges = 0;
@@ -319,22 +325,24 @@ UTEST(pbridge, the_machine_waits_for_the_write_queue)
     advance_to(s_next + 330L * 200);
     ASSERT_FALSE(g_run_queued);
     for (uint32_t i = 0; i < 3; i++)
-        ASSERT_EQ(stage_word(RAM + i * 4), 0xC0DE0000u + i);
+        ASSERT_EQ(stage_word(MEM + i * 4), 0xC0DE0000u + i);
 }
 
-/* The soft CPU's RAM is written by the host only while the machine is in
- * reset. A write there with the machine running never reaches the SDRAM,
- * and the bytes on either side of the RAM are written as ever. */
-UTEST(pbridge, a_write_to_the_ram_is_dropped_while_the_machine_runs)
+/* The soft CPU's memory is written by the host only while the machine is
+ * in reset. A write there with the machine running never reaches the
+ * SDRAM, and the bytes on either side of it are written as ever. */
+UTEST(pbridge, a_write_to_the_memory_is_dropped_while_the_machine_runs)
 {
     static const uint32_t at[] = {
-        0x03EBFFFCu, /* the ROM's last word */
-        0x03EC0000u, /* the RAM's first */
-        0x03EDFFF0u,
-        0x03EFFFFCu, /* the RAM's last */
-        0x03F00000u, /* the savestate window's first */
+        0x03DFFFFCu, /* the ROM slot's last word */
+        0x03E00000u, /* the ROM block's first */
+        0x03E3FFFCu, /* the ROM block's last */
+        0x03E40000u, /* the RAM block's first */
+        0x03E4FFFCu, /* the RAM block's last */
+        0x03E7FFFCu, /* the memory's last */
+        0x03E80000u, /* the savestate window's first */
     };
-    static const bool ram[] = {false, true, true, true, false};
+    static const bool mem[] = {false, true, true, true, true, true, false};
     const int n = (int)(sizeof at / sizeof *at);
 
     power_up(utest_result);
@@ -354,9 +362,9 @@ UTEST(pbridge, a_write_to_the_ram_is_dropped_while_the_machine_runs)
     ASSERT_EQ((int)dut->tb_pbridge_w_queued, 0);
     for (int i = 0; i < n; i++)
         ASSERT_EQ(stage_word(at[i]),
-                  (ram[i] ? 0xA0000000u : 0xB0000000u) + (uint32_t)i);
+                  (mem[i] ? 0xA0000000u : 0xB0000000u) + (uint32_t)i);
 
-    /* Back in reset the RAM takes writes again, which is a reload. */
+    /* Back in reset the memory takes writes again, which is a reload. */
     dut->reset_n = 0;
     a_cycles(10);
     ASSERT_EQ((int)dut->tb_pbridge_run, 0);
@@ -365,6 +373,165 @@ UTEST(pbridge, a_write_to_the_ram_is_dropped_while_the_machine_runs)
     a_cycles(60);
     for (int i = 0; i < n; i++)
         ASSERT_EQ(stage_word(at[i]), 0xC0000000u + (uint32_t)i);
+}
+
+/* The soft CPU's side of the flood. It has one access in flight, a stage
+ * read or a line, and asks for the next the clock the last is answered,
+ * each in a row that is not open. It asks for the same kind for a few
+ * hundred clocks at a time, as a file read or cold code does. Reads are of words the host wrote a
+ * while ago and lines are in a part of the SDRAM the host leaves alone. */
+#include <map>
+
+struct flood_t
+{
+    std::vector<uint32_t> at, word;
+    std::map<uint32_t, std::vector<uint16_t>> lines;
+    uint32_t rng = 0x2545F491u;
+    long reads = 0, line_reads = 0, line_writes = 0;
+    long bad_reads = 0, bad_lines = 0;
+    bool rd_known = false;
+    int run = 0;
+    bool run_lines = false;
+    uint16_t rd_want = 0;
+    std::vector<uint16_t> line_out;
+};
+static flood_t g_flood;
+
+static uint32_t flood_rnd(void)
+{
+    uint32_t &x = g_flood.rng;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    return x;
+}
+
+/* The halfword of the SDRAM that holds a host word's first or second two
+ * bytes, the even byte low. */
+static uint16_t host_half(uint32_t word, int second)
+{
+    uint32_t two = second ? word & 0xFFFFu : word >> 16;
+    return (uint16_t)((two >> 8) | (two << 8));
+}
+
+static void flood_sys(void)
+{
+    flood_t &f = g_flood;
+    if (dut->rd_pend && dut->tb_pbridge_rvalid)
+    {
+        f.reads++;
+        if (f.rd_known && dut->tb_pbridge_rdata != f.rd_want)
+            f.bad_reads++;
+        dut->rd_pend = 0;
+    }
+    if (dut->line_pend && dut->tb_pbridge_line_done)
+    {
+        std::vector<uint16_t> got(8);
+        for (int k = 0; k < 8; k++)
+            got[k] = (uint16_t)(dut->tb_pbridge_line_rdata[k / 2]
+                                >> ((k & 1) * 16));
+        if (dut->line_we)
+        {
+            f.line_writes++;
+            f.lines[dut->line_addr] = f.line_out;
+        }
+        else
+        {
+            f.line_reads++;
+            if (f.lines[dut->line_addr] != got)
+                f.bad_lines++;
+        }
+        dut->line_pend = 0;
+    }
+    if (dut->rd_pend || dut->line_pend)
+        return;
+    if (f.run-- == 0)
+    {
+        f.run = 16 + (int)(flood_rnd() % 48);
+        f.run_lines = !f.run_lines;
+    }
+    if (dut->tb_pbridge_line_done || !f.run_lines)
+    {
+        /* The last 64 words the host sent may still be on their way. */
+        f.rd_known = f.at.size() > 64;
+        uint32_t i = f.rd_known ? flood_rnd() % (f.at.size() - 64) : 0;
+        int second = flood_rnd() & 1;
+        dut->rd_pend = 1;
+        dut->rd_addr = f.rd_known ? (f.at[i] >> 1) + second : 0;
+        f.rd_want = f.rd_known ? host_half(f.word[i], second) : 0;
+    }
+    else
+    {
+        /* Half are reads of a line written before, once there is one. */
+        bool we = f.lines.empty() || (flood_rnd() & 1);
+        uint32_t line = 0x3E0000u + flood_rnd() % 0x8000u;
+        if (!we)
+        {
+            auto it = f.lines.begin();
+            std::advance(it, flood_rnd() % f.lines.size());
+            line = it->first;
+        }
+        f.line_out.resize(8);
+        for (int k = 0; k < 8; k++)
+        {
+            f.line_out[k] = (uint16_t)flood_rnd();
+            uint32_t &w = dut->line_wdata[k / 2];
+            int shift = (k & 1) * 16;
+            w = (w & ~(0xFFFFu << shift)) | ((uint32_t)f.line_out[k] << shift);
+        }
+        dut->line_pend = 1;
+        dut->line_we = we;
+        dut->line_addr = line;
+    }
+}
+
+/* The host writes as fast as it can, a word every 88 clk_74a cycles, to a
+ * new row every time, while reads and lines are asked for back to back.
+ * The bridge's queue holds eight halfwords and cannot make the host wait,
+ * and it stops the simulation if it overflows. The controller takes a
+ * write before a read or a line, so every word lands, and the reads and
+ * the lines still get their turns and their data. */
+UTEST(pbridge, a_flood_of_writes_loses_nothing_to_reads_and_lines)
+{
+    const uint32_t WORDS = 6000;
+    power_up(utest_result);
+    g_flood = flood_t();
+    flood_t &f = g_flood;
+    g_on_sys = flood_sys;
+    for (uint32_t i = 0; f.at.size() < WORDS; i++)
+    {
+        /* Odd times i covers every word address once, in a scattered
+         * order. The soft CPU's memory, where the lines are, is left
+         * out. */
+        uint32_t at = ((i * 0x9E3779B1u) & 0xFFFFFFu) << 2;
+        if (at >= 0x03E00000u)
+            continue;
+        uint32_t word = flood_rnd();
+        host_word(at, word, 87);
+        f.at.push_back(at);
+        f.word.push_back(word);
+    }
+    a_cycles(400);
+    g_on_sys = nullptr;
+    dut->rd_pend = 0;
+    dut->line_pend = 0;
+    advance_to(s_next + 330L * 40);
+    ASSERT_EQ((int)dut->tb_pbridge_w_queued, 0);
+
+    fprintf(stderr, "  %u host words, %ld reads, %ld line reads, "
+                    "%ld line writes\n",
+            WORDS, f.reads, f.line_reads, f.line_writes);
+    ASSERT_EQ(0L, f.bad_reads);
+    ASSERT_EQ(0L, f.bad_lines);
+    /* A host word is 60 clk_sys cycles, room for a read or a line or
+     * two beside its two writes. */
+    ASSERT_GT(f.reads, (long)WORDS / 2);
+    ASSERT_GT(f.line_reads + f.line_writes, (long)WORDS / 2);
+    for (uint32_t i = 0; i < WORDS; i++)
+    {
+        ASSERT_EQ(stage_read(f.at[i] >> 1), host_half(f.word[i], 0));
+        ASSERT_EQ(stage_read((f.at[i] >> 1) + 1), host_half(f.word[i], 1));
+    }
 }
 
 UTEST_STATE();

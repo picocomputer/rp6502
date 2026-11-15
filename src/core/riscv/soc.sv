@@ -5,7 +5,7 @@
  */
 
 module soc
-    import ram_pkg::*;
+    import mem_pkg::*;
 #(
     parameter int MTIME_ADD = 1,
     parameter int MTIME_WRAP = 1
@@ -47,7 +47,7 @@ module soc
     input logic sst_mtime_we,
     input logic [63:0] sst_mtime_wdata,
 
-    /* The RAM is lines of four words behind this port, which the
+    /* The memory is lines of four words behind this port, which the
      * platform answers. cache.sv says how it is used. sst_flush and
      * sst_empty are raised only while the core is halted, when it makes
      * no access. */
@@ -56,7 +56,7 @@ module soc
     output logic soc_cache_idle,
     output logic soc_line_pend,
     output logic soc_line_we,
-    output logic [RAM_AW-3:0] soc_line_addr,
+    output logic [MEM_AW-3:0] soc_line_addr,
     output logic [127:0] soc_line_wdata,
     input logic line_done,
     input logic [127:0] line_rdata,
@@ -88,7 +88,7 @@ module soc
     logic [31:0] hrdata /*verilator public_flat_rd*/;
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_bits;
-    always_comb unused_bits = ^{haddr[27:RAM_AW+2], htrans[0], hsize[2]};
+    always_comb unused_bits = ^{haddr[27:MEM_AW+2], htrans[0], hsize[2]};
     /* verilator lint_on UNUSEDSIGNAL */
 
     /* verilator lint_off PINCONNECTEMPTY */
@@ -180,7 +180,7 @@ module soc
     logic dph_mmio /*verilator public_flat_rd*/;
     logic dph_ext /*verilator public_flat_rd*/;
     logic dph_waited /*verilator public_flat_rd*/;
-    logic [RAM_AW-1:0] dph_word;
+    logic [MEM_AW-1:0] dph_word;
     logic [31:0] dph_addr;
     logic [3:0] dph_strb;
     logic [6:0] mmio_reg;
@@ -203,22 +203,26 @@ module soc
         endcase
     end
 
-    /* The RAM is the top nibble 0. The cache reads its memories at the
+    /* The memory is the top nibble 0. The cache reads its memories at the
      * address of the access after the one in its data phase, in every
      * clock, so it answers a hit with no wait, and a load whose address
      * phase overlaps a store's data phase returns the stored bytes. A
-     * miss holds hready low while the line comes through the line port. */
-    logic [31:0] ram_rdata;
-    cache #(.RAM_WORDS(RAM_WORDS)) cache (
+     * miss holds hready low while the line comes through the line port.
+     *
+     * A store to the ROM block is dropped: the cache sees a load, so the
+     * access ends as any other and nothing changes. No line of the ROM
+     * block is ever dirty, and the cache never writes one out. */
+    logic [31:0] mem_rdata;
+    cache #(.MEM_WORDS(MEM_WORDS)) cache (
         .clk(clk),
         .rst_n(rst_n),
-        .req_word(haddr[RAM_AW+1:2]),
+        .req_word(haddr[MEM_AW+1:2]),
         .dph(dph_active && !dph_mmio && !dph_ext),
-        .dph_write(dph_write),
+        .dph_write(dph_write && dph_word >= MEM_AW'(ROM_WORDS)),
         .dph_word(dph_word),
         .dph_strb(dph_strb),
         .wdata(hwdata),
-        .cache_rdata(ram_rdata),
+        .cache_rdata(mem_rdata),
         .cache_ready(cache_ready),
         .flush(sst_flush),
         .empty(sst_empty),
@@ -248,7 +252,7 @@ module soc
             dph_write <= hwrite;
             dph_mmio <= haddr[31:28] == 4'hF;
             dph_ext <= haddr[31:28] != 4'h0 && haddr[31:28] != 4'hF;
-            dph_word <= haddr[RAM_AW+1:2];
+            dph_word <= haddr[MEM_AW+1:2];
             dph_addr <= haddr;
             dph_strb <= strb;
             mmio_reg <= haddr[6:0];
@@ -331,7 +335,7 @@ module soc
                 default: hrdata = 32'h0;
             endcase
         else
-            hrdata = ram_rdata;
+            hrdata = mem_rdata;
     end
 
     initial begin

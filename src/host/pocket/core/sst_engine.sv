@@ -5,7 +5,12 @@
  */
 
 module sst_engine #(
-    parameter int RAM_WORDS = 65536
+    /* The soft CPU's memory is MEM_WORDS words behind the line port. Its
+     * first ROM_WORDS are the ROM block, which the blob leaves out, and
+     * the RAM_WORDS after them are the RAM block, which it holds whole. */
+    parameter int MEM_WORDS = 131072,
+    parameter int ROM_WORDS = 65536,
+    parameter int RAM_WORDS = 16384
 ) (
     input logic clk_sys,
     input logic rst_n,
@@ -102,20 +107,20 @@ module sst_engine #(
      * machine is still stopped. */
     output logic sst_engine_ram_refill,
 
-    /* The soft CPU's RAM is behind the line port, four words to a line,
-     * and its cache holds the newest copy of some lines. A save has the
-     * cache write those out, on sst_engine_flush, before it reads any,
-     * and a load has it forget every line, on sst_engine_empty, once the
-     * RAM is written. Either level is held until cache_idle has gone low
-     * and come back. The engine drives the line port only between the
-     * two, with the soft CPU halted and the cache idle, so the port is
-     * never the cache's and the engine's at once. */
+    /* The soft CPU's memory is behind the line port, four words to a
+     * line, and its cache holds the newest copy of some lines. A save has
+     * the cache write those out, on sst_engine_flush, before it reads
+     * any, and a load has it forget every line, on sst_engine_empty, once
+     * the RAM block is written. Either level is held until cache_idle has
+     * gone low and come back. The engine drives the line port only with
+     * the soft CPU halted and the cache idle, so the port is never the
+     * cache's and the engine's at once. */
     output logic sst_engine_flush,
     output logic sst_engine_empty,
     input logic cache_idle,
     output logic sst_engine_line_pend,
     output logic sst_engine_line_we,
-    output logic [$clog2(RAM_WORDS)-3:0] sst_engine_line_addr,
+    output logic [$clog2(MEM_WORDS)-3:0] sst_engine_line_addr,
     output logic [127:0] sst_engine_line_wdata,
     input logic line_done,
     input logic [127:0] line_rdata,
@@ -175,13 +180,17 @@ module sst_engine #(
 
     localparam logic [31:0] SST_MAGIC = 32'h52365353;      // "R6SS"
     localparam logic [31:0] SST_END_MAGIC = 32'h52365345;  // "R6SE"
-    localparam logic [31:0] SST_VERSION = 32'd8;
+    localparam logic [31:0] SST_VERSION = 32'd9;
+    /* The firmware's build stamp is this word of the ROM block, which
+     * crt0.S places. A blob carries it in the header's fourth word, and a
+     * load takes only a blob made by the firmware that is loaded. */
+    localparam int STAMP_WORD = 1;
 
     /* The audio region's flop words, written in the second pass. */
     localparam int AUD_ST = 'h780;
     localparam int AUD_ST_END = 'h7A0;
 
-    localparam int A_STAGE_OFF = 32'h03F0_0000;
+    localparam int A_STAGE_OFF = 32'h03E8_0000;
 
     localparam int REGS_HOLE = 16;
 
@@ -260,6 +269,7 @@ module sst_engine #(
         S_LD_PUT_WAIT,
         S_CACHE,
         S_CACHE_WAIT,
+        S_STAMP,
         S_LD_PUT_DONE,
         S_RESUME,
         S_LD_JAM,
@@ -338,16 +348,21 @@ module sst_engine #(
 
     logic on_ram;
     logic on_ram_q;
-    /* line is one line of the soft CPU's RAM, word 0 in its low bits. A
-     * save keeps the line it last read here, line_idx and line_valid
-     * say which, and serves the words of that line from it. A load
-     * gathers four words here and writes them as one line. */
-    localparam int LINE_AW = $clog2(RAM_WORDS) - 2;
+    /* line is one line of the RAM block, word 0 in its low bits. A save
+     * keeps the line it last read here, line_idx and line_valid say
+     * which, and serves the words of that line from it. A load gathers
+     * four words here and writes them as one line. ram_line is the line
+     * of the blob's word as the line port counts it, from the start of
+     * the ROM block. */
+    localparam int LINE_AW = $clog2(MEM_WORDS) - 2;
+    localparam int RAM_AW = $clog2(RAM_WORDS);
     logic [127:0] line;
     logic [LINE_AW-1:0] line_idx, ram_line;
     logic line_valid, line_pend;
     logic flush, empty;
-    always_comb ram_line = off_q[LINE_AW+1:2];
+    logic [31:0] stamp;
+    always_comb ram_line = LINE_AW'(ROM_WORDS / 4)
+        + LINE_AW'(off_q[RAM_AW-1:2]);
     logic [17:0] off_q;
     logic [1:0] st_sel_q;
     logic [2:0] st_idx_q;
@@ -401,7 +416,8 @@ module sst_engine #(
         sst_engine_empty = empty;
         sst_engine_line_pend = line_pend;
         sst_engine_line_we = state == S_LD_PUT;
-        sst_engine_line_addr = ram_line;
+        sst_engine_line_addr = state == S_STAMP
+            ? LINE_AW'(STAMP_WORD / 4) : ram_line;
         sst_engine_line_wdata = line;
         sst_engine_stage_pend = state == S_LD_FETCH;
         sst_engine_stage_addr = 28'(A_STAGE_OFF)
@@ -452,6 +468,7 @@ module sst_engine #(
             4'd0: hdr_word = SST_MAGIC;
             4'd1: hdr_word = SST_VERSION;
             4'd2: hdr_word = 32'(W_TOTAL) << 2;
+            4'd3: hdr_word = stamp;
             default: hdr_word = 32'd0;
         endcase
     end
@@ -746,7 +763,7 @@ module sst_engine #(
                     ld_verify <= 1'b1;
                     ld_idx <= '0;
                     vsum <= '0;
-                    state <= S_LD_FETCH;
+                    state <= S_STAMP;
                 end else begin
                     ld_idx <= ld_idx + 18'd1;
                     state <= S_LD_FETCH;
@@ -759,6 +776,7 @@ module sst_engine #(
                         || (ld_idx == 18'(B_HDR + 1) && ld_word != SST_VERSION)
                         || (ld_idx == 18'(B_HDR + 2)
                             && ld_word != (32'(W_TOTAL) << 2))
+                        || (ld_idx == 18'(B_HDR + 3) && ld_word != stamp)
                         || (ld_idx == 18'(B_END) && ld_word != vsum)
                         || (ld_idx == 18'(B_END + 1)
                             && ld_word != 32'(W_TOTAL))
@@ -848,8 +866,8 @@ module sst_engine #(
                 end
 
                 /* The cache's walk, a flush for a save and an empty for a
-                 * load. A save goes on to stop the machine and sum the
-                 * blob. */
+                 * load. A save goes on to read the stamp, stop the machine
+                 * and sum the blob. */
                 S_CACHE: if (!cache_idle) state <= S_CACHE_WAIT;
                 S_CACHE_WAIT:
                 if (cache_idle) begin
@@ -862,8 +880,23 @@ module sst_engine #(
                         sum_idx <= '0;
                         sum <= '0;
                         hold_valid <= 1'b0;
-                        state <= S_READY;
+                        state <= S_STAMP;
                     end
+                end
+
+                /* Reads the stamp of the firmware that is loaded, from
+                 * the SDRAM. A save comes here from the flush. A load
+                 * comes here once the scan has found a header, hundreds
+                 * of clocks after the soft CPU halted, so the fetch it
+                 * made as it halted has its line and the cache is at
+                 * rest. */
+                S_STAMP:
+                if (!line_pend)
+                    line_pend <= cache_idle && !line_done;
+                else if (line_done) begin
+                    line_pend <= 1'b0;
+                    stamp <= line_rdata[32 * (STAMP_WORD % 4) +: 32];
+                    state <= ld_verify ? S_LD_FETCH : S_READY;
                 end
 
                 /* hold_res rises on the same edge that want_stop falls,

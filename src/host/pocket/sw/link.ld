@@ -6,6 +6,12 @@
  * The .text.init section is placed first because the Hazard3 reset
  * vector is address zero.
  *
+ * ROM is the ROM block, which the host loads from firmware.bin and
+ * nothing writes. RAM is the RAM block. firmware.bin is everything
+ * placed in ROM: the code, the constants and the first values of .data,
+ * which crt0.S copies to RAM. stage_map_gate.py checks both regions
+ * against mmio.h.
+ *
  * The VIDCELLS length must match the 15360-word cell memory in mode0.sv,
  * which holds 8-byte cells for up to 32 rows of the 40- and 80-column
  * terminals, each with a primary and an alternate screen.
@@ -13,7 +19,8 @@
 
 MEMORY
 {
-    RAM (rwx) : ORIGIN = 0x00000000, LENGTH = 256K
+    ROM (rx) : ORIGIN = 0x00000000, LENGTH = 256K
+    RAM (rw) : ORIGIN = 0x00040000, LENGTH = 64K
     VIDCELLS (rw) : ORIGIN = 0x50000000, LENGTH = 61440
 }
 
@@ -30,13 +37,16 @@ SECTIONS
         *(.rodata*)
         *(.srodata*)
         . = ALIGN(4);
-    } > RAM
+    } > ROM
 
     .data : {
+        __data_start = .;
         *(.data*)
         *(.sdata*)
         . = ALIGN(4);
-    } > RAM
+        __data_end = .;
+    } > RAM AT> ROM
+    __data_load = LOADADDR(.data);
 
     /* This section comes before .bss because ld assigns each input
      * section to the first pattern that matches it. */
@@ -47,8 +57,17 @@ SECTIONS
         *(.bss.term80_alt_mem*)
     } > VIDCELLS
 
+    /* The thread-local variables, which are picolibc's errno. A
+     * thread-local section takes no room of its own, so .bss leaves room
+     * for it at __tls, where crt0.S points tp. */
+    .tbss : {
+        *(.tbss*)
+    } > RAM
+
     .bss : {
         __bss_start = .;
+        __tls = .;
+        . += SIZEOF(.tbss);
         *(.bss*)
         *(.sbss*)
         *(COMMON)

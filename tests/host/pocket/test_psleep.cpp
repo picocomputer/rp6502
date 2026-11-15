@@ -411,8 +411,8 @@ static std::vector<uint8_t> read_file(const char *path)
 
 /* BLOB_BRIDGE and BLOB_BYTES are core_top's savestate_addr and
  * savestate_size. */
-#define BLOB_BRIDGE 0x03F00000u
-#define BLOB_BYTES 496976u
+#define BLOB_BRIDGE 0x03E80000u
+#define BLOB_BYTES 300368u
 
 /* The core has until the next read strobe to drive bridge_rd_data,
  * because io_bridge_peripheral.v buffers reads by one word. HOST_GAP is
@@ -421,6 +421,12 @@ static std::vector<uint8_t> read_file(const char *path)
 #define HOST_GAP 74
 
 static long g_underrun_at;
+
+/* The firmware's build stamp is the word at this offset of its image.
+ * g_other_build has the next boot load a firmware that differs in it
+ * alone, as another build's does. */
+#define FW_STAMP 4u
+static bool g_other_build;
 
 static void boot_into(const std::vector<uint8_t> &rom, bool keep_card)
 {
@@ -459,6 +465,10 @@ static void boot_into(const std::vector<uint8_t> &rom, bool keep_card)
 
     tb_stage_poke_firmware(dut->rootp->tb_pocket__DOT__chip__DOT__mem,
                            SW_BIN);
+    if (g_other_build)
+        dut->rootp->tb_pocket__DOT__chip__DOT__mem[
+            (TB_STAGE_MEM_BASE + FW_STAMP) >> 1] ^= 1;
+    g_other_build = false;
 
     dut->rst_n = 1;
     dut->arst_n = 1;
@@ -1764,9 +1774,9 @@ UTEST(psleep, the_program_clock_leaves_out_the_wake)
     ASSERT_LE(c_clk - b_clk < 0 ? b_clk - c_clk : c_clk - b_clk, 1L);
 }
 
-/* A blob from before this format, version 7, is refused, and the session
+/* A blob from before this format, version 8, is refused, and the session
  * that was running carries on. */
-UTEST(psleep, a_version_7_blob_is_refused)
+UTEST(psleep, a_version_8_blob_is_refused)
 {
     std::vector<uint8_t> rom = read_file(FILE_ROM);
     ASSERT_GT(rom.size(), 0u);
@@ -1775,8 +1785,8 @@ UTEST(psleep, a_version_7_blob_is_refused)
     std::vector<uint8_t> blob;
     ASSERT_TRUE(create_state(blob));
     teardown();
-    ASSERT_EQ(8u, blob_get(blob, 1));
-    blob_put(blob, 1, 7);
+    ASSERT_EQ(9u, blob_get(blob, 1));
+    blob_put(blob, 1, 8);
     blob_reseal(blob);
 
     boot(rom);
@@ -1786,6 +1796,44 @@ UTEST(psleep, a_version_7_blob_is_refused)
     host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
     ASSERT_FALSE(load_state());
     ASSERT_TRUE((int)dut->tb_pocket_savestate_load_err);
+    for (long i = 0; i < 20000000L && g_console.find(DONE) == std::string::npos;
+         i++)
+        step();
+    ASSERT_TRUE(g_console.find(DONE) != std::string::npos);
+    teardown();
+}
+
+/* A state carries the stamp of the firmware that made it. The card's
+ * firmware is replaced by another build while the Pocket sleeps, so the
+ * wake boots that one, and it refuses the state and runs on. */
+UTEST(psleep, a_wake_under_another_build_is_refused)
+{
+    std::vector<uint8_t> fw = tb_stage_firmware(SW_BIN);
+    ASSERT_GT(fw.size(), (size_t)FW_STAMP + 4);
+    uint32_t stamp = (uint32_t)fw[FW_STAMP] | (uint32_t)fw[FW_STAMP + 1] << 8
+                     | (uint32_t)fw[FW_STAMP + 2] << 16
+                     | (uint32_t)fw[FW_STAMP + 3] << 24;
+    /* A time of day, later than this was written. */
+    ASSERT_GT(stamp, 1700000000u);
+
+    std::vector<uint8_t> rom = read_file(FILE_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    boot(rom);
+    step_to_save_point();
+    std::vector<uint8_t> blob;
+    ASSERT_TRUE(create_state(blob));
+    teardown();
+    ASSERT_EQ(stamp, blob_get(blob, 3));
+
+    g_other_build = true;
+    boot(rom);
+    step_to_save_point();
+    ASSERT_TRUE((int)MEM(resb));
+    std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
+    host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
+    ASSERT_FALSE(load_state());
+    ASSERT_TRUE((int)dut->tb_pocket_savestate_load_err);
+    ASSERT_EQ(3u, (uint32_t)MEM(engine__DOT__bad_idx));
     for (long i = 0; i < 20000000L && g_console.find(DONE) == std::string::npos;
          i++)
         step();

@@ -35,8 +35,8 @@
 
 typedef CACHE_MODEL dut_t;
 
-static const unsigned RAM_WORDS = 65536;
-static const unsigned LINES = RAM_WORDS / 4;
+static const unsigned MEM_WORDS = 131072;
+static const unsigned LINES = MEM_WORDS / 4;
 static const unsigned TAGS = LINES / CACHE_SETS;
 
 struct op
@@ -92,7 +92,7 @@ struct bench
     long base_hits = 0, base_misses = 0;
 
     explicit bench(uint64_t seed)
-        : ref(RAM_WORDS), mem(RAM_WORDS), rng(seed * 0x9E3779B97F4A7C15ull + 1),
+        : ref(MEM_WORDS), mem(MEM_WORDS), rng(seed * 0x9E3779B97F4A7C15ull + 1),
           pol(CACHE_SETS * CACHE_WAYS), ptr(CACHE_SETS)
     {
         Verilated::randSeed((int)(seed & 0x7fffffff) + 1);
@@ -305,7 +305,7 @@ struct bench
      * bomb went off and reset the cache. */
     bool phase(const op *next)
     {
-        d->req_word = next ? next->word : r32() % RAM_WORDS;
+        d->req_word = next ? next->word : r32() % MEM_WORDS;
         for (int waits = 0;; waits++)
         {
             cycle();
@@ -357,7 +357,7 @@ struct bench
         {
             /* The bus carries another target's access. */
             d->dph_write = rnd(2);
-            d->dph_word = r32() % RAM_WORDS;
+            d->dph_word = r32() % MEM_WORDS;
             d->dph_strb = rnd(16);
             d->wdata = r32();
         }
@@ -439,7 +439,7 @@ struct bench
                     dirty[e.tag * CACHE_SETS + s] = true;
             }
         int bad = 0;
-        for (unsigned i = 0; i < RAM_WORDS; i++)
+        for (unsigned i = 0; i < MEM_WORDS; i++)
             if (!dirty[i / 4] && mem[i] != ref[i])
                 bad++;
         if (bad)
@@ -503,10 +503,10 @@ static uint32_t dense_word(bench &b, unsigned sets, unsigned tags)
 UTEST(cache, random_over_the_whole_ram)
 {
     bench b(seed_of(1));
-    uint32_t hot = b.rnd(RAM_WORDS - 4096);
+    uint32_t hot = b.rnd(MEM_WORDS - 4096);
     for (int i = 0; i < 300000; i++)
     {
-        op o = b.random_op(b.rnd(3) ? hot + b.rnd(4096) : b.rnd(RAM_WORDS));
+        op o = b.random_op(b.rnd(3) ? hot + b.rnd(4096) : b.rnd(MEM_WORDS));
         b.phase(&o);
         while (b.rnd(4) == 0)
             b.phase(nullptr);
@@ -652,7 +652,7 @@ UTEST(cache, flush_writes_dirty_lines_and_keeps_them)
         for (int i = 0; i < 2000; i++)
         {
             op o = b.random_op(b.rnd(2) ? dense_word(b, 3, CACHE_WAYS)
-                                        : b.rnd(RAM_WORDS));
+                                        : b.rnd(MEM_WORDS));
             b.phase(&o);
         }
         b.check();
@@ -699,7 +699,7 @@ UTEST(cache, empty_forgets_every_line_and_writes_none)
         for (int i = 0; i < 500; i++)
         {
             op o = b.random_op(b.rnd(2) ? dense_word(b, 3, CACHE_WAYS)
-                                        : b.rnd(RAM_WORDS));
+                                        : b.rnd(MEM_WORDS));
             b.phase(&o);
         }
         for (unsigned s = 0; s < CACHE_SETS; s++)
@@ -746,7 +746,7 @@ UTEST(cache, reset_in_the_middle_of_work)
         else
         {
             op o = b.random_op(b.rnd(4) ? dense_word(b, 3, CACHE_WAYS * 2)
-                                        : b.rnd(RAM_WORDS));
+                                        : b.rnd(MEM_WORDS));
             ok = b.phase(&o);
             if (ok && b.rnd(4) == 0)
                 ok = b.phase(nullptr);
@@ -781,7 +781,7 @@ UTEST(cache, power_up_with_no_reset)
             b.phase(nullptr);
         for (int i = 0; i < 5000; i++)
         {
-            op o = b.random_op(b.rnd(RAM_WORDS));
+            op o = b.random_op(b.rnd(MEM_WORDS));
             b.phase(&o);
         }
         b.check();

@@ -126,7 +126,7 @@ add_test(NAME stage_map
         --mmio ${RP6502_SRC}/host/pocket/sw/mmio.h
         --bench ${RP6502_ROOT}/tests/bench/tb_stage.h
         --engine ${RP6502_POCKET_CORE}/sst_engine.sv
-        --ram ${RP6502_SRC}/core/riscv/ram_pkg.sv
+        --mem ${RP6502_SRC}/core/riscv/mem_pkg.sv
         --sst ${RP6502_POCKET_CORE}/pocket_sst.sv
         --top ${RP6502_SRC}/host/pocket/core/core_top.sv
         --core ${RP6502_POCKET_CORE}/pocket_core.sv

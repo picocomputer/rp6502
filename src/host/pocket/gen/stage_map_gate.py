@@ -17,8 +17,11 @@ FILE_SLOT_COUNT = 8
 
 FIRMWARE_FILE = "firmware.bin"
 
-# The Pocket's SDRAM is 64 MB.
+# The Pocket's SDRAM is 64 MB. The ROM slot is its first 62 MB, a limit of
+# the system: a whole ROM has to load into it, so nothing takes from it.
+# Everything else is in the 2 MB above.
 SDRAM_BYTES = 0x04000000
+ROM_SLOT_BYTES = 0x03E00000
 
 
 def defines(path: Path) -> dict:
@@ -46,7 +49,7 @@ def main() -> int:
     ap.add_argument("--mmio", required=True)
     ap.add_argument("--bench")
     ap.add_argument("--engine")
-    ap.add_argument("--ram", help="package holding widths the engine names")
+    ap.add_argument("--mem", help="package holding the soft CPU's memory")
     ap.add_argument("--sst")
     ap.add_argument("--top")
     ap.add_argument("--core")
@@ -66,20 +69,28 @@ def main() -> int:
     def addr(slot_id):
         return int(ds[slot_id]["address"], 0)
 
-    want("slot 0 address", addr(0), mm["ROM_BRIDGE"])
-    want("slot 0 size_maximum", int(ds[0]["size_maximum"], 0), mm["ROM_MAX"])
+    want("slot 0 address", addr(0), 0)
+    want("slot 0 size_maximum", int(ds[0]["size_maximum"], 0),
+         ROM_SLOT_BYTES)
+    want("ROM base", mm["ROM_BRIDGE"], addr(0))
+    want("ROM ceiling", mm["ROM_MAX"], ROM_SLOT_BYTES)
 
-    want("ROM ceiling", mm["ROM_MAX"], mm["RAM_BRIDGE"])
-    want("RAM ceiling", mm["RAM_BRIDGE"] + mm["RAM_MAX"],
+    # The soft CPU's memory follows the ROM slot and the savestate window
+    # follows it. The ROM block is at its start and the RAM block after.
+    want("memory base", mm["MEM_BRIDGE"], mm["ROM_MAX"])
+    want("memory ceiling", mm["MEM_BRIDGE"] + mm["MEM_MAX"],
          mm["SST_BLOB_BRIDGE"])
+    want("RAM block base", mm["MEM_RAM"], mm["MEM_ROM_MAX"])
+    if mm["MEM_RAM"] + mm["MEM_RAM_MAX"] > mm["MEM_MAX"]:
+        bad.append("the RAM block runs off the soft CPU's memory")
     fw = [i for i, s in ds.items() if s.get("filename") == FIRMWARE_FILE]
     if len(fw) != 1:
         bad.append(f"data.json has {len(fw)} {FIRMWARE_FILE} slots")
     else:
         s = ds[fw[0]]
-        want("firmware slot address", addr(fw[0]), mm["RAM_BRIDGE"])
+        want("firmware slot address", addr(fw[0]), mm["MEM_BRIDGE"])
         want("firmware slot size_maximum",
-             int(s.get("size_maximum", "0"), 0), mm["RAM_MAX"])
+             int(s.get("size_maximum", "0"), 0), mm["MEM_ROM_MAX"])
         if not s.get("required") or s.get("deferload"):
             bad.append("the firmware slot is not loaded before the core "
                        "leaves reset")
@@ -111,7 +122,9 @@ def main() -> int:
     regions = [("the savestate blob window", mm["SST_BLOB_BRIDGE"],
                 mm["SST_BLOB_MAX"]),
                ("the Get File scratch", mm["GETFILE_BRIDGE"], 4),
-               ("the soft CPU's RAM", mm["RAM_BRIDGE"], mm["RAM_MAX"])]
+               ("the ROM block", mm["MEM_BRIDGE"], mm["MEM_ROM_MAX"]),
+               ("the RAM block", mm["MEM_BRIDGE"] + mm["MEM_RAM"],
+                mm["MEM_RAM_MAX"])]
     for slot_id, s in ds.items():
         if s.get("filename") == FIRMWARE_FILE:
             continue
@@ -137,8 +150,12 @@ def main() -> int:
     if a.bench:
         tb = defines(Path(a.bench))
         want("bench ROM base", tb["TB_STAGE_ROM_BASE"], mm["ROM_BRIDGE"])
-        want("bench RAM base", tb["TB_STAGE_RAM_BASE"], mm["RAM_BRIDGE"])
-        want("bench RAM size", tb["TB_STAGE_RAM_SIZE"], mm["RAM_MAX"])
+        want("bench memory base", tb["TB_STAGE_MEM_BASE"], mm["MEM_BRIDGE"])
+        want("bench memory size", tb["TB_STAGE_MEM_SIZE"], mm["MEM_MAX"])
+        want("bench ROM block size",
+             tb["TB_STAGE_MEM_ROM_SIZE"], mm["MEM_ROM_MAX"])
+        want("bench RAM block size",
+             tb["TB_STAGE_MEM_RAM_SIZE"], mm["MEM_RAM_MAX"])
         want("bench window base",
              tb["TB_STAGE_WIN_BASE"], addr(FILE_SLOT_FIRST))
         want("bench window size",
@@ -158,25 +175,45 @@ def main() -> int:
             want(what, got, expect)
 
     if a.core:
-        want_sv(a.core, r"localparam logic \[31:0\] RAM_BASE",
-                "pocket_core RAM base", mm["RAM_BRIDGE"])
+        want_sv(a.core, r"localparam logic \[31:0\] MEM_BASE",
+                "pocket_core memory base", mm["MEM_BRIDGE"])
     if a.bridge:
-        want_sv(a.bridge, r"parameter logic \[31:0\] RAM_BASE",
-                "pocket_bridge RAM base", mm["RAM_BRIDGE"])
-    if a.ram:
-        pkg = dict(re.findall(r"localparam int (\w+) = (\d+);",
-                              Path(a.ram).read_text(encoding="utf-8")))
-        if "RAM_WORDS" not in pkg:
-            bad.append("the RAM package has no RAM_WORDS")
-        else:
-            want("RAM size", int(pkg["RAM_WORDS"]) * 4, mm["RAM_MAX"])
-    if a.link:
-        m = re.search(r"RAM \(rwx\) : ORIGIN = 0x0+, LENGTH = (\d+)K",
-                      Path(a.link).read_text(encoding="utf-8"))
+        want_sv(a.bridge, r"parameter logic \[31:0\] MEM_BASE",
+                "pocket_bridge memory base", mm["MEM_BRIDGE"])
+        m = re.search(r"parameter int MEM_AW = (\d+)",
+                      Path(a.bridge).read_text(encoding="utf-8"))
         if not m:
-            bad.append("link.ld has no RAM region at 0")
+            bad.append("pocket_bridge has no MEM_AW")
         else:
-            want("linked RAM size", int(m.group(1)) * 1024, mm["RAM_MAX"])
+            want("pocket_bridge memory size", 4 << int(m.group(1)),
+                 mm["MEM_MAX"])
+    pkg = {}
+    if a.mem:
+        pkg = dict(re.findall(r"localparam int (\w+) = (\d+);",
+                              Path(a.mem).read_text(encoding="utf-8")))
+        for name, size in (("MEM_WORDS", "MEM_MAX"),
+                           ("ROM_WORDS", "MEM_ROM_MAX"),
+                           ("RAM_WORDS", "MEM_RAM_MAX")):
+            if name not in pkg:
+                bad.append(f"the memory package has no {name}")
+            else:
+                want(f"package {name}", int(pkg[name]) * 4, mm[size])
+        if mm["MEM_MAX"] & (mm["MEM_MAX"] - 1) or \
+                mm["MEM_BRIDGE"] % mm["MEM_MAX"]:
+            bad.append("the soft CPU's memory is not a power of two at a "
+                       "multiple of its size")
+    if a.link:
+        link = Path(a.link).read_text(encoding="utf-8")
+        for name, flags, base, size in (("ROM", "rx", 0, "MEM_ROM_MAX"),
+                                        ("RAM", "rw", mm["MEM_RAM"],
+                                         "MEM_RAM_MAX")):
+            m = re.search(rf"{name} \({flags}\) : ORIGIN = (0x[0-9A-Fa-f]+), "
+                          r"LENGTH = (\d+)K", link)
+            if not m:
+                bad.append(f"link.ld has no {name} region")
+            else:
+                want(f"linked {name} base", int(m.group(1), 16), base)
+                want(f"linked {name} size", int(m.group(2)) * 1024, mm[size])
 
     words = None
     if a.engine:
@@ -184,8 +221,7 @@ def main() -> int:
         want_sv(a.engine, r"localparam int A_STAGE_OFF",
                 "engine blob address", mm["SST_BLOB_BRIDGE"])
         parts = dict(re.findall(r"localparam int (W_\w+) = (\w+);", src))
-        if a.ram:
-            parts = {k: pkg.get(v, v) for k, v in parts.items()}
+        parts = {k: pkg.get(v, v) for k, v in parts.items()}
         parts = {k: v for k, v in parts.items() if v.isdigit()}
         order = ["W_HDR", "W_STATE", "W_REGS", "W_SRAM", "W_XRAM",
                  "W_CELLS", "W_XPROG", "W_RAM", "W_AUD", "W_END"]
@@ -194,6 +230,9 @@ def main() -> int:
             bad.append(f"sst_engine is missing {', '.join(missing)}")
         else:
             words = sum(int(parts[k]) for k in order)
+    if a.sst:
+        want("blob window alignment",
+             mm["SST_BLOB_BRIDGE"] % mm["SST_BLOB_MAX"], 0)
     if words is not None and a.sst:
         src = Path(a.sst).read_text(encoding="utf-8")
         m = re.search(r"parameter int BLOB_WORDS = (\d+)", src)
@@ -232,7 +271,8 @@ def main() -> int:
 
     blob = f", state {words * 4 // 1024} KB" if words else ""
     print(f"stage map ok: {len(ds)} slots, ROM ceiling {mm['ROM_MAX']:#010x}, "
-          f"RAM {mm['RAM_MAX'] // 1024} KB, "
+          f"ROM block {mm['MEM_ROM_MAX'] // 1024} KB, "
+          f"RAM block {mm['MEM_RAM_MAX'] // 1024} KB, "
           f"blob {mm['SST_BLOB_MAX'] // 1024} KB at "
           f"{mm['SST_BLOB_BRIDGE']:#010x}{blob}")
     return 0

@@ -10,17 +10,16 @@
 
 module pocket_sst #(
     /* BLOB_BASE and BLOB_WINDOW are core_top's savestate_addr and
-     * savestate_maxloadsize. BLOB_BASE is aligned to 1 MB so that the
-     * window decode compares bits 31:20 with the base and bits 19:0
-     * with BLOB_WINDOW. */
-    parameter logic [31:0] BLOB_BASE = 32'h03F0_0000,
-    parameter logic [31:0] BLOB_WINDOW = 32'h000A_0000,
+     * savestate_maxloadsize. The window is 512 KB at a multiple of
+     * 512 KB, so the decode compares bits 31:19 with the base. */
+    parameter logic [31:0] BLOB_BASE = 32'h03E8_0000,
+    parameter logic [31:0] BLOB_WINDOW = 32'h0008_0000,
     /* BLOB_WORDS is sst_engine's word count and core_top's
      * savestate_size divided by four, and stage_map_gate.py checks that
      * the three agree. No host command marks the end of reading the
      * blob, so the save request is dropped when the word at the last
      * index arrives from sst_engine. */
-    parameter int BLOB_WORDS = 124244
+    parameter int BLOB_WORDS = 75092
 ) (
     input logic clk_sys,
     input logic stb,
@@ -79,10 +78,9 @@ module pocket_sst #(
 
     logic blob_hit;
     always_comb begin
-        in_window = bridge_addr[31:20] == BLOB_BASE[31:20]
-            && bridge_addr[19:0] < BLOB_WINDOW[19:0];
+        in_window = bridge_addr[31:19] == BLOB_BASE[31:19];
         blob_hit = bridge_wr && in_window;
-        rd_idx = bridge_addr[19:2];
+        rd_idx = {1'b0, bridge_addr[18:2]};
         rd_edge = bridge_rd && !bridge_rd_q && in_window;
         pocket_sst_rd_data = hold;
         pocket_sst_rd_sel = in_window;
@@ -258,7 +256,8 @@ module pocket_sst #(
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_pocket_sst;
     always_comb unused_pocket_sst = we ^ (^addr[27:4]) ^ (^addr[1:0])
-        ^ (^wdata[31:1]) ^ (^bridge_addr[31:20]) ^ ready_s1;
+        ^ (^wdata[31:1]) ^ (^bridge_addr[1:0]) ^ ready_s1
+        ^ (^BLOB_BASE[18:0]) ^ (^BLOB_WINDOW);
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

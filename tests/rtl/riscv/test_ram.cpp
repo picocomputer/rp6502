@@ -44,16 +44,16 @@ static uint32_t ram_peek(uint32_t byte_addr)
 
 UTEST(ram, load_after_store_sees_the_store)
 {
-    /* lui a5,0x1; li a4,0x12345678; sw a4,0(a5); lw a3,0(a5);
+    /* lui a5,0x41; li a4,0x12345678; sw a4,0(a5); lw a3,0(a5);
      * sw a3,4(a5); spin. */
     static const uint32_t prog[] = {
-        0x000017b7, 0x12345737, 0x67870713, 0x00e7a023,
+        0x000417b7, 0x12345737, 0x67870713, 0x00e7a023,
         0x0007a683, 0x00d7a223, 0x0000006f,
     };
     run_program(prog, sizeof prog / sizeof *prog);
 
-    ASSERT_EQ(ram_peek(0x1000), (uint32_t)0x12345678);
-    ASSERT_EQ(ram_peek(0x1004), (uint32_t)0x12345678);
+    ASSERT_EQ(ram_peek(0x41000), (uint32_t)0x12345678);
+    ASSERT_EQ(ram_peek(0x41004), (uint32_t)0x12345678);
 }
 
 /* The first store fetches the line, so the second finds it in the cache
@@ -61,7 +61,7 @@ UTEST(ram, load_after_store_sees_the_store)
 UTEST(ram, load_after_a_store_that_hits)
 {
     static const uint32_t prog[] = {
-        0x000017b7,             /* lui  a5,0x1        */
+        0x000417b7,             /* lui  a5,0x41       */
         0x12345737,             /* lui  a4,0x12345    */
         0x67870713,             /* addi a4,a4,0x678   */
         0x00e7a023,             /* sw   a4,0(a5)      */
@@ -73,14 +73,14 @@ UTEST(ram, load_after_a_store_that_hits)
     };
     run_program(prog, sizeof prog / sizeof *prog);
 
-    ASSERT_EQ(ram_peek(0x1000), (uint32_t)0x12345679);
-    ASSERT_EQ(ram_peek(0x1004), (uint32_t)0x12345679);
+    ASSERT_EQ(ram_peek(0x41000), (uint32_t)0x12345679);
+    ASSERT_EQ(ram_peek(0x41004), (uint32_t)0x12345679);
 }
 
 UTEST(ram, byte_store_then_byte_load)
 {
     static const uint32_t prog[] = {
-        0x000017b7,             /* lui  a5,0x1        */
+        0x000417b7,             /* lui  a5,0x41       */
         0x0a900713,             /* li   a4,0xa9       */
         0x00e78023,             /* sb   a4,0(a5)      */
         0x0007c683,             /* lbu  a3,0(a5)      */
@@ -89,8 +89,28 @@ UTEST(ram, byte_store_then_byte_load)
     };
     run_program(prog, sizeof prog / sizeof *prog);
 
-    ASSERT_EQ(ram_peek(0x1000) & 0xff, (uint32_t)0xa9);
-    ASSERT_EQ(ram_peek(0x1004), (uint32_t)0xa9);
+    ASSERT_EQ(ram_peek(0x41000) & 0xff, (uint32_t)0xa9);
+    ASSERT_EQ(ram_peek(0x41004), (uint32_t)0xa9);
+}
+
+/* A store to the ROM block is dropped. The load after it reads what the
+ * ROM block held, and the flush finds no line of it to write out. */
+UTEST(ram, a_store_to_the_rom_block_changes_nothing)
+{
+    static const uint32_t prog[] = {
+        0x000417b7,             /* lui  a5,0x41       */
+        0x12345737,             /* lui  a4,0x12345    */
+        0x04e02023,             /* sw   a4,0x40(x0)   */
+        0x04002683,             /* lw   a3,0x40(x0)   */
+        0x00d7a023,             /* sw   a3,0(a5)      */
+        0x0000006f,             /* spin               */
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0xCAFE0001,             /* at 0x40            */
+    };
+    run_program(prog, sizeof prog / sizeof *prog);
+
+    ASSERT_EQ(ram_peek(0x40), (uint32_t)0xCAFE0001);
+    ASSERT_EQ(ram_peek(0x41000), (uint32_t)0xCAFE0001);
 }
 
 UTEST_STATE();

@@ -44,7 +44,7 @@ template <typename Dut> static void tb_clock(Dut *dut)
     dut->eval();
 }
 
-/* The firmware is the first contents of the soft CPU's RAM. */
+/* The firmware is the soft CPU's ROM block. */
 static bool tb_firmware(const char *path)
 {
     return tb_ram_load(path);

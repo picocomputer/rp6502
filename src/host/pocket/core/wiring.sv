@@ -5,7 +5,7 @@
  */
 
 module wiring
-    import timing_pkg::*, ram_pkg::*;
+    import timing_pkg::*, mem_pkg::*;
 #(
     parameter int SYS_KHZ = 50400,
     parameter bit EXT_RAM = 0
@@ -48,9 +48,9 @@ module wiring
     input logic mach_running,
     output logic wiring_sst_stop_req,
 
-    /* The soft CPU's RAM, a line of four words at a time. A line is 128
-     * bits with word 0 in bits 31 to 0, and wiring_line_addr counts
-     * lines from the start of the RAM. wiring_line_pend is high while a
+    /* The soft CPU's memory, a line of four words at a time. A line is
+     * 128 bits with word 0 in bits 31 to 0, and wiring_line_addr counts
+     * lines from the soft CPU's address 0. wiring_line_pend is high while a
      * read or a write is wanted and not yet done, and the other three
      * hold with it. line_done rises when it is done, with line_rdata
      * valid for a read, and falls once wiring_line_pend has fallen;
@@ -59,7 +59,7 @@ module wiring
      * the machine is stopped. */
     output logic wiring_line_pend,
     output logic wiring_line_we,
-    output logic [RAM_AW-3:0] wiring_line_addr,
+    output logic [MEM_AW-3:0] wiring_line_addr,
     output logic [127:0] wiring_line_wdata,
     input logic line_done,
     input logic [127:0] line_rdata,
@@ -258,14 +258,18 @@ module wiring
 
     logic eng_dbg_halt, eng_dbg_vld;
     logic eng_flush, eng_empty, eng_line_pend, eng_line_we;
-    logic [RAM_AW-3:0] eng_line_addr;
+    logic [MEM_AW-3:0] eng_line_addr;
     logic [127:0] eng_line_wdata;
     logic [1:0] eng_st_sel;
     logic [2:0] eng_st_idx;
     logic [31:0] eng_dbg_instr, eng_dbg_data0;
     logic eng_dbg_resume;
 
-    sst_engine #(.RAM_WORDS(RAM_WORDS)) engine (
+    sst_engine #(
+        .MEM_WORDS(MEM_WORDS),
+        .ROM_WORDS(ROM_WORDS),
+        .RAM_WORDS(RAM_WORDS)
+    ) engine (
         .clk_sys(clk_sys),
         .rst_n(rst_n),
         .sst_save(sst_save),
@@ -455,10 +459,10 @@ module wiring
     logic [63:0] rv_mtime;
     logic [31:0] rv_dbg_data0, rv_exit_code;
     logic rv_cache_idle, rv_line_pend, rv_line_we;
-    logic [RAM_AW-3:0] rv_line_addr;
+    logic [MEM_AW-3:0] rv_line_addr;
     logic [127:0] rv_line_wdata;
     logic soc_line_pend, soc_line_we;
-    logic [RAM_AW-3:0] soc_line_addr;
+    logic [MEM_AW-3:0] soc_line_addr;
     logic [127:0] soc_line_wdata;
     logic rv_dbg_halted, rv_dbg_data0_wen, rv_dbg_instr_rdy, rv_dbg_ebreak,
         rv_dbg_fault, rv_halted, rv_key_pending;

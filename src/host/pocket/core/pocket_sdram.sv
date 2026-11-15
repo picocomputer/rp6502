@@ -252,18 +252,13 @@ module pocket_sdram #(
                 if (ref_due != '0) begin
                     idle_cnt <= '0;
                     state <= any_active ? S_PALL_R : S_REFRESH;
-                end else if (rd_pend && !pocket_sdram_rvalid) begin
-                    idle_cnt <= '0;
-                    op_is_read <= 1'b1;
-                    op_is_line <= 1'b0;
-                    op_addr <= rd_addr;
-                    state <= S_OPEN;
                 end else if (w_avail) begin
-                    /* A write goes before a line. The host sends writes
-                     * at a rate it sets and their queue is short, and
-                     * the soft CPU asks for lines back to back when it
-                     * runs cold code, so lines taken first would
-                     * overflow the queue. */
+                    /* A write goes before a read or a line. The host
+                     * sends writes at a rate it sets, their queue is
+                     * short and the bridge cannot make the host wait.
+                     * The soft CPU asks for reads and lines back to
+                     * back, so either taken first would overflow the
+                     * queue. */
                     idle_cnt <= '0;
                     op_is_read <= 1'b0;
                     op_is_line <= 1'b0;
@@ -276,6 +271,12 @@ module pocket_sdram #(
                      * new data instead of returning the old. */
                     if (held_valid && held_addr == w_addr)
                         held_valid <= 1'b0;
+                    state <= S_OPEN;
+                end else if (rd_pend && !pocket_sdram_rvalid) begin
+                    idle_cnt <= '0;
+                    op_is_read <= 1'b1;
+                    op_is_line <= 1'b0;
+                    op_addr <= rd_addr;
                     state <= S_OPEN;
                 end else if (line_pend && !pocket_sdram_line_done) begin
                     idle_cnt <= '0;

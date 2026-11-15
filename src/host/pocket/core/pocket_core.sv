@@ -5,7 +5,7 @@
  */
 
 module pocket_core
-    import ram_pkg::*;
+    import mem_pkg::*;
 (
     output logic pocket_core_stop_req,
     input logic mach_running,
@@ -99,11 +99,11 @@ input logic clk_vid,
     output logic pocket_core_rv_halted
 );
 
-    /* The soft CPU's RAM is the SDRAM from this byte address up to the
-     * savestate window, the top of what would be the ROM slot. The host
-     * loads firmware.bin there as a data slot, and stage_map_gate.py
-     * checks this address against data.json. */
-    localparam logic [31:0] RAM_BASE = 32'h03EC_0000;
+    /* The soft CPU's memory is the SDRAM from this byte address up to
+     * the savestate window, the first 512 KB after the ROM slot. Its ROM
+     * block is first, where the host loads firmware.bin as a data slot,
+     * and stage_map_gate.py checks this address against data.json. */
+    localparam logic [31:0] MEM_BASE = 32'h03E0_0000;
 
     logic run;
 
@@ -138,8 +138,8 @@ input logic clk_vid,
         ? file_dt_addr : bridge_dt_addr;
 
     pocket_bridge #(
-        .RAM_BASE(RAM_BASE),
-        .RAM_AW(RAM_AW)
+        .MEM_BASE(MEM_BASE),
+        .MEM_AW(MEM_AW)
     ) bridge (
         .clk_74a(clk_74a),
         .arst_n(arst_n),
@@ -192,7 +192,7 @@ input logic clk_vid,
      * the controller's clk_sys registers, which the engine takes on
      * clk_sys and the cache on clk_rv, a whole clk_sys later or two. */
     logic line_pend, line_we;
-    logic [RAM_AW-3:0] line_addr;
+    logic [MEM_AW-3:0] line_addr;
     logic [127:0] line_wdata, line_rdata;
     logic line_done;
 
@@ -208,7 +208,7 @@ input logic clk_vid,
         .pocket_sdram_wtake(w_take),
         .line_pend(line_pend),
         .line_we(line_we),
-        .line_addr({RAM_BASE[25:RAM_AW+2], line_addr}),
+        .line_addr({MEM_BASE[25:MEM_AW+2], line_addr}),
         .line_wdata(line_wdata),
         .pocket_sdram_line_rdata(line_rdata),
         .pocket_sdram_line_done(line_done),
@@ -514,8 +514,8 @@ input logic clk_vid,
     logic unused_pocket_core;
     always_comb unused_pocket_core = ^{rx_taken, rv_exit_code, scanline,
                                        stage_addr[27:26], stage_addr[0],
-                                       RAM_BASE[31:26],
-                                       RAM_BASE[RAM_AW+1:0]};
+                                       MEM_BASE[31:26],
+                                       MEM_BASE[MEM_AW+1:0]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

@@ -11,11 +11,16 @@
 #include <cstdio>
 #include <cstring>
 
-/* The soft CPU's RAM as the machine sees it behind its line port: 256 KB
- * that answer a line of 16 bytes at a time, where the Pocket has its
- * SDRAM. The cache in soc.sv holds the newest copy of the lines the soft
- * CPU has stored to, so a test reads this array after tb_ram_flush. */
-#define TB_RAM_BYTES 0x40000u
+/* The soft CPU's memory as the machine sees it behind its line port:
+ * 512 KB that answer a line of 16 bytes at a time, where the Pocket has
+ * its SDRAM. The ROM block is the first TB_RAM_ROM bytes, which hold the
+ * program and take no store, and the RAM block starts after it. The cache
+ * in soc.sv holds the newest copy of the lines the soft CPU has stored
+ * to, so a test reads this array after tb_ram_flush. */
+#define TB_RAM_BYTES 0x80000u
+#define TB_RAM_ROM 0x40000u
+/* The RAM block's first word, for tb_ram_word and tb_ram_put. */
+#define TB_RAM_WORD (TB_RAM_ROM / 4)
 
 /* A line takes this many clocks, about what the Pocket's SDRAM takes. */
 #define TB_RAM_WAIT 16
@@ -50,14 +55,15 @@ static void tb_ram_put(uint32_t w, uint32_t v)
     memcpy(tb_ram().mem + w * 4, &v, 4);
 }
 
+/* Loads an image of the ROM block, which is what firmware.bin is. */
 static bool tb_ram_load(const char *path)
 {
     FILE *f = fopen(path, "rb");
     if (!f)
         return false;
     tb_ram_clear();
-    size_t n = fread(tb_ram().mem, 1, TB_RAM_BYTES, f);
-    bool whole = n < TB_RAM_BYTES || fgetc(f) == EOF;
+    size_t n = fread(tb_ram().mem, 1, TB_RAM_ROM, f);
+    bool whole = n < TB_RAM_ROM || fgetc(f) == EOF;
     fclose(f);
     return whole;
 }

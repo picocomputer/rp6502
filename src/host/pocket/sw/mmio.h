@@ -28,25 +28,30 @@
 #define STAGE ((volatile const uint8_t *)0x60000000u)
 
 /* These addresses must agree with the slots in data.json.
- * stage_map_gate.py checks the ROM, RAM, savestate blob and Get File
- * addresses against it. ROM_MAX is the ROM slot's size_maximum.
- * RAM_BRIDGE and RAM_MAX are the memory this firmware runs in, which the
- * host loads as firmware.bin and the soft CPU sees at address 0. */
+ * stage_map_gate.py checks every one of them against it and against the
+ * hardware. ROM_MAX is the ROM slot's size_maximum. MEM_BRIDGE is the
+ * memory this firmware runs in, MEM_MAX bytes that the soft CPU sees at
+ * address 0. Its first MEM_ROM_MAX bytes are the ROM block, which the
+ * host loads as firmware.bin, and the MEM_RAM_MAX bytes at MEM_RAM are
+ * the RAM block. The rest is spare. */
 #define ROM_IMG ((volatile const uint8_t *)0x60000000u)
 #define ROM_BRIDGE 0x00000000u
-#define ROM_MAX 0x03EC0000u
-#define RAM_BRIDGE 0x03EC0000u
-#define RAM_MAX 0x00040000u
-#define SST_BLOB_BRIDGE 0x03F00000u
-#define SST_BLOB ((volatile const uint8_t *)0x63F00000u)
-#define SST_BLOB_MAX 0x000A0000u
+#define ROM_MAX 0x03E00000u
+#define MEM_BRIDGE 0x03E00000u
+#define MEM_MAX 0x00080000u
+#define MEM_ROM_MAX 0x00040000u
+#define MEM_RAM 0x00040000u
+#define MEM_RAM_MAX 0x00010000u
+#define SST_BLOB_BRIDGE 0x03E80000u
+#define SST_BLOB ((volatile const uint8_t *)0x63E80000u)
+#define SST_BLOB_MAX 0x00080000u
 #define SLOT_WIN_SIZE 0x8000u
 #define SLOT_WIN(d) \
-    ((volatile const uint8_t *)(0x63FA0000u + (uint32_t)(d) * SLOT_WIN_SIZE))
-#define SLOT_WIN_BRIDGE(d) (0x03FA0000u + (uint32_t)(d) * SLOT_WIN_SIZE)
+    ((volatile const uint8_t *)(0x63F00000u + (uint32_t)(d) * SLOT_WIN_SIZE))
+#define SLOT_WIN_BRIDGE(d) (0x03F00000u + (uint32_t)(d) * SLOT_WIN_SIZE)
 #define FILE_XFER_MAX SLOT_WIN_SIZE
-#define GETFILE_WIN ((volatile const uint8_t *)0x63FF1000u)
-#define GETFILE_BRIDGE 0x03FF1000u
+#define GETFILE_WIN ((volatile const uint8_t *)0x63F40000u)
+#define GETFILE_BRIDGE 0x03F40000u
 
 /* FILE_WIN is the write port of a dual-port RAM in pocket_file.sv. The
  * RAM's read port is on the bridge, so the firmware cannot read FILE_WIN

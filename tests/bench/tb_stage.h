@@ -15,10 +15,13 @@
 /* stage_map_gate.py checks these against the firmware's mmio.h and the
  * Pocket core's data.json. */
 #define TB_STAGE_ROM_BASE 0x00000000u
-/* The soft CPU's RAM, where the host loads the firmware. */
-#define TB_STAGE_RAM_BASE 0x03EC0000u
-#define TB_STAGE_RAM_SIZE 0x00040000u
-#define TB_STAGE_WIN_BASE 0x03FA0000u
+/* The soft CPU's memory. Its ROM block is first, where the host loads
+ * the firmware, and its RAM block follows. */
+#define TB_STAGE_MEM_BASE 0x03E00000u
+#define TB_STAGE_MEM_SIZE 0x00080000u
+#define TB_STAGE_MEM_ROM_SIZE 0x00040000u
+#define TB_STAGE_MEM_RAM_SIZE 0x00010000u
+#define TB_STAGE_WIN_BASE 0x03F00000u
 #define TB_STAGE_WIN_SIZE 0x00008000u
 
 static const std::vector<uint8_t> &tb_stage_load(const char *path,
@@ -52,12 +55,12 @@ static void tb_stage_poke(Mem &mem, uint32_t base,
 }
 
 /* The firmware image, or nothing when the file is missing or is larger
- * than the soft CPU's RAM. */
+ * than the ROM block. */
 static std::vector<uint8_t> tb_stage_firmware(const char *path)
 {
     std::vector<uint8_t> v;
     tb_stage_load(path, v);
-    if (v.size() > TB_STAGE_RAM_SIZE)
+    if (v.size() > TB_STAGE_MEM_ROM_SIZE)
         v.clear();
     return v;
 }
@@ -67,7 +70,7 @@ template <typename Mem>
 static bool tb_stage_poke_firmware(Mem &mem, const char *path)
 {
     std::vector<uint8_t> v = tb_stage_firmware(path);
-    tb_stage_poke(mem, TB_STAGE_RAM_BASE, v);
+    tb_stage_poke(mem, TB_STAGE_MEM_BASE, v);
     return !v.empty();
 }
 
