@@ -10,7 +10,7 @@ set(RP6502_RTL_SOURCES
     ${RP6502_SRC}/core/vga/scan/timing_pkg.sv
     ${RP6502_SRC}/core/vga/canvas_pkg.sv
     ${RP6502_SRC}/core/vga/mode/mode.sv
-    ${RP6502_SRC}/core/riscv/tcm_pkg.sv
+    ${RP6502_SRC}/core/riscv/ram_pkg.sv
     ${RP6502_SRC}/core/wdc/cpu.sv
     ${RP6502_SRC}/core/wdc/bus.sv
     ${RP6502_SRC}/core/wdc/via.sv
@@ -18,6 +18,7 @@ set(RP6502_RTL_SOURCES
     ${RP6502_SRC}/core/sys/xram.sv
     ${RP6502_SRC}/core/wdc/phi2.sv
     ${RP6502_SRC}/core/ria/regs.sv
+    ${RP6502_SRC}/core/riscv/cache.sv
     ${RP6502_SRC}/core/riscv/soc.sv
     ${RP6502_SRC}/core/vga/scan/timing.sv
     ${RP6502_ASSETS}/psg_pkg.sv

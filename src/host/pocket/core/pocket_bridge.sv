@@ -8,7 +8,12 @@
  * the SDRAM as two halfwords with the even byte in the low half.
  */
 
-module pocket_bridge (
+module pocket_bridge #(
+    /* The soft CPU's RAM: 2**RAM_AW words of four bytes at the SDRAM
+     * byte address RAM_BASE. pocket_core sets both. */
+    parameter logic [31:0] RAM_BASE = 32'h03EC_0000,
+    parameter int RAM_AW = 16
+) (
     input logic clk_74a,
     input logic arst_n,
     input logic bridge_wr,
@@ -28,6 +33,7 @@ module pocket_bridge (
     input logic sdram_ready,
     input logic w_take,
     output logic pocket_bridge_w_avail,
+    output logic pocket_bridge_w_queued,
     output logic [24:0] pocket_bridge_w_addr,
     output logic [15:0] pocket_bridge_w_data,
     output logic pocket_bridge_run,
@@ -155,11 +161,25 @@ module pocket_bridge (
         .w_data(wf_wdata),
         .pocket_fifo_full(wf_full),
         .rclk(clk_sys),
-        .r_take(w_take),
+        .r_take(w_take || w_drop),
         .pocket_fifo_empty(wf_empty),
         .pocket_fifo_rdata({pocket_bridge_w_addr, pocket_bridge_w_data})
     );
-    always_comb pocket_bridge_w_avail = !wf_empty;
+
+    /* A write into the soft CPU's RAM is the firmware loading, and it
+     * is taken only while the machine is in reset. Once the machine
+     * runs, the cache holds lines of that RAM and would not see a write
+     * behind it, so the write leaves the queue here and never reaches
+     * the SDRAM. The host is not known to rewrite the firmware slot
+     * when it reloads a ROM into a running machine; if it does, this
+     * is where it stops. */
+    logic w_drop;
+    always_comb begin
+        w_drop = !wf_empty && pocket_bridge_run
+            && pocket_bridge_w_addr[24:RAM_AW+1] == RAM_BASE[25:RAM_AW+2];
+        pocket_bridge_w_avail = !wf_empty && !w_drop;
+        pocket_bridge_w_queued = !wf_empty;
+    end
 
     /* slot_size crosses to clk_sys without a synchroniser. Outside
      * reset it changes only on the clk_74a edge that toggles settle_t,
@@ -227,6 +247,7 @@ module pocket_bridge (
         reset_n_s1 = 1'b0;
         reset_n_s2 = 1'b0;
         settled = 1'b0;
+        pocket_bridge_run = 1'b0;
         run_q = 1'b0;
         post = '0;
         pocket_bridge_slot_len = '0;
@@ -253,8 +274,16 @@ module pocket_bridge (
             post[0] <= 1'b1;
         if (post[3])
             pocket_bridge_slot_set <= 1'b1;
+        /* The machine leaves reset once the queue of writes is empty,
+         * so the firmware and the other slots are in the SDRAM, or in
+         * the one write the controller has in hand, before the soft CPU
+         * fetches. A write that reaches the queue later does not put
+         * the machine back in reset. */
+        if (!reset_n_s2)
+            pocket_bridge_run <= 1'b0;
+        else if (settled && sdram_ready && wf_empty)
+            pocket_bridge_run <= 1'b1;
     end
-    always_comb pocket_bridge_run = reset_n_s2 && settled && sdram_ready;
 
     always_comb pocket_bridge_upd_n = upd_n_sys;
 
@@ -313,7 +342,9 @@ module pocket_bridge (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_pocket_bridge;
-    always_comb unused_pocket_bridge = ^{bridge_addr[27:26]};
+    always_comb unused_pocket_bridge = ^{bridge_addr[27:26],
+                                         RAM_BASE[31:26],
+                                         RAM_BASE[RAM_AW+1:0]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

@@ -7,10 +7,10 @@
  * come out of src/core/str/unicode.py, which lifts them from that same
  * vendored file.
  *
- * Every table access goes through unicode_word, because five kilobytes is
- * more than the Pocket's TCM can spare: its tables ride in the staging store
- * beside the fonts and are read a word at a time through a window that cannot
- * fetch anything wider than a byte.
+ * Every table access goes through unicode_word, because the Pocket keeps
+ * the tables out of its firmware: they ride in the staging store beside the
+ * fonts and are read a word at a time through a window that cannot fetch
+ * anything wider than a byte.
  */
 
 /* FatFs where there is one: a definition here has to use the same types ff.h

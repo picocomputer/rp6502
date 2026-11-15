@@ -46,22 +46,11 @@ static void clk(void)
         g_data0 = dut->wiring_sst_dbg_data0;
 }
 
-static uint32_t tcm_word(uint32_t w)
+/* The cache holds what the soft CPU stored last, so the RAM is read
+ * after a flush. */
+static void flush(void)
 {
-    auto *r = dut->rootp;
-    return (uint32_t)r->wiring__DOT__soc__DOT__tcm0[w]
-           | ((uint32_t)r->wiring__DOT__soc__DOT__tcm1[w] << 8)
-           | ((uint32_t)r->wiring__DOT__soc__DOT__tcm2[w] << 16)
-           | ((uint32_t)r->wiring__DOT__soc__DOT__tcm3[w] << 24);
-}
-
-static void tcm_put(uint32_t w, uint32_t v)
-{
-    auto *r = dut->rootp;
-    r->wiring__DOT__soc__DOT__tcm0[w] = v & 0xFF;
-    r->wiring__DOT__soc__DOT__tcm1[w] = (v >> 8) & 0xFF;
-    r->wiring__DOT__soc__DOT__tcm2[w] = (v >> 16) & 0xFF;
-    r->wiring__DOT__soc__DOT__tcm3[w] = (v >> 24) & 0xFF;
+    tb_ram_flush(dut, clk);
 }
 
 static void power_on(const std::vector<uint32_t> &prog)
@@ -82,8 +71,9 @@ static void power_on(const std::vector<uint32_t> &prog)
     dut->sst_dbg_instr_vld = 0;
     dut->sst_dbg_data0 = 0;
     dut->eval();
+    tb_ram_clear();
     for (uint32_t i = 0; i < prog.size(); i++)
-        tcm_put(i, prog[i]);
+        tb_ram_put(i, prog[i]);
     tb_clock(dut);
     tb_clock(dut);
     dut->rst_n = 1;
@@ -205,9 +195,10 @@ static const std::vector<uint32_t> COUNTER = {
 static std::vector<uint32_t> record(void)
 {
     std::vector<uint32_t> v;
+    flush();
     for (uint32_t i = 0; i < REC_MAX; i++)
     {
-        uint32_t w = tcm_word(REC_BASE + i);
+        uint32_t w = tb_ram_word(REC_BASE + i);
         if (!w)
             break;
         v.push_back(w);
@@ -249,7 +240,8 @@ UTEST(resume, its_registers_come_out_and_go_back)
 
     uint32_t dpc = 0;
     ASSERT_TRUE(read_csr(CSR_DPC, 5, &dpc));
-    ASSERT_TRUE(dpc >= 8 && dpc <= 0x18);
+    /* The loop is words 4 to 7, which are byte addresses 0x10 to 0x1C. */
+    ASSERT_TRUE(dpc >= 0x10 && dpc <= 0x1C);
 }
 
 UTEST(resume, a_new_core_carries_on_rather_than_starting_over)
@@ -268,7 +260,7 @@ UTEST(resume, a_new_core_carries_on_rather_than_starting_over)
 
     std::vector<uint32_t> before = record();
     ASSERT_TRUE(before.size() > 4);
-    ASSERT_EQ(MARK, tcm_word(MARK_WORD));
+    ASSERT_EQ(MARK, tb_ram_word(MARK_WORD));
 
     std::vector<uint32_t> image = COUNTER;
     if (dut)
@@ -287,14 +279,15 @@ UTEST(resume, a_new_core_carries_on_rather_than_starting_over)
     dut->rst_n = 0;
     dut->sst_dbg_halt_on_reset = 1;
     dut->eval();
+    tb_ram_clear();
     for (uint32_t i = 0; i < image.size(); i++)
-        tcm_put(i, image[i]);
+        tb_ram_put(i, image[i]);
     /* The record is restored and the mark is overwritten. A core that
      * started over would write the same ascending record again, so only
      * the mark being written back distinguishes a restart from a resume. */
     for (uint32_t i = 0; i < before.size(); i++)
-        tcm_put(REC_BASE + i, before[i]);
-    tcm_put(MARK_WORD, 0xBADBAD00u);
+        tb_ram_put(REC_BASE + i, before[i]);
+    tb_ram_put(MARK_WORD, 0xBADBAD00u);
     tb_clock(dut);
     tb_clock(dut);
     dut->rst_n = 1;
@@ -317,9 +310,9 @@ UTEST(resume, a_new_core_carries_on_rather_than_starting_over)
     for (int i = 0; i < 4000; i++)
         tb_clock(dut);
 
-    ASSERT_EQ(0xBADBAD00u, tcm_word(MARK_WORD));
-
     std::vector<uint32_t> after = record();
+    ASSERT_EQ(0xBADBAD00u, tb_ram_word(MARK_WORD));
+
     ASSERT_TRUE(after.size() > before.size());
     for (size_t i = 0; i < before.size(); i++)
         ASSERT_EQ(before[i], after[i]);

@@ -10,7 +10,7 @@
         "extensions": [
           "rp6502"
         ],
-        "size_maximum": "0x03F00000",
+        "size_maximum": "0x03EC0000",
         "address": "0x00000000"
       },
       {
@@ -103,6 +103,15 @@
         "filename": "keyboard.bin",
         "size_exact": "8056",
         "address": "0x03FF2000"
+      },
+      {
+        "name": "Firmware",
+        "id": 12,
+        "required": true,
+        "parameters": "0x0",
+        "filename": "firmware.bin",
+        "size_maximum": "0x00040000",
+        "address": "0x03EC0000"
       }
     ]
   }

@@ -7,8 +7,7 @@
 `default_nettype none
 
 module core_top #(
-    parameter bit CORE_TEST_PATTERN = 1'b0,
-    parameter TCM_INIT_FILE = "sw"
+    parameter bit CORE_TEST_PATTERN = 1'b0
 ) (
 
 input   wire            clk_74a,
@@ -266,7 +265,7 @@ end
     // against mmio.h.
     wire            savestate_supported = 1'b1;
     wire    [31:0]  savestate_addr = 32'h03F0_0000;
-    wire    [31:0]  savestate_size = 32'd333136;
+    wire    [31:0]  savestate_size = 32'd496976;
     wire    [31:0]  savestate_maxloadsize = 32'd655360;
 
     wire            savestate_start;
@@ -461,7 +460,7 @@ altclkctrl #(
 ) gate_sys ( .inclk(clk_sys), .ena(mach_clk_en), .clkselect(1'b0),
              .outclk(clk_mach) );
 
-pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
+pocket_core core (
     .mach_running ( mach_clk_en ),
     .clk_mach     ( clk_mach ),
     .pocket_core_stop_req    ( core_stop_req ),

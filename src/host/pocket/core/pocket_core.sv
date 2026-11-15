@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-module pocket_core #(
-    parameter TCM_INIT_FILE = ""
-) (
+module pocket_core
+    import ram_pkg::*;
+(
     output logic pocket_core_stop_req,
     input logic mach_running,
 
@@ -99,6 +99,12 @@ input logic clk_vid,
     output logic pocket_core_rv_halted
 );
 
+    /* The soft CPU's RAM is the SDRAM from this byte address up to the
+     * savestate window, the top of what would be the ROM slot. The host
+     * loads firmware.bin there as a data slot, and stage_map_gate.py
+     * checks this address against data.json. */
+    localparam logic [31:0] RAM_BASE = 32'h03EC_0000;
+
     logic run;
 
     logic mrst_raw_n;
@@ -122,7 +128,7 @@ input logic clk_vid,
     logic [3:0][15:0] cont_trig_sys;
     logic [31:0] slot_len;
 
-    logic w_avail, w_take;
+    logic w_avail, w_queued, w_take;
     logic [24:0] w_addr;
     logic [15:0] w_data;
 
@@ -131,7 +137,10 @@ input logic clk_vid,
     always_comb pocket_core_dt_addr = file_dt_req && !dt_busy
         ? file_dt_addr : bridge_dt_addr;
 
-    pocket_bridge bridge (
+    pocket_bridge #(
+        .RAM_BASE(RAM_BASE),
+        .RAM_AW(RAM_AW)
+    ) bridge (
         .clk_74a(clk_74a),
         .arst_n(arst_n),
         .bridge_wr(bridge_wr),
@@ -150,6 +159,7 @@ input logic clk_vid,
         .sdram_ready(pocket_core_ready),
         .w_take(w_take),
         .pocket_bridge_w_avail(w_avail),
+        .pocket_bridge_w_queued(w_queued),
         .pocket_bridge_w_addr(w_addr),
         .pocket_bridge_w_data(w_data),
         .pocket_bridge_run(run),
@@ -176,7 +186,14 @@ input logic clk_vid,
     logic stage_stall;
     always_comb stage_stall = stage_pend && !stage_rvalid;
 
-    logic [127:0] line_rdata;
+    /* The line port's request comes from the engine's clk_sys registers
+     * or from the cache through wiring's falling-edge samplers, so it
+     * reaches the controller half a clock old at worst. The answer is
+     * the controller's clk_sys registers, which the engine takes on
+     * clk_sys and the cache on clk_rv, a whole clk_sys later or two. */
+    logic line_pend, line_we;
+    logic [RAM_AW-3:0] line_addr;
+    logic [127:0] line_wdata, line_rdata;
     logic line_done;
 
     pocket_sdram sdram (
@@ -189,10 +206,10 @@ input logic clk_vid,
         .w_addr(w_addr),
         .w_data(w_data),
         .pocket_sdram_wtake(w_take),
-        .line_pend(1'b0),
-        .line_we(1'b0),
-        .line_addr('0),
-        .line_wdata('0),
+        .line_pend(line_pend),
+        .line_we(line_we),
+        .line_addr({RAM_BASE[25:RAM_AW+2], line_addr}),
+        .line_wdata(line_wdata),
         .pocket_sdram_line_rdata(line_rdata),
         .pocket_sdram_line_done(line_done),
         .pocket_sdram_ready(pocket_core_ready),
@@ -302,15 +319,18 @@ input logic clk_vid,
     logic [31:0] sst_word, sst_rd_data;
 
     /* verilator lint_off PINCONNECTEMPTY */
-    wiring #(.TCM_INIT_FILE(TCM_INIT_FILE), .EXT_RAM(1)) machine (
+    wiring #(.EXT_RAM(1)) machine (
         .clk_mach(clk_mach),
         .mach_running(mach_running),
         .wiring_sst_stop_req(pocket_core_stop_req),
-        .sst_tcm_sel(1'b0),
-        .sst_tcm_addr(15'd0),
-        .sst_tcm_we(1'b0),
-        .sst_tcm_wdata(32'd0),
-        .wiring_sst_tcm_rdata(),
+        .wiring_line_pend(line_pend),
+        .wiring_line_we(line_we),
+        .wiring_line_addr(line_addr),
+        .wiring_line_wdata(line_wdata),
+        .line_done(line_done),
+        .line_rdata(line_rdata),
+        .sst_flush(1'b0),
+        .wiring_sst_cache_idle(),
         .sst_dbg_halt(1'b0),
         .sst_dbg_halt_on_reset(1'b0),
         .sst_dbg_resume(1'b0),
@@ -396,7 +416,7 @@ input logic clk_vid,
         .addr(host_addr),
         .wdata(host_wdata),
         .pocket_file_rdata(file_rdata),
-        .w_pending(w_avail),
+        .w_pending(w_queued),
         .clk_74a(clk_74a),
         .arst_n(arst_n),
         .bridge_addr(bridge_addr),
@@ -494,7 +514,8 @@ input logic clk_vid,
     logic unused_pocket_core;
     always_comb unused_pocket_core = ^{rx_taken, rv_exit_code, scanline,
                                        stage_addr[27:26], stage_addr[0],
-                                       line_rdata, line_done};
+                                       RAM_BASE[31:26],
+                                       RAM_BASE[RAM_AW+1:0]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

@@ -13,7 +13,7 @@
 
 MEMORY
 {
-    TCM (rwx) : ORIGIN = 0x00000000, LENGTH = 96K
+    RAM (rwx) : ORIGIN = 0x00000000, LENGTH = 256K
     VIDCELLS (rw) : ORIGIN = 0x50000000, LENGTH = 61440
 }
 
@@ -30,13 +30,13 @@ SECTIONS
         *(.rodata*)
         *(.srodata*)
         . = ALIGN(4);
-    } > TCM
+    } > RAM
 
     .data : {
         *(.data*)
         *(.sdata*)
         . = ALIGN(4);
-    } > TCM
+    } > RAM
 
     /* This section comes before .bss because ld assigns each input
      * section to the first pattern that matches it. */
@@ -54,9 +54,9 @@ SECTIONS
         *(COMMON)
         . = ALIGN(4);
         __bss_end = .;
-    } > TCM
+    } > RAM
 
-    __stack_top = ORIGIN(TCM) + LENGTH(TCM);
+    __stack_top = ORIGIN(RAM) + LENGTH(RAM);
 
     __heap_start = __bss_end;
     __heap_end = __stack_top - 4K;

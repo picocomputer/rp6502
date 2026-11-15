@@ -5,7 +5,7 @@
  */
 
 module sst_engine #(
-    parameter int TCM_WORDS = 24576
+    parameter int RAM_WORDS = 65536
 ) (
     input logic clk_sys,
     input logic rst_n,
@@ -102,11 +102,23 @@ module sst_engine #(
      * machine is still stopped. */
     output logic sst_engine_ram_refill,
 
-    output logic sst_engine_tcm_sel,
-    output logic [14:0] sst_engine_tcm_addr,
-    output logic sst_engine_tcm_we,
-    output logic [31:0] sst_engine_tcm_wdata,
-    input logic [31:0] tcm_rdata,
+    /* The soft CPU's RAM is behind the line port, four words to a line,
+     * and its cache holds the newest copy of some lines. A save has the
+     * cache write those out, on sst_engine_flush, before it reads any,
+     * and a load has it forget every line, on sst_engine_empty, once the
+     * RAM is written. Either level is held until cache_idle has gone low
+     * and come back. The engine drives the line port only between the
+     * two, with the soft CPU halted and the cache idle, so the port is
+     * never the cache's and the engine's at once. */
+    output logic sst_engine_flush,
+    output logic sst_engine_empty,
+    input logic cache_idle,
+    output logic sst_engine_line_pend,
+    output logic sst_engine_line_we,
+    output logic [$clog2(RAM_WORDS)-3:0] sst_engine_line_addr,
+    output logic [127:0] sst_engine_line_wdata,
+    input logic line_done,
+    input logic [127:0] line_rdata,
 
     output logic [1:0] sst_engine_st_sel,
     output logic [2:0] sst_engine_st_idx,
@@ -145,7 +157,7 @@ module sst_engine #(
     localparam int W_CELLS = 15360;
     /* The scanline program is 2048 entries of four words. */
     localparam int W_XPROG = 8192;
-    localparam int W_TCM = TCM_WORDS;
+    localparam int W_RAM = RAM_WORDS;
     localparam int W_AUD = 2048;
     localparam int W_END = 4;
 
@@ -156,14 +168,14 @@ module sst_engine #(
     localparam int B_XRAM = B_SRAM + W_SRAM;
     localparam int B_CELLS = B_XRAM + W_XRAM;
     localparam int B_XPROG = B_CELLS + W_CELLS;
-    localparam int B_TCM = B_XPROG + W_XPROG;
-    localparam int B_AUD = B_TCM + W_TCM;
+    localparam int B_RAM = B_XPROG + W_XPROG;
+    localparam int B_AUD = B_RAM + W_RAM;
     localparam int B_END = B_AUD + W_AUD;
     localparam int W_TOTAL = B_END + W_END;
 
     localparam logic [31:0] SST_MAGIC = 32'h52365353;      // "R6SS"
     localparam logic [31:0] SST_END_MAGIC = 32'h52365345;  // "R6SE"
-    localparam logic [31:0] SST_VERSION = 32'd7;
+    localparam logic [31:0] SST_VERSION = 32'd8;
 
     /* The audio region's flop words, written in the second pass. */
     localparam int AUD_ST = 'h780;
@@ -246,6 +258,8 @@ module sst_engine #(
         S_LD_BAD,
         S_LD_PUT,
         S_LD_PUT_WAIT,
+        S_CACHE,
+        S_CACHE_WAIT,
         S_LD_PUT_DONE,
         S_RESUME,
         S_LD_JAM,
@@ -314,7 +328,7 @@ module sst_engine #(
         off = '0;
         dec_idx = ld_writing ? ld_idx : hold_idx;
         if (dec_idx >= 18'(B_AUD)) off = dec_idx - 18'(B_AUD);
-        else if (dec_idx >= 18'(B_TCM)) off = dec_idx - 18'(B_TCM);
+        else if (dec_idx >= 18'(B_RAM)) off = dec_idx - 18'(B_RAM);
         else if (dec_idx >= 18'(B_XPROG)) off = dec_idx - 18'(B_XPROG);
         else if (dec_idx >= 18'(B_CELLS)) off = dec_idx - 18'(B_CELLS);
         else if (dec_idx >= 18'(B_XRAM)) off = dec_idx - 18'(B_XRAM);
@@ -322,8 +336,18 @@ module sst_engine #(
         else if (dec_idx >= 18'(B_REGS)) off = dec_idx - 18'(B_REGS);
     end
 
-    logic on_tcm;
-    logic on_tcm_q;
+    logic on_ram;
+    logic on_ram_q;
+    /* line is one line of the soft CPU's RAM, word 0 in its low bits. A
+     * save keeps the line it last read here, line_idx and line_valid
+     * say which, and serves the words of that line from it. A load
+     * gathers four words here and writes them as one line. */
+    localparam int LINE_AW = $clog2(RAM_WORDS) - 2;
+    logic [127:0] line;
+    logic [LINE_AW-1:0] line_idx, ram_line;
+    logic line_valid, line_pend;
+    logic flush, empty;
+    always_comb ram_line = off_q[LINE_AW+1:2];
     logic [17:0] off_q;
     logic [1:0] st_sel_q;
     logic [2:0] st_idx_q;
@@ -335,7 +359,7 @@ module sst_engine #(
         on_sram = dec_idx >= 18'(B_SRAM) && dec_idx < 18'(B_XRAM);
         on_xram = dec_idx >= 18'(B_XRAM) && dec_idx < 18'(B_CELLS);
         on_cell = dec_idx >= 18'(B_CELLS) && dec_idx < 18'(B_XPROG);
-        on_xprog = dec_idx >= 18'(B_XPROG) && dec_idx < 18'(B_TCM);
+        on_xprog = dec_idx >= 18'(B_XPROG) && dec_idx < 18'(B_RAM);
         on_aud = dec_idx >= 18'(B_AUD) && dec_idx < 18'(B_END);
         on_arr_q = on_xram_q || on_cell_q || on_xprog_q || on_aud_q;
         sst_engine_aud_we = on_aud_q && state == S_LD_PUT && !ld_pass2;
@@ -372,13 +396,13 @@ module sst_engine #(
 
         on_regs = dec_idx >= 18'(B_REGS) && dec_idx < 18'(B_SRAM)
             && dec_idx != 18'(B_REGS + REGS_HOLE);
-        on_tcm = dec_idx >= 18'(B_TCM) && dec_idx < 18'(B_AUD);
-        sst_engine_tcm_sel = on_tcm_q && (state == S_READ
-            || state == S_READ_WAIT || state == S_LD_PUT
-            || state == S_LD_PUT_WAIT);
-        sst_engine_tcm_addr = off_q[14:0];
-        sst_engine_tcm_we = on_tcm_q && state == S_LD_PUT;
-        sst_engine_tcm_wdata = ld_word;
+        on_ram = dec_idx >= 18'(B_RAM) && dec_idx < 18'(B_AUD);
+        sst_engine_flush = flush;
+        sst_engine_empty = empty;
+        sst_engine_line_pend = line_pend;
+        sst_engine_line_we = state == S_LD_PUT;
+        sst_engine_line_addr = ram_line;
+        sst_engine_line_wdata = line;
         sst_engine_stage_pend = state == S_LD_FETCH;
         sst_engine_stage_addr = 28'(A_STAGE_OFF)
             + {8'd0, ld_idx, 2'd0} + {16'd0, ld_off, 2'd0}
@@ -447,7 +471,7 @@ module sst_engine #(
     logic [31:0] direct_word;
     always_comb begin
         direct = !on_sram && !on_xram && !on_cell && !on_xprog
-            && !on_regs && !on_tcm && !on_aud;
+            && !on_regs && !on_ram && !on_aud;
         direct_word = hold_idx < 18'(B_STATE) ? hdr_word
             : (hold_idx < 18'(B_REGS) ? state_word
                : (hold_idx >= 18'(B_END) ? end_word : 32'd0));
@@ -517,6 +541,10 @@ module sst_engine #(
             park <= 1'b0;
             aud_mask <= 1'b0;
             sram_gap <= 1'b0;
+            line_valid <= 1'b0;
+            line_pend <= 1'b0;
+            flush <= 1'b0;
+            empty <= 1'b0;
             hold_valid <= 1'b0;
             hold_idx <= '0;
             hold <= '0;
@@ -538,7 +566,7 @@ module sst_engine #(
             on_cell_q <= 1'b0;
             on_xprog_q <= 1'b0;
             on_regs_q <= 1'b0;
-            on_tcm_q <= 1'b0;
+            on_ram_q <= 1'b0;
             on_aud_q <= 1'b0;
             off_q <= '0;
             st_sel_q <= SEL_MACH;
@@ -574,7 +602,7 @@ module sst_engine #(
             on_cell_q <= on_cell;
             on_xprog_q <= on_xprog;
             on_regs_q <= on_regs;
-            on_tcm_q <= on_tcm;
+            on_ram_q <= on_ram;
             on_aud_q <= on_aud;
             off_q <= off;
             st_sel_q <= st_sel;
@@ -606,6 +634,7 @@ module sst_engine #(
             case (state)
                 S_IDLE: begin
                     hold_valid <= 1'b0;
+                    line_valid <= 1'b0;
                     want_stop <= 1'b0;
                     hold_res <= 1'b0;
                     sum <= '0;
@@ -650,12 +679,8 @@ module sst_engine #(
                         spill_instr <= i_reg_out(5'd31);
                         state <= S_SPILL_ARM;
                     end else if (spill_dpc) begin
-                        want_stop <= 1'b1;
-                        summing <= 1'b1;
-                        sum_idx <= '0;
-                        sum <= '0;
-                        hold_valid <= 1'b0;
-                        state <= S_READY;
+                        flush <= 1'b1;
+                        state <= S_CACHE;
                     end else begin
                         if (rv_n == 5'd31) begin
                             spill_dpc <= 1'b1;
@@ -769,12 +794,18 @@ module sst_engine #(
                         flopreg[4'(ld_idx - 18'(B_STATE))] <= ld_word;
                     if (on_regs && off == 18'(RIA_XR))
                         ria_xr <= ld_word[24:0];
-                    /* The TCM write is held for four clk_sys cycles,
-                     * which is two clk_rv cycles, so a clk_rv edge
-                     * takes it. */
-                    if (on_tcm_q) begin
-                        byte_n <= byte_n + 2'd1;
-                        if (byte_n == 2'd3) state <= S_LD_PUT_WAIT;
+                    /* The word that fills a line is in line by the clock
+                     * line_pend is up. */
+                    if (on_ram_q) begin
+                        line[{off_q[1:0], 5'd0} +: 32] <= ld_word;
+                        if (off_q[1:0] != 2'd3)
+                            state <= S_LD_PUT_WAIT;
+                        else if (!line_pend)
+                            line_pend <= !line_done;
+                        else if (line_done) begin
+                            line_pend <= 1'b0;
+                            state <= S_LD_PUT_WAIT;
+                        end
                     end else if (on_arr_q || on_regs_q || on_flops)
                         state <= S_LD_PUT_WAIT;
                     else if (on_sram_q) begin
@@ -804,7 +835,8 @@ module sst_engine #(
                         state <= S_INJ_ARM;
                     end else if (!ld_pass2 && ld_idx == 18'(B_END - 1)) begin
                         ld_writing <= 1'b0;
-                        state <= S_LD_PUT_DONE;
+                        empty <= 1'b1;
+                        state <= S_CACHE;
                     end else begin
                         ld_idx <= !ld_pass2 ? ld_idx + 18'd1
                             : ld_idx == 18'(B_REGS + RIA_LAST)
@@ -812,6 +844,25 @@ module sst_engine #(
                             : ld_idx == 18'(B_REGS + RIA_XSP)
                                 ? 18'(B_AUD + AUD_ST) : ld_idx + 18'd1;
                         state <= S_LD_FETCH;
+                    end
+                end
+
+                /* The cache's walk, a flush for a save and an empty for a
+                 * load. A save goes on to stop the machine and sum the
+                 * blob. */
+                S_CACHE: if (!cache_idle) state <= S_CACHE_WAIT;
+                S_CACHE_WAIT:
+                if (cache_idle) begin
+                    flush <= 1'b0;
+                    empty <= 1'b0;
+                    if (empty) state <= S_LD_PUT_DONE;
+                    else begin
+                        want_stop <= 1'b1;
+                        summing <= 1'b1;
+                        sum_idx <= '0;
+                        sum <= '0;
+                        hold_valid <= 1'b0;
+                        state <= S_READY;
                     end
                 end
 
@@ -977,15 +1028,21 @@ module sst_engine #(
                             sram_gap <= 1'b1;
                         end
                     end
-                end else if (on_tcm_q) begin
-                    /* The TCM is clocked by clk_rv, which runs at half
-                     * the rate of clk_sys and rises with it. The address
-                     * is held for at least four clk_sys cycles, which is
-                     * two clk_rv cycles, before the word is taken, so
-                     * the TCM's registered read has loaded from this
-                     * address and not from the one before it. */
-                    byte_n <= byte_n + 2'd1;
-                    if (byte_n == 2'd3) state <= S_READ_WAIT;
+                end else if (on_ram_q) begin
+                    /* The sum and the host's copy both walk the blob in
+                     * order, so one line read serves four words. */
+                    if (line_valid && line_idx == ram_line) begin
+                        hold <= line[{off_q[1:0], 5'd0} +: 32];
+                        hold_valid <= 1'b1;
+                        state <= S_READY;
+                    end else if (!line_pend)
+                        line_pend <= !line_done;
+                    else if (line_done) begin
+                        line_pend <= 1'b0;
+                        line <= line_rdata;
+                        line_idx <= ram_line;
+                        line_valid <= 1'b1;
+                    end
                 end
 
                 S_READ_WAIT: begin
@@ -999,11 +1056,6 @@ module sst_engine #(
                     end else if (on_regs_q) begin
                         hold <= regs_rdata;
                         hold_valid <= 1'b1;
-                        state <= S_READY;
-                    end else if (on_tcm_q) begin
-                        hold <= tcm_rdata;
-                        hold_valid <= 1'b1;
-                        byte_n <= '0;
                         state <= S_READY;
                     end else begin
                         hold_valid <= 1'b1;

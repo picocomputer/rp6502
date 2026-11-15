@@ -5,9 +5,8 @@
  */
 
 module wiring
-    import timing_pkg::*, tcm_pkg::*;
+    import timing_pkg::*, ram_pkg::*;
 #(
-    parameter TCM_INIT_FILE = "",
     parameter int SYS_KHZ = 50400,
     parameter bit EXT_RAM = 0
 ) (
@@ -48,11 +47,28 @@ module wiring
 
     input logic mach_running,
     output logic wiring_sst_stop_req,
-    input logic sst_tcm_sel,
-    input logic [14:0] sst_tcm_addr,
-    input logic sst_tcm_we,
-    input logic [31:0] sst_tcm_wdata,
-    output logic [31:0] wiring_sst_tcm_rdata,
+
+    /* The soft CPU's RAM, a line of four words at a time. A line is 128
+     * bits with word 0 in bits 31 to 0, and wiring_line_addr counts
+     * lines from the start of the RAM. wiring_line_pend is high while a
+     * read or a write is wanted and not yet done, and the other three
+     * hold with it. line_done rises when it is done, with line_rdata
+     * valid for a read, and falls once wiring_line_pend has fallen;
+     * line_rdata holds until the next request is taken. Nothing on this
+     * path runs on clk_mach, because the savestate engine uses it while
+     * the machine is stopped. */
+    output logic wiring_line_pend,
+    output logic wiring_line_we,
+    output logic [RAM_AW-3:0] wiring_line_addr,
+    output logic [127:0] wiring_line_wdata,
+    input logic line_done,
+    input logic [127:0] line_rdata,
+
+    /* A test bench raises sst_flush to have the cache write its newer
+     * lines out, and holds it until wiring_sst_cache_idle has gone low
+     * and come back. */
+    input logic sst_flush,
+    output logic wiring_sst_cache_idle,
 
     /* Once a save has stopped the machine, it stays stopped until
      * sst_save drops, so the blob, which is the savestate that the host
@@ -240,15 +256,16 @@ module wiring
     logic [31:0] aud_sst_rdata;
     logic aud_quiet;
 
-    logic eng_tcm_sel, eng_dbg_halt, eng_dbg_vld, eng_tcm_we;
+    logic eng_dbg_halt, eng_dbg_vld;
+    logic eng_flush, eng_empty, eng_line_pend, eng_line_we;
+    logic [RAM_AW-3:0] eng_line_addr;
+    logic [127:0] eng_line_wdata;
     logic [1:0] eng_st_sel;
-    logic [31:0] eng_tcm_wdata;
-    logic [14:0] eng_tcm_addr;
     logic [2:0] eng_st_idx;
     logic [31:0] eng_dbg_instr, eng_dbg_data0;
     logic eng_dbg_resume;
 
-    sst_engine #(.TCM_WORDS(TCM_WORDS)) engine (
+    sst_engine #(.RAM_WORDS(RAM_WORDS)) engine (
         .clk_sys(clk_sys),
         .rst_n(rst_n),
         .sst_save(sst_save),
@@ -298,11 +315,15 @@ module wiring
         .sst_engine_park(eng_park),
         .sst_engine_aud_mask(eng_aud_mask),
         .sst_engine_ram_refill(eng_ram_refill),
-        .sst_engine_tcm_sel(eng_tcm_sel),
-        .sst_engine_tcm_addr(eng_tcm_addr),
-        .sst_engine_tcm_we(eng_tcm_we),
-        .sst_engine_tcm_wdata(eng_tcm_wdata),
-        .tcm_rdata(wiring_sst_tcm_rdata),
+        .sst_engine_flush(eng_flush),
+        .sst_engine_empty(eng_empty),
+        .cache_idle(wiring_sst_cache_idle),
+        .sst_engine_line_pend(eng_line_pend),
+        .sst_engine_line_we(eng_line_we),
+        .sst_engine_line_addr(eng_line_addr),
+        .sst_engine_line_wdata(eng_line_wdata),
+        .line_done(line_done),
+        .line_rdata(line_rdata),
         .sst_engine_st_sel(eng_st_sel),
         .sst_engine_st_idx(eng_st_idx),
         .st_rdata(st_rdata),
@@ -432,7 +453,13 @@ module wiring
     logic [3:0] rv_bus_wstrb;
     logic [15:0] rv_phi2_khz;
     logic [63:0] rv_mtime;
-    logic [31:0] rv_tcm_rdata, rv_dbg_data0, rv_exit_code;
+    logic [31:0] rv_dbg_data0, rv_exit_code;
+    logic rv_cache_idle, rv_line_pend, rv_line_we;
+    logic [RAM_AW-3:0] rv_line_addr;
+    logic [127:0] rv_line_wdata;
+    logic soc_line_pend, soc_line_we;
+    logic [RAM_AW-3:0] soc_line_addr;
+    logic [127:0] soc_line_wdata;
     logic rv_dbg_halted, rv_dbg_data0_wen, rv_dbg_instr_rdy, rv_dbg_ebreak,
         rv_dbg_fault, rv_halted, rv_key_pending;
     initial begin
@@ -451,7 +478,11 @@ module wiring
         wiring_sst_dbg_instr_rdy = 1'b0;
         wiring_sst_dbg_ebreak = 1'b0;
         wiring_sst_dbg_fault = 1'b0;
-        wiring_sst_tcm_rdata = '0;
+        wiring_sst_cache_idle = 1'b0;
+        soc_line_pend = 1'b0;
+        soc_line_we = 1'b0;
+        soc_line_addr = '0;
+        soc_line_wdata = '0;
         wiring_rv_halted = 1'b0;
         wiring_rv_exit_code = '0;
         wiring_key_pending = 1'b0;
@@ -472,7 +503,11 @@ module wiring
         wiring_sst_dbg_instr_rdy <= rv_dbg_instr_rdy;
         wiring_sst_dbg_ebreak <= rv_dbg_ebreak;
         wiring_sst_dbg_fault <= rv_dbg_fault;
-        wiring_sst_tcm_rdata <= rv_tcm_rdata;
+        wiring_sst_cache_idle <= rv_cache_idle;
+        soc_line_pend <= rv_line_pend;
+        soc_line_we <= rv_line_we;
+        soc_line_addr <= rv_line_addr;
+        soc_line_wdata <= rv_line_wdata;
         wiring_rv_halted <= rv_halted;
         wiring_rv_exit_code <= rv_exit_code;
         wiring_key_pending <= rv_key_pending;
@@ -515,14 +550,25 @@ module wiring
     logic [3:0] soc_wstrb;
     logic [31:0] soc_rdata;
 
+    /* The line port is the cache's, and the engine's while the engine
+     * has a request up. The engine raises one only with the soft CPU
+     * halted and the cache idle, so the port never changes hands with a
+     * request on it. line_done and line_rdata go to both as they come,
+     * the cache's copy included, because that path ends in clk_rv. */
+    always_comb begin
+        wiring_line_pend = eng_line_pend || soc_line_pend;
+        wiring_line_we = eng_line_pend ? eng_line_we : soc_line_we;
+        wiring_line_addr = eng_line_pend ? eng_line_addr : soc_line_addr;
+        wiring_line_wdata = eng_line_pend ? eng_line_wdata : soc_line_wdata;
+    end
+
     /* mtime_acc is clocked by clk_rv, so the rate here is RV_KHZ and not
      * SYS_KHZ. At the default 50.4 MHz clk_sys, a microsecond is 25.2
      * clk_rv cycles, so adding 10 per cycle and wrapping at RV_KHZ / 100,
      * which is 252, counts microseconds exactly. */
     soc #(
         .MTIME_ADD(10),
-        .MTIME_WRAP(RV_KHZ / 100),
-        .TCM_INIT_FILE(TCM_INIT_FILE)
+        .MTIME_WRAP(RV_KHZ / 100)
     ) soc (
         .clk(clk_rv),
         .rst_n(rst_n),
@@ -544,11 +590,15 @@ module wiring
         .soc_mtime(rv_mtime),
         .sst_mtime_we(eng_os_jam),
         .sst_mtime_wdata({eng_jam_mach[3], eng_jam_mach[2]}),
-        .sst_tcm_sel(eng_own ? eng_tcm_sel : sst_tcm_sel),
-        .sst_tcm_addr(eng_own ? eng_tcm_addr : sst_tcm_addr),
-        .sst_tcm_we(eng_own ? eng_tcm_we : sst_tcm_we),
-        .sst_tcm_wdata(eng_own ? eng_tcm_wdata : sst_tcm_wdata),
-        .soc_tcm_rdata(rv_tcm_rdata),
+        .sst_flush(sst_flush || eng_flush),
+        .sst_empty(eng_empty),
+        .soc_cache_idle(rv_cache_idle),
+        .soc_line_pend(rv_line_pend),
+        .soc_line_we(rv_line_we),
+        .soc_line_addr(rv_line_addr),
+        .soc_line_wdata(rv_line_wdata),
+        .line_done(line_done),
+        .line_rdata(line_rdata),
         .soc_tx_data(rv_tx_data),
         .soc_tx_valid(rv_tx_valid_raw),
         .soc_halted(rv_halted),

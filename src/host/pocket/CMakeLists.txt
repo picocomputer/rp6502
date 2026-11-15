@@ -21,12 +21,8 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     set(APF ${RP6502_VENDOR}/openfpga/src/fpga)
     rp6502_submodule(vendor/openfpga SENTINEL src/fpga/ap_core.qsf
         WANTS "the Pocket bitstream" OPTIONAL RESULT RP6502_HAVE_APF)
-    file(STRINGS ${RP6502_SRC}/core/riscv/tcm_pkg.sv TCM_WORDS_LINE
-        REGEX "localparam int TCM_WORDS")
-    string(REGEX MATCH "= *([0-9]+)" _tcm_m "${TCM_WORDS_LINE}")
-    set(TCM_WORDS ${CMAKE_MATCH_1})
 
-    if(RP6502_HAVE_APF AND SW_BIN AND QUARTUS_ASM AND QUARTUS_CDB)
+    if(RP6502_HAVE_APF AND SW_BIN AND QUARTUS_ASM)
     file(MAKE_DIRECTORY ${POCKET_DIR})
     # apf_constraints.sdc reads core/core_constraints.sdc by a path relative to
     # the project directory, so this core's copy is staged at that path.
@@ -116,15 +112,10 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         ${RP6502_SRC}/core/gen.cmake
         ${CMAKE_CURRENT_LIST_DIR}/quartus.cmake)
 
-    # The files that rv_tcm_gen.py writes set only the initial contents of the
-    # soft CPU's memory arrays, which do not affect placement, and the core.bin
-    # step below writes the current firmware over those contents in the
-    # database, so sw_bin is named as a target rather than as a file: the
-    # firmware is built before the fit, and a firmware change does not force a
-    # new fit.
+    # The firmware is not in the bitstream. The host loads it into the SDRAM
+    # as a data slot, so nothing here depends on it and a firmware change
+    # reaches the package without a Quartus tool running.
     add_custom_command(OUTPUT ${POCKET_DIR}/fit.stamp
-        COMMAND python3 ${RP6502_SRC}/host/pocket/gen/rv_tcm_gen.py
-            ${SW_BIN} ${POCKET_DIR}/sw ${TCM_WORDS}
         COMMAND ${QUARTUS_MAP} rp6502
         COMMAND python3 ${RP6502_SRC}/host/pocket/gen/map_gate.py
             ${POCKET_DIR}/output_files/rp6502.map.rpt
@@ -134,8 +125,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${RP6502_SRC}/host/pocket/quartus/sta_paths.tcl
         COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/fit.stamp
         WORKING_DIRECTORY ${POCKET_DIR}
-        DEPENDS ${BS_SOURCES} sw_bin
-            ${RP6502_SRC}/host/pocket/gen/rv_tcm_gen.py
+        DEPENDS ${BS_SOURCES}
             ${RP6502_SRC}/host/pocket/gen/map_gate.py
             ${RP6502_SRC}/host/pocket/quartus/sta_paths.tcl
         COMMENT "Fitting the Pocket core"
@@ -159,17 +149,14 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     add_custom_target(pocket-fit DEPENDS ${POCKET_DIR}/signoff.stamp)
 
     add_custom_command(OUTPUT ${POCKET_DIR}/core.bin
-        COMMAND python3 ${RP6502_SRC}/host/pocket/gen/rv_mif_gen.py
-            ${SW_BIN} ${POCKET_DIR}/db ${TCM_WORDS}
-        COMMAND ${QUARTUS_CDB} rp6502 --update_mif
         COMMAND ${QUARTUS_ASM} rp6502
         COMMAND python3 ${RP6502_SRC}/host/pocket/gen/rbf_r_gen.py
             ${POCKET_DIR}/output_files/rp6502.rbf
             ${POCKET_DIR}/core.bin
         WORKING_DIRECTORY ${POCKET_DIR}
-        DEPENDS ${POCKET_DIR}/signoff.stamp ${SW_BIN}
-            ${RP6502_SRC}/host/pocket/gen/rv_mif_gen.py ${RP6502_SRC}/host/pocket/gen/rbf_r_gen.py
-        COMMENT "Putting the firmware into the Pocket bitstream"
+        DEPENDS ${POCKET_DIR}/signoff.stamp
+            ${RP6502_SRC}/host/pocket/gen/rbf_r_gen.py
+        COMMENT "Assembling the Pocket bitstream"
         VERBATIM)
     add_custom_target(pocket-bitstream DEPENDS ${POCKET_DIR}/core.bin)
 
@@ -194,12 +181,14 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${PKG_DIR}/Assets/rp6502/common/oemcp.bin
         COMMAND ${CMAKE_COMMAND} -E copy ${RP6502_ASSETS}/layout_db.bin
             ${PKG_DIR}/Assets/rp6502/common/keyboard.bin
+        COMMAND ${CMAKE_COMMAND} -E copy ${SW_BIN}
+            ${PKG_DIR}/Assets/rp6502/common/firmware.bin
         COMMAND ${CMAKE_COMMAND} -E copy ${POCKET_DIR}/core.bin
             ${PKG_DIR}/Cores/Rumbledethumps.RP6502/core.bin
         COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/package.stamp
         DEPENDS ${POCKET_DIR}/core.bin ${RP6502_ASSETS}/font_rom.bin
             ${RP6502_ASSETS}/unicode_oem.bin ${RP6502_ASSETS}/layout_db.bin
-            ${PKG_DIST_FILES}
+            ${SW_BIN} ${PKG_DIST_FILES}
             ${CMAKE_CURRENT_LIST_DIR}/stamp_core_json.cmake ${RP6502_STAMP_SCRIPT}
         COMMENT "Assembling the Pocket core package"
         VERBATIM)
@@ -212,7 +201,6 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             "no RISC-V toolchain - no pocket target. "
             "apt install gcc-riscv64-unknown-elf")
     else()
-        message(STATUS
-            "quartus_asm or quartus_cdb missing - no pocket target.")
+        message(STATUS "quartus_asm missing - no pocket target.")
     endif()
 endif()

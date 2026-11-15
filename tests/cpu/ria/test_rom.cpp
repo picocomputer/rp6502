@@ -102,19 +102,19 @@ static void run_staged(int *utest_result, bool slot_by_port,
 
 UTEST(rom, staged_rom_boots)
 {
-    ASSERT_TRUE(tb_firmware(dut, SW_BIN));
+    ASSERT_TRUE(tb_firmware(SW_BIN));
     run_staged(utest_result, false, 0);
 }
 
 UTEST(rom, slot_posted_by_port)
 {
-    ASSERT_TRUE(tb_firmware(dut, SW_BIN));
+    ASSERT_TRUE(tb_firmware(SW_BIN));
     run_staged(utest_result, true, 0);
 }
 
 UTEST(rom, staging_stalls_like_sdram)
 {
-    ASSERT_TRUE(tb_firmware(dut, SW_BIN));
+    ASSERT_TRUE(tb_firmware(SW_BIN));
     run_staged(utest_result, true, 12);
 }
 

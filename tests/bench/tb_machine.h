@@ -7,7 +7,7 @@
 #ifndef _TESTS_BENCH_TB_MACHINE_H_
 #define _TESTS_BENCH_TB_MACHINE_H_
 
-#include "tb_tcm.h"
+#include "tb_ram.h"
 
 #include <cstdint>
 #include <string>
@@ -22,6 +22,7 @@ template <typename Dut> static void tb_clock(Dut *dut)
     else
         en = false;
     dut->mach_running = en;
+    tb_ram_tick(dut);
     rv_phase = !rv_phase;
     dut->clk_rv = rv_phase;
     dut->clk_mach = en;
@@ -43,14 +44,10 @@ template <typename Dut> static void tb_clock(Dut *dut)
     dut->eval();
 }
 
-template <typename Dut>
-static bool tb_firmware(Dut *dut, const char *path)
+/* The firmware is the first contents of the soft CPU's RAM. */
+static bool tb_firmware(const char *path)
 {
-    auto *r = dut->rootp;
-    return tb_load_tcm(r->wiring__DOT__soc__DOT__tcm0,
-                       r->wiring__DOT__soc__DOT__tcm1,
-                       r->wiring__DOT__soc__DOT__tcm2,
-                       r->wiring__DOT__soc__DOT__tcm3, path);
+    return tb_ram_load(path);
 }
 
 template <typename Dut> static void tb_reset(Dut *dut)
@@ -92,7 +89,7 @@ template <typename Dut, typename Each>
 static bool tb_boot_each(Dut *dut, const std::vector<uint8_t> &rom,
                          std::string *console, Each each)
 {
-    if (!tb_firmware(dut, SW_BIN))
+    if (!tb_firmware(SW_BIN))
         return false;
     tb_reset(dut);
     dut->rootp->wiring__DOT__soc__DOT__mmio_slot_len = (uint32_t)rom.size();

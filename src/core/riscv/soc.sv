@@ -5,11 +5,10 @@
  */
 
 module soc
-    import tcm_pkg::*;
+    import ram_pkg::*;
 #(
     parameter int MTIME_ADD = 1,
-    parameter int MTIME_WRAP = 1,
-    parameter TCM_INIT_FILE = ""
+    parameter int MTIME_WRAP = 1
 ) (
     input logic clk,
     input logic rst_n,
@@ -47,11 +46,20 @@ module soc
     output logic [63:0] soc_mtime,
     input logic sst_mtime_we,
     input logic [63:0] sst_mtime_wdata,
-    input logic sst_tcm_sel,
-    input logic [TCM_AW-1:0] sst_tcm_addr,
-    input logic sst_tcm_we,
-    input logic [31:0] sst_tcm_wdata,
-    output logic [31:0] soc_tcm_rdata,
+
+    /* The RAM is lines of four words behind this port, which the
+     * platform answers. cache.sv says how it is used. sst_flush and
+     * sst_empty are raised only while the core is halted, when it makes
+     * no access. */
+    input logic sst_flush,
+    input logic sst_empty,
+    output logic soc_cache_idle,
+    output logic soc_line_pend,
+    output logic soc_line_we,
+    output logic [RAM_AW-3:0] soc_line_addr,
+    output logic [127:0] soc_line_wdata,
+    input logic line_done,
+    input logic [127:0] line_rdata,
 
     output logic soc_halted,
     output logic [31:0] soc_exit_code,
@@ -80,7 +88,7 @@ module soc
     logic [31:0] hrdata /*verilator public_flat_rd*/;
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_bits;
-    always_comb unused_bits = ^{haddr[27:17], htrans[0], hsize[2]};
+    always_comb unused_bits = ^{haddr[27:RAM_AW+2], htrans[0], hsize[2]};
     /* verilator lint_on UNUSEDSIGNAL */
 
     /* verilator lint_off PINCONNECTEMPTY */
@@ -97,6 +105,15 @@ module soc
         soc_dbg_data0 <= dbg_data0_w;
         soc_dbg_data0_wen <= dbg_data0_wen_w;
     end
+
+    /* The core takes an instruction at its debug port only while its
+     * fetch path is at rest. It jumps when it enters debug mode and at
+     * every ebreak, and a jump drops an instruction given on that clock
+     * and sends a fetch out. While that fetch waits on the cache, the
+     * next jump would also drop the core's ready, which reads as an
+     * instruction taken. So the port is ready, and an instruction valid,
+     * only with no jump and no bus access in progress. */
+    logic dbg_rest, dbg_instr_rdy_w;
 
     hazard3_cpu_1port #(
         .RESET_VECTOR(32'h0000_0000),
@@ -138,8 +155,8 @@ module soc
         .dbg_data0_wdata(dbg_data0_w),
         .dbg_data0_wen(dbg_data0_wen_w),
         .dbg_instr_data(sst_dbg_instr),
-        .dbg_instr_data_vld(sst_dbg_instr_vld),
-        .dbg_instr_data_rdy(soc_dbg_instr_rdy),
+        .dbg_instr_data_vld(sst_dbg_instr_vld && dbg_rest),
+        .dbg_instr_data_rdy(dbg_instr_rdy_w),
         .dbg_instr_caught_exception(soc_dbg_fault),
         .dbg_instr_caught_ebreak(soc_dbg_ebreak),
         .dbg_sbus_addr(32'h0),
@@ -163,12 +180,19 @@ module soc
     logic dph_mmio /*verilator public_flat_rd*/;
     logic dph_ext /*verilator public_flat_rd*/;
     logic dph_waited /*verilator public_flat_rd*/;
-    logic [TCM_AW-1:0] dph_word;
+    logic [RAM_AW-1:0] dph_word;
     logic [31:0] dph_addr;
     logic [3:0] dph_strb;
     logic [6:0] mmio_reg;
 
-    always_comb hready = !(dph_active && dph_ext && !dph_waited);
+    logic cache_ready;
+    always_comb hready = !(dph_active && dph_ext && !dph_waited)
+        && cache_ready;
+
+    always_comb begin
+        dbg_rest = !dph_active && !soc_dbg_ebreak && !soc_dbg_fault;
+        soc_dbg_instr_rdy = dbg_instr_rdy_w && dbg_rest;
+    end
 
     logic [3:0] strb;
     always_comb begin
@@ -179,56 +203,33 @@ module soc
         endcase
     end
 
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] tcm0[TCM_WORDS] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] tcm1[TCM_WORDS] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] tcm2[TCM_WORDS] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] tcm3[TCM_WORDS] /*verilator public_flat_rw*/;
-
-    generate
-        if (TCM_INIT_FILE != "") begin : tcm_init
-            initial begin
-                $readmemh({TCM_INIT_FILE, ".0"}, tcm0);
-                $readmemh({TCM_INIT_FILE, ".1"}, tcm1);
-                $readmemh({TCM_INIT_FILE, ".2"}, tcm2);
-                $readmemh({TCM_INIT_FILE, ".3"}, tcm3);
-            end
-        end
-    endgenerate
-
-    logic [31:0] tcm_rdata /*verilator public_flat_rd*/;
-    logic [TCM_AW-1:0] word_addr;
-    always_comb word_addr = sst_tcm_sel ? sst_tcm_addr : haddr[TCM_AW+1:2];
-    always_comb soc_tcm_rdata = tcm_rdata;
-
-    /* A store's data phase overlaps the address phase of the next
-     * access, so a read of the word being stored samples the arrays on
-     * the same edge that writes them and is not guaranteed to return
-     * the stored bytes. tcm_fwd marks the stored lanes so that tcm_q
-     * takes them from tcm_fwd_data instead. */
-    logic [3:0] tcm_fwd;
-    logic [31:0] tcm_fwd_data;
-    logic [31:0] tcm_q;
-    logic tcm_wr;
-    always_comb tcm_wr = dph_active && dph_write && !dph_mmio && !dph_ext;
-
-    /* sst_tcm_sel is high only while the core is halted, when it fetches
-     * nothing and executes only the CSR moves and ebreaks injected at
-     * its debug port, so the core and the savestate engine never use
-     * the TCM ports at the same time. */
-    logic tcm_wen;
-    logic [TCM_AW-1:0] tcm_wword;
-    logic [3:0] tcm_wstrb;
-    logic [31:0] tcm_wdata;
-    always_comb begin
-        tcm_wen = sst_tcm_sel ? sst_tcm_we : tcm_wr;
-        tcm_wword = sst_tcm_sel ? sst_tcm_addr : dph_word;
-        tcm_wstrb = sst_tcm_sel ? 4'b1111 : dph_strb;
-        tcm_wdata = sst_tcm_sel ? sst_tcm_wdata : hwdata;
-    end
+    /* The RAM is the top nibble 0. The cache reads its memories at the
+     * address of the access after the one in its data phase, in every
+     * clock, so it answers a hit with no wait, and a load whose address
+     * phase overlaps a store's data phase returns the stored bytes. A
+     * miss holds hready low while the line comes through the line port. */
+    logic [31:0] ram_rdata;
+    cache #(.RAM_WORDS(RAM_WORDS)) cache (
+        .clk(clk),
+        .rst_n(rst_n),
+        .req_word(haddr[RAM_AW+1:2]),
+        .dph(dph_active && !dph_mmio && !dph_ext),
+        .dph_write(dph_write),
+        .dph_word(dph_word),
+        .dph_strb(dph_strb),
+        .wdata(hwdata),
+        .cache_rdata(ram_rdata),
+        .cache_ready(cache_ready),
+        .flush(sst_flush),
+        .empty(sst_empty),
+        .cache_idle(soc_cache_idle),
+        .cache_line_pend(soc_line_pend),
+        .cache_line_we(soc_line_we),
+        .cache_line_addr(soc_line_addr),
+        .cache_line_wdata(soc_line_wdata),
+        .line_done(line_done),
+        .line_rdata(line_rdata)
+    );
 
     initial begin
         dph_active = 1'b0;
@@ -247,7 +248,7 @@ module soc
             dph_write <= hwrite;
             dph_mmio <= haddr[31:28] == 4'hF;
             dph_ext <= haddr[31:28] != 4'h0 && haddr[31:28] != 4'hF;
-            dph_word <= haddr[TCM_AW+1:2];
+            dph_word <= haddr[RAM_AW+1:2];
             dph_addr <= haddr;
             dph_strb <= strb;
             mmio_reg <= haddr[6:0];
@@ -267,23 +268,6 @@ module soc
         soc_bus_addr = dph_addr;
         soc_bus_wdata = hwdata;
         soc_bus_wstrb = dph_strb;
-    end
-
-    always_ff @(posedge clk) begin
-        tcm_rdata <= {tcm3[word_addr], tcm2[word_addr],
-                      tcm1[word_addr], tcm0[word_addr]};
-        tcm_fwd <= (tcm_wr && dph_word == word_addr) ? dph_strb : 4'b0000;
-        tcm_fwd_data <= hwdata;
-        if (tcm_wen) begin
-            if (tcm_wstrb[0])
-                tcm0[tcm_wword] <= tcm_wdata[7:0];
-            if (tcm_wstrb[1])
-                tcm1[tcm_wword] <= tcm_wdata[15:8];
-            if (tcm_wstrb[2])
-                tcm2[tcm_wword] <= tcm_wdata[23:16];
-            if (tcm_wstrb[3])
-                tcm3[tcm_wword] <= tcm_wdata[31:24];
-        end
     end
 
     logic [7:0] mmio_kbd_data /*verilator public_flat_rw*/;
@@ -347,14 +331,7 @@ module soc
                 default: hrdata = 32'h0;
             endcase
         else
-            hrdata = tcm_q;
-    end
-
-    always_comb begin
-        tcm_q[7:0] = tcm_fwd[0] ? tcm_fwd_data[7:0] : tcm_rdata[7:0];
-        tcm_q[15:8] = tcm_fwd[1] ? tcm_fwd_data[15:8] : tcm_rdata[15:8];
-        tcm_q[23:16] = tcm_fwd[2] ? tcm_fwd_data[23:16] : tcm_rdata[23:16];
-        tcm_q[31:24] = tcm_fwd[3] ? tcm_fwd_data[31:24] : tcm_rdata[31:24];
+            hrdata = ram_rdata;
     end
 
     initial begin

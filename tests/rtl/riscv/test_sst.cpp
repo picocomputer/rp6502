@@ -23,7 +23,7 @@
 #define W_XRAM 16384u
 #define W_CELLS 15360u
 #define W_XPROG 8192u
-#define W_TCM 24576u
+#define W_RAM 65536u
 #define W_AUD 2048u
 #define W_END 4u
 
@@ -38,13 +38,13 @@
 #define B_XRAM (B_SRAM + W_SRAM)
 #define B_CELLS (B_XRAM + W_XRAM)
 #define B_XPROG (B_CELLS + W_CELLS)
-#define B_TCM (B_XPROG + W_XPROG)
-#define B_AUD (B_TCM + W_TCM)
+#define B_RAM (B_XPROG + W_XPROG)
+#define B_AUD (B_RAM + W_RAM)
 #define B_END (B_AUD + W_AUD)
 #define W_TOTAL (B_END + W_END)
 
 #define SST_MAGIC 0x52365353u
-#define SST_VER 7u
+#define SST_VER 8u
 #define SST_END_MAGIC 0x52365345u
 
 static Vwiring *dut;
@@ -97,22 +97,11 @@ static void stage_seal(void)
     stage_word(B_END + 2, SST_END_MAGIC);
 }
 
-static uint32_t tcm_word(uint32_t w)
+/* The cache holds what the soft CPU stored last, so while it runs the RAM
+ * is read after a flush. A save flushes on its own. */
+static void flush(void)
 {
-    auto *r = dut->rootp;
-    return (uint32_t)r->wiring__DOT__soc__DOT__tcm0[w]
-           | ((uint32_t)r->wiring__DOT__soc__DOT__tcm1[w] << 8)
-           | ((uint32_t)r->wiring__DOT__soc__DOT__tcm2[w] << 16)
-           | ((uint32_t)r->wiring__DOT__soc__DOT__tcm3[w] << 24);
-}
-
-static void tcm_put(uint32_t w, uint32_t v)
-{
-    auto *r = dut->rootp;
-    r->wiring__DOT__soc__DOT__tcm0[w] = v & 0xFF;
-    r->wiring__DOT__soc__DOT__tcm1[w] = (v >> 8) & 0xFF;
-    r->wiring__DOT__soc__DOT__tcm2[w] = (v >> 16) & 0xFF;
-    r->wiring__DOT__soc__DOT__tcm3[w] = (v >> 24) & 0xFF;
+    tb_ram_flush(dut, clk);
 }
 
 /* XRAM is four byte-lane arrays, and the low two bits of an address select
@@ -155,14 +144,13 @@ static void power_on(void)
     dut->sst_dbg_instr = 0;
     dut->sst_dbg_instr_vld = 0;
     dut->sst_dbg_data0 = 0;
-    dut->sst_tcm_sel = 0;
-    dut->sst_tcm_we = 0;
     dut->sst_load = 0;
     dut->stage_stall = 0;
     dut->stage_half = 0;
     dut->eval();
+    tb_ram_clear();
     for (uint32_t i = 0; i < COUNTER.size(); i++)
-        tcm_put(i, COUNTER[i]);
+        tb_ram_put(i, COUNTER[i]);
     clk();
     clk();
     dut->rst_n = 1;
@@ -216,10 +204,10 @@ UTEST(sst, it_stops_the_machine_before_it_says_ready)
     ASSERT_TRUE((int)dut->wiring_sst_stop_req);
     ASSERT_TRUE((int)dut->wiring_sst_dbg_halted);
 
-    uint32_t before = tcm_word(255);
+    uint32_t before = tb_ram_word(255);
     for (int i = 0; i < 5000; i++)
         clk();
-    ASSERT_EQ(before, tcm_word(255));
+    ASSERT_EQ(before, tb_ram_word(255));
     ASSERT_TRUE((int)dut->wiring_sst_ready);
 }
 
@@ -265,13 +253,26 @@ UTEST(sst, the_soft_cpus_memory_comes_back_word_for_word)
     ASSERT_TRUE(begin_save());
 
     /* Words 0 to 7 hold COUNTER, word 255 holds the value its prologue
-     * stores, and the words from 256 hold the counts its loop stores. */
-    const uint32_t at[] = {0, 1, 7, 255, 256, 257, 300, W_TCM - 1};
+     * stores, and the words from 256 hold the counts its loop stores. The
+     * stored ones were in the cache alone until the save flushed it. The
+     * host may ask in any order and more than once. */
+    const uint32_t at[] = {0, 1, 7, 255, 256, 257, 300, W_RAM - 1,
+                           258, 3, 255, 259, 260, W_RAM - 4};
     for (uint32_t i = 0; i < sizeof at / sizeof at[0]; i++)
     {
         uint32_t w = 0;
-        ASSERT_TRUE(blob_word(B_TCM + at[i], &w));
-        ASSERT_EQ(tcm_word(at[i]), w);
+        ASSERT_TRUE(blob_word(B_RAM + at[i], &w));
+        ASSERT_EQ(tb_ram_word(at[i]), w);
+        if (at[i] < COUNTER.size())
+            ASSERT_EQ(COUNTER[at[i]], w);
+        else if (at[i] == 255)
+            ASSERT_EQ(0x5A5u, w);
+        else if (at[i] >= 256 && at[i] <= 260)
+            ASSERT_EQ(at[i] - 255, w);
+        else if (at[i] == 300)
+            ASSERT_TRUE(w == 0 || w == 45);
+        else
+            ASSERT_EQ(0u, w);
     }
 }
 
@@ -376,7 +377,7 @@ UTEST(sst, the_soft_cpus_registers_are_in_there)
     ASSERT_TRUE(begin_save());
 
     uint32_t count = 0;
-    for (uint32_t i = 0; i < W_TCM && tcm_word(256 + i); i++)
+    for (uint32_t i = 0; i < W_RAM && tb_ram_word(256 + i); i++)
         count++;
     ASSERT_TRUE(count > 2);
 
@@ -398,9 +399,9 @@ UTEST(sst, letting_go_lets_the_machine_run_again)
     for (int i = 0; i < 3000; i++)
         clk();
     ASSERT_TRUE(begin_save());
-    uint32_t held = tcm_word(255 + 1);
+    uint32_t held = tb_ram_word(255 + 1);
     uint32_t count_before = 0;
-    for (uint32_t i = 0; i < W_TCM && tcm_word(256 + i); i++)
+    for (uint32_t i = 0; i < W_RAM && tb_ram_word(256 + i); i++)
         count_before++;
 
     dut->sst_save = 0;
@@ -412,13 +413,14 @@ UTEST(sst, letting_go_lets_the_machine_run_again)
 
     for (int i = 0; i < 8000; i++)
         clk();
-    ASSERT_EQ(held, tcm_word(256));
+    flush();
+    ASSERT_EQ(held, tb_ram_word(256));
     uint32_t count = 0;
-    for (uint32_t i = 0; i < W_TCM && tcm_word(256 + i); i++)
+    for (uint32_t i = 0; i < W_RAM && tb_ram_word(256 + i); i++)
         count++;
     ASSERT_GT(count, count_before);
     for (uint32_t i = 0; i < count; i++)
-        ASSERT_EQ(i + 1, tcm_word(256 + i));
+        ASSERT_EQ(i + 1, tb_ram_word(256 + i));
 }
 
 UTEST(sst, a_load_puts_the_blob_back)
@@ -435,7 +437,9 @@ UTEST(sst, a_load_puts_the_blob_back)
         stage_word(B_SRAM + i, 0x5A5A0000u + i);
         stage_word(B_XRAM + i, 0xC0DE0000u + i);
         stage_word(B_CELLS + i, 0xCE110000u + i);
-        stage_word(B_TCM + i, 0x7C700000u + i);
+        stage_word(B_RAM + i, 0x7C700000u + i);
+        stage_word(B_RAM + 1000 + i, 0x7C710000u + i);
+        stage_word(B_RAM + W_RAM - 8 + i, 0x7C720000u + i);
     }
     for (uint32_t e = 0; e < 4; e++)
     {
@@ -493,7 +497,9 @@ UTEST(sst, a_load_puts_the_blob_back)
     for (uint32_t i = 0; i < 8; i++)
     {
         ASSERT_EQ(0xC0DE0000u + i, xram_word(i));
-        ASSERT_EQ(0x7C700000u + i, tcm_word(i));
+        ASSERT_EQ(0x7C700000u + i, tb_ram_word(i));
+        ASSERT_EQ(0x7C710000u + i, tb_ram_word(1000 + i));
+        ASSERT_EQ(0x7C720000u + i, tb_ram_word(W_RAM - 8 + i));
     }
     for (uint32_t i = 0; i < 4; i++)
     {
@@ -581,7 +587,7 @@ UTEST(sst, the_soft_cpus_registers_go_back_in)
     for (uint32_t i = 0; i < W_TOTAL; i++)
         stage_word(i, 0);
     for (uint32_t i = 0; i < COUNTER.size(); i++)
-        stage_word(B_TCM + i, COUNTER[i]);
+        stage_word(B_RAM + i, COUNTER[i]);
 
     const uint32_t MARK = 0x11110000u;
     const uint32_t PTR = 0x4000u;
@@ -603,10 +609,13 @@ UTEST(sst, the_soft_cpus_registers_go_back_in)
     for (int i = 0; i < 6000; i++)
         clk();
 
-    ASSERT_EQ(MARK, tcm_word(PTR / 4));
-    ASSERT_EQ(MARK + 1, tcm_word(PTR / 4 + 1));
-    ASSERT_EQ(0u, tcm_word(255));
-    ASSERT_EQ(0u, tcm_word(256));
+    /* The words the old core stored from 256 on were in its cache. The
+     * load emptied it, so they are not written over the blob's zeros. */
+    flush();
+    ASSERT_EQ(MARK, tb_ram_word(PTR / 4));
+    ASSERT_EQ(MARK + 1, tb_ram_word(PTR / 4 + 1));
+    ASSERT_EQ(0u, tb_ram_word(255));
+    ASSERT_EQ(0u, tb_ram_word(256));
 }
 
 static void load_and_wait(void)
@@ -645,7 +654,8 @@ UTEST(sst, a_blob_that_does_not_add_up_is_refused)
             r->wiring__DOT__xram__DOT__mem2[i] = 0xEE;
             r->wiring__DOT__xram__DOT__mem3[i] = 0xEE;
         }
-        uint32_t held = tcm_word(256);
+        flush();
+        uint32_t held = tb_ram_word(256);
 
         load_and_wait();
         ASSERT_TRUE((int)dut->wiring_sst_load_done);
@@ -658,13 +668,14 @@ UTEST(sst, a_blob_that_does_not_add_up_is_refused)
         dut->eval();
         for (int i = 0; i < 4000; i++)
             clk();
-        ASSERT_EQ(held, tcm_word(256));
+        flush();
+        ASSERT_EQ(held, tb_ram_word(256));
         uint32_t count = 0;
-        for (uint32_t i = 0; i < W_TCM && tcm_word(256 + i); i++)
+        for (uint32_t i = 0; i < W_RAM && tb_ram_word(256 + i); i++)
             count++;
         ASSERT_TRUE(count > 3);
         for (uint32_t i = 0; i < count; i++)
-            ASSERT_EQ(i + 1, tcm_word(256 + i));
+            ASSERT_EQ(i + 1, tb_ram_word(256 + i));
     }
 }
 
@@ -673,10 +684,10 @@ enum
 {
     E_IDLE = 0,
     E_LD_PUT = 19,
-    E_LD_PUT_DONE = 21,
-    E_LD_JAM = 23,
-    E_LD_JAM2 = 24,
-    E_INJ_ARM = 27
+    E_LD_PUT_DONE = 23,
+    E_LD_JAM = 25,
+    E_LD_JAM2 = 26,
+    E_INJ_ARM = 29
 };
 
 /* Every stop lands with the audio engines idle and no sample due for the
@@ -730,7 +741,7 @@ UTEST(sst, a_load_writes_the_flops_with_the_clock_back)
     for (uint32_t i = 0; i < W_TOTAL; i++)
         stage_word(i, 0);
     for (uint32_t i = 0; i < COUNTER.size(); i++)
-        stage_word(B_TCM + i, COUNTER[i]);
+        stage_word(B_RAM + i, COUNTER[i]);
     stage_word(B_STATE + ST_MACH + 0, 1);
     stage_word(B_STATE + ST_MACH + 1, 8000);
     stage_word(B_STATE + ST_W65C02 + 4, 0x00100001u);
@@ -792,8 +803,8 @@ UTEST(sst, a_load_writes_the_flops_with_the_clock_back)
     ASSERT_LT((int)r->wiring__DOT__psg__DOT__tickctr, 510);
 }
 
-/* A version 6 blob, with its sum right, is refused. */
-UTEST(sst, a_version_6_blob_is_refused)
+/* A version 7 blob, with its sum right, is refused. */
+UTEST(sst, a_version_7_blob_is_refused)
 {
     power_on();
     for (int i = 0; i < 3000; i++)
@@ -805,7 +816,7 @@ UTEST(sst, a_version_6_blob_is_refused)
         stage_word(B_XRAM + i, 0xC0DE0000u + i);
     stage_seal();
     uint32_t sum = 0;
-    stage_word(B_HDR + 1, 6);
+    stage_word(B_HDR + 1, 7);
     for (uint32_t i = 0; i < B_END; i++)
     {
         uint32_t a = STAGE_BLOB + i * 4;
@@ -818,8 +829,9 @@ UTEST(sst, a_version_6_blob_is_refused)
     auto *r = dut->rootp;
     for (uint32_t i = 0; i < 8; i++)
         r->wiring__DOT__xram__DOT__mem0[i] = 0xEE;
+    flush();
     uint32_t before = 0;
-    while (before < W_TCM && tcm_word(256 + before))
+    while (before < W_RAM && tb_ram_word(256 + before))
         before++;
     load_and_wait();
     ASSERT_TRUE((int)dut->wiring_sst_load_done);
@@ -830,8 +842,9 @@ UTEST(sst, a_version_6_blob_is_refused)
     dut->eval();
     for (int i = 0; i < 4000; i++)
         clk();
+    flush();
     uint32_t after = 0;
-    while (after < W_TCM && tcm_word(256 + after))
+    while (after < W_RAM && tb_ram_word(256 + after))
         after++;
     ASSERT_GT(after, before);
 }

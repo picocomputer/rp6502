@@ -17,6 +17,11 @@ FILE_SLOT_COUNT = 8
 
 ASSET_SLOTS = {9: "FONTS", 10: "OEMCP", 11: "KBDLAY"}
 
+FIRMWARE_FILE = "firmware.bin"
+
+# The Pocket's SDRAM is 64 MB.
+SDRAM_BYTES = 0x04000000
+
 
 def defines(path: Path) -> dict:
     out = {}
@@ -43,9 +48,12 @@ def main() -> int:
     ap.add_argument("--mmio", required=True)
     ap.add_argument("--bench")
     ap.add_argument("--engine")
-    ap.add_argument("--tcm", help="package holding widths the engine names")
+    ap.add_argument("--ram", help="package holding widths the engine names")
     ap.add_argument("--sst")
     ap.add_argument("--top")
+    ap.add_argument("--core")
+    ap.add_argument("--bridge")
+    ap.add_argument("--link")
     a = ap.parse_args()
 
     ds = slots(Path(a.data))
@@ -63,7 +71,20 @@ def main() -> int:
     want("slot 0 address", addr(0), mm["ROM_BRIDGE"])
     want("slot 0 size_maximum", int(ds[0]["size_maximum"], 0), mm["ROM_MAX"])
 
-    want("savestate blob base", mm["ROM_MAX"], mm["SST_BLOB_BRIDGE"])
+    want("ROM ceiling", mm["ROM_MAX"], mm["RAM_BRIDGE"])
+    want("RAM ceiling", mm["RAM_BRIDGE"] + mm["RAM_MAX"],
+         mm["SST_BLOB_BRIDGE"])
+    fw = [i for i, s in ds.items() if s.get("filename") == FIRMWARE_FILE]
+    if len(fw) != 1:
+        bad.append(f"data.json has {len(fw)} {FIRMWARE_FILE} slots")
+    else:
+        s = ds[fw[0]]
+        want("firmware slot address", addr(fw[0]), mm["RAM_BRIDGE"])
+        want("firmware slot size_maximum",
+             int(s.get("size_maximum", "0"), 0), mm["RAM_MAX"])
+        if not s.get("required") or s.get("deferload"):
+            bad.append("the firmware slot is not loaded before the core "
+                       "leaves reset")
     want("savestate blob ceiling",
          mm["SST_BLOB_BRIDGE"] + mm["SST_BLOB_MAX"],
          addr(FILE_SLOT_FIRST))
@@ -82,28 +103,41 @@ def main() -> int:
     want("Get File scratch window",
          mm["GETFILE_WIN"], STAGE_BASE + mm["GETFILE_BRIDGE"])
 
-    climb = sorted(ds)
-    for lo, hi in zip(climb, climb[1:]):
-        span = (int(ds[lo]["size_exact"], 0) if "size_exact" in ds[lo]
-                else mm["SLOT_WIN_SIZE"])
-        if lo == 0:
-            span = mm["ROM_MAX"] + mm["SST_BLOB_MAX"]
-        if addr(lo) + span > addr(hi):
-            bad.append(f"slot {lo} runs {addr(lo) + span:#010x} into "
-                       f"slot {hi} at {addr(hi):#010x}")
-
-    scratch = mm["GETFILE_BRIDGE"]
+    # Every region of the SDRAM, each slot at the most it can hold. No two
+    # may share a byte and none may run off the chip. The Get File scratch
+    # is one bridge word here; the path the host writes there ends before
+    # the next region begins.
+    regions = [("the savestate blob window", mm["SST_BLOB_BRIDGE"],
+                mm["SST_BLOB_MAX"]),
+               ("the Get File scratch", mm["GETFILE_BRIDGE"], 4),
+               ("the soft CPU's RAM", mm["RAM_BRIDGE"], mm["RAM_MAX"])]
     for slot_id, s in ds.items():
-        if "size_exact" not in s:
+        if s.get("filename") == FIRMWARE_FILE:
             continue
-        end = addr(slot_id) + int(s["size_exact"], 0)
-        if addr(slot_id) <= scratch < end:
-            bad.append(f"slot {slot_id} covers the Get File scratch at "
-                       f"{scratch:#010x}")
+        if "size_exact" in s:
+            span = int(s["size_exact"], 0)
+        elif "size_maximum" in s:
+            span = int(s["size_maximum"], 0)
+        elif FILE_SLOT_FIRST <= slot_id < FILE_SLOT_FIRST + FILE_SLOT_COUNT:
+            span = mm["SLOT_WIN_SIZE"]
+        else:
+            bad.append(f"slot {slot_id} states no size")
+            continue
+        regions.append((f"slot {slot_id}", addr(slot_id), span))
+    regions.sort(key=lambda r: r[1])
+    for (lo, lo_at, lo_span), (hi, hi_at, _) in zip(regions, regions[1:]):
+        if lo_at + lo_span > hi_at:
+            bad.append(f"{lo} runs {lo_at + lo_span:#010x} into {hi} at "
+                       f"{hi_at:#010x}")
+    last, last_at, last_span = regions[-1]
+    if last_at + last_span > SDRAM_BYTES:
+        bad.append(f"{last} runs {last_at + last_span:#010x} off the SDRAM")
 
     if a.bench:
         tb = defines(Path(a.bench))
         want("bench ROM base", tb["TB_STAGE_ROM_BASE"], mm["ROM_BRIDGE"])
+        want("bench RAM base", tb["TB_STAGE_RAM_BASE"], mm["RAM_BRIDGE"])
+        want("bench RAM size", tb["TB_STAGE_RAM_SIZE"], mm["RAM_MAX"])
         want("bench window base",
              tb["TB_STAGE_WIN_BASE"], addr(FILE_SLOT_FIRST))
         want("bench window size",
@@ -119,17 +153,51 @@ def main() -> int:
                            f"{tb[f'TB_STAGE_{tag}_SIZE']:#x} is under "
                            f"slot {slot_id}'s {exact:#x}")
 
+    def sv_hex(path, pattern, what):
+        m = re.search(pattern + r" = 32'h([0-9A-Fa-f_]+)",
+                      Path(path).read_text(encoding="utf-8"))
+        if not m:
+            bad.append(f"{what} is not stated")
+            return None
+        return int(m.group(1).replace("_", ""), 16)
+
+    def want_sv(path, pattern, what, expect):
+        got = sv_hex(path, pattern, what)
+        if got is not None:
+            want(what, got, expect)
+
+    if a.core:
+        want_sv(a.core, r"localparam logic \[31:0\] RAM_BASE",
+                "pocket_core RAM base", mm["RAM_BRIDGE"])
+    if a.bridge:
+        want_sv(a.bridge, r"parameter logic \[31:0\] RAM_BASE",
+                "pocket_bridge RAM base", mm["RAM_BRIDGE"])
+    if a.ram:
+        pkg = dict(re.findall(r"localparam int (\w+) = (\d+);",
+                              Path(a.ram).read_text(encoding="utf-8")))
+        if "RAM_WORDS" not in pkg:
+            bad.append("the RAM package has no RAM_WORDS")
+        else:
+            want("RAM size", int(pkg["RAM_WORDS"]) * 4, mm["RAM_MAX"])
+    if a.link:
+        m = re.search(r"RAM \(rwx\) : ORIGIN = 0x0+, LENGTH = (\d+)K",
+                      Path(a.link).read_text(encoding="utf-8"))
+        if not m:
+            bad.append("link.ld has no RAM region at 0")
+        else:
+            want("linked RAM size", int(m.group(1)) * 1024, mm["RAM_MAX"])
+
     words = None
     if a.engine:
         src = Path(a.engine).read_text(encoding="utf-8")
+        want_sv(a.engine, r"localparam int A_STAGE_OFF",
+                "engine blob address", mm["SST_BLOB_BRIDGE"])
         parts = dict(re.findall(r"localparam int (W_\w+) = (\w+);", src))
-        if a.tcm:
-            pkg = dict(re.findall(r"localparam int (\w+) = (\d+);",
-                                  Path(a.tcm).read_text(encoding="utf-8")))
+        if a.ram:
             parts = {k: pkg.get(v, v) for k, v in parts.items()}
         parts = {k: v for k, v in parts.items() if v.isdigit()}
         order = ["W_HDR", "W_STATE", "W_REGS", "W_SRAM", "W_XRAM",
-                 "W_CELLS", "W_XPROG", "W_TCM", "W_AUD", "W_END"]
+                 "W_CELLS", "W_XPROG", "W_RAM", "W_AUD", "W_END"]
         missing = [k for k in order if k not in parts]
         if missing:
             bad.append(f"sst_engine is missing {', '.join(missing)}")
@@ -142,6 +210,10 @@ def main() -> int:
             bad.append("pocket_sst has no BLOB_WORDS")
         else:
             want("bridge blob words", int(m.group(1)), words)
+        want_sv(a.sst, r"parameter logic \[31:0\] BLOB_BASE",
+                "bridge blob address", mm["SST_BLOB_BRIDGE"])
+        want_sv(a.sst, r"parameter logic \[31:0\] BLOB_WINDOW",
+                "bridge blob window", mm["SST_BLOB_MAX"])
     if words is not None and a.top:
         src = Path(a.top).read_text(encoding="utf-8")
         m = re.search(r"savestate_size = 32'd(\d+)", src)
@@ -160,10 +232,8 @@ def main() -> int:
         if words * 4 > mm["SST_BLOB_MAX"]:
             bad.append(f"blob {words * 4:#x} is over the window's "
                        f"{mm['SST_BLOB_MAX']:#x}")
-        m3 = re.search(r"savestate_addr = 32'h([0-9A-Fa-f_]+)", src)
-        if m3:
-            want("host blob address",
-                 int(m3.group(1).replace("_", ""), 16), mm["SST_BLOB_BRIDGE"])
+        want_sv(a.top, "savestate_addr", "host blob address",
+                mm["SST_BLOB_BRIDGE"])
 
     if bad:
         raise SystemExit("stage_map_gate: the staging map disagrees\n"
@@ -171,6 +241,7 @@ def main() -> int:
 
     blob = f", state {words * 4 // 1024} KB" if words else ""
     print(f"stage map ok: {len(ds)} slots, ROM ceiling {mm['ROM_MAX']:#010x}, "
+          f"RAM {mm['RAM_MAX'] // 1024} KB, "
           f"blob {mm['SST_BLOB_MAX'] // 1024} KB at "
           f"{mm['SST_BLOB_BRIDGE']:#010x}{blob}")
     return 0

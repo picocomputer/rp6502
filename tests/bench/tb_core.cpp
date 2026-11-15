@@ -5,6 +5,7 @@
  */
 
 #include "tb_core.h"
+#include "tb_ram.h"
 
 #include "Vwiring.h"
 #include "Vwiring___024root.h"
@@ -28,7 +29,10 @@ static int tb_core_rv_phase;
 static void tb_core_edge(int level)
 {
     if (level)
+    {
         tb_core_rv_phase = !tb_core_rv_phase;
+        tb_ram_tick(tb_core_dut);
+    }
     tb_core_dut->clk_sys = level;
     tb_core_dut->clk_mach = level;
     tb_core_dut->clk_rv = level && tb_core_rv_phase;

@@ -24,6 +24,9 @@ static std::vector<KeyEv> g_keys;
 static std::vector<long> g_slot_sets;
 static std::vector<uint32_t> g_slot_lens;
 static long g_run_rise = -1, g_run_fall = -1;
+/* Set by a clk_sys edge that finds the machine running with a write
+ * still in the bridge's queue. */
+static bool g_run_queued;
 
 /* clk_sys has period 330 and clk_74a has period 224, which is the ratio
  * of 74.25 MHz to 50.4 MHz. */
@@ -63,6 +66,8 @@ static void advance_to(long t_end)
                 g_run_rise = g_sys_edges;
             if (!dut->tb_pbridge_run && run_before)
                 g_run_fall = g_sys_edges;
+            if (dut->tb_pbridge_run && dut->tb_pbridge_w_queued)
+                g_run_queued = true;
         }
         if (aedge)
         {
@@ -116,8 +121,22 @@ static uint16_t stage_read(uint32_t half_addr)
     return v;
 }
 
-UTEST(pbridge, boot_verify_rereset_reload_keys)
+/* A new bridge and SDRAM, held in reset by the host, with the SDRAM
+ * past its power-up wait. */
+static void power_up(int *utest_result)
 {
+    if (dut)
+    {
+        dut->final();
+        delete dut;
+    }
+    dut = new Vtb_pbridge;
+    g_t = g_sys_edges = 0;
+    g_keys.clear();
+    g_slot_sets.clear();
+    g_slot_lens.clear();
+    g_run_rise = g_run_fall = -1;
+    g_run_queued = false;
     a_next = 224;
     s_next = 330;
     dut->rst_n = 0;
@@ -132,6 +151,11 @@ UTEST(pbridge, boot_verify_rereset_reload_keys)
     while (!dut->tb_pbridge_ready && guard++ < 60000)
         advance_to(s_next);
     ASSERT_TRUE(dut->tb_pbridge_ready);
+}
+
+UTEST(pbridge, boot_verify_rereset_reload_keys)
+{
+    power_up(utest_result);
 
     std::vector<uint8_t> img(1003);
     for (size_t i = 0; i < img.size(); i++)
@@ -250,12 +274,104 @@ UTEST(pbridge, boot_verify_rereset_reload_keys)
     advance_to(s_next + 330L * 200);
 }
 
+/* The four halves of the words a test writes at one address. */
+static uint32_t stage_word(uint32_t addr)
+{
+    uint16_t lo = stage_read(addr >> 1);
+    uint16_t hi = stage_read((addr >> 1) + 1);
+    return (uint32_t)(lo & 0xFF) << 24 | (uint32_t)(lo >> 8) << 16
+           | (uint32_t)(hi & 0xFF) << 8 | (uint32_t)(hi >> 8);
+}
+
+/* The host's Reset Exit comes on the heels of its last writes here, with
+ * six of them still queued behind an SDRAM that was in self refresh. The
+ * machine must stay in reset until the queue is empty, or the soft CPU
+ * could fetch firmware that has not landed. */
+UTEST(pbridge, the_machine_waits_for_the_write_queue)
+{
+    power_up(utest_result);
+    dut->datatable_q = 12;
+    dut->dataslot_allcomplete = 1;
+    a_cycles(40);
+    ASSERT_EQ((int)dut->tb_pbridge_run, 0);
+    ASSERT_EQ((int)dut->tb_pbridge_w_queued, 0);
+
+    /* 400 idle clocks puts the SDRAM in self refresh. */
+    advance_to(s_next + 330L * 400);
+    const uint32_t RAM = 0x03EC0000u;
+    for (uint32_t i = 0; i < 3; i++)
+        host_word(RAM + i * 4, 0xC0DE0000u + i, 1);
+    dut->reset_n = 1;
+
+    long queued_edges = 0;
+    int guard = 0;
+    while (!dut->tb_pbridge_run && guard++ < 2000)
+    {
+        advance_to(s_next);
+        if (dut->tb_pbridge_w_queued)
+            queued_edges++;
+    }
+    ASSERT_EQ((int)dut->tb_pbridge_run, 1);
+    /* The wait was a real one: the queue was seen holding writes after
+     * Reset Exit, for longer than the reset's own way through the
+     * synchronizers. */
+    ASSERT_GT(queued_edges, 8L);
+    advance_to(s_next + 330L * 200);
+    ASSERT_FALSE(g_run_queued);
+    for (uint32_t i = 0; i < 3; i++)
+        ASSERT_EQ(stage_word(RAM + i * 4), 0xC0DE0000u + i);
+}
+
+/* The soft CPU's RAM is written by the host only while the machine is in
+ * reset. A write there with the machine running never reaches the SDRAM,
+ * and the bytes on either side of the RAM are written as ever. */
+UTEST(pbridge, a_write_to_the_ram_is_dropped_while_the_machine_runs)
+{
+    static const uint32_t at[] = {
+        0x03EBFFFCu, /* the ROM's last word */
+        0x03EC0000u, /* the RAM's first */
+        0x03EDFFF0u,
+        0x03EFFFFCu, /* the RAM's last */
+        0x03F00000u, /* the savestate window's first */
+    };
+    static const bool ram[] = {false, true, true, true, false};
+    const int n = (int)(sizeof at / sizeof *at);
+
+    power_up(utest_result);
+    for (int i = 0; i < n; i++)
+        host_word(at[i], 0xA0000000u + (uint32_t)i, 88);
+    dut->datatable_q = 4;
+    dut->dataslot_allcomplete = 1;
+    dut->reset_n = 1;
+    a_cycles(60);
+    ASSERT_EQ((int)dut->tb_pbridge_run, 1);
+    for (int i = 0; i < n; i++)
+        ASSERT_EQ(stage_word(at[i]), 0xA0000000u + (uint32_t)i);
+
+    for (int i = 0; i < n; i++)
+        host_word(at[i], 0xB0000000u + (uint32_t)i, 88);
+    a_cycles(60);
+    ASSERT_EQ((int)dut->tb_pbridge_w_queued, 0);
+    for (int i = 0; i < n; i++)
+        ASSERT_EQ(stage_word(at[i]),
+                  (ram[i] ? 0xA0000000u : 0xB0000000u) + (uint32_t)i);
+
+    /* Back in reset the RAM takes writes again, which is a reload. */
+    dut->reset_n = 0;
+    a_cycles(10);
+    ASSERT_EQ((int)dut->tb_pbridge_run, 0);
+    for (int i = 0; i < n; i++)
+        host_word(at[i], 0xC0000000u + (uint32_t)i, 88);
+    a_cycles(60);
+    for (int i = 0; i < n; i++)
+        ASSERT_EQ(stage_word(at[i]), 0xC0000000u + (uint32_t)i);
+}
+
 UTEST_STATE();
 
 int main(int argc, const char *const argv[])
 {
     Verilated::commandArgs(argc, const_cast<char **>(argv));
-    dut = new Vtb_pbridge;
     int rc = utest_main(argc, argv);
     dut->final();
     delete dut;

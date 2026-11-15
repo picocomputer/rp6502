@@ -13,7 +13,6 @@
 #include "tb_asm.h"
 #include "tb_rom.h"
 #include "tb_stage.h"
-#include "tb_tcm.h"
 #include "utest.h"
 
 #include <cstdio>
@@ -139,16 +138,6 @@ static void a_edge()
     long t = a_next;
     while (a_next == t)
         tick();
-}
-
-static bool load_firmware(const char *path)
-{
-    auto *r = dut->rootp;
-    return tb_load_tcm(
-        r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm0,
-        r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm1,
-        r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm2,
-        r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm3, path);
 }
 
 static bool run_until_quiet(long *presses = nullptr)
@@ -334,10 +323,17 @@ static void run_and_check(int *utest_result, const char *name,
     }
 }
 
-static void power_on(int *utest_result)
+/* The firmware, the fonts and the code pages are written straight into
+ * the SDRAM model unless the case streams the firmware itself, because
+ * streaming them over the bridge costs about ten clk_74a cycles a byte
+ * and the ROM already goes over the bridge in every case. */
+static void power_on(int *utest_result, bool firmware = true)
 {
     a_next = 224;
     s_next = 330;
+    a2_next = 124;
+    a2_ph = 0;
+    g_sys = 0;
     /* The DUT is rebuilt rather than reset because the timing and
      * pocket_video modules have no reset, so a reset pulse would leave
      * them mid-frame while the rest of the machine restarts. */
@@ -347,7 +343,6 @@ static void power_on(int *utest_result)
         delete dut;
     }
     dut = new Vtb_pocket;
-    ASSERT_TRUE(load_firmware(SW_BIN));
     dut->rst_n = 0;
     dut->arst_n = 0;
     dut->reset_n = 0;
@@ -365,20 +360,11 @@ static void power_on(int *utest_result)
     while (!dut->tb_pocket_ready && guard++ < 60000)
         tick();
     ASSERT_TRUE(dut->tb_pocket_ready);
-    /* The fonts are written straight into the SDRAM model because
-     * streaming their 60 KB over the bridge costs about 600,000 clk_74a
-     * cycles a case, and the ROM already goes over the bridge in every
-     * case. */
-    const std::vector<uint8_t> &fonts = tb_stage_fonts();
     auto &chip = dut->rootp->tb_pocket__DOT__chip__DOT__mem;
-    for (size_t i = 0; i + 1 < fonts.size(); i += 2)
-        chip[(TB_STAGE_FONT_BASE + i) >> 1] =
-            (uint16_t)(fonts[i] | (fonts[i + 1] << 8));
-
-    const std::vector<uint8_t> &oemcp = tb_stage_oemcp();
-    for (size_t i = 0; i + 1 < oemcp.size(); i += 2)
-        chip[(TB_STAGE_OEMCP_BASE + i) >> 1] =
-            (uint16_t)(oemcp[i] | (oemcp[i + 1] << 8));
+    if (firmware)
+        ASSERT_TRUE(tb_stage_poke_firmware(chip, SW_BIN));
+    tb_stage_poke(chip, TB_STAGE_FONT_BASE, tb_stage_fonts());
+    tb_stage_poke(chip, TB_STAGE_OEMCP_BASE, tb_stage_oemcp());
 }
 
 static void run_case(int *utest_result, const char *name, uint32_t expect)
@@ -486,6 +472,98 @@ UTEST(pocket, hot_reload_without_a_reset)
 
     ASSERT_TRUE(run_until_quiet(nullptr));
     run_and_check(utest_result, "mode3_1bpp", 0x41437F1B, false);
+}
+
+/* Whether the SDRAM holds the firmware's first bytes as the file has
+ * them. They are code, which the soft CPU never stores to. */
+static bool ram_holds(const std::vector<uint8_t> &fw, size_t n)
+{
+    auto &chip = dut->rootp->tb_pocket__DOT__chip__DOT__mem;
+    for (size_t i = 0; i + 1 < n && i + 1 < fw.size(); i += 2)
+        if (chip[(TB_STAGE_RAM_BASE + i) >> 1]
+            != (uint16_t)(fw[i] | (fw[i + 1] << 8)))
+            return false;
+    return true;
+}
+
+/* The firmware's code is longer than this. */
+#define FW_CODE 0x10000u
+
+/* The firmware arrives as the host sends it, a data slot streamed over
+ * the bridge into the SDRAM, and the soft CPU boots from there through
+ * its cache. */
+UTEST(pocket, the_firmware_boots_from_the_bridge)
+{
+    std::vector<uint8_t> fw = tb_stage_firmware(SW_BIN);
+    ASSERT_GT(fw.size(), (size_t)FW_CODE);
+    std::vector<uint8_t> rom = read_rom("mode3_1bpp");
+    ASSERT_TRUE(rom.size() > 0);
+    power_on(utest_result, false);
+    ASSERT_FALSE(ram_holds(fw, FW_CODE));
+    host_stream(fw, TB_STAGE_RAM_BASE);
+    host_load(rom);
+    dut->reset_n = 1;
+    run_and_check(utest_result, "mode3_1bpp", 0x41437F1B);
+    ASSERT_TRUE(ram_holds(fw, FW_CODE));
+}
+
+/* The host writes over the whole firmware while the machine runs. None
+ * of it reaches the SDRAM, and the machine goes on to load another ROM,
+ * fetching code its cache does not hold. */
+UTEST(pocket, a_host_write_into_the_ram_is_dropped_while_running)
+{
+    std::vector<uint8_t> fw = tb_stage_firmware(SW_BIN);
+    ASSERT_GT(fw.size(), (size_t)FW_CODE);
+    std::vector<uint8_t> first = read_rom("mode3_8bpp");
+    ASSERT_TRUE(first.size() > 0);
+    power_on(utest_result);
+    host_load(first);
+    dut->reset_n = 1;
+    run_and_check(utest_result, "mode3_8bpp", 0x29DB5FC9);
+
+    std::vector<uint8_t> junk(fw.size(), 0xFF);
+    host_stream(junk, TB_STAGE_RAM_BASE);
+    ASSERT_TRUE(ram_holds(fw, FW_CODE));
+
+    std::vector<uint8_t> second = read_rom("mode3_1bpp");
+    ASSERT_TRUE(second.size() > 0);
+    host_load(second);
+    ASSERT_TRUE(run_until_quiet(nullptr));
+    run_and_check(utest_result, "mode3_1bpp", 0x41437F1B, false);
+    ASSERT_TRUE(ram_holds(fw, FW_CODE));
+}
+
+/* A reset with the RAM left unfit to run, then the firmware and a ROM
+ * loaded again over the bridge. The writes land because the machine is
+ * in reset, and the soft CPU boots from them with an empty cache. */
+UTEST(pocket, a_reset_and_a_reload_boot_clean)
+{
+    std::vector<uint8_t> fw = tb_stage_firmware(SW_BIN);
+    ASSERT_GT(fw.size(), (size_t)FW_CODE);
+    std::vector<uint8_t> first = read_rom("mode3_8bpp");
+    ASSERT_TRUE(first.size() > 0);
+    power_on(utest_result);
+    host_load(first);
+    dut->reset_n = 1;
+    run_and_check(utest_result, "mode3_8bpp", 0x29DB5FC9);
+
+    dut->reset_n = 0;
+    for (int i = 0; i < 40; i++)
+        a_edge();
+    ASSERT_EQ((int)dut->rootp->tb_pocket__DOT__core__DOT__run, 0);
+    tb_stage_poke(dut->rootp->tb_pocket__DOT__chip__DOT__mem,
+                  TB_STAGE_RAM_BASE,
+                  std::vector<uint8_t>(TB_STAGE_RAM_SIZE, 0xFF));
+    ASSERT_FALSE(ram_holds(fw, FW_CODE));
+
+    host_stream(fw, TB_STAGE_RAM_BASE);
+    std::vector<uint8_t> second = read_rom("mode3_1bpp");
+    ASSERT_TRUE(second.size() > 0);
+    host_load(second);
+    dut->reset_n = 1;
+    ASSERT_TRUE(run_until_quiet(nullptr));
+    run_and_check(utest_result, "mode3_1bpp", 0x41437F1B, false);
+    ASSERT_TRUE(ram_holds(fw, FW_CODE));
 }
 
 UTEST_STATE();

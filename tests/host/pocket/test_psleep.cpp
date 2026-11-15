@@ -8,7 +8,6 @@
 #include "Vtb_pocket___024root.h"
 
 #include "tb_stage.h"
-#include "tb_tcm.h"
 #include "utest.h"
 
 #include <algorithm>
@@ -413,7 +412,7 @@ static std::vector<uint8_t> read_file(const char *path)
 /* BLOB_BRIDGE and BLOB_BYTES are core_top's savestate_addr and
  * savestate_size. */
 #define BLOB_BRIDGE 0x03F00000u
-#define BLOB_BYTES 333136u
+#define BLOB_BYTES 496976u
 
 /* The core has until the next read strobe to drive bridge_rd_data,
  * because io_bridge_peripheral.v buffers reads by one word. HOST_GAP is
@@ -458,12 +457,8 @@ static void boot_into(const std::vector<uint8_t> &rom, bool keep_card)
     for (int i = 0; i < 40; i++)
         tick();
 
-    auto *r = dut->rootp;
-    tb_load_tcm(r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm0,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm1,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm2,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm3,
-                SW_BIN);
+    tb_stage_poke_firmware(dut->rootp->tb_pocket__DOT__chip__DOT__mem,
+                           SW_BIN);
 
     dut->rst_n = 1;
     dut->arst_n = 1;
@@ -1773,9 +1768,9 @@ UTEST(psleep, the_program_clock_leaves_out_the_wake)
     ASSERT_LE(c_clk - b_clk < 0 ? b_clk - c_clk : c_clk - b_clk, 1L);
 }
 
-/* A blob from before this format, version 6, is refused, and the session
+/* A blob from before this format, version 7, is refused, and the session
  * that was running carries on. */
-UTEST(psleep, a_version_6_blob_is_refused)
+UTEST(psleep, a_version_7_blob_is_refused)
 {
     std::vector<uint8_t> rom = read_file(FILE_ROM);
     ASSERT_GT(rom.size(), 0u);
@@ -1784,8 +1779,8 @@ UTEST(psleep, a_version_6_blob_is_refused)
     std::vector<uint8_t> blob;
     ASSERT_TRUE(create_state(blob));
     teardown();
-    ASSERT_EQ(7u, blob_get(blob, 1));
-    blob_put(blob, 1, 6);
+    ASSERT_EQ(8u, blob_get(blob, 1));
+    blob_put(blob, 1, 7);
     blob_reseal(blob);
 
     boot(rom);

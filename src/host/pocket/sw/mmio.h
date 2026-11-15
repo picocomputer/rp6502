@@ -28,11 +28,15 @@
 #define STAGE ((volatile const uint8_t *)0x60000000u)
 
 /* These addresses must agree with the slots in data.json.
- * stage_map_gate.py checks the ROM, savestate blob, asset and Get File
- * addresses against it. ROM_MAX is the ROM slot's size_maximum. */
+ * stage_map_gate.py checks the ROM, RAM, savestate blob, asset and Get
+ * File addresses against it. ROM_MAX is the ROM slot's size_maximum.
+ * RAM_BRIDGE and RAM_MAX are the memory this firmware runs in, which the
+ * host loads as firmware.bin and the soft CPU sees at address 0. */
 #define ROM_IMG ((volatile const uint8_t *)0x60000000u)
 #define ROM_BRIDGE 0x00000000u
-#define ROM_MAX 0x03F00000u
+#define ROM_MAX 0x03EC0000u
+#define RAM_BRIDGE 0x03EC0000u
+#define RAM_MAX 0x00040000u
 #define SST_BLOB_BRIDGE 0x03F00000u
 #define SST_BLOB ((volatile const uint8_t *)0x63F00000u)
 #define SST_BLOB_MAX 0x000A0000u

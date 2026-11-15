@@ -127,9 +127,12 @@ add_test(NAME stage_map
         --mmio ${RP6502_SRC}/host/pocket/sw/mmio.h
         --bench ${RP6502_ROOT}/tests/bench/tb_stage.h
         --engine ${RP6502_POCKET_CORE}/sst_engine.sv
-        --tcm ${RP6502_SRC}/core/riscv/tcm_pkg.sv
+        --ram ${RP6502_SRC}/core/riscv/ram_pkg.sv
         --sst ${RP6502_POCKET_CORE}/pocket_sst.sv
-        --top ${RP6502_SRC}/host/pocket/core/core_top.sv)
+        --top ${RP6502_SRC}/host/pocket/core/core_top.sv
+        --core ${RP6502_POCKET_CORE}/pocket_core.sv
+        --bridge ${RP6502_POCKET_CORE}/pocket_bridge.sv
+        --link ${RP6502_SRC}/host/pocket/sw/link.ld)
 set_tests_properties(stage_map PROPERTIES LABELS "gate;host.pocket")
 
 rp6502_submodule(vendor/openfpga SENTINEL src/fpga/ap_core.qsf

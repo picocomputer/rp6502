@@ -96,7 +96,7 @@ uint16_t font_get_code_page(void)
 }
 
 /* The savestate does not include the font store, so the store is rebuilt
- * from the asset and font_code_page, which is in the TCM that the
+ * from the asset and font_code_page, which is in the RAM that the
  * savestate does include. */
 void font_restore(void)
 {

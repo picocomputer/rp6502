@@ -52,6 +52,70 @@
  * cache_idle is low from the clock flush or empty goes high until that
  * walk has finished, and stays high after it until the level has gone
  * low and high again. */
+/* One memory holding an entry for every way, with a write enable for
+ * each. Quartus packs the ways into one block memory with byte enables only
+ * when the writes are spelled out a way at a time under one write enable;
+ * written as a loop it builds the memory from registers.
+ *
+ * Nothing may use an entry read on the edge that writes it. In simulation
+ * such an entry comes back complemented, so a test fails if anything does. */
+/* verilator lint_off DECLFILENAME */
+module cache_mem #(
+    parameter int WAYS = 4,
+    parameter int AW = 9,
+    parameter int W = 8
+) (
+    input logic clk,
+    input logic [AW-1:0] raddr,
+    input logic [AW-1:0] waddr,
+    input logic [WAYS-1:0] we,
+    input logic [W-1:0] wdata,
+    output logic [WAYS-1:0][W-1:0] cache_mem_q
+);
+
+    (* ramstyle = "no_rw_check" *)
+    logic [WAYS-1:0][W-1:0] mem[1 << AW];
+    logic [WAYS-1:0][W-1:0] q;
+
+    generate
+    if (WAYS == 4) begin : ways4
+        always_ff @(posedge clk) begin
+            if (|we) begin
+                if (we[0]) mem[waddr][0] <= wdata;
+                if (we[1]) mem[waddr][1] <= wdata;
+                if (we[2]) mem[waddr][2] <= wdata;
+                if (we[3]) mem[waddr][3] <= wdata;
+            end
+            q <= mem[raddr];
+        end
+    end else begin : ways2
+        always_ff @(posedge clk) begin
+            if (|we) begin
+                if (we[0]) mem[waddr][0] <= wdata;
+                if (we[1]) mem[waddr][1] <= wdata;
+            end
+            q <= mem[raddr];
+        end
+    end
+    endgenerate
+
+`ifdef VERILATOR
+    logic [WAYS-1:0] rw;
+    logic [W-1:0] wq;
+    always_ff @(posedge clk) begin
+        rw <= waddr == raddr ? we : '0;
+        wq <= wdata;
+    end
+    always_comb
+        for (int w = 0; w < WAYS; w++)
+            cache_mem_q[w] = rw[w] ? ~wq : q[w];
+`else
+    always_comb cache_mem_q = q;
+`endif
+
+endmodule
+/* verilator lint_on DECLFILENAME */
+
 module cache #(
     parameter int SETS = 128,
     parameter int WAYS = 4,
@@ -162,35 +226,28 @@ module cache #(
     logic [WAY_AW-1:0] ptr_wdata;
     logic [WAY_AW-1:0] ptr_q;
 
-    for (genvar b = 0; b < 4; b++) begin : lane
-        (* ramstyle = "no_rw_check" *)
-        logic [WAYS-1:0][7:0] mem[SETS*4];
-        always_ff @(posedge clk) begin
-            lane_q[b] <= mem[{rd_set, rd_off}];
-            for (int w = 0; w < WAYS; w++)
-                if (lane_we[b][w]) begin
-                    mem[lane_waddr][w] <= lane_wdata[b];
-`ifdef VERILATOR
-                    if (lane_waddr == {rd_set, rd_off})
-                        lane_q[b][w] <= ~lane_wdata[b];
-`endif
-                end
-        end
+    genvar g;
+    generate
+    for (g = 0; g < 4; g++) begin : lane
+        cache_mem #(.WAYS(WAYS), .AW(SET_AW + 2), .W(8)) lane_mem (
+            .clk(clk),
+            .raddr({rd_set, rd_off}),
+            .waddr(lane_waddr),
+            .we(lane_we[g]),
+            .wdata(lane_wdata[g]),
+            .cache_mem_q(lane_q[g])
+        );
     end
+    endgenerate
 
-    (* ramstyle = "no_rw_check" *)
-    logic [WAYS-1:0][TAG_W+1:0] tags[SETS];
-    always_ff @(posedge clk) begin
-        tag_q <= tags[rd_set];
-        for (int w = 0; w < WAYS; w++)
-            if (tag_we[w]) begin
-                tags[set][w] <= tag_wdata;
-`ifdef VERILATOR
-                if (set == rd_set)
-                    tag_q[w] <= ~tag_wdata;
-`endif
-            end
-    end
+    cache_mem #(.WAYS(WAYS), .AW(SET_AW), .W(TAG_W + 2)) tags (
+        .clk(clk),
+        .raddr(rd_set),
+        .waddr(set),
+        .we(tag_we),
+        .wdata(tag_wdata),
+        .cache_mem_q(tag_q)
+    );
 
     /* ptr is read in S_TAG and written in S_CP and S_EMPTY, never on
      * the same edge. */

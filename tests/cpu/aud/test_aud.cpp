@@ -76,7 +76,7 @@ static bool load_rom(const char *path)
     rom.clear();
     if (!tb_rom_read(path, rom))
         return false;
-    if (!tb_firmware(dut, SW_BIN))
+    if (!tb_firmware(SW_BIN))
         return false;
     tb_reset(dut);
     dut->rootp->wiring__DOT__soc__DOT__mmio_slot_len = (uint32_t)rom.size();

@@ -10,7 +10,6 @@
 #include "tb_asm.h"
 #include "tb_rom.h"
 #include "tb_stage.h"
-#include "tb_tcm.h"
 #include "utest.h"
 
 #include <cstdio>
@@ -386,12 +385,8 @@ static void boot(const std::vector<uint8_t> &rom, bool homeless)
     for (int i = 0; i < 40; i++)
         tick();
 
-    auto *r = dut->rootp;
-    tb_load_tcm(r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm0,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm1,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm2,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm3,
-                SW_BIN);
+    tb_stage_poke_firmware(dut->rootp->tb_pocket__DOT__chip__DOT__mem,
+                           SW_BIN);
 
     dut->rst_n = 1;
     dut->arst_n = 1;
