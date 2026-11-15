@@ -112,15 +112,30 @@ static void host_stream(const std::vector<uint8_t> &img, int gap)
     }
 }
 
-static uint16_t stage_read(uint32_t half_addr)
+/* The read client is asked for a pair of halfwords and answers with
+ * both, the one at the even address in the low half. */
+static int g_rd_odd;
+
+static void stage_ask(uint32_t half_addr)
 {
     dut->rd_pend = 1;
-    dut->rd_addr = half_addr;
+    dut->rd_addr = half_addr >> 1;
+    g_rd_odd = half_addr & 1;
+}
+
+static uint16_t stage_half(void)
+{
+    return (uint16_t)(dut->tb_pbridge_rword >> (g_rd_odd * 16));
+}
+
+static uint16_t stage_read(uint32_t half_addr)
+{
+    stage_ask(half_addr);
     dut->eval();
     int guard = 0;
     while (!dut->tb_pbridge_rvalid && guard++ < 3000)
         advance_to(s_next);
-    uint16_t v = dut->tb_pbridge_rdata;
+    uint16_t v = stage_half();
     dut->rd_pend = 0;
     advance_to(s_next);
     return v;
@@ -375,11 +390,52 @@ UTEST(pbridge, a_write_to_the_memory_is_dropped_while_the_machine_runs)
         ASSERT_EQ(stage_word(at[i]), 0xC0000000u + (uint32_t)i);
 }
 
+/* The firmware reads a file window, the host fills the window again, and
+ * the firmware reads once the write queue is empty. The line that the
+ * first read left held is gone by then, wherever the host wrote, so no
+ * read is answered from before the write. */
+UTEST(pbridge, a_host_write_throws_the_held_line_away)
+{
+    power_up(utest_result);
+    const uint32_t WIN = 0x03F00000u;
+    for (uint32_t i = 0; i < 12; i++)
+        host_word(WIN + i * 4, 0x11110000u + i, 88);
+    a_cycles(60);
+
+    /* The held line is the window's second. The host writes into it,
+     * into the line on each side, and far away. */
+    const uint32_t targets[] = {WIN + 20, WIN + 12, WIN + 32, 0x00100000u};
+    uint32_t n = 0;
+    for (uint32_t t : targets)
+    {
+        ASSERT_EQ(stage_word(WIN + 16), 0x11110004u);
+        stage_ask((WIN + 24) >> 1);
+        dut->eval();
+        ASSERT_TRUE(dut->tb_pbridge_rvalid);
+        dut->rd_pend = 0;
+
+        host_word(t, 0x22220000u + n, 8);
+        int guard = 0;
+        while (dut->tb_pbridge_w_queued && guard++ < 3000)
+            advance_to(s_next);
+        ASSERT_EQ((int)dut->tb_pbridge_w_queued, 0);
+
+        stage_ask((WIN + 24) >> 1);
+        dut->eval();
+        ASSERT_FALSE(dut->tb_pbridge_rvalid);
+        dut->rd_pend = 0;
+        ASSERT_EQ(stage_word(t), 0x22220000u + n);
+        ASSERT_EQ(stage_word(WIN + 24), 0x11110006u);
+        n++;
+    }
+}
+
 /* The soft CPU's side of the flood. It has one access in flight, a stage
  * read or a line, and asks for the next the clock the last is answered,
  * each in a row that is not open. It asks for the same kind for a few
- * hundred clocks at a time, as a file read or cold code does. Reads are of words the host wrote a
- * while ago and lines are in a part of the SDRAM the host leaves alone. */
+ * hundred clocks at a time, as a file read or cold code does. Reads are
+ * of words the host wrote a while ago and lines are in a part of the
+ * SDRAM the host leaves alone. */
 #include <map>
 
 struct flood_t
@@ -420,7 +476,7 @@ static void flood_sys(void)
     if (dut->rd_pend && dut->tb_pbridge_rvalid)
     {
         f.reads++;
-        if (f.rd_known && dut->tb_pbridge_rdata != f.rd_want)
+        if (f.rd_known && stage_half() != f.rd_want)
             f.bad_reads++;
         dut->rd_pend = 0;
     }
@@ -456,8 +512,7 @@ static void flood_sys(void)
         f.rd_known = f.at.size() > 64;
         uint32_t i = f.rd_known ? flood_rnd() % (f.at.size() - 64) : 0;
         int second = flood_rnd() & 1;
-        dut->rd_pend = 1;
-        dut->rd_addr = f.rd_known ? (f.at[i] >> 1) + second : 0;
+        stage_ask(f.rd_known ? (f.at[i] >> 1) + second : 0);
         f.rd_want = f.rd_known ? host_half(f.word[i], second) : 0;
     }
     else

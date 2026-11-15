@@ -658,6 +658,67 @@ UTEST(pfile, a_seek_past_the_end_fills_the_gap_with_zeros)
     teardown();
 }
 
+/* The ROM reads four bytes at the start of a file, four at TWICE_AT, and
+ * the first four again. Every read has the host fill the file's window
+ * from its start, so the three reads are of the same four bytes of the
+ * SDRAM with a host write between them. */
+#define TWICE_AT 0x2000u
+
+static std::vector<uint8_t> twice_rom(void)
+{
+    tb_asm p;
+    p.push_str("twice.dat");
+    p.store(TB_API_A, 0x01); /* O_RDONLY */
+    p.call(0x14);            /* OP_OPEN */
+    p.sta(PFILE_FD);
+    for (int pass = 0; pass < 3; pass++)
+    {
+        if (pass)
+        {
+            p.pushl(pass == 1 ? TWICE_AT : 0);
+            p.push(2);              /* SEEK_SET in cc65's numbering */
+            pfile_fd_call(p, 0x1A); /* OP_LSEEK */
+        }
+        p.pushw(4);
+        pfile_fd_call(p, 0x16); /* OP_READ_XSTACK */
+        for (int i = 0; i < 4; i++)
+        {
+            p.lda_abs(TB_XSTACK);
+            p.putc_a();
+        }
+    }
+    for (const char *c = "\r\n"; *c; c++)
+    {
+        p.lda((uint8_t)*c);
+        p.putc_a();
+    }
+    p.stp();
+    return tb_rom_image(TB_ORG, p.b);
+}
+
+/* The look-ahead holds the line of the first read when the host writes
+ * the window again. The write throws the line away, so the second read
+ * is of the bytes the host just wrote. */
+UTEST(pfile, a_window_filled_again_is_read_again)
+{
+    boot(twice_rom(), false);
+    std::vector<uint8_t> f(TWICE_AT + 512, 0);
+    memcpy(f.data(), "old!", 4);
+    memcpy(f.data() + TWICE_AT, "new!", 4);
+    g_files["/Assets/rp6502/common/twice.dat"] = f;
+
+    for (long i = 0; i < 40000000L && g_console.find('\n') == std::string::npos;
+         i++)
+        step();
+    if (g_console != "old!new!old!\r\n")
+        fprintf(stderr, "console: [%s] opens=%d reads=%d\n", g_console.c_str(),
+                g_opens, g_reads);
+    ASSERT_TRUE(g_console == "old!new!old!\r\n");
+    /* The host filled the window for every read. */
+    ASSERT_EQ(g_reads, 3);
+    teardown();
+}
+
 /* The name starts with four .. segments, one more than the depth of the
  * working directory, and the last of them stays at the card root. '\'
  * separates as '/' does, so the name resolves to argv.rp6502 in the working

@@ -60,7 +60,7 @@ module sst_engine #(
     output logic sst_engine_stage_pend,
     output logic [27:0] sst_engine_stage_addr,
     input logic stage_stall,
-    input logic [7:0] stage_rdata,
+    input logic [31:0] stage_word,
 
     output logic [13:0] sst_engine_mem_addr,
     output logic [31:0] sst_engine_mem_wdata,
@@ -421,8 +421,7 @@ module sst_engine #(
         sst_engine_line_wdata = line;
         sst_engine_stage_pend = state == S_LD_FETCH;
         sst_engine_stage_addr = 28'(A_STAGE_OFF)
-            + {8'd0, ld_idx, 2'd0} + {16'd0, ld_off, 2'd0}
-            + {26'd0, byte_n};
+            + {8'd0, ld_idx, 2'd0} + {16'd0, ld_off, 2'd0};
     end
 
     logic [31:0] state_word;
@@ -726,21 +725,18 @@ module sst_engine #(
                     state <= S_LD_FETCH;
                 end else if (dbg_halted) want_stop <= 1'b1;
 
-                /* The byte is captured in the state that drives its
-                 * address, because pocket_core picks the byte lane from
-                 * the live stage address, and once S_LD_FETCH is left,
-                 * wiring's address mux falls back to the soft CPU's last
-                 * bus address. A capture one state later could read the
-                 * right halfword through the wrong lane. */
+                /* The word is captured in the state that drives its
+                 * address, because the platform picks the word by the
+                 * live stage address, and once S_LD_FETCH is left that
+                 * is the soft CPU's last bus address. A blob's word has
+                 * its high byte at the lowest address, and the staging
+                 * store's has its low byte there. */
                 S_LD_FETCH:
                 if (!stage_stall) begin
-                    acc <= {acc[15:0], stage_rdata};
-                    if (byte_n == 2'd3) begin
-                        ld_word <= {acc, stage_rdata};
-                        byte_n <= '0;
-                        state <= ld_scan ? S_LD_SCAN
-                            : (ld_verify ? S_LD_CHK : S_LD_PUT);
-                    end else byte_n <= byte_n + 2'd1;
+                    ld_word <= {stage_word[7:0], stage_word[15:8],
+                                stage_word[23:16], stage_word[31:24]};
+                    state <= ld_scan ? S_LD_SCAN
+                        : (ld_verify ? S_LD_CHK : S_LD_PUT);
                 end
 
                 /* The Pocket OS writes back the whole file it saved,

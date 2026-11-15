@@ -60,9 +60,11 @@ static void clk(void)
 {
     if (dut->wiring_stage_pend)
     {
-        uint32_t a = dut->wiring_stage_addr & ~1u;
-        dut->stage_half = (uint16_t)((a < g_stage.size() ? g_stage[a] : 0)
-            | ((a + 1 < g_stage.size() ? g_stage[a + 1] : 0) << 8));
+        uint32_t a = dut->wiring_stage_addr & ~3u, w = 0;
+        for (uint32_t i = 0; i < 4; i++)
+            w |= (uint32_t)(a + i < g_stage.size() ? g_stage[a + i] : 0)
+                 << (8 * i);
+        dut->stage_word = w;
     }
     dut->stage_stall = 0;
     dut->eval();
@@ -162,7 +164,7 @@ static void power_on(void)
     dut->sst_dbg_data0 = 0;
     dut->sst_load = 0;
     dut->stage_stall = 0;
-    dut->stage_half = 0;
+    dut->stage_word = 0;
     dut->eval();
     tb_ram_clear();
     for (uint32_t i = 0; i < COUNTER.size(); i++)

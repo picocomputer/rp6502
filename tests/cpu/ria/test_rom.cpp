@@ -74,14 +74,15 @@ static void run_staged(int *utest_result, bool slot_by_port,
             {
                 dut->stage_stall = 0;
                 tb_host_tick(dut, rom);
-                dut->stage_half = tb_stage_half(rom, a);
+                dut->stage_word = tb_stage_word(rom, a);
             }
         }
         else
         {
             dut->stage_stall = 0;
             tb_host_tick(dut, rom);
-            dut->stage_half = tb_stage_half(rom, a);
+            dut->stage_word = dut->wiring_stage_pend
+                ? tb_stage_word(rom, a) : TB_STAGE_IDLE;
             stalled = 0;
         }
         tb_clock(dut);

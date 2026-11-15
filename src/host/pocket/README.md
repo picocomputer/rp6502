@@ -39,6 +39,13 @@ while the SDRAM controller reads the line, eight words back to back,
 after writing out the line it replaces if the soft CPU stored to that
 one. The rest of the block memory is XRAM, the video and the audio.
 
+**The rest of what the soft CPU reads from the SDRAM**, the ROM image,
+the file windows and the Get File scratch, comes through a look-ahead
+in the SDRAM controller. It holds one line of 16 bytes. One trip to the
+SDRAM fetches the line, and the reads that follow in it are answered at
+once, a word at a time. Any write by the Pocket throws the line away,
+so the firmware has no rule to remember.
+
 **The SDRAM's map.** The ROM slot is the first 62 MB and stays 62 MB,
 because a whole ROM has to load into it. Everything else is in the
 2 MB above:

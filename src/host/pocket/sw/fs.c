@@ -214,6 +214,27 @@ bool fs_slot_len(uint32_t slot, uint32_t *len)
     return false;
 }
 
+/* Copies out of the staging store. A word read there costs what a byte
+ * read does, so the copy reads whole words once the source is aligned.
+ * The destination is written a byte at a time, since it can start at
+ * any address. This is no memcpy, which also copies the byte-wide
+ * windows, where a word read is one byte four times. */
+static void fs_stage_copy(char *dst, volatile const uint8_t *src, uint32_t n)
+{
+    for (; n && ((uintptr_t)src & 3u); n--)
+        *dst++ = (char)*src++;
+    for (; n >= 4; n -= 4, src += 4)
+    {
+        uint32_t w = *(volatile const uint32_t *)src;
+        *dst++ = (char)w;
+        *dst++ = (char)(w >> 8);
+        *dst++ = (char)(w >> 16);
+        *dst++ = (char)(w >> 24);
+    }
+    while (n--)
+        *dst++ = (char)*src++;
+}
+
 bool fs_getfile(uint32_t slot, char *out, size_t cap)
 {
     if (cap)
@@ -229,10 +250,8 @@ bool fs_getfile(uint32_t slot, char *out, size_t cap)
      * the slot is bound to nothing, so an empty name means an unbound
      * slot. */
     char utf8[FS_NAME_MAX];
-    size_t n = 0;
-    while (n < FS_NAME_MAX - 1 && GETFILE_WIN[n])
-        utf8[n] = (char)GETFILE_WIN[n], n++;
-    utf8[n] = 0;
+    fs_stage_copy(utf8, GETFILE_WIN, FS_NAME_MAX - 1);
+    utf8[FS_NAME_MAX - 1] = 0;
 
     uint16_t page = font_get_code_page();
     const char *p = utf8;
@@ -716,8 +735,7 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count,
         uint32_t n = fs_rom.pos < fs_rom.len ? fs_rom.len - fs_rom.pos : 0;
         if (n > count)
             n = count;
-        for (uint32_t i = 0; i < n; i++)
-            buf[i] = (char)ROM_IMG[fs_rom.pos + i];
+        fs_stage_copy(buf, ROM_IMG + fs_rom.pos, n);
         fs_rom.pos += n;
         *got = n;
         return STD_OK;
@@ -798,11 +816,10 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count,
         }
         at = fs_pool[desc].cache_at;
     }
-    for (uint32_t i = 0; i < want; i++)
-        buf[i] = (char)SLOT_WIN(desc)[pos - at + i];
-    /* The soft CPU can be halted inside the copy loop above while a savestate
+    fs_stage_copy(buf, SLOT_WIN(desc) + (pos - at), want);
+    /* The soft CPU can be halted inside the copy above while a savestate
      * is made, and the blob does not include the staging store, so after a
-     * restore the rest of the loop copies from a SLOT_WIN(desc) that the
+     * restore the rest of the copy is from a SLOT_WIN(desc) that the
      * restore did not put back. SST_RESTORED is checked again so that the
      * whole read is repeated rather than committed. */
     if (fs_adrift())

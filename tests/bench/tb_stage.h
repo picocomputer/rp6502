@@ -92,13 +92,20 @@ static void tb_stage_clear()
 
 static uint8_t tb_stage(const std::vector<uint8_t> &rom, uint32_t addr);
 
-/* The machine takes the staging store a halfword at a time and picks the
- * byte itself. */
-static uint16_t tb_stage_half(const std::vector<uint8_t> &rom, uint32_t addr)
+/* The machine takes the staging store a word at a time, the lowest
+ * address in the low byte. */
+static uint32_t tb_stage_word(const std::vector<uint8_t> &rom, uint32_t addr)
 {
-    addr &= ~1u;
-    return (uint16_t)(tb_stage(rom, addr) | (tb_stage(rom, addr + 1) << 8));
+    addr &= ~3u;
+    uint32_t w = 0;
+    for (uint32_t i = 0; i < 4; i++)
+        w |= (uint32_t)tb_stage(rom, addr + i) << (8 * i);
+    return w;
 }
+
+/* What a platform shows while no access is pending, which the machine
+ * must not use. */
+#define TB_STAGE_IDLE 0xDEADBEEFu
 
 static uint8_t tb_stage(const std::vector<uint8_t> &rom, uint32_t addr)
 {

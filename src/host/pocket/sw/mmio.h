@@ -25,6 +25,9 @@
 
 #define SRAM ((volatile uint8_t *)0x10000000u)
 #define XRAM_WIN ((volatile uint8_t *)0x30000000u)
+/* The SDRAM, read only, at its bridge addresses. It reads as memory
+ * does, a byte, a half or a word, and the hardware keeps the last 16-byte
+ * line it fetched, so a word read costs what a byte read does. */
 #define STAGE ((volatile const uint8_t *)0x60000000u)
 
 /* These addresses must agree with the slots in data.json.

@@ -9,8 +9,8 @@ module tb_psdram (
     input logic rst_n,
 
     input logic rd_pend,
-    input logic [24:0] rd_addr,
-    output logic [15:0] tb_psdram_rdata,
+    input logic [23:0] rd_addr,
+    output logic [31:0] tb_psdram_rword,
     output logic tb_psdram_rvalid,
 
     input logic w_avail,
@@ -42,7 +42,7 @@ module tb_psdram (
         .clk(clk),
         .rd_pend(rd_pend),
         .rd_addr(rd_addr),
-        .pocket_sdram_rdata(tb_psdram_rdata),
+        .pocket_sdram_rword(tb_psdram_rword),
         .pocket_sdram_rvalid(tb_psdram_rvalid),
         .w_avail(w_avail),
         .w_addr(w_addr),

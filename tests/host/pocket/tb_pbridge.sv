@@ -50,8 +50,8 @@ module tb_pbridge (
     output logic tb_pbridge_ready,
 
     input logic rd_pend,
-    input logic [24:0] rd_addr,
-    output logic [15:0] tb_pbridge_rdata,
+    input logic [23:0] rd_addr,
+    output logic [31:0] tb_pbridge_rword,
     output logic tb_pbridge_rvalid,
 
     input logic line_pend,
@@ -132,7 +132,7 @@ module tb_pbridge (
         .clk(clk_sys),
         .rd_pend(rd_pend),
         .rd_addr(rd_addr),
-        .pocket_sdram_rdata(tb_pbridge_rdata),
+        .pocket_sdram_rword(tb_pbridge_rword),
         .pocket_sdram_rvalid(tb_pbridge_rvalid),
         .w_avail(w_avail),
         .w_addr(w_addr),

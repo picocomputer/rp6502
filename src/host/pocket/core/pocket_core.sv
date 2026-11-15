@@ -181,7 +181,7 @@ input logic clk_vid,
 
     logic stage_pend;
     logic [27:0] stage_addr;
-    logic [15:0] stage_half;
+    logic [31:0] stage_word;
     logic stage_rvalid;
     logic stage_stall;
     always_comb stage_stall = stage_pend && !stage_rvalid;
@@ -199,8 +199,8 @@ input logic clk_vid,
     pocket_sdram sdram (
         .clk(clk_sys),
         .rd_pend(stage_pend),
-        .rd_addr(stage_addr[25:1]),
-        .pocket_sdram_rdata(stage_half),
+        .rd_addr(stage_addr[25:2]),
+        .pocket_sdram_rword(stage_word),
         .pocket_sdram_rvalid(stage_rvalid),
         .w_avail(w_avail),
         .w_addr(w_addr),
@@ -369,7 +369,7 @@ input logic clk_vid,
         .wiring_stage_addr(stage_addr),
         .wiring_stage_pend(stage_pend),
         .stage_stall(stage_stall),
-        .stage_half(stage_half),
+        .stage_word(stage_word),
         .wiring_host_addr(host_addr),
         .wiring_host_stb(host_stb),
         .wiring_host_we(host_we),
@@ -513,7 +513,7 @@ input logic clk_vid,
     always_comb unused_pocket_core_key = key_pending;
     logic unused_pocket_core;
     always_comb unused_pocket_core = ^{rx_taken, rv_exit_code, scanline,
-                                       stage_addr[27:26], stage_addr[0],
+                                       stage_addr[27:26], stage_addr[1:0],
                                        MEM_BASE[31:26],
                                        MEM_BASE[MEM_AW+1:0]};
     /* verilator lint_on UNUSEDSIGNAL */

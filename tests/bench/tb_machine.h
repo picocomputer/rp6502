@@ -69,7 +69,8 @@ static void tb_platform_clock(Dut *dut, const std::vector<uint8_t> &rom,
 {
     uint32_t at = dut->wiring_stage_addr;
     tb_host_tick(dut, rom);
-    dut->stage_half = tb_stage_half(rom, at);
+    dut->stage_word = dut->wiring_stage_pend ? tb_stage_word(rom, at)
+                                             : TB_STAGE_IDLE;
     tb_clock(dut);
     if (console && dut->wiring_tx_valid)
         console->push_back((char)dut->wiring_tx_data);

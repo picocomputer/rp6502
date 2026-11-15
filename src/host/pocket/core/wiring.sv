@@ -34,16 +34,15 @@ module wiring
     output logic wiring_rv_halted,
     output logic [31:0] wiring_rv_exit_code,
 
-    /* stage_half has to hold the halfword at wiring_stage_addr in any
-     * cycle where wiring_stage_pend is high and stage_stall is low, so a
-     * slow platform holds stage_stall high until it is there. It also
-     * has to stay on stage_half after wiring_stage_pend drops, because
-     * the soft CPU reads its byte one clk_rv cycle after its request
-     * stops pending. */
+    /* The staging store, read only. stage_word has to hold the four
+     * bytes at wiring_stage_addr with its low two bits dropped, the
+     * lowest address in bits 7 to 0, in any cycle where
+     * wiring_stage_pend is high and stage_stall is low, so a slow
+     * platform holds stage_stall high until the word is there. */
     output logic [27:0] wiring_stage_addr,
     output logic wiring_stage_pend,
     input logic stage_stall,
-    input logic [15:0] stage_half,
+    input logic [31:0] stage_word,
 
     input logic mach_running,
     output logic wiring_sst_stop_req,
@@ -289,7 +288,7 @@ module wiring
         .sst_engine_stage_pend(eng_stage_pend),
         .sst_engine_stage_addr(eng_stage_addr),
         .stage_stall(stage_stall),
-        .stage_rdata(stage_rdata),
+        .stage_word(stage_word),
         .sst_engine_arr_own(eng_arr_own),
         .sst_engine_hold_res(eng_hold_res),
         .sst_engine_mem_addr(eng_mem_addr),
@@ -530,7 +529,7 @@ module wiring
 
     /* An access is taken on the first clk_mach edge that finds it pending
      * and its target able to finish it: XRAM once its port is free, the
-     * SRAM and the staging store once they hold the byte, everything
+     * SRAM and the staging store once they hold the data, everything
      * else at once. That decision is the machine's, made from the sampled
      * request on its own edge, so it can never run ahead of the stalls
      * it depends on. soc_stb is the request while it waits, one clock for
@@ -662,28 +661,18 @@ module wiring
 
     /* wiring_stage_addr follows soc_addr while the soft CPU's request is
      * pending, which starts before its strobe, so a slow platform can
-     * fetch the byte before the strobe. After soc_pend drops,
-     * stage_addr_q, captured at the strobe, holds the address until the
-     * soft CPU has read the byte. */
-    logic [27:0] stage_addr_q;
+     * fetch the word before the strobe. The strobe that takes the access
+     * captures the word in stage_q, so the platform owes nothing once
+     * the request stops pending, and the soft CPU's load data comes from
+     * a register and never from the address taken on the falling edge. */
+    logic [31:0] stage_q;
     always_comb begin
         /* During a load the engine reads the staging store directly
          * while clk_mach is stopped, which works because the store does
          * not run on clk_mach. */
         wiring_stage_pend = eng_stage_pend || (soc_pend && soc_sel_stage);
-        wiring_stage_addr = eng_stage_pend ? eng_stage_addr
-            : ((soc_pend && soc_sel_stage) ? soc_addr[27:0] : stage_addr_q);
+        wiring_stage_addr = eng_stage_pend ? eng_stage_addr : soc_addr[27:0];
     end
-    /* The byte is picked out of the halfword by a registered address, the
-     * engine's own or the one the soft CPU's strobe captured, never the
-     * live one: that is the copy taken on the falling edge, and a path
-     * from it into the soft CPU's load data would have half a period
-     * where this one has the whole. The strobe lands a clock before the
-     * soft CPU can read, so stage_addr_q is right by then. */
-    logic [7:0] stage_rdata;
-    always_comb stage_rdata = (eng_stage_pend ? eng_stage_addr[0]
-                                              : stage_addr_q[0])
-        ? stage_half[15:8] : stage_half[7:0];
 
     logic api_pending;
     logic soc_ctl_api, soc_ctl_us;
@@ -695,7 +684,7 @@ module wiring
         soc_rsel = 3'd0;
         soc_ctl_api = 1'b0;
         soc_ctl_us = 1'b0;
-        stage_addr_q = '0;
+        stage_q = '0;
         aud_q = '0;
     end
     always_ff @(posedge clk_mach) begin
@@ -709,7 +698,7 @@ module wiring
                 : (soc_sel_aud ? 3'd7 : 3'd0))))));
             soc_ctl_api <= soc_addr[2];
             soc_ctl_us <= soc_addr[3];
-            stage_addr_q <= soc_addr[27:0];
+            stage_q <= stage_word;
             /* regs_b_q is captured at the strobe, because a read of word
              * 16 of the regs window pops the console queue on this edge,
              * a read of word 26 takes back the 6502's unread byte, and a
@@ -729,24 +718,25 @@ module wiring
             resb <= soc_wbyte[0];
 
     /* The byte-wide windows put their byte on all four lanes, because a
-     * Hazard3 byte load picks its lane from the low address bits. */
+     * Hazard3 byte load picks its lane from the low address bits. The
+     * staging store returns its whole word, as memory does. */
     logic [7:0] soc_rbyte;
     always_comb begin
         case (soc_rsel)
             3'd2: soc_rbyte = soc_ctl_api ? {7'b0, api_pending}
                 : {6'b0, cpu_stp, resb_eff};
-            3'd3: soc_rbyte = stage_rdata;
             3'd5: soc_rbyte = xram_b_hold;
             default: soc_rbyte = sram_b_rdata;
         endcase
         /* SST_SAVED_US: the low word of the mtime the last load restored,
          * which the engine holds until the next load. */
         soc_rdata = soc_rsel == 3'd1 ? regs_b_q
+            : (soc_rsel == 3'd3 ? stage_q
             : (soc_rsel == 3'd4 ? vid_b_rdata
                : (soc_rsel == 3'd6 ? host_rdata
                   : (soc_rsel == 3'd7 ? aud_q
                      : (soc_rsel == 3'd2 && soc_ctl_us ? eng_jam_mach[2]
-                        : {4{soc_rbyte}}))));
+                        : {4{soc_rbyte}})))));
     end
 
     logic [7:0] ria_data;

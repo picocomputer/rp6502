@@ -8,12 +8,27 @@
  * 1.5 MB/s. An access is ten clocks and more, so a clock spent here to
  * take arithmetic off a path costs nothing that matters.
  *
- * There are three clients. The read client and the write client move
- * one 16-bit word. The line client moves a line, eight words that
- * share a row: line_addr is the word address without its low three
- * bits, and bits [16k+15:16k] of the line are word k. A line is eight
- * READs or eight WRITEs on eight clocks, with the chip still at a
- * burst length of one.
+ * There are three clients. The write client moves one 16-bit word.
+ * The read client and the line client move a line, eight words that
+ * share a row: a line's address is the word address without its low
+ * three bits, and bits [16k+15:16k] of the line are word k. A line is
+ * eight READs or eight WRITEs on eight clocks, with the chip still at
+ * a burst length of one.
+ *
+ * The read client is a look-ahead. rd_addr counts pairs of words, so
+ * it is a byte address without its low two bits. A visit reads the
+ * line rd_addr is in and holds it, and pocket_sdram_rvalid is high
+ * while the held line is that one, with pocket_sdram_rword the pair
+ * at rd_addr, the lower word in its low half. The reads that follow in
+ * the same line are answered with no visit.
+ *
+ * The held line is never older than the chip. A read runs from S_IDLE
+ * to S_IDLE with nothing taken in between, and the line becomes valid
+ * on the clock its last word lands. Writes are taken only in S_IDLE.
+ * Any write of the write client drops the line on the clock it is
+ * taken, whatever its address, and so does a line written over it.
+ * That clock is before the WRITE reaches the chip, so the held line
+ * never answers after a write it does not have.
  *
  * line_pend stays high, with line_we, line_addr and line_wdata stable,
  * until pocket_sdram_line_done rises. pocket_sdram_line_done falls
@@ -28,8 +43,8 @@ module pocket_sdram #(
     input logic clk,
 
     input logic rd_pend,
-    input logic [24:0] rd_addr,
-    output logic [15:0] pocket_sdram_rdata,
+    input logic [23:0] rd_addr,
+    output logic [31:0] pocket_sdram_rword,
     output logic pocket_sdram_rvalid,
 
     input logic w_avail,
@@ -95,15 +110,20 @@ module pocket_sdram #(
     logic [9:0] idle_cnt;
     logic [3:0] sref_cnt;
 
-    /* For a line, op_addr[2:0] counts the eight words. */
+    /* op_is_line marks the line client's work. A read is a line for
+     * either client, and op_addr[2:0] counts a line's eight words. */
     logic op_is_read;
     logic op_is_line;
     logic [24:0] op_addr;
     logic [15:0] op_wdata;
 
-    logic [24:0] held_addr;
+    logic [127:0] held;
+    logic [21:0] held_addr;
     logic held_valid;
-    always_comb pocket_sdram_rvalid = held_valid && held_addr == rd_addr;
+    always_comb begin
+        pocket_sdram_rvalid = held_valid && held_addr == rd_addr[23:2];
+        pocket_sdram_rword = held[{rd_addr[1:0], 5'd0} +: 32];
+    end
 
     /* The chip's clock is this clock inverted, so the chip samples a
      * command half a clock after the clock that issues it. With CL2
@@ -153,6 +173,7 @@ module pocket_sdram #(
         op_is_line = 1'b0;
         op_addr = '0;
         op_wdata = '0;
+        held = '0;
         held_addr = '0;
         held_valid = 1'b0;
         rd_pipe = '0;
@@ -160,7 +181,6 @@ module pocket_sdram #(
             row_open[b] = '0;
             bank_active[b] = 1'b0;
         end
-        pocket_sdram_rdata = '0;
         pocket_sdram_wtake = 1'b0;
         pocket_sdram_line_rdata = '0;
         pocket_sdram_line_done = 1'b0;
@@ -192,14 +212,11 @@ module pocket_sdram #(
          * eighth leaves word 0 in the low bits. */
         rd_pipe <= {rd_pipe[1:0], 1'b0};
         if (rd_pipe[2]) begin
-            if (op_is_line) begin
+            if (op_is_line)
                 pocket_sdram_line_rdata <=
                     {dq_cap, pocket_sdram_line_rdata[127:16]};
-            end else begin
-                pocket_sdram_rdata <= dq_cap;
-                held_addr <= op_addr;
-                held_valid <= 1'b1;
-            end
+            else
+                held <= {dq_cap, held[127:16]};
         end
 
         if (!line_pend)
@@ -265,18 +282,15 @@ module pocket_sdram #(
                     op_addr <= w_addr;
                     op_wdata <= w_data;
                     pocket_sdram_wtake <= 1'b1;
-                    /* held_valid is cleared when the write is accepted
-                     * rather than when its WRITE command is issued, so
-                     * a read of this address in between waits for the
-                     * new data instead of returning the old. */
-                    if (held_valid && held_addr == w_addr)
-                        held_valid <= 1'b0;
+                    held_valid <= 1'b0;
                     state <= S_OPEN;
                 end else if (rd_pend && !pocket_sdram_rvalid) begin
                     idle_cnt <= '0;
                     op_is_read <= 1'b1;
                     op_is_line <= 1'b0;
-                    op_addr <= rd_addr;
+                    op_addr <= {rd_addr[23:2], 3'b000};
+                    held_addr <= rd_addr[23:2];
+                    held_valid <= 1'b0;
                     state <= S_OPEN;
                 end else if (line_pend && !pocket_sdram_line_done) begin
                     idle_cnt <= '0;
@@ -287,7 +301,7 @@ module pocket_sdram #(
                      * line read fills, and leaves it a word a clock. */
                     if (line_we) begin
                         pocket_sdram_line_rdata <= line_wdata;
-                        if (held_addr[24:3] == line_addr)
+                        if (held_addr == line_addr)
                             held_valid <= 1'b0;
                     end
                     state <= S_OPEN;
@@ -379,10 +393,10 @@ module pocket_sdram #(
             /* A10 low in a READ or WRITE leaves auto-precharge off, so
              * the row stays open after the access.
              *
-             * S_READ and S_WRITE run once for a word and eight times
-             * for a line. The word of a READ is taken three clocks
-             * after its S_READ, so S_DONE runs on the clock that takes
-             * the last one. The chip leaves the bus before that clock,
+             * S_READ runs eight times, and S_WRITE once for a word and
+             * eight times for a line. The word of a READ is taken three
+             * clocks after its S_READ, so S_DONE runs on the clock that
+             * takes the last one. The chip leaves the bus before that clock,
              * and S_IDLE follows S_DONE, so the earliest WRITE drives
              * the bus three clocks after the chip has left it. */
             S_READ: begin
@@ -390,7 +404,7 @@ module pocket_sdram #(
                 dram_ba <= op_addr[24:23];
                 dram_a <= {3'b000, op_addr[9:0]};
                 rd_pipe[0] <= 1'b1;
-                if (op_is_line && op_addr[2:0] != 3'd7) begin
+                if (op_addr[2:0] != 3'd7) begin
                     op_addr[2:0] <= op_addr[2:0] + 3'd1;
                 end else begin
                     wait_cnt <= 15'd1;
@@ -419,6 +433,8 @@ module pocket_sdram #(
             S_DONE: begin
                 if (op_is_line)
                     pocket_sdram_line_done <= 1'b1;
+                else if (op_is_read)
+                    held_valid <= 1'b1;
                 state <= S_IDLE;
             end
             S_WAIT: begin
