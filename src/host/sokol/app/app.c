@@ -161,6 +161,7 @@ void app_init(void)
     }
     gfx_setup();
     host_window_init();
+    input_locks();
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
         dbgui_init(sapp_dpi_scale());
@@ -195,6 +196,7 @@ void app_frame(void)
         }
     }
 #endif
+    input_locks();
 #ifdef RP6502_PAD_HOST
     /* Sokol has delivered this frame's key and pointer events before the frame
      * callback, so polling the gamepads here gives them the same age as every

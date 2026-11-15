@@ -167,10 +167,10 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
     bool shift = (key_modifiers & RETROKMOD_SHIFT) != 0;
     bool alt = (key_modifiers & RETROKMOD_ALT) != 0;
 
-    /* The frontend sends all three lock states in every event, so they are
-     * taken from it rather than toggled here. Toggling would have to start
-     * from a guess and would then drift whenever a lock key is pressed while
-     * the core does not have focus. */
+    /* The locks are the ones the frontend sends with a key rather than
+     * toggled here. Toggling would have to start from a guess and would then
+     * drift whenever a lock key is pressed while the core does not have
+     * focus. A frontend that sends none leaves all three off. */
     keyboard_set_locks(
         (uint8_t)(((key_modifiers & RETROKMOD_NUMLOCK) ? KEYBOARD_LED_NUMLOCK : 0) |
                   ((key_modifiers & RETROKMOD_CAPSLOCK) ? KEYBOARD_LED_CAPSLOCK : 0) |

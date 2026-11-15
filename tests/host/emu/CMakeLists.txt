@@ -60,6 +60,8 @@ rp6502_add_script_test(NAME symbols COMMAND symbols.txt ${_symbols})
 rp6502_add_script_test(NAME symbols_fail COMMAND symbols_fail.py ${_symbols})
 rp6502_add_script_test(NAME symbols_keys COMMAND symbols_keys.txt ${KEYBOARD_ROM})
 
+rp6502_add_script_test(NAME locks COMMAND locks.txt ${KEYBOARD_ROM})
+
 function(rp6502_add_cli_test name)
     add_test(NAME cli_${name} COMMAND rp6502-emu ${ARGN})
     set_tests_properties(cli_${name} PROPERTIES
@@ -199,6 +201,10 @@ rp6502_add_test(mix SPLIT LIBS emu_core TIMEOUT 300
 
 rp6502_add_test(gamepad_input LIBS emu_core
     SOURCES test_gamepad_input.c ${RP6502_SRC}/host/sokol/app/gamepad.c)
+
+rp6502_add_test(input LIBS emu_core
+    SOURCES test_input.c ${RP6502_SRC}/host/sokol/app/input.c
+    INCLUDES ${RP6502_VENDOR})
 
 rp6502_add_test(dbg LIBS emu_core ROM ${ADVENTURE_ROM} TIMEOUT 60)
 

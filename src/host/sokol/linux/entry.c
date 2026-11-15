@@ -8,6 +8,7 @@
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
 #include "host/sokol/app/prompt.h"
+#include "core/hid/usage.h"
 #include "sokol/sokol_app.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -42,6 +43,22 @@ extern int XGetWindowProperty(Display *, unsigned long, Atom, long, long, int, A
                               unsigned char **);
 extern int XFree(void *);
 extern int XFlush(Display *);
+
+/* XkbStateRec, from <X11/extensions/XKBstr.h>, with the same care. */
+typedef struct
+{
+    unsigned char group, locked_group;
+    unsigned short base_group, latched_group;
+    unsigned char mods, base_mods, latched_mods, locked_mods;
+    unsigned char compat_state, grab_mods, compat_grab_mods;
+    unsigned char lookup_mods, compat_lookup_mods;
+    unsigned short ptr_buttons;
+} XkbStateRec;
+#define X_XKBUSECOREKBD 0x0100 /* XkbUseCoreKbd, from <X11/extensions/XKB.h> */
+#define X_LOCKMASK (1 << 1)    /* LockMask, from <X11/X.h> */
+#define X_XK_NUM_LOCK 0xff7f   /* XK_Num_Lock, from <X11/keysymdef.h> */
+extern int XkbGetState(Display *, unsigned, XkbStateRec *);
+extern unsigned XkbKeysymToModifiers(Display *, unsigned long);
 
 /* _NET_WM_STATE lists what the window manager has done to the window. One
  * maximized either way, which is also how a window tiled to half the screen
@@ -104,6 +121,22 @@ void host_window_set_aspect(int w, int h, bool refit)
     XFlush(dpy);
     if (refit)
         host_window_resize(sapp_width(), (int)(((long)sapp_width() * h + w / 2) / w));
+}
+
+/* Caps Lock is the Lock modifier. NumLock is whichever modifier the keymap
+ * puts the Num_Lock key on. Linux keeps no Scroll Lock. */
+uint8_t host_locks(void)
+{
+    Display *dpy = (Display *)sapp_x11_get_display();
+    XkbStateRec state;
+    if (XkbGetState(dpy, X_XKBUSECOREKBD, &state))
+        return 0;
+    uint8_t locks = 0;
+    if (state.locked_mods & XkbKeysymToModifiers(dpy, X_XK_NUM_LOCK))
+        locks |= KEYBOARD_LED_NUMLOCK;
+    if (state.locked_mods & X_LOCKMASK)
+        locks |= KEYBOARD_LED_CAPSLOCK;
+    return locks;
 }
 
 static bool waiting_for_rom;

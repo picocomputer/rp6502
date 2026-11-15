@@ -67,6 +67,12 @@ void host_window_files_dropped(void);
  * drop-a-ROM prompt. Desktop only. */
 void host_window_open_url(const char *url);
 
+/* NumLock, Caps Lock and Scroll Lock as the system has them now, in
+ * KEYBOARD_LED_ bits. The system owns the locks and their lights, so a window
+ * reads them and never changes one. A lock the system does not have reads the
+ * way its keyboard always acts. */
+uint8_t host_locks(void);
+
 /* The argv of main() on Windows is in the ANSI code page, which cannot hold
  * every path, so the command line is read again as UTF-16 and returned in
  * UTF-8, the encoding of argv on every other host. NULL if it cannot be read.

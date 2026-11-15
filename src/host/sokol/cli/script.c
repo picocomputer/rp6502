@@ -1162,7 +1162,7 @@ static uint8_t script_key_from_name(const char *name, char *plain, char *shifted
     if ((name[0] == 'k' || name[0] == 'K') && (name[1] == 'p' || name[1] == 'P') &&
         name[2] >= '0' && name[2] <= '9' && !name[3])
     {
-        /* A keypad digit is a digit, because keyboard_init turns NumLock on. */
+        /* The digit is what the key types with NumLock on. */
         if (plain)
             *plain = name[2];
         if (shifted)
@@ -1181,6 +1181,20 @@ static uint8_t script_key_from_name(const char *name, char *plain, char *shifted
                 *shifted = script_named[i].shifted;
             return script_named[i].hid;
         }
+    return 0;
+}
+
+/* The lock a script names, as its KEYBOARD_LED_ bit, or 0. */
+static uint8_t script_lock_from_name(const char *name)
+{
+    if (!name)
+        return 0;
+    if (!strcasecmp(name, "num"))
+        return KEYBOARD_LED_NUMLOCK;
+    if (!strcasecmp(name, "caps"))
+        return KEYBOARD_LED_CAPSLOCK;
+    if (!strcasecmp(name, "scroll"))
+        return KEYBOARD_LED_SCROLLLOCK;
     return 0;
 }
 
@@ -1273,6 +1287,26 @@ static bool script_command(const char *line)
                 return script_error("exit code %d, expected %ld", got, code);
             if (!want && got == code)
                 return script_error("did not expect exit code %d", got);
+            return true;
+        }
+        if (script_keyword(&p, "lock"))
+        {
+            char *which = script_word(&p);
+            uint8_t bit = script_lock_from_name(which);
+            if (!bit)
+                return script_error("%s lock wants num, caps or scroll", cmd);
+            bool on = script_keyword(&p, "on");
+            if (!on && !script_keyword(&p, "off"))
+                return script_error("%s lock wants on or off", cmd);
+            if (!script_end(p))
+                return false;
+            bool got = keyboard_get_locks() & bit;
+            if (want && got != on)
+                return script_error("%s lock is %s, expected %s", which,
+                                    got ? "on" : "off", on ? "on" : "off");
+            if (!want && got == on)
+                return script_error("did not expect %s lock %s", which,
+                                    on ? "on" : "off");
             return true;
         }
         script_cap_t *cap = script_stream(&p);
@@ -1390,9 +1424,14 @@ static bool script_command(const char *line)
         if (!script_end(p))
             return false;
         /* A script has no host to resolve the key's character, so it comes
-         * from the table above. NumLock is on, so a keypad digit is a digit. */
-        char ch = shift ? shifted : plain;
-        uint8_t flags = (uint8_t)(VTKEY_NUMLOCK | (shift ? VTKEY_SHIFT : 0) |
+         * from the table above. Caps Lock swaps the case of a letter, and
+         * Shift swaps it back. */
+        uint8_t locks = keyboard_get_locks();
+        bool letter = hid >= 0x04 && hid <= 0x1D;
+        bool upper = shift != (letter && (locks & KEYBOARD_LED_CAPSLOCK));
+        char ch = upper ? shifted : plain;
+        uint8_t flags = (uint8_t)((locks & KEYBOARD_LED_NUMLOCK ? VTKEY_NUMLOCK : 0) |
+                                  (shift ? VTKEY_SHIFT : 0) |
                                   (alt ? VTKEY_ALT : 0) | (ctrl ? VTKEY_CTRL : 0));
         if (hostkey_press(hid, flags, ch) != HOSTKEY_NONE)
             return true;
@@ -1431,21 +1470,17 @@ static bool script_command(const char *line)
 
     if (!strcasecmp(cmd, "lock"))
     {
-        char *which = script_word(&p);
-        if (!which)
-            which = "";
-        uint8_t key;
-        if (!strcasecmp(which, "num"))
-            key = HID_KEY_NUM_LOCK;
-        else if (!strcasecmp(which, "caps"))
-            key = HID_KEY_CAPS_LOCK;
-        else if (!strcasecmp(which, "scroll"))
-            key = HID_KEY_SCROLL_LOCK;
-        else
+        uint8_t bit = script_lock_from_name(script_word(&p));
+        if (!bit)
             return script_error("lock wants num, caps or scroll");
+        uint8_t locks = keyboard_get_locks() ^ bit;
+        if (script_keyword(&p, "on"))
+            locks |= bit;
+        else if (script_keyword(&p, "off"))
+            locks &= (uint8_t)~bit;
         if (!script_end(p))
             return false;
-        keyboard_lock_key(key);
+        keyboard_set_locks(locks);
         return true;
     }
 
@@ -1913,7 +1948,8 @@ void script_usage(FILE *out)
             "  type \"text\" [frames]      type it (\\r = Enter, \\t = Tab)\n"
             "  key <key>[+ctrl][+shift][+alt]    send what a terminal sends\n"
             "  press/release <key>...    the direct HID bitmap, by name or 0xNN\n"
-            "  lock num|caps|scroll      toggle a lock LED\n"
+            "  lock num|caps|scroll [on|off]     set a lock, or toggle it; all\n"
+            "                                      three start off\n"
             "  pad <n> connect [western|eastern|playstation] [sticks] | disconnect\n"
             "  pad <n> press|release <button>...   a b c x y z l1 r1 l2 r2 l3 r3\n"
             "                                      select start home up down left right\n"
@@ -1927,6 +1963,8 @@ void script_usage(FILE *out)
             "                                      match (default stdout)\n"
             "  expect exit <code>        check the exit code of the program\n"
             "  expect-not exit <code>\n"
+            "  expect lock num|caps|scroll on|off  check a lock\n"
+            "  expect-not lock num|caps|scroll on|off\n"
             "  discard [stdout|stderr|console]     drop what no check has taken\n"
             "                                      (default all three)\n"
             "  eof [frames]              end stdin once the program has read what was typed\n"
@@ -1986,6 +2024,9 @@ bool script_load(const char *path, const char *rom)
     }
     manifold_set_std_tap(script_std_tap);
     manifold_set_tx_tap(script_console_tap);
+    /* A script has no keyboard, so its locks start off and only it changes
+     * them. */
+    keyboard_set_locks(0);
     script_line_no = 0;
     script_wait = SCRIPT_IDLE;
     script_budget = 0;

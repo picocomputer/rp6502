@@ -17,6 +17,7 @@
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
 #include "host/sokol/app/prompt.h"
+#include "core/hid/usage.h"
 #include "sokol/sokol_app.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -94,6 +95,21 @@ static LRESULT CALLBACK aspect_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
     else
         r->bottom = r->top + (ch + nh);
     return TRUE;
+}
+
+/* The low bit of GetKeyState is a lock key's toggle, as of the last message
+ * this thread took. sokol calls the frame on the thread that pumps the
+ * window's messages. */
+uint8_t host_locks(void)
+{
+    uint8_t locks = 0;
+    if (GetKeyState(VK_NUMLOCK) & 1)
+        locks |= KEYBOARD_LED_NUMLOCK;
+    if (GetKeyState(VK_CAPITAL) & 1)
+        locks |= KEYBOARD_LED_CAPSLOCK;
+    if (GetKeyState(VK_SCROLL) & 1)
+        locks |= KEYBOARD_LED_SCROLLLOCK;
+    return locks;
 }
 
 static bool waiting_for_rom;

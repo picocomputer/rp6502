@@ -51,13 +51,10 @@ with what it saves:
 
 ## 3. The lock keys on every machine
 
-For review. Nothing here is built.
-
 NumLock, Caps Lock and Scroll Lock have to work on every machine. On the
 Pico and the Pocket we are the keyboard driver: a lock key changes the lock
-and its light, and that works today. On an emulator the computer's operating
-system does both, and the emulator has to follow it. Today no emulator does,
-except libretro in part.
+and its light. On an emulator the computer's operating system does both, and
+the emulator follows it.
 
 The terminal's LED command, DECLL (`CSI Ps q`), stays ignored. It lights a
 lamp without changing a lock, which no emulator can do.
@@ -87,31 +84,40 @@ never changes it.
 A lock that nobody owns never changes. Its key still shows in the keyboard
 bitmap, so a program can use the key.
 
-### Plan
+### What is built
 
-1. **The emulators follow the system and never change it.** One function
-   for each of Windows, Linux, macOS and the web gives the three locks. The
-   emulator reads it at start, when its window gets the keyboard, and while
-   it runs. The 6502 sees those locks, and the keypad follows NumLock in the
-   window as it does on the Pico.
-2. **libretro** stays as it is: it takes the locks the frontend sends with a
-   key. A frontend that sends none leaves all three off.
-3. **The script has its own locks**, all off when a script starts, never
-   read from or written to a real keyboard. `lock` sets one on or off or
-   toggles it, `key` types by them (NumLock for the keypad, Caps Lock for
-   letters), and a new command checks them. Scripts that type keypad digits
-   turn NumLock on first.
-4. **Pull request 223** has the Windows read, the place for the function and
-   the moments to read. Its waiting for the system's character to guess
-   NumLock goes, since the lock is read. It is written for main and has to be
-   redone here.
+- **The window follows the system and never changes it.** `host_locks()`
+  in each of windows, linux, macos and web `entry.c` gives the three locks.
+  `input_locks()` in `sokol/app/input.c` reads it at start, once a frame and
+  as a key goes down, and hands it to `keyboard_set_locks`. A lock key only
+  shows in the bitmap. The keypad is typed by NumLock as on the Pico: on,
+  the system's character is typed; off, or with Shift, the key navigates.
+  - Windows: `GetKeyState`.
+  - Linux: `XkbGetState`, Caps from the Lock modifier and Num from the
+    modifier the keymap gives the Num_Lock key.
+  - macOS: `[NSEvent modifierFlags]`.
+  - Web: `page.js` keeps what `getModifierState` said in the last key or
+    click. Before the first one NumLock is taken as on. On an Apple device
+    Num is always on and Scroll always off, in any browser.
+- **libretro** takes the locks the frontend sends with a key. A frontend
+  that sends none leaves all three off.
+- **The script has its own locks**, all off when a script starts, never
+  read from or written to a real keyboard. A headless or script run has no
+  window, so nothing reads the system there.
 
-The Pico and the Pocket do not change, so this costs the Pocket no memory.
+The Pico and the Pocket did not change.
 
 ### To try on real machines
 
+The Windows and macOS code has not been compiled or run. Linux was run
+under WSLg and the web build only compiled.
+
 - Windows: whether a lock changed while the window is in the background is
   seen before the window is back in front.
+- Windows: Shift with a keypad digit while NumLock is on. Windows hides the
+  Shift from the key, so the encoder may see a plain digit and, with no
+  character coming, type nothing.
 - macOS: reading Caps Lock, and whether Sokol needs help to see its key.
+- Web: the locks in each browser, and the first key after the page loads.
 - A Pocket dock: whether its keyboard's lights follow the lock keys. Nothing
   found so far lets the Pocket light them.

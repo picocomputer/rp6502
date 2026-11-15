@@ -5,6 +5,8 @@
  */
 
 #include "host/sokol/cli/script.h"
+#include "core/hid/keyboard.h"
+#include "core/hid/usage.h"
 #include "core/rom/rom.h"
 #include "emu_boot.h"
 #include <stdio.h>
@@ -52,6 +54,15 @@ UTEST(script, checks_are_free)
     ASSERT_EQ(frames_for("run 5\npoke xram:$0000 $A5\npeek xram:$0000 $A5\nrun 5\n"), 10ul);
     ASSERT_EQ(frames_for("run 5\nstatus\nsys stop\nstatus\nrun 5\n"), 10ul);
     ASSERT_EQ(frames_for("seed 5\ndiscard\n"), 0ul);
+}
+
+/* emu_restart leaves NumLock on, as a machine with a keyboard starts. */
+UTEST(script, locks_start_off)
+{
+    ASSERT_EQ(frames_for("expect lock num off\n"), 0ul);
+    ASSERT_EQ(keyboard_get_locks(), 0);
+    ASSERT_EQ(frames_for("lock num on\nlock scroll\nexpect lock num on\n"), 0ul);
+    ASSERT_EQ(keyboard_get_locks(), KEYBOARD_LED_NUMLOCK | KEYBOARD_LED_SCROLLLOCK);
 }
 
 UTEST(script, budget_is_exact)
