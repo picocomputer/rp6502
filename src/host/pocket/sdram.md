@@ -64,26 +64,29 @@ Timing after the last fit: setup 0.57 ns to spare, hold 0.11 ns.
 
 ### Wakes that fail
 
-About 1 wake in 20 ended on a blank console, and so did a wake after the
-card's firmware changed. Built, and waiting for a Pocket:
+Built: a load asked for in reset, a wake that does not resume starting the
+program over with a line saying why, no savestate while a file is open for
+writing, and the bitstream and firmware match check. Left to do:
 
-- A savestate load that the Pocket asks for while it holds the core in
-  reset is answered at once and run when the reset ends.
-- A wake that does not resume starts the program over, and prints one line
-  saying why.
-- No savestate while a file is open for writing. The save request is
-  answered with an error and the machine runs on.
-- The simulated Pocket tries the wake orders real ones are known or
-  suspected to use.
+- **A load gets round the match check.** The engine refuses a load while
+  the ROM block's two numbers (offsets 8 and 12) differ from the
+  bitstream's.
+- **A core stopped at the cursor** must answer a save and a load and come
+  back to the cursor. Today it never ends a load, and the next save reads
+  busy for ever.
+- **The bitstream shows the blinking cursor from power-up**, and the
+  stopped firmware (sw/ver.c) touches no register.
+- **fs_std_opening** reads `SST_REFUSING` before it tests `fs_adrift()`.
+- **A blob arriving while a program runs** stops the program. The engine
+  halts the CPU for a load by itself, so the stop may not be needed.
+- **Tests.** Two psleep cases cannot tell a resume from a restart. The
+  load-in-reset guess is written outside the `ANSWER_` constants twice.
+  The trap case's second save lands before the emulated access.
+- **Core changed.** Run the emulator tests and a Pico build.
 
-For the Pocket to show:
-
-- Whether the 1 in 20 is gone.
-- Which answers it goes on from: busy at a save or a load request, ok at a
-  load asked for in reset.
-- What it does with a sleep the core refuses: stay awake, or power down.
-  If it powers down, what its wake brings: no blob, a load with no blob,
-  or a blob from an earlier sleep, which would resume that sleep.
+For the Pocket to show: whether the 1 in 20 is gone; whether it takes busy
+at a save or load request and ok at a load in reset; what it does with a
+sleep the core refuses.
 
 ### The 6502's memory on the die
 
@@ -150,53 +153,5 @@ memories, and core's font builder writes whole 32-bit words.
 
 ## For the next fit to confirm
 
-- **The SDRAM capture's hold check.** The rule on dram_dq to
-  pocket_sdram's dq_cap is a setup multicycle of two alone. Its hold
-  multicycle of one moved the hold check a period early, where nothing
-  can fail it, and is gone. The hold relation on that path should now
-  read about 0 ns, the edge 1 ps after the launch, and its slack should
-  be positive by about the chip's 2.5 ns of hold less the skew between
-  dram_clk's pad and dq_cap's clock.
-- **The savestate's four CSRs** make sst_engine's register memory 64
-  deep where it was 32, and pocket_sst has a few more flops and three
-  more crossings between clk_74a and clk_sys, all through registers
-  named _s1.
-- **The SDRAM's reset.** The controller is held in its power-up state
-  by the PLL's lock, synchronised to clk_sys: one more fan-out of
-  core_top's reset synchroniser.
-- **pocket_file's arming.** One flop on clk_sys, set by a write to
-  the slot register and cleared by a command or a savestate load. It
-  gates the command's start.
-- **The save refusal.** pocket_sst has seven more flops on clk_sys and
-  four on clk_74a, and three more crossings, one from clk_sys and two
-  back, all through registers named _s1.
-- **The version registers.** Two constants on the soft CPU's host bus,
-  one more leg of pocket_core's read mux.
-
-## Left open when the wake work stopped
-
-Committed and passing in simulation, 337 tests. No fit has been run on it
-and it has not been on a Pocket.
-
-- **A load gets round the match check.** The firmware checks the two
-  numbers at boot only. A savestate load restores a running firmware
-  without passing it. The engine should refuse a load while the ROM
-  block's two numbers (offsets 8 and 12) differ from the bitstream's.
-- **A core stopped at the cursor never ends a load**, so the engine waits
-  in S_LD_ACK and the next save reads busy for ever. A stopped core must
-  answer a save and a load and come back to the cursor.
-- **The cursor comes from the firmware.** The stopped firmware writes five
-  video registers to show it (sw/ver.c). The bitstream should show the
-  blinking cursor from power-up, and the stopped firmware touch nothing.
-- **fs_std_opening** tests `fs_adrift()` before it reads `SST_REFUSING`.
-  Read the level first, then test.
-- **A blob arriving while a program runs** stops the program, and with no
-  load restarts it 2 s later. The engine halts the CPU for a load by
-  itself, so the stop may not be needed at all. Find out before patching.
-- **Tests.** Two psleep cases cannot tell a resume from a restart
-  (`a_sleep_inside_a_file_operation_still_finishes_it`,
-  `a_running_program_survives_the_reconfigure`). The guess that a load in
-  reset reads ok is outside the `ANSWER_` constants in two places. The
-  trap case's second save lands before the emulated access.
-- **Core changed.** `std_sst_refused` and `resumes_writes` are in every
-  build. The emulator tests and a Pico build have not been run on it.
+The hold check on dram_dq to pocket_sdram's dq_cap should read a relation
+of about 0 ns and positive slack, now that its hold multicycle is gone.
