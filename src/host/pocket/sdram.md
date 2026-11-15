@@ -151,6 +151,24 @@ is measured.
    to a boot. The font builder should write to where a machine keeps its
    fonts. The shape is to be talked through first.
 
+## The 6502's memory on the die
+
+The 6502's 64 KB lives in the external SRAM chip. It moves into block
+memory, and the SRAM's pins are tied off as Analogue's template ties off an
+unused part. The design then needs only the FPGA and the SDRAM, which is
+what other boards have.
+
+It takes 64 of the 89 free blocks and leaves 25. Where it fits in the order
+is not decided.
+
+## Bitstream and firmware must match
+
+Nothing stops a bitstream running a `firmware.bin` built for another one.
+The bitstream shows two numbers in registers: the savestate version and a
+register layout version, which also covers the memory map. The firmware
+reads both first thing and stops if either differs from its own. The screen
+shows the blinking cursor and nothing else. To be built with the wake fix.
+
 ## Tuning, after that runs on a Pocket
 
 - **The main cache's shape.** 4, 8 and 16 KB; 2 and 4 ways; and replacing
