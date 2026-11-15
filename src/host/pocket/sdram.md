@@ -1,138 +1,91 @@
 # The soft CPU's memory in SDRAM
 
-Built and passing in simulation. Not yet run on a Pocket.
+Built, and it runs on a Pocket: a game runs, and a sleep wakes.
 
-The soft CPU's 96 KB is block memory: 96 of the FPGA's 308 M10K blocks, and
-the design uses 305. Its memory moves to the SDRAM, grows to 256 KB, and a
-small cache in block memory keeps it fast. About 87 blocks come back.
+The soft CPU's memory was 96 KB of block memory, 96 of the FPGA's 308 M10K
+blocks, with 305 in use. It is now 256 KB of the SDRAM behind a small cache.
+The design uses 219 blocks, so 86 came back.
 
-There is no way to load a build onto a Pocket from here, so everything is
-proven in simulation, and a hardware run is a favor asked of the owner with
-a yes, a no, a number or a photograph for an answer.
+## What was built
 
-## What is there now
+- **The cache** (src/core/riscv/cache.sv). 8 KB, 4 ways, 128 sets, lines of
+  16 bytes, one cache for code and data. A hit takes one clock, as the block
+  memory did. A store marks its line dirty, and a dirty line goes to the
+  SDRAM when another needs its place. It costs 9 blocks.
+- **Lines in the SDRAM controller.** A third client reads or writes a
+  16-byte line as eight words back to back. The cache only writes whole
+  lines, so the SDRAM needs no byte writes.
+- **Where it lives.** The top 256 KB of the ROM slot's 63 MB, at 0x03EC0000.
+- **Boot.** The firmware is a file, `firmware.bin`, that the Pocket loads
+  into the SDRAM before the core leaves reset, as it loads the fonts. The
+  core waits until the last of it has landed. The firmware is out of the
+  bitstream, so a firmware change runs no Quartus tool.
+- **A running machine's memory is its own.** Once the core runs, a host
+  write into the CPU's memory is dropped, because the cache would not know.
+- **Savestate.** The engine has the cache write its dirty lines out, then
+  saves the memory from the SDRAM a line at a time. A load writes it back
+  and empties the cache. The blob went from 325 KB to 485 KB, inside its
+  640 KB window, and its version went to 8.
+- **The firmware** links for 256 KB and has 169 KB of heap where it had 5.
 
-- **The CPU** is a Hazard3 on a 25.2 MHz clock with one bus. Its memory
-  answers in one clock.
-- **The firmware** is the first contents of that block memory, in the
-  bitstream. Nothing loads it.
-- **The SDRAM** is on a 50.4 MHz clock from the same PLL. Its controller
-  reads and writes one 16-bit word at a time, seven clocks or more. The
-  host's bridge is the only writer; the CPU and the savestate engine only
-  read, a byte at a time, through the stage window at 0x60000000.
-- **The host** writes every required data slot into the SDRAM, then lets the
-  core out of reset. Fonts, code pages and keyboard layouts load this way.
-- **A sleep** is a savestate and a wake is a new bitstream: the core starts
-  fresh, the host loads the slots again, writes the saved blob into the
-  SDRAM, and the engine puts it back. The blob holds the CPU's whole memory,
-  which the engine reads and writes through a port of its own.
+## What it costs
 
-## The design
+Measured in simulation with the real firmware. A miss takes about a
+microsecond.
 
-### The cache, in soc.sv
+| Work | Misses | CPU time waiting |
+|---|---|---|
+| Boot | 0.6% to 1.1% | 10% to 16% |
+| A program running | 0.1% | 1.5% |
+| PCM streaming | 0.1% | 1.2% |
+| Heavy file work | 0.9% | 12% |
 
-- **8 KB, 4 ways, 128 sets, lines of 16 bytes.** Ways and sets are
-  parameters. A line is 16 bytes because the SDRAM row never splits one and
-  eight words back to back is one visit to the chip.
-- **A hit takes one clock**, as the block memory does now. All four ways are
-  read at once and the tags pick one.
-- **Write-back.** A store marks its line dirty. A dirty line goes to the
-  SDRAM when another line needs its place.
-- **A miss** holds the CPU, writes the old line out if it is dirty, reads
-  the new one, and lets the CPU go.
-- **Block memory:** 8 blocks of data and 1 of tags, valid and dirty bits,
-  and which way goes next.
-- **256 KB** of address space at 0, where the memory is now.
+## What it turned up
 
-### The line port
+- **SDRAM reads were captured late.** The controller took read data more
+  than a clock after the chip had let go of the bus, which worked because
+  the bus keeps its charge. Reads are now taken on the chip's own clock
+  edge, where the datasheet puts the data. The chip model runs on the chip's
+  clock and holds data only in its real window, so a late capture fails in
+  simulation.
+- **A save could lose a CPU register.** A halted CPU still sends a fetch,
+  which can now wait on a miss, and the engine read the CPU's not-ready as
+  an instruction taken. The debug port waits while a fetch is on the bus.
+- **The fitter split pcm's accumulator.** It packed the register into a
+  multiplier's DSP block and kept a copy in logic, and the copy arrived
+  40 ps too soon. The accumulator is kept out of the DSP block.
+- **The debug pin.** The README named a "6515D breakout board" for the
+  log's UART. That is Analogue's comment on pins K21 and K22 in their
+  template; no such board is here. The README says so.
 
-The cache asks for whole lines: read this line, write this line, 128 bits
-at a time. soc.sv gets that port in place of its memory arrays, and the
-platform answers it.
+Timing after the last fit: setup 0.78 ns to spare, hold 0.115 ns.
 
-- On the Pocket the SDRAM controller answers.
-- In the benches that have no SDRAM, a few lines of C++ answer, the way they
-  answer the stage window today.
+## Next
 
-### The SDRAM controller
+1. **An underscore in front of the four card files**, so they sort apart
+   from the ROMs in `Assets/rp6502/common`: `_firmware.bin`, `_fonts.bin`,
+   `_oemcp.bin`, `_keyboard.bin`.
+2. **The cache's shape.** Measure 8 KB 2-way, 4 KB 4-way and 4 KB 2-way
+   against the 8 KB 4-way it has.
+3. **A smaller savestate.** Either 128 KB of memory instead of 256 KB, or
+   keep 256 KB and leave the code out of the blob: code never changes and
+   a wake loads `firmware.bin` again, so only data, heap and stack need
+   saving. The second needs the blob to carry the firmware's build, and a
+   wake to refuse a blob from another build.
+4. **The soft CPU at 50.4 MHz again.** It runs at 25.2 MHz because the
+   fitter could not close timing into the CPU's registers, and it was
+   close. With 86 blocks free the fitter has room. The cache's hit path is
+   longer than the block memory's was, which works against it.
 
-- **A third client, for lines.** After the row is open it gives eight READs
-  or eight WRITEs on eight clocks. The chip stays in the mode it is in, one
-  word a command, so nothing else about it changes.
-- **No byte writes.** The cache only ever writes whole lines.
-- **Order:** refresh, the engine and the stage window, lines, the bridge.
+## To clean up
 
-### Where it lives in the SDRAM
-
-256 KB comes off the top of the ROM slot, which is 63 MB: 0x03EC0000 to
-0x03F00000. Nothing else moves.
-
-### Boot
-
-- The firmware is a required data slot, `firmware.bin`, at 0x03EC0000, in
-  `Assets/rp6502/common/` beside the fonts.
-- The core already stays in reset until the host has written the slots. It
-  also waits for the bridge's last writes to reach the SDRAM.
-- The cache empties itself as reset ends.
-- The firmware leaves the bitstream. A firmware change needs no Quartus at
-  all, and the build's MIF step goes.
-
-### Savestate
-
-- **Save.** With the CPU halted, the cache writes out every dirty line. The
-  engine then reads the CPU's memory from the SDRAM through the line port, a
-  line for four words.
-- **Load.** The engine writes the CPU's memory into the SDRAM through the
-  line port, then the cache empties itself before the CPU resumes.
-- **The blob** grows from 325 KB to 485 KB and still fits its 640 KB window.
-  Its version number changes, so an old sleep does not wake.
-
-### The firmware
-
-- The linker script says 256 KB. The stack goes to the top.
-- Nothing else changes: the stage window, the file windows and the assets
-  stay where they are.
-
-## Later, not now
-
-Fonts, code pages and keyboard layouts as ordinary memory instead of bytes
-read through the stage window. The cache can cover them, since the host
-writes them before the CPU starts. The file windows cannot go the same way:
-the host writes those while the CPU runs, behind the cache's back.
-
-## Steps
-
-Every step ends with the simulation passing.
-
-1. **The SDRAM model** takes back-to-back READs and WRITEs, and checks them.
-2. **The controller's line client**, tested alone against the model: lines
-   against the old clients, refresh and self refresh.
-3. **The cache**, tested alone against a C++ memory: hits, misses, dirty
-   lines, every way, the flush and the empty.
-4. **soc.sv with the cache**, and the benches' C++ line port. Every test
-   that boots firmware passes again.
-5. **The Pocket core**: line port to the controller, the firmware slot, the
-   reset wait, the map. The whole core boots the real firmware from the
-   SDRAM model and runs the 6502 tests.
-6. **The savestate engine**: flush, read and write through the line port,
-   empty. The sleep tests pass.
-7. **Measure** in simulation: misses and time lost in terminal output, API
-   calls, PCM and file transfer. Set ways and sets from that.
-8. **Fit.** Timing, and the block memory count.
-9. **Hardware**, by the owner: does it boot, does a program run, does a
-   sleep wake.
-
-## Tuning, once it runs on a Pocket
-
-- **The cache's shape.** Measure 8 KB 2-way, 4 KB 4-way and 4 KB 2-way
-  against the 8 KB 4-way it starts with.
-- **128 KB instead of 256 KB**, so a savestate carries less.
-- **The soft CPU at 50.4 MHz again.** It runs at 25.2 MHz because the fitter
-  could not close timing into the CPU's registers, and it was close. With
-  86 blocks free the fitter has room, so it is worth another try.
-
-## The debug pin
-
-The README says the firmware's log goes out a pin to "the USB UART on the
-6515D breakout board". That name is Analogue's comment on pins K21 and K22
-in their template; nobody here has such a board. The README gets corrected.
+- **The sleep tests are slow.** Every one boots the firmware, loads a ROM,
+  saves and restores on its own; the 18 of them are 900 of the suite's 1,160
+  CPU seconds. Boot once, keep the simulated machine, and start each test
+  from there.
+- **A save during a cache miss** is only tested at the whole-core level,
+  where it was found. It wants a test beside the engine's own.
+- **Hold margins in pocket.sdc** that nobody remembers the reason for.
+- **PLL phase shifts written in rounded picoseconds.** Half of 19841 ps was
+  written 9920 ps, and the analyzer timed the SDRAM capture against an edge
+  1 ps after the launch. A rule in wiring.sdc names the right edge.
