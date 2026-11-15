@@ -81,6 +81,15 @@ For the Pocket to show: whether the 1 in 20 is gone; whether it takes busy
 at a save or load request and ok at a load in reset; what it does with a
 sleep the core refuses.
 
+### A new ROM from the menu
+
+The old program runs on while the Pocket writes the new ROM over its
+file, and crashes. The Pocket sends 0x0082 (request write) for slot 0
+before it writes; the core answers ok and ignores it, and the firmware
+learns of the new ROM only at 0x008F. On 0x0082 for slot 0 the bitstream
+holds the 6502 in reset at once; the firmware stops the program and
+stages the new ROM at 0x008F as now. Goes in with the next fit.
+
 ### The 6502's memory on the die
 
 The 6502's 64 KB lives in the external SRAM chip. It moves into block
