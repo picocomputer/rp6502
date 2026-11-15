@@ -53,6 +53,13 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         list(APPEND BS_LINES
             "set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to ${pin}")
     endforeach()
+    # pcm's accumulator feeds a multiplier, and the fitter would pack it
+    # into that DSP block as its input register and keep a copy in logic
+    # for the adder. The DSP block's clock arrives 0.7 ns after the logic's,
+    # so the copy would reach the packed register too soon. The accumulator
+    # stays in logic, one register, and the multiplier takes it unregistered.
+    list(APPEND BS_LINES
+        "set_instance_assignment -name QII_AUTO_PACKED_REGISTERS OFF -to \"*|pcm:pcm|acc[*]\"")
     list(APPEND BS_LINES
         "set_instance_assignment -name FAST_INPUT_REGISTER ON -to dram_dq"
         "set_instance_assignment -name FAST_INPUT_REGISTER ON -to sram_dq"
