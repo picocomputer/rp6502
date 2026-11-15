@@ -93,8 +93,30 @@ is not decided.
 The Pocket builds core's font tables in its RAM as the VGA does, 9 KB, and
 then copies them into the video device's font memories, which are what it
 draws from. The RAM copy is a duplicate that every savestate carries, and
-it adds 11 ms to a boot. The font builder should write to where a machine
-keeps its fonts. The shape is to be talked through first.
+it adds 11 ms to a boot.
+
+Decided: the Pocket's linker script places core's font tables on the font
+memories, and core's font builder writes whole 32-bit words.
+
+- The tables in core/term/font.c go in a section of their own. Every other
+  machine links them as it does today. The Pocket's link.ld puts the
+  section on the font memories, which sit in the tables' order.
+- The font memories take whole words and nothing reads them back. So the
+  builder writes with its own loop of word stores through a volatile
+  pointer, never `memcpy` or `memset`: the C library may copy a byte at a
+  time, and the compiler may turn a plain loop back into `memcpy`.
+- The code page copies are runs of 128 bytes at aligned places and become
+  word copies as they are. The DEC graphics builder writes single bytes: it
+  builds a row of 32 bytes in a local and writes the row out as words.
+- The constant tables it copies from are aligned to 4, because a misaligned
+  read on the soft CPU is a trap.
+- `vid_fonts` and `vid_font` go. After a wake the font memories are empty,
+  and the firmware builds them again for the saved code page with
+  `font_load_code_page`, where it copied them from RAM.
+- The same builder runs on the Pico, the VGA and the emulators, and their
+  tests cover the tables' contents.
+- No bitstream change unless the font memories' addresses have to move to
+  match the tables' order.
 
 ### Tuning
 
@@ -118,3 +140,20 @@ keeps its fonts. The shape is to be talked through first.
 - **PLL phase shifts written in rounded picoseconds.** Half of 19841 ps was
   written 9920 ps, and the analyzer timed the SDRAM capture against an edge
   1 ps after the launch. A rule in wiring.sdc names the right edge.
+
+## For the next fit to confirm
+
+- **The SDRAM capture's hold check.** The rule on dram_dq to
+  pocket_sdram's dq_cap is a setup multicycle of two alone. Its hold
+  multicycle of one moved the hold check a period early, where nothing
+  can fail it, and is gone. The hold relation on that path should now
+  read about 0 ns, the edge 1 ps after the launch, and its slack should
+  be positive by about the chip's 2.5 ns of hold less the skew between
+  dram_clk's pad and dq_cap's clock.
+- **The savestate's four CSRs** make sst_engine's register memory 64
+  deep where it was 32, and pocket_sst has a few more flops and three
+  more crossings between clk_74a and clk_sys, all through registers
+  named _s1.
+- **The SDRAM's reset.** The controller is held in its power-up state
+  by the PLL's lock, synchronised to clk_sys: one more fan-out of
+  core_top's reset synchroniser.
