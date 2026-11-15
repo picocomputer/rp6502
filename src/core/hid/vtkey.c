@@ -18,9 +18,10 @@ static const uint8_t HOST_IN_RAM vtkey_keypad_nav_keys[] = {
     HID_KEY_INSERT, HID_KEY_DELETE};
 
 /* Keypad Divide to Keypad Decimal, in usage order: the final character of the
- * application keypad's sequence. Keypad Equal, which is apart, is X. */
+ * application keypad's sequence. A VT100 has a comma where a PC has its plus,
+ * so plus is the comma; divide and multiply are xterm's. */
 static const char HOST_IN_RAM vtkey_keypad_app_keys[] = {
-    'o', 'j', 'm', 'k', 'M',
+    'o', 'j', 'm', 'l', 'M',
     'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'p', 'n'};
 
 /* F1 to Up are one contiguous span of HID usages, so the table is indexed
@@ -62,29 +63,42 @@ int HOST_IN_RAM_FUNC vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t fl
     const term_t *t = &cells_term;
     char *p = out;
     if ((usage >= HID_KEY_KEYPAD_DIVIDE && usage <= HID_KEY_KEYPAD_DECIMAL) ||
-        usage == HID_KEY_KEYPAD_EQUAL)
+        usage == HID_KEY_KEYPAD_EQUAL || usage == HID_KEY_KEYPAD_COMMA)
     {
-        const bool has_nav = usage >= HID_KEY_KEYPAD_1 && usage <= HID_KEY_KEYPAD_DECIMAL;
-        const bool numlock = flags & VTKEY_NUMLOCK;
+        /* Shift is spent on undoing NumLock, so it is not a modifier of
+         * what the key then sends. */
+        bool numlock = flags & VTKEY_NUMLOCK;
+        if (numlock && (flags & VTKEY_SHIFT))
+        {
+            numlock = false;
+            flags &= (uint8_t)~VTKEY_SHIFT;
+        }
         if (!numlock && t->app_keypad)
         {
             *p++ = '\33';
-            *p++ = t->vt52 ? '?' : 'O';
+            if (t->vt52)
+                *p++ = '?';
+            else
+            {
+                *p++ = 'O';
+                if (flags & VTKEY_MODIFIERS)
+                    *p++ = (char)('1' + (flags & VTKEY_MODIFIERS));
+            }
             *p++ = usage == HID_KEY_KEYPAD_EQUAL
                        ? 'X'
+                   : usage == HID_KEY_KEYPAD_COMMA
+                       ? 'l'
                        : vtkey_keypad_app_keys[usage - HID_KEY_KEYPAD_DIVIDE];
-            return 3;
+            return (int)(p - out);
         }
         if (usage == HID_KEY_KEYPAD_ENTER)
             usage = HID_KEY_ENTER;
-        else if (!has_nav || (numlock && !(flags & VTKEY_SHIFT)))
+        else if (usage == HID_KEY_KEYPAD_COMMA)
+            return vtkey_char(out, ',', flags);
+        else if (numlock || usage < HID_KEY_KEYPAD_1 || usage > HID_KEY_KEYPAD_DECIMAL)
             return VTKEY_CHAR;
         else
         {
-            /* Shift is spent on undoing NumLock, so it is not a modifier
-             * of the navigation key. */
-            if (numlock)
-                flags &= (uint8_t)~VTKEY_SHIFT;
             usage = vtkey_keypad_nav_keys[usage - HID_KEY_KEYPAD_1];
             if (usage == HID_KEY_NONE)
                 return 0;
@@ -92,7 +106,14 @@ int HOST_IN_RAM_FUNC vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t fl
     }
     if (usage >= HID_KEY_ENTER && usage <= HID_KEY_TAB)
     {
-        if ((flags & VTKEY_ALT) && !t->vt52)
+        if (usage == HID_KEY_TAB && (flags & VTKEY_SHIFT))
+        {
+            *p++ = '\33';
+            *p++ = '[';
+            *p++ = 'Z';
+            return 3;
+        }
+        if (flags & VTKEY_ALT)
             *p++ = '\33';
         if (usage == HID_KEY_BACKSPACE && (flags & VTKEY_CTRL))
             *p++ = '\b';
@@ -109,15 +130,14 @@ int HOST_IN_RAM_FUNC vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t fl
     if (!intro && !code)
         return 0;
     *p++ = '\33';
-    if (t->vt52)
+    /* A VT52 has no modifiers, and its keys send ESC and a letter. The keys
+     * it lacks send what they always do. */
+    if (t->vt52 && intro)
     {
-        /* A VT52 has only the keys with a letter, and no modifiers. */
-        if (!intro)
-            return 0;
         *p++ = (char)code;
         return 2;
     }
-    const unsigned mod = 1 + (flags & (VTKEY_SHIFT | VTKEY_ALT | VTKEY_CTRL | VTKEY_GUI));
+    const unsigned mod = t->vt52 ? 1 : 1 + (flags & VTKEY_MODIFIERS);
     if (intro)
     {
         /* ESC O P or ESC [ A alone, ESC [ 1 ; mod A with a modifier. The
@@ -182,7 +202,7 @@ int HOST_IN_RAM_FUNC vtkey_char(char out[VTKEY_MAX], char ch, uint8_t flags)
         else if (!(flags & VTKEY_ALT))
             return 0;
     }
-    if ((flags & VTKEY_ALT) && !cells_term.vt52)
+    if (flags & VTKEY_ALT)
         *p++ = '\33';
     *p++ = ch;
     return (int)(p - out);

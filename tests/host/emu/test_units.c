@@ -759,56 +759,63 @@ static const struct
     {HID_KEY_F1, 0, {"\33OP", "\33OP", "\33OP", "\33OP", "\33P", "\33P"}},
     {HID_KEY_F4, 0, {"\33OS", "\33OS", "\33OS", "\33OS", "\33S", "\33S"}},
     {HID_KEY_F1, SH, {"\33[1;2P", "\33[1;2P", "\33[1;2P", "\33[1;2P", "\33P", "\33P"}},
-    /* The keys a VT52 lacks */
-    {HID_KEY_F5, 0, {"\33[15~", "\33[15~", "\33[15~", "\33[15~", "", ""}},
-    {HID_KEY_F12, 0, {"\33[24~", "\33[24~", "\33[24~", "\33[24~", "", ""}},
-    {HID_KEY_F12, 15, {"\33[24;16~", "\33[24;16~", "\33[24;16~", "\33[24;16~", "", ""}},
-    {HID_KEY_INSERT, 0, {"\33[2~", "\33[2~", "\33[2~", "\33[2~", "", ""}},
-    {HID_KEY_DELETE, 0, {"\33[3~", "\33[3~", "\33[3~", "\33[3~", "", ""}},
-    {HID_KEY_PAGE_UP, VTKEY_CTRL, {"\33[5;5~", "\33[5;5~", "\33[5;5~", "\33[5;5~", "", ""}},
-    {HID_KEY_PAGE_DOWN, 0, {"\33[6~", "\33[6~", "\33[6~", "\33[6~", "", ""}},
+    /* The keys a VT52 lacks send what they always do, without modifiers */
+    {HID_KEY_F5, 0, {"\33[15~", "\33[15~", "\33[15~", "\33[15~", "\33[15~", "\33[15~"}},
+    {HID_KEY_F12, 0, {"\33[24~", "\33[24~", "\33[24~", "\33[24~", "\33[24~", "\33[24~"}},
+    {HID_KEY_F12, 7, {"\33[24;8~", "\33[24;8~", "\33[24;8~", "\33[24;8~", "\33[24~", "\33[24~"}},
+    {HID_KEY_INSERT, 0, {"\33[2~", "\33[2~", "\33[2~", "\33[2~", "\33[2~", "\33[2~"}},
+    {HID_KEY_DELETE, 0, {"\33[3~", "\33[3~", "\33[3~", "\33[3~", "\33[3~", "\33[3~"}},
+    {HID_KEY_PAGE_UP, VTKEY_CTRL, {"\33[5;5~", "\33[5;5~", "\33[5;5~", "\33[5;5~", "\33[5~", "\33[5~"}},
+    {HID_KEY_PAGE_DOWN, 0, {"\33[6~", "\33[6~", "\33[6~", "\33[6~", "\33[6~", "\33[6~"}},
     /* Enter, Tab, Escape and Backspace */
     {HID_KEY_ENTER, 0, {"\r", "\r", "\r", "\r\n", "\r", "\r\n"}},
     {HID_KEY_ENTER, VTKEY_CTRL, {"\r", "\r", "\r", "\r\n", "\r", "\r\n"}},
-    {HID_KEY_ENTER, VTKEY_ALT, {"\33\r", "\33\r", "\33\r", "\33\r\n", "\r", "\r\n"}},
+    {HID_KEY_ENTER, VTKEY_ALT, {"\33\r", "\33\r", "\33\r", "\33\r\n", "\33\r", "\33\r\n"}},
     {HID_KEY_TAB, 0, {"\t", "\t", "\t", "\t", "\t", "\t"}},
-    {HID_KEY_TAB, VTKEY_ALT, {"\33\t", "\33\t", "\33\t", "\33\t", "\t", "\t"}},
+    {HID_KEY_TAB, VTKEY_ALT, {"\33\t", "\33\t", "\33\t", "\33\t", "\33\t", "\33\t"}},
+    {HID_KEY_TAB, SH, {"\33[Z", "\33[Z", "\33[Z", "\33[Z", "\33[Z", "\33[Z"}},
+    {HID_KEY_TAB, SH | VTKEY_ALT, {"\33[Z", "\33[Z", "\33[Z", "\33[Z", "\33[Z", "\33[Z"}},
     {HID_KEY_ESCAPE, 0, {"\33", "\33", "\33", "\33", "\33", "\33"}},
-    {HID_KEY_ESCAPE, VTKEY_ALT, {"\33\33", "\33\33", "\33\33", "\33\33", "\33", "\33"}},
+    {HID_KEY_ESCAPE, VTKEY_ALT, {"\33\33", "\33\33", "\33\33", "\33\33", "\33\33", "\33\33"}},
     {HID_KEY_BACKSPACE, 0, {"\x7f", "\x7f", "\x7f", "\x7f", "\x7f", "\x7f"}},
     {HID_KEY_BACKSPACE, VTKEY_CTRL, {"\b", "\b", "\b", "\b", "\b", "\b"}},
-    {HID_KEY_BACKSPACE, VTKEY_CTRL | VTKEY_ALT, {"\33\b", "\33\b", "\33\b", "\33\b", "\b", "\b"}},
-    /* The keypad with NumLock on: characters whatever the keypad mode, and
-     * Shift navigates with the Shift used up. */
+    {HID_KEY_BACKSPACE, VTKEY_CTRL | VTKEY_ALT, {"\33\b", "\33\b", "\33\b", "\33\b", "\33\b", "\33\b"}},
+    /* The keypad with NumLock on: characters whatever the keypad mode. */
     {HID_KEY_KEYPAD_8, NUM, {CHR, CHR, CHR, CHR, CHR, CHR}},
     {HID_KEY_KEYPAD_5, NUM, {CHR, CHR, CHR, CHR, CHR, CHR}},
     {HID_KEY_KEYPAD_DECIMAL, NUM, {CHR, CHR, CHR, CHR, CHR, CHR}},
     {HID_KEY_KEYPAD_DIVIDE, NUM, {CHR, CHR, CHR, CHR, CHR, CHR}},
-    {HID_KEY_KEYPAD_ADD, NUM | SH, {CHR, CHR, CHR, CHR, CHR, CHR}},
+    {HID_KEY_KEYPAD_ADD, NUM | VTKEY_CTRL, {CHR, CHR, CHR, CHR, CHR, CHR}},
     {HID_KEY_KEYPAD_EQUAL, NUM, {CHR, CHR, CHR, CHR, CHR, CHR}},
+    {HID_KEY_KEYPAD_COMMA, NUM, {",", ",", ",", ",", ",", ","}},
     {HID_KEY_KEYPAD_ENTER, NUM, {"\r", "\r", "\r", "\r\n", "\r", "\r\n"}},
-    {HID_KEY_KEYPAD_ENTER, NUM | VTKEY_ALT, {"\33\r", "\33\r", "\33\r", "\33\r\n", "\r", "\r\n"}},
-    {HID_KEY_KEYPAD_8, NUM | SH, {"\33[A", "\33OA", "\33[A", "\33[A", "\33A", "\33A"}},
-    {HID_KEY_KEYPAD_8, NUM | SH | VTKEY_CTRL, {"\33[1;5A", "\33[1;5A", "\33[1;5A", "\33[1;5A", "\33A", "\33A"}},
-    {HID_KEY_KEYPAD_0, NUM | SH, {"\33[2~", "\33[2~", "\33[2~", "\33[2~", "", ""}},
-    {HID_KEY_KEYPAD_5, NUM | SH, {"", "", "", "", "", ""}},
-    /* The keypad with NumLock off: the navigation keys, or the application
-     * keypad when the program asked for it. */
+    {HID_KEY_KEYPAD_ENTER, NUM | VTKEY_ALT, {"\33\r", "\33\r", "\33\r", "\33\r\n", "\33\r", "\33\r\n"}},
+    /* Shift with NumLock on is NumLock off, with the Shift used up. */
+    {HID_KEY_KEYPAD_8, NUM | SH, {"\33[A", "\33OA", "\33Ox", "\33[A", "\33A", "\33?x"}},
+    {HID_KEY_KEYPAD_8, NUM | SH | VTKEY_CTRL, {"\33[1;5A", "\33[1;5A", "\33O5x", "\33[1;5A", "\33A", "\33?x"}},
+    {HID_KEY_KEYPAD_0, NUM | SH, {"\33[2~", "\33[2~", "\33Op", "\33[2~", "\33[2~", "\33?p"}},
+    {HID_KEY_KEYPAD_5, NUM | SH, {"", "", "\33Ou", "", "", "\33?u"}},
+    {HID_KEY_KEYPAD_ADD, NUM | SH, {CHR, CHR, "\33Ol", CHR, CHR, "\33?l"}},
+    /* The keypad with NumLock off: the navigation keys, or a VT100's keypad
+     * when the program asked for it, where plus is the comma. A modifier
+     * goes before the letter, and a VT52 has none. */
     {HID_KEY_KEYPAD_8, 0, {"\33[A", "\33OA", "\33Ox", "\33[A", "\33A", "\33?x"}},
-    {HID_KEY_KEYPAD_8, SH, {"\33[1;2A", "\33[1;2A", "\33Ox", "\33[1;2A", "\33A", "\33?x"}},
+    {HID_KEY_KEYPAD_8, SH, {"\33[1;2A", "\33[1;2A", "\33O2x", "\33[1;2A", "\33A", "\33?x"}},
     {HID_KEY_KEYPAD_1, 0, {"\33[F", "\33OF", "\33Oq", "\33[F", "\33F", "\33?q"}},
     {HID_KEY_KEYPAD_7, 0, {"\33[H", "\33OH", "\33Ow", "\33[H", "\33H", "\33?w"}},
-    {HID_KEY_KEYPAD_9, 0, {"\33[5~", "\33[5~", "\33Oy", "\33[5~", "", "\33?y"}},
-    {HID_KEY_KEYPAD_0, 0, {"\33[2~", "\33[2~", "\33Op", "\33[2~", "", "\33?p"}},
-    {HID_KEY_KEYPAD_DECIMAL, 0, {"\33[3~", "\33[3~", "\33On", "\33[3~", "", "\33?n"}},
+    {HID_KEY_KEYPAD_9, 0, {"\33[5~", "\33[5~", "\33Oy", "\33[5~", "\33[5~", "\33?y"}},
+    {HID_KEY_KEYPAD_0, 0, {"\33[2~", "\33[2~", "\33Op", "\33[2~", "\33[2~", "\33?p"}},
+    {HID_KEY_KEYPAD_DECIMAL, 0, {"\33[3~", "\33[3~", "\33On", "\33[3~", "\33[3~", "\33?n"}},
     {HID_KEY_KEYPAD_5, 0, {"", "", "\33Ou", "", "", "\33?u"}},
     {HID_KEY_KEYPAD_DIVIDE, 0, {CHR, CHR, "\33Oo", CHR, CHR, "\33?o"}},
     {HID_KEY_KEYPAD_MULTIPLY, 0, {CHR, CHR, "\33Oj", CHR, CHR, "\33?j"}},
     {HID_KEY_KEYPAD_SUBTRACT, 0, {CHR, CHR, "\33Om", CHR, CHR, "\33?m"}},
-    {HID_KEY_KEYPAD_ADD, VTKEY_CTRL, {CHR, CHR, "\33Ok", CHR, CHR, "\33?k"}},
+    {HID_KEY_KEYPAD_ADD, 0, {CHR, CHR, "\33Ol", CHR, CHR, "\33?l"}},
+    {HID_KEY_KEYPAD_ADD, VTKEY_CTRL, {CHR, CHR, "\33O5l", CHR, CHR, "\33?l"}},
+    {HID_KEY_KEYPAD_COMMA, 0, {",", ",", "\33Ol", ",", ",", "\33?l"}},
     {HID_KEY_KEYPAD_EQUAL, 0, {CHR, CHR, "\33OX", CHR, CHR, "\33?X"}},
     {HID_KEY_KEYPAD_ENTER, 0, {"\r", "\r", "\33OM", "\r\n", "\r", "\33?M"}},
-    {HID_KEY_KEYPAD_ENTER, VTKEY_ALT, {"\33\r", "\33\r", "\33OM", "\33\r\n", "\r", "\33?M"}},
+    {HID_KEY_KEYPAD_ENTER, VTKEY_ALT, {"\33\r", "\33\r", "\33O3M", "\33\r\n", "\33\r", "\33?M"}},
     /* Keys with a character, and keys that send nothing */
     {0x04, 0, {CHR, CHR, CHR, CHR, CHR, CHR}},
     {0x04, VTKEY_CTRL | VTKEY_ALT, {CHR, CHR, CHR, CHR, CHR, CHR}},
@@ -852,11 +859,12 @@ UTEST(keyboard, the_modes_do_not_cross)
                 char out[VTKEY_MAX + 1], alone[VTKEY_MAX + 1];
                 bool pad = (usage >= HID_KEY_KEYPAD_DIVIDE &&
                             usage <= HID_KEY_KEYPAD_DECIMAL) ||
-                           usage == HID_KEY_KEYPAD_EQUAL;
+                           usage == HID_KEY_KEYPAD_EQUAL ||
+                           usage == HID_KEY_KEYPAD_COMMA;
+                bool off = !(flags & NUM) || (flags & SH);
                 bool nav = pad && usage >= HID_KEY_KEYPAD_1 &&
-                           usage <= HID_KEY_KEYPAD_DECIMAL &&
-                           (!(flags & NUM) || (flags & SH));
-                bool app = pad && !(flags & NUM) && (modes & M_KPAM);
+                           usage <= HID_KEY_KEYPAD_DECIMAL && off;
+                bool app = pad && off && (modes & M_KPAM);
                 bool enter = !app && (usage == HID_KEY_ENTER ||
                                       usage == HID_KEY_KEYPAD_ENTER);
                 unsigned own = M_VT52;
@@ -898,7 +906,7 @@ UTEST(keyboard, hostkey_types_what_the_encoder_says)
     ASSERT_EQ(0, memcmp(b, "8\33[A\33[A", 7));
 
     /* An operator is the host's character until the application keypad
-     * takes it. */
+     * takes it, where plus is a VT100's comma. */
     key_modes(M_KPAM);
     ASSERT_EQ(hostkey_press(HID_KEY_KEYPAD_ADD, 0, 0), HOSTKEY_TYPED);
     ASSERT_EQ(hostkey_press(HID_KEY_KEYPAD_ADD, NUM, 0), HOSTKEY_NONE);
@@ -906,7 +914,7 @@ UTEST(keyboard, hostkey_types_what_the_encoder_says)
     key_modes(0);
     ASSERT_EQ(hostkey_press(HID_KEY_KEYPAD_ADD, 0, 0), HOSTKEY_NONE);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
-    ASSERT_EQ(0, memcmp(b, "\33Ok+", 4));
+    ASSERT_EQ(0, memcmp(b, "\33Ol+", 4));
 
     /* The modes reach a host's keys. */
     key_modes(M_CKM | M_LNM);
@@ -914,14 +922,14 @@ UTEST(keyboard, hostkey_types_what_the_encoder_says)
     hostkey_press(HID_KEY_ENTER, 0, 0);
     key_modes(M_VT52);
     hostkey_press(HID_KEY_ARROW_LEFT, VTKEY_CTRL, 0);
-    ASSERT_EQ(hostkey_press(HID_KEY_F5, 0, 0), HOSTKEY_NONE);
+    ASSERT_EQ(hostkey_press(HID_KEY_F5, VTKEY_CTRL, 0), HOSTKEY_TYPED);
     key_modes(0);
-    ASSERT_EQ(keyboard_drain(b, sizeof b), 7);
-    ASSERT_EQ(0, memcmp(b, "\33OD\r\n\33D", 7));
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 12);
+    ASSERT_EQ(0, memcmp(b, "\33OD\r\n\33D\33[15~", 12));
 
-    /* Alt puts ESC in front of a character or Enter, but a VT52 has no Alt:
-     * ESC ? there starts a keypad key. Ctrl-Alt keeps a character Ctrl has
-     * nothing to say about, and Ctrl alone drops it. */
+    /* Alt puts ESC in front of a character or Enter, in VT52 mode too.
+     * Ctrl-Alt keeps a character Ctrl has nothing to say about, and Ctrl
+     * alone drops it. */
     hostkey_press(0x38, VTKEY_ALT | SH, '?');
     hostkey_press(HID_KEY_ENTER, VTKEY_ALT, 0);
     hostkey_press(0x1E, VTKEY_ALT | VTKEY_CTRL, '1');
@@ -930,8 +938,8 @@ UTEST(keyboard, hostkey_types_what_the_encoder_says)
     hostkey_press(0x38, VTKEY_ALT | SH, '?');
     hostkey_press(HID_KEY_ENTER, VTKEY_ALT, 0);
     key_modes(0);
-    ASSERT_EQ(keyboard_drain(b, sizeof b), 8);
-    ASSERT_EQ(0, memcmp(b, "\33?\33\r\33" "1?\r", 8));
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 10);
+    ASSERT_EQ(0, memcmp(b, "\33?\33\r\33" "1\33?\33\r", 10));
 }
 
 /* A machine asks this before it types a repeat. */

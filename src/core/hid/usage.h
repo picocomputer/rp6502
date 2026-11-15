@@ -65,6 +65,7 @@
 #define HID_KEY_KEYPAD_0 0x62
 #define HID_KEY_KEYPAD_DECIMAL 0x63
 #define HID_KEY_KEYPAD_EQUAL 0x67
+#define HID_KEY_KEYPAD_COMMA 0x85
 #define HID_KEY_CONTROL_LEFT 0xE0
 
 /* The modifier byte of a keyboard report, and the lock lamps of its

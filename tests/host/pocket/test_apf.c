@@ -452,8 +452,12 @@ UTEST(apf, enter_tab_escape_and_backspace_ask_no_layout)
         ASSERT_TYPES(0, HID_KEY_TAB, "\t");
         ASSERT_TYPES(0, HID_KEY_ESCAPE, "\x1B");
         ASSERT_TYPES(0, HID_KEY_BACKSPACE, "\x7F");
-        ASSERT_TYPES(LSHIFT, HID_KEY_TAB, "\t");
+        ASSERT_TYPES(LSHIFT, HID_KEY_TAB, "\x1B[Z");
+        /* The GUI key changes nothing but its own chord. */
         ASSERT_TYPES(LGUI, HID_KEY_ENTER, "\r");
+        ASSERT_TYPES(LGUI, HID_KEY_ARROW_UP, "\x1B[A");
+        ASSERT_TYPES(LGUI, 0x10, "m");
+        ASSERT_TYPES(LGUI | LCTRL, 0x10, "\r");
         ASSERT_TYPES(LCTRL, HID_KEY_ENTER, "\r");
         ASSERT_TYPES(LCTRL, HID_KEY_BACKSPACE, "\b");
         ASSERT_TYPES(LALT, HID_KEY_ENTER, "\x1B\r");
@@ -483,6 +487,7 @@ UTEST(apf, the_keypad_follows_num_lock)
     ASSERT_TYPES(0, HID_KEY_KEYPAD_8, "8");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_DECIMAL, ".");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_ADD, "+");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_COMMA, ",");
     ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_8, "\x1B[A");
     ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_5, "");
 
@@ -495,6 +500,7 @@ UTEST(apf, the_keypad_follows_num_lock)
     ASSERT_TYPES(0, HID_KEY_KEYPAD_DECIMAL, "\x1B[3~");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_5, "");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_ADD, "+");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_COMMA, ",");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_ENTER, "\r");
 }
 
@@ -517,21 +523,33 @@ UTEST(apf, the_keys_follow_the_terminal_modes)
     ASSERT_TYPES(LCTRL, 0x10, "\r");
     cells_term.newline_mode = false;
 
-    /* The application keypad waits for NumLock to go off. */
+    /* The application keypad waits for NumLock to go off, or for Shift,
+     * which is then used up. */
     cells_term.app_keypad = true;
     ASSERT_TYPES(0, HID_KEY_KEYPAD_8, "8");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_ADD, "+");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_ENTER, "\r");
+    ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_8, "\x1BOx");
+    ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_ADD, "\x1BOl");
     ASSERT_TYPES(0, HID_KEY_NUM_LOCK, "");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_8, "\x1BOx");
-    ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_5, "\x1BOu");
-    ASSERT_TYPES(0, HID_KEY_KEYPAD_ADD, "\x1BOk");
+    ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_5, "\x1BO2u");
+    /* Plus is a VT100's comma, and so is a keypad that has a comma. */
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_ADD, "\x1BOl");
+    ASSERT_TYPES(LCTRL, HID_KEY_KEYPAD_ADD, "\x1BO5l");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_COMMA, "\x1BOl");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_SUBTRACT, "\x1BOm");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_ENTER, "\x1BOM");
+    /* VT52 mode changes only a VT52's keys. */
     cells_term.vt52 = true;
     ASSERT_TYPES(0, HID_KEY_KEYPAD_8, "\x1B?x");
+    ASSERT_TYPES(LCTRL, HID_KEY_KEYPAD_ADD, "\x1B?l");
     ASSERT_TYPES(0, HID_KEY_ARROW_UP, "\x1B" "A");
+    ASSERT_TYPES(LCTRL, HID_KEY_ARROW_UP, "\x1B" "A");
     ASSERT_TYPES(0, HID_KEY_F1, "\x1BP");
-    ASSERT_TYPES(0, HID_KEY_DELETE, "");
+    ASSERT_TYPES(LCTRL, HID_KEY_DELETE, "\x1B[3~");
+    ASSERT_TYPES(LALT, 0x04, "\x1B" "a");
+    ASSERT_TYPES(LSHIFT, HID_KEY_TAB, "\x1B[Z");
     cells_term.vt52 = false;
     cells_term.app_keypad = false;
 }

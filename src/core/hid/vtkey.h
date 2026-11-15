@@ -14,16 +14,17 @@
 #include <stdint.h>
 
 /* The modifiers held with a key. One more than these bits is the modifier
- * number xterm puts in a sequence. */
+ * number xterm puts in a sequence. The GUI key is not one: a key sends the
+ * same with it held. */
 #define VTKEY_SHIFT 1
 #define VTKEY_ALT 2
 #define VTKEY_CTRL 4
-#define VTKEY_GUI 8
+#define VTKEY_MODIFIERS 7
 
 /* NumLock is on. */
 #define VTKEY_NUMLOCK 16
 
-/* The longest sequence, ESC [ 2 4 ; 1 6 ~. */
+/* The longest sequence, ESC [ 2 4 ; 8 ~. */
 #define VTKEY_MAX 8
 
 /* vtkey_encode's answer for a key that has a character, which the machine's
@@ -33,22 +34,26 @@
 /* What a key sends, written with no NUL, in the modes the console's terminal
  * is in. Returns the length, 0 for a key that sends nothing, or VTKEY_CHAR.
  *
- * Enter is CR, or CR LF in new line mode (LNM). Tab is HT, Escape is ESC and
- * Backspace is DEL, or BS with Ctrl. Alt puts ESC in front of those, but not
- * in VT52 mode.
+ * Enter is CR, or CR LF in new line mode (LNM). Tab is HT, or ESC [ Z with
+ * Shift. Escape is ESC and Backspace is DEL, or BS with Ctrl. Alt puts ESC
+ * in front of those.
  *
  * The cursor keys, Home and End send ESC [ A, or ESC O A in cursor key mode
  * (DECCKM), and F1 to F4 send ESC O P. With a modifier they are
  * ESC [ 1 ; mod A. The other function and navigation keys send
- * ESC [ number ~. In VT52 mode the keys with a letter send ESC and the
- * letter, whatever the modifiers, and the others send nothing.
+ * ESC [ number ~. VT52 mode changes only the keys a VT52 has: the ones with
+ * a letter send ESC and the letter, whatever the modifiers. The others send
+ * what they always do, without modifiers.
  *
- * The keypad follows xterm. With NumLock on it types its characters, in
- * either keypad mode, and Shift makes a digit the navigation key printed
- * under it. With NumLock off the application keypad (DECKPAM) sends ESC O p
- * and so on, ESC ? p in VT52 mode; the numeric keypad's digits are their
- * navigation keys, where Keypad 5 sends nothing, and its operators type their
- * characters. Keypad Enter is Enter except on the application keypad. */
+ * The keypad with NumLock on types its characters, and Shift there is the
+ * same as NumLock off, with Shift used up. With NumLock off the application
+ * keypad (DECKPAM) sends a VT100's keypad, ESC O p and so on and ESC ? p in
+ * VT52 mode, with the modifier number before the letter as xterm has it.
+ * Plus and Keypad Comma are both the VT100's comma; divide and multiply have
+ * xterm's letters. Otherwise the digits are their navigation keys, where
+ * Keypad 5 sends nothing, the operators type their characters and Keypad
+ * Comma types a comma. Keypad Enter is Enter except on the application
+ * keypad. */
 int vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t flags);
 
 /* What Ctrl makes of a character, as xterm and the Linux console make it:
@@ -61,7 +66,7 @@ int vtkey_ctrl(char ch);
 /* What a key's character sends, written with no NUL; returns the length, 0
  * for nothing. Ctrl makes the control byte and Alt puts ESC in front, where
  * a character Ctrl has nothing to say about is still typed. Ctrl alone on
- * such a character sends nothing. A VT52 has no Alt. */
+ * such a character sends nothing. */
 int vtkey_char(char out[VTKEY_MAX], char ch, uint8_t flags);
 
 /* Whether a held key repeats (DECARM). A machine asks before it types a

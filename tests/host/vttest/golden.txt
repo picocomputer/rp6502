@@ -44,11 +44,11 @@ main_4-06 8D60D954 cursor 52,0 style 0
 5_4-02 377B783A cursor 0,28 style 0
 5_4-03 CEBAE14B cursor 0,28 style 0
 5_4-04 5043CB14 cursor 13,28 style 0
-5_5-01 1932ACEE cursor 0,28 style 0
-5_5-02 26E52970 cursor 0,28 style 0
-5_5-03 FF8E1FEB cursor 0,28 style 0
-5_5-04 9D0E3CDC cursor 0,28 style 0
-5_5-05 51E22D14 cursor 13,28 style 0
+5_5-01 7A6DE491 cursor 0,28 style 0
+5_5-02 45BA610F cursor 0,28 style 0
+5_5-03 9CD15794 cursor 0,28 style 0
+5_5-04 FE5174A3 cursor 0,28 style 0
+5_5-05 32BD656B cursor 13,28 style 0
 5_6-01 BC8F68AC cursor 13,28 style 0
 5_7-01 6044A863 cursor 13,28 style 0
 5_8-01 0F61DF5F cursor 0,16 style 0

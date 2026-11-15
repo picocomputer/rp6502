@@ -148,9 +148,7 @@ static bool HOST_IN_RAM_FUNC keymap_shifted(const keymap_press_t *k)
 
 static char HOST_IN_RAM_FUNC keymap_layout_lookup(const keymap_press_t *k)
 {
-    if (k->keycode >= 128 || (k->mod & (KEYBOARD_MODIFIER_LEFTALT |
-                                        KEYBOARD_MODIFIER_LEFTGUI |
-                                        KEYBOARD_MODIFIER_RIGHTGUI)))
+    if (k->keycode >= 128 || (k->mod & KEYBOARD_MODIFIER_LEFTALT))
         return 0;
     unsigned col = ((k->mod & KEYBOARD_MODIFIER_RIGHTALT) ? LAYOUT_ALTGR : 0) |
                    (keymap_shifted(k) ? LAYOUT_SHIFT : 0);
@@ -314,8 +312,7 @@ static void HOST_IN_RAM_FUNC keymap_queue_key(uint8_t modifier, uint8_t keycode,
         return;
     }
     uint8_t flags = (uint8_t)((k.shift ? VTKEY_SHIFT : 0) | (k.alt ? VTKEY_ALT : 0) |
-                              (k.ctrl ? VTKEY_CTRL : 0) | (k.gui ? VTKEY_GUI : 0) |
-                              (k.numlock ? VTKEY_NUMLOCK : 0));
+                              (k.ctrl ? VTKEY_CTRL : 0) | (k.numlock ? VTKEY_NUMLOCK : 0));
     char seq[VTKEY_MAX];
     int n = vtkey_encode(seq, k.keycode, flags);
     if (n == VTKEY_CHAR)

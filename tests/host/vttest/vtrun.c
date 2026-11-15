@@ -478,10 +478,11 @@ static const char *const vt_layout_keys[] = {
 
 static const char *const vt_cursor_keys[] = {"up", "down", "left", "right", "tab", NULL};
 
-/* A PC keypad has no comma. */
+/* The comma is the key some keypads have for it, which types a comma in
+ * numeric mode where a PC's plus would not. */
 static const char *const vt_keypad_keys[] = {
     "f1", "f2", "f3", "f4", "kp7", "kp8", "kp9", "kp-", "kp4", "kp5", "kp6",
-    "kp1", "kp2", "kp3", "kp0", "kp.", "kpenter", "tab", NULL};
+    "kp,", "kp1", "kp2", "kp3", "kp0", "kp.", "kpenter", "tab", NULL};
 
 static const char *const vt_control_keys[] = {
     "ctrl-space ctrl-a ctrl-b ctrl-c ctrl-d ctrl-e ctrl-f ctrl-g ctrl-h ctrl-i "
@@ -723,6 +724,7 @@ static const struct
     {"f3", HID_KEY_F3, 0},
     {"f4", HID_KEY_F4, 0},
     {"kp-", HID_KEY_KEYPAD_SUBTRACT, '-'},
+    {"kp,", HID_KEY_KEYPAD_COMMA, ','},
     {"kp.", HID_KEY_KEYPAD_DECIMAL, '.'},
     {"kpenter", HID_KEY_KEYPAD_ENTER, 0},
 };

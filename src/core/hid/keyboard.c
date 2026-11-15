@@ -201,7 +201,8 @@ void HOST_IN_RAM_FUNC keyboard_report(int slot, uint8_t const *data, size_t size
      * it. */
     keyboard_merge_keys();
 
-    for (int i = 0; i < 128; i++)
+    /* Every key below the modifiers, which have the hook after this one. */
+    for (int i = 0; i < HID_KEY_CONTROL_LEFT; i++)
     {
         bool curr = KEYBOARD_KEY_BIT_VAL(conn->keys, i);
         bool prev = KEYBOARD_KEY_BIT_VAL(old_keys, i);
