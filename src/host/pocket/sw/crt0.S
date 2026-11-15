@@ -5,11 +5,14 @@
  */
 
 #include "stamp.h"
+#include "pocket_version.h"
 
     /* The reset vector is a jump of four bytes, and the word after it is
      * the build stamp, the time this firmware was linked. sst_engine.sv
      * reads it there, as STAMP_WORD, and puts it in a savestate, so a
-     * state wakes only under the firmware that made it. */
+     * state wakes only under the firmware that made it. The two words
+     * after the stamp are the register layout and the savestate version
+     * this firmware was built for. */
     .section .text.init
     .global _start
 _start:
@@ -18,8 +21,15 @@ _start:
     j 0f
     .option pop
     .word BUILD_STAMP
+    .global ver_own
+ver_own:
+    .word POCKET_REG_VERSION
+    .word POCKET_SST_VERSION
 0:
     la sp, __stack_top
+    /* Nothing else comes before this: it returns only under a bitstream
+     * of this firmware's two versions. */
+    call ver_check
     la tp, __tls
     la t0, _trap_entry
     csrw mtvec, t0

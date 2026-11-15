@@ -9,6 +9,14 @@
 
 #include <stdint.h>
 
+/* The bitstream's register layout version and its savestate version,
+ * which gen/version.py states. ver_check reads them before the firmware
+ * uses any other register and goes no further when either is not this
+ * firmware's own. So these two addresses never move, whatever else in
+ * this file does. */
+#define VER_REG (*(volatile const uint32_t *)0x80030000u)
+#define VER_SST (*(volatile const uint32_t *)0x80030004u)
+
 #define MMIO_CONSOLE (*(volatile uint32_t *)0xF0000000u)
 #define MMIO_PHI2 (*(volatile uint32_t *)0xF000000Cu)
 #define MTIME_LO (*(volatile uint32_t *)0xF0000010u)
@@ -85,8 +93,9 @@
  * set a wake is on its way. SST_BLOB_UNASKED is set beside it until the
  * load command comes. SST_BLOB_WRITING is set by every write into the
  * window and cleared by writing it to SST_CTL, so it tells a blob still
- * arriving from one the host has left. Writing SST_BLOB_SEEN to SST_CTL
- * drops a blob that no load was asked for.
+ * arriving from one the host has left. It reads set whenever
+ * SST_BLOB_UNASKED first does. Writing SST_BLOB_SEEN to SST_CTL drops a
+ * blob that no load was asked for.
  *
  * SST_LOAD_EARLY is set when the last load command came while the host
  * held the core in reset. */
@@ -106,6 +115,13 @@
 #define SST_WHY_BUILD 4u
 #define SST_WHY_SUM 5u
 #define SST_WHY_TRAILER 6u
+
+/* The host's Savestate Start is answered with an error, and nothing is
+ * saved, while the firmware has 1 here. SST_REFUSING reads set once that
+ * is in force and no save is in progress, and from then until the
+ * firmware writes 0 no save begins. */
+#define SST_REFUSE (*(volatile uint32_t *)0x80020004u)
+#define SST_REFUSING 0x01u
 /* The UTC offset comes from three interact menu entries because a menu
  * list holds at most sixteen options and the offset spans twenty-seven
  * whole hours. SET_KB is a position in def/keyboard.def plus one, so zero

@@ -21,7 +21,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/host/*.h)
     list(APPEND SW_HEADERS ${SW_SEAMS})
     set(SW_SOURCES
-        ${SW_SRC}/crt0.S ${SW_SRC}/main.c
+        ${SW_SRC}/crt0.S ${SW_SRC}/ver.c ${SW_SRC}/main.c
         ${SW_SRC}/apf.c ${SW_SRC}/aud.c
         ${SW_SRC}/wake.c
         ${SW_SRC}/cfg.c
@@ -111,6 +111,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         DEPENDS ${SW_SOURCES} ${SW_HEADERS} ${SW_SRC}/link.ld
             ${SW_SRC}/stamp.cmake
             ${RP6502_GEN}/rsmp_half.h
+            ${RP6502_GEN}/pocket_version.h
         COMMENT "Cross-compiling the soft CPU firmware"
         VERBATIM)
     add_custom_target(sw_bin DEPENDS ${SW_BIN})

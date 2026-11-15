@@ -9,6 +9,7 @@
 
 #include "corpus.h"
 #include "host/host.h"
+#include "pocket_version.h"
 
 #include "tb_asm.h"
 #include "tb_rom.h"
@@ -563,6 +564,110 @@ UTEST(pocket, a_reset_and_a_reload_boot_clean)
     ASSERT_TRUE(run_until_quiet(nullptr));
     run_and_check(utest_result, "mode3_1bpp", 0x41437F1B, false);
     ASSERT_TRUE(rom_holds(fw, FW_CODE));
+}
+
+/* The image's register layout version and its savestate version, the two
+ * words after its reset jump and its build stamp. */
+#define FW_REG_VERSION 8u
+#define FW_SST_VERSION 12u
+
+static uint32_t fw_word(const std::vector<uint8_t> &fw, size_t at)
+{
+    return (uint32_t)fw[at] | ((uint32_t)fw[at + 1] << 8)
+           | ((uint32_t)fw[at + 2] << 16) | ((uint32_t)fw[at + 3] << 24);
+}
+
+/* A firmware built for another bitstream stops before it uses a register.
+ * The 6502 stays in reset, nothing is said on either console, and the
+ * screen is black but for a block cursor in its first cell, lit for 30
+ * frames and dark for 30. */
+static void stops_with_a_cursor(int *utest_result, size_t version_word)
+{
+    std::vector<uint8_t> fw = tb_stage_firmware(SW_BIN);
+    ASSERT_GT(fw.size(), (size_t)FW_CODE);
+    ASSERT_EQ((uint32_t)POCKET_REG_VERSION, fw_word(fw, FW_REG_VERSION));
+    ASSERT_EQ((uint32_t)POCKET_SST_VERSION, fw_word(fw, FW_SST_VERSION));
+    fw[version_word] ^= 1;
+    std::vector<uint8_t> rom = read_rom("mode3_1bpp");
+    ASSERT_TRUE(rom.size() > 0);
+    power_on(utest_result, false);
+    tb_stage_poke(dut->rootp->tb_pocket__DOT__chip__DOT__mem,
+                  TB_STAGE_MEM_BASE, fw);
+    host_load(rom);
+    dut->reset_n = 1;
+
+    static uint32_t fb[640 * 480];
+    int lit = 0, dark = 0, flips = 0, run = 0, prev = -1;
+    bool said = false, ran = false;
+    /* The vs that ends a frame begins the next one. */
+    bool started = false;
+    for (int frame = 0; frame < 75; frame++)
+    {
+        size_t at = 0;
+        for (;;)
+        {
+            long sys_before = g_sys;
+            tick();
+            if (g_sys == sys_before)
+                continue;
+            said |= dut->tb_pocket_tx_valid || dut->tb_pocket_rv_tx_valid;
+            ran |= (bool)dut->rootp
+                       ->tb_pocket__DOT__core__DOT__machine__DOT__resb;
+            if (sys_before & 1)
+                continue;
+            if (dut->tb_pocket_vs)
+            {
+                if (started && at > 0)
+                    break;
+                at = 0;
+                started = true;
+                continue;
+            }
+            if (started && dut->tb_pocket_de && !dut->tb_pocket_skip
+                && at < sizeof fb / sizeof *fb)
+                fb[at++] = dut->tb_pocket_rgb;
+        }
+        ASSERT_EQ((size_t)640 * 480, at);
+        int inside = 0, outside = 0;
+        for (size_t i = 0; i < at; i++)
+            if (fb[i])
+            {
+                if (i % 640 < 8 && i / 640 < 16)
+                    inside++;
+                else
+                    outside++;
+            }
+        ASSERT_EQ(0, outside);
+        ASSERT_TRUE(inside == 0 || inside == 8 * 16);
+        int now = inside != 0;
+        /* The first frames come before the stop has programmed the
+         * screen. */
+        if (now != prev && prev >= 0)
+        {
+            if (flips > 0)
+                ASSERT_EQ(30, run);
+            flips++;
+            run = 0;
+        }
+        run++;
+        prev = now;
+        (now ? lit : dark)++;
+    }
+    ASSERT_FALSE(said);
+    ASSERT_FALSE(ran);
+    ASSERT_GE(flips, 2);
+    ASSERT_GE(lit, 30);
+    ASSERT_GE(dark, 30);
+}
+
+UTEST(pocket, a_firmware_of_another_register_layout_stops_with_a_cursor)
+{
+    stops_with_a_cursor(utest_result, FW_REG_VERSION);
+}
+
+UTEST(pocket, a_firmware_of_another_savestate_version_stops_with_a_cursor)
+{
+    stops_with_a_cursor(utest_result, FW_SST_VERSION);
 }
 
 UTEST_STATE();

@@ -16,6 +16,10 @@
  * word was not served in time. A load asked for while the machine runs
  * answers busy until the engine has finished, then ok or err.
  *
+ * The firmware holds saves off while a file is open for writing, in
+ * REG_REFUSE. A save asked for then answers err at once, the engine is
+ * not asked and the machine runs on.
+ *
  * A wake's load can arrive while the host still holds the core in
  * reset, where the engine cannot run, and the host may wait for the
  * answer before it sends Reset Exit. Such a load answers ok at once and
@@ -87,6 +91,11 @@ module pocket_sst #(
     localparam logic [17:0] LAST_IDX = 18'(BLOB_WORDS - 1);
 
     localparam logic [1:0] REG_CTL = 2'd0;
+    /* The firmware writes bit 0 set to have saves refused and clear to
+     * allow them. Bit 0 reads set once the refusal is in force with no
+     * save in progress, and no save begins from then until the firmware
+     * writes it clear. */
+    localparam logic [1:0] REG_REFUSE = 2'd1;
     /* What a write to REG_CTL does, a bit each. CTL_DONE ends the load the
      * firmware has finished with, CTL_SEEN drops a blob no load was asked
      * for, and CTL_WRITING clears the mark a blob write leaves. */
@@ -122,6 +131,12 @@ module pocket_sst #(
     logic blob_seen;
     logic start_q, load_q;
     logic start_hold, start_done;
+    /* refuse_s2 is the firmware's refusal on this clock. held is the
+     * refusal with no save begun, which then stays so while refuse_s2
+     * does: a request that finds refuse_s2 set begins no save. refused
+     * marks the last request as one turned away. */
+    (* preserve *) logic refuse_s1, refuse_s2;
+    logic held, refused;
     /* load_act is high from a load's request until the firmware has
      * finished with it, and load_fin from the engine's done until then.
      * load_early marks a load asked for in reset. */
@@ -137,7 +152,7 @@ module pocket_sst #(
         pocket_sst_load_ack = savestate_load && load_q;
         pocket_sst_start_busy = start_hold && !start_done;
         pocket_sst_start_ok = start_done && !late;
-        pocket_sst_start_err = start_done && late;
+        pocket_sst_start_err = (start_done && late) || refused;
         pocket_sst_load_busy = load_act && !load_ok && !load_bad;
         pocket_sst_load_ok = load_ok;
         pocket_sst_load_err = load_bad;
@@ -177,7 +192,14 @@ module pocket_sst #(
             drop_s1 <= 1'b0;
             drop_s2 <= 1'b0;
             drop_s3 <= 1'b0;
+            refuse_s1 <= 1'b0;
+            refuse_s2 <= 1'b0;
+            held <= 1'b0;
+            refused <= 1'b0;
         end else begin
+            refuse_s1 <= refuse_req;
+            refuse_s2 <= refuse_s1;
+            held <= refuse_s2 && !start_hold;
             start_q <= savestate_start;
             load_q <= savestate_load;
             bridge_rd_q <= bridge_rd;
@@ -243,10 +265,12 @@ module pocket_sst #(
                 end
             end
             /* The engine's done falls when the firmware has cleared the
-             * request. */
+             * request. The load is over, so a blob the host wrote again
+             * while it ran is no new wake. */
             if (load_fin && !ldone_s2) begin
                 load_act <= 1'b0;
                 load_fin <= 1'b0;
+                blob_seen <= 1'b0;
             end
             if (blob_hit) begin
                 blob_seen <= 1'b1;
@@ -255,14 +279,22 @@ module pocket_sst #(
 
             if (start_hold && ready_s2) start_done <= 1'b1;
 
-            /* A request while the save's blob is still held starts no
-             * second save. It reads the same blob again from the start. */
+            /* A request the firmware has refused begins nothing and is
+             * the last request's result. A request while a save's blob is
+             * still held starts no second save. It reads the same blob
+             * again from the start. */
             if (savestate_start && !start_q) begin
-                start_hold <= 1'b1;
-                if (!start_hold) start_done <= 1'b0;
-                asked <= 1'b0;
-                hold_valid <= 1'b0;
-                seen_low <= 1'b0;
+                if (refuse_s2 && !start_hold) begin
+                    refused <= 1'b1;
+                    start_done <= 1'b0;
+                end else begin
+                    refused <= 1'b0;
+                    start_hold <= 1'b1;
+                    if (!start_hold) start_done <= 1'b0;
+                    asked <= 1'b0;
+                    hold_valid <= 1'b0;
+                    seen_low <= 1'b0;
+                end
                 late <= 1'b0;
             end
             if (savestate_load && !load_q && !load_act) begin
@@ -285,6 +317,13 @@ module pocket_sst #(
     (* preserve *) logic early_s1, early_s2;
     (* preserve *) logic unasked_s1, unasked_s2;
     (* preserve *) logic wr_s1, wr_s2, wr_s3;
+    /* refuse_want is what the firmware last wrote. refuse_req, which
+     * crosses, takes it only once the value before has come back in
+     * echo, so no two changes are on their way at once and an echo that
+     * agrees with refuse_req is that value's own. */
+    logic refuse_want, refuse_req;
+    (* preserve *) logic echo_s1, echo_s2, echo_s3;
+    (* preserve *) logic held_s1, held_s2;
 
     initial begin
         pocket_sst_rdata = '0;
@@ -305,12 +344,26 @@ module pocket_sst #(
         wr_s1 = 1'b0;
         wr_s2 = 1'b0;
         wr_s3 = 1'b0;
+        refuse_want = 1'b0;
+        refuse_req = 1'b0;
+        echo_s1 = 1'b0;
+        echo_s2 = 1'b0;
+        echo_s3 = 1'b0;
+        held_s1 = 1'b0;
+        held_s2 = 1'b0;
     end
 
     always_comb pocket_sst_load = load_req;
 
     logic ctl_we;
     always_comb ctl_we = stb && we && addr[3:2] == REG_CTL;
+
+    /* held crosses one clk_74a cycle behind the refusal it was made
+     * from. echo_s3 is a cycle behind echo_s2, so held_s2 is of this
+     * refusal and not left from the one before. */
+    logic refusing;
+    always_comb
+        refusing = refuse_want && refuse_req && echo_s2 && echo_s3 && held_s2;
 
     always_ff @(posedge clk_sys) begin
         load_s1 <= load_t;
@@ -327,6 +380,14 @@ module pocket_sst #(
         wr_s1 <= wr_t;
         wr_s2 <= wr_s1;
         wr_s3 <= wr_s2;
+        echo_s1 <= refuse_s2;
+        echo_s2 <= echo_s1;
+        echo_s3 <= echo_s2;
+        held_s1 <= held;
+        held_s2 <= held_s1;
+
+        if (stb && we && addr[3:2] == REG_REFUSE) refuse_want <= wdata[0];
+        if (echo_s2 == refuse_req) refuse_req <= refuse_want;
 
         if (ctl_we && wdata[CTL_DONE]) load_req <= 1'b0;
         if (ctl_we && wdata[CTL_SEEN]) drop_t <= !drop_t;
@@ -338,16 +399,23 @@ module pocket_sst #(
          * still here when the engine leaves it. */
         if (load_s2 != load_s3) load_req <= 1'b1;
         if (wr_s2 != wr_s3) writing <= 1'b1;
+        /* A blob with no load asked for reads as written on the clock it
+         * first reads as unasked, so the firmware never sees it unasked
+         * and at rest before it has seen it arrive. */
+        if (unasked_s1 && !unasked_s2) writing <= 1'b1;
 
         /* A read of bit 0 returns sst_load_done and not load_req, so the
          * firmware reads it as set only after sst_engine has finished the
          * load and released the soft CPU. After a successful load the 6502
          * stays in reset until the firmware writes 1 to bit 0. */
         if (stb)
-            pocket_sst_rdata <= addr[3:2] == REG_CTL
-                ? {21'd0, sst_load_why, 1'b0, writing, unasked_s2,
-                   early_s2, sst_load_err, under_s2, seen_s2, sst_load_done}
-                : 32'd0;
+            case (addr[3:2])
+                REG_CTL: pocket_sst_rdata <=
+                    {21'd0, sst_load_why, 1'b0, writing, unasked_s2,
+                     early_s2, sst_load_err, under_s2, seen_s2, sst_load_done};
+                REG_REFUSE: pocket_sst_rdata <= {31'd0, refusing};
+                default: pocket_sst_rdata <= 32'd0;
+            endcase
     end
 
     /* verilator lint_off UNUSEDSIGNAL */

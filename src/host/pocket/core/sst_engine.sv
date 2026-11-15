@@ -184,7 +184,8 @@ module sst_engine #(
 
     localparam logic [31:0] SST_MAGIC = 32'h52365353;      // "R6SS"
     localparam logic [31:0] SST_END_MAGIC = 32'h52365345;  // "R6SE"
-    localparam logic [31:0] SST_VERSION = 32'd10;
+    /* The blob's format, which gen/version.py states. */
+    localparam logic [31:0] SST_VERSION = pocket_version_pkg::SST_VERSION;
     /* The firmware's build stamp is this word of the ROM block, which
      * crt0.S places. A blob carries it in the header's fourth word, and a
      * load takes only a blob made by the firmware that is loaded. */

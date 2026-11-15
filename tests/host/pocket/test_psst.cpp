@@ -19,6 +19,7 @@
 #define BLOB_WINDOW 0x00080000u
 
 #define REG_CTL 0x00u
+#define REG_REFUSE 0x04u
 
 #define CTL_RESTORED (1u << 0)
 #define CTL_BLOB_SEEN (1u << 1)
@@ -718,6 +719,294 @@ UTEST(psst, a_blob_with_no_load_asked_for_can_be_dropped)
     run(64);
     ASSERT_TRUE((mmio_read(REG_CTL) & CTL_BLOB_SEEN) != 0);
     ASSERT_TRUE((int)dut->tb_psst_load);
+}
+
+/* The firmware gives a blob two seconds from the last time it read it as
+ * written. So a blob must not read as unasked on any clock before it reads
+ * as written, or a firmware that has run for two seconds would give it up
+ * at its first word. The register is read on every clk_sys clock, with the
+ * write at every phase of the two clocks. */
+UTEST(psst, a_blob_reads_as_written_on_the_clock_it_first_reads_as_unasked)
+{
+    for (int phase = 0; phase < 6; phase++)
+    {
+        reset();
+        ASSERT_EQ(0, host_cmd(CMD_RESET_EXIT, 0));
+        run(phase);
+        dut->addr = REG_CTL;
+        dut->we = 0;
+        dut->stb = 1;
+        dut->bridge_addr = BLOB_BASE + 0x40;
+        dut->bridge_wr = 1;
+        bool unasked = false;
+        for (int i = 0; i < 64; i++)
+        {
+            tick();
+            if (t % BRG_PERIOD == 0)
+                dut->bridge_wr = 0;
+            uint32_t ctl = dut->tb_psst_rdata;
+            if (ctl & CTL_BLOB_UNASKED)
+            {
+                unasked = true;
+                ASSERT_TRUE((ctl & CTL_BLOB_WRITING) != 0);
+            }
+        }
+        dut->stb = 0;
+        ASSERT_TRUE(unasked);
+    }
+}
+
+/* A blob dropped and written again reads as written again with its first
+ * word, though the firmware cleared the mark. */
+UTEST(psst, a_blob_seen_again_reads_as_written_again)
+{
+    reset();
+    ASSERT_EQ(0, host_cmd(CMD_RESET_EXIT, 0));
+    bridge_write(BLOB_BASE + 0x40);
+    run(64);
+    mmio_write(REG_CTL, CTL_BLOB_WRITING | CTL_BLOB_SEEN);
+    run(64);
+    ASSERT_EQ(0u, mmio_read(REG_CTL) & (CTL_BLOB_SEEN | CTL_BLOB_WRITING));
+    /* A load asked for and finished leaves no blob, and the blob after it
+     * is a new one. */
+    ASSERT_EQ((int)RES_BUSY, ask(1));
+    finish_load(0);
+    run(32);
+    mmio_write(REG_CTL, CTL_BLOB_WRITING);
+    bridge_write(BLOB_BASE + 0x40);
+    run(64);
+    uint32_t ctl = mmio_read(REG_CTL);
+    ASSERT_TRUE((ctl & CTL_BLOB_UNASKED) != 0);
+    ASSERT_TRUE((ctl & CTL_BLOB_WRITING) != 0);
+}
+
+/* The host can write the blob again while its load is with the engine or
+ * the firmware, as a Reset Enter in the middle of a wake has it do. That
+ * blob belongs to the load in progress: when the load is over no wake is
+ * left on its way, and the program that resumed is not stopped for one. */
+UTEST(psst, a_blob_written_again_during_its_load_is_no_new_wake)
+{
+    reset();
+    ASSERT_EQ(0, host_cmd(CMD_RESET_EXIT, 0));
+    bridge_write(BLOB_BASE + 0x40);
+    ASSERT_EQ((int)RES_BUSY, ask(1));
+    dut->sst_load_done = 1;
+    run(16);
+    ASSERT_FALSE((mmio_read(REG_CTL) & CTL_BLOB_SEEN) != 0);
+    /* The engine is done and the firmware is putting the rest back. */
+    bridge_write(BLOB_BASE + 0x40);
+    bridge_write(BLOB_BASE + 0x44);
+    run(32);
+    uint32_t ctl = mmio_read(REG_CTL);
+    ASSERT_TRUE((ctl & CTL_BLOB_SEEN) != 0);
+    ASSERT_FALSE((ctl & CTL_BLOB_UNASKED) != 0);
+    mmio_write(REG_CTL, CTL_RESTORED);
+    run(8);
+    dut->sst_load_done = 0;
+    run(32);
+    ctl = mmio_read(REG_CTL);
+    ASSERT_FALSE((ctl & CTL_BLOB_SEEN) != 0);
+    ASSERT_FALSE((ctl & CTL_BLOB_UNASKED) != 0);
+    /* The blob for the next wake is seen as ever. */
+    bridge_write(BLOB_BASE + 0x40);
+    run(32);
+    ASSERT_TRUE((mmio_read(REG_CTL) & CTL_BLOB_UNASKED) != 0);
+}
+
+/* The firmware refuses saves while a file is open for writing. A save
+ * asked for then is answered err at the request, the engine is never
+ * asked, and the answer stays err until the next request. */
+UTEST(psst, a_save_the_firmware_refuses_answers_err_at_once)
+{
+    reset();
+    ASSERT_EQ(0, host_cmd(CMD_RESET_EXIT, 0));
+    ASSERT_EQ(0u, mmio_read(REG_REFUSE));
+    mmio_write(REG_REFUSE, 1);
+    run(64);
+    ASSERT_EQ(1u, mmio_read(REG_REFUSE));
+    ASSERT_EQ((int)RES_ERR, ask(0));
+    ASSERT_FALSE((int)dut->tb_psst_save);
+    ASSERT_EQ((int)RES_ERR, query(0));
+    run(400);
+    ASSERT_FALSE((int)dut->tb_psst_save);
+    ASSERT_EQ((int)RES_ERR, query(0));
+    ASSERT_EQ((int)RES_ERR, ask(0));
+    ASSERT_EQ(2, (int)dut->tb_psst_starts);
+    /* A load is not a save. */
+    ASSERT_EQ((int)RES_BUSY, ask(1));
+    finish_load(0);
+
+    /* With the refusal withdrawn the next request is a save, and its
+     * result is its own. */
+    mmio_write(REG_REFUSE, 0);
+    ASSERT_EQ(0u, mmio_read(REG_REFUSE));
+    run(64);
+    ASSERT_EQ((int)RES_BUSY, ask(0));
+    ASSERT_TRUE((int)dut->tb_psst_save);
+    run(200);
+    ASSERT_EQ((int)RES_OK, query(0));
+    (void)blob_read(BLOB_WORDS - 1);
+    run(32);
+    ASSERT_FALSE((int)dut->tb_psst_save);
+
+    /* A refused request after a save that ended ok is not that save's
+     * ok. */
+    mmio_write(REG_REFUSE, 1);
+    run(64);
+    ASSERT_EQ((int)RES_ERR, ask(0));
+    ASSERT_FALSE((int)dut->tb_psst_start_ok);
+}
+
+/* A save that began before the refusal reached the bridge goes on, and
+ * the refusal does not read as in force until that save is over: the
+ * firmware it halted has sent nothing yet, and sends nothing until then.
+ * A request for the blob again is not refused either. */
+UTEST(psst, a_refusal_is_not_in_force_while_a_save_is_in_progress)
+{
+    reset();
+    ASSERT_EQ(0, host_cmd(CMD_RESET_EXIT, 0));
+    ASSERT_EQ((int)RES_BUSY, ask(0));
+    mmio_write(REG_REFUSE, 1);
+    run(400);
+    ASSERT_EQ(0u, mmio_read(REG_REFUSE));
+    ASSERT_TRUE((int)dut->tb_psst_save);
+    ASSERT_EQ((int)RES_OK, ask(0));
+    ASSERT_EQ(eng_word(3), blob_read(3));
+    ASSERT_EQ(0u, mmio_read(REG_REFUSE));
+    (void)blob_read(BLOB_WORDS - 1);
+    run(64);
+    ASSERT_FALSE((int)dut->tb_psst_save);
+    ASSERT_EQ(1u, mmio_read(REG_REFUSE));
+    ASSERT_EQ((int)RES_ERR, ask(0));
+    ASSERT_FALSE((int)dut->tb_psst_save);
+}
+
+/* The firmware changes its mind at any pace and the host asks for saves
+ * at any time. From a read that shows the refusal in force until the
+ * firmware withdraws it, no save is in progress and none begins. And the
+ * refusal comes into force whenever it is left set with no save
+ * running. */
+UTEST(psst, a_refusal_read_in_force_holds_until_it_is_withdrawn)
+{
+    uint64_t rng = 0x9E3779B97F4A7C15ull;
+    auto below = [&](uint32_t n) {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        return (uint32_t)(rng >> 20) % n;
+    };
+    reset();
+    ASSERT_EQ(0, host_cmd(CMD_RESET_EXIT, 0));
+    bool want = false, in_force = false;
+    int held = 0, saves = 0, refusals = 0, quiet = 0;
+    int starts = (int)dut->tb_psst_starts;
+    dut->addr = REG_REFUSE;
+    dut->we = 0;
+    dut->stb = 1;
+    /* The host's side, a step each clk_74a clock: 0 idle, 1 and 2 the
+     * two writes of a save request, then the wait for its answer. */
+    int host = 0, wait = 0;
+    for (long i = 0; i < 600000; i++)
+    {
+        bool sys = (t + 1) % SYS_PERIOD == 0;
+        bool brg = (t + 1) % BRG_PERIOD == 0;
+        bool wrote = false;
+        if (sys)
+        {
+            dut->we = 0;
+            dut->addr = REG_REFUSE;
+            uint32_t pace = quiet > 0 ? 0 : below(3) ? 4 : 60;
+            if (quiet > 0)
+                quiet--;
+            else if (below(40) == 0)
+                quiet = 400;
+            if (pace && below(pace) == 0)
+            {
+                want = below(2) != 0;
+                dut->we = 1;
+                dut->wdata = want;
+                wrote = true;
+            }
+        }
+        if (brg)
+        {
+            dut->bridge_wr = 0;
+            dut->bridge_rd = 0;
+            if (host == 0 && below(300) == 0)
+                host = 1;
+            else if (host == 1)
+            {
+                dut->bridge_addr = HOST_PARAM;
+                dut->bridge_wr_data = 1;
+                dut->bridge_wr = 1;
+                host = 2;
+            }
+            else if (host == 2)
+            {
+                dut->bridge_addr = HOST_CMD;
+                dut->bridge_wr_data = 0x434D0000u | CMD_SAVE;
+                dut->bridge_wr = 1;
+                host = 3;
+                wait = 40;
+            }
+            else if (host == 3 && --wait == 0)
+            {
+                /* A save that began is read to its last word, which ends
+                 * it, after a while. */
+                if (dut->tb_psst_save)
+                {
+                    host = 4;
+                    wait = 200 + (int)below(400);
+                }
+                else
+                    host = 0;
+            }
+            else if (host == 4 && --wait == 0)
+            {
+                dut->bridge_addr = BLOB_BASE + (BLOB_WORDS - 1) * 4;
+                dut->bridge_rd = 1;
+                host = 5;
+                wait = 200;
+            }
+            else if (host == 5 && --wait == 0)
+                host = 0;
+        }
+        tick();
+        if ((int)dut->tb_psst_starts != starts)
+        {
+            starts = (int)dut->tb_psst_starts;
+            if (dut->tb_psst_start_err)
+                refusals++;
+        }
+        if (sys)
+        {
+            if (wrote)
+            {
+                if (!want)
+                    in_force = false;
+            }
+            else if (dut->tb_psst_rdata & 1)
+            {
+                if (!in_force)
+                    held++;
+                in_force = true;
+            }
+            /* A read that follows a write of 0 never shows it in force. */
+            if (!want && !wrote)
+                ASSERT_EQ(0u, dut->tb_psst_rdata & 1);
+        }
+        if (in_force)
+            ASSERT_FALSE((int)dut->tb_psst_save);
+        if (dut->tb_psst_save && sys && i % 97 == 0)
+            saves++;
+        /* Left set through a quiet spell with no save, it is in force. */
+        if (sys && quiet == 1 && want && !dut->tb_psst_save && host == 0)
+            ASSERT_TRUE(in_force);
+    }
+    dut->stb = 0;
+    ASSERT_GT(held, 50);
+    ASSERT_GT(saves, 50);
+    ASSERT_GT(refusals, 50);
 }
 
 UTEST_MAIN()

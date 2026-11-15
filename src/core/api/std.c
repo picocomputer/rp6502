@@ -104,6 +104,19 @@ static void std_bind(std_fd_t *f, uint8_t row, int desc, uint8_t mode)
     f->driver = row;
 }
 
+bool std_sst_refused(void)
+{
+    size_t count;
+    const std_driver_t *drivers = std_drivers(&count);
+    for (int fd = STD_FD_FIRST_FREE; fd < STD_FD_MAX; fd++)
+    {
+        const std_fd_t *f = &std_fd_pool[fd];
+        if (f->is_open && f->write && !drivers[f->driver].resumes_writes)
+            return true;
+    }
+    return false;
+}
+
 #ifdef RP6502_SST
 
 /* Which of xstack and xram a transfer is landing in. A savestate has to
@@ -129,17 +142,16 @@ void std_sst_save(sst_cursor_t *c, unsigned flags)
 {
     size_t count;
     const std_driver_t *drivers = std_drivers(&count);
+    /* Before std_left_out, so a netplay state refuses a writer too rather
+     * than leaving it out. */
+    if (std_sst_refused())
+    {
+        sst_fail(c);
+        return;
+    }
     for (int fd = 0; fd < STD_FD_MAX; fd++)
     {
         std_fd_t *f = &std_fd_pool[fd];
-        /* Before std_left_out, so a netplay state refuses a writer too
-         * rather than leaving it out. */
-        if (f->is_open && fd >= STD_FD_FIRST_FREE && f->write &&
-            !drivers[f->driver].resumes_writes)
-        {
-            sst_fail(c);
-            return;
-        }
         bool carried = f->is_open && fd >= STD_FD_FIRST_FREE && !std_left_out(f, flags);
         sst_put_bool(c, carried);
         if (!carried)

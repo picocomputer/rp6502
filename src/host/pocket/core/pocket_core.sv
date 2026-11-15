@@ -6,6 +6,7 @@
 
 module pocket_core
     import mem_pkg::*;
+    import pocket_version_pkg::*;
 (
     output logic pocket_core_stop_req,
     input logic mach_running,
@@ -295,9 +296,23 @@ input logic clk_vid,
                 default: set_rdata <= '0;
             endcase
     end
+    /* The numbers this bitstream shares with its firmware, which
+     * gen/version.py states: the register layout at 0x80030000 and the
+     * savestate version at 0x80030004. The firmware reads them before
+     * it uses any other register, so these two addresses never move. */
+    logic [31:0] ver_rdata;
+    initial ver_rdata = '0;
+    always_ff @(posedge clk_sys)
+        if (host_stb)
+            ver_rdata <= host_addr[2] ? SST_VERSION : REG_VERSION;
+
     always_comb
-        host_rdata = host_sel_q[1] ? sst_rdata
-            : (host_sel_q[0] ? set_rdata : file_rdata);
+        case (host_sel_q)
+            2'd0: host_rdata = file_rdata;
+            2'd1: host_rdata = set_rdata;
+            2'd2: host_rdata = sst_rdata;
+            default: host_rdata = ver_rdata;
+        endcase
 
     logic [1:0] host_sel_q;
     initial host_sel_q = '0;
@@ -448,7 +463,7 @@ input logic clk_vid,
 
     pocket_sst sst (
         .clk_sys(clk_sys),
-        .stb(host_stb && host_addr[17]),
+        .stb(host_stb && host_addr[17:16] == 2'd2),
         .we(host_we),
         .addr(host_addr),
         .wdata(host_wdata),

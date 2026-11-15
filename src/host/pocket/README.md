@@ -119,11 +119,34 @@ about 53 KB more, and the window it is written back into is 512 KB.
 
 **A state belongs to the firmware that made it.** The firmware carries
 a build stamp, the time it was linked, in the word after its reset
-jump. A save reads the stamp from the ROM block and puts it in the
-blob's header, and a load reads it again and refuses a blob that names
-another build, as it refuses another blob version. That catches a card
+jump, ahead of its two version words. A save reads the stamp from the
+ROM block and puts it in the blob's header, and a load reads it again
+and refuses a blob that names another build, as it refuses another blob
+version. That catches a card
 whose `firmware.bin` changed while the Pocket slept: the state's stack
 and data would not fit the new code.
+
+**A bitstream runs only the firmware built for it.** Two numbers say
+whether they match: the savestate version, which is the blob's format,
+and the register layout version, which covers the registers and the
+memory map. Both are written once, in `gen/version.py`, which makes a
+package for the RTL and a header for the firmware. The bitstream shows
+them at 0x80030000 and 0x80030004, and `firmware.bin` carries its own in
+the two words after its build stamp. `ver_check` compares them before
+the firmware uses any other register, so those two addresses never
+move. When either differs the firmware stops there. The 6502 stays in
+reset and the screen shows a blinking cursor in its first cell and
+nothing else. That is the whole error: no register can be trusted to
+say more. The video device draws nothing until it is told to, so the
+stop writes the least that shows a cursor: mode 0 on the first 16
+scanlines, the cursor's colour, and the cursor itself, lit for 30 frames
+and dark for 30.
+
+Raise the savestate version when the blob changes: its header, what it
+holds, or the order or size of anything in it. Raise the register
+layout version when a register the firmware uses moves, changes meaning
+or is added, or when the memory map in `mmio.h`, `mem_pkg.sv` or
+`link.ld` changes. A change to one side alone needs neither.
 
 ### The host's commands
 
@@ -137,6 +160,7 @@ before.
 | Request | Result |
 |---|---|
 | A save | busy until the blob is ready, then ok. err once a word was not served in time |
+| A save, a file open for writing | err at once, and nothing is saved |
 | A load, the machine running | busy until the engine has finished, then ok, or err for a refused blob |
 | A load, the core in reset | ok at once, and ok from then on |
 
@@ -157,15 +181,46 @@ firmware finishing the wake, starts no second load and is answered
 with the first one's status. A save asked for again while its blob is
 held reads the same blob from the start.
 
+**No savestate while a file is open for writing.** A write in
+progress, such as a game saving its progress, cannot be caught whole,
+so core refuses a savestate then, and this machine follows the same
+rule: `std_sst_refused` in `core/api/std.c` is the one question both
+ask. The engine makes the savestate here, so the firmware hands the
+answer to the bitstream. `wake_task` writes it to `SST_REFUSE` on every
+pass of the main loop, set while a descriptor is open for writing or an
+open that may create a file is under way. While it is set, a save
+request is answered err at once, the engine is not asked and the
+machine runs on. A Memories save from the menu is the same request and
+is refused the same way.
+
+There is no window at either end. An open that can change the card
+claims its descriptor and sends nothing until `SST_REFUSING` reads set,
+which means the refusal is in force and no save is in progress. A save
+taken before that halts a firmware that has sent none of the open's
+commands, and the whole open is made after the wake. A close is done
+before the refusal drops.
+
+What the Pocket does with a sleep the core refuses is not documented:
+it may stay awake or power down anyway. If it powers down, the wake has
+no blob for that sleep. With no load asked for, the wake is a plain
+boot and the screen says nothing of it. With a load asked for and no
+blob written, the console shows `wake: no header` and the program
+starts. A blob left from an earlier sleep of the same firmware would be
+taken for this one's and resumed.
+
 A write into the blob window is the first the firmware sees of a wake,
 in `SST_BLOB_SEEN`. `SST_BLOB_UNASKED` beside it says no load has been
 asked for, and `SST_BLOB_WRITING` that a word has been written since
 the firmware last cleared it, so the firmware can tell a blob that is
-still arriving from one the host has left. It drops a blob that has had
-no word written for two seconds and no load asked for. The host writes a
+still arriving from one the host has left. `SST_BLOB_WRITING` reads set
+on the clock `SST_BLOB_UNASKED` first does, so a blob is never seen
+unasked before it is seen arriving. The firmware drops a blob that has
+had no word written for two seconds and no load asked for. The host writes a
 blob at 3.4 MB/s or faster and the bridge gives any command 0.9 s, so
 two seconds of silence is a blob left behind. Dropping clears only
-`SST_BLOB_SEEN`: a load that comes later still finds the blob.
+`SST_BLOB_SEEN`: a load that comes later still finds the blob. A blob
+the host writes again while its load is in progress belongs to that
+load, and is no new wake once the load is over.
 
 ### The architecture: one clock gate
 
@@ -369,6 +424,8 @@ on clk_mach that the second pass restores.
   during the wake with the machine parked, so it takes the room the
   buffer had then, a few bytes short of what a run that never slept
   takes.
+- A sleep while a file is open for writing is refused, as above, so
+  nothing of a write has to survive one.
 - The blob does not contain the host's slot bindings or the staging
   store, so `fs_restore` marks every open file stale and drops its
   cached bytes. Analogue does not document whether a slot keeps a
@@ -549,6 +606,12 @@ bytes it adds has not been measured. The main loop stops until those
 writes finish, because a driver's lseek has no pending result. A seek
 past the end of a file open only for reading stops at the end.
 
+**An open runs in two steps.** `fs_std_open` claims a descriptor and
+sends nothing, and core calls `fs_std_opening` from the main loop until
+the open is made. That gives the wake task a pass in which to refuse
+savestates before an open that can change the card sends its first
+command.
+
 **Creating a file takes both flag bits.** With bit 0, create, on its
 own, Open File returns 1, created and opened, and makes no file. The
 file is made only when bit 1, resize, is set as well. Both bits on an
@@ -589,21 +652,28 @@ of a file open only for reading sends no flush and returns at once.
 Close polls its flush from the main loop as sync does, so the other
 tasks run during the deadline. `std_stop` calls close in a loop that
 runs no other task until the close finishes. Close therefore collects
-the result of a command that another descriptor left in flight, and it
-does not wait for `fs_restore`, because a Flush sent to a stale slot
-changes no data.
+the result of a command that another descriptor left in flight.
 
-**A file call that a sleep interrupts ends after the wake as it would
-have.** A save can halt the firmware anywhere in a call, so a command
-can be issued, or its status read, on the host that woke, where the
-slot is bound to nothing. Such a status says nothing about the file.
-Read, write and sync ask whether a restore is open before they act on
-a status, and return pending so the call is made again once the wake
-task has marked the descriptors stale. An open, a seek that extends a
-file, a ROM load, Get File and the data table lookup block through
-their commands, so they note whether a restore opened while they ran
-and run their commands again in the session that woke. See "A command
-belongs to one session" below for the command a restore lands inside.
+**A sleep never lands in a write.** No savestate is made while a file
+is open for writing, so a write, a sync, a seek that extends a file, a
+close's flush and an open that creates or truncates run in one session
+from end to end, and none of them looks for a restore.
+
+**A read that a sleep interrupts ends after the wake as it would
+have.** A file open only for reading refuses nothing, and a save can
+halt the firmware anywhere in its calls, so a command can be issued, or
+its status read, on the host that woke, where the slot is bound to
+nothing. Such a status says nothing about the file. A read asks whether
+a restore is open before it sends a command, before it acts on a
+status and after it copies from its window, and returns pending so the
+call is made again once the wake task has marked the descriptors
+stale. An open for reading, a ROM load, Get File and the data table
+lookup block through their commands, so they note whether a restore
+opened while they ran and run their commands again in the session that
+woke. An open sends nothing while a restore is open: the session the
+restore replaced can have left a command in flight, and the wake task
+takes that over first. See "A command belongs to one session" below
+for the command a restore lands inside.
 
 **The bridge's deadline is the shorter of the two.** The bridge and
 `pocket_file` both time out a data slot command, the bridge after 2^26
@@ -673,10 +743,7 @@ of the configuration that woke: slot 0, the ROM, at offset 0, or what
 the fresh firmware last wrote there. So a command is armed by its
 write to `FILE_ID`, which `fs.c` makes first, and a savestate load
 disarms it. A command written unarmed is not run and reads back as
-timed out, and `fs.c` runs the call again. A write also looks for a
-restore between `FILE_ID` and its data, because a write that starts
-after the restore still has its slot and position from the session
-that slept.
+timed out, and `fs.c` runs the call again.
 
 ## Reading the console
 

@@ -103,8 +103,11 @@ if(RP6502_SOFT_CPU)
             OPL_ROM="${OPL_ROM}" PCM_ROM="${PCM_ROM}"
             OPL_BEL_ROM="${OPL_BEL_ROM}" AUD_SST_ROM="${AUD_SST_ROM}"
             AUD_SNOOP_ROM="${AUD_SNOOP_ROM}" WAKECLK_ROM="${WAKECLK_ROM}"
+            ARGV_ROM="${ARGV_ROM}" SLEEPTRAP_ROM="${SLEEPTRAP_ROM}"
+            SLEEPEXEC_ROM="${SLEEPEXEC_ROM}"
             ROMS_DIR="${RP6502_TEST_CORPUS}"
-        DEPENDS file_roms stream_roms aud_roms wakeclk_roms
+        DEPENDS file_roms stream_roms aud_roms wakeclk_roms argv_roms
+            sleeptrap_roms
         TIMEOUT 1200)
 
     rp6502_add_machine_test(pfile FIRMWARE SPLIT

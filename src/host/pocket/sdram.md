@@ -25,6 +25,10 @@ design uses 219 blocks, so 89 are free.
   loads `firmware.bin` again. The blob is 293 KB.
 - **The build check.** The firmware carries its compile time and the blob
   carries it too. A wake whose blob names another build is refused.
+- **Bitstream and firmware must match.** The bitstream shows its savestate
+  version and its register layout version in two registers, and the
+  firmware carries its own. It reads both first thing and stops if either
+  differs: the screen shows a blinking cursor and nothing else.
 
 ### The SDRAM's map
 
@@ -60,23 +64,26 @@ Timing after the last fit: setup 0.57 ns to spare, hold 0.11 ns.
 
 ### Wakes that fail
 
-About 1 wake in 20 ends on a blank console, and so does a wake after the
-card's firmware changed. Being fixed now:
+About 1 wake in 20 ended on a blank console, and so did a wake after the
+card's firmware changed. Built, and waiting for a Pocket:
 
 - A savestate load that the Pocket asks for while it holds the core in
   reset is answered at once and run when the reset ends.
 - A wake that does not resume starts the program over, and prints one line
   saying why.
+- No savestate while a file is open for writing. The save request is
+  answered with an error and the machine runs on.
 - The simulated Pocket tries the wake orders real ones are known or
   suspected to use.
 
-### Bitstream and firmware must match
+For the Pocket to show:
 
-Nothing stops a bitstream running a `firmware.bin` built for another one.
-The bitstream shows two numbers in registers: the savestate version and a
-register layout version, which also covers the memory map. The firmware
-reads both first thing and stops if either differs from its own. The screen
-shows the blinking cursor and nothing else. To be built with the wake fix.
+- Whether the 1 in 20 is gone.
+- Which answers it goes on from: busy at a save or a load request, ok at a
+  load asked for in reset.
+- What it does with a sleep the core refuses: stay awake, or power down.
+  If it powers down, what its wake brings: no blob, a load with no blob,
+  or a blob from an earlier sleep, which would resume that sleep.
 
 ### The 6502's memory on the die
 
@@ -160,3 +167,8 @@ memories, and core's font builder writes whole 32-bit words.
 - **pocket_file's arming.** One flop on clk_sys, set by a write to
   the slot register and cleared by a command or a savestate load. It
   gates the command's start.
+- **The save refusal.** pocket_sst has seven more flops on clk_sys and
+  four on clk_74a, and three more crossings, one from clk_sys and two
+  back, all through registers named _s1.
+- **The version registers.** Two constants on the soft CPU's host bus,
+  one more leg of pocket_core's read mux.

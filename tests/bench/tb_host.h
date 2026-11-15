@@ -7,6 +7,7 @@
 #ifndef _TESTS_FPGA_TB_HOST_H_
 #define _TESTS_FPGA_TB_HOST_H_
 
+#include "pocket_version.h"
 #include "tb_stage.h"
 
 #include <cstdint>
@@ -23,6 +24,12 @@
  * at 0x1000: a 256-byte path, then the flags and size words. */
 #define TB_HOST_FILE_WIN 0x1000u
 #define TB_HOST_OPEN_NAME 256u
+
+/* The firmware's SST_REFUSE, and the two version registers it reads before
+ * anything else. */
+#define TB_HOST_SST_REFUSE 0x20004u
+#define TB_HOST_VER_REG 0x30000u
+#define TB_HOST_VER_SST 0x30004u
 
 class tb_host
 {
@@ -49,6 +56,7 @@ private:
     std::string name_ = "/Assets/rp6502/common/test.rp6502";
     uint32_t id_ = 0, off_ = 0, len_ = 0, bridge_ = 0, result_ = 0;
     uint32_t err_ = 0;
+    uint32_t refuse_ = 0;
     uint8_t open_name_[TB_HOST_OPEN_NAME] = {};
 
     uint32_t slot_size(uint32_t slot) const
@@ -76,6 +84,7 @@ private:
         case 0x08: len_ = data; break;
         case 0x0C: bridge_ = data; break;
         case 0x10: command(data & 7u); break;
+        case TB_HOST_SST_REFUSE: refuse_ = data & 1u; break;
         default:
             /* fs_win_put packs the path into each word high byte first. */
             if (addr >= TB_HOST_FILE_WIN
@@ -101,6 +110,14 @@ private:
             return err_ << 1; /* the busy and drain bits are never set */
         if (addr == 0x14)
             return result_;
+        /* This host asks for no save, so a refusal is in force as soon as
+         * it is written. */
+        if (addr == TB_HOST_SST_REFUSE)
+            return refuse_;
+        if (addr == TB_HOST_VER_REG)
+            return POCKET_REG_VERSION;
+        if (addr == TB_HOST_VER_SST)
+            return POCKET_SST_VERSION;
         return 0;
     }
 

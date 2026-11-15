@@ -37,7 +37,12 @@ void fs_stop(void);
 
 void fs_restore(void);
 
-void fs_release(int desc);
+/* Whether an open that can change the card is waiting or running: one
+ * that writes or may create its file. No savestate is made meanwhile. */
+bool fs_changing(void);
+
+std_rw_result fs_std_opening(int desc, api_errno *err);
+
 void fs_log(void);
 
 bool fs_slot_len(uint32_t slot, uint32_t *len);
@@ -52,6 +57,21 @@ const char *fs_strip_drive(const char *path);
  * already stripped. A relative path is taken under root, and . and .. are
  * resolved. It returns false when the result does not fit in cap. */
 bool fs_card_path(const char *path, const char *root, char *out, size_t cap);
+
+/* osal/fs.h's two rows, with this machine's opening. */
+#define FS_POCKET_ROW(handles_fn, open_fn) \
+    {                                      \
+        .handles = handles_fn,             \
+        .open = open_fn,                   \
+        .close = fs_std_close,             \
+        .opening = fs_std_opening,         \
+        .read = fs_std_read,               \
+        .write = fs_std_write,             \
+        .sync = fs_std_sync,               \
+        .lseek = fs_std_lseek,             \
+    }
+#define FS_POCKET_SAVE_DRIVER FS_POCKET_ROW(save_std_handles, save_std_open)
+#define FS_POCKET_STD_DRIVER FS_POCKET_ROW(fs_std_handles, fs_std_open)
 
 #define FS_DRIVER DRIVER(STOP(fs_stop))
 

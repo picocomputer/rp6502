@@ -31,6 +31,7 @@
 #include "vid.h"
 
 #include "core/api/clk.h"
+#include "core/api/std.h"
 #include "core/aud/bel.h"
 #include "core/api/tim.h"
 #include "core/sys/debug_log.h"
@@ -74,6 +75,13 @@ static void wake_failed(const char *why, const char *when)
 
 void wake_task(void)
 {
+    /* core/api/std.h's rule: no savestate while a file is open for
+     * writing. The engine makes this machine's savestates, so the rule is
+     * handed to the bitstream, here and nowhere else, every pass. An open
+     * waits for it to be in force before it sends a command, and a close
+     * is done before it drops. */
+    SST_REFUSE = std_sst_refused() || fs_changing();
+
     uint32_t ctl = SST_CTL;
     if (!(ctl & SST_RESTORED))
     {
