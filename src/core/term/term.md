@@ -62,43 +62,40 @@ except libretro in part.
 The terminal's LED command, DECLL (`CSI Ps q`), stays ignored. It lights a
 lamp without changing a lock, which no emulator can do.
 
-### Who owns each lock and its light
+### Who owns each lock
 
-"Us" is the machine's own keyboard code: a press of the lock key flips the
-lock. "The system" is the operating system the emulator runs on: it flips
-the lock and lights the LED, and the emulator reads the lock from it.
+A lock and its light stay together: whoever owns the lock lights its LED.
+"Us" is the machine's own keyboard code, where a press of the lock key
+flips the lock. "The system" is the operating system the emulator runs on,
+which flips the lock and lights the LED; the emulator reads the lock and
+never changes it.
 
-| Machine | Lock | Who owns the lock | Who lights the LED |
-|---|---|---|---|
-| Pico, USB and Bluetooth | all three | us | us. Works today. |
-| Pocket | all three | us. Works today. | nobody. The Pocket has no known way to reach the dock keyboard. |
-| Windows | all three | the system | the system |
-| Linux | Num, Caps | the system | the system |
-| Linux | Scroll | us. Linux has no Scroll Lock to read. | nobody |
-| macOS | Caps | the system | the system |
-| macOS | Num, Scroll | us. A Mac has neither. | nobody |
-| Web | all three | the system, read when a key is pressed | the system |
-| Web on Safari | Num, Scroll | us. Safari reports only Caps. | the system, for its own lock |
-| libretro | all three | the frontend, when it sends them | the system |
-| libretro, frontend sends none | all three | us | the system, for its own lock |
+| Machine | Lock | Owner |
+|---|---|---|
+| Pico, USB and Bluetooth | all three | us. Works today. |
+| Pocket | all three | us. The lock works today; the LED does not light, and the Pocket has no known way to reach the dock keyboard. |
+| Windows | all three | the system |
+| Linux | Num, Caps | the system |
+| Linux | Scroll | nobody: Linux has no Scroll Lock. Always off. |
+| macOS | Caps | the system |
+| macOS | Num | nobody: a Mac has no NumLock and its keypad always types digits. Always on. |
+| macOS | Scroll | nobody. Always off. |
+| Web | all three | the system, read when a key is pressed |
+| Web on Safari | Num, Scroll | as on a Mac: Safari reports only Caps |
+| libretro | all three | the system, through what the frontend sends with a key |
 
-A lock of ours on an emulator starts with NumLock on and the others off. No
-emulator lights an LED: the few that could would change the lock for the
-whole computer or work on one kind of Linux desktop only. So where the lock
-is ours and the system has one too (Safari, a libretro frontend that sends
-none), the keyboard's light shows the system's lock and can disagree with
-ours.
+A lock that nobody owns never changes. Its key still shows in the keyboard
+bitmap, so a program can use the key.
 
 ### Plan
 
-1. **The emulators follow the operating system and never change it.** One
-   function for each of Windows, Linux, macOS and the web says which locks
-   the system has and what they are. The emulator reads it at start, when its
-   window gets the keyboard, and while it runs. The 6502 sees those locks,
-   and the keypad follows NumLock in the window as it does on the Pico.
-2. **libretro** follows the frontend once the frontend has shown that it
-   sends locks, and until then keeps its own. Several RetroArch input drivers
-   send none, and its Mac driver sends wrong ones.
+1. **The emulators follow the system and never change it.** One function
+   for each of Windows, Linux, macOS and the web gives the three locks. The
+   emulator reads it at start, when its window gets the keyboard, and while
+   it runs. The 6502 sees those locks, and the keypad follows NumLock in the
+   window as it does on the Pico.
+2. **libretro** stays as it is: it takes the locks the frontend sends with a
+   key. A frontend that sends none leaves all three off.
 3. **The script has its own locks**, all off when a script starts, never
    read from or written to a real keyboard. `lock` sets one on or off or
    toggles it, `key` types by them (NumLock for the keypad, Caps Lock for
@@ -116,6 +113,5 @@ The Pico and the Pocket do not change, so this costs the Pocket no memory.
 - Windows: whether a lock changed while the window is in the background is
   seen before the window is back in front.
 - macOS: reading Caps Lock, and whether Sokol needs help to see its key.
-- Whether a held lock key repeats in the window and flips a lock of our own.
 - A Pocket dock: whether its keyboard's lights follow the lock keys. Nothing
   found so far lets the Pocket light them.
