@@ -67,10 +67,6 @@ the screen alone, NAWS is refused, and "cursor in column 1" is the clean line.
 Headless with stdout a pipe or file, the line editor types plainly
 (rln_set_plain).
 
-Still to do: the docs. term.rst, api.rst (0x0A, 0x0B, 0x0D) and vga.rst
-(SUPPRESS_TERM_REPLY is gone), the 0x0D name in the cc65 and llvm-mos headers,
-and msbasic's pager.
-
 ### Step 4: keyboard modes (done)
 
 The terminal holds the keyboard's modes: cursor keys `?1`, the keypad
@@ -98,9 +94,6 @@ sends no escape sequences and is used for a read that starts in VT52 mode,
 insert mode is suspended in VT52 mode, and `ESC A-D`, `ESC H` and `ESC F` are
 always the arrows, Home and End. The soft reset puts the cursor keys, keypad
 and autorepeat back. vttest's keyboard menu runs, typed through hostkey.
-
-Still to do: the docs. term.rst lists these modes as ignored, and has
-nothing on the keypad, the simple mode, VT52 reads or insert mode in VT52.
 
 ## 4. Mouse
 
