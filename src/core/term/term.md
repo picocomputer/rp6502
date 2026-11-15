@@ -49,95 +49,58 @@ with what it saves:
 - **64-bit divides** in the APF, HID and clock code. About 1.7 KB.
 - **Buffers:** com.c's 1 KB buffer and the file system's pool. 1-2 KB.
 
-## 3. Keyboard LEDs and locks
+## 3. The lock keys on every machine
 
 For review. Nothing here is built.
 
-### How the LED command works
+NumLock, Caps Lock and Scroll Lock have to work on every machine. On the
+Pico and the Pocket we are the keyboard driver: a lock key changes the lock
+and its light, and that works today. On an emulator the computer's operating
+system does both, and the emulator has to follow it. Today no emulator does,
+except libretro in part.
 
-`CSI Ps q` (DECLL) is a VT100 command for four spare lamps on its keyboard,
-L1 to L4, that a program could light for any reason. 0 puts them all out and
-1 to 4 light one; several numbers in one command are done left to right.
-xterm uses it for a PC's lamps: 1, 2 and 3 light Num, Caps and Scroll, and
-21, 22 and 23 put them out. Linux numbers them differently and lights one at a time.
+The terminal's LED command, DECLL (`CSI Ps q`), stays ignored. It lights a
+lamp without changing a lock, which no emulator can do.
 
-It only ever lights a lamp. It never changes a lock, so what the keys type
-stays the same and a lamp can disagree with its lock. Most terminals today
-ignore it, nothing can read it back, and vttest only asks a person to look at
-the keyboard.
+### What each emulator can read
 
-### What each machine can do
+| Emulator | From the operating system | Its own, toggled by the key |
+|---|---|---|
+| Windows | Num, Caps, Scroll | |
+| Linux | Num, Caps | Scroll |
+| macOS | Caps | Num, Scroll |
+| Web | Num, Caps, Scroll when a key is pressed; Safari only Caps | on Safari, Num and Scroll |
+| libretro | what the frontend sends in key events | all three, when the frontend sends none |
 
-A **lock** is what the keys type (NumLock, Caps Lock, Scroll Lock). A
-**lamp** is the light.
-
-| Machine | Read the locks | Change the locks | Light a lamp alone |
-|---|---|---|---|
-| Pico | owns them | owns them | yes |
-| Pocket | owns them | owns them | no way found to reach the dock keyboard's lamps |
-| Windows | all three | all three, for the whole PC | no |
-| Linux, real Xorg | Caps, Num | Caps, Num, for the whole desktop | Scroll only |
-| Linux, Wayland desktops and WSL | Caps, Num | no | no |
-| macOS | Caps; it has no Num or Scroll | Caps, for the whole Mac (needs a test on a Mac) | no |
-| Web | when a key is pressed; Safari only Caps | no | no |
-| libretro | in key events, if the frontend sends them | no | no |
-
-Three things follow:
-
-- **No emulator can do what DECLL does.** Where an emulator can change
-  anything it changes the real lock, for every program on the computer, and
-  the web, Wayland and libretro can change nothing.
-- **An emulator never needs to change a lock.** A lock key pressed in its
-  window is the computer's own key and has already changed the lock. The only
-  other thing that would is DECLL, which is not meant to.
-- **Scroll Lock cannot follow the computer** on Linux, macOS or Safari.
+A lock of its own starts with NumLock on and the others off.
 
 ### Plan
 
-1. **Lamps apart from locks, in the core.** One byte of lamps beside the
-   locks. A lock change, RIS and the reset at a program's end make the lamps
-   show the locks. DECLL lights and puts out lamps with xterm's numbers and
-   leaves the locks alone. The 6502 keeps seeing the locks.
-2. **The Pico** sends the lamps to the keyboard where it sends the locks now.
-   The Pocket does the same once there is a way to light its dock keyboard.
-3. **The emulators follow the computer and never change it.** One function
-   for each of Windows, Linux, macOS and the web says which locks the
-   computer has and what they are; the emulator reads it at start, when its
-   window gets the keyboard, and while it runs. A lock the computer does not
-   have (Num and Scroll on a Mac, Scroll on Linux) is the emulator's own,
-   toggled by its key, with NumLock on at start. The keypad then follows
-   NumLock in the window as it does on the Pico. DECLL changes the lamps byte
-   and nothing a person can see.
-4. **libretro** follows the frontend once the frontend has shown that it
-   sends locks, and until then keeps its own, toggled by their keys. Several
-   RetroArch input drivers send none, and its Mac driver sends wrong ones.
-5. **The script has its own locks**, all off when a script starts, never
+1. **The emulators follow the operating system and never change it.** One
+   function for each of Windows, Linux, macOS and the web says which locks
+   the system has and what they are. The emulator reads it at start, when its
+   window gets the keyboard, and while it runs. The 6502 sees those locks,
+   and the keypad follows NumLock in the window as it does on the Pico.
+2. **libretro** follows the frontend once the frontend has shown that it
+   sends locks, and until then keeps its own. Several RetroArch input drivers
+   send none, and its Mac driver sends wrong ones.
+3. **The script has its own locks**, all off when a script starts, never
    read from or written to a real keyboard. `lock` sets one on or off or
    toggles it, `key` types by them (NumLock for the keypad, Caps Lock for
-   letters), and a new command checks the locks and the lamps. Scripts that
-   type keypad digits turn NumLock on first.
-6. **Pull request 223** has the Windows read, the place for the function and
-   the moments to read. Its waiting for the computer's character to guess
+   letters), and a new command checks them. Scripts that type keypad digits
+   turn NumLock on first.
+4. **Pull request 223** has the Windows read, the place for the function and
+   the moments to read. Its waiting for the system's character to guess
    NumLock goes, since the lock is read. It is written for main and has to be
    redone here.
 
-The Pocket's cost is step 1 alone: DECLL in the parser and one byte. A guess
-is 200 bytes; it is measured when built.
-
-### To settle
-
-- **Emulators never change the computer's locks** (step 3). The other choice
-  is to change them where it can be done: Windows, real Xorg and Caps Lock on
-  a Mac. Then a 6502 program sending DECLL turns on the Caps Lock of the
-  whole computer, and the web, most Linux desktops and libretro still do
-  nothing.
-- **Who holds a lamp DECLL lit.** Step 1 gives it back at the next lock key,
-  as X does. Linux keeps DECLL's lamps until a reset.
+The Pico and the Pocket do not change, so this costs the Pocket no memory.
 
 ### To try on real machines
 
 - Windows: whether a lock changed while the window is in the background is
   seen before the window is back in front.
 - macOS: reading Caps Lock, and whether Sokol needs help to see its key.
-- Whether a held lock key repeats in the window and flips the lock.
-- A Pocket dock: whether anything lights a keyboard's lamps.
+- Whether a held lock key repeats in the window and flips a lock of our own.
+- A Pocket dock: whether its keyboard's lights follow the lock keys. Nothing
+  found so far lets the Pocket light them.
