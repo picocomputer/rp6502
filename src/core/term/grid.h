@@ -20,6 +20,7 @@ typedef enum
     GRID_C0,      // ch, BS, HT, LF, VT, FF or CR
     GRID_CSI,     // ch, the final byte of a CSI with no private marker or intermediate
     GRID_REP,     // REP, the last glyph again
+    GRID_SELECTIVE, // ch, J or K: DECSED or DECSEL
     GRID_SHIFT,   // ch, the final byte of SL (CSI SP @) or SR (CSI SP A)
     GRID_ESC,     // ch, the final byte of ESC D, E, H or M
     GRID_LINE,    // ch, the final byte of ESC # 3 to 6 and 8

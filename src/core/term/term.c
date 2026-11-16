@@ -101,6 +101,8 @@ static void term_reset_core(term_t *t)
     t->app_keypad = false;
     t->autorepeat = true;
     t->ice_colors = false;
+    t->protect_mode = TERM_PROTECT_OFF;
+    t->erase_all = false;
     t->reverse_screen = false;
     t->cursor_enabled = true;
     t->cursor_style = 0;
@@ -131,11 +133,13 @@ void term_RIS_no_clear(term_t *t)
 // DECSTR, CSI ! p: the soft reset a program sends. It resets the modes on
 // DEC's list -- IRM, DECOM, DECAWM (to our default, on), DECTCEM, DECCKM,
 // the keypad mode, the character sets, SGR, the margins and the saved cursor
-// -- and ends a pending wrap, but leaves the cursor where it is. The cursor
-// style, iCE colors, autorepeat, the palette, the tab stops and the screen
-// are left alone.
+// -- and ends a pending wrap, but leaves the cursor where it is. The pen's
+// protection goes with SGR, and no erase spares a protected cell until a
+// DECSCA or SPA again, as on xterm. The cursor style, iCE colors,
+// autorepeat, the palette, the tab stops and the screen are left alone.
 static void term_out_DECSTR(term_t *t)
 {
+    t->protect_mode = TERM_PROTECT_OFF;
     t->insert_mode = false;
     t->app_cursor = false;
     t->app_keypad = false;
@@ -635,6 +639,9 @@ static void term_out_DECRQM(term_t *t, bool private)
         case 4: // IRM
             pm = t->insert_mode ? 1 : 2;
             break;
+        case 6: // ERM
+            pm = t->erase_all ? 1 : 2;
+            break;
         case 12: // SRM: no local echo
             pm = 3;
             break;
@@ -644,6 +651,19 @@ static void term_out_DECRQM(term_t *t, bool private)
         }
     }
     term_replyf(t, private ? "\33[?%u;%u$y" : "\33[%u;%u$y", ps, pm, 0);
+}
+
+// DECSCA, CSI Ps " q: 1 protects the cells the pen writes from DECSED and
+// DECSEL, 0 and 2 do not. Any DECSCA makes those the erases that spare them,
+// as on xterm, where the value only sets the pen.
+static void term_out_DECSCA(term_t *t)
+{
+    uint16_t ps = t->csi_param[0];
+    t->protect_mode = TERM_PROTECT_DEC;
+    if (ps == 1)
+        term_pen(t)->protect = true;
+    else if (ps == 0 || ps == 2)
+        term_pen(t)->protect = false;
 }
 
 // DECREQTPARM, CSI 0 x or CSI 1 x: the VT100's line settings, answered as a
@@ -694,6 +714,9 @@ static void term_out_SM_RM(term_t *t, bool set)
             break;
         case 4: // IRM: insert mode
             t->insert_mode = set;
+            break;
+        case 6: // ERM: set, ED, EL and ECH erase guarded cells too
+            t->erase_all = set;
             break;
         case 20: // LNM: new line mode
             t->newline_mode = set;
@@ -1211,6 +1234,13 @@ static void term_esc_byte(term_t *t, uint8_t ch)
     case 'Z': // DECID: answered as Primary DA
         TERM_REPLY(t, "\33[?6c");
         break;
+    case 'V': // SPA: the cells written from here are guarded
+        t->protect_mode = TERM_PROTECT_ISO;
+        term_pen(t)->protect = true;
+        break;
+    case 'W': // EPA: the guarded area ends
+        term_pen(t)->protect = false;
+        break;
     case '=': // DECKPAM: application keypad
         t->app_keypad = true;
         break;
@@ -1291,12 +1321,16 @@ static void term_csi_final(term_t *t, uint8_t ch)
             term_grids(t, GRID_SHIFT, ch);
         else if (inter == '!' && ch == 'p')
             term_out_DECSTR(t);
+        else if (inter == '"' && ch == 'q')
+            term_out_DECSCA(t);
         else if (inter == '$' && ch == 'p')
             term_out_DECRQM(t, false);
         break;
     case '?':
         if (!inter && (ch == 'h' || ch == 'l'))
             term_out_DECSET(t, ch == 'h');
+        else if (!inter && (ch == 'J' || ch == 'K')) // DECSED, DECSEL
+            term_grids(t, GRID_SELECTIVE, ch);
         else if (inter == '$' && ch == 'p')
             term_out_DECRQM(t, true);
         break;
@@ -1528,6 +1562,7 @@ static void term_put_pen(sst_cursor_t *c, const term_pen_t *pen)
     sst_put_bool(c, pen->faint);
     sst_put_bool(c, pen->reverse);
     sst_put_bool(c, pen->conceal);
+    sst_put_bool(c, pen->protect);
     sst_put_bool(c, pen->origin_mode);
     sst_put_u8(c, pen->g0_charset);
     sst_put_u8(c, pen->g1_charset);
@@ -1545,6 +1580,7 @@ static void term_get_pen(sst_cursor_t *c, term_pen_t *pen)
     pen->faint = sst_get_bool(c);
     pen->reverse = sst_get_bool(c);
     pen->conceal = sst_get_bool(c);
+    pen->protect = sst_get_bool(c);
     pen->origin_mode = sst_get_bool(c);
     pen->g0_charset = sst_get_u8(c);
     pen->g1_charset = sst_get_u8(c);
@@ -1569,6 +1605,8 @@ void term_sst_put(sst_cursor_t *c, const term_t *t)
     sst_put_bool(c, t->app_keypad);
     sst_put_bool(c, t->autorepeat);
     sst_put_bool(c, t->ice_colors);
+    sst_put_u8(c, t->protect_mode);
+    sst_put_bool(c, t->erase_all);
     sst_put_bool(c, t->reverse_screen);
     sst_put_bool(c, t->cursor_enabled);
     sst_put_u8(c, t->cursor_style);
@@ -1615,6 +1653,8 @@ bool term_sst_get(sst_cursor_t *c, term_t *t)
     t->app_keypad = sst_get_bool(c);
     t->autorepeat = sst_get_bool(c);
     t->ice_colors = sst_get_bool(c);
+    t->protect_mode = sst_get_u8(c);
+    t->erase_all = sst_get_bool(c);
     t->reverse_screen = sst_get_bool(c);
     t->cursor_enabled = sst_get_bool(c);
     t->cursor_style = sst_get_u8(c);
@@ -1639,7 +1679,7 @@ bool term_sst_get(sst_cursor_t *c, term_t *t)
     sst_get(c, t->osc_spec, TERM_OSC_SPEC_MAX);
     if (!sst_ok(c) || (alt && !TERM_ALT_SCREEN))
         return false;
-    if (state >= ansi_state_count ||
+    if (state >= ansi_state_count || t->protect_mode > TERM_PROTECT_ISO ||
         t->csi_param_count > TERM_CSI_PARAM_MAX_LEN || t->osc_len > TERM_OSC_SPEC_MAX + 1 ||
         (state == ansi_state_osc_palette && t->osc_len >= 7))
         return false;

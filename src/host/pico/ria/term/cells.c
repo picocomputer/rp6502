@@ -81,9 +81,10 @@ void cells_glyphs(term_t *t, term_grid_t *g, uint8_t y, uint8_t x, uint8_t byte,
     (void)t, (void)g, (void)y, (void)x, (void)byte, (void)n;
 }
 
-void cells_erase(term_t *t, term_grid_t *g, uint8_t y, unsigned from, unsigned to)
+void cells_erase(term_t *t, term_grid_t *g, uint8_t y, unsigned from, unsigned to,
+                 bool selective)
 {
-    (void)t, (void)g, (void)y, (void)from, (void)to;
+    (void)t, (void)g, (void)y, (void)from, (void)to, (void)selective;
 }
 
 void cells_insert(term_t *t, term_grid_t *g, uint8_t y, uint8_t x, unsigned n)
@@ -101,9 +102,10 @@ void cells_shift(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, unsigned n
     (void)t, (void)g, (void)top, (void)bot, (void)n, (void)left;
 }
 
-void cells_erase_rows(term_t *t, term_grid_t *g, uint8_t from, uint8_t to)
+void cells_erase_rows(term_t *t, term_grid_t *g, uint8_t from, uint8_t to,
+                      bool selective)
 {
-    (void)t, (void)g, (void)from, (void)to;
+    (void)t, (void)g, (void)from, (void)to, (void)selective;
 }
 
 void cells_align(term_t *t, term_grid_t *g)

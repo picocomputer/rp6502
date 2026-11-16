@@ -56,14 +56,14 @@ static void fresh(void)
 {
     sys_init();
     feed("\30\33c");
-    for (int i = 0; i < 4 * TERM_MAX_HEIGHT; i++)
+    for (int i = 0; i < TB_SCREEN_SETTLE; i++)
         cells_task();
     answer();
 }
 
 static const mode0_cell_t *cell(int x, int y)
 {
-    for (int i = 0; i < 4 * TERM_MAX_HEIGHT; i++)
+    for (int i = 0; i < TB_SCREEN_SETTLE; i++)
         cells_task();
     return tb_screen_row((uint8_t)y) + x;
 }
@@ -471,11 +471,17 @@ UTEST(term, the_soft_reset_string_puts_the_keys_back)
     ASSERT_TRUE(cells_term.autorepeat);
 }
 
+/* Each item of an OSC 4 takes effect as it ends, so the CAN keeps entry 1's
+ * green and drops entry 2's blue, and an ESC after a finished item keeps
+ * that item. X follows entry 1 to its blue. */
 UTEST(term, an_aborted_osc_keeps_the_pen_true)
 {
     fresh();
-    feed("\33[31m\33]4;1;#00ff00;2;#0000ff\30X\33]4;1;#0000ff;\33[0mY\33[31mZ");
+    feed("\33[31m\33]4;1;#00ff00;2;#0000ff\30X");
     ASSERT_EQ(cell(0, 0)->fg_color, rgb(0, 255, 0));
+    feed("\33]4;1;#0000ff;\33[0mY\33[31mZ");
+    ASSERT_EQ(cell(0, 0)->fg_color, rgb(0, 0, 255));
+    ASSERT_EQ(cell(1, 0)->fg_color, color_256[7]);
     ASSERT_EQ(cell(2, 0)->fg_color, rgb(0, 0, 255));
 }
 
@@ -710,11 +716,14 @@ UTEST(term, defaults_are_not_palette_entries)
     ASSERT_EQ(cell(1, 0)->bg_color, color_256[0]);
 }
 
+/* A palette entry reaches the pen, and the cells drawn with it follow it. */
 UTEST(term, the_palette_reaches_the_pen)
 {
     fresh();
-    feed("\33[31m\33]4;1;rgb:00/80/ff\7A\33]104\7B");
+    feed("\33[31m\33]4;1;rgb:00/80/ff\7A");
     ASSERT_EQ(cell(0, 0)->fg_color, rgb(0, 0x80, 0xff));
+    feed("\33]104\7B");
+    ASSERT_EQ(cell(0, 0)->fg_color, color_256[1]);
     ASSERT_EQ(cell(1, 0)->fg_color, color_256[1]);
 }
 
@@ -746,8 +755,10 @@ UTEST(term, osc_ignores_line_feeds_inside)
 UTEST(term, linux_palette)
 {
     fresh();
-    feed("\33[31m\33]P1102030A\33]RB");
+    feed("\33[31m\33]P1102030A");
     ASSERT_EQ(cell(0, 0)->fg_color, rgb(0x10, 0x20, 0x30));
+    feed("\33]RB");
+    ASSERT_EQ(cell(0, 0)->fg_color, color_256[1]);
     ASSERT_EQ(cell(1, 0)->fg_color, color_256[1]);
 }
 
@@ -954,6 +965,124 @@ UTEST(term, the_reverse_screen_is_a_mode)
     feed("\33c");
     tb_screen(&v);
     ASSERT_FALSE(v.reverse);
+}
+
+/* ---- recolor ------------------------------------------------------------ */
+
+/* The default colors are their own sources: OSC 10 and 11 recolor the text
+ * drawn in them, and bold's 15 follows entry 15, not the default. */
+UTEST(term, the_defaults_recolor_what_was_drawn_in_them)
+{
+    fresh();
+    feed("A\33[1mB");
+    feed("\33]10;#102030;#405060\7");
+    ASSERT_EQ(cell(0, 0)->fg_color, rgb(0x10, 0x20, 0x30));
+    ASSERT_EQ(cell(0, 0)->bg_color, rgb(0x40, 0x50, 0x60));
+    ASSERT_EQ(cell(1, 0)->fg_color, color_256[15]);
+    ASSERT_EQ(cell(1, 0)->bg_color, rgb(0x40, 0x50, 0x60));
+    feed("\33]4;15;#0000ff\7");
+    ASSERT_EQ(cell(1, 0)->fg_color, rgb(0, 0, 255));
+    feed("\33]110\7\33]111\7");
+    ASSERT_EQ(cell(0, 0)->fg_color, color_256[7]);
+    ASSERT_EQ(cell(0, 0)->bg_color, color_256[0]);
+}
+
+/* A cell follows the entries it was drawn from through SGR 7, SGR 8 and
+ * faint, its underline follows its foreground unless SGR 58 gave it one, and
+ * an RGB color, or one made transparent, follows nothing. */
+UTEST(term, a_recolor_follows_each_cells_sources)
+{
+    fresh();
+    feed("\33[7;31;42mR\33[0m\33[8;31;42mC\33[0m\33[2;31mF\33[0m"
+         "\33[4;31mU\33[58;5;3mV\33[0m\33[38;2;1;2;3mX\33[31;38;1mT");
+    feed("\33]4;1;#ff0000\7\33]4;2;#00ff00\7\33]4;3;#0000ff\7");
+    ASSERT_EQ(cell(0, 0)->fg_color, rgb(0, 255, 0));
+    ASSERT_EQ(cell(0, 0)->bg_color, rgb(255, 0, 0));
+    ASSERT_EQ(cell(1, 0)->fg_color, rgb(0, 255, 0));
+    ASSERT_EQ(cell(1, 0)->bg_color, rgb(0, 255, 0));
+    ASSERT_EQ(cell(2, 0)->fg_color, SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB5(15, 0, 0));
+    ASSERT_EQ(cell(3, 0)->ul_color, rgb(255, 0, 0));
+    ASSERT_EQ(cell(4, 0)->ul_color, color_256[3]);
+    ASSERT_EQ(cell(5, 0)->fg_color, rgb(1, 2, 3));
+    ASSERT_FALSE(cell(6, 0)->fg_color & SCANVIDEO_ALPHA_MASK);
+}
+
+/* A lazy erase still owed takes a recolor too. */
+UTEST(term, an_owed_erase_takes_a_recolor)
+{
+    fresh();
+    feed("\33[44m\33[2J\33]4;4;#123456\7");
+    ASSERT_EQ(cell(10, 10)->bg_color, rgb(0x12, 0x34, 0x56));
+}
+
+/* ---- protection ---------------------------------------------------------- */
+
+/* DECSCA protects from DECSED and DECSEL, and from nothing else. */
+UTEST(term, decsca_protects_from_the_selective_erases_alone)
+{
+    fresh();
+    feed("\33[1\"qAB\33[0\"qCD\33[?2K");
+    ASSERT_STREQ(row(0), "AB");
+    feed("\33[2K");
+    ASSERT_STREQ(row(0), "");
+    feed("\33[1\"qAB\33[0\"qCD\33[2J");
+    ASSERT_STREQ(row(0), "");
+}
+
+/* SPA and EPA guard cells from ED, EL and ECH as well, unless ERM is set. */
+UTEST(term, spa_guards_from_every_erase_unless_erm)
+{
+    fresh();
+    feed("\33VAB\33WCD\33[H\33[4X");
+    ASSERT_STREQ(row(0), "AB");
+    feed("\33[2K\33[J");
+    ASSERT_STREQ(row(0), "AB");
+    feed("\33[6h");
+    ASSERT_STREQ(ask("\33[6$p"), "\33[6;1$y");
+    feed("\33[2K");
+    ASSERT_STREQ(row(0), "");
+}
+
+/* A selective erase owed to a row spares its protected cells when it lands,
+ * and leaves the row's size. */
+UTEST(term, a_selective_lazy_erase_spares_and_keeps_the_size)
+{
+    fresh();
+    feed("\33#6\33[1\"qA\33[0\"qB\r\nC\33[?2J");
+    ASSERT_STREQ(row(0), "A");
+    ASSERT_STREQ(row(1), "");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_WIDE);
+    feed("\33[2J");
+    ASSERT_STREQ(row(0), "");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
+}
+
+/* SR moves the protected cells of a row still owed a selective erase. */
+UTEST(term, a_shift_moves_what_a_selective_erase_spares)
+{
+    fresh();
+    feed("\33[6;1H\33[1\"qAB\33[0\"qCD\33[H\33[?2J\33[3 A");
+    ASSERT_STREQ(row(5), "   AB");
+}
+
+/* Printing and DCH ignore protection, and DECSTR ends it. */
+UTEST(term, protection_ends_with_a_reset)
+{
+    fresh();
+    feed("\33[1\"qABC\33[H\33[P");
+    ASSERT_STREQ(row(0), "BC");
+    feed("x\33[?2K");
+    ASSERT_STREQ(row(0), "xC");
+    feed("\33[!p\33[?2K");
+    ASSERT_STREQ(row(0), "");
+}
+
+/* DECSC saves the pen's protection and DECRC brings it back. */
+UTEST(term, decsc_saves_the_protection)
+{
+    fresh();
+    feed("\33[1\"q\0337\33[0\"qAA\0338\33[2CB\33[?2K");
+    ASSERT_STREQ(row(0), "  B");
 }
 
 UTEST_MAIN();

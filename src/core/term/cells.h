@@ -48,9 +48,10 @@ void cells_set_height(uint8_t width, uint8_t height);
 
 /* The chunk holds the terminal (term.h) and both sizes in full: each one's
  * grid, the layout of its screens' cells (the scroll remap and the pending
- * lazy erases) and its blinks, then the colors and the cells. It also holds
- * the runtime palette, because OSC 4 can change an entry and nothing else
- * records what it changed to.
+ * lazy erases) and its blinks, then the colors, the cells and where each
+ * cell's colors came from. It also holds the runtime palette, because OSC 4
+ * can change an entry and nothing else records what it changed to, and the
+ * recolor that a change to it still owes the cells.
  *
  * The cells' addresses are never written, because they are mode 0's
  * (mode0_cells), the same in every build of a machine.
@@ -58,17 +59,20 @@ void cells_set_height(uint8_t width, uint8_t height);
  * The chunk starts with the terminal dimensions and a load rejects a chunk
  * whose dimensions differ, because a blob made at a taller height would put
  * its rows in the wrong places. */
-#define CELLS_BUF_SST_SIZE (7 * TERM_MAX_HEIGHT + 3)
+#define CELLS_BUF_SST_SIZE (12 * TERM_MAX_HEIGHT + 3)
 #define CELLS_ONE_SST_SIZE (TERM_GRID_SST_SIZE(TERM_MAX_HEIGHT) + 2 * CELLS_BUF_SST_SIZE + 18)
 #define CELLS_MEM_SST_SIZE (8 * TERM_MAX_HEIGHT * (40 + 80) * (TERM_ALT_SCREEN ? 2 : 1))
-#define CELLS_SST_SIZE (3 + TERM_SST_SIZE + 2 * CELLS_ONE_SST_SIZE + 6 + CELLS_MEM_SST_SIZE + 512)
+#define CELLS_SRC_SST_SIZE (3 * TERM_MAX_HEIGHT * (40 + 80) * (TERM_ALT_SCREEN ? 2 : 1))
+#define CELLS_RECOLOR_SST_SIZE (2 * 4 * 9 + 1)
+#define CELLS_SST_SIZE (3 + TERM_SST_SIZE + 2 * CELLS_ONE_SST_SIZE + 6 + CELLS_MEM_SST_SIZE + \
+                        CELLS_SRC_SST_SIZE + 512 + CELLS_RECOLOR_SST_SIZE)
 void cells_sst_save(sst_cursor_t *c, unsigned flags);
 bool cells_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define CELLS_DRIVER DRIVER(                                    \
     INIT(cells_init)                                            \
     TASK_FATFS(cells_task)                                      \
-    SST(CELL, 2, CELLS_SST_SIZE, cells_sst_save, cells_sst_load))
+    SST(CELL, 3, CELLS_SST_SIZE, cells_sst_save, cells_sst_load))
 
 /* ---- what the terminal asks of the screen ------------------------------
  *
@@ -98,8 +102,10 @@ void cells_touch(term_t *t, term_grid_t *g, uint8_t y);
 // character set. n never runs past the row's columns.
 void cells_glyphs(term_t *t, term_grid_t *g, uint8_t y, uint8_t x, uint8_t byte, unsigned n);
 
-// Erase columns [from, to) of row y.
-void cells_erase(term_t *t, term_grid_t *g, uint8_t y, unsigned from, unsigned to);
+// Erase columns [from, to) of row y. A selective erase leaves the protected
+// cells.
+void cells_erase(term_t *t, term_grid_t *g, uint8_t y, unsigned from, unsigned to,
+                 bool selective);
 
 // Insert n erased cells at column x of row y, the rest of the row moving
 // right and off the end; or delete n there, the rest moving left and erased
@@ -111,8 +117,9 @@ void cells_delete(term_t *t, term_grid_t *g, uint8_t y, uint8_t x, unsigned n);
 // coming in at the other side.
 void cells_shift(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, unsigned n, bool left);
 
-// Lazy-erase rows [from, to).
-void cells_erase_rows(term_t *t, term_grid_t *g, uint8_t from, uint8_t to);
+// Lazy-erase rows [from, to), selectively or not.
+void cells_erase_rows(term_t *t, term_grid_t *g, uint8_t from, uint8_t to,
+                      bool selective);
 
 // DECALN: every row lazy-erased to E's in the default colors.
 void cells_align(term_t *t, term_grid_t *g);

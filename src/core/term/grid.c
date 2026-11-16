@@ -473,8 +473,9 @@ static void grid_home(term_t *t, term_grid_t *g)
 
 /* ---- erasing and editing ----------------------------------------------- */
 
-// Erase Line: 0 cursor to end, 1 start to cursor, 2 the whole line.
-static void grid_erase_line(term_t *t, term_grid_t *g, uint16_t mode)
+// Erase Line: 0 cursor to end, 1 start to cursor, 2 the whole line. A
+// selective erase leaves the protected cells.
+static void grid_erase_line(term_t *t, term_grid_t *g, uint16_t mode, bool selective)
 {
     term_pos_t *pos = term_pos(g);
     pos->wrap_pending = false;
@@ -485,36 +486,39 @@ static void grid_erase_line(term_t *t, term_grid_t *g, uint16_t mode)
         to = (unsigned)pos->x + 1u;
     else if (mode != 2)
         return;
-    cells_erase(t, g, pos->y, from, to);
+    cells_erase(t, g, pos->y, from, to, selective);
 }
 
-// Lazy-erase rows [from, to), which become single size.
-static void grid_erase_rows(term_t *t, term_grid_t *g, uint8_t from, uint8_t to)
+// Lazy-erase rows [from, to), which become single size unless the erase is
+// selective: a row whose protected cells stay keeps its size, as on xterm.
+static void grid_erase_rows(term_t *t, term_grid_t *g, uint8_t from, uint8_t to,
+                            bool selective)
 {
-    grid_lines_normal(g, from, to);
-    cells_erase_rows(t, g, from, to);
+    if (!selective)
+        grid_lines_normal(g, from, to);
+    cells_erase_rows(t, g, from, to, selective);
 }
 
 // Erase Display. ED 0 and ED 1 erase the cursor's row like EL 0 and EL 1 and
 // lazy-erase the rows past it. ED 2 lazy-erases every row and touches the
 // cursor's. ED 3 (xterm) forgets the scrollback: the rows a taller view would
 // bring back.
-static void grid_erase_display(term_t *t, term_grid_t *g, uint16_t mode)
+static void grid_erase_display(term_t *t, term_grid_t *g, uint16_t mode, bool selective)
 {
     term_pos_t *pos = term_pos(g);
     switch (mode)
     {
     case 0:
-        grid_erase_rows(t, g, (uint8_t)(pos->y + 1), g->height);
-        grid_erase_line(t, g, 0);
+        grid_erase_rows(t, g, (uint8_t)(pos->y + 1), g->height, selective);
+        grid_erase_line(t, g, 0, selective);
         break;
     case 1:
-        grid_erase_rows(t, g, 0, pos->y);
-        grid_erase_line(t, g, 1);
+        grid_erase_rows(t, g, 0, pos->y, selective);
+        grid_erase_line(t, g, 1, selective);
         break;
     case 2:
         pos->wrap_pending = false;
-        grid_erase_rows(t, g, 0, g->height);
+        grid_erase_rows(t, g, 0, g->height, selective);
         cells_touch(t, g, pos->y);
         break;
     case 3:
@@ -576,7 +580,7 @@ static void grid_line_size(term_t *t, term_grid_t *g, uint8_t size)
     term_pos_t *pos = term_pos(g);
     uint8_t *line = &term_lines(g)[pos->y];
     if (size != TERM_LINE_NORMAL && *line == TERM_LINE_NORMAL)
-        cells_erase(t, g, pos->y, g->width / 2u, g->width);
+        cells_erase(t, g, pos->y, g->width / 2u, g->width, false);
     *line = size;
     grid_goto(t, g, pos->x, pos->y);
 }
@@ -640,10 +644,10 @@ static void grid_csi(term_t *t, term_grid_t *g, uint8_t ch)
         grid_tab_forward(g, grid_param(t, 0, 1));
         break;
     case 'J':
-        grid_erase_display(t, g, t->csi_param[0]);
+        grid_erase_display(t, g, t->csi_param[0], term_erase_selective(t, false));
         break;
     case 'K':
-        grid_erase_line(t, g, t->csi_param[0]);
+        grid_erase_line(t, g, t->csi_param[0], term_erase_selective(t, false));
         break;
     case 'L':
         grid_IL_DL(t, g, true);
@@ -663,7 +667,7 @@ static void grid_csi(term_t *t, term_grid_t *g, uint8_t ch)
         break;
     case 'X': // ECH: Pn cells erased; the cursor doesn't move
         n = grid_edit_count(t, g);
-        cells_erase(t, g, pos->y, pos->x, pos->x + n);
+        cells_erase(t, g, pos->y, pos->x, pos->x + n, term_erase_selective(t, false));
         break;
     case 'Z': // CBT
         grid_tab_back(g, grid_param(t, 0, 1));
@@ -704,10 +708,10 @@ static void grid_vt52(term_t *t, term_grid_t *g, uint8_t ch)
         grid_reverse_index(t, g);
         break;
     case 'J': // erase to end of screen
-        grid_erase_display(t, g, 0);
+        grid_erase_display(t, g, 0, term_erase_selective(t, false));
         break;
     case 'K': // erase to end of line
-        grid_erase_line(t, g, 0);
+        grid_erase_line(t, g, 0, term_erase_selective(t, false));
         break;
     }
 }
@@ -739,6 +743,14 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
         break;
     case GRID_REP:
         grid_REP(t, g);
+        break;
+    case GRID_SELECTIVE:
+        // DECSED and DECSEL; DECSED 3, xterm's selective erase of the
+        // scrollback, has none to spare cells in, and is ignored.
+        if (ch == 'J' && t->csi_param[0] != 3)
+            grid_erase_display(t, g, t->csi_param[0], term_erase_selective(t, true));
+        else if (ch == 'K')
+            grid_erase_line(t, g, t->csi_param[0], term_erase_selective(t, true));
         break;
     case GRID_SHIFT:
         // SL and SR, CSI Pn SP @ and CSI Pn SP A: every line of the scroll

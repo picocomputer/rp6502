@@ -139,10 +139,20 @@ typedef struct
     bool faint;
     bool reverse; // SGR 7: the cells swap fg and bg
     bool conceal; // SGR 8: the cells draw fg as bg
+    bool protect; // DECSCA 1 or SPA: the cells it writes are protected
     bool origin_mode;
     uint8_t g0_charset, g1_charset;
     bool gl_is_g1;
 } term_pen_t;
+
+// Which erases leave the protected cells alone: none, as after a reset;
+// DECSED and DECSEL alone, after a DECSCA (DEC's selective erase); or those
+// and ED, EL and ECH too, after an SPA (ECMA-48's guarded areas), unless ERM
+// says erase them all. As xterm, one protected bit serves both, and the
+// last of DECSCA and SPA picks which.
+#define TERM_PROTECT_OFF 0
+#define TERM_PROTECT_DEC 1
+#define TERM_PROTECT_ISO 2
 
 // A cursor's place in a grid.
 typedef struct
@@ -185,6 +195,8 @@ typedef struct
     bool app_keypad;      // DECKPAM, ESC = or ?66: the keypad sends SS3
     bool autorepeat;      // DECARM, ?8
     bool ice_colors;      // ?33: SGR 5/6 means bright bg (the IBM VGA hack), not blink
+    uint8_t protect_mode; // TERM_PROTECT_
+    bool erase_all;       // ERM, CSI 6 h: ED, EL and ECH erase the protected cells too
     bool reverse_screen;  // DECSCNM, ?5: every cell's colors swapped
     bool cursor_enabled;  // DECTCEM, ?25
     uint8_t cursor_style; // DECSCUSR Ps: 0/1/2 block, 3/4 underline, 5/6 bar
@@ -259,6 +271,21 @@ static inline uint8_t *term_lines(const term_grid_t *g)
     return g->ls;
 }
 
+// Whether the cells the pen writes are protected.
+static inline bool term_protecting(const term_t *t)
+{
+    return t->cur->protect;
+}
+
+// Whether an erase leaves the protected cells alone: DECSED and DECSEL
+// (dec), or ED, EL and ECH.
+static inline bool term_erase_selective(const term_t *t, bool dec)
+{
+    if (dec)
+        return t->protect_mode != TERM_PROTECT_OFF;
+    return t->protect_mode == TERM_PROTECT_ISO && !t->erase_all;
+}
+
 // The columns of row y: half the width on a double-size line.
 static inline unsigned term_cols(const term_grid_t *g, uint8_t y)
 {
@@ -272,8 +299,8 @@ static inline unsigned term_cell_height(const term_grid_t *g)
     return g->width == 40 ? 8 : 16;
 }
 
-#define TERM_PEN_SST_SIZE 22
-#define TERM_SST_SIZE (4 * TERM_PEN_SST_SIZE + 99)
+#define TERM_PEN_SST_SIZE 23
+#define TERM_SST_SIZE (4 * TERM_PEN_SST_SIZE + 101)
 void term_sst_put(sst_cursor_t *c, const term_t *t);
 bool term_sst_get(sst_cursor_t *c, term_t *t);
 #define TERM_GRID_SST_SIZE(rows) (17 + TERM_TAB_BITMAP_BYTES + 2 * (rows))

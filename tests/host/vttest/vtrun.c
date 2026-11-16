@@ -179,7 +179,7 @@ static void vt_row(int y, char *out, size_t size)
 /* Finishes the lazy erases, and shows blinking text in its lit phase. */
 static void vt_settle(void)
 {
-    for (int i = 0; i < 4 * TERM_MAX_HEIGHT; i++)
+    for (int i = 0; i < TB_SCREEN_SETTLE; i++)
         cells_task();
     vga_run_frame();
     tb_screen_t v;
