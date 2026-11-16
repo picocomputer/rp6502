@@ -34,7 +34,7 @@ the core does on any clock.
 | hazard3_decode.v | A new output, `df_cir_use_go`: how far the fetch buffer moves if X does not stall. `df_cir_use` is the same logic as upstream, built from it. |
 | hazard3_frontend.v | A new input, `cir_use_go`. The buffer's next state is built twice, for `cir_use` = 0 and for `cir_use` = `cir_use_go`, with an expander on each, and `cir_use` picks one last. The register-number predecode reads the second. The uop counter lives here. |
 | hazard3_instr_decompress.v | The uop counter moved out to the frontend, so two copies can share it: the step comes in and its next value goes out. No clock or reset. |
-| hazard3_core.v | The bypass select compares the held register number and the new predecode each against 0, `xm_rd`, `d_rd` and `mw_rd`, and the stall signals choose among the results last. The register file's read address is chosen the same way. `d_rs*_predecoded_nxt` and `mw_rd_nxt` are gone. |
+| hazard3_core.v | Wires `df_cir_use_go` from decode to the frontend. |
 
 ### The register file
 
@@ -53,12 +53,6 @@ read: it takes the value from its bypass, `xm_result` or `mw_result`, or
 zero for x0. Quartus then builds it as two copies, one for each read
 port, in 4 MLABs, 40 ALMs, and no M10K block.
 
-### The bypass select
-
-Whenever the stall that holds the decode stage is low, `cir_use` equals
-`cir_use_go`, so the predecode sees the same instruction as upstream, and
-the rest only reorders the same comparisons.
-
 ### The fetch buffer and CIR
 
 Upstream moves the fetch buffer by `cir_use`, overlays fetched data,
@@ -73,6 +67,11 @@ registers. That takes a second expander, about 110 ALMs, and drops
 upstream's shift by `cir_use`. With Zcmp the expander has a uop counter,
 so it moved to the frontend, where both copies read it and the chosen one
 sets its next value.
+
+The register-number predecode reads only the `cir_use_go` copy, so it
+no longer waits for `x_stall` either. The core uses it only when D does
+not hold its instruction, and then `cir_use` equals `cir_use_go`, so it
+matches upstream wherever it is used.
 
 Fetched data from the bus (`hrdata`) still runs through the overlay and
 the expander into CIR, as it did upstream.

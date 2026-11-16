@@ -508,72 +508,25 @@ wire x_trig_break_d_mode = fd_cir_break_d_mode;
 reg [W_REGADDR-1:0] d_rs1_predecoded;
 reg [W_REGADDR-1:0] d_rs2_predecoded;
 
-// rp6502: D keeps its register numbers when X stalls an instruction in D,
-// and otherwise takes the frontend's predecode of the next instruction.
-wire d_regnums_hold = x_stall && !d_starved;
-
 always @ (posedge clk or negedge rst_n) begin
 	if (!rst_n) begin
 		d_rs1_predecoded <= {W_REGADDR{1'b0}};
 		d_rs2_predecoded <= {W_REGADDR{1'b0}};
-	end else if (!d_regnums_hold) begin
+	end else if (d_starved || !x_stall) begin
 		d_rs1_predecoded <= f_rs1_fine & REGADDR_MASK;
 		d_rs2_predecoded <= f_rs2_fine & REGADDR_MASK;
 	end
 end
 
+wire [W_REGADDR-1:0] d_rs1_predecoded_nxt = REGADDR_MASK & (
+	d_starved || !x_stall ? f_rs1_fine : d_rs1_predecoded
+);
+wire [W_REGADDR-1:0] d_rs2_predecoded_nxt = REGADDR_MASK & (
+	d_starved || !x_stall ? f_rs2_fine : d_rs2_predecoded
+);
+
 wire [W_REGADDR-1:0] xm_rd_nxt;
-wire                 m_reg_wen_if_nonzero;
-
-// rp6502: the bypass select for the instruction X takes next compares its
-// register number with the next xm_rd and mw_rd, and all three depend on
-// the stalls:
-//
-// - the register number is d_rs*_predecoded if D holds, else f_rs*_fine
-// - the next xm_rd is xm_rd on m_stall, else 0 if X passes M no
-//   instruction, else d_rd
-// - the next mw_rd is xm_rd if M writes the register file, else mw_rd
-//
-// So both register numbers are compared with 0, xm_rd, d_rd and mw_rd,
-// which do not wait for a stall, and the stalls choose among the results
-// last.
-
-wire x_passes_none = x_stall || d_starved || m_trap_enter_soon;
-
-// {rs == 0, rs == xm_rd, rs == d_rd, rs == mw_rd}
-function [3:0] regnum_match;
-	input [W_REGADDR-1:0] rs;
-	input [W_REGADDR-1:0] xm;
-	input [W_REGADDR-1:0] d;
-	input [W_REGADDR-1:0] mw;
-	regnum_match = {~|rs, rs == xm, rs == d, rs == mw};
-endfunction
-
-function [2:0] bypass_select;
-	input [3:0] match;
-	input       stall_m;
-	input       passes_none;
-	input       m_writes;
-	reg         match_xm_rd_nxt;
-	reg         match_mw_rd_nxt;
-	begin
-		match_xm_rd_nxt = stall_m ? match[2] : passes_none ? match[3] : match[1];
-		match_mw_rd_nxt = m_writes ? match[2] : match[0];
-		bypass_select =
-			match[3]        ? 3'b000 :
-			match_xm_rd_nxt ? 3'b010 :
-			match_mw_rd_nxt ? 3'b001 : 3'b100;
-	end
-endfunction
-
-wire [W_REGADDR-1:0] d_rd_masked = d_rd & REGADDR_MASK;
-
-wire [3:0] x_rs1_match = d_regnums_hold ?
-	regnum_match(d_rs1_predecoded,          xm_rd, d_rd_masked, mw_rd) :
-	regnum_match(f_rs1_fine & REGADDR_MASK, xm_rd, d_rd_masked, mw_rd);
-wire [3:0] x_rs2_match = d_regnums_hold ?
-	regnum_match(d_rs2_predecoded,          xm_rd, d_rd_masked, mw_rd) :
-	regnum_match(f_rs2_fine & REGADDR_MASK, xm_rd, d_rd_masked, mw_rd);
+wire [W_REGADDR-1:0] mw_rd_nxt;
 
 reg [2:0] x_rs1_select_regs_xm_mw;
 reg [2:0] x_rs2_select_regs_xm_mw;
@@ -583,8 +536,14 @@ always @ (posedge clk or negedge rst_n) begin
 		x_rs1_select_regs_xm_mw <= 3'b000;
 		x_rs2_select_regs_xm_mw <= 3'b000;
 	end else begin
-		x_rs1_select_regs_xm_mw <= bypass_select(x_rs1_match, m_stall, x_passes_none, m_reg_wen_if_nonzero);
-		x_rs2_select_regs_xm_mw <= bypass_select(x_rs2_match, m_stall, x_passes_none, m_reg_wen_if_nonzero);
+		x_rs1_select_regs_xm_mw <=
+			5'h00     == d_rs1_predecoded_nxt ? 3'b000 :
+			xm_rd_nxt == d_rs1_predecoded_nxt ? 3'b010 :
+			mw_rd_nxt == d_rs1_predecoded_nxt ? 3'b001 : 3'b100;
+		x_rs2_select_regs_xm_mw <=
+			5'h00     == d_rs2_predecoded_nxt ? 3'b000 :
+			xm_rd_nxt == d_rs2_predecoded_nxt ? 3'b010 :
+			mw_rd_nxt == d_rs2_predecoded_nxt ? 3'b001 : 3'b100;
 	end
 end
 
@@ -1550,7 +1509,7 @@ end
 // because the interrupt is notionally inserted in between the instruction in
 // M and the instruction in X.
 
-assign m_reg_wen_if_nonzero = !m_bus_stall && xm_except == EXCEPT_NONE;
+wire m_reg_wen_if_nonzero = !m_bus_stall && xm_except == EXCEPT_NONE;
 wire m_reg_wen = |xm_rd && m_reg_wen_if_nonzero;
 
 `ifdef HAZARD3_X_CHECKS
@@ -1586,6 +1545,10 @@ always @ (posedge clk or negedge rst_n) begin
 	end
 end
 
+assign mw_rd_nxt = REGADDR_MASK & (
+	m_reg_wen_if_nonzero ? xm_rd : mw_rd
+);
+
 always @ (posedge clk or negedge rst_n) begin
 	if (!rst_n) begin
 		mw_rd <= {W_REGADDR{1'b0}};
@@ -1608,11 +1571,10 @@ hazard3_regfile_1w2r #(
 	.clk    (clk),
 	.rst_n  (rst_n),
 	// On downstream stall, we feed D's addresses back into regfile
-	// so that output does not change. (rp6502: f_rs*_coarse do not wait
-	// for x_stall, so it only picks between the two.)
-	.raddr1 (d_regnums_hold ? d_rs1 : f_rs1_coarse),
+	// so that output does not change.
+	.raddr1 (x_stall && !d_starved ? d_rs1 : f_rs1_coarse),
 	.rdata1 (x_rdata1),
-	.raddr2 (d_regnums_hold ? d_rs2 : f_rs2_coarse),
+	.raddr2 (x_stall && !d_starved ? d_rs2 : f_rs2_coarse),
 	.rdata2 (x_rdata2),
 
 	.waddr  (xm_rd),
