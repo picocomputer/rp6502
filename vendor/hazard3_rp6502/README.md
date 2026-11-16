@@ -29,10 +29,29 @@ on any clock.
 
 | Copy | Change |
 |---|---|
-| hazard3_regfile_1w2r.v | The register file is MLAB with `no_rw_check`, two copies, one for each read port. A read of the register written in the same cycle is never used, because the core bypasses it. |
+| hazard3_regfile_1w2r.v | The register file: see below. |
 | hazard3_decode.v | A new output, `df_cir_use_go`: how far the fetch buffer moves if X does not stall. `df_cir_use` is the same logic as upstream, built from it. |
 | hazard3_frontend.v | A new input, `cir_use_go`. A second copy of the buffer's shift and overlay, driven by it, gives `next_instr_go`, and the register-number predecode reads that. The decompressor still reads the real `next_instr`. |
 | hazard3_core.v | The bypass select compares the held register number and the new predecode each against 0, `xm_rd`, `d_rd` and `mw_rd`, and the stall signals choose among the results last. The register file's read address is chosen the same way. `d_rs*_predecoded_nxt` and `mw_rd_nxt` are gone. |
+
+### The register file
+
+`hazard3_regfile_1w2r` is the CPU's 32 registers: one write port and two
+read ports ("1w2r"), because an instruction reads up to two registers and
+writes one. Upstream tells Yosys on iCE40 and Vivado on Xilinx how to
+build it, and gives Quartus no hint. Without one, Quartus has to make a
+read of the register written in the same clock return the new value,
+which costs logic in front of the memory, or it builds the array out of
+flops.
+
+The copy adds one attribute, `ramstyle = "no_rw_check, MLAB"`: build it
+in the small LUT memories (MLABs) and skip that read-during-write logic.
+That is safe because the core never uses the memory's answer for such a
+read: it takes the value from its bypass, `xm_result` or `mw_result`, or
+zero for x0. Quartus then builds it as two copies, one for each read
+port, in 4 MLABs, 40 ALMs, and no M10K block.
+
+### The bypass select
 
 Whenever the stall that holds the decode stage is low, `cir_use` equals
 `cir_use_go`, so the predecode sees the same instruction as upstream, and
