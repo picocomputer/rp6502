@@ -85,5 +85,3 @@ The share of CPU time spent waiting on the cache, in simulation:
 
 - **The Pocket tests.** The set takes about 80 seconds, as long as its
   slowest case. A round trip's time is mostly the save and the load.
-- **The SDRAM capture's hold check** (dram_dq to dq_cap) has not been read
-  out of a fit report since its hold multicycle went.
