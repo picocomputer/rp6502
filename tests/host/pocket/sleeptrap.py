@@ -11,7 +11,9 @@ from rp6502_rom import main
 # A descriptor no program has open.
 NO_FD = 15
 COUNT = 0x10
-CALLS = 1024
+# The trap case saves about a dozen calls in, so the rest go on after the
+# wake. A multiple of 256, since the loop compares the count's high byte.
+CALLS = 256
 
 
 def trap():

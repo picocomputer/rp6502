@@ -580,7 +580,11 @@ UTEST(pfile, a_read_is_not_answered_by_someone_elses_command)
             dat.push_back((uint8_t)*c);
     g_files["/Assets/rp6502/common/probe.dat"] = dat;
 
-    for (long i = 0; i < 40000000L && g_console.size() < 4000; i++)
+    /* The open and the two Slot Reads that fill the file's window come
+     * before the 500th byte. After them the host sees no command, and the
+     * program reads the window over and over, rewinding at its end, three
+     * times in 1000 bytes. */
+    for (long i = 0; i < 40000000L && g_console.size() < 1000; i++)
         step();
 
     if (g_console.find("CROOKED") != std::string::npos

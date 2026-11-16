@@ -144,6 +144,16 @@ static Bench tb;
 /* The firmware's trap handler: its entry, and the mret that ends it. */
 static uint32_t g_trap_entry, g_trap_mret;
 
+/* BLOB_BRIDGE and BLOB_BYTES are core_top's savestate_addr and
+ * savestate_size. */
+#define BLOB_BRIDGE 0x03E80000u
+#define BLOB_BYTES 300368u
+
+/* The blob's words up to its trailer, as the engine last summed them
+ * before a save was ready, high byte first. The engine serves the host
+ * these same words, so read_blob takes them from here. */
+static std::vector<uint8_t> g_summed(BLOB_BYTES);
+
 /* Called on every edge, a_edge's included, so no tick is missed. */
 static void observe()
 {
@@ -191,6 +201,20 @@ static void observe()
     {
         tb.stop_arm = false;
         tb.stop_tick = (long)tb.mix.size();
+    }
+    if (r->tb_pocket__DOT__core__DOT__machine__DOT__engine__DOT__summing
+        && r->tb_pocket__DOT__core__DOT__machine__DOT__engine__DOT__hold_valid)
+    {
+        uint32_t i = r->tb_pocket__DOT__core__DOT__machine__DOT__engine__DOT__sum_idx;
+        uint32_t w = r->tb_pocket__DOT__core__DOT__machine__DOT__engine__DOT__hold;
+        if (i == r->tb_pocket__DOT__core__DOT__machine__DOT__engine__DOT__hold_idx
+            && i < BLOB_BYTES / 4)
+        {
+            g_summed[i * 4] = (uint8_t)(w >> 24);
+            g_summed[i * 4 + 1] = (uint8_t)(w >> 16);
+            g_summed[i * 4 + 2] = (uint8_t)(w >> 8);
+            g_summed[i * 4 + 3] = (uint8_t)w;
+        }
     }
 }
 
@@ -532,11 +556,6 @@ static std::vector<uint8_t> read_file(const char *path)
 }
 
 
-/* BLOB_BRIDGE and BLOB_BYTES are core_top's savestate_addr and
- * savestate_size. */
-#define BLOB_BRIDGE 0x03E80000u
-#define BLOB_BYTES 300368u
-
 /* The core has until the next read strobe to drive bridge_rd_data,
  * because io_bridge_peripheral.v buffers reads by one word. HOST_GAP is
  * about one microsecond of clk_74a, which is shorter than the 88 cycles
@@ -823,10 +842,11 @@ static bool save_ready(void)
     return sst_cmd(false, true, true) == ANSWER_SAVE && save_wait();
 }
 
-static void read_blob(std::vector<uint8_t> &blob)
+/* The host reads the blob's words from byte from on over the bridge, a
+ * word at a time. */
+static void read_blob_from(std::vector<uint8_t> &blob, uint32_t from)
 {
-    blob.assign(BLOB_BYTES, 0);
-    for (uint32_t i = 0; i < BLOB_BYTES; i += 4)
+    for (uint32_t i = from; i < BLOB_BYTES; i += 4)
     {
         dut->bridge_addr = BLOB_BRIDGE + i;
         a_edge();
@@ -844,6 +864,24 @@ static void read_blob(std::vector<uint8_t> &blob)
         if (dut->tb_pocket_savestate_start_err && !tb.underrun_at)
             tb.underrun_at = (long)i;
     }
+}
+
+/* The whole blob over the bridge, as the host reads it. */
+static void read_blob_bridge(std::vector<uint8_t> &blob)
+{
+    blob.assign(BLOB_BYTES, 0);
+    read_blob_from(blob, 0);
+}
+
+/* The blob with no bridge traffic but its trailer: the words before the
+ * trailer as the engine summed them, and the trailer's four words over the
+ * bridge, whose last ends the save as the host's last read does.
+ * psleep.a_running_program_survives_the_reconfigure holds this to
+ * read_blob_bridge. */
+static void read_blob(std::vector<uint8_t> &blob)
+{
+    blob = g_summed;
+    read_blob_from(blob, BLOB_BYTES - 16);
 }
 
 static bool create_state(std::vector<uint8_t> &blob)
@@ -870,7 +908,7 @@ static void abort_save(void)
 
 /* The host writes a blob as it writes any file, a word at a time, and
  * answers the core's file requests between the words. */
-static void put_blob(const std::vector<uint8_t> &file)
+static void put_blob_bridge(const std::vector<uint8_t> &file)
 {
     for (size_t i = 0; i < file.size(); i += 4)
     {
@@ -886,6 +924,17 @@ static void put_blob(const std::vector<uint8_t> &file)
         for (int k = 0; k < 39; k++)
             a_step();
     }
+}
+
+/* The file with no bridge traffic but its first word: the whole file
+ * straight into the SDRAM where the host writes it, and then its first
+ * word over the bridge, which is how the core learns a blob has come. */
+static void put_blob(const std::vector<uint8_t> &file)
+{
+    tb_stage_poke(dut->rootp->tb_pocket__DOT__chip__DOT__mem, BLOB_BRIDGE,
+                  file);
+    host_write(BLOB_BRIDGE, (uint32_t)file[0] << 24 | (uint32_t)file[1] << 16
+                                | (uint32_t)file[2] << 8 | file[3]);
 }
 
 /* A load into the running machine: busy until the engine has finished,
@@ -1044,8 +1093,12 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
         MEM(prog__DOT__spr_c)[i] = 0x99000000u + i;
     }
 
+    /* This case moves the blob over the bridge both ways, and holds what
+     * every other case takes without the bridge to what the host reads. */
     std::vector<uint8_t> blob;
-    ASSERT_TRUE(create_state(blob));
+    ASSERT_TRUE(save_ready());
+    read_blob_bridge(blob);
+    ASSERT_TRUE(std::equal(blob.begin(), blob.end() - 16, g_summed.begin()));
     {
         uint32_t sum = 0;
         const uint32_t words = (uint32_t)blob.size() / 4;
@@ -1102,9 +1155,14 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
     ASSERT_TRUE(tb.console.find(DONE) == std::string::npos);
 
     std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
-    put_blob(file);
+    put_blob_bridge(file);
 
     ASSERT_TRUE(load_state());
+    /* The SDRAM holds the file as put_blob puts it there. */
+    for (size_t i = 0; i < file.size(); i += 2)
+        ASSERT_EQ((uint32_t)(file[i] | file[i + 1] << 8),
+                  (uint32_t)dut->rootp->tb_pocket__DOT__chip__DOT__mem
+                      [(BLOB_BRIDGE + i) >> 1]);
     for (uint32_t i = 0; i < 16; i++)
     {
         ASSERT_EQ(0xA0u + i, (uint32_t)MEM(xram__DOT__mem0)[i]);
@@ -1561,8 +1619,11 @@ static void blob_reseal(std::vector<uint8_t> &b)
 }
 
 /* The audio session: the PSG, the OPL, PCM and the bell, a sample in
- * 1050 clocks, so a tick is about 2,600 steps. */
-#define WINDOW 4800L
+ * 1050 clocks, so a tick is about 2,600 steps. The window is 1,600 ticks,
+ * 33 ms. The loop refills nothing, so PCM, about 2,600 bytes full at the
+ * save, runs dry about 1,430 ticks in, and the OPL takes a burst every 200
+ * ticks. */
+#define WINDOW 1600L
 
 static void run_to(char c, long settle)
 {
@@ -1724,12 +1785,46 @@ UTEST(psleep, the_audio_comes_back_sample_for_sample)
     }
 }
 
+/* Probes for a save whose stop finds the machine as hit() wants it, a
+ * probe every 4,001 steps and a few more, counting probes in *probes. A
+ * probe forks the session and asks for a save. The engine's sum waits for
+ * the machine to stop, so once the sum is past its first word, hit() reads
+ * the stopped machine: -1 for a miss, or what the caller wants back. A
+ * miss goes back to the fork, so the session runs on as if no save had
+ * been asked for. A hit waits until the blob is ready, and hit() must find
+ * the machine the same then. Returns the hit, -1 when every probe up to
+ * max missed, or -2 for a save that went wrong. */
+template <typename Hit> static int probe_save(int *probes, int max, Hit hit)
+{
+    /* The fork keeps its capacity from one probe to the next, and a miss
+     * loads it back into the same model. */
+    static std::vector<uint8_t> fork;
+    for (; *probes < max; ++*probes)
+    {
+        for (long i = 0; i < 4001 + 37L * (*probes % 29); i++)
+            step();
+        tb_snap_take(*dut, tb, fork);
+        tb.stop_arm = true;
+        if (sst_cmd(false, true, true) != ANSWER_SAVE)
+            return -2;
+        for (long i = 0; i < 20000000L && !MEM(engine__DOT__sum_idx); i++)
+            step();
+        int h = hit();
+        if (h >= 0)
+        {
+            ++*probes;
+            return save_wait() && hit() == h ? h : -2;
+        }
+        tb_snap_load(*dut, fork, tb);
+    }
+    return -1;
+}
+
 /* Saves made while the 6502 floods RW0 and RW1, until one stops with the
  * snooped write in flight and one with the RW engine's write pending, both
  * bound for the OPL, whose queue is full, so a lost write shows in the
  * drop count. Each loads into another session and matches the session
- * that never saved in the mix, the 6502's clock and the count, and each
- * probe in between is a save ended after its last word. */
+ * that never saved in the mix, the 6502's clock and the count. */
 UTEST(psleep, a_snoop_in_flight_comes_back)
 {
     std::vector<uint8_t> rom = read_file(AUD_SNOOP_ROM);
@@ -1740,24 +1835,18 @@ UTEST(psleep, a_snoop_in_flight_comes_back)
     boot_to_console(rom, 'W');
     run_to('W', 200000L);
     int probes = 0;
-    while ((at[0] < 0 || at[1] < 0) && probes < 400)
+    while (at[0] < 0 || at[1] < 0)
     {
-        for (long i = 0; i < 4001 + 37L * (probes % 29); i++)
-            step();
-        tb.stop_arm = true;
-        ASSERT_TRUE(save_ready());
-        probes++;
-        bool qs = MEM(qs_we) && (MEM(qs_addr) >> 8) == 0xF0;
-        bool rw = MEM(ria__DOT__xr_wr_pend)
-                  && (MEM(ria__DOT__xr_wr_addr) >> 8) == 0xF0;
-        int k = qs && at[0] < 0 ? 0 : rw && at[1] < 0 ? 1 : -1;
-        if (k >= 0)
-        {
-            at[k] = tb.stop_tick;
-            read_blob(blob[k]);
-        }
-        else
-            abort_save();
+        int k = probe_save(&probes, 400, [&] {
+            bool qs = MEM(qs_we) && (MEM(qs_addr) >> 8) == 0xF0;
+            bool rw = MEM(ria__DOT__xr_wr_pend)
+                      && (MEM(ria__DOT__xr_wr_addr) >> 8) == 0xF0;
+            return qs && at[0] < 0 ? 0 : rw && at[1] < 0 ? 1 : -1;
+        });
+        if (k < 0)
+            break;
+        at[k] = tb.stop_tick;
+        read_blob(blob[k]);
         long guard = 0;
         while ((int)MEM(engine__DOT__state) != 0 && guard++ < 20000000L)
             step();
@@ -1805,23 +1894,11 @@ UTEST(psleep, a_stop_before_a_phi2_enable_comes_back)
     long at = -1;
     boot_to_console(rom, 'W');
     run_to('W', 620000L);
-    for (int probes = 0; probes < 200 && at < 0; probes++)
-    {
-        for (long i = 0; i < 4001 + 37L * (probes % 29); i++)
-            step();
-        tb.stop_arm = true;
-        ASSERT_TRUE(save_ready());
-        if (MEM(phi2_en))
-        {
-            at = tb.stop_tick;
-            read_blob(blob);
-        }
-        else
-            abort_save();
-        long guard = 0;
-        while ((int)MEM(engine__DOT__state) != 0 && guard++ < 20000000L)
-            step();
-    }
+    int probes = 0;
+    ASSERT_EQ(0, probe_save(&probes, 200, [] { return MEM(phi2_en) ? 0 : -1; }));
+    at = tb.stop_tick;
+    read_blob(blob);
+    fprintf(stderr, "  %d probes\n", probes);
     ASSERT_GE(at, 0L);
     run_ticks((size_t)(at + n));
     std::vector<uint32_t> b_mix = tb.mix;
@@ -1859,26 +1936,17 @@ UTEST(psleep, a_6502_write_at_a_stop_is_saved_and_heard)
     std::vector<uint8_t> blob;
     boot_to_console(rom, 'W');
     run_to('W', 620000L);
-    for (int probes = 0; probes < 200 && blob.empty(); probes++)
-    {
-        for (long i = 0; i < 4001 + 37L * (probes % 29); i++)
-            step();
-        ASSERT_TRUE(save_ready());
-        bool released = MEM(psg__DOT__ch_adsr)[0] == 0 && !MEM(qs_we)
-                        && !MEM(ria__DOT__xr_wr_pend);
-        if (released && MEM(xr_busy) && MEM(ria__DOT__xr_wr_byte))
-        {
-            read_blob(blob);
-            ASSERT_EQ((uint32_t)MEM(ria__DOT__xr_wr_byte),
-                      blob_get(blob, B_REGS + REGS_XR) >> 16 & 0xFF);
-        }
-        else
-            abort_save();
-        long guard = 0;
-        while ((int)MEM(engine__DOT__state) != 0 && guard++ < 20000000L)
-            step();
-    }
-    ASSERT_FALSE(blob.empty());
+    int probes = 0;
+    ASSERT_EQ(0, probe_save(&probes, 200, [] {
+                  bool released = MEM(psg__DOT__ch_adsr)[0] == 0
+                                  && !MEM(qs_we) && !MEM(ria__DOT__xr_wr_pend);
+                  return released && MEM(xr_busy) && MEM(ria__DOT__xr_wr_byte)
+                             ? 0 : -1;
+              }));
+    read_blob(blob);
+    fprintf(stderr, "  %d probes\n", probes);
+    ASSERT_EQ((uint32_t)MEM(ria__DOT__xr_wr_byte),
+              blob_get(blob, B_REGS + REGS_XR) >> 16 & 0xFF);
     teardown();
 
     std::vector<uint8_t> other = read_file(FILE_ROM);
@@ -1912,12 +1980,15 @@ UTEST(psleep, a_6502_write_at_a_stop_is_saved_and_heard)
 
 /* One audio word changed in B's blob, its sum put right, makes C differ
  * from B within the window: the OPL's LFO, a PSG voice's phase, PCM's
- * phase, and the snooped write in flight. */
+ * phase, and the snooped write in flight. The window is 600 ticks. The
+ * LFO's change shows last, about 195 ticks in. The snooped write's shows
+ * in the drop count, as the OPL takes the write on its first edge after
+ * the load. */
 UTEST(psleep, a_corrupt_audio_word_diverges)
 {
     std::vector<uint8_t> rom = read_file(AUD_SST_ROM);
     ASSERT_GT(rom.size(), 0u);
-    const long n = 1500;
+    const long n = 600;
     boot_to_console(rom, 'W');
     run_to('W', 620000L);
     tb.stop_arm = true;
@@ -1934,23 +2005,16 @@ UTEST(psleep, a_corrupt_audio_word_diverges)
     run_to('W', 200000L);
     std::vector<uint8_t> snoop;
     long sat = -1;
-    for (int probes = 0; probes < 400 && sat < 0; probes++)
-    {
-        for (long i = 0; i < 4001 + 37L * (probes % 29); i++)
-            step();
-        tb.stop_arm = true;
-        ASSERT_TRUE(save_ready());
-        if (MEM(qs_we) && (MEM(qs_addr) >> 8) == 0xF0)
-        {
-            sat = tb.stop_tick;
-            read_blob(snoop);
-        }
-        else
-            abort_save();
-        long guard = 0;
-        while ((int)MEM(engine__DOT__state) != 0 && guard++ < 20000000L)
-            step();
-    }
+    int probes = 0;
+    ASSERT_EQ(0, probe_save(&probes, 400, [] {
+                  return MEM(qs_we) && (MEM(qs_addr) >> 8) == 0xF0 ? 0 : -1;
+              }));
+    sat = tb.stop_tick;
+    read_blob(snoop);
+    fprintf(stderr, "  %d probes\n", probes);
+    long guard = 0;
+    while ((int)MEM(engine__DOT__state) != 0 && guard++ < 20000000L)
+        step();
     ASSERT_GE(sat, 0L);
     run_ticks((size_t)(sat + n));
     std::vector<uint32_t> s_mix = tb.mix;
@@ -2125,7 +2189,10 @@ UTEST(psleep, a_restored_machine_is_the_booted_one)
  * random: when the save comes, how the host reads the blob, and on the wake
  * the order and pace of the slot writes, Reset Exit, the blob and the load
  * command. PWAKE_SEED is the first seed and PWAKE_N the number of trips;
- * every other PWAKE_ variable pins one choice, to minimise a failure.
+ * every other PWAKE_ variable pins one choice, to minimise a failure. The
+ * host's pace and order with the blob are used only with PWAKE_BRIDGE set,
+ * which moves the blob over the bridge; a trip without it takes the blob
+ * with read_blob and gives it with put_blob.
  *
  * A trip holds the wake to what the session that slept went on to do. A
  * save the core refuses, with a file open for writing, is a trip too: the
@@ -2317,6 +2384,9 @@ struct Trip
     long dbl;         /* steps from the last blob word to the load */
     int head_pad;     /* bytes added to the 596-byte header */
     int seq;          /* SEQ_: where Reset Exit comes */
+    int bridge;       /* the blob over the bridge both ways, at the pace
+                       * and in the order above; else read_blob and
+                       * put_blob, and those choices go unused */
 };
 
 /* A wake's Reset Exit against its blob and its load command. Analogue
@@ -2380,6 +2450,7 @@ static void pw_pick(Trip &t, Rng &r)
     uint32_t seq = r.below(7);
     t.seq = (int)env_long("PWAKE_SEQ", seq < 4 ? SEQ_EXIT_FIRST
                                                : (long)seq - 3);
+    t.bridge = (int)env_long("PWAKE_BRIDGE", 0);
 }
 
 static void pw_print(const Trip &t, const char *what)
@@ -2387,10 +2458,11 @@ static void pw_print(const Trip &t, const char *what)
     fprintf(stderr,
             "PWAKE %s seed=%ld prog=%d save_at=%ld rmode=%d rbase=%d "
             "rorder=%d refuse=%d fwbridge=%d fwfirst=%d drb=%ld wmode=%d "
-            "wbase=%d wshuffle=%d service=%d dbl=%ld headpad=%d seq=%d\n",
+            "wbase=%d wshuffle=%d service=%d dbl=%ld headpad=%d seq=%d "
+            "bridge=%d\n",
             what, t.seed, t.prog, t.save_at, t.rmode, t.rbase, t.rorder,
             t.refuse, t.fw_bridge, t.fw_first, t.drb, t.wmode, t.wbase,
-            t.wshuffle, t.service, t.dbl, t.head_pad, t.seq);
+            t.wshuffle, t.service, t.dbl, t.head_pad, t.seq, t.bridge);
 }
 
 static std::vector<uint8_t> pw_rom(int prog)
@@ -2601,8 +2673,11 @@ static int pw_wake(Rng &r, const Trip &t, const std::vector<uint8_t> &rom,
     host_write(0x10000014u, 0);
 
     auto put = [&](bool service) {
-        pw_put(r, BLOB_BRIDGE, file, t.wmode, t.wbase, service,
-               t.wshuffle != 0);
+        if (t.bridge)
+            pw_put(r, BLOB_BRIDGE, file, t.wmode, t.wbase, service,
+                   t.wshuffle != 0);
+        else
+            put_blob(file);
     };
     bool early = t.seq == SEQ_LOAD_WAIT_EXIT || t.seq == SEQ_LOAD_EXIT
                  || t.seq == SEQ_LOAD_BLOB_EXIT;
@@ -2999,7 +3074,14 @@ static int pw_trip(Trip &t)
         bad = 1;
     }
     std::vector<uint8_t> blob;
-    bool rd_ok = pw_read_blob(r, blob, t.rmode, t.rbase, t.rorder);
+    bool rd_ok;
+    if (t.bridge)
+        rd_ok = pw_read_blob(r, blob, t.rmode, t.rbase, t.rorder);
+    else
+    {
+        read_blob(blob);
+        rd_ok = !dut->tb_pocket_savestate_start_err;
+    }
     bool sum_ok = pw_blob_sum_ok(blob);
     if (!rd_ok || !sum_ok)
     {
@@ -3228,7 +3310,7 @@ static int pw_case(std::initializer_list<const char *> kv)
         "PWAKE_HEADPAD", "0", "PWAKE_SAVEOP", "0", "PWAKE_SAVEOP_K", "1",
         "PWAKE_PINNED", "1", "PWAKE_SAVETRAP", "0", "PWAKE_SAVEOP_AFTER",
         "0", "PWAKE_SAVEIDLE", "0", "PWAKE_SAVE_D", "0", "PWAKE_REFUSED",
-        "0", "PWAKE_TRAPFW", "0"};
+        "0", "PWAKE_TRAPFW", "0", "PWAKE_BRIDGE", "0"};
     std::vector<const char *> all(std::begin(base), std::end(base));
     all.insert(all.end(), kv.begin(), kv.end());
     for (size_t i = 0; i + 1 < all.size(); i += 2)

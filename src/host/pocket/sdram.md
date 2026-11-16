@@ -136,9 +136,10 @@ memories, and core's font builder writes whole 32-bit words.
 
 ### To clean up
 
-- **The sleep tests are still slow.** They start from booted machines now,
-  but the boot was a tenth of a round trip. Half of a round trip is the
-  host moving the blob over the bridge a word at a time, 8 to 15 seconds.
+- **The Pocket tests are near their mark.** One case moves the blob over
+  the bridge and the rest put it in place. The set takes about 60 seconds
+  and its slowest case about 45, with a Quartus fit on the same machine.
+  What is left is simulated time each case needs.
 - **A save during a cache miss** is only tested at the whole-core level,
   where it was found. It wants a test beside the engine's own.
 

@@ -190,17 +190,33 @@ static void tb_snap_io(VerilatedDeserialize &is, std::map<K, V> &v)
     }
 }
 
-/* The model and the bench as they are. */
+/* The model and the bench as they are, into v, which keeps its capacity
+ * from one snapshot to the next. */
+template <typename Model, typename Bench>
+static void tb_snap_take(Model &model, Bench &bench, std::vector<uint8_t> &v)
+{
+    tb_snap_out os(v);
+    os << model;
+    bench.io(os);
+}
+
 template <typename Model, typename Bench>
 static std::vector<uint8_t> tb_snap_take(Model &model, Bench &bench)
 {
     std::vector<uint8_t> v;
-    {
-        tb_snap_out os(v);
-        os << model;
-        bench.io(os);
-    }
+    tb_snap_take(model, bench, v);
     return v;
+}
+
+/* The model and the bench put back as tb_snap_take found them. The model
+ * may be one that has run since, or a new one. */
+template <typename Model, typename Bench>
+static void tb_snap_load(Model &model, const std::vector<uint8_t> &v,
+                         Bench &bench)
+{
+    tb_snap_in is(v);
+    is >> model;
+    bench.io(is);
 }
 
 /* A new model, and the bench, as tb_snap_take found them. */
@@ -208,9 +224,7 @@ template <typename Model, typename Bench>
 static Model *tb_snap_make(const std::vector<uint8_t> &v, Bench &bench)
 {
     Model *model = new Model;
-    tb_snap_in is(v);
-    is >> *model;
-    bench.io(is);
+    tb_snap_load(*model, v, bench);
     return model;
 }
 
