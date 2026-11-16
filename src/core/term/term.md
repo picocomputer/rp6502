@@ -39,31 +39,7 @@ The second table says which cells came from which entry.
 DECSCA with DECSED and DECSEL; ECMA-48's SPA, EPA and ERM. The second
 table's protected bit says which cells an erase leaves alone.
 
-## 4. The Pocket renders mode 0 from mode0.h
-
-The firmware already writes core/vga/mode/mode0.h's cells and words, and
-link.ld places them on mode0.sv's memories. mode0.sv still reads the old
-words, so the Pocket does not draw the console until this is done. Every
-RTL change here is developed under Verilator and taken to hardware with
-one fit.
-
-- **Row words:** a row's first cell and its line size, where mode0.sv now
-  takes a byte address.
-- **Screen word:** at the old blink word's address, with DECSCNM in bit 2.
-  The cursor word no longer carries it.
-- **Placement:** the firmware no longer writes VID_PROG. The scanline
-  program already carries mode 0's begin line in VID_XPROG; mode0.sv takes
-  it from sched.sv, latched with the terminal flag, and prog_shadow goes
-  away.
-- **Reverse screen:** swap every cell's foreground and background.
-- **Double width:** draw the row's first half of cells, every pixel twice
-  across.
-- **Double height:** as double width, drawing the top or bottom half of each
-  glyph with every glyph row twice.
-- **Tests:** tests/rtl/vga, tests/cpu/vga and tests/bench follow the new
-  words: mode0.*, banner, session and blink fail until then.
-
-## 5. The lock keys, to try on real machines
+## 4. The lock keys, to try on real machines
 
 The emulators follow the system's NumLock, Caps Lock and Scroll Lock. The
 Windows and macOS code has been compiled by CI and never run, and the web

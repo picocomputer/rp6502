@@ -718,6 +718,8 @@ module wiring
     /* The row map, derived once in sched.sv and read by every stage. */
     logic [9:0] sched_t;
     logic sched_dbl, sched_pair_start, sched_pair_end, sched_render_now;
+    logic sched_term_go;
+    logic [15:0] sched_term_cfg;
 
     logic [15:0] mode0_pix;
     mode0 mode0 (
@@ -731,6 +733,8 @@ module wiring
         .t(sched_t),
         .pair_start(sched_pair_start),
         .pair_end(sched_pair_end),
+        .term_go(sched_term_go),
+        .term_cfg(sched_term_cfg),
         .mode0_pix(mode0_pix),
         .mode0_f_req(mf_req[1]),
         .mode0_f_addr(mf_addr[1]),
@@ -785,7 +789,9 @@ module wiring
         .e_px_we(fl_px_we),
         .sched_px_we(m_px_we),
         .sched_done(m_done),
-        .sched_term(sched_term)
+        .sched_term(sched_term),
+        .sched_term_go(sched_term_go),
+        .sched_term_cfg(sched_term_cfg)
     );
     fill fill (
         .clk(clk_sys),

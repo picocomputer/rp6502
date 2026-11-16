@@ -15,7 +15,9 @@
  *
  * An enabled slot in mode 0 runs no fill. It marks the plane whose
  * pixels come from the terminal engine instead; host/pocket/core/
- * wiring.sv selects on sched_term.
+ * wiring.sv selects on sched_term. When the sweep finds one, it starts
+ * mode0.sv on the row with sched_term_go and hands it the slot's config,
+ * the scanline the terminal begins at.
  */
 
 module sched (
@@ -53,7 +55,9 @@ module sched (
 
     output logic [1:0] sched_px_we[3],
     output logic [2:0] sched_done,
-    output logic [2:0] sched_term
+    output logic [2:0] sched_term,
+    output logic sched_term_go,
+    output logic [15:0] sched_term_cfg
 );
 
     logic [9:0] t /*verilator public_flat_rd*/;
@@ -119,6 +123,9 @@ module sched (
     logic term_armed;
     always_comb term_dec = {pl_term[2], pl_term[1], pl_term[0]};
     always_comb sched_term = term_q;
+    /* mode0_prog books one plane, so the lowest marked one is it. */
+    always_comb sched_term_cfg = pl_term[0] ? pl_cfg[0]
+                               : pl_term[1] ? pl_cfg[1] : pl_cfg[2];
 
     always_comb begin
         sched_done = '0;
@@ -158,9 +165,11 @@ module sched (
         term_q = '0;
         term_armed = 1'b0;
         sched_e_start = 1'b0;
+        sched_term_go = 1'b0;
     end
     always_ff @(posedge clk) begin
         sched_e_start <= 1'b0;
+        sched_term_go <= 1'b0;
 `ifdef VERILATOR
         if (settled && h == 10'd799 && pair_end && state != SCH_IDLE)
             $fatal(1, "fill underrun");
@@ -197,6 +206,7 @@ module sched (
                         if (rd_i == 3'd4) begin
                             plane_pending <= {pl_en[2], pl_en[1], pl_en[0]};
                             term_armed <= 1'b1;
+                            sched_term_go <= term_dec != 3'd0;
                             if (pl_en[0] || pl_en[1] || pl_en[2]) begin
                                 sched_e_start <= 1'b1;
                                 state <= SCH_RUN;

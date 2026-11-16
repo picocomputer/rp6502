@@ -580,6 +580,36 @@ UTEST(mode0, console_return_restores_vsync_line)
     run_case(utest_result, "mode0_return", 0x4D27B447, MUT_BUDGET_NONE);
 }
 
+UTEST(mode0, double_size_lines_640x480)
+{
+    run_case(utest_result, "mode0_dbl640", 0xFC26F94F, MUT_BUDGET_NONE);
+}
+
+UTEST(mode0, double_size_lines_320x240)
+{
+    run_case(utest_result, "mode0_dbl320", 0x755D87BF, MUT_BUDGET_NONE);
+}
+
+UTEST(mode0, reverse_screen_640x480)
+{
+    run_case(utest_result, "mode0_rev640", 0xFE07B9CD, MUT_BUDGET_NONE);
+}
+
+UTEST(mode0, reverse_screen_320x240)
+{
+    run_case(utest_result, "mode0_rev320", 0x6D69A4F4, MUT_BUDGET_NONE);
+}
+
+UTEST(mode0, wrap_on_a_double_width_row_640x480)
+{
+    run_case(utest_result, "mode0_wrap640", 0x9D20938C, MUT_BUDGET_NONE);
+}
+
+UTEST(mode0, wrap_on_a_double_width_row_320x240)
+{
+    run_case(utest_result, "mode0_wrap320", 0x38A5024E, MUT_BUDGET_NONE);
+}
+
 UTEST(prog, bands_switch_modes_on_one_plane_320x240)
 {
     run_case(utest_result, "prog_bands", 0xD2BCF38B, MUT_BUDGET_NONE);

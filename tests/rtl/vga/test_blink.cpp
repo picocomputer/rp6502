@@ -5,8 +5,9 @@
  *
  * The terminal advances its blink phase every TERM_BLINK_TICK_FRAMES, which is
  * 10 frames, and a TERM_ATTR_BLINK cell follows bit 1 of the phase, so the
- * cell changes state every 20 frames. The test forces mode0's blink_shadow to
- * the phase it checks instead of simulating those frames.
+ * cell changes state every 20 frames. The test forces the blink bits of
+ * mode0's screen_shadow to the phase it checks instead of simulating those
+ * frames.
  */
 
 #include "Vwiring.h"
@@ -24,7 +25,7 @@
 
 static Vwiring *dut;
 
-/* The firmware writes its own blink phase to blink_shadow once a frame, so a
+/* The firmware writes its own blink phase to screen_shadow as it ticks, so a
  * pinned phase is written again before every clock rather than once. */
 static int pinned_blink = -1;
 
@@ -32,7 +33,7 @@ static void capture_frame(const std::vector<uint8_t> &rom, uint32_t *fb)
 {
     auto ck = [&] {
         if (pinned_blink >= 0)
-            dut->rootp->wiring__DOT__mode0__DOT__blink_shadow =
+            dut->rootp->wiring__DOT__mode0__DOT__screen_shadow =
                 (uint8_t)pinned_blink;
         tb_platform_clock(dut, rom, nullptr);
     };
@@ -58,12 +59,14 @@ UTEST(blink, off_phase_blanks_the_glyph)
     /* 0x0200 is TERM_ATTR_BLINK in the attribute byte, bits 15:8 of a
      * cell's first word. */
     auto *r = dut->rootp;
-    /* A row's latest word pointer is in the slot it was written to since
-     * the last latch, else in the slot the render reads. */
+    /* A row's latest word is in the slot it was written to since the last
+     * latch, else in the slot the render reads. Its first cell is in bits
+     * 12:0, and a cell is two words of the cell memory. */
     auto row_word = [r](int i) {
         uint32_t slot = ((r->wiring__DOT__mode0__DOT__row_front
                           ^ r->wiring__DOT__mode0__DOT__row_pend) >> i) & 1;
-        return (uint32_t)r->wiring__DOT__mode0__DOT__row_mem[2 * i + slot];
+        return 2 * ((uint32_t)r->wiring__DOT__mode0__DOT__row_mem[2 * i + slot]
+                    & 0x1FFFu);
     };
     uint32_t base = row_word(25);
     uint32_t seed = term_cell(r, row_word(0));

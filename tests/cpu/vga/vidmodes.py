@@ -887,6 +887,32 @@ p.rom.add_binary_data(bytes((i * 13 + 7) & 0xFF for i in range(200 * 150)),
 note("mode0_return", 0)
 p.write(OUT / "mode0_return.rp6502")
 
+# Double-size lines and the reverse screen, with a steady cursor on them,
+# since a blinking one would make the frame depend on when it is captured.
+# Every attribute line is drawn on each size, so each follows the glyph row.
+MODE0_SIZES = ("\33[0m\33[2J\33[H"
+               "\33#6Wide \33[4mul\33[24m \33[9mst\33[29m "
+               "\33[53mov\33[55m \33[21mdu\33[24m\r\n"
+               "\33#3\33[1;31mTall\33[0m \33[7mrv\33[27m \33(0lqk\33(B\r\n"
+               "\33#4\33[1;31mTall\33[0m \33[7mrv\33[27m \33(0lqk\33(B\r\n"
+               "plain \33[3mitalic\33[23m \33[44;33mcolor\33[0m")
+
+
+def mode0text(name, canvas, text):
+    rom(name, canvas, [(0, 0, 0, 0)], [], speak=text)
+
+
+mode0text("mode0_dbl640", 3, MODE0_SIZES + "\33[1;3H\33[2 q")
+mode0text("mode0_dbl320", 1, MODE0_SIZES + "\33[2;2H\33[6 q")
+mode0text("mode0_rev640", 3, "\33[?5h" + MODE0_SIZES + "\33[3;4H\33[4 q")
+mode0text("mode0_rev320", 1, "\33[?5h" + MODE0_SIZES + "\33[1;3H\33[2 q")
+# A double-width row filled to its last column leaves a wrap pending, and
+# the cursor parks there as a block whatever its style.
+mode0text("mode0_wrap640", 3,
+          "\33[0m\33[2J\33[H\33#6" + "0123456789" * 4 + "\33[6 q")
+mode0text("mode0_wrap320", 1,
+          "\33[0m\33[2J\33[H\33#6" + "0123456789" * 2 + "\33[6 q")
+
 cfg0 = bytearray((0, 0)) + le16(10, 20, 64, 64, 0x0800, 0x0200)
 cfg1 = bytearray((0, 0)) + le16(40, 30, 64, 64, 0x1800, 0x0600)
 rom("fill_heavy640", 3,
