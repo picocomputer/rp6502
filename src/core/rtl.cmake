@@ -5,6 +5,9 @@ include(${CMAKE_CURRENT_LIST_DIR}/gen.cmake)
 rp6502_gen_assets()
 
 set(RP6502_RTL_SOURCES
+    ${RP6502_VENDOR}/hazard3_rp6502/hazard3_core.v
+    ${RP6502_VENDOR}/hazard3_rp6502/hazard3_decode.v
+    ${RP6502_VENDOR}/hazard3_rp6502/hazard3_frontend.v
     ${RP6502_VENDOR}/hazard3_rp6502/hazard3_regfile_1w2r.v
     ${RP6502_ASSETS}/cpu_rom_pkg.sv
     ${RP6502_SRC}/core/vga/scan/timing_pkg.sv
