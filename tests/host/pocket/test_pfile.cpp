@@ -717,18 +717,17 @@ UTEST(pfile, a_window_filled_again_is_read_again)
 }
 
 /* The name starts with four .. segments, one more than the depth of the
- * working directory, and the last of them stays at the card root. '\'
- * separates as '/' does, so the name resolves to argv.rp6502 in the working
- * directory. */
+ * ROM folder, where an exec's relative path starts, and the last of them
+ * stays at the card root. '\' separates as '/' does, so the name resolves
+ * to argv.rp6502 in the ROM folder. */
 #define EXEC_NAME "..\\../../..\\Assets/rp6502/common/./argv.rp6502"
 
-static std::vector<uint8_t> exec_rom(void)
+static std::vector<uint8_t> exec_rom(const char *name)
 {
     tb_asm p;
     /* The argv block is one offset, the zero pair that ends the table, then
      * the name, all pushed from the end so that they land in reading
      * order. */
-    const char *name = EXEC_NAME;
     size_t n = strlen(name);
     p.push(0);
     while (n--)
@@ -740,11 +739,14 @@ static std::vector<uint8_t> exec_rom(void)
     return tb_rom_image(TB_ORG, p.b);
 }
 
-UTEST(pfile, an_exec_by_relative_path_records_where_the_rom_was)
+/* Runs argv.rp6502 from the ROM folder by an exec of name, and returns
+ * whether its argv[0] is the absolute path of the ROM. */
+static bool exec_finds_the_rom(const char *name)
 {
     std::vector<uint8_t> argv = read_file(ARGV_ROM);
-    ASSERT_GT(argv.size(), 0u);
-    boot(exec_rom(), false);
+    if (argv.empty())
+        return false;
+    boot(exec_rom(name), false);
     /* boot() only ticks the clocks and serves no request, so the file is in
      * place before the exec opens it. */
     g_files["/Assets/rp6502/common/argv.rp6502"] = argv;
@@ -753,8 +755,21 @@ UTEST(pfile, an_exec_by_relative_path_records_where_the_rom_was)
     for (long i = 0; i < 60000000L && g_console.find("]") == std::string::npos;
          i++)
         step();
-    if (g_console.find(want) == std::string::npos)
+    bool found = g_console.find(want) != std::string::npos;
+    if (!found)
         fprintf(stderr, "console: [%s]\n", g_console.c_str());
-    ASSERT_TRUE(g_console.find(want) != std::string::npos);
     teardown();
+    return found;
+}
+
+UTEST(pfile, an_exec_by_relative_path_records_where_the_rom_was)
+{
+    ASSERT_TRUE(exec_finds_the_rom(EXEC_NAME));
+}
+
+/* A relative path of an exec starts in the ROM folder, though the working
+ * directory is the saves folder, so a file name alone runs a ROM. */
+UTEST(pfile, an_exec_by_file_name_finds_the_rom_folder)
+{
+    ASSERT_TRUE(exec_finds_the_rom("argv.rp6502"));
 }

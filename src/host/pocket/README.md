@@ -336,9 +336,10 @@ no call moves it. getcwd returns `FS:/Saves/rp6502/common`, and a
 relative name resolves in that folder, so `foo.txt`, `FS:foo.txt`,
 `SAVE:foo.txt` and `FS:/Saves/rp6502/common/foo.txt` name the same file.
 The ROMs a user picks in the Pocket's menu are in `/Assets/rp6502/common`,
-so a program that runs another ROM names it by its absolute path, or by
-the folder in its own argv[0]. A name that starts with a separator is
-absolute, and `/` and `\` both separate.
+and `exec` is the one call that takes a relative path under that folder
+and not under the working directory, so a program runs another ROM by
+its file name alone. A name that starts with a separator is absolute,
+and `/` and `\` both separate.
 
 `SAVE:` names a file in `/Saves/rp6502/common/`. `fs_save_open` joins
 the name to that folder and opens it through the same code as a name on
@@ -372,9 +373,10 @@ SDRAM staging store, at `GETFILE_BRIDGE`, because the host cannot write
 to the window that Open File reads its parameters from. The firmware
 issues Get File once per staged image, in `proc_restage()`. An `exec`
 does not issue it, because the program that called `exec` has already
-set the arguments. `proc_exec_take` makes that argv[0] absolute against
-the working directory before the load, so argv[0] always holds the
-absolute path of the ROM with its drive. An `exec` whose absolute path
+set the arguments. `proc_exec_take` makes that argv[0] absolute before
+the load, taking a relative path under `/Assets/rp6502/common`, so
+argv[0] always holds the absolute path of the ROM with its drive. An
+`exec` whose absolute path
 is longer than 255 bytes, or whose arguments no longer fit the xstack
 once the path is absolute, is refused with a message on the console.
 

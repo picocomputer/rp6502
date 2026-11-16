@@ -56,10 +56,12 @@ bool proc_exec_inflight(void)
 }
 
 /* An exec leaves argv[0] as the program wrote it, so it is made absolute
- * against the working directory here, to record where the ROM was. A ':name'
- * is left as written, because it is not a path. The function is kept out of
- * line so that abs takes stack only during an exec, rather than in main's
- * frame for as long as the firmware runs. */
+ * here, to record where the ROM was. A relative path is taken under
+ * FS_ASSETS_PATH, where the ROMs are, and not under the working directory:
+ * an exec is the one call that does. A ':name' is left as written, because
+ * it is not a path. The function is kept out of line so that abs takes
+ * stack only during an exec, rather than in main's frame for as long as
+ * the firmware runs. */
 __attribute__((noinline)) static bool proc_argv0_absolute(void)
 {
     const char *path = arg_index(0);

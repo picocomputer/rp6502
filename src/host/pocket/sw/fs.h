@@ -19,7 +19,8 @@
 #define FS_DRIVE "FS:"
 
 /* A relative name resolves under FS_SAVES_PATH, the working directory, as
- * a name on SAVE: does. The ROMs are in FS_ASSETS_PATH. */
+ * a name on SAVE: does. The ROMs are in FS_ASSETS_PATH, and the relative
+ * path of an exec resolves there instead. */
 #define FS_SAVES_PATH "/Saves/rp6502/common"
 #define FS_ASSETS_PATH "/Assets/rp6502/common"
 
