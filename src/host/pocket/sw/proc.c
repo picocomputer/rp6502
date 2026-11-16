@@ -19,16 +19,21 @@
 static char proc_argv0[API_PATH_MAX + 1];
 static bool proc_exec_pending;
 
-void proc_restage(void)
+void proc_exec_drop(void)
 {
-    /* A start by name overrides an exec still on its way, and the stop that
-     * exec made did not end the chain, so it ends here. */
+    /* The stop an exec made did not end the chain, so it ends here. */
     if (proc_exec_pending)
     {
         proc_exec_pending = false;
         proc_chain_end();
     }
     proc_cancel_launcher();
+}
+
+void proc_restage(void)
+{
+    /* A start by name overrides an exec still on its way. */
+    proc_exec_drop();
     arg_clear();
     proc_run();
     memcpy(proc_argv0, FS_DRIVE, sizeof FS_DRIVE - 1);

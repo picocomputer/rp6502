@@ -246,9 +246,11 @@ as handled so they start no program.
 **A refused load stops there.** Nothing starts while a load is on its
 way, because the load replaces the machine. A load with no undo leaves a
 half loaded machine when a row refuses, and a fresh boot has nothing to
-undo to, so a refused load says `bad savestate`, stops the 6502 and
-leaves it in reset until the user reloads the core. A row that refuses
-does so after the host has been answered ok.
+undo to, so a refused load says `bad savestate` and stops the machine,
+which tears down whatever part of it was loaded. A launcher or an exec
+that came with that part is dropped, so the machine stays stopped, as it
+does after a program ends, until the user picks a ROM. A row that
+refuses does so after the host has been answered ok.
 
 ### What does not survive a sleep
 

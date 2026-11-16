@@ -18,6 +18,9 @@ void proc_restage(void);
 
 bool proc_exec_take(void);
 
+/* Drops an exec on its way and the launcher, so nothing starts by itself. */
+void proc_exec_drop(void);
+
 /* The path a start by name staged, the exec on its way, then core/api/proc.h's
  * chain. */
 #define PROC_SST_SIZE (API_PATH_MAX + 1 + 1 + PROC_CHAIN_SST_SIZE)

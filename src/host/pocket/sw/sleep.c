@@ -10,8 +10,8 @@
  * host's blob at the start of the window, and its request. A wake is a
  * load into a firmware that has just booted, and a load into a running
  * machine stops it first, so the stop closes its files the usual way. A
- * load that fails says "bad savestate" and leaves the 6502 in reset until
- * the core is loaded again.
+ * load that fails says "bad savestate" and leaves the machine stopped, as
+ * a program that has ended does, until a ROM is started.
  *
  * Where the Pocket's side of this comes from:
  * - 0x00A0 and 0x00A4 drive sleep and wake, and the host reads a save
@@ -34,6 +34,7 @@
 #include "apf.h"
 #include "fs.h"
 #include "mmio.h"
+#include "proc.h"
 
 #include "core/api/std.h"
 #include "core/sys/debug_log.h"
@@ -47,11 +48,9 @@
 _Static_assert(SST_TOTAL <= POCKET_SST_BYTES,
                "the savestate is larger than gen/version.py's SST_BYTES");
 
-static bool sleep_refused;
-
 bool sleep_waking(void)
 {
-    return sleep_refused || (SST_CTL & (SST_BLOB_SEEN | SST_LOAD_REQ));
+    return SST_CTL & (SST_BLOB_SEEN | SST_LOAD_REQ);
 }
 
 /* The machine stops on a clock its audio is quiet, and stays stopped
@@ -80,8 +79,10 @@ static void sleep_save(void)
 
 /* The live input is taken again after a load, because the KEYB and GPAD
  * rows put back what was held at the save, and apf.c sends only what
- * changes. */
-static bool sleep_load(void)
+ * changes. A load that fails may have put back part of a machine, a
+ * launcher or an exec on its way among it, so those are dropped and the
+ * machine is stopped, which tears down what was loaded. */
+static void sleep_load(void)
 {
     uint32_t started = UPTIME_LO;
     uint32_t failed = fs_failed_count();
@@ -106,13 +107,12 @@ static bool sleep_load(void)
         printf("\nbad savestate: %s\n%lu ms, %lu file errors\n", why,
                (unsigned long)((UPTIME_LO - started) / 1000u),
                (unsigned long)(fs_failed_count() - failed));
-        sleep_refused = true;
+        proc_exec_drop();
         sys_stop();
     }
     else
         apf_refresh();
     MACH_HOLD = 0;
-    return !why;
 }
 
 bool sleep_task(void)
@@ -126,7 +126,7 @@ bool sleep_task(void)
         else if (fs_idle())
             sleep_save();
     }
-    if (sleep_refused || !(ctl & (SST_BLOB_SEEN | SST_LOAD_REQ)))
+    if (!(ctl & (SST_BLOB_SEEN | SST_LOAD_REQ)))
         return false;
     if (sys_active())
     {
@@ -135,5 +135,6 @@ bool sleep_task(void)
     }
     if (!fs_idle() || !(ctl & SST_LOAD_REQ) || !(ctl & SST_WQ_EMPTY))
         return false;
-    return sleep_load();
+    sleep_load();
+    return true;
 }

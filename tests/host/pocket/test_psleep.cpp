@@ -963,9 +963,29 @@ static std::string screen()
     return s;
 }
 
+/* A hot reload of the ROM, which test_pocket.cpp's host_load describes as
+ * measured on a Pocket: a slot request write, the image, its data table
+ * entry and a second 0x008F. */
+static void hot_reload(const std::vector<uint8_t> &rom)
+{
+    dut->dataslot_requestwrite_id = 0;
+    dut->dataslot_requestwrite = 1;
+    a_edge();
+    a_edge();
+    dut->dataslot_requestwrite = 0;
+    dut->dataslot_allcomplete = 0;
+    host_put_bytes(TB_STAGE_ROM_BASE, rom.data(), rom.size());
+    dt_set(0, (uint32_t)rom.size());
+    for (int i = 0; i < 40; i++)
+        a_edge();
+    dut->datatable_q = tb.dt[1];
+    dut->dataslot_allcomplete = 1;
+}
+
 /* A savestate that fails its checks: the wake prints "bad savestate" and
- * the 6502 stays in reset, and a save after it answers err. */
-UTEST(psleep, a_bad_savestate_stops_the_machine)
+ * the 6502 stays in reset, as it does after a program ends, until the user
+ * picks a ROM, which starts. */
+UTEST(psleep, a_bad_savestate_stops_the_machine_until_a_rom_is_picked)
 {
     std::vector<uint8_t> rom = read_file(FILE_ROM);
     ASSERT_GT(rom.size(), 0u);
@@ -983,7 +1003,9 @@ UTEST(psleep, a_bad_savestate_stops_the_machine)
     for (long i = 0; i < 2000000L; i++)
         step();
     ASSERT_FALSE((int)MEM(resb));
-    ASSERT_EQ(RES_ERR, save());
-    ASSERT_FALSE((int)MEM(resb));
+    hot_reload(rom);
+    for (long i = 0; i < 4000000L && !MEM(resb); i++)
+        step();
+    ASSERT_TRUE((int)MEM(resb));
     teardown();
 }
