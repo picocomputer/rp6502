@@ -384,8 +384,9 @@ offset 0, which is where Open File's parameter struct holds its name.
 The list of target commands, the commands the core sends to the host,
 ends at Open File, so there is no delete, rename or mkdir. stat, unlink,
 rename, mkdir, opendir, readdir and the other calls on a directory
-descriptor, chmod, utime, chdir, getlabel, setlabel and getfree all
-return ENOSYS. The saves that exist are found by opening names in turn,
+descriptor, chmod, utime, getlabel, setlabel and getfree all return
+ENOSYS. So does chdir, unless its path is the one getcwd returns, which
+the load of a savestate passes. The saves that exist are found by opening names in turn,
 such as `SAVE:hopper.slot0` upward. An `O_RDONLY` open fails on a missing
 name without creating anything.
 
