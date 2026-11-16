@@ -107,8 +107,10 @@ bool proc_sst_load(sst_cursor_t *c, unsigned flags)
     (void)flags;
     const char *argv0 = sst_view_str(c, sizeof proc_argv0);
     bool pending = sst_get_bool(c);
-    if (!sst_ok(c) || !proc_chain_sst_load(c))
+    if (!sst_ok(c))
         return false;
+    if (!proc_chain_sst_load(c))
+        return sst_refuse(c, "the program's name and arguments are out of range");
     strcpy(proc_argv0, argv0);
     proc_exec_pending = pending;
     return true;

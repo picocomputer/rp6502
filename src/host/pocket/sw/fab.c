@@ -89,7 +89,7 @@ bool fab_sst_load(sst_cursor_t *c, unsigned flags)
     (void)flags;
     const uint8_t *p = sst_view(c, FAB_SST_SIZE);
     if (!p)
-        return false;
+        return sst_refuse(c, "the fabric's state is short");
     uint64_t mtime = (uint64_t)fab_u32(&p) << 32;
     mtime |= fab_u32(&p);
     tim_clock_set(mtime);

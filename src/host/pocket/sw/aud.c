@@ -8,7 +8,8 @@
 
 /* The open PCM: device's AUD_PCM_CTRL, 0 while it is closed. */
 static uint32_t aud_pcm_ctrl;
-/* Bytes written since the open, which empties the FIFO, modulo 4. */
+/* The place in its word of the next byte written since the open, which
+ * empties the FIFO: 0 to 3. */
 static uint8_t aud_pcm_stage;
 
 /* The PSG, the OPL, the bell voice and PCM have no reset input, so they
@@ -85,13 +86,19 @@ uint32_t aud_pcm_write(const uint8_t *buf, uint32_t n)
     if (n > room)
         n = room;
     uint32_t i = 0;
-    for (; i < n && (aud_pcm_stage & 3); i++, aud_pcm_stage++)
+    for (; i < n && aud_pcm_stage; i++)
+    {
         AUD_PCM_BYTE = src[i] * 0x01010101u;
+        aud_pcm_stage = (aud_pcm_stage + 1) & 3;
+    }
     for (; i + 4 <= n; i += 4)
         AUD_PCM_DATA = (uint32_t)src[i] | (uint32_t)src[i + 1] << 8 |
                        (uint32_t)src[i + 2] << 16 | (uint32_t)src[i + 3] << 24;
-    for (; i < n; i++, aud_pcm_stage++)
+    for (; i < n; i++)
+    {
         AUD_PCM_BYTE = src[i] * 0x01010101u;
+        aud_pcm_stage = (aud_pcm_stage + 1) & 3;
+    }
     AUD_PCM_COMMIT = 0;
     return n;
 }
@@ -125,11 +132,17 @@ bool aud_sst_load(sst_cursor_t *c, unsigned flags)
 {
     uint32_t ctrl = sst_get_u32(c);
     uint8_t stage = sst_get_u8(c);
-    if (!sst_ok(c) || ctrl > 7 || stage > 3 || !bel_sst_load(c, flags))
+    if (!sst_ok(c))
         return false;
+    if (ctrl > 7)
+        return sst_refuse(c, "PCM control out of range");
+    if (stage > 3)
+        return sst_refuse(c, "PCM byte place out of range");
+    if (!bel_sst_load(c, flags))
+        return sst_refuse(c, "the bell refused its state");
     const uint8_t *p = sst_view(c, AUD_SST_WORDS * 4);
     if (!p)
-        return false;
+        return sst_refuse(c, "the engines' state is short");
     aud_pcm_ctrl = ctrl;
     aud_pcm_stage = stage;
     AUD_OWN = 1;

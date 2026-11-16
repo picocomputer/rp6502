@@ -15,8 +15,7 @@
 #
 # SST_BYTES is the savestate size the bitstream gives the host. The host
 # reads that many bytes of the blob window for a save. The firmware's
-# savestate must fit in it, which its build checks, and the host's file,
-# its header in front, the savestate and a thumbnail behind, must fit in
+# savestate must fit in it, which its build checks, and it must fit in
 # the window, which stage_map_gate.py checks.
 
 import sys

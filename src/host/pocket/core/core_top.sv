@@ -258,14 +258,11 @@ end
     // savestate_size is gen/version.py's SST_BYTES, which the firmware's
     // savestate fits in. savestate_maxloadsize is the whole blob window,
     // from savestate_addr to the end of the SDRAM, rather than the
-    // savestate's size. The Memories file on the card has a 596-byte
-    // header in front of the savestate and a 52764-byte thumbnail behind
-    // it (measured on a Pocket). Whether a load writes them into the
-    // window is not known; the Spacewar core,
-    // https://github.com/spacemen3/PDP-1, suggests it does not. The
-    // firmware finds the savestate in the window either way.
-    // stage_map_gate.py checks the address and the load size against
-    // mmio.h, and that the size and room for both fit in the window.
+    // savestate's size. A load writes the savestate at savestate_addr with
+    // nothing in front (measured on a Pocket). The Memories file on the
+    // card has a header and a thumbnail around it, which do not come to
+    // the core. stage_map_gate.py checks the address and the load size
+    // against mmio.h, and that the size fits in the window.
     wire            savestate_supported = 1'b1;
     wire    [31:0]  savestate_addr = 32'h03EC_1000;
     wire    [31:0]  savestate_size = pocket_version_pkg::SST_BYTES;

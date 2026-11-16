@@ -119,9 +119,14 @@ bool vid_sst_load(sst_cursor_t *c, unsigned flags)
     uint16_t canvas = sst_get_u16(c);
     uint32_t prog = sst_get_u32(c);
     uint16_t cp = sst_get_u16(c);
-    if (!sst_ok(c) || !unicode_has_page(cp) || !vga_canvas_load(canvas)
-        || !vga_table_load(c))
+    if (!sst_ok(c))
         return false;
+    if (!unicode_has_page(cp))
+        return sst_refuse(c, "a code page this build lacks");
+    if (!vga_canvas_load(canvas))
+        return sst_refuse(c, "a canvas this build lacks");
+    if (!vga_table_load(c))
+        return sst_refuse(c, "the scanline table's notes are out of range");
     vid_prog_word = prog;
     VID_PROG = prog;
     font_load_code_page(cp);

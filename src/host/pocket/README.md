@@ -21,6 +21,14 @@ model the Pocket tag each behaviour with one of them:
 - Other community cores, named where used.
 - Measurements on a Pocket. Anything else is marked as our guess.
 
+Measured on the owner's Pocket:
+
+- A load writes the savestate at `savestate_addr` with nothing in front.
+  The Memories file on the card has a 596-byte header and a thumbnail
+  around it, and neither comes to the core. This agrees with Spacewar.
+- While a load request is unanswered, the Pocket serves no file command.
+  One sent then gets no reply until the bridge's deadline.
+
 ## The board's memory
 
 Analogue names the board's memory parts. This core uses only the SDRAM.
@@ -123,7 +131,9 @@ sleep the host sends command 0x00A0 to create a savestate, powers down,
 and writes the savestate back into the core on wake. A load has the blob
 written into the core as ordinary bridge writes and is asked for with
 0x00A4. Analogue documents no order for a wake's blob, its 0x00A4 and
-Reset Exit, so the core takes them in any order.
+Reset Exit, so the core takes them in any order. On the owner's Pocket a
+wake's load was still unanswered while the firmware ran, so that 0x00A4
+came after Reset Exit.
 
 The savestate is core's, made by `core/sys/sst.c` as on the emulators.
 The firmware builds it with `RP6502_SST`, and its driver list carries
@@ -131,10 +141,8 @@ the rows. Two rows are this machine's own: `FAB_`, in `sw/fab.c`, holds
 what only the bitstream keeps, and `AUD_`, in `sw/aud.c`, holds the
 audio engines. The blob is about 230 KB. The size the host is given is
 `SST_BYTES` in `gen/version.py`, and the firmware's build fails when
-core's total does not fit in it. The Memories file on the card has a
-header in front of the blob and a thumbnail behind it. Whether a load
-writes those into the window is not known, so the firmware finds the
-blob in the window with core's `sst_find`.
+core's total does not fit in it. A load writes the blob at the start of
+the window.
 
 **A bitstream runs only the firmware built for it.** The register layout
 version covers the registers and the memory map. It is written once, in
@@ -162,7 +170,7 @@ request, when the lines already describe it.
 | Request | Result |
 |---|---|
 | A save | busy until the firmware has made the blob, then ok; err for a refused save or a word not served in time |
-| A load, the machine running | busy until the firmware has loaded the blob, then ok, or err for a refused blob |
+| A load, the machine running | busy until the firmware has checked the blob, then ok, or err for a refused blob |
 | A load, the core in reset | ok at once, and ok from then on |
 
 **A wake's load can arrive while the Pocket holds the core in reset.**
@@ -193,9 +201,11 @@ machine already running again.
 
 A load stops a running machine first, so the stop closes its files as
 any stop does, and waits for the host's write queue to empty. Then the
-firmware finds the blob behind the host's header in `SST_BLOB` with
-`sst_find`, holds the machine and runs `sst_load`. Then `apf_refresh` has the controllers
-sent again, because the load put back what was held at the save.
+firmware checks the blob in `SST_BLOB` with `sst_check` and answers the
+request. It answers first because the rows reopen files, and the host
+serves no file command until the load is answered. Then it holds the
+machine and runs `sst_load`, and `apf_refresh` has the controllers sent
+again, because the load put back what was held at the save.
 
 - `FAB_` puts back mtime and the frame count, the 6502's RAM and XRAM,
   the scanline table and the RIA's registers, then RESB, and with `JAM`
@@ -204,8 +214,9 @@ sent again, because the load put back what was held at the save.
   absolute mtime reading. The time of day is the RTC reading plus
   `UPTIME`, a microsecond count that nothing stops or writes, so it
   follows real time through the hold and the load.
-- `PROC` and `ASET` bring back the running program's name and its image,
-  which `fs_rom_open` stages again in slot 0.
+- `PROC` and `ASET` bring back the running program's name and its image.
+  On a wake the host has loaded slot 0 again, so `fs_rom_open` takes the
+  image there when Get File says the slot holds that file.
 - `STD_` reopens the program's files by name, through `fs_std_reopen`.
 - `AUD_` loads after `STD_`, because the reopen of PCM: empties the FIFO
   it then puts back.
@@ -213,14 +224,15 @@ sent again, because the load put back what was held at the save.
   builds the font memories for the saved code page, since none of them
   can be read back.
 
-The firmware then lets the machine go, marks the host's slot updates as
-handled so they start no program, and answers ok.
+The firmware then lets the machine go and marks the host's slot updates
+as handled so they start no program.
 
 **A refused load stops there.** Nothing starts while a load is on its
 way, because the load replaces the machine. A load with no undo leaves a
 half loaded machine when a row refuses, and a fresh boot has nothing to
 undo to, so a refused load says `bad savestate`, stops the 6502 and
-leaves it in reset until the user reloads the core.
+leaves it in reset until the user reloads the core. A row that refuses
+does so after the host has been answered ok.
 
 ### What does not survive a sleep
 

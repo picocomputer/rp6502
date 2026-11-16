@@ -56,7 +56,7 @@
  * in it. The eight file windows follow it, then the Get File scratch.
  * The savestate window is last, SST_BLOB_MAX bytes at SST_BLOB_BRIDGE
  * that run to the end of the SDRAM, where the host reads a save and
- * writes a load. SST_BLOB is the window in the staging store, where the
+ * writes a load, both at the window's start. SST_BLOB is the window in the staging store, where the
  * firmware writes a save and reads a load. */
 #define ROM_IMG ((volatile const uint8_t *)0x60000000u)
 #define ROM_BRIDGE 0x00000000u

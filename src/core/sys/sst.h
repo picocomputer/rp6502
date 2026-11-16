@@ -46,6 +46,10 @@ static inline bool sst_ok(const sst_cursor_t *c)
     return !c->fail;
 }
 
+/* A row's load refuses with a reason, which the load's answer names with
+ * the row. Returns false, for the row to return. */
+bool sst_refuse(sst_cursor_t *c, const char *why);
+
 static inline void sst_fail(sst_cursor_t *c)
 {
     c->fail = true;
@@ -237,10 +241,9 @@ size_t sst_size(void);
 const char *sst_save(void *buf, size_t len, unsigned flags);
 const char *sst_load(const void *buf, size_t len, void *undo, unsigned flags);
 
-/* The first blob of this build's size whose magic is in the len bytes at
- * buf, or NULL. A frontend whose blob comes back with its own header in
- * front finds it with this. Only the magic is looked at; sst_load checks
- * the rest. */
-const uint8_t *sst_find(const void *buf, size_t len);
+/* NULL when the len bytes at buf are a savestate this build can load, else
+ * a static reason. It checks what sst_load checks before it changes
+ * anything, so a frontend can answer for a blob before it loads it. */
+const char *sst_check(const void *buf, size_t len, unsigned flags);
 
 #endif /* _CORE_SYS_SST_H_ */

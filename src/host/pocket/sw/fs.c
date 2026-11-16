@@ -478,6 +478,13 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_EINVAL;
         return -1;
     }
+    /* The image already in the ROM slot is taken as it is when the slot
+     * holds this file, as it does after a wake, where the host has loaded
+     * the slot again. Fetching it would copy the whole image off the card
+     * a second time. */
+    char bound[FS_NAME_MAX];
+    if (fs_getfile(FS_SLOT_ROM, bound, sizeof bound) && !strcmp(card, bound))
+        return fs_rom_adopt(err);
     assert(!fs_rom.used);
     uint32_t len;
     if (!fs_rom_fetch(card, &len, err))

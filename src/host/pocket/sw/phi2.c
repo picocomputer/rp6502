@@ -32,8 +32,10 @@ bool phi2_sst_load(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     uint16_t khz = sst_get_u16(c);
-    if (!sst_ok(c) || !phi2_check_khz(&khz))
+    if (!sst_ok(c))
         return false;
+    if (!phi2_check_khz(&khz))
+        return sst_refuse(c, "a PHI2 rate out of range");
     phi2_set_khz_run(khz);
     return true;
 }

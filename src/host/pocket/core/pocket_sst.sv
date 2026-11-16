@@ -54,10 +54,16 @@
  *   arrive while the core is held in reset.
  * - A host write into the window is the blob arriving: Spacewar takes
  *   the host's writes straight into its RAM at savestate_addr.
+ * - A load writes the savestate at savestate_addr with nothing in front:
+ *   measured on a Pocket.
+ * - The host serves no file command while a load is unanswered, so the
+ *   firmware answers before it reopens any file: measured on a Pocket.
  * - Reads are buffered one word, so a word late at the next strobe is
  *   err: the template's io_bridge_peripheral.v.
  * - The order of a wake's blob, its 0x00A4 and Reset Exit: not known.
- *   The core takes them in any order (our guess).
+ *   A Pocket left a wake's load unanswered while the firmware ran, so
+ *   that 0x00A4 came after Reset Exit (inferred). The core takes them in
+ *   any order.
  */
 
 module pocket_sst #(

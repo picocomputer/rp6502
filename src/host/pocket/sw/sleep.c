@@ -7,8 +7,8 @@
  * blob window, SST_BLOB, with the machine held. The window is in the
  * staging store, past the cache, so the host and the firmware see the
  * same bytes. The host reads a save once it is told ok. A load is the
- * host's blob behind its OS header, and its request. A wake is a load
- * into a firmware that has just booted, and a load into a running
+ * host's blob at the start of the window, and its request. A wake is a
+ * load into a firmware that has just booted, and a load into a running
  * machine stops it first, so the stop closes its files the usual way. A
  * load that fails says "bad savestate" and leaves the 6502 in reset until
  * the core is loaded again.
@@ -20,11 +20,11 @@
  *   and .../openfpga/core-definition-files/core-json.
  * - A wake is a fresh core that is then loaded: the Spacewar core,
  *   https://github.com/spacemen3/PDP-1, Analogue's own example.
- * - What a load writes into the window: the Memories file on the card
- *   has a 596-byte header in front and a thumbnail behind (measured on
- *   the owner's Pocket). Spacewar takes the host's writes straight in at
- *   savestate_addr, which suggests the header does not come. Either way
- *   sst_find finds the blob.
+ * - A load writes the blob at the start of the window, with nothing in
+ *   front: measured on the owner's Pocket, and Spacewar takes the host's
+ *   writes straight in at savestate_addr.
+ * - The host serves no file command while its load request is
+ *   unanswered: measured on the owner's Pocket.
  * - A save waits for no file command in flight: a community PlayStation
  *   core reports that the Pocket serves no file reads while it writes a
  *   Memory.
@@ -83,24 +83,26 @@ static void sleep_save(void)
  * changes. */
 static bool sleep_load(void)
 {
-    const char *why = "no savestate in the window";
     uint32_t started = UPTIME_LO;
     uint32_t failed = fs_failed_count();
-    const uint8_t *blob = sst_find(SST_BLOB, SST_BLOB_MAX);
-    if (blob)
+    /* The host serves no file command while its load request is
+     * unanswered, and the rows reopen files, so the request is answered
+     * once the blob checks out and before the rows run. A row that refuses
+     * after that leaves the machine stopped. */
+    const char *why = sst_check(SST_BLOB, SST_BLOB_MAX, 0);
+    SST_CTL = why ? SST_LOAD_ERR : SST_LOAD_OK;
+    if (!why)
     {
         sleep_hold();
-        why = sst_load(blob, SST_BLOB_MAX - (size_t)(blob - SST_BLOB),
-                       NULL, 0);
+        why = sst_load(SST_BLOB, SST_BLOB_MAX, NULL, 0);
     }
     if (why)
     {
         /* Said on the screen, because the debug log is off across a sleep:
-         * the reason, where in the window the savestate was found, how
-         * long the load took and how many file commands failed in it. */
+         * the reason, how long the load took and how many file commands
+         * failed in it. */
         RP6502_LOG(sst, ERROR, "load: %s", why);
-        printf("\nbad savestate: %s\nat %ld, %lu ms, %lu file errors\n",
-               why, blob ? (long)(blob - SST_BLOB) : -1L,
+        printf("\nbad savestate: %s\n%lu ms, %lu file errors\n", why,
                (unsigned long)((UPTIME_LO - started) / 1000u),
                (unsigned long)(fs_failed_count() - failed));
         sleep_refused = true;
@@ -109,7 +111,6 @@ static bool sleep_load(void)
     else
         apf_refresh();
     MACH_HOLD = 0;
-    SST_CTL = why ? SST_LOAD_ERR : SST_LOAD_OK;
     return !why;
 }
 

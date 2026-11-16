@@ -106,6 +106,7 @@ if(RP6502_SOFT_CPU)
         TOP tb_pocket
         RTL ${POCKET_STACK}
         DEFS FILE_ROM="${FILE_ROM}" AUD_SST_ROM="${AUD_SST_ROM}"
+            AUD_SST_ODD_ROM="${AUD_SST_ODD_ROM}"
             SLEEPFILE_ROM="${SLEEPFILE_ROM}"
             SLEEPASSET_ROM="${SLEEPASSET_ROM}" WAKECLK_ROM="${WAKECLK_ROM}"
         DEPENDS file_roms aud_roms sleepfile_roms sleepasset_roms wakeclk_roms

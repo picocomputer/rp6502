@@ -50,18 +50,26 @@ static Vtb_pocket *dut;
  * - A load into the running machine answers busy, then ok. The same
  *   sources, for the load.
  * - A wake: a fresh configuration of the core on the card the sleeping
- *   session left, the file written into the window and the load asked
- *   for while the core is held in reset, then Reset Exit. The PlayStation
- *   core reports that a load can arrive in reset, and Spacewar answers it
- *   there, its savestate logic running on its own power-on reset. The
- *   load answers ok at once, which is this core's own rule. The order of
- *   the three is our guess, and the core takes them in any order.
- * - The file the host writes back is the Memories file on the card: a
- *   596-byte header, the savestate and a 52764-byte thumbnail, measured
- *   on the owner's Pocket. Whether a load writes the header into the
- *   window is not known: Spacewar takes the host's writes straight in at
- *   savestate_addr, which suggests it does not. The bench writes it, the
- *   harder of the two.
+ *   session left. The ROM slot already holds the ROM the host loaded, as
+ *   it loads every data slot before Reset Exit: Analogue's docs on data
+ *   slots, and measured on the owner's Pocket. The blob is written into
+ *   the window, then Reset Exit, then the load is asked for. The order is
+ *   inferred: the owner's Pocket left a wake's load unanswered while the
+ *   firmware's rows ran (below), and this core answers ok at once a load
+ *   asked for in reset. a_bad_savestate_stops_the_machine asks in reset,
+ *   which the PlayStation core reports can happen; Spacewar answers a load
+ *   there, its savestate logic running on its own power-on reset.
+ * - A load writes the savestate at offset 0 of the window, with nothing
+ *   in front: measured on the owner's Pocket, and it agrees with Spacewar,
+ *   which takes the host's writes straight in at savestate_addr. The
+ *   Memories file on the card has a 596-byte header and a thumbnail
+ *   around the savestate, and neither comes to the core.
+ * - While a load request is unanswered the host serves no file command:
+ *   measured on the owner's Pocket, where an Open File sent then got no
+ *   reply until the bridge's deadline. What the host does with such a
+ *   command once the load is answered is not known. The bench never
+ *   answers it, counts it, and ends the load there rather than wait out
+ *   the deadline.
  * - The host serves no file reads while it writes a Memory: reported by
  *   the PlayStation core. The bench does not model it; the firmware
  *   saves only with no file command in flight.
@@ -69,10 +77,8 @@ static Vtb_pocket *dut;
  *   does with its sleep is not known. */
 enum { RES_IDLE = 0, RES_BUSY = 1, RES_OK = 2, RES_ERR = 3 };
 static const int ANSWER_SAVE = RES_BUSY;
-static const int ANSWER_LOAD_RUNNING = RES_BUSY;
+static const int ANSWER_LOAD = RES_BUSY;
 static const int ANSWER_LOAD_IN_RESET = RES_OK;
-#define FILE_HEAD 596u
-#define FILE_TAIL 52764u
 
 /* core_top's savestate_addr and savestate_size. */
 #define BLOB_BRIDGE 0x03EC1000u
@@ -109,6 +115,11 @@ struct Bench
      * What a Pocket answers to one is not known, and the firmware has no
      * reason to send one. */
     int stray = 0;
+    /* loading is high from a load request until the host has seen it
+     * answered. unserved counts the file commands sent in that time, and
+     * rom_reads the Slot Reads of slot 0, the ROM slot. */
+    bool loading = false;
+    int unserved = 0, rom_reads = 0;
 
     int req = REQ_NONE, servicing = 0;
     int prev_r = 0, prev_w = 0, prev_o = 0, prev_f = 0, prev_g = 0;
@@ -140,6 +151,9 @@ struct Bench
         tb_snap_io(s, bound);
         tb_snap_io(s, console);
         tb_snap_io(s, stray);
+        tb_snap_io(s, loading);
+        tb_snap_io(s, unserved);
+        tb_snap_io(s, rom_reads);
         tb_snap_io(s, req);
         tb_snap_io(s, servicing);
         tb_snap_io(s, prev_r);
@@ -404,6 +418,8 @@ static void do_slotread()
     uint32_t off = dut->tb_pocket_ds_slotoffset;
     uint32_t len = dut->tb_pocket_ds_length;
     uint32_t at = dut->tb_pocket_ds_bridgeaddr;
+    if (slot == 0)
+        tb.rom_reads++;
     if (!slot_bound(slot))
         return;
     std::vector<uint8_t> &f = tb.files[tb.bound[slot]];
@@ -462,6 +478,11 @@ static void step()
         return;
     int req = tb.req;
     tb.req = REQ_NONE;
+    if (tb.loading)
+    {
+        tb.unserved++;
+        return;
+    }
     tb.servicing = 1;
     switch (req)
     {
@@ -623,6 +644,26 @@ static int save(void)
     return sst_cmd(false, false, true);
 }
 
+/* Asks for a load and queries it until it is answered, serving no file
+ * command in between. True when the request answers first and the last
+ * query ok, with no file command sent while the load was unanswered. */
+static bool load(int first)
+{
+    tb.loading = true;
+    int got = sst_cmd(true, true, true);
+    for (long i = 0; i < 100000000L && got == first && !tb.unserved
+                    && dut->tb_pocket_savestate_load_busy;
+         i++)
+        step();
+    int last = got == first && !tb.unserved ? sst_cmd(true, false, true) : -1;
+    tb.loading = false;
+    if (last != RES_OK || tb.unserved)
+        fprintf(stderr, "  the load answered %d, then %d, with %d file "
+                        "commands sent before it was answered\n",
+                got, last, tb.unserved);
+    return last == RES_OK && !tb.unserved;
+}
+
 /* The window as the host reads it, BLOB_BYTES from its start. The bench
  * reads a few words over the bridge and holds them to the SDRAM, then
  * takes the rest from the SDRAM, which saves the host's minutes of reads.
@@ -643,24 +684,15 @@ static bool read_blob(std::vector<uint8_t> &blob)
     return !dut->tb_pocket_savestate_start_err;
 }
 
-/* The file the host writes back for the savestate it read. */
-static std::vector<uint8_t> wrap_blob(const std::vector<uint8_t> &blob)
+/* The blob at offset 0 of the window, where the host's writes put it.
+ * Streaming it over the bridge would cost minutes, so it goes straight
+ * into the SDRAM, and its first word goes again over the bridge, which is
+ * how the core sees a blob arrive. test_pbridge.cpp holds the bridge's
+ * writes to the SDRAM. */
+static void put_blob(const std::vector<uint8_t> &blob)
 {
-    std::vector<uint8_t> v;
-    for (size_t i = 0; i < FILE_HEAD; i++)
-        v.push_back((uint8_t)(0x5A ^ (i * 7)));
-    v.insert(v.end(), blob.begin(), blob.end());
-    for (size_t i = 0; i < FILE_TAIL; i++)
-        v.push_back((uint8_t)(0xC3 ^ (i * 11)));
-    return v;
-}
-
-/* The file straight into the window of the SDRAM, where the host's writes
- * put it. Streaming it over the bridge would cost minutes; test_pbridge.cpp
- * holds the bridge's writes to the SDRAM. */
-static void put_file(const std::vector<uint8_t> &file)
-{
-    tb_stage_poke(dut->rootp->tb_pocket__DOT__chip__DOT__mem, BLOB_BRIDGE, file);
+    tb_stage_poke(dut->rootp->tb_pocket__DOT__chip__DOT__mem, BLOB_BRIDGE, blob);
+    host_put_bytes(BLOB_BRIDGE, blob.data(), 4);
 }
 
 /* What a session did from a point on: the records from where they stood
@@ -671,6 +703,7 @@ struct Rec
     std::vector<Cpu> cpu;
     std::string console;
     uint32_t drops = 0, level = 0;
+    int rom_reads = 0;
 };
 
 /* Steps until ticks psg_ticks and calls API results have passed since the
@@ -689,6 +722,7 @@ static Rec record(long tick, long call, long con, long ticks, long calls)
     r.console = tb.console.substr((size_t)con);
     r.drops = (uint32_t)MEM(opl_drops);
     r.level = (uint32_t)MEM(pcm_level);
+    r.rom_reads = tb.rom_reads;
     return r;
 }
 
@@ -756,13 +790,13 @@ static bool round_trip(const std::vector<uint8_t> &rom, const Card &card, At at,
     t.a = record(tick, call, con, ticks, calls);
     if (running)
     {
-        put_file(wrap_blob(blob));
         tb.free_tick = -1;
-        if (sst_cmd(true, true, true) != ANSWER_LOAD_RUNNING)
+        put_blob(blob);
+        if (!load(ANSWER_LOAD))
             return false;
-        for (long i = 0; i < 100000000L && dut->tb_pocket_savestate_load_busy; i++)
+        for (long i = 0; i < 100000000L && tb.free_tick < 0; i++)
             step();
-        if (sst_cmd(true, false, true) != RES_OK || tb.free_tick < 0)
+        if (tb.free_tick < 0)
             return false;
         held_report("the load");
         t.d = record(tb.free_tick, tb.free_api, tb.free_con, ticks, calls);
@@ -774,10 +808,10 @@ static bool round_trip(const std::vector<uint8_t> &rom, const Card &card, At at,
     if (wake)
     {
         boot_held(rom, slept);
-        put_file(wrap_blob(blob));
-        if (sst_cmd(true, true, false) != ANSWER_LOAD_IN_RESET)
-            return false;
+        put_blob(blob);
         release_reset();
+        if (!load(ANSWER_LOAD))
+            return false;
         for (long i = 0; i < 100000000L && tb.free_tick < 0; i++)
             step();
         if (tb.free_tick < 0)
@@ -799,9 +833,9 @@ UTEST_MAIN();
  * window is 1,200 ticks, 25 ms. */
 #define AUD_WINDOW 1200L
 
-static bool aud_trip(bool wake, bool running, Trip &t)
+static bool aud_trip(const char *path, bool wake, bool running, Trip &t)
 {
-    std::vector<uint8_t> rom = read_file(AUD_SST_ROM);
+    std::vector<uint8_t> rom = read_file(path);
     long after = -1;
     return !rom.empty()
            && round_trip(rom, Card{}, [&] {
@@ -829,7 +863,17 @@ static void aud_check(int *utest_result, const Rec &want, const Rec &got)
 UTEST(psleep, a_wake_plays_on_as_if_never_saved)
 {
     Trip t;
-    ASSERT_TRUE(aud_trip(true, false, t));
+    ASSERT_TRUE(aud_trip(AUD_SST_ROM, true, false, t));
+    aud_check(utest_result, t.a, t.b);
+    aud_check(utest_result, t.a, t.c);
+}
+
+/* The same with the PCM written as an odd length, so the save is made
+ * partway into a word of the FIFO. */
+UTEST(psleep, a_wake_after_an_odd_pcm_write_plays_on)
+{
+    Trip t;
+    ASSERT_TRUE(aud_trip(AUD_SST_ODD_ROM, true, false, t));
     aud_check(utest_result, t.a, t.b);
     aud_check(utest_result, t.a, t.c);
 }
@@ -838,7 +882,7 @@ UTEST(psleep, a_wake_plays_on_as_if_never_saved)
 UTEST(psleep, a_load_into_the_running_machine_plays_on)
 {
     Trip t;
-    ASSERT_TRUE(aud_trip(false, true, t));
+    ASSERT_TRUE(aud_trip(AUD_SST_ROM, false, true, t));
     aud_check(utest_result, t.a, t.b);
     aud_check(utest_result, t.a, t.d);
 }
@@ -866,8 +910,8 @@ UTEST(psleep, an_open_file_reads_on_after_a_wake)
 }
 
 /* The asset program reads its ROM's asset over and over through ROM:. A
- * wake opens the ROM again, and the reads after it return what they would
- * have. */
+ * wake opens the ROM again from the slot the host loaded, reading none of
+ * it off the card, and the reads after it return what they would have. */
 UTEST(psleep, a_rom_asset_reads_on_after_a_wake)
 {
     std::vector<uint8_t> rom = read_file(SLEEPASSET_ROM);
@@ -878,6 +922,7 @@ UTEST(psleep, a_rom_asset_reads_on_after_a_wake)
                            calls, true, false, t));
     ASSERT_EQ(-1L, first_diff(t.a.api, t.b.api, calls));
     ASSERT_EQ(-1L, first_diff(t.a.api, t.c.api, calls));
+    ASSERT_EQ(0, t.c.rom_reads);
     ASSERT_TRUE(t.c.console.find("***") == std::string::npos);
     ASSERT_TRUE(t.c.console.find("FAILED") == std::string::npos);
 }
@@ -947,7 +992,7 @@ UTEST(psleep, a_bad_savestate_stops_the_machine)
     boot_held(rom, Card{});
     std::vector<uint8_t> blob(BLOB_BYTES, 0x5A);
     memcpy(blob.data(), "RP65", 4);
-    put_file(wrap_blob(blob));
+    put_blob(blob);
     ASSERT_EQ(ANSWER_LOAD_IN_RESET, sst_cmd(true, true, false));
     release_reset();
     for (long i = 0;

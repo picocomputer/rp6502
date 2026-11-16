@@ -437,14 +437,17 @@ SST_T1 = 0x0800
 SST_OPL = 0xF000
 
 
-def aud_sst_prog():
+def aud_sst_prog(odd=False):
     """Every engine at once, for a savestate taken mid-note: a PSG tone and
     a noise voice, the OPL in rhythm mode with feedback, vibrato and
     tremolo, and the bell, rung well before PCM 22050 Hz 16-bit stereo is
     opened and filled three quarters full. Then W on the console, and a
     loop that makes no API call: each VIA T1 period it writes one entry of
     a table through RW0, PSG gates and frequencies and OPL keys and drums,
-    and every sixteenth period a burst of 24 into the OPL's queue."""
+    and every sixteenth period a burst of 24 into the OPL's queue. With odd,
+    the PCM goes in as a write one byte short and a write of two, so the
+    save is made with the FIFO's staging pointer partway into a word, which
+    a byte count that did not wrap at 4 put past 3."""
     p = Prog()
     frames = []
     for i in range(SST_PCM_LEN // 4):
@@ -502,11 +505,14 @@ def aud_sst_prog():
     p.push_str("PCM:22050,16,2")
     p.call_a(OP_OPEN, O_WRONLY)
     p.sta_zp(fd)
-    p.pushw(SST_PCM_TABLE)
-    p.pushw(SST_PCM_LEN)
-    p.lda_zp(fd)
-    p.sta_abs(API_A)
-    p.call(OP_WRITE_XRAM)
+    writes = ([(SST_PCM_TABLE, SST_PCM_LEN - 1), (SST_PCM_TABLE, 2)] if odd
+              else [(SST_PCM_TABLE, SST_PCM_LEN)])
+    for at, n in writes:
+        p.pushw(at)
+        p.pushw(n)
+        p.lda_zp(fd)
+        p.sta_abs(API_A)
+        p.call(OP_WRITE_XRAM)
 
     p.lda_imm(ord("W"))
     p.putc_a()
@@ -922,7 +928,8 @@ ROMS = {"psg": psg_prog, "psg_pre": psg_pre_prog, "opl": opl_prog,
         "opl_overruns": opl_overruns_prog, "pcm_dry": pcm_dry_prog,
         "bel": bel_prog, "bel_off": bel_off_prog, "opl_bel": opl_bel_prog,
         "pcm": pcm_prog, "pcm_rules": pcm_rules_prog,
-        "pcm_order": pcm_order_prog, "aud_sst": aud_sst_prog}
+        "pcm_order": pcm_order_prog, "aud_sst": aud_sst_prog,
+        "aud_sst_odd": lambda: aud_sst_prog(odd=True)}
 TESTS = {"psg": test_psg, "psg_pre": test_psg_pre, "opl": test_opl,
          "opl_exit": test_opl_exit, "opl_init": test_opl_init,
          "bel": test_bel, "bel_off": test_bel_off, "opl_bel": test_opl_bel,

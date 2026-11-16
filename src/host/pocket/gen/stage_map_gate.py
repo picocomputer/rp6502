@@ -22,16 +22,11 @@ FIRMWARE_FILE = "firmware.bin"
 # Everything else is in the 2 MB above, in this order: the soft CPU's
 # memory, which is the cache's window and holds its ROM and RAM blocks with
 # room for them to grow, then the file windows, the Get File scratch and
-# last the savestate window, which runs to the end of the SDRAM. Whatever the
-# Pocket OS puts around a savestate grows into the window's free end.
+# last the savestate window, which runs to the end of the SDRAM, so the
+# savestate can grow into its free end. A load writes the savestate at the
+# window's start with nothing around it (measured on a Pocket).
 SDRAM_BYTES = 0x04000000
 ROM_SLOT_BYTES = 0x03E00000
-
-# The Memories file on the card has the Pocket OS's header in front of the
-# savestate and a thumbnail behind it: one had a 596-byte header and a
-# 52764-byte thumbnail (measured on a Pocket). Whether a load writes them
-# into the window is not known, so the window keeps room for both.
-HOST_WRAP_BYTES = 0x10000
 
 
 def defines(path: Path) -> dict:
@@ -257,9 +252,8 @@ def main() -> int:
             bad.append("version.py has no SST_BYTES")
         else:
             sst_bytes = int(m.group(1), 0)
-            if sst_bytes + HOST_WRAP_BYTES > mm["SST_BLOB_MAX"]:
-                bad.append(f"savestate {sst_bytes:#x} and the host's "
-                           f"{HOST_WRAP_BYTES:#x} around it are over the "
+            if sst_bytes > mm["SST_BLOB_MAX"]:
+                bad.append(f"savestate {sst_bytes:#x} is over the "
                            f"window's {mm['SST_BLOB_MAX']:#x}")
     if a.top:
         src = Path(a.top).read_text(encoding="utf-8")

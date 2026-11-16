@@ -82,6 +82,15 @@ static bool sst_walk_bad;
 static const char *sst_why;
 /* A row's refusal names the row: its four-letter id, then the reason. */
 static char sst_why_row[64];
+/* The reason the row being loaded gave, or NULL. */
+static const char *sst_refusal;
+
+bool sst_refuse(sst_cursor_t *c, const char *why)
+{
+    c->fail = true;
+    sst_refusal = why;
+    return false;
+}
 
 static const char *sst_row_why(const char *id, const char *reason)
 {
@@ -147,10 +156,12 @@ static void sst_row_load(const char *id, uint16_t ver, uint32_t size,
     }
     uint8_t *payload = (uint8_t *)p + SST_CHUNK_HDR;
     sst_cursor_t c = {payload, payload + used, false};
+    sst_refusal = NULL;
     if (!load(&c, flags) || !sst_ok(&c))
     {
         sst_walk_bad = true;
-        sst_why = sst_row_why(id, "refused what it was handed");
+        sst_why = sst_row_why(id, sst_refusal ? sst_refusal
+                                              : "refused what it was handed");
         return;
     }
     sst_offset += SST_CHUNK_HDR + size;
@@ -220,16 +231,19 @@ const char *sst_save(void *buf, size_t len, unsigned flags)
     return sst_write((uint8_t *)buf, flags);
 }
 
-const uint8_t *sst_find(const void *buf, size_t len)
+/* The blob's latch, which a valid blob holds. */
+static const char *sst_latch(const uint8_t *p, sys_latch_t *latch)
 {
-    const uint8_t *p = (const uint8_t *)buf;
-    for (size_t at = 0; at + SST_TOTAL <= len; at++)
-        if (memcmp(p + at, SST_MAGIC, 4) == 0)
-            return p + at;
+    latch->state = p[16];
+    latch->held = (p[17] & 1) != 0;
+    latch->breaking = (p[17] & 2) != 0;
+    if ((p[17] & ~(uint8_t)3) || (latch->state != 0 && latch->state != 2) ||
+        (latch->state == 0 && !latch->held))
+        return "a savestate of a machine that could not have existed";
     return NULL;
 }
 
-const char *sst_load(const void *buf, size_t len, void *undo, unsigned flags)
+const char *sst_check(const void *buf, size_t len, unsigned flags)
 {
     const uint8_t *p = (const uint8_t *)buf;
 
@@ -253,15 +267,23 @@ const char *sst_load(const void *buf, size_t len, void *undo, unsigned flags)
         return "a savestate that does not end where it should";
 
     sys_latch_t latch;
-    latch.state = p[16];
-    latch.held = (p[17] & 1) != 0;
-    latch.breaking = (p[17] & 2) != 0;
-    if ((p[17] & ~(uint8_t)3) || (latch.state != 0 && latch.state != 2) ||
-        (latch.state == 0 && !latch.held))
-        return "a savestate of a machine that could not have existed";
+    const char *why = sst_latch(p, &latch);
+    if (why)
+        return why;
 
     if (!flags && sst_get32(p + SST_TOTAL - SST_TRAILER_LEN) != sst_payload_crc(p))
         return "a savestate that does not add up";
+    return NULL;
+}
+
+const char *sst_load(const void *buf, size_t len, void *undo, unsigned flags)
+{
+    const uint8_t *p = (const uint8_t *)buf;
+    const char *why = sst_check(buf, len, flags);
+    if (why)
+        return why;
+    sys_latch_t latch;
+    sst_latch(p, &latch);
 
     if (undo && sst_write((uint8_t *)undo, flags) != NULL)
         return "the machine could not be copied aside";
@@ -283,7 +305,7 @@ const char *sst_load(const void *buf, size_t len, void *undo, unsigned flags)
     if (!sst_walk_bad)
         return NULL;
 
-    const char *why = sst_why;
+    why = sst_why;
     if (undo)
     {
         const uint8_t *u = (const uint8_t *)undo;
