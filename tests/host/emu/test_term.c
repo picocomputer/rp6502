@@ -15,6 +15,7 @@
 #include "core/sys/sys.h"
 #include "core/term/color.h"
 #include "core/term/cells.h"
+#include "tb_screen.h"
 #include "core/vga/vga.h"
 #include "core/vga/vga_emu.h"
 #include "utest.h"
@@ -60,11 +61,11 @@ static void fresh(void)
     answer();
 }
 
-static const term_data_t *cell(int x, int y)
+static const mode0_cell_t *cell(int x, int y)
 {
     for (int i = 0; i < 4 * TERM_MAX_HEIGHT; i++)
         cells_task();
-    return cells_view_row((uint8_t)y) + x;
+    return tb_screen_row((uint8_t)y) + x;
 }
 
 static char ch(int x, int y)
@@ -76,8 +77,8 @@ static char ch(int x, int y)
 static const char *row(int y)
 {
     static char text[96];
-    cells_view_t v;
-    cells_view(&v);
+    tb_screen_t v;
+    tb_screen(&v);
     int n = 0, last = 0;
     for (int x = 0; x < v.width; x++)
     {
@@ -92,15 +93,15 @@ static const char *row(int y)
 
 static int cx(void)
 {
-    cells_view_t v;
-    cells_view(&v);
+    tb_screen_t v;
+    tb_screen(&v);
     return v.cursor_x;
 }
 
 static int cy(void)
 {
-    cells_view_t v;
-    cells_view(&v);
+    tb_screen_t v;
+    tb_screen(&v);
     return v.cursor_y;
 }
 
@@ -208,8 +209,8 @@ UTEST(term, csi_intermediates_and_bad_orders_print_nothing)
     feed("\33[1\"q\33[#{\33[62;1\"p\33[ 2q\33[!5p\33[?25 l\33[25?l\33[?>c\33[1:2H.");
     ASSERT_STREQ(row(0), ".");
     ASSERT_STREQ(answer(), "");
-    cells_view_t v;
-    cells_view(&v);
+    tb_screen_t v;
+    tb_screen(&v);
     ASSERT_TRUE(v.cursor_enabled);
 }
 
@@ -389,16 +390,16 @@ UTEST(term, alt_screen_1047_clears_on_leaving)
 UTEST(term, cursor_blink_mode_shares_the_style)
 {
     fresh();
-    cells_view_t v;
+    tb_screen_t v;
     feed("\33[?12l");
-    cells_view(&v);
+    tb_screen(&v);
     ASSERT_EQ(v.cursor_style, 2);
     ASSERT_TRUE(v.cursor_enabled);
     feed("\33[4 q\33[?12h");
-    cells_view(&v);
+    tb_screen(&v);
     ASSERT_EQ(v.cursor_style, 3);
     feed("\33[7 q");
-    cells_view(&v);
+    tb_screen(&v);
     ASSERT_EQ(v.cursor_style, 3);
 }
 
@@ -406,8 +407,8 @@ UTEST(term, decstr_leaves_the_cursor_and_its_style)
 {
     fresh();
     feed("\33[5 q\33[4h\33[?33h\33[3;3H\33[!pab");
-    cells_view_t v;
-    cells_view(&v);
+    tb_screen_t v;
+    tb_screen(&v);
     ASSERT_EQ(v.cursor_style, 5);
     ASSERT_STREQ(row(2), "  ab");
     feed("\33[1;5Hc"); /* IRM was reset */
@@ -420,8 +421,8 @@ UTEST(term, ris_resets_the_world)
 {
     fresh();
     feed("\33[11m\33[4h\33[20h\33[?33h\33[3 q\33]4;1;#123456\7\33]10;#010203\7\33c");
-    cells_view_t v;
-    cells_view(&v);
+    tb_screen_t v;
+    tb_screen(&v);
     ASSERT_EQ(v.cursor_style, 0);
     ASSERT_STREQ(ask("\33[3$p"), "\33[3;2$y");
     ASSERT_STREQ(ask("\33[4$p"), "\33[4;2$y");
@@ -692,7 +693,7 @@ UTEST(term, erase_takes_the_background_and_no_attributes)
 {
     fresh();
     feed("\33[4;7;5;41;32mx\33[2K");
-    const term_data_t *c = cell(0, 0);
+    const mode0_cell_t *c = cell(0, 0);
     ASSERT_EQ(c->font_code, ' ');
     ASSERT_EQ(c->attributes, 0);
     ASSERT_EQ(c->bg_color, color_256[1]);
@@ -843,7 +844,7 @@ UTEST(term, a_double_width_line_has_forty_columns)
     for (int i = 0; i < 80; i++)
         feed(i < 40 ? "a" : "b");
     feed("\33#6");
-    ASSERT_EQ(cells_view_row_size(0), TERM_LINE_WIDE);
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_WIDE);
     ASSERT_EQ(ch(39, 0), 'a');
     ASSERT_EQ(ch(40, 0), ' '); /* the right half is lost */
     ASSERT_EQ(cx(), 39);
@@ -853,7 +854,7 @@ UTEST(term, a_double_width_line_has_forty_columns)
     feed("y");
     ASSERT_EQ(ch(0, 1), 'y');
     feed("\33#5\33[1;1H\33#5");
-    ASSERT_EQ(cells_view_row_size(0), TERM_LINE_NORMAL);
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
     feed("\33[1;60Hq");
     ASSERT_EQ(ch(59, 0), 'q');
 }
@@ -862,21 +863,21 @@ UTEST(term, line_sizes_move_with_their_lines)
 {
     fresh();
     feed("\33#3top\r\n\33#4top\r\n");
-    ASSERT_EQ(cells_view_row_size(0), TERM_LINE_TOP);
-    ASSERT_EQ(cells_view_row_size(1), TERM_LINE_BOTTOM);
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_TOP);
+    ASSERT_EQ(tb_screen_row_size(1), TERM_LINE_BOTTOM);
     feed("\33[H\33M"); /* a line comes in at the top */
-    ASSERT_EQ(cells_view_row_size(0), TERM_LINE_NORMAL);
-    ASSERT_EQ(cells_view_row_size(1), TERM_LINE_TOP);
-    ASSERT_EQ(cells_view_row_size(2), TERM_LINE_BOTTOM);
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
+    ASSERT_EQ(tb_screen_row_size(1), TERM_LINE_TOP);
+    ASSERT_EQ(tb_screen_row_size(2), TERM_LINE_BOTTOM);
     feed("\33[2J");
-    ASSERT_EQ(cells_view_row_size(1), TERM_LINE_NORMAL);
+    ASSERT_EQ(tb_screen_row_size(1), TERM_LINE_NORMAL);
 }
 
 UTEST(term, a_scroll_keeps_the_cursor_on_its_line)
 {
     fresh();
     feed("\33[2H\33#6\33[1;61H\33[S"); /* the double-width line comes up */
-    ASSERT_EQ(cells_view_row_size(0), TERM_LINE_WIDE);
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_WIDE);
     ASSERT_EQ(cx(), 39);
     ASSERT_STREQ(ask("\33[6n"), "\33[1;40R");
     feed("\33[P\33[100X");
@@ -945,13 +946,13 @@ UTEST(term, scroll_left_and_right)
 UTEST(term, the_reverse_screen_is_a_mode)
 {
     fresh();
-    cells_view_t v;
+    tb_screen_t v;
     feed("\33[?5h");
-    cells_view(&v);
+    tb_screen(&v);
     ASSERT_TRUE(v.reverse);
     ASSERT_STREQ(ask("\33[?5$p"), "\33[?5;1$y");
     feed("\33c");
-    cells_view(&v);
+    tb_screen(&v);
     ASSERT_FALSE(v.reverse);
 }
 

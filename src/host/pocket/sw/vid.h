@@ -17,10 +17,8 @@ void vid_init(void);
 void vid_stop(void);
 void vid_task(void);
 
-bool mode0_prog(uint16_t *xregs);
-
-/* The canvas 2, VID_PROG 4, the code page 2, then vga.c's table. */
-#define VID_SST_SIZE (2 + 4 + 2 + VGA_TABLE_SST_SIZE)
+/* The canvas 2, the code page 2, then vga.c's table. */
+#define VID_SST_SIZE (2 + 2 + VGA_TABLE_SST_SIZE)
 void vid_sst_save(sst_cursor_t *c, unsigned flags);
 bool vid_sst_load(sst_cursor_t *c, unsigned flags);
 
@@ -31,6 +29,6 @@ bool vid_sst_load(sst_cursor_t *c, unsigned flags);
     INIT(vid_init)                                             \
     TASK_FATFS(vid_task)                                       \
     STOP(vid_stop)                                             \
-    SST(VID_, 1, VID_SST_SIZE, vid_sst_save, vid_sst_load))
+    SST(VID_, 2, VID_SST_SIZE, vid_sst_save, vid_sst_load))
 
 #endif /* _HOST_POCKET_SW_VID_H_ */

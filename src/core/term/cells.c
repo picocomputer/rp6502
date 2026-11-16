@@ -8,6 +8,7 @@
 #include "core/term/cells.h"
 #include "core/term/color.h"
 #include "core/term/term.h"
+#include "core/vga/mode/mode0.h"
 #include "core/vga/pixel_format.h"
 #include "core/vga/vga.h"
 #include "machine.h"
@@ -15,14 +16,15 @@
 
 // The console's screen on a machine that draws it: one terminal (term.c)
 // followed at 40 and 80 columns, the cells it changes through the
-// cells_ functions, the colors, the blinks, and the view the renderers
-// read.
+// cells_ functions, the colors, the blinks, and the words mode 0 draws
+// the size showing from.
 //
 // Designed to keep up with 115200 bps without flow control.
 // The logic herein will make more sense if you remember this:
 
-// 1. The screen data doesn't move when scrolling. Instead, the
-//    video begins rendering at y_offset and wraps around.
+// 1. The screen data doesn't move when scrolling. Instead, the rows
+//    are remapped through y_offset and row_idx, and mode 0's row words
+//    say where each row's cells are.
 // 2. The screen doesn't fully clear immediately. To keep the UART
 //    buffer from overflowing, lines are cleared in a background task
 //    and checked as the cursor moves into them. Nothing fills more
@@ -69,7 +71,7 @@
 // except row_idx, which is indexed by slot.
 typedef struct
 {
-    term_data_t *mem;
+    mode0_cell_t *mem;
     uint8_t row_idx[TERM_MAX_HEIGHT];
     bool dirty[TERM_MAX_HEIGHT];
     uint16_t erase_fg_color[TERM_MAX_HEIGHT];
@@ -90,14 +92,17 @@ typedef struct
     uint8_t lines[2 * TERM_MAX_HEIGHT];
     screen_buf_t bufs[2]; /* [0] = primary, [1] = alt, as the terminal's screens */
     unsigned long cursor_frame;
-    volatile bool cursor_lit;
+    bool cursor_lit;
     unsigned long cell_blink_frame;
-    volatile uint8_t cell_blink_phase;
+    uint8_t cell_blink_phase;
 } cells_t;
 
 term_t cells_term;
 static cells_t cells_40;
 static cells_t cells_80;
+/* Something mode 0 draws changed outside a batch of the console's bytes,
+ * for cells_task to publish. */
+static bool cells_stale;
 static uint16_t cells_default_fg;
 static uint16_t cells_default_bg;
 static uint16_t cells_cursor_color; // OSC 12
@@ -129,17 +134,15 @@ static inline uint8_t cells_buf_slot(uint8_t y_offset, uint8_t row)
     return slot;
 }
 
-static inline term_data_t *cells_buf_row(const screen_buf_t *buf, uint8_t width, uint8_t y)
+static inline mode0_cell_t *cells_buf_row(const screen_buf_t *buf, uint8_t width, uint8_t y)
 {
     uint8_t slot = cells_buf_slot(buf->y_offset, y);
     return buf->mem + (uint32_t)buf->row_idx[slot] * width;
 }
 
 // Translate a logical row (0..height-1) into the start of its physical
-// cell row. Reads y_offset and row_idx[] without locking; the renderer
-// on Core 1 uses the same path. Worst case is one frame of visual tear
-// while a region scroll is mid-update. No memory barrier required.
-static inline term_data_t *cells_row_ptr(cells_t *cells, uint8_t y)
+// cell row.
+static inline mode0_cell_t *cells_row_ptr(cells_t *cells, uint8_t y)
 {
     return cells_buf_row(cells_buf(cells), cells->grid.width, y);
 }
@@ -208,7 +211,7 @@ static uint16_t cells_pen_bg(const term_t *term, const term_pen_t *pen)
 // with no attributes. An erase takes the pen's colors, not reversed, and
 // none of its attributes, as xterm and Linux do. The foreground matters too,
 // because the cursor is drawn from the cell it sits on.
-static inline void fill_glyph(term_data_t *row, unsigned start, unsigned end,
+static inline void fill_glyph(mode0_cell_t *row, unsigned start, unsigned end,
                               uint8_t glyph, uint16_t fg, uint16_t bg)
 {
     for (unsigned i = start; i < end; i++)
@@ -222,7 +225,7 @@ static inline void fill_glyph(term_data_t *row, unsigned start, unsigned end,
 }
 
 // Erase [start, end) of `row` in the pen's colors.
-static void cells_fill_erased(term_t *term, term_data_t *row, unsigned start, unsigned end)
+static void cells_fill_erased(term_t *term, mode0_cell_t *row, unsigned start, unsigned end)
 {
     const term_pen_t *pen = term_pen(term);
     fill_glyph(row, start, end, ' ', cells_pen_fg(pen), cells_pen_bg(term, pen));
@@ -380,10 +383,10 @@ void cells_touch(term_t *term, term_grid_t *g, uint8_t y)
 // 0x7D. The 0x80..0xFF font range stays reserved for the active codepage.
 // SGR 7 and 8 swap and hide at the cell, and in iCE colors mode (?33) the
 // blink bits are left off the cell: the bright background is the blink.
-static term_data_t cells_glyph_cell(term_t *term, uint8_t byte)
+static mode0_cell_t cells_glyph_cell(term_t *term, uint8_t byte)
 {
     const term_pen_t *pen = term_pen(term);
-    term_data_t cell;
+    mode0_cell_t cell;
     uint16_t f = cells_pen_fg(pen);
     uint16_t b = cells_pen_bg(term, pen);
     if (pen->reverse)
@@ -417,8 +420,8 @@ void cells_glyphs(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, uint8_t by
 {
     if (!cells_of(g))
         return;
-    term_data_t cell = cells_glyph_cell(term, byte);
-    term_data_t *row = cells_row_ptr(cells_of(g), y) + x;
+    mode0_cell_t cell = cells_glyph_cell(term, byte);
+    mode0_cell_t *row = cells_row_ptr(cells_of(g), y) + x;
     for (unsigned i = 0; i < n; i++)
         row[i] = cell;
 }
@@ -435,8 +438,8 @@ void cells_insert(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, unsigned n
     if (!cells_of(g))
         return;
     unsigned avail = term_cols(g, y) - x;
-    term_data_t *row = cells_row_ptr(cells_of(g), y);
-    memmove(&row[x + n], &row[x], (avail - n) * sizeof(term_data_t));
+    mode0_cell_t *row = cells_row_ptr(cells_of(g), y);
+    memmove(&row[x + n], &row[x], (avail - n) * sizeof(mode0_cell_t));
     cells_fill_erased(term, row, x, x + n);
 }
 
@@ -446,8 +449,8 @@ void cells_delete(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, unsigned n
         return;
     unsigned cols = term_cols(g, y);
     unsigned avail = cols - x;
-    term_data_t *row = cells_row_ptr(cells_of(g), y);
-    memmove(&row[x], &row[x + n], (avail - n) * sizeof(term_data_t));
+    mode0_cell_t *row = cells_row_ptr(cells_of(g), y);
+    memmove(&row[x], &row[x + n], (avail - n) * sizeof(mode0_cell_t));
     cells_fill_erased(term, row, cols - n, cols);
 }
 
@@ -463,15 +466,15 @@ void cells_shift(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigne
             continue;
         unsigned cols = term_cols(g, y);
         unsigned n = count < cols ? count : cols;
-        term_data_t *row = cells_row_ptr(cells, y);
+        mode0_cell_t *row = cells_row_ptr(cells, y);
         if (left)
         {
-            memmove(row, row + n, (cols - n) * sizeof(term_data_t));
+            memmove(row, row + n, (cols - n) * sizeof(mode0_cell_t));
             cells_fill_erased(term, row, cols - n, cols);
         }
         else
         {
-            memmove(row + n, row, (cols - n) * sizeof(term_data_t));
+            memmove(row + n, row, (cols - n) * sizeof(mode0_cell_t));
             cells_fill_erased(term, row, 0, n);
         }
     }
@@ -686,6 +689,27 @@ static cells_t *cells_visible(void)
     return vga_canvas_width() == 320 ? &cells_40 : &cells_80;
 }
 
+void cells_publish(void)
+{
+    cells_t *cells = cells_visible();
+    const screen_buf_t *buf = cells_buf(cells);
+    const uint8_t *ls = term_lines(&cells->grid);
+    for (uint8_t y = 0; y < cells->grid.height; y++)
+        mode0_regs.row[y] = MODE0_ROW(cells_buf_row(buf, cells->grid.width, y) - mode0_cells,
+                                      ls[y]);
+    const term_pos_t *pos = term_pos(&cells->grid);
+    // A pending wrap is shown as the column past the last, which is how the
+    // renderer knows to draw it.
+    mode0_regs.cursor = MODE0_CURSOR(pos->x + (pos->wrap_pending ? 1 : 0),
+                                     pos->y, cells_term.cursor_style) |
+                        (cells_term.cursor_enabled ? MODE0_CURSOR_ENABLED : 0) |
+                        (cells->cursor_lit ? MODE0_CURSOR_LIT : 0);
+    mode0_regs.cursor_color = cells_cursor_color;
+    mode0_regs.screen = cells->cell_blink_phase |
+                        (cells_term.reverse_screen ? MODE0_SCREEN_REVERSE : 0);
+    cells_stale = false;
+}
+
 void cells_reply(const term_t *term, const char *s, size_t n)
 {
     (void)term;
@@ -722,20 +746,23 @@ static void cells_out_chars(const char *buf, int length)
                 cells_cursor_restart_blink(all[n]);
         }
     }
+    cells_publish();
 }
 
 void cells_init(void)
 {
-    // prepare console
-    static term_data_t term40_pri_mem[40 * TERM_MAX_HEIGHT];
-    static term_data_t term80_pri_mem[80 * TERM_MAX_HEIGHT];
-    cells_40.bufs[0].mem = term40_pri_mem;
-    cells_80.bufs[0].mem = term80_pri_mem;
+    // The cells are mode 0's: each size's primary, then its alternate.
+    mode0_cell_t *mem = mode0_cells;
+    cells_40.bufs[0].mem = mem;
+    mem += 40 * TERM_MAX_HEIGHT;
 #if TERM_ALT_SCREEN
-    static term_data_t term40_alt_mem[40 * TERM_MAX_HEIGHT];
-    static term_data_t term80_alt_mem[80 * TERM_MAX_HEIGHT];
-    cells_40.bufs[1].mem = term40_alt_mem;
-    cells_80.bufs[1].mem = term80_alt_mem;
+    cells_40.bufs[1].mem = mem;
+    mem += 40 * TERM_MAX_HEIGHT;
+#endif
+    cells_80.bufs[0].mem = mem;
+#if TERM_ALT_SCREEN
+    mem += 80 * TERM_MAX_HEIGHT;
+    cells_80.bufs[1].mem = mem;
 #endif
     /* Without an alt store, bufs[1] never has cells, and the terminal never
      * switches to it. */
@@ -752,44 +779,47 @@ void cells_init(void)
 // the cursor is disabled. Steady-vs-blink handling lives in the renderers,
 // which ignore cursor_lit when cursor_style is steady; this keeps the
 // timing path style-agnostic.
-static void cells_blink_cursor(cells_t *cells)
+// True when cursor_lit changed.
+static bool cells_blink_cursor(cells_t *cells)
 {
+    bool was = cells->cursor_lit;
     if (!cells_term.cursor_enabled)
-    {
         cells->cursor_lit = false;
-        return;
+    else if ((long)(vga_frame_count() - cells->cursor_frame) >= 0)
+    {
+        cells->cursor_lit = !cells->cursor_lit;
+        cells->cursor_frame = vga_frame_count() + (term_pos(&cells->grid)->wrap_pending
+                                                       ? CELLS_CURSOR_BLINK_FAST_FRAMES
+                                                       : CELLS_CURSOR_BLINK_FRAMES);
     }
-    if ((long)(vga_frame_count() - cells->cursor_frame) < 0)
-        return;
-    cells->cursor_lit = !cells->cursor_lit;
-    cells->cursor_frame = vga_frame_count() + (term_pos(&cells->grid)->wrap_pending
-                                                   ? CELLS_CURSOR_BLINK_FAST_FRAMES
-                                                   : CELLS_CURSOR_BLINK_FRAMES);
+    return cells->cursor_lit != was;
 }
 
 // SGR-5/6 cell blink phase, per size: a free-running 2-bit counter at bits 0-1
 // (TERM_ATTR_ANY_BLINK). Bit 0 (TERM_ATTR_BLINK_FAST) flips every tick -> SGR 6 rapid;
 // bit 1 (TERM_ATTR_BLINK) every two ticks -> SGR 5 slow. The renderer ANDs a cell's
 // single blink bit against this value, so each cell darkens only on its own
-// rate's off-phase, and both relight together at phase 0. Incremented from
-// Core 0 here; read by Core 1 in the renderer hot path. Per size so the cursor
-// timer and cell blink timer share an owner instead of crossing a global.
-static void cells_cell_blink_phase_task(cells_t *cells)
+// rate's off-phase, and both relight together at phase 0. Per size so the
+// cursor timer and cell blink timer share an owner instead of crossing a
+// global. True when the phase changed.
+static bool cells_cell_blink_phase_task(cells_t *cells)
 {
-    if ((long)(vga_frame_count() - cells->cell_blink_frame) >= 0)
-    {
-        cells->cell_blink_phase =
-            (uint8_t)((cells->cell_blink_phase + 1) & TERM_ATTR_ANY_BLINK);
-        cells->cell_blink_frame = vga_frame_count() + TERM_BLINK_TICK_FRAMES;
-    }
+    if ((long)(vga_frame_count() - cells->cell_blink_frame) < 0)
+        return false;
+    cells->cell_blink_phase =
+        (uint8_t)((cells->cell_blink_phase + 1) & TERM_ATTR_ANY_BLINK);
+    cells->cell_blink_frame = vga_frame_count() + TERM_BLINK_TICK_FRAMES;
+    return true;
 }
 
 void cells_task(void)
 {
-    cells_blink_cursor(&cells_40);
-    cells_blink_cursor(&cells_80);
-    cells_cell_blink_phase_task(&cells_40);
-    cells_cell_blink_phase_task(&cells_80);
+    cells_stale |= cells_blink_cursor(&cells_40);
+    cells_stale |= cells_blink_cursor(&cells_80);
+    cells_stale |= cells_cell_blink_phase_task(&cells_40);
+    cells_stale |= cells_cell_blink_phase_task(&cells_80);
+    if (cells_stale)
+        cells_publish();
     cells_clean_task(&cells_40);
     cells_clean_task(&cells_80);
 }
@@ -797,12 +827,14 @@ void cells_task(void)
 void cells_RIS(void)
 {
     term_RIS(&cells_term);
+    cells_stale = true;
 }
 
 void cells_RIS_no_clear(void)
 {
     term_set_height(&cells_term, &cells_40.grid, TERM_STD_HEIGHT);
     term_RIS_no_clear(&cells_term);
+    cells_stale = true;
 }
 
 /* ---- savestate ----------------------------------------------------------
@@ -889,8 +921,8 @@ void cells_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_u16(c, cells_cursor_color);
     for (int b = 0; b < (TERM_ALT_SCREEN ? 2 : 1); b++)
     {
-        sst_put(c, cells_40.bufs[b].mem, 40 * TERM_MAX_HEIGHT * sizeof(term_data_t));
-        sst_put(c, cells_80.bufs[b].mem, 80 * TERM_MAX_HEIGHT * sizeof(term_data_t));
+        sst_put(c, cells_40.bufs[b].mem, 40 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
+        sst_put(c, cells_80.bufs[b].mem, 80 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
     }
     sst_put(c, color_256_term, sizeof color_256_term);
 }
@@ -910,50 +942,22 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags)
     cells_default_fg = sst_get_u16(c);
     cells_default_bg = sst_get_u16(c);
     cells_cursor_color = sst_get_u16(c);
-    /* Never mem: the cell arrays are cells_init's own statics and their
-     * addresses are already right. Only what is in them is the blob's. */
+    /* Never mem: the cells are mode 0's and their addresses are already
+     * right. Only what is in them is the blob's. */
     for (int b = 0; b < (TERM_ALT_SCREEN ? 2 : 1); b++)
     {
-        sst_get(c, cells_40.bufs[b].mem, 40 * TERM_MAX_HEIGHT * sizeof(term_data_t));
-        sst_get(c, cells_80.bufs[b].mem, 80 * TERM_MAX_HEIGHT * sizeof(term_data_t));
+        sst_get(c, cells_40.bufs[b].mem, 40 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
+        sst_get(c, cells_80.bufs[b].mem, 80 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
     }
     sst_get(c, color_256_term, sizeof color_256_term);
-    return sst_ok(c);
-}
-
-/* ---- the view ---------------------------------------------------------- */
-
-void cells_view(cells_view_t *out)
-{
-    cells_t *cells = cells_visible();
-    const term_grid_t *g = &cells->grid;
-    const term_pos_t *pos = term_pos(&cells->grid);
-    out->width = g->width;
-    out->height = g->height;
-    // A pending wrap is shown as the column past the last, which is how the
-    // view knows to draw it.
-    out->cursor_x = (uint8_t)(pos->x + (pos->wrap_pending ? 1 : 0));
-    out->cursor_y = pos->y;
-    out->cursor_style = cells_term.cursor_style;
-    out->cursor_enabled = cells_term.cursor_enabled;
-    out->cursor_lit = cells->cursor_lit;
-    out->cursor_color = cells_cursor_color;
-    out->blink_phase = cells->cell_blink_phase;
-    out->reverse = cells_term.reverse_screen;
-}
-
-const term_data_t *cells_view_row(uint8_t y)
-{
-    return cells_row_ptr(cells_visible(), y);
-}
-
-uint8_t cells_view_row_size(uint8_t y)
-{
-    cells_t *cells = cells_visible();
-    return term_lines(&cells->grid)[y];
+    if (!sst_ok(c))
+        return false;
+    cells_publish();
+    return true;
 }
 
 void cells_set_height(uint8_t width, uint8_t height)
 {
     term_set_height(&cells_term, width == 40 ? &cells_40.grid : &cells_80.grid, height);
+    cells_stale = true;
 }

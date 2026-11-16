@@ -10,6 +10,11 @@
 #include "core/term/font.h"
 #include "core/term/cells.h"
 
+mode0_cell_t mode0_cells[MODE0_CELLS];
+volatile mode0_regs_t mode0_regs;
+
+#ifndef RP6502_VGA_FABRIC
+
 #pragma GCC push_options
 #pragma GCC optimize("O3")
 
@@ -27,9 +32,9 @@ mode0_render_wide(uint16_t *buf, uint8_t bits, const uint32_t *pair)
  * cell's colors for DECSCNM. The callers pass constants, so each combination
  * compiles to its own loop. */
 static inline __attribute__((always_inline)) void
-mode0_cells(uint16_t *rgb, const term_data_t *cell, int cols, const uint8_t *font_line,
-            const uint8_t *font_line_dec, const uint8_t *italic_line,
-            uint8_t blink_mask, uint8_t line_mask, bool ul_row, bool wide, bool rev)
+mode0_draw(uint16_t *rgb, const mode0_cell_t *cell, int cols, const uint8_t *font_line,
+           const uint8_t *font_line_dec, const uint8_t *italic_line,
+           uint8_t blink_mask, uint8_t line_mask, bool ul_row, bool wide, bool rev)
 {
     MODE_TABLE(pair, 4);
     for (int i = 0; i < cols; i++, cell++)
@@ -86,11 +91,13 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
     scanline_id -= begin;
     if ((uint16_t)scanline_id >= TERM_MAX_HEIGHT * ch)
         return false;
-    cells_view_t tv;
-    cells_view(&tv);
     const uint8_t logical_row = (uint8_t)(scanline_id / ch);
     const uint8_t scanrow = (uint8_t)(scanline_id % ch);
-    const uint8_t size = cells_view_row_size(logical_row);
+    const uint32_t row_word = mode0_regs.row[logical_row];
+    const uint32_t cursor = mode0_regs.cursor;
+    const uint32_t screen = mode0_regs.screen;
+    const bool reverse = screen & MODE0_SCREEN_REVERSE;
+    const uint8_t size = MODE0_ROW_SIZE(row_word);
     /* The glyph row this scanline shows: a double-height half draws each
      * glyph row of its half twice. */
     uint8_t glyph_row = scanrow;
@@ -102,42 +109,43 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
     const uint8_t *font_line = &font[glyph_row * 256];
     const uint8_t *font_line_dec = &font_dec[glyph_row * 32];
     const uint8_t *italic_line = italic ? &italic[glyph_row * 128] : NULL;
-    const uint8_t blink_mask = tv.blink_phase;
+    const uint8_t blink_mask = MODE0_SCREEN_BLINK(screen);
     const uint8_t line_mask =
         (uint8_t)((glyph_row == last ? TERM_ATTR_UNDERLINE : 0) |
                   ((glyph_row == last || glyph_row == last - 2) ? TERM_ATTR_DBL_UL : 0) |
                   (glyph_row == ch / 2 ? TERM_ATTR_STRIKE : 0) |
                   (glyph_row == 0 ? TERM_ATTR_OVERLINE : 0));
     const bool ul_row = (line_mask & (TERM_ATTR_UNDERLINE | TERM_ATTR_DBL_UL)) != 0;
-    const term_data_t *cell = cells_view_row(logical_row);
+    const mode0_cell_t *cell = &mode0_cells[MODE0_ROW_CELL(row_word)];
     const bool wide = size != TERM_LINE_NORMAL;
     const int cols = wide ? width / 2 : width;
     if (wide)
     {
-        if (tv.reverse)
-            mode0_cells(rgb, cell, width / 2, font_line, font_line_dec, italic_line,
-                        blink_mask, line_mask, ul_row, true, true);
+        if (reverse)
+            mode0_draw(rgb, cell, width / 2, font_line, font_line_dec, italic_line,
+                       blink_mask, line_mask, ul_row, true, true);
         else
-            mode0_cells(rgb, cell, width / 2, font_line, font_line_dec, italic_line,
-                        blink_mask, line_mask, ul_row, true, false);
+            mode0_draw(rgb, cell, width / 2, font_line, font_line_dec, italic_line,
+                       blink_mask, line_mask, ul_row, true, false);
     }
-    else if (tv.reverse)
-        mode0_cells(rgb, cell, width, font_line, font_line_dec, italic_line,
-                    blink_mask, line_mask, ul_row, false, true);
+    else if (reverse)
+        mode0_draw(rgb, cell, width, font_line, font_line_dec, italic_line,
+                   blink_mask, line_mask, ul_row, false, true);
     else
-        mode0_cells(rgb, cell, width, font_line, font_line_dec, italic_line,
-                    blink_mask, line_mask, ul_row, false, false);
+        mode0_draw(rgb, cell, width, font_line, font_line_dec, italic_line,
+                   blink_mask, line_mask, ul_row, false, false);
     // DECSCUSR styles 2, 4 and 6 are the steady ones, so they draw whether or
     // not cursor_lit is set: cells.c toggles cursor_lit on a timer and leaves the
     // style to the renderer.
-    if (logical_row == tv.cursor_y &&
-        tv.cursor_enabled &&
-        (tv.cursor_lit ||
-         tv.cursor_style == 2 ||
-         tv.cursor_style == 4 ||
-         tv.cursor_style == 6))
+    const uint8_t cursor_style = MODE0_CURSOR_STYLE(cursor);
+    if (logical_row == MODE0_CURSOR_Y(cursor) &&
+        (cursor & MODE0_CURSOR_ENABLED) &&
+        ((cursor & MODE0_CURSOR_LIT) ||
+         cursor_style == 2 ||
+         cursor_style == 4 ||
+         cursor_style == 6))
     {
-        uint8_t cx = tv.cursor_x;
+        uint8_t cx = MODE0_CURSOR_X(cursor);
         // A deferred wrap parks the cursor one column past the last, so cx can
         // be the row's width. It is drawn on the last column instead, as a
         // block (DECSCUSR style 1) whatever style is set.
@@ -145,9 +153,9 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
         if (wrap_pending)
             cx = (uint8_t)(cols - 1);
         uint16_t *crgb = rgb + (uint32_t)cx * (wide ? 16 : 8);
-        const uint16_t cursor_color = tv.cursor_color;
+        const uint16_t cursor_color = (uint16_t)mode0_regs.cursor_color;
         MODE_TABLE(cpair, 4);
-        switch (wrap_pending ? 1u : tv.cursor_style)
+        switch (wrap_pending ? 1u : cursor_style)
         {
         case 3:
         case 4: // underline
@@ -167,7 +175,7 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
             break;
         default:
         { // 0, 1, 2: block
-            const term_data_t *cp = cell + cx;
+            const mode0_cell_t *cp = cell + cx;
             uint8_t cattr = cp->attributes;
             uint8_t cbits = font_line[cp->font_code];
             if (cattr & TERM_ATTR_DEC)
@@ -176,7 +184,7 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
                 cbits = italic_line[cp->font_code];
             if (cattr & line_mask)
                 cbits = 0xFF;
-            mode_pair_set(cpair, cursor_color, tv.reverse ? cp->fg_color : cp->bg_color);
+            mode_pair_set(cpair, cursor_color, reverse ? cp->fg_color : cp->bg_color);
             if (wide)
                 mode0_render_wide(crgb, cbits, cpair);
             else
@@ -220,6 +228,16 @@ bool mode0_fill_attr(vga_fill_fn_t fn, uint16_t *attributes)
     return true;
 }
 
+#else
+
+vga_fill_fn_t mode0_fill_fn(uint16_t attributes)
+{
+    (void)attributes;
+    return NULL;
+}
+
+#endif
+
 bool mode0_prog(uint16_t *xregs)
 {
     int16_t plane = (int16_t)xregs[2];
@@ -230,7 +248,7 @@ bool mode0_prog(uint16_t *xregs)
         return false;
 
     if (vga_prog_exclusive(plane, scanline_begin, scanline_end,
-                           (uint16_t)scanline_begin, mode0_render))
+                           (uint16_t)scanline_begin, mode0_fill_fn(0)))
     {
         cells_set_height(cols, rows);
         return true;

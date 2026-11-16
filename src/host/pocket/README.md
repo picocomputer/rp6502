@@ -236,9 +236,9 @@ again, because the load put back what was held at the save.
 - `STD_` reopens the program's files by name, through `fs_std_reopen`.
 - `AUD_` loads after `STD_`, because the reopen of PCM: empties the FIFO
   it then puts back.
-- `VID_` writes the canvas, the vsync line and `VID_PROG` again, and
-  builds the font memories for the saved code page, since none of them
-  can be read back.
+- `VID_` writes the canvas and the vsync line again, builds the font
+  memories for the saved code page, since none of them can be read back,
+  and publishes mode 0's words for the canvas it puts back.
 
 The firmware then lets the machine go and marks the host's slot updates
 as handled so they start no program.

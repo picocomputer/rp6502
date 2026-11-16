@@ -157,11 +157,8 @@ static inline int32_t set_tz_minutes(void)
 #define FILE_ST_DRAIN 0x20u
 #define FILE_ST_WROTE 0x40u
 
-#define VID_ROW(i) (((volatile uint32_t *)0x50010000u)[i])
-#define VID_CURSOR (*(volatile uint32_t *)0x50010080u)
-#define VID_CURSOR_COLOR (*(volatile uint32_t *)0x50010084u)
-#define VID_BLINK (*(volatile uint32_t *)0x50010088u)
-#define VID_PROG (*(volatile uint32_t *)0x5001008Cu)
+/* mode0.sv's registers from 0x50010000 are core/vga/mode/mode0.h's
+ * mode0_regs, which link.ld places there. */
 /* The frames since power-up. A write sets the count. */
 #define VID_FRAME (*(volatile uint32_t *)0x500100A0u)
 

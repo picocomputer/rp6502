@@ -20,6 +20,7 @@
 #include "core/hid/tablet.h"
 #include "core/com/rln.h"
 #include "core/term/cells.h"
+#include "tb_screen.h"
 #include "core/vga/vga_emu.h"
 #include "core/vga/mode/mode0.h"
 #include "core/sys/sys.h"
@@ -203,8 +204,8 @@ UTEST(vga, the_console_canvas_takes_the_size_the_host_gives_it)
     vga_canvas_size(&w, &h);
     ASSERT_EQ(w, 640);
     ASSERT_EQ(h, 400);
-    cells_view_t tv;
-    cells_view(&tv);
+    tb_screen_t tv;
+    tb_screen(&tv);
     ASSERT_EQ(tv.width, 80);
     ASSERT_EQ(tv.height, 25);
 
@@ -212,7 +213,7 @@ UTEST(vga, the_console_canvas_takes_the_size_the_host_gives_it)
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
     vga_canvas_size(&w, &h);
     ASSERT_EQ(h, 480);
-    cells_view(&tv);
+    tb_screen(&tv);
     ASSERT_EQ(tv.height, 30);
 }
 
@@ -299,8 +300,8 @@ UTEST(vga, a_stop_puts_the_console_back_without_the_display_register)
     ASSERT_TRUE(vga_canvas_is_console());
     ASSERT_EQ(vga_canvas_width(), 640);
     ASSERT_EQ(vga_canvas_height(), 480);
-    cells_view_t tv;
-    cells_view(&tv);
+    tb_screen_t tv;
+    tb_screen(&tv);
     ASSERT_EQ(tv.width, 80);
     ASSERT_EQ(tv.height, 30);
     uint8_t blob[XREG_SST_SIZE];

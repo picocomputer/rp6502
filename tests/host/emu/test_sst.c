@@ -16,6 +16,7 @@
 #include "core/wdc/sram.h"
 #include "core/com/rln.h"
 #include "core/term/cells.h"
+#include "tb_screen.h"
 #include "host/host.h"
 
 #include "emu_boot.h"
@@ -600,8 +601,8 @@ static bool on_console(int w, int h, int rows)
     int cw, ch, vw, vh;
     vga_console_size(&cw, &ch);
     vga_canvas_size(&vw, &vh);
-    cells_view_t tv;
-    cells_view(&tv);
+    tb_screen_t tv;
+    tb_screen(&tv);
     return vga_canvas_is_console() && cw == w && ch == h &&
            vw == w && vh == h && tv.height == rows;
 }

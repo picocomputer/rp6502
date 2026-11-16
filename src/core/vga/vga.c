@@ -288,6 +288,9 @@ bool vga_sst_load(sst_cursor_t *c, unsigned flags)
         vga_prog_load_row(line, &row);
     }
     vga_prog_set_highest((int16_t)highest);
+    /* The cells loaded before the canvas, so the size showing is only now
+     * known. */
+    cells_publish();
     return true;
 }
 

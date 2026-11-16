@@ -68,6 +68,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/sys/config.c
         ${RP6502_SRC}/core/vga/canvas.c
         ${RP6502_SRC}/core/vga/mode/mode.c
+        ${RP6502_SRC}/core/vga/mode/mode0.c
         ${RP6502_SRC}/core/vga/mode/mode1.c
         ${RP6502_SRC}/core/vga/mode/mode2.c
         ${RP6502_SRC}/core/vga/mode/mode3.c

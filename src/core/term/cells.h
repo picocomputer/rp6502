@@ -9,9 +9,8 @@
 
 /* The console's screen on a machine that draws it: the terminal (term.h)
  * followed at 40 and 80 columns, fed every byte of the console, and the
- * cells, blinks and save state of both sizes. A renderer draws the one
- * showing, read through cells_view and cells_view_row. mode0.c is the
- * scanvideo renderer; hosts with their own scanout hardware bring their own.
+ * cells, blinks and save state of both sizes. It writes what mode 0 draws
+ * (core/vga/mode/mode0.h) for the size showing.
  *
  * The cell store takes more memory than anything else here, and two things
  * size it: TERM_ALT_SCREEN, and the machine's TERM_MAX_HEIGHT — 32 rows only
@@ -37,37 +36,12 @@ extern term_t cells_term;
 void cells_RIS(void);
 void cells_RIS_no_clear(void);
 
-typedef struct
-{
-    uint8_t font_code;
-    uint8_t attributes; // TERM_ATTR_
-    uint16_t fg_color;
-    uint16_t bg_color;
-    uint16_t ul_color; // resolved at cell-write: SGR 58 color, or fg if not set
-} term_data_t;
-
-_Static_assert(sizeof(term_data_t) == 8, "term_data_t size lock for cell-memory budget");
-
-// The visible terminal's cursor and blink state, one call a scanline or a
-// frame as the renderer prefers.
-typedef struct
-{
-    uint8_t width;
-    uint8_t height;
-    uint8_t cursor_x, cursor_y, cursor_style;
-    bool cursor_enabled, cursor_lit;
-    uint16_t cursor_color;
-    uint8_t blink_phase;
-    bool reverse; // DECSCNM: every cell's colors swapped
-} cells_view_t;
-void cells_view(cells_view_t *out);
-
-// The visible terminal's logical row y, resolved through the scroll remap, so
-// the caller sees the right row after a region scroll or an alt-screen swap.
-const term_data_t *cells_view_row(uint8_t y);
-
-// The size of the visible terminal's logical row y, a TERM_LINE_ value.
-uint8_t cells_view_row_size(uint8_t y);
+/* Writes mode 0's words for the size showing. cells_out_chars calls it
+ * after each batch of the console's bytes, cells_sst_load after a load,
+ * and cells_task after the blinks, a reset or a new height. Something else
+ * that changes what shows calls it too: a savestate load that puts the
+ * canvas back, or a test that feeds term_write directly. */
+void cells_publish(void);
 
 // The renderer reports its geometry: rows of the 40- or 80-column terminal.
 void cells_set_height(uint8_t width, uint8_t height);
@@ -78,8 +52,8 @@ void cells_set_height(uint8_t width, uint8_t height);
  * the runtime palette, because OSC 4 can change an entry and nothing else
  * records what it changed to.
  *
- * The cell arrays' own addresses are never written, because they are
- * function-scope statics in cells_init, which runs long before any load.
+ * The cells' addresses are never written, because they are mode 0's
+ * (mode0_cells), the same in every build of a machine.
  *
  * The chunk starts with the terminal dimensions and a load rejects a chunk
  * whose dimensions differ, because a blob made at a taller height would put

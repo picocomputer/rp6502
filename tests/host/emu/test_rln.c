@@ -12,6 +12,7 @@
 #include "core/ria/regs.h"
 #include "core/com/rln.h"
 #include "core/term/cells.h"
+#include "tb_screen.h"
 #include "core/sys/timer.h"
 #include "core/vga/vga_emu.h"
 #include "utest.h"
@@ -396,8 +397,8 @@ UTEST(rln, a_row_breaks_with_cr_lf_right_after_column_80)
     manifold_set_tx_tap(NULL);
     ASSERT_FALSE(probed());
     ASSERT_FALSE(cells_term.autowrap);
-    ASSERT_EQ(cells_view_row(0)[79].font_code, 'a');
-    ASSERT_EQ(cells_view_row(1)[0].font_code, 'b');
+    ASSERT_EQ(tb_screen_row(0)[79].font_code, 'a');
+    ASSERT_EQ(tb_screen_row(1)[0].font_code, 'b');
     ASSERT_EQ(pos()->x, 1);
     ASSERT_EQ(pos()->y, 1);
 }
@@ -436,8 +437,8 @@ UTEST(rln, a_shrink_erases_the_tail_and_the_rows_below)
     wire("\v");
     manifold_set_tx_tap(NULL);
     ASSERT_STREQ(shown, "\33[K\33[B\r\33[K\33[1A");
-    ASSERT_EQ(cells_view_row(0)[0].font_code, ' ');
-    ASSERT_EQ(cells_view_row(1)[0].font_code, ' ');
+    ASSERT_EQ(tb_screen_row(0)[0].font_code, ' ');
+    ASSERT_EQ(tb_screen_row(1)[0].font_code, ' ');
     ASSERT_EQ(pos()->x, 0);
     ASSERT_EQ(pos()->y, 0);
 }
@@ -453,7 +454,7 @@ UTEST(rln, a_full_line_keeps_the_cursor_on_its_last_cell)
     ASSERT_EQ(pos()->y, 1);
     ASSERT_FALSE(pos()->wrap_pending);
     wire("b\33[2~z");
-    ASSERT_EQ(cells_view_row(1)[79].font_code, 'z');
+    ASSERT_EQ(tb_screen_row(1)[79].font_code, 'z');
     ASSERT_EQ(pos()->x, 79);
     ASSERT_EQ(pos()->y, 1);
     wire("\r");
@@ -502,9 +503,9 @@ UTEST(rln, a_caret_across_a_row_break_stays_whole)
     ASSERT_EQ(lines, 1);
     com_printf("]");
     manifold_flush();
-    ASSERT_EQ(cells_view_row(0)[79].font_code, '^');
-    ASSERT_EQ(cells_view_row(1)[0].font_code, 'C');
-    ASSERT_EQ(cells_view_row(2)[0].font_code, ']');
+    ASSERT_EQ(tb_screen_row(0)[79].font_code, '^');
+    ASSERT_EQ(tb_screen_row(1)[0].font_code, 'C');
+    ASSERT_EQ(tb_screen_row(2)[0].font_code, ']');
 }
 
 /* An 80-column VT100 with autowrap off, fed what goes out the UART. It keeps
@@ -663,7 +664,7 @@ UTEST(rln, a_pinned_width_of_40_breaks_at_40)
     manifold_set_tx_tap(NULL);
     ASSERT_FALSE(probed());
     ASSERT_TRUE(strstr(shown, "a\r\nb") != NULL);
-    ASSERT_EQ(cells_view_row(1)[0].font_code, 'b');
+    ASSERT_EQ(tb_screen_row(1)[0].font_code, 'b');
     ASSERT_EQ(pos()->x, 1);
     ASSERT_EQ(pos()->y, 1);
     rln_stop();
@@ -714,6 +715,7 @@ static void screen_out(const char *buf, int len)
     strncat(screen, buf, (size_t)len);
     for (int i = 0; i < len; i++)
         term_write(&cells_term, (uint8_t)buf[i]);
+    cells_publish();
 }
 
 static void screen_reading(void)
