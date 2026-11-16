@@ -19,9 +19,10 @@ FIRMWARE_FILE = "firmware.bin"
 
 # The Pocket's SDRAM is 64 MB. The ROM slot is its first 62 MB, a limit of
 # the system: a whole ROM has to load into it, so nothing takes from it.
-# Everything else is packed into the 2 MB above, in this order: the ROM
-# block, the RAM block, the file windows, the Get File scratch and last
-# the savestate window, which runs to the end of the SDRAM. Whatever the
+# Everything else is in the 2 MB above, in this order: the soft CPU's
+# memory, which is the cache's window and holds its ROM and RAM blocks with
+# room for them to grow, then the file windows, the Get File scratch and
+# last the savestate window, which runs to the end of the SDRAM. Whatever the
 # Pocket OS puts around a savestate grows into the window's free end.
 SDRAM_BYTES = 0x04000000
 ROM_SLOT_BYTES = 0x03E00000
@@ -84,10 +85,10 @@ def main() -> int:
     want("ROM base", mm["ROM_BRIDGE"], addr(0))
     want("ROM ceiling", mm["ROM_MAX"], ROM_SLOT_BYTES)
 
-    # The top 2 MB, packed from the bottom in order. The ROM block is first
-    # and the RAM block follows it. The cache's window, MEM_MAX bytes at
-    # MEM_BRIDGE, is a power of two at a multiple of its size and holds
-    # both blocks.
+    # The top 2 MB, in order. The soft CPU's memory is first, MEM_MAX
+    # bytes at MEM_BRIDGE: the cache's window, a power of two at a multiple
+    # of its size, with the ROM block at its start, the RAM block after it,
+    # and nothing else in it.
     want("memory base", mm["MEM_BRIDGE"], mm["ROM_MAX"])
     want("RAM block base", mm["MEM_RAM"], mm["MEM_ROM_MAX"])
     if mm["MEM_RAM"] + mm["MEM_RAM_MAX"] > mm["MEM_MAX"]:
@@ -96,7 +97,6 @@ def main() -> int:
             mm["MEM_BRIDGE"] % mm["MEM_MAX"]:
         bad.append("the cache's window is not a power of two at a "
                    "multiple of its size")
-    blocks_end = mm["MEM_BRIDGE"] + mm["MEM_RAM"] + mm["MEM_RAM_MAX"]
     fw = [i for i, s in ds.items() if s.get("filename") == FIRMWARE_FILE]
     if len(fw) != 1:
         bad.append(f"data.json has {len(fw)} {FIRMWARE_FILE} slots")
@@ -108,7 +108,8 @@ def main() -> int:
         if not s.get("required") or s.get("deferload"):
             bad.append("the firmware slot is not loaded before the core "
                        "leaves reset")
-    want("first file window", addr(FILE_SLOT_FIRST), blocks_end)
+    want("first file window", addr(FILE_SLOT_FIRST),
+         mm["MEM_BRIDGE"] + mm["MEM_MAX"])
     want("first file window in the staging store",
          mm["SLOT_WIN_BASE"], STAGE_BASE + mm["SLOT_WIN_BRIDGE"])
     want("first file window's bridge address",

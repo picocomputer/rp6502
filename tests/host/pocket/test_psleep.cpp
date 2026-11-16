@@ -75,7 +75,7 @@ static const int ANSWER_LOAD_IN_RESET = RES_OK;
 #define FILE_TAIL 52764u
 
 /* core_top's savestate_addr and savestate_size. */
-#define BLOB_BRIDGE 0x03E91000u
+#define BLOB_BRIDGE 0x03EC1000u
 #define BLOB_BYTES POCKET_SST_BYTES
 
 enum { REQ_NONE = 0, REQ_OPEN, REQ_FLUSH, REQ_GETFILE, REQ_READ, REQ_WRITE };

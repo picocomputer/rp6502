@@ -48,12 +48,12 @@ a savestate grows into empty space:
 |---|---|---|
 | 0x03E00000 | The firmware's ROM block | 256 KB |
 | 0x03E40000 | The firmware's RAM block | 64 KB |
-| 0x03E50000 | 8 file windows | 256 KB |
-| 0x03E90000 | Get File scratch | 4 KB |
-| 0x03E91000 | The savestate window | 1468 KB |
+| 0x03E50000 | Free, for the two blocks to grow | 192 KB |
+| 0x03E80000 | 8 file windows | 256 KB |
+| 0x03EC0000 | Get File scratch | 4 KB |
+| 0x03EC1000 | The savestate window | 1276 KB |
 
-The cache's window is the 512 KB from 0x03E00000, and only the two blocks
-are linked in it.
+The 512 KB from 0x03E00000 is the soft CPU's alone and the cache's window.
 
 ### What it costs
 

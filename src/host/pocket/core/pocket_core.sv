@@ -98,8 +98,8 @@ module pocket_core
      * mmio.h. */
     localparam logic [31:0] MEM_BASE = 32'h03E0_0000;
     localparam logic [31:0] MEM_BYTES = 32'h0005_0000;
-    localparam logic [31:0] SST_BASE = 32'h03E9_1000;
-    localparam logic [31:0] SST_WINDOW = 32'h0016_F000;
+    localparam logic [31:0] SST_BASE = 32'h03EC_1000;
+    localparam logic [31:0] SST_WINDOW = 32'h0013_F000;
 
     logic run;
 

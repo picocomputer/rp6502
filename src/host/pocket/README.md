@@ -75,13 +75,14 @@ the window's free end.
 | 0x00000000 | 62 MB | The ROM slot |
 | 0x03E00000 | 256 KB | The soft CPU's ROM block, `firmware.bin` |
 | 0x03E40000 | 64 KB | The soft CPU's RAM block |
-| 0x03E50000 | 256 KB | Eight file windows of 32 KB |
-| 0x03E90000 | 4 KB | Get File scratch |
-| 0x03E91000 | 1468 KB | The savestate window, to 0x04000000 |
+| 0x03E50000 | 192 KB | Free, for the two blocks to grow |
+| 0x03E80000 | 256 KB | Eight file windows of 32 KB |
+| 0x03EC0000 | 4 KB | Get File scratch |
+| 0x03EC1000 | 1276 KB | The savestate window, to 0x04000000 |
 
-The two blocks are the soft CPU's addresses 0 to 0x4FFFF. The cache's
-window is the 512 KB from 0x03E00000, a power of two, and nothing is
-linked in it past the RAM block. The bridge drops a host write into the
+The two blocks are the soft CPU's addresses 0 to 0x4FFFF. The 512 KB
+from 0x03E00000 is the soft CPU's alone and the cache's window, a power
+of two, so the blocks can grow in it. The bridge drops a host write into the
 two blocks while the machine runs. `stage_map_gate.py` checks every
 place that states this map against the others, checks the order, and
 fails if the ROM slot is anything but 62 MB.

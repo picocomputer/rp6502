@@ -267,9 +267,9 @@ end
     // stage_map_gate.py checks the address and the load size against
     // mmio.h, and that the size and room for both fit in the window.
     wire            savestate_supported = 1'b1;
-    wire    [31:0]  savestate_addr = 32'h03E9_1000;
+    wire    [31:0]  savestate_addr = 32'h03EC_1000;
     wire    [31:0]  savestate_size = pocket_version_pkg::SST_BYTES;
-    wire    [31:0]  savestate_maxloadsize = 32'd1503232;
+    wire    [31:0]  savestate_maxloadsize = 32'd1306624;
 
     wire            savestate_start;
     wire            savestate_start_ack;

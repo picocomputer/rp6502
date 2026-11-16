@@ -21,7 +21,7 @@
 #define TB_STAGE_MEM_SIZE 0x00080000u
 #define TB_STAGE_MEM_ROM_SIZE 0x00040000u
 #define TB_STAGE_MEM_RAM_SIZE 0x00010000u
-#define TB_STAGE_WIN_BASE 0x03E50000u
+#define TB_STAGE_WIN_BASE 0x03E80000u
 #define TB_STAGE_WIN_SIZE 0x00008000u
 
 static const std::vector<uint8_t> &tb_stage_load(const char *path,

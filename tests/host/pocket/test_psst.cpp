@@ -31,8 +31,8 @@
 #define BRG_PERIOD 2
 #define SYS_PERIOD 3
 
-#define BLOB_BASE 0x03E91000u
-#define BLOB_WINDOW 0x0016F000u
+#define BLOB_BASE 0x03EC1000u
+#define BLOB_WINDOW 0x0013F000u
 
 #define REG_CTL 0x00u
 #define CTL_SAVE_REQ (1u << 0)

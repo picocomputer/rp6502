@@ -19,7 +19,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03E50000"
+        "address": "0x03E80000"
       },
       {
         "name": "File 2",
@@ -27,7 +27,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03E58000"
+        "address": "0x03E88000"
       },
       {
         "name": "File 3",
@@ -35,7 +35,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03E60000"
+        "address": "0x03E90000"
       },
       {
         "name": "File 4",
@@ -43,7 +43,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03E68000"
+        "address": "0x03E98000"
       },
       {
         "name": "File 5",
@@ -51,7 +51,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03E70000"
+        "address": "0x03EA0000"
       },
       {
         "name": "File 6",
@@ -59,7 +59,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03E78000"
+        "address": "0x03EA8000"
       },
       {
         "name": "File 7",
@@ -67,7 +67,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03E80000"
+        "address": "0x03EB0000"
       },
       {
         "name": "File 8",
@@ -75,7 +75,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03E88000"
+        "address": "0x03EB8000"
       },
       {
         "name": "Firmware",

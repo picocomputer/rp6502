@@ -52,8 +52,8 @@
  * and the soft CPU sees it at address 0: the first MEM_ROM_MAX bytes are
  * the ROM block, which the host loads as firmware.bin, and the
  * MEM_RAM_MAX bytes at MEM_RAM are the RAM block. MEM_MAX is the cache's
- * window, a power of two, and only the two blocks are linked in it. The
- * eight file windows follow the RAM block, then the Get File scratch.
+ * window, a power of two, and the soft CPU's alone: the two blocks can grow
+ * in it. The eight file windows follow it, then the Get File scratch.
  * The savestate window is last, SST_BLOB_MAX bytes at SST_BLOB_BRIDGE
  * that run to the end of the SDRAM, where the host reads a save and
  * writes a load. SST_BLOB is the window in the staging store, where the
@@ -67,16 +67,16 @@
 #define MEM_RAM 0x00040000u
 #define MEM_RAM_MAX 0x00010000u
 #define SLOT_WIN_SIZE 0x8000u
-#define SLOT_WIN_BASE ((volatile const uint8_t *)0x63E50000u)
+#define SLOT_WIN_BASE ((volatile const uint8_t *)0x63E80000u)
 #define SLOT_WIN(d) (SLOT_WIN_BASE + (uint32_t)(d) * SLOT_WIN_SIZE)
-#define SLOT_WIN_BRIDGE(d) (0x03E50000u + (uint32_t)(d) * SLOT_WIN_SIZE)
+#define SLOT_WIN_BRIDGE(d) (0x03E80000u + (uint32_t)(d) * SLOT_WIN_SIZE)
 #define FILE_XFER_MAX SLOT_WIN_SIZE
-#define GETFILE_WIN ((volatile const uint8_t *)0x63E90000u)
-#define GETFILE_BRIDGE 0x03E90000u
+#define GETFILE_WIN ((volatile const uint8_t *)0x63EC0000u)
+#define GETFILE_BRIDGE 0x03EC0000u
 #define GETFILE_MAX 0x1000u
-#define SST_BLOB_BRIDGE 0x03E91000u
-#define SST_BLOB ((uint8_t *)0x63E91000u)
-#define SST_BLOB_MAX 0x0016F000u
+#define SST_BLOB_BRIDGE 0x03EC1000u
+#define SST_BLOB ((uint8_t *)0x63EC1000u)
+#define SST_BLOB_MAX 0x0013F000u
 
 /* FILE_WIN is the write port of a dual-port RAM in pocket_file.sv. The
  * RAM's read port is on the bridge, so the firmware cannot read FILE_WIN

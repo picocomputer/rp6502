@@ -400,7 +400,7 @@ UTEST(pbridge, a_write_to_the_firmware_is_dropped_while_the_machine_runs)
         0x03E3FFFCu, /* the ROM block's last */
         0x03E40000u, /* the RAM block's first */
         0x03E4FFFCu, /* the RAM block's last */
-        0x03E50000u, /* the first file window's first */
+        0x03E80000u, /* the first file window's first */
     };
     static const bool mem[] = {false, true, true, true, true, false};
     const int n = (int)(sizeof at / sizeof *at);
@@ -442,7 +442,7 @@ UTEST(pbridge, a_write_to_the_firmware_is_dropped_while_the_machine_runs)
 UTEST(pbridge, a_host_write_throws_the_held_line_away)
 {
     power_up(utest_result);
-    const uint32_t WIN = 0x03E50000u;
+    const uint32_t WIN = 0x03E80000u;
     for (uint32_t i = 0; i < 12; i++)
         host_word(WIN + i * 4, 0x11110000u + i, 88);
     a_cycles(60);
