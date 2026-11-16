@@ -87,14 +87,15 @@ static bool sleep_load(void)
     uint32_t failed = fs_failed_count();
     /* The host serves no file command while its load request is
      * unanswered, and the rows reopen files, so the request is answered
-     * once the blob checks out and before the rows run. A row that refuses
-     * after that leaves the machine stopped. */
+     * once the blob checks out and before the rows run, which do not
+     * check it again. A row that refuses after that leaves the machine
+     * stopped. */
     const char *why = sst_check(SST_BLOB, SST_BLOB_MAX, 0);
     SST_CTL = why ? SST_LOAD_ERR : SST_LOAD_OK;
     if (!why)
     {
         sleep_hold();
-        why = sst_load(SST_BLOB, SST_BLOB_MAX, NULL, 0);
+        why = sst_load_checked(SST_BLOB, NULL, 0);
     }
     if (why)
     {

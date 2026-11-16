@@ -122,9 +122,12 @@ void aud_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_u32(c, aud_pcm_ctrl);
     sst_put_u8(c, aud_pcm_stage);
     bel_sst_save(c, flags);
+    uint8_t *p = sst_room(c, AUD_SST_WORDS * 4);
+    if (!p)
+        return;
     AUD_OWN = 1;
-    for (uint32_t w = 0; w < AUD_SST_WORDS; w++)
-        sst_put_u32(c, AUD_SST(w));
+    for (uint32_t w = 0; w < AUD_SST_WORDS; w++, p += 4)
+        sst_be32_write(p, AUD_SST(w));
     AUD_OWN = 0;
 }
 
@@ -147,8 +150,7 @@ bool aud_sst_load(sst_cursor_t *c, unsigned flags)
     aud_pcm_stage = stage;
     AUD_OWN = 1;
     for (uint32_t w = 0; w < AUD_SST_WORDS; w++, p += 4)
-        AUD_SST(w) = (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16
-                     | (uint32_t)p[2] << 8 | p[3];
+        AUD_SST(w) = sst_be32_read(p);
     AUD_OWN = 0;
     return true;
 }

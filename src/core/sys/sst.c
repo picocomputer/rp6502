@@ -29,6 +29,12 @@
 #define SST_END_MAGIC "56PR" /* the magic reversed, so a truncated tail is not a header */
 #define SST_FORMAT 1
 
+/* MSVC defines neither macro. */
+#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__)
+_Static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
+               "sst_word_t's first byte is its low byte");
+#endif
+
 size_t sst_size(void)
 {
     return SST_TOTAL;
@@ -124,10 +130,7 @@ static void sst_row_save(const char *id, uint16_t ver, uint32_t size,
     uint32_t used = (uint32_t)(c.at - payload);
     p[4] = (uint8_t)(ver >> 8);
     p[5] = (uint8_t)ver;
-    p[6] = (uint8_t)(used >> 24);
-    p[7] = (uint8_t)(used >> 16);
-    p[8] = (uint8_t)(used >> 8);
-    p[9] = (uint8_t)used;
+    sst_be32_write(p + 6, used);
     /* The rest of the slot is zeroed rather than left as it was found, so a
      * machine in the same state always writes the same bytes into a buffer
      * that has been written before. */
@@ -141,8 +144,7 @@ static void sst_row_load(const char *id, uint16_t ver, uint32_t size,
     if (sst_walk_bad)
         return;
     const uint8_t *p = sst_body + sst_offset;
-    uint32_t used = ((uint32_t)p[6] << 24) | ((uint32_t)p[7] << 16) |
-                    ((uint32_t)p[8] << 8) | p[9];
+    uint32_t used = sst_be32_read(p + 6);
     uint16_t got = (uint16_t)((p[4] << 8) | p[5]);
     /* The manifest sst_load matched is computed from the driver list and not
      * from these bytes, and the payload sum that covers them runs only when
@@ -167,20 +169,6 @@ static void sst_row_load(const char *id, uint16_t ver, uint32_t size,
     sst_offset += SST_CHUNK_HDR + size;
 }
 
-static void sst_put32(uint8_t *p, uint32_t v)
-{
-    p[0] = (uint8_t)(v >> 24);
-    p[1] = (uint8_t)(v >> 16);
-    p[2] = (uint8_t)(v >> 8);
-    p[3] = (uint8_t)v;
-}
-
-static uint32_t sst_get32(const uint8_t *p)
-{
-    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
-           ((uint32_t)p[2] << 8) | p[3];
-}
-
 static uint32_t sst_payload_crc(const uint8_t *buf)
 {
     return host_crc32(0, buf, SST_TOTAL - SST_TRAILER_LEN);
@@ -202,8 +190,8 @@ static const char *sst_write(uint8_t *buf, unsigned flags)
     buf[5] = SST_FORMAT;
     buf[6] = (uint8_t)(SST_COUNT >> 8);
     buf[7] = (uint8_t)SST_COUNT;
-    sst_put32(buf + 8, SST_TOTAL);
-    sst_put32(buf + 12, sst_manifest());
+    sst_be32_write(buf + 8, SST_TOTAL);
+    sst_be32_write(buf + 12, sst_manifest());
     buf[16] = latch.state;
     buf[17] = (uint8_t)((latch.held ? 1 : 0) | (latch.breaking ? 2 : 0));
 
@@ -219,7 +207,7 @@ static const char *sst_write(uint8_t *buf, unsigned flags)
     if (sst_walk_bad)
         return sst_why;
 
-    sst_put32(buf + SST_TOTAL - SST_TRAILER_LEN, sst_payload_crc(buf));
+    sst_be32_write(buf + SST_TOTAL - SST_TRAILER_LEN, sst_payload_crc(buf));
     memcpy(buf + SST_TOTAL - 4, SST_END_MAGIC, 4);
     return NULL;
 }
@@ -256,12 +244,12 @@ const char *sst_check(const void *buf, size_t len, unsigned flags)
     /* The size is taken from the blob and never from len, because a frontend
      * hands over the length it recorded when the file was written, which may
      * be another build's. */
-    uint32_t total = sst_get32(p + 8);
+    uint32_t total = sst_be32_read(p + 8);
     if (total != SST_TOTAL || len < total)
         return "a savestate of a different size";
     if (((uint32_t)p[6] << 8 | p[7]) != SST_COUNT)
         return "a savestate with a different chunk count";
-    if (sst_get32(p + 12) != sst_manifest())
+    if (sst_be32_read(p + 12) != sst_manifest())
         return "a savestate from a build whose drivers differ";
     if (memcmp(p + SST_TOTAL - 4, SST_END_MAGIC, 4) != 0)
         return "a savestate that does not end where it should";
@@ -271,17 +259,21 @@ const char *sst_check(const void *buf, size_t len, unsigned flags)
     if (why)
         return why;
 
-    if (!flags && sst_get32(p + SST_TOTAL - SST_TRAILER_LEN) != sst_payload_crc(p))
+    if (!flags &&
+        sst_be32_read(p + SST_TOTAL - SST_TRAILER_LEN) != sst_payload_crc(p))
         return "a savestate that does not add up";
     return NULL;
 }
 
 const char *sst_load(const void *buf, size_t len, void *undo, unsigned flags)
 {
-    const uint8_t *p = (const uint8_t *)buf;
     const char *why = sst_check(buf, len, flags);
-    if (why)
-        return why;
+    return why ? why : sst_load_checked(buf, undo, flags);
+}
+
+const char *sst_load_checked(const void *buf, void *undo, unsigned flags)
+{
+    const uint8_t *p = (const uint8_t *)buf;
     sys_latch_t latch;
     sst_latch(p, &latch);
 
@@ -305,7 +297,7 @@ const char *sst_load(const void *buf, size_t len, void *undo, unsigned flags)
     if (!sst_walk_bad)
         return NULL;
 
-    why = sst_why;
+    const char *why = sst_why;
     if (undo)
     {
         const uint8_t *u = (const uint8_t *)undo;

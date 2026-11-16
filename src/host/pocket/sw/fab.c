@@ -29,25 +29,43 @@ static uint32_t fab_pick(int k)
     return ST_PICK(ST_BUS, k - JAM_BUS);
 }
 
-#define FAB_CHUNK 64
-
-/* SRAM and XRAM_WIN answer a word access with one byte, so they are copied
- * a byte at a time. */
+/* SRAM and XRAM_WIN answer a word access with one byte, so they are read
+ * and written a byte at a time. Their bytes are in the blob in order, and
+ * go to and from it a word at a time when the blob is aligned there. */
 static void fab_put_win(sst_cursor_t *c, volatile const uint8_t *win)
 {
-    uint8_t buf[FAB_CHUNK];
-    for (uint32_t at = 0; at < 0x10000; at += FAB_CHUNK)
+    uint8_t *p = sst_room(c, 0x10000);
+    if (!p)
+        return;
+    if ((uintptr_t)p & 3u)
     {
-        for (uint32_t i = 0; i < FAB_CHUNK; i++)
-            buf[i] = win[at + i];
-        sst_put(c, buf, FAB_CHUNK);
+        for (uint32_t i = 0; i < 0x10000; i++)
+            p[i] = win[i];
+        return;
     }
+    sst_word_t *w = (sst_word_t *)p;
+    for (uint32_t i = 0; i < 0x10000; i += 4)
+        *w++ = win[i] | (uint32_t)win[i + 1] << 8
+               | (uint32_t)win[i + 2] << 16 | (uint32_t)win[i + 3] << 24;
 }
 
 static void fab_get_win(const uint8_t *p, volatile uint8_t *win)
 {
-    for (uint32_t i = 0; i < 0x10000; i++)
-        win[i] = p[i];
+    if ((uintptr_t)p & 3u)
+    {
+        for (uint32_t i = 0; i < 0x10000; i++)
+            win[i] = p[i];
+        return;
+    }
+    const sst_word_t *w = (const sst_word_t *)p;
+    for (uint32_t i = 0; i < 0x10000; i += 4)
+    {
+        uint32_t v = *w++;
+        win[i] = (uint8_t)v;
+        win[i + 1] = (uint8_t)(v >> 8);
+        win[i + 2] = (uint8_t)(v >> 16);
+        win[i + 3] = (uint8_t)(v >> 24);
+    }
 }
 
 void fab_sst_save(sst_cursor_t *c, unsigned flags)
@@ -63,20 +81,21 @@ void fab_sst_save(sst_cursor_t *c, unsigned flags)
     for (unsigned r = 0; r < sizeof fab_regs / sizeof fab_regs[0]; r++)
         for (unsigned w = fab_regs[r].at; w < fab_regs[r].at + fab_regs[r].n; w++)
             sst_put_u32(c, FAB_REG(w));
-    for (uint32_t line = 0; line < VGA_PROG_MAX; line++)
-        for (uint32_t plane = 0; plane < SCANVIDEO_PLANE_COUNT; plane++)
-            for (uint32_t w = 0; w < VID_XPROG_WORDS; w++)
-                sst_put_u32(c, VID_XPROG(line, plane, w));
+    uint8_t *x = sst_room(c, 4 * FAB_XPROG_WORDS);
+    if (x)
+        for (uint32_t line = 0; line < VGA_PROG_MAX; line++)
+            for (uint32_t plane = 0; plane < SCANVIDEO_PLANE_COUNT; plane++)
+                for (uint32_t w = 0; w < VID_XPROG_WORDS; w++, x += 4)
+                    sst_be32_write(x, VID_XPROG(line, plane, w));
     fab_put_win(c, SRAM);
     fab_put_win(c, XRAM_WIN);
 }
 
-static uint32_t fab_u32(const uint8_t **p)
+static inline uint32_t fab_u32(const uint8_t **p)
 {
-    const uint8_t *b = *p;
+    uint32_t v = sst_be32_read(*p);
     *p += 4;
-    return (uint32_t)b[0] << 24 | (uint32_t)b[1] << 16
-           | (uint32_t)b[2] << 8 | b[3];
+    return v;
 }
 
 /* Everything the 6502 runs on goes back before the 6502 itself: the
