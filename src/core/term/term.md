@@ -38,20 +38,16 @@ SGR 58 is kitty's. Every terminal that has it but mintty stores a palette
 underline (58;5;n) as the entry, so OSC 4 and 104 recolor it. Ours keeps
 the color it was drawn in. Following the palette needs a third source per
 cell: about 7.5 KB on the Pico VGA and 7 KB on the Pocket. The other choice
-is to drop SGR 58 and 59 and kitty's underline styles (4:n). That would
-leave ul_color, 2 of each cell's 8 bytes, unused, but the fabric reads a
-cell as two 32-bit words, so getting those bytes back means a new cell
-layout in mode0.h, mode0.c and mode0.sv, and a fit.
+is to drop SGR 58 and 59 and kitty's underline styles (4:n). The cell
+then loses ul_color and becomes 6 bytes: 15 KB less of mode0_cells on the
+Pico VGA and 14 KB of the Pocket's cell memory, with a new layout in
+mode0.h, mode0.c and mode0.sv.
 
 ### The extensions outside the target
 
 Each one: keep it, or drop it.
 
 - **kitty's underline color and styles**: as above.
-- **Linux's palette sequences**, ESC ] P and ESC ] R: the Linux console's;
-  xterm does not have them. They are one more way to set a palette entry
-  and cost nothing in memory. They are not why SGR 58 would need memory:
-  any palette change, OSC 4 included, needs that.
 - **SGR 10 and 11**, the Linux and SCO meanings, draw the controls or not.
 - **The `CSI t` window reports** 11, 14, 16, 18 and 19, which describe a
   window this machine does not have.
@@ -104,12 +100,6 @@ that relies on the whole, is the question.
   DCS > | name version ST, so a program that needs to know exactly which
   terminal it talks to need not guess from the device attributes. No
   memory.
-- **Bracketed paste**, ?2004: while a program has it set, a paste reaches
-  the program between ESC [ 200 ~ and ESC [ 201 ~, so it can tell pasted
-  text from typed text: an editor does not auto-indent it, and a shell or
-  the line editor does not run a pasted line. It belongs with copy, paste
-  and the mouse, as their own batch of work.
-
 ## Ways to need less memory
 
 To work out with the list above, not after it.
