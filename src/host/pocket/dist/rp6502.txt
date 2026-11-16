@@ -8,9 +8,8 @@ https://picocomputer.github.io/
 Install
 -------
 
-Copy everything into the same folder structure on a microSD card.
-The Cores, Platforms, Saves, and Assets folders merge with the ones
-already on the card; nothing here replaces another core's files.
+Copy everything to the root of a microSD card. The Cores, Platforms,
+Saves, and Assets folders merge with the ones already on the card.
 
 The Pocket needs firmware 2.3 or later. Open the core from the
 Pocket menu under openFPGA.
