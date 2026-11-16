@@ -31,13 +31,50 @@ from, so a change to one can recolor the cells drawn in it, a row a tick
 in cells_task. Both sizes, 40 and 80 columns, follow every byte, and both
 have an alternate screen, so every per-cell table is paid four times over.
 
+## 0. The fill rate first
+
+Making the machine fast is this branch's first goal, before any feature
+here is added: each feature is then measured against the budget and kept
+or taken out.
+
+The spike in 1 found the Pico VGA near its limit already. Cycles to draw
+one scanline, both cores together, on a 640x480 display, where the two
+cores have about 12,800 between them:
+
+| | avg | max |
+|---|---|---|
+| Two full-screen 8bpp tile planes, the costliest background measured | 7,250 | 7,560 |
+| Those and mode 0 on top, every cell a different color | 10,553 | 10,911 |
+| One 8bpp tile plane | 3,648 | 4,052 |
+| Mode 0 alone | 3,559 | 3,832 |
+
+That leaves almost nothing for sprites. Worse, the HIL term test at
+115200 baud on that canvas loses about 1% of scanlines today, on the
+640x480 display and on SXGA alike, though no byte of the stream is lost.
+So three planes with a console taking text at full speed are not yet
+guaranteed.
+
+- **Why lines are lost while the console streams.** Likely core 0 away on
+  the terminal's bytes while core 1 cannot draw that canvas alone. Per-line
+  timestamps through the probe would show how long core 0 stays away, and
+  in what. The terminal has grown since it was last measured on hardware,
+  and it can be rearchitected for speed.
+- **The fill modes.** Profile each per pixel and per line, costliest
+  first, and make them faster: a pair table built once per run of equal
+  colors, the DSP instructions, whatever the measurements point to.
+- **A target**: the worst three-plane canvas, a console taking 115200 baud,
+  no late scanline, and a margin for sprites.
+
+The tools are on the local branch spike-palette: per-core cycle counters
+of each scanline and of mode 0's fill, and a count of late scanlines,
+which the probe reads without stopping the cores.
+
 ## 1. Spike: colors looked up as a cell is drawn
 
-The first thing to find out, because the rest of the color work depends
-on it.
+Done. It works, but it costs fill rate that is not there yet; see 0.
 
-Each 16-bit color of a cell would be told apart by the pixel format's
-opaque bit (bit 5) instead of always being a resolved color:
+Each 16-bit color of a cell is told apart by the pixel format's opaque bit
+(bit 5) instead of always being a resolved color:
 
 - **Opaque**: a pixel, drawn as it is. SGR 38;2 colors are always opaque
   and are stored this way, as they are now, with no lookup.
@@ -48,26 +85,39 @@ opaque bit (bit 5) instead of always being a resolved color:
   0 and the default background, while they are the transparent black they
   start as.
 
-The table would be part of what mode 0 draws from, beside the cells, the
-row table and the cursor. Bold and iCE colors still choose their entry as
-the text is written, and SGR 7 still swaps the two at the cell.
+The table is part of what mode 0 draws from, beside the cells, the row
+table and the cursor. Bold and iCE colors still choose their entry as the
+text is written, and SGR 7 still swaps the two at the cell.
 
-The question is the Pico VGA's renderer, which would look up each cell's
-colors on every scanline. All three fill planes are guaranteed at any
-canvas, so the case to measure is the worst one: two bitmap planes behind
-mode 0 at 640x480, with the console taking 115200 baud. The spike changes
-mode0.c and the cells' writes enough to draw that case, on a Pico, and
-measures it with the HIL term test and its video capture: a late scanline
-is a failure.
+What was measured, on the worst screen of 0 with every cell a different
+color:
+
+| | avg | max | late lines |
+|---|---|---|---|
+| Colors stored resolved, as now | 10,553 | 10,911 | 0 |
+| Looked up for every cell on every scanline | 12,221 | 13,509 | 21,952 in 2 s |
+| Looked up once a row, cached for its scanlines | 11,072 | 12,868 | 0 |
+
+Each core keeps one row's resolved colors, 80 cells, and resolves them on
+its first scanline of a row in a frame. That costs about 5% on that
+screen, about 1,500 cycles more on the first scanline of each row, and
+nothing on ordinary text, where mode 0 alone came out slightly faster
+(3,436 against 3,559) because a run of cells in the same colors builds its
+pixel pairs once. Resolving the whole screen once a frame instead would
+cost the renderer nothing, but a line that scrolls in would show the
+colors of the line it replaced for a frame, which is not acceptable.
 
 ## 2. Colors by palette entry
 
-If the spike passes, cells keep palette entries:
+When the fill rate allows (0), cells keep palette entries, with the row
+cache of 1:
 
 - The color sources and the recolor pass go: 23 KB on the Pico VGA, 21.6
   KB on the Pocket, and the code that keeps them in step. A palette or
   default color change shows on the next frame, as on xterm, at no cost
-  to the stream.
+  to the stream. The Pico VGA's VIDEO region gains about 1 KB for the
+  table, with its faint half, and 0.65 KB for a row cache on each core:
+  about 21 KB saved.
 - The table joins mode0.h, and cells.c writes it as it writes the other
   words.
 - mode0.sv gets a palette memory, one M10K, and looks up as many as three
@@ -76,9 +126,10 @@ If the spike passes, cells keep palette entries:
 - An underline color from the palette follows it too, so SGR 58 costs
   nothing more.
 
-If the spike fails, cells stay resolved RGB with their sources, and SGR
-58's palette underline needs a third source per cell, about 7.5 KB on the
-Pico VGA and 7 KB on the Pocket, to follow a palette change.
+If the fill rate does not allow it, cells stay resolved RGB with their
+sources, and SGR 58's palette underline needs a third source per cell,
+about 7.5 KB on the Pico VGA and 7 KB on the Pocket, to follow a palette
+change.
 
 ## 3. Kitty's underlines, all or nothing
 
