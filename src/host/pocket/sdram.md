@@ -59,9 +59,10 @@ The 512 KB from 0x03E00000 is the soft CPU's alone and the cache's window.
 
 ### Size and timing
 
-The last fit: 14,399 ALMs (78%), 283 of 308 M10K blocks, setup 0.53 ns to
-spare, hold 0.09 ns. Removing the snapshot engine and the gated clock gave
-back 1,644 ALMs.
+The soft CPU runs at 50.4 MHz on clk_sys, the machine's clock. The last
+fit: 14,051 ALMs (76%), 283 of 308 M10K blocks, setup 0.43 ns to spare,
+hold 0.08 ns. Removing the snapshot engine, the gated clock and the
+CPU's own clock gave back 1,992 ALMs.
 
 The share of CPU time spent waiting on the cache, in simulation:
 
@@ -79,11 +80,6 @@ The share of CPU time spent waiting on the cache, in simulation:
 - **The main cache's shape.** 8 KB and 4 ways is fast enough, and it gets
   no bigger. Try 4 KB, 2 ways, and replacing the least recently used line
   where it replaces lines in turn today, and shrink it if nothing slows.
-- **The soft CPU at 50.4 MHz.** It now runs on clk_sys. A first fit with
-  only the clock raised missed by 0.3 to 0.4 ns, all inside Hazard3's
-  decode (`cir` to `x_rs1_select_regs_xm_mw`); the fit of the single-clock
-  design is still to be read. Hazard3's reduced-bypass option does not
-  touch that path.
 
 ### To clean up
 
