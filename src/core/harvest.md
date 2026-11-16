@@ -1,9 +1,8 @@
 # Harvest memory: work still to do
 
-Memory that comes back on every machine, to be done on its own branch
-after the terminal work in src/core/term/term.md. No machine is short of
-memory now; the Pocket's soft CPU has its RAM in SDRAM. This work keeps
-every machine lean and its code plain.
+Memory that comes back on every machine, to be done on its own branch.
+No machine is short of memory now; the Pocket's soft CPU has its RAM in
+SDRAM. This work keeps every machine lean and its code plain.
 
 ## 1. Options in the scanline table
 
