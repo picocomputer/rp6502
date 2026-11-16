@@ -64,22 +64,23 @@ fit: 14,051 ALMs (76%), 283 of 308 M10K blocks, setup 0.43 ns to spare,
 hold 0.08 ns. Removing the snapshot engine, the gated clock and the
 CPU's own clock gave back 1,992 ALMs.
 
-The share of CPU time spent waiting on the cache, in simulation:
+The share of the soft CPU's clocks spent waiting on the cache, in
+simulation at 50.4 MHz, for the shape built and three smaller ones. A miss
+costs about 35 clocks.
 
-| Work | CPU time waiting |
-|---|---|
-| Boot | 10% to 16% |
-| A program running | 1.5% |
-| PCM streaming | 1.2% |
-| Heavy file work | 12% |
+| Work | 8 KB 4-way | 8 KB 2-way | 4 KB 4-way | 4 KB 2-way |
+|---|---|---|---|---|
+| Reset Exit to the 6502 starting | 23-34% | 24-35% | 35-39% | 35-39% |
+| A program calling the API in a loop | 16% | 21% | 41% | 58% |
+| The main loop idle, audio playing | 0.05% | 21% | 38% | 46% |
+| Heavy file work | 12% | 20% | 40% | 45% |
+| A wake, Reset Exit to the machine let go | 4.8% | 5.3% | 9.4% | 10% |
+
+8 KB 4-way stays: every smaller shape waits several points more, and 2
+ways cannot hold the idle main loop. A save holds the machine 71 ms and a
+wake 41 ms whatever the shape.
 
 ## To do
-
-### Tuning
-
-- **The main cache's shape.** 8 KB and 4 ways is fast enough, and it gets
-  no bigger. Try 4 KB, 2 ways, and replacing the least recently used line
-  where it replaces lines in turn today, and shrink it if nothing slows.
 
 ### To clean up
 
