@@ -62,6 +62,20 @@ while the SDRAM controller reads the line, eight words back to back,
 after writing out the line it replaces if the soft CPU stored to that
 one. The rest of the block memory is XRAM, the video and the audio.
 
+The cache's shape was measured with the firmware in simulation: the share
+of the soft CPU's clocks spent waiting on it. A miss costs about 35
+clocks.
+
+| Work | 8 KB 4-way | 8 KB 2-way | 4 KB 4-way | 4 KB 2-way |
+|---|---|---|---|---|
+| Reset Exit to the 6502 starting | 23-34% | 24-35% | 35-39% | 35-39% |
+| A program calling the API in a loop | 16% | 21% | 41% | 58% |
+| The main loop idle, audio playing | 0.05% | 21% | 38% | 46% |
+| Heavy file work | 12% | 20% | 40% | 45% |
+
+Every smaller shape waits several points more, and two ways cannot hold
+the idle main loop. 8 KB 2-way would use the same 9 blocks.
+
 **The rest of the SDRAM**, the ROM image, the savestate window, the
 file windows and the Get File scratch, the soft CPU reads and writes
 past the cache, through the staging store. Its reads come through a
