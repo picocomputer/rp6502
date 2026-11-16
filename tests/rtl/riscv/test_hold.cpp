@@ -146,7 +146,6 @@ static void power_on(const prog_t &p)
     }
     dut = new Vwiring;
     dut->clk_sys = 0;
-    dut->clk_rv = 0;
     dut->rst_n = 0;
     dut->eval();
     tick();

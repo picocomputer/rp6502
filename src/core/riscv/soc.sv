@@ -7,8 +7,8 @@
 module soc
     import mem_pkg::*;
 #(
-    parameter int MTIME_ADD = 1,
-    parameter int MTIME_WRAP = 1
+    /* clk's rate, a multiple of 100 kHz. */
+    parameter int CLK_KHZ = 50400
 ) (
     input logic clk,
     input logic rst_n,
@@ -44,11 +44,10 @@ module soc
     output logic soc_halted,
     output logic [31:0] soc_exit_code,
 
-    /* wiring sets bus_taken on its own clock, on the first edge that
-     * finds the access pending and its target able to finish it, and
-     * holds it until soc_bus_pend drops. Nothing else about the access
-     * comes back: the data phase ends one clk cycle after the request is
-     * withdrawn, and by then the target has the word. */
+    /* bus_taken is high for one clock, the clock after the platform
+     * took the access. Nothing else about the access comes back: the
+     * data phase ends a clock after bus_taken, and by then the target
+     * has the word. */
     input logic bus_taken,
     output logic soc_bus_pend,
     output logic soc_bus_we,
@@ -238,7 +237,13 @@ module soc
      * counts only while mtime_hold is low. It is written as two halves,
      * the low one first: a write of the low half is kept until the high
      * half's write puts both in, so a savestate puts the count back
-     * whole. */
+     * whole.
+     *
+     * A microsecond is CLK_KHZ / 1000 clocks, which need not be whole, so
+     * the counters add 10 a clock and step at CLK_KHZ / 100, 504 at
+     * 50.4 MHz. */
+    localparam logic [15:0] US_ADD = 16'd10;
+    localparam logic [15:0] US_LAST = 16'(CLK_KHZ / 100) - US_ADD;
     logic [63:0] mtime_us /*verilator public_flat_rd*/;
     logic [15:0] mtime_acc;
     logic [31:0] mtime_lo;
@@ -249,12 +254,11 @@ module soc
     end
     always_ff @(posedge clk) begin
         if (!mtime_hold) begin
-            if ({16'd0, mtime_acc} + 32'(MTIME_ADD) >= 32'(MTIME_WRAP)) begin
-                mtime_acc <= 16'(32'(mtime_acc) + 32'(MTIME_ADD)
-                                 - 32'(MTIME_WRAP));
+            if (mtime_acc >= US_LAST) begin
+                mtime_acc <= mtime_acc - US_LAST;
                 mtime_us <= mtime_us + 64'd1;
             end else
-                mtime_acc <= mtime_acc + 16'(MTIME_ADD);
+                mtime_acc <= mtime_acc + US_ADD;
         end
         if (mmio_we && mmio_reg == 7'h10)
             mtime_lo <= hwdata;
@@ -273,12 +277,11 @@ module soc
         uptime_acc = '0;
     end
     always_ff @(posedge clk) begin
-        if ({16'd0, uptime_acc} + 32'(MTIME_ADD) >= 32'(MTIME_WRAP)) begin
-            uptime_acc <= 16'(32'(uptime_acc) + 32'(MTIME_ADD)
-                              - 32'(MTIME_WRAP));
+        if (uptime_acc >= US_LAST) begin
+            uptime_acc <= uptime_acc - US_LAST;
             uptime_us <= uptime_us + 64'd1;
         end else
-            uptime_acc <= uptime_acc + 16'(MTIME_ADD);
+            uptime_acc <= uptime_acc + US_ADD;
     end
 
     always_comb begin

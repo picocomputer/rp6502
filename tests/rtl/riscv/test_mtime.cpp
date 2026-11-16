@@ -13,7 +13,6 @@
 #include <cstdint>
 
 static Vwiring *dut;
-static bool rv_phase;
 
 static uint64_t mtime()
 {
@@ -29,9 +28,9 @@ UTEST(mtime, counts_real_microseconds)
     ASSERT_EQ(mtime(), (uint64_t)0);
 
     /* One tb_clock call is one clk_sys period, so 504000 calls are ten
-     * milliseconds at the default 50.4 MHz. A hundred microseconds is
-     * 2520 clk_rv cycles, which add 25200 to the accumulator, exactly 100
-     * wraps at 252, so the count is exactly 10000. */
+     * milliseconds at the default 50.4 MHz. Ten microseconds is 504
+     * clocks, which add 5040 to the accumulator, exactly ten wraps at
+     * 504, so the count is exactly 10000. */
     for (int i = 0; i < 504000; i++)
         tb_clock(dut);
     ASSERT_EQ(mtime(), (uint64_t)10000);
@@ -66,7 +65,6 @@ int main(int argc, const char *const argv[])
     Verilated::commandArgs(argc, const_cast<char **>(argv));
     dut = new Vwiring;
     dut->clk_sys = 0;
-    dut->clk_rv = 0;
     dut->rst_n = 0;
     dut->eval();
     int rc = utest_main(argc, argv);

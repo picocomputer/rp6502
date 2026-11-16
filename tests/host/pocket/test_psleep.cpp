@@ -231,10 +231,7 @@ static void tick()
     {
         dut->clk_sys = 1;
         if ((tb.sys & 1) == 0)
-        {
             dut->clk_vid = 1;
-            dut->clk_rv = 1;
-        }
     }
     if (aedge)
     {
@@ -272,7 +269,6 @@ static void tick()
     {
         dut->clk_sys = 0;
         dut->clk_vid = 0;
-        dut->clk_rv = 0;
         tb.s_next += 330;
         tb.sys++;
     }

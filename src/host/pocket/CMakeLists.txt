@@ -38,16 +38,10 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     list(APPEND BS_LINES
         "set_global_assignment -name GENERATE_RBF_FILE ON"
         "set_global_assignment -name NUM_PARALLEL_PROCESSORS ALL"
-        "set_global_assignment -name FITTER_EFFORT \"STANDARD FIT\""
         "set_global_assignment -name SYNCHRONIZER_IDENTIFICATION \"FORCED IF ASYNCHRONOUS\""
         )
-    # The SRAM's address, control and write-data registers are placed in the
-    # I/O elements so that the paths to the SRAM pins meet the set_max_delay
-    # bounds in wiring.sdc.
-    foreach(pin sram_a sram_dq sram_oe_n sram_we_n sram_ub_n sram_lb_n)
-        list(APPEND BS_LINES
-            "set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to ${pin}")
-    endforeach()
+    # The SDRAM's registers are placed in the I/O elements, so the paths to
+    # and from its pins are the same on every fit.
     foreach(pin dram_a dram_ba dram_dq dram_dqm dram_cke
             dram_ras_n dram_cas_n dram_we_n)
         list(APPEND BS_LINES
@@ -62,7 +56,6 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_instance_assignment -name QII_AUTO_PACKED_REGISTERS OFF -to \"*|pcm:pcm|acc[*]\"")
     list(APPEND BS_LINES
         "set_instance_assignment -name FAST_INPUT_REGISTER ON -to dram_dq"
-        "set_instance_assignment -name FAST_INPUT_REGISTER ON -to sram_dq"
         "set_global_assignment -name SEARCH_PATH ${POCKET_DIR}"
         "set_global_assignment -name QIP_FILE ${APF}/apf/apf.qip"
         "set_global_assignment -name VERILOG_FILE ${RP6502_VENDOR}/openfpga_rp6502/core_bridge_cmd.v"
@@ -74,8 +67,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name SDC_FILE ${RP6502_SRC}/host/pocket/quartus/pocket.sdc"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
-        "set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION OFF"
-        "set_global_assignment -name OPTIMIZATION_MODE \"BALANCED\"")
+        "set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION OFF")
     foreach(src ${RP6502_MACHINE_SOURCES})
         if(src MATCHES "\\.sv$")
             list(APPEND BS_LINES

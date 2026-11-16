@@ -152,9 +152,8 @@ module pocket_sdram #(
                           || bank_active[2] || bank_active[3];
 
     /* Decided from the registered address a clock after the request is
-     * taken, because the request's address arrives half a clock old
-     * from the soft CPU's sampler and the row compare does not fit in
-     * the half that is left. */
+     * taken, so the row compare starts at a register and not at the
+     * clients' address mux. */
     logic [1:0] req_bank;
     logic [12:0] req_row;
     logic req_hit, req_needs_pre;
@@ -275,7 +274,11 @@ module pocket_sdram #(
                 pocket_sdram_ready <= 1'b1;
             end
             S_IDLE: begin
-                if (ref_due != '0) begin
+                /* One refresh due waits for a read that is waiting, since
+                 * the host gives the savestate's reads about a microsecond
+                 * each. A second one due goes first, so none is lost. */
+                if (ref_due[1] || (ref_due[0]
+                        && !(rd_pend && !pocket_sdram_rvalid))) begin
                     idle_cnt <= '0;
                     state <= any_active ? S_PALL_R : S_REFRESH;
                 end else if (w_avail) begin

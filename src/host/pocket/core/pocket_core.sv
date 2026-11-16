@@ -7,7 +7,6 @@
 module pocket_core
     import mem_pkg::*, pocket_version_pkg::*;
 (
-    input logic clk_rv,
     input logic clk_a2,
     input logic clk_ph,
 
@@ -243,10 +242,6 @@ module pocket_core
         end
     end
 
-    /* The line port's request comes from the cache through wiring's
-     * falling-edge samplers, so it reaches the controller half a clock
-     * old. The answer is the controller's clk_sys registers, which the
-     * cache takes on clk_rv, a whole clk_sys later or two. */
     logic line_pend, line_we;
     logic [MEM_AW-3:0] line_addr;
     logic [127:0] line_wdata, line_rdata;
@@ -350,7 +345,6 @@ module pocket_core
         .line_done(line_done),
         .line_rdata(line_rdata),
         .clk_sys(clk_sys),
-        .clk_rv(clk_rv),
         .clk_a2(clk_a2),
         .clk_ph(clk_ph),
         .rst_n(mrst_sys_n),

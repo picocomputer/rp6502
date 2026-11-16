@@ -82,12 +82,7 @@ S104 1
 #       the bridge_spiclk registers in Analogue's io_bridge_peripheral.
 R102 1
 #
-# C106  clk_sys clocks soc_stb_n in wiring.sv on its falling edge.
-#       soc_stb_raw, the soft CPU's bus strobe, is the AND of
-#       soc_bus_pend and bus_rdy, which are driven by registers on
-#       clk_rv and clk_sys. clk_rv rises only on rising edges of
-#       clk_sys, so soc_stb_raw changes just after a
-#       rising edge of clk_sys. It is therefore sampled half a clk_sys
-#       period later, 9.9 ns nominal, and the path into soc_stb_n depends
-#       on the duty cycle of clk_sys.
+# C106  clk_sys clocks dq_cap in pocket_sdram.sv on its falling edge,
+#       which is the rising edge of the SDRAM's clock; pocket_sdram.sv
+#       says why the read data is good there.
 C106 1

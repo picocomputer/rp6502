@@ -5,7 +5,7 @@
  *
  * An AHB transfer's data phase overlaps the address phase of the transfer
  * after it, so a load issued right after a store to the same word reads the
- * cache's memories on the same clk_rv edge that the store writes them. A
+ * cache's memories on the same clock edge that the store writes them. A
  * read on that edge is not guaranteed to return the stored bytes, and in
  * the Verilator model it returns their complement. The load returns the
  * stored bytes because cache.sv forwards the written lanes, and soc.sv
@@ -124,7 +124,6 @@ int main(int argc, const char *const argv[])
     Verilated::commandArgs(argc, const_cast<char **>(argv));
     dut = new Vwiring;
     dut->clk_sys = 0;
-    dut->clk_rv = 0;
     dut->rst_n = 0;
     dut->eval();
     int rc = utest_main(argc, argv);

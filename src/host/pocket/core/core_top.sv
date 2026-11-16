@@ -391,7 +391,6 @@ wire clk_sys;      // 50.4 MHz
 wire clk_vid;      // 25.2 MHz
 wire clk_dram;     // 50.4 MHz, 180 degrees behind clk_sys
 wire clk_vid_90;   // 25.2 MHz, 90 degrees behind clk_vid
-wire clk_rv;       // 25.2 MHz, rising with clk_sys
 wire clk_a2;       // 100.8 MHz, three quarters of its period behind clk_sys
 wire clk_ph;       // 50.4 MHz, 12.4 ns behind clk_sys, XRAM's phase reference
 wire pll_locked;
@@ -405,7 +404,6 @@ pocket_pll pll (
     .clk_vid  ( clk_vid ),
     .clk_dram ( clk_dram ),
     .clk_vid_90 ( clk_vid_90 ),
-    .clk_rv   ( clk_rv ),
     .clk_a2   ( clk_a2 ),
     .clk_ph   ( clk_ph ),
     .locked   ( pll_locked )
@@ -438,7 +436,6 @@ synch_3 s_rst_sys (core_rst_n_74, core_rst_n_sys, clk_sys);
 pocket_core core (
     .clk_74a  ( clk_74a ),
     .clk_sys  ( clk_sys ),
-    .clk_rv   ( clk_rv ),
     .clk_a2   ( clk_a2 ),
     .clk_ph   ( clk_ph ),
     .clk_vid  ( clk_vid ),

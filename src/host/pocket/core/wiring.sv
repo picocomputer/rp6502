@@ -13,11 +13,6 @@ module wiring
     /* The host is writing a new ROM: the 6502 goes into reset and stays
      * there while this is high. */
     input logic rom_stop,
-    /* clk_rv runs at half the rate of clk_sys and rises with it. It is
-     * generated outside this module because a divider flop here would
-     * put its edge after the clk_sys edge, and the soft CPU would then
-     * sample signals that had already changed on that clk_sys edge. */
-    input logic clk_rv,
     /* XRAM's render port runs at twice clk_sys; xram.sv says how, and
      * why clk_ph rides with it. */
     input logic clk_a2,
@@ -66,8 +61,8 @@ module wiring
     input logic [127:0] line_rdata,
 
     /* wiring_host_stb is a one-clock strobe, and host_rdata must be
-     * valid from the clock after it until the soft CPU reads it, which
-     * is one clk_rv cycle after the soft CPU's request stops pending. */
+     * valid from the clock after it until the soft CPU reads it, two
+     * clocks after the strobe. */
     output logic [27:0] wiring_host_addr,
     output logic wiring_host_stb,
     output logic wiring_host_we,
@@ -95,8 +90,6 @@ module wiring
     output logic [SCANLINE_W-1:0] wiring_scanline,
     output logic wiring_vid_frame
 );
-
-    localparam int RV_KHZ = SYS_KHZ / 2;
 
     logic [15:0] phi2_khz, phi2_acc;
     logic phi2_en, phi2_pulse;
@@ -298,144 +291,56 @@ module wiring
         .st_jam_data(jam_via)
     );
 
-    /* Everything the soft CPU drives into the machine is taken on the
-     * falling edge of clk_sys first. clk_rv and clk_sys rise together, so
-     * the soft CPU's outputs change just after a rising edge, and a
-     * register taking one on that same edge would race it: the outcome
-     * would depend on the skew between the two clock trees, change from
-     * one fit to the next, and never show in simulation. By the falling
-     * edge they have been stable for half a period, and that half period
-     * is the relationship the analyzer checks. The one thing formed from
-     * the raw outputs is the ready the soft CPU reads back, because that
-     * path ends in the soft CPU's own clock and has the whole of it.
-     *
-     * The console valid, which can stay high for more than one clk_sys
-     * cycle, is narrowed to one on the way, and slot_set and key_set are
-     * stretched by one clk_sys cycle so that a clk_rv edge samples
-     * them. */
-    logic rv_tx_valid_raw, rv_tx_valid_n, rv_tx_valid_q;
-    logic [7:0] rv_tx_data;
-    logic slot_set_q, key_set_q;
-    logic soc_stb, soc_we, soc_pend;
-    logic rv_bus_pend, rv_bus_we;
-    logic [31:0] rv_bus_addr, rv_bus_wdata;
-    logic [3:0] rv_bus_wstrb;
-    logic [15:0] rv_phi2_khz;
-    logic [31:0] rv_exit_code;
-    logic rv_line_pend, rv_line_we;
-    logic [MEM_AW-3:0] rv_line_addr;
-    logic [127:0] rv_line_wdata;
-    logic rv_halted, rv_key_pending;
-    initial begin
-        soc_pend = 1'b0;
-        soc_we = 1'b0;
-        soc_addr = '0;
-        soc_wdata = '0;
-        soc_wstrb = '0;
-        rv_tx_valid_n = 1'b0;
-        wiring_rv_tx_data = '0;
-        phi2_khz = 16'd8000;
-        wiring_line_pend = 1'b0;
-        wiring_line_we = 1'b0;
-        wiring_line_addr = '0;
-        wiring_line_wdata = '0;
-        wiring_rv_halted = 1'b0;
-        wiring_rv_exit_code = '0;
-        wiring_key_pending = 1'b0;
-    end
-    always_ff @(negedge clk_sys) begin
-        soc_pend <= rv_bus_pend;
-        soc_we <= rv_bus_we;
-        soc_addr <= rv_bus_addr;
-        soc_wdata <= rv_bus_wdata;
-        soc_wstrb <= rv_bus_wstrb;
-        rv_tx_valid_n <= rv_tx_valid_raw;
-        wiring_rv_tx_data <= rv_tx_data;
-        phi2_khz <= rv_phi2_khz;
-        wiring_line_pend <= rv_line_pend;
-        wiring_line_we <= rv_line_we;
-        wiring_line_addr <= rv_line_addr;
-        wiring_line_wdata <= rv_line_wdata;
-        wiring_rv_halted <= rv_halted;
-        wiring_rv_exit_code <= rv_exit_code;
-        wiring_key_pending <= rv_key_pending;
-    end
-    initial begin
-        rv_tx_valid_q = 1'b0;
-        slot_set_q = 1'b0;
-        key_set_q = 1'b0;
-    end
-    always_ff @(posedge clk_sys) begin
-        rv_tx_valid_q <= rv_tx_valid_n;
-        slot_set_q <= slot_set;
-        key_set_q <= key_set;
-    end
-    always_comb wiring_rv_tx_valid = rv_tx_valid_n && !rv_tx_valid_q;
-
-    /* An access is taken on the first clk_sys edge that finds it pending
-     * and its target able to finish it: XRAM once its port is free, the
+    /* An access is taken on the first clock that finds it pending and
+     * its target able to finish it: XRAM once its port is free, the
      * staging store once it stops stalling, everything else at once.
-     * That decision is the machine's, made from the sampled request on
-     * its own edge, so it can never run ahead of the stalls it depends
-     * on. soc_stb is the request while it waits, one clock for the
-     * targets that never stall. soc_taken then stays high until soc_pend
-     * drops, because the soft CPU samples it only on clk_rv edges, which
-     * are every second clk_sys edge. */
+     * soc_stb is the request while it waits. soc_taken is the take a
+     * clock late, so the soft CPU ends the access a clock after that and
+     * XRAM's byte, two clocks behind the take, is in xram_b_hold. */
+    logic soc_stb, soc_pend, soc_we;
     logic soc_taken, soc_take;
     initial soc_taken = 1'b0;
     always_comb soc_stb = soc_pend && !soc_taken;
     always_comb soc_take = soc_stb
         && (soc_sel_xram ? xram_go
             : soc_sel_stage ? !stage_stall : 1'b1);
-    always_ff @(posedge clk_sys) begin
-        if (!soc_pend)
-            soc_taken <= 1'b0;
-        else if (soc_take)
-            soc_taken <= 1'b1;
-    end
+    always_ff @(posedge clk_sys)
+        soc_taken <= soc_take;
     logic [31:0] soc_addr, soc_wdata;
     logic [3:0] soc_wstrb;
     logic [31:0] soc_rdata;
 
-    /* mtime_acc is clocked by clk_rv, so the rate here is RV_KHZ and not
-     * SYS_KHZ. At the default 50.4 MHz clk_sys, a microsecond is 25.2
-     * clk_rv cycles, so adding 10 per cycle and wrapping at RV_KHZ / 100,
-     * which is 252, counts microseconds exactly. mtime takes held on
-     * clk_rv's edges, so it stops and goes on within a clk_rv cycle of the
-     * 6502, 40 ns at most. */
-    soc #(
-        .MTIME_ADD(10),
-        .MTIME_WRAP(RV_KHZ / 100)
-    ) soc (
-        .clk(clk_rv),
+    /* mtime stops and goes on with the 6502, on the same clock. */
+    soc #(.CLK_KHZ(SYS_KHZ)) soc (
+        .clk(clk_sys),
         .rst_n(rst_n),
-        .soc_phi2_khz(rv_phi2_khz),
+        .soc_phi2_khz(phi2_khz),
         .mtime_hold(held),
-        .soc_line_pend(rv_line_pend),
-        .soc_line_we(rv_line_we),
-        .soc_line_addr(rv_line_addr),
-        .soc_line_wdata(rv_line_wdata),
+        .soc_line_pend(wiring_line_pend),
+        .soc_line_we(wiring_line_we),
+        .soc_line_addr(wiring_line_addr),
+        .soc_line_wdata(wiring_line_wdata),
         .line_done(line_done),
         .line_rdata(line_rdata),
-        .soc_tx_data(rv_tx_data),
-        .soc_tx_valid(rv_tx_valid_raw),
-        .soc_halted(rv_halted),
-        .soc_exit_code(rv_exit_code),
-        .slot_set(slot_set || slot_set_q),
+        .soc_tx_data(wiring_rv_tx_data),
+        .soc_tx_valid(wiring_rv_tx_valid),
+        .soc_halted(wiring_rv_halted),
+        .soc_exit_code(wiring_rv_exit_code),
+        .slot_set(slot_set),
         .slot_len(slot_len),
         .upd_n(upd_n),
-        .key_set(key_set || key_set_q),
+        .key_set(key_set),
         .cont_key(cont_key),
         .cont_joy(cont_joy),
         .cont_trig(cont_trig),
         .key_code(key_code),
-        .soc_key_pending(rv_key_pending),
+        .soc_key_pending(wiring_key_pending),
         .bus_taken(soc_taken),
-        .soc_bus_pend(rv_bus_pend),
-        .soc_bus_we(rv_bus_we),
-        .soc_bus_addr(rv_bus_addr),
-        .soc_bus_wdata(rv_bus_wdata),
-        .soc_bus_wstrb(rv_bus_wstrb),
+        .soc_bus_pend(soc_pend),
+        .soc_bus_we(soc_we),
+        .soc_bus_addr(soc_addr),
+        .soc_bus_wdata(soc_wdata),
+        .soc_bus_wstrb(soc_wstrb),
         .bus_rdata(soc_rdata)
     );
 
@@ -478,9 +383,7 @@ module wiring
     /* wiring_stage_pend is high from the soft CPU's request until the
      * clock that takes it, so a slow platform can fetch the word before
      * then, and a write is taken once. That clock captures the word in
-     * stage_q, so the platform owes nothing after it, and the soft CPU's
-     * load data comes from a register and never from the address taken
-     * on the falling edge. */
+     * stage_q, so the platform owes nothing after it. */
     logic [31:0] stage_q;
     always_comb begin
         wiring_stage_pend = soc_stb && soc_sel_stage;

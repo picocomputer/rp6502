@@ -79,12 +79,11 @@ The share of CPU time spent waiting on the cache, in simulation:
 - **The main cache's shape.** 8 KB and 4 ways is fast enough, and it gets
   no bigger. Try 4 KB, 2 ways, and replacing the least recently used line
   where it replaces lines in turn today, and shrink it if nothing slows.
-- **The soft CPU at 50.4 MHz.** It runs at 25.2 MHz. A first fit with only
-  the clock raised missed by 0.3 to 0.4 ns, all inside Hazard3's decode
-  (`cir` to `x_rs1_select_regs_xm_mw`). Done properly, the CPU moves onto
-  the machine clock and the half-speed handshakes and the falling-edge
-  capture in wiring.sv go. Hazard3's reduced-bypass option does not touch
-  the failing path.
+- **The soft CPU at 50.4 MHz.** It now runs on clk_sys. A first fit with
+  only the clock raised missed by 0.3 to 0.4 ns, all inside Hazard3's
+  decode (`cir` to `x_rs1_select_regs_xm_mw`); the fit of the single-clock
+  design is still to be read. Hazard3's reduced-bypass option does not
+  touch that path.
 
 ### To clean up
 

@@ -12,15 +12,13 @@
 # one captures has at least six clocks, and the multicycles on cpu and via
 # grant four.
 
-# clk_sys and clk_rv are ports only when wiring is the top level, as it
-# is in the machine-only project, where every port is a virtual pin.
-# Under core_top the PLL drives both clocks, and all_inputs and
-# all_outputs would name the device's pads.
+# The clocks are ports only when wiring is the top level, as it is in
+# the machine-only project, where every port is a virtual pin. Under
+# core_top the PLL drives them, and all_inputs and all_outputs would
+# name the device's pads.
 if {[get_collection_size [get_ports -nowarn clk_sys]] > 0} {
 
     create_clock -name clk_sys -period 19.841 [get_ports clk_sys]
-    create_clock -name clk_rv -period 39.682 -waveform {0.000 19.841} \
-        [get_ports clk_rv]
     # XRAM's port clock and its phase reference, as pocket_pll.v shifts them.
     create_clock -name clk_a2 -period 9.921 -waveform {8.990 13.951} \
         [get_ports clk_a2]

@@ -26,7 +26,6 @@ static void machine_reset()
     }
     dut = new Vwiring;
     dut->clk_sys = 0;
-    dut->clk_rv = 0;
     dut->rst_n = 0;
     dut->eval();
     tb_clock(dut);
@@ -152,12 +151,11 @@ int main(int argc, const char *const argv[])
     dut = new Vwiring;
     /* Verilator seeds its edge detectors from the first eval, so a clock that
      * is already high at the first eval has no rising edge. machine_reset
-     * builds each case's model with the same first eval, and clk_rv rises
-     * once in the two cycles that machine_reset holds rst_n low. Without that
+     * builds each case's model with the same first eval, and clk_sys rises
+     * in the cycles that machine_reset holds rst_n low. Without that
      * edge the soft CPU's asynchronous reset is never applied, because rst_n
      * is already low at the first eval and so has no falling edge. */
     dut->clk_sys = 0;
-    dut->clk_rv = 0;
     dut->rst_n = 0;
     dut->eval();
     int rc = utest_main(argc, argv);

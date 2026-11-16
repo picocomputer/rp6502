@@ -29,7 +29,6 @@ static void machine_reset()
     }
     dut = new Vwiring;
     dut->clk_sys = 0;
-    dut->clk_rv = 0;
     dut->rst_n = 0;
     dut->eval();
     tb_clock(dut);
@@ -156,7 +155,6 @@ int main(int argc, const char *const argv[])
     Verilated::commandArgs(argc, const_cast<char **>(argv));
     dut = new Vwiring;
     dut->clk_sys = 0;
-    dut->clk_rv = 0;
     dut->rst_n = 0;
     dut->eval();
     int rc = utest_main(argc, argv);
