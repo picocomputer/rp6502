@@ -84,6 +84,8 @@ static void sleep_save(void)
 static bool sleep_load(void)
 {
     const char *why = "no savestate in the window";
+    uint32_t started = UPTIME_LO;
+    uint32_t failed = fs_failed_count();
     const uint8_t *blob = sst_find(SST_BLOB, SST_BLOB_MAX);
     if (blob)
     {
@@ -93,8 +95,14 @@ static bool sleep_load(void)
     }
     if (why)
     {
+        /* Said on the screen, because the debug log is off across a sleep:
+         * the reason, where in the window the savestate was found, how
+         * long the load took and how many file commands failed in it. */
         RP6502_LOG(sst, ERROR, "load: %s", why);
-        printf("\nbad savestate\n");
+        printf("\nbad savestate: %s\nat %ld, %lu ms, %lu file errors\n",
+               why, blob ? (long)(blob - SST_BLOB) : -1L,
+               (unsigned long)((UPTIME_LO - started) / 1000u),
+               (unsigned long)(fs_failed_count() - failed));
         sleep_refused = true;
         sys_stop();
     }

@@ -79,6 +79,13 @@ static void fs_reap(void)
     fs_owner = FS_W_NONE;
 }
 
+static uint32_t fs_failed;
+
+uint32_t fs_failed_count(void)
+{
+    return fs_failed;
+}
+
 static bool fs_poll(uint32_t who, uint32_t *st)
 {
     fs_reap();
@@ -86,6 +93,8 @@ static bool fs_poll(uint32_t who, uint32_t *st)
         return false;
     fs_mail[who] = false;
     *st = fs_mail_st[who];
+    if (*st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
+        fs_failed++;
     return true;
 }
 

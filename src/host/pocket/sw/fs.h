@@ -39,6 +39,9 @@ void fs_stop(void);
  * loop, and a savestate is made only between them. */
 bool fs_idle(void);
 
+/* File commands that ended in an error or a timeout since boot. */
+uint32_t fs_failed_count(void);
+
 bool fs_slot_len(uint32_t slot, uint32_t *len);
 
 bool fs_getfile(uint32_t slot, char *out, size_t cap);

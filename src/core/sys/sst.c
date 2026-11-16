@@ -80,6 +80,21 @@ static uint8_t *sst_body;
 static size_t sst_offset;
 static bool sst_walk_bad;
 static const char *sst_why;
+/* A row's refusal names the row: its four-letter id, then the reason. */
+static char sst_why_row[64];
+
+static const char *sst_row_why(const char *id, const char *reason)
+{
+    memcpy(sst_why_row, id, 4);
+    sst_why_row[4] = ':';
+    sst_why_row[5] = ' ';
+    size_t n = strlen(reason);
+    if (n > sizeof sst_why_row - 7)
+        n = sizeof sst_why_row - 7;
+    memcpy(sst_why_row + 6, reason, n);
+    sst_why_row[6 + n] = '\0';
+    return sst_why_row;
+}
 
 static void sst_row_save(const char *id, uint16_t ver, uint32_t size,
                          void (*save)(sst_cursor_t *, unsigned), unsigned flags)
@@ -127,7 +142,7 @@ static void sst_row_load(const char *id, uint16_t ver, uint32_t size,
     if (memcmp(p, id, 4) != 0 || got != ver || used > size)
     {
         sst_walk_bad = true;
-        sst_why = "a chunk is not the one the manifest promised";
+        sst_why = sst_row_why(id, "not the chunk the manifest promised");
         return;
     }
     uint8_t *payload = (uint8_t *)p + SST_CHUNK_HDR;
@@ -135,7 +150,7 @@ static void sst_row_load(const char *id, uint16_t ver, uint32_t size,
     if (!load(&c, flags) || !sst_ok(&c))
     {
         sst_walk_bad = true;
-        sst_why = "a driver refused what it was handed";
+        sst_why = sst_row_why(id, "refused what it was handed");
         return;
     }
     sst_offset += SST_CHUNK_HDR + size;
