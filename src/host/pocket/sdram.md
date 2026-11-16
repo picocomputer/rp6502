@@ -79,10 +79,3 @@ costs about 35 clocks.
 8 KB 4-way stays: every smaller shape waits several points more, and 2
 ways cannot hold the idle main loop. A save holds the machine 71 ms and a
 wake 41 ms whatever the shape.
-
-## To do
-
-### To clean up
-
-- **The Pocket tests.** The set takes about 80 seconds, as long as its
-  slowest case. A round trip's time is mostly the save and the load.
