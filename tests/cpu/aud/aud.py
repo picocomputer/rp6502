@@ -914,7 +914,9 @@ def check_pcm_rules(w):
 
 
 def test_pcm_rules():
-    with rp6502.Emu(rom("pcm_rules")) as e:
+    # The fill sets RULES_DONE to $55, so the wait passes only after the
+    # program sets it.
+    with rp6502.Emu("--memfill", "$55", rom("pcm_rules")) as e:
         e.cmd("wait RULES_DONE 1 60")
         got = bytes.fromhex(e.cmd(f"dump RULES {RULES_DONE - RULES}"))
         e.cmd("wait exit 2")
