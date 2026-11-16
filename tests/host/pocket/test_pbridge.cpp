@@ -388,10 +388,11 @@ UTEST(pbridge, the_machine_waits_for_the_write_queue)
         ASSERT_EQ(stage_word(MEM + i * 4), 0xC0DE0000u + i);
 }
 
-/* The soft CPU's memory is written by the host only while the machine is
- * in reset. A write there with the machine running never reaches the
- * SDRAM, and the bytes on either side of it are written as ever. */
-UTEST(pbridge, a_write_to_the_memory_is_dropped_while_the_machine_runs)
+/* The soft CPU's ROM and RAM blocks are written by the host only while
+ * the machine is in reset. A write there with the machine running never
+ * reaches the SDRAM, and the bytes on either side of them, the first file
+ * window's included, are written as ever. */
+UTEST(pbridge, a_write_to_the_firmware_is_dropped_while_the_machine_runs)
 {
     static const uint32_t at[] = {
         0x03DFFFFCu, /* the ROM slot's last word */
@@ -399,10 +400,9 @@ UTEST(pbridge, a_write_to_the_memory_is_dropped_while_the_machine_runs)
         0x03E3FFFCu, /* the ROM block's last */
         0x03E40000u, /* the RAM block's first */
         0x03E4FFFCu, /* the RAM block's last */
-        0x03E7FFFCu, /* the memory's last */
-        0x03E80000u, /* the savestate window's first */
+        0x03E50000u, /* the first file window's first */
     };
-    static const bool mem[] = {false, true, true, true, true, true, false};
+    static const bool mem[] = {false, true, true, true, true, false};
     const int n = (int)(sizeof at / sizeof *at);
 
     power_up(utest_result);
@@ -424,7 +424,7 @@ UTEST(pbridge, a_write_to_the_memory_is_dropped_while_the_machine_runs)
         ASSERT_EQ(stage_word(at[i]),
                   (mem[i] ? 0xA0000000u : 0xB0000000u) + (uint32_t)i);
 
-    /* Back in reset the memory takes writes again, which is a reload. */
+    /* Back in reset the firmware takes writes again, which is a reload. */
     dut->reset_n = 0;
     a_cycles(10);
     ASSERT_EQ((int)dut->tb_pbridge_run, 0);
@@ -442,7 +442,7 @@ UTEST(pbridge, a_write_to_the_memory_is_dropped_while_the_machine_runs)
 UTEST(pbridge, a_host_write_throws_the_held_line_away)
 {
     power_up(utest_result);
-    const uint32_t WIN = 0x03F00000u;
+    const uint32_t WIN = 0x03E50000u;
     for (uint32_t i = 0; i < 12; i++)
         host_word(WIN + i * 4, 0x11110000u + i, 88);
     a_cycles(60);
@@ -564,7 +564,8 @@ static void flood_sys(void)
     {
         /* Half are reads of a line written before, once there is one. */
         bool we = f.lines.empty() || (flood_rnd() & 1);
-        uint32_t line = 0x3E0000u + flood_rnd() % 0x8000u;
+        /* A line of the ROM or the RAM block. */
+        uint32_t line = 0x3E0000u + flood_rnd() % 0x5000u;
         if (!we)
         {
             auto it = f.lines.begin();
@@ -601,10 +602,10 @@ UTEST(pbridge, a_flood_of_writes_loses_nothing_to_reads_and_lines)
     for (uint32_t i = 0; f.at.size() < WORDS; i++)
     {
         /* Odd times i covers every word address once, in a scattered
-         * order. The soft CPU's memory, where the lines are, is left
-         * out. */
+         * order. The soft CPU's ROM and RAM blocks, which the bridge
+         * drops while the machine runs, are left out. */
         uint32_t at = ((i * 0x9E3779B1u) & 0xFFFFFFu) << 2;
-        if (at >= 0x03E00000u)
+        if (at >= 0x03E00000u && at < 0x03E50000u)
             continue;
         uint32_t word = flood_rnd();
         host_word(at, word, 87);

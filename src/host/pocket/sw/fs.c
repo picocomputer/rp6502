@@ -28,14 +28,10 @@
 
 #define FS_SECTOR 512u
 
-/* opening is a descriptor fs_open_card has claimed and fs_std_opening has
- * not opened yet. It has its name and flags and nothing else. */
 static struct
 {
     bool used;
-    bool opening;
     uint8_t flags;
-    bool stale;
     uint32_t len;
     uint32_t pos;
     uint32_t cache_at;
@@ -59,12 +55,7 @@ static uint8_t fs_owner;
 static bool fs_mail[FS_W_MAX];
 static uint32_t fs_mail_st[FS_W_MAX];
 
-/* pocket_file's registers and FILE_WIN are not in the blob. A command
- * begins with its write to FILE_ID, which arms it, and a restore disarms
- * it, so a command that a restore lands in is not run and its status reads
- * FILE_ST_TIMEOUT.
- *
- * Starting a command is separate from polling for its status because
+/* Starting a command is separate from polling for its status because
  * core_bridge_cmd.v waits about 0.9 s for a host that does not reply before
  * it times the command out. fs_std_read, fs_std_write, fs_std_sync and
  * fs_std_close poll once per pass of the main loop so that the wait does not
@@ -113,78 +104,18 @@ static void fs_wait_free(void)
         fs_reap();
 }
 
-static uint16_t fs_n_tmo, fs_n_err, fs_n_defer;
-static uint32_t fs_last_st;
-
-void fs_log(void)
+bool fs_idle(void)
 {
-    if (!fs_n_tmo && !fs_n_err)
-    {
-        fs_n_defer = 0;
-        return;
-    }
-    RP6502_LOG(fs, WARN, "tmo=%u err=%u defer=%u last=%02x", (unsigned)fs_n_tmo,
-               (unsigned)fs_n_err, (unsigned)fs_n_defer,
-               (unsigned)(fs_last_st & 0xFFu));
-    fs_n_tmo = fs_n_err = fs_n_defer = 0;
+    return fs_owner == FS_W_NONE;
 }
 
-/* No savestate is made while a file is open for writing, or while an open
- * that can change the card runs: the bitstream refuses it, by wake.c's
- * SST_REFUSE. So a restore only ever lands in a read, in an open that
- * changes nothing, or in one of the firmware's own commands, and only
- * those look for one.
- *
- * After a successful restore, SST_RESTORED stays set until wake_task clears
- * it, and wake_task calls fs_restore before it does. api_task runs before
- * wake_task in each pass, so the handler of a syscall that was in progress
- * when the state was saved can call into this driver again before
- * fs_restore has marked the descriptors stale, while a slot may still be
- * bound to a file opened by the session that the restore replaced.
- * Returning STD_PENDING leaves pos where it was, so a syscall handler
- * repeats the whole operation on a later pass.
- *
- * A save can halt the firmware anywhere in such a call, so a command can
- * be issued or its status collected after the restore, where the slot is
- * bound to nothing or to another file. Its status then says nothing about
- * the file, so the call asks here before it acts on one. */
-static bool fs_restoring(void)
-{
-    return (SST_CTL & SST_RESTORED) != 0;
-}
-
-static bool fs_adrift(void)
-{
-    if (!fs_restoring())
-        return false;
-    fs_n_defer++;
-    return true;
-}
-
-/* A call that blocks through several commands has no later pass. It notes
- * whether a restore was open when it began and, when one opened since, runs
- * its commands again: the second run is all in the session that woke, and
- * no other restore can come before wake_task has ended this one. fs_restore
- * comes first, as it does in wake_task, so the second run's commands start
- * on an idle pocket_file. */
-static bool fs_landed(bool began)
-{
-    if (began || !fs_adrift())
-        return false;
-    fs_restore();
-    return true;
-}
-
+/* Only the first few failed transfers are logged. */
 #define FS_SAY_MAX 4
 
-static bool fs_note(uint32_t st)
+static bool fs_note(void)
 {
-    fs_last_st = st;
-    if (st & FILE_ST_TIMEOUT)
-        fs_n_tmo++;
-    else if (st & FILE_ST_ERR)
-        fs_n_err++;
-    return (unsigned)(fs_n_tmo + fs_n_err) <= FS_SAY_MAX;
+    static uint8_t said;
+    return said < FS_SAY_MAX && ++said;
 }
 
 static uint32_t fs_command(uint32_t who, uint32_t op)
@@ -241,7 +172,7 @@ static uint32_t fs_dt(uint32_t word)
     return FILE_RESULT;
 }
 
-static bool fs_dt_find(uint32_t slot, uint32_t *len)
+bool fs_slot_len(uint32_t slot, uint32_t *len)
 {
     for (uint32_t i = 0; i < FS_DT_PAIRS; i++)
         if (fs_dt(i * 2) == slot)
@@ -250,17 +181,6 @@ static bool fs_dt_find(uint32_t slot, uint32_t *len)
             return true;
         }
     return false;
-}
-
-bool fs_slot_len(uint32_t slot, uint32_t *len)
-{
-    bool began, found;
-    do
-    {
-        began = fs_restoring();
-        found = fs_dt_find(slot, len);
-    } while (fs_landed(began));
-    return found;
 }
 
 /* Copies out of the staging store. A word read there costs what a byte
@@ -293,16 +213,10 @@ bool fs_getfile(uint32_t slot, char *out, size_t cap)
      * the slot is bound to nothing, so an empty name means an unbound
      * slot. */
     char utf8[FS_NAME_MAX];
-    uint32_t st;
-    bool began;
-    do
-    {
-        began = fs_restoring();
-        FILE_ID = slot;
-        FILE_BRIDGE = GETFILE_BRIDGE;
-        st = fs_command(FS_W_SYS, FILE_OP_GETFILE);
-        fs_stage_copy(utf8, GETFILE_WIN, FS_NAME_MAX - 1);
-    } while (fs_landed(began));
+    FILE_ID = slot;
+    FILE_BRIDGE = GETFILE_BRIDGE;
+    uint32_t st = fs_command(FS_W_SYS, FILE_OP_GETFILE);
+    fs_stage_copy(utf8, GETFILE_WIN, FS_NAME_MAX - 1);
     if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
         return false;
     utf8[FS_NAME_MAX - 1] = 0;
@@ -442,52 +356,6 @@ static bool fs_known_dir(const char *card)
            || fs_leads_to(card, FS_SAVES_PATH);
 }
 
-static bool fs_still_bound(int d)
-{
-    char have[FS_NAME_MAX];
-    return fs_getfile(FS_SLOT_FIRST + (uint32_t)d, have, sizeof have)
-           && !strcmp(have, fs_pool[d].name);
-}
-
-/* fs_owner is the blob's, and the session the restore replaced can have
- * left a command of its own in flight. A command started over it would be
- * lost, so it is taken as this driver's and fs_stop collects it. */
-void fs_restore(void)
-{
-    fs_owner = FS_W_SYS;
-    fs_stop();
-    for (int d = 0; d < FS_OPEN_MAX; d++)
-    {
-        if (!fs_pool[d].used)
-            continue;
-        fs_pool[d].stale = true;
-        /* SLOT_WIN(d) is in the SDRAM staging store, which the savestate
-         * blob does not include, so after a restore SLOT_WIN(d) may not
-         * hold the bytes that cache_at and cache_len describe. */
-        fs_pool[d].cache_len = 0;
-    }
-}
-
-static void fs_rebind(int d)
-{
-    if (!fs_pool[d].stale)
-        return;
-    fs_pool[d].stale = false;
-    bool kept = fs_still_bound(d);
-    uint32_t rc = 0;
-    if (!kept)
-        rc = fs_try_open(FS_W(d), FS_SLOT_FIRST + (uint32_t)d,
-                          fs_pool[d].name, 0, 0);
-    uint32_t len = 0;
-    bool got = fs_slot_len(FS_SLOT_FIRST + (uint32_t)d, &len);
-    if (!kept && rc > 1)
-        return;
-    if (got)
-        fs_pool[d].len = len;
-    if (fs_pool[d].pos > fs_pool[d].len)
-        fs_pool[d].pos = fs_pool[d].len;
-}
-
 static int fs_desc(int desc)
 {
     if (desc < 0 || desc >= FS_OPEN_MAX || !fs_pool[desc].used)
@@ -551,11 +419,6 @@ static struct
     uint32_t pos;
 } fs_rom;
 
-uint32_t fs_rom_staged_len(void)
-{
-    return fs_rom.len;
-}
-
 static bool fs_rom_pull(uint32_t len)
 {
     for (uint32_t at = 0; at < len; at += FS_STAGE_CHUNK)
@@ -600,27 +463,15 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
     const char *rest = fs_strip_drive(path);
     if (!path_fat_ok(rest, rest != path, err))
         return -1;
-    if (CPU_RESB & 1)
-    {
-        RP6502_LOG(rom, ERROR, "stage refused, 6502 running");
-        *err = API_EBUSY;
-        return -1;
-    }
     char card[FS_NAME_MAX];
-    if (!*rest || !fs_card_path(rest, FS_ASSETS_PATH, card, sizeof card))
+    if (!*rest || !fs_card_path(rest, FS_SAVES_PATH, card, sizeof card))
     {
         *err = API_EINVAL;
         return -1;
     }
     assert(!fs_rom.used);
     uint32_t len;
-    bool began, ok;
-    do
-    {
-        began = fs_restoring();
-        ok = fs_rom_fetch(card, &len, err);
-    } while (fs_landed(began));
-    if (!ok)
+    if (!fs_rom_fetch(card, &len, err))
         return -1;
     fs_rom.used = true;
     fs_rom.len = len;
@@ -700,7 +551,7 @@ static int fs_open_slot_as(int d, uint8_t flags, api_errno *err)
         return -1;
     }
     fs_pool[d].used = true;
-    fs_pool[d].stale = false;
+    fs_pool[d].flags = flags;
     fs_pool[d].cache_at = 0;
     fs_pool[d].cache_len = 0;
     fs_pool[d].len = empty ? 0 : len;
@@ -708,30 +559,21 @@ static int fs_open_slot_as(int d, uint8_t flags, api_errno *err)
     return d;
 }
 
-/* An open changes the card when it leaves a descriptor that writes or may
- * create its file. */
-static bool fs_changes(uint8_t flags)
+static int fs_free_desc(api_errno *err)
 {
-    return (flags & (FS_WR | FS_CREAT)) != 0;
+    for (int d = 0; d < FS_OPEN_MAX; d++)
+        if (!fs_pool[d].used)
+            return d;
+    *err = API_EMFILE;
+    return -1;
 }
 
-/* An open claims its descriptor here and sends nothing. fs_std_opening
- * runs its commands. */
 static int fs_open_card(const char *path, const char *root, uint8_t flags,
                         api_errno *err)
 {
-    int d = -1;
-    for (int i = 0; i < FS_OPEN_MAX; i++)
-        if (!fs_pool[i].used && !fs_pool[i].opening)
-        {
-            d = i;
-            break;
-        }
+    int d = fs_free_desc(err);
     if (d < 0)
-    {
-        *err = API_EMFILE;
         return -1;
-    }
     char *card = fs_pool[d].name;
     if (!fs_card_path(path, root, card, FS_NAME_MAX))
     {
@@ -743,55 +585,7 @@ static int fs_open_card(const char *path, const char *root, uint8_t flags,
         *err = API_EACCES;
         return -1;
     }
-    fs_pool[d].flags = flags;
-    fs_pool[d].opening = true;
-    /* A file is open for writing from the moment it is asked for. */
-    if (fs_changes(flags))
-        SST_REFUSE = 1;
-    return d;
-}
-
-bool fs_changing(void)
-{
-    for (int d = 0; d < FS_OPEN_MAX; d++)
-        if (fs_pool[d].opening && fs_changes(fs_pool[d].flags))
-            return true;
-    return false;
-}
-
-/* No open sends a command while a restore is open, because the session the
- * restore replaced can have left one in flight, which fs_restore takes over
- * first. An open that changes the card sends nothing until the bitstream
- * refuses savestates, which takes a few clocks to cross. Any other open can
- * be saved in the middle, and runs its commands again in the session that
- * woke. The refusal is read before the restore is looked for, so a restore
- * that lands between the two is seen. */
-std_rw_result fs_std_opening(int desc, api_errno *err)
-{
-    if (!fs_pool[desc].opening)
-        return STD_OK;
-    uint8_t flags = fs_pool[desc].flags;
-    bool refusing = (SST_REFUSE & SST_REFUSING) != 0;
-    if (fs_adrift())
-        return STD_PENDING;
-    int got;
-    if (fs_changes(flags))
-    {
-        if (!refusing)
-            return STD_PENDING;
-        got = fs_open_slot_as(desc, flags, err);
-    }
-    else
-    {
-        bool began;
-        do
-        {
-            began = fs_restoring();
-            got = fs_open_slot_as(desc, flags, err);
-        } while (fs_landed(began));
-    }
-    fs_pool[desc].opening = false;
-    return got < 0 ? STD_ERROR : STD_OK;
+    return fs_open_slot_as(d, flags, err);
 }
 
 int fs_std_open(const char *path, uint8_t flags, api_errno *err)
@@ -799,7 +593,7 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
     const char *rest = fs_strip_drive(path);
     if (!path_fat_ok(rest, rest != path, err))
         return -1;
-    return fs_open_card(rest, FS_ASSETS_PATH, flags, err);
+    return fs_open_card(rest, FS_SAVES_PATH, flags, err);
 }
 
 int fs_save_open(const char *name, uint8_t flags, api_errno *err)
@@ -817,19 +611,12 @@ void fs_std_settle(void)
 {
 }
 
-/* A descriptor that is still opening has sent nothing, so its close only
- * gives it back. */
 std_rw_result fs_std_close(int desc, api_errno *err)
 {
     if (desc == FS_DESC_ROM && fs_rom.used)
     {
         fs_rom.used = false;
         fs_rom.pos = 0;
-        return STD_OK;
-    }
-    if (desc >= 0 && desc < FS_OPEN_MAX && fs_pool[desc].opening)
-    {
-        fs_pool[desc].opening = false;
         return STD_OK;
     }
     if (fs_desc(desc) < 0)
@@ -868,9 +655,6 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count,
         *err = API_EBADF;
         return STD_ERROR;
     }
-    if (fs_adrift())
-        return STD_PENDING;
-    fs_rebind(desc);
     uint32_t pos = fs_pool[desc].pos, len = fs_pool[desc].len;
     uint32_t want = pos < len ? len - pos : 0;
     if (want > count)
@@ -921,11 +705,9 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count,
         }
         if (!fs_poll(FS_W(desc), &st))
             return STD_PENDING;
-        if (fs_adrift())
-            return STD_PENDING;
         if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
         {
-            if (fs_note(st))
+            if (fs_note())
                 RP6502_LOG(fs, DEBUG, "read %u off=%u len=%u st=%02x", (unsigned)desc,
                            (unsigned)from, (unsigned)n, (unsigned)(st & 0xFFu));
             fs_pool[desc].cache_len = 0;
@@ -942,13 +724,6 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count,
         at = fs_pool[desc].cache_at;
     }
     fs_stage_copy(buf, SLOT_WIN(desc) + (pos - at), want);
-    /* The soft CPU can be halted inside the copy above while a savestate
-     * is made, and the blob does not include the staging store, so after a
-     * restore the rest of the copy is from a SLOT_WIN(desc) that the
-     * restore did not put back. SST_RESTORED is checked again so that the
-     * whole read is repeated rather than committed. */
-    if (fs_adrift())
-        return STD_PENDING;
     fs_pool[desc].pos = pos + want;
     *got = want;
     return STD_OK;
@@ -1011,7 +786,7 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count,
         return STD_PENDING;
     if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
     {
-        if (fs_note(st))
+        if (fs_note())
             RP6502_LOG(fs, DEBUG, "write %u off=%u len=%u st=%02x", (unsigned)desc,
                        (unsigned)pos, (unsigned)want, (unsigned)(st & 0xFFu));
         *err = API_EIO;
@@ -1086,7 +861,6 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
         *err = API_EBADF;
         return -1;
     }
-    fs_rebind(desc);
     int32_t from = whence == SEEK_SET   ? 0
                    : whence == SEEK_CUR ? (int32_t)fs_pool[desc].pos
                    : whence == SEEK_END ? (int32_t)fs_pool[desc].len
@@ -1120,4 +894,36 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
     fs_pool[desc].pos = (uint32_t)target;
     *pos = (int32_t)target;
     return 0;
+}
+
+/* A savestate is made only while no command is in flight, so a
+ * descriptor is its card path and its position. The staging store is not
+ * in the savestate, so a reopen starts with nothing in its window. */
+bool fs_std_ident(int desc, sst_cursor_t *c)
+{
+    if (fs_desc(desc) < 0)
+        return false;
+    sst_put_str(c, fs_pool[desc].name, FS_PATH_SLOT);
+    sst_put_u32(c, fs_pool[desc].pos);
+    return sst_ok(c);
+}
+
+int fs_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err)
+{
+    const char *card = sst_view_str(c, FS_PATH_SLOT);
+    uint32_t pos = sst_get_u32(c);
+    int d = sst_ok(c) && strlen(card) < FS_NAME_MAX ? fs_free_desc(err) : -1;
+    if (d < 0)
+        return -1;
+    strcpy(fs_pool[d].name, card);
+    if (fs_open_slot_as(d, mode, err) < 0)
+        return -1;
+    if (pos > fs_pool[d].len)
+    {
+        fs_pool[d].used = false;
+        *err = API_EIO;
+        return -1;
+    }
+    fs_pool[d].pos = pos;
+    return d;
 }

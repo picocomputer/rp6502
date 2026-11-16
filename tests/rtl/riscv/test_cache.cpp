@@ -64,7 +64,6 @@ struct bench
     int bomb = -1;
 
     bool out_ready = true;
-    bool out_idle = false;
     uint32_t out_rdata = 0;
 
     /* The line memory. */
@@ -105,8 +104,6 @@ struct bench
         d->rst_n = 1;
         d->clk = 0;
         d->dph = 0;
-        d->flush = 0;
-        d->empty = 0;
         d->line_done = 0;
         d->eval();
     }
@@ -216,7 +213,6 @@ struct bench
         d->clk = 0;
         d->eval();
         out_ready = d->cache_ready;
-        out_idle = d->cache_idle;
         out_rdata = d->cache_rdata;
         line_model();
         d->clk = 1;
@@ -278,8 +274,6 @@ struct bench
     {
         d->rst_n = 0;
         d->dph = 0;
-        d->flush = 0;
-        d->empty = 0;
         cur_valid = false;
         int n = 1 + (int)rnd(3);
         for (int i = 0; i < n; i++)
@@ -369,59 +363,22 @@ struct bench
         return !cur_valid || phase(nullptr);
     }
 
-    /* Raises flush or empty with the CPU making no access and waits for
-     * cache_idle. Returns false if the bomb went off. */
-    bool control(bool flush)
+    /* Loads every word of every line the cache holds a newer copy of,
+     * which phase checks against ref. */
+    void read_dirty()
     {
-        if (!drain())
-            return false;
-        for (int i = (int)rnd(3); i > 0; i--)
-            if (!phase(nullptr))
-                return false;
-        if (flush)
-            d->flush = 1;
-        else
-            d->empty = 1;
-        cycle();
-        if (out_idle)
-            fail("cache_idle stayed high when the level rose");
-        for (int i = 0; !out_idle; i++)
-        {
-            if (bombed())
-                return false;
-            cycle();
-            if (i > 1000000)
+        std::vector<uint32_t> words;
+        for (unsigned s = 0; s < CACHE_SETS; s++)
+            for (unsigned w = 0; w < CACHE_WAYS; w++)
             {
-                fail("cache_idle never returned");
-                return false;
-            }
-        }
-        if (flush)
-        {
-            for (auto &e : pol)
+                const entry &e = pol[s * CACHE_WAYS + w];
                 if (e.valid && e.dirty)
-                {
-                    want_writes++;
-                    e.dirty = false;
-                }
-        }
-        else
-        {
-            forget();
-            ref = mem;
-        }
-        for (int i = (int)rnd(4); i > 0; i--)
-        {
-            cycle();
-            if (!out_idle)
-                fail("cache_idle fell with the level still high");
-        }
-        d->flush = 0;
-        d->empty = 0;
-        cycle();
-        if (!out_idle)
-            fail("cache_idle fell when the level fell");
-        return true;
+                    for (uint32_t off = 0; off < 4; off++)
+                        words.push_back(word_of(e.tag, s, off));
+            }
+        for (uint32_t word : words)
+            load(word);
+        drain();
     }
 
     /* mem equals ref in every line that is not dirty in the cache, and
@@ -513,10 +470,8 @@ UTEST(cache, random_over_the_whole_ram)
         if (i % 50000 == 49999)
             b.check();
     }
+    b.read_dirty();
     b.check();
-    b.control(true);
-    b.check();
-    ASSERT_TRUE(b.mem == b.ref);
     ASSERT_EQ(0, b.errors);
     ASSERT_GT(b.hits(), 0);
     ASSERT_GT(b.misses(), 0);
@@ -542,10 +497,8 @@ UTEST(cache, back_to_back_with_overlapping_phases)
         b.phase(&o);
         last = word;
     }
+    b.read_dirty();
     b.check();
-    b.control(true);
-    b.check();
-    ASSERT_TRUE(b.mem == b.ref);
     ASSERT_EQ(0, b.errors);
 }
 
@@ -578,9 +531,8 @@ UTEST(cache, dense_evictions)
         if (i % 30000 == 29999)
             b.check();
     }
-    b.control(true);
+    b.read_dirty();
     b.check();
-    ASSERT_TRUE(b.mem == b.ref);
     ASSERT_EQ(0, b.errors);
     ASSERT_GT(b.line_writes, 1000);
 }
@@ -644,94 +596,6 @@ UTEST(cache, a_dirty_line_is_written_before_it_is_replaced)
     ASSERT_EQ(0, b.errors);
 }
 
-UTEST(cache, flush_writes_dirty_lines_and_keeps_them)
-{
-    bench b(seed_of(7));
-    for (int round = 0; round < 20; round++)
-    {
-        for (int i = 0; i < 2000; i++)
-        {
-            op o = b.random_op(b.rnd(2) ? dense_word(b, 3, CACHE_WAYS)
-                                        : b.rnd(MEM_WORDS));
-            b.phase(&o);
-        }
-        b.check();
-        b.control(true);
-        ASSERT_TRUE(b.mem == b.ref);
-        b.check();
-        /* Nothing is dirty, so a second flush writes nothing. */
-        long writes = b.line_writes;
-        b.control(true);
-        ASSERT_EQ(writes, b.line_writes);
-        /* The lines are still there. */
-        long misses = b.misses(), hits = b.hits();
-        int held = 0;
-        for (unsigned s = 0; s < CACHE_SETS; s++)
-            for (unsigned w = 0; w < CACHE_WAYS; w++)
-                if (b.pol[s * CACHE_WAYS + w].valid)
-                {
-                    b.load(bench::word_of(b.pol[s * CACHE_WAYS + w].tag, s,
-                                          b.rnd(4)));
-                    held++;
-                }
-        b.drain();
-        ASSERT_EQ(misses, b.misses());
-        ASSERT_EQ(hits + held, b.hits());
-        ASSERT_GT(held, 0);
-    }
-    /* A store after a flush makes its line dirty again. */
-    uint32_t word = dense_word(b, 3, CACHE_WAYS);
-    b.store(word, 0xF1F1F1F1);
-    long writes = b.line_writes;
-    b.control(true);
-    ASSERT_EQ(writes + 1, b.line_writes);
-    ASSERT_EQ(0xF1F1F1F1u, b.mem[word]);
-    b.check();
-    ASSERT_EQ(0, b.errors);
-}
-
-UTEST(cache, empty_forgets_every_line_and_writes_none)
-{
-    bench b(seed_of(8));
-    for (int round = 0; round < 20; round++)
-    {
-        std::vector<uint32_t> words;
-        for (int i = 0; i < 500; i++)
-        {
-            op o = b.random_op(b.rnd(2) ? dense_word(b, 3, CACHE_WAYS)
-                                        : b.rnd(MEM_WORDS));
-            b.phase(&o);
-        }
-        for (unsigned s = 0; s < CACHE_SETS; s++)
-            for (unsigned w = 0; w < CACHE_WAYS; w++)
-                if (b.pol[s * CACHE_WAYS + w].valid)
-                    words.push_back(bench::word_of(
-                        b.pol[s * CACHE_WAYS + w].tag, s, b.rnd(4)));
-        b.drain();
-        long writes = b.line_writes;
-        b.control(false);
-        ASSERT_EQ(writes, b.line_writes);
-        long misses = b.misses();
-        /* One line of a set after another, so none replaces another. */
-        std::vector<bool> seen(CACHE_SETS);
-        unsigned loaded = 0;
-        for (uint32_t word : words)
-        {
-            unsigned s = (word >> 2) % CACHE_SETS;
-            if (seen[s])
-                continue;
-            seen[s] = true;
-            b.load(word);
-            loaded++;
-        }
-        b.drain();
-        ASSERT_GT(loaded, 0u);
-        ASSERT_EQ(misses + loaded, b.misses());
-        b.check();
-    }
-    ASSERT_EQ(0, b.errors);
-}
-
 UTEST(cache, reset_in_the_middle_of_work)
 {
     bench b(seed_of(9));
@@ -740,17 +604,11 @@ UTEST(cache, reset_in_the_middle_of_work)
     {
         if (b.bomb < 0 && b.rnd(64) == 0)
             b.bomb = (int)b.rnd(60);
-        bool ok;
-        if (b.rnd(2000) == 0)
-            ok = b.control(b.rnd(2));
-        else
-        {
-            op o = b.random_op(b.rnd(4) ? dense_word(b, 3, CACHE_WAYS * 2)
-                                        : b.rnd(MEM_WORDS));
-            ok = b.phase(&o);
-            if (ok && b.rnd(4) == 0)
-                ok = b.phase(nullptr);
-        }
+        op o = b.random_op(b.rnd(4) ? dense_word(b, 3, CACHE_WAYS * 2)
+                                    : b.rnd(MEM_WORDS));
+        bool ok = b.phase(&o);
+        if (ok && b.rnd(4) == 0)
+            ok = b.phase(nullptr);
         if (!ok)
         {
             resets++;
@@ -765,9 +623,8 @@ UTEST(cache, reset_in_the_middle_of_work)
         }
     }
     b.bomb = -1;
+    b.read_dirty();
     b.check();
-    b.control(true);
-    ASSERT_TRUE(b.mem == b.ref);
     ASSERT_EQ(0, b.errors);
     ASSERT_GT(resets, 1000);
 }
@@ -784,9 +641,8 @@ UTEST(cache, power_up_with_no_reset)
             op o = b.random_op(b.rnd(MEM_WORDS));
             b.phase(&o);
         }
+        b.read_dirty();
         b.check();
-        b.control(true);
-        ASSERT_TRUE(b.mem == b.ref);
         ASSERT_EQ(0, b.errors);
     }
 }
@@ -802,9 +658,8 @@ UTEST(cache, slow_and_instant_line_memory)
             op o = b.random_op(dense_word(b, 3, CACHE_WAYS * 2));
             b.phase(&o);
         }
-        b.control(true);
+        b.read_dirty();
         b.check();
-        ASSERT_TRUE(b.mem == b.ref);
         ASSERT_EQ(0, b.errors);
     }
 }

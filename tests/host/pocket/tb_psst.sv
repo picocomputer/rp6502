@@ -5,7 +5,13 @@
  *
  * pocket_sst behind the core's own core_bridge_cmd, so the host's
  * savestate commands are sent as the Pocket sends them, as writes to
- * 0xF8000000, and their result codes are the ones the Pocket reads.
+ * 0xF8000000, and their result codes are the ones the Pocket reads. Its
+ * reads of the window come from the SDRAM controller and the chip model,
+ * whose memory a test fills directly.
+ *
+ * core_bridge_cmd is Analogue's template's, as vendor/openfpga_rp6502
+ * changes it, https://github.com/open-fpga/core-template. mf_datatable
+ * and synch_3 stand in for the template's megafunction and common.v.
  */
 
 /* core_bridge_cmd's data table, an Altera megafunction on hardware. */
@@ -49,6 +55,7 @@ module tb_psst (
     input logic [27:0] addr,
     input logic [31:0] wdata,
     output logic [31:0] tb_psst_rdata,
+    input logic w_queued,
 
     input logic clk_74a,
     input logic arst_n,
@@ -60,18 +67,6 @@ module tb_psst (
     output logic [31:0] tb_psst_cmd_rd_data,
     output logic tb_psst_reset_n,
 
-    output logic tb_psst_save,
-    input logic sst_ready,
-    output logic [17:0] tb_psst_rd_idx,
-    output logic tb_psst_rd_t,
-    input logic [31:0] sst_rdata,
-    input logic sst_rvalid,
-
-    output logic tb_psst_load,
-    input logic sst_load_done,
-    input logic sst_load_err,
-    input logic [2:0] sst_load_why,
-
     output logic tb_psst_start_busy,
     output logic tb_psst_start_ok,
     output logic tb_psst_start_err,
@@ -80,7 +75,9 @@ module tb_psst (
     output logic tb_psst_load_err,
     /* How many times each request line rose. */
     output logic [7:0] tb_psst_starts,
-    output logic [7:0] tb_psst_loads
+    output logic [7:0] tb_psst_loads,
+
+    output logic tb_psst_sdram_ready
 );
 
     logic savestate_start, savestate_start_ack;
@@ -132,9 +129,9 @@ module tb_psst (
         .rtc_time_bcd(),
         .rtc_valid(),
         .savestate_supported(1'b1),
-        .savestate_addr(32'h03E8_0000),
-        .savestate_size(32'd300368),
-        .savestate_maxloadsize(32'd524288),
+        .savestate_addr(32'h03E9_1000),
+        .savestate_size(pocket_version_pkg::SST_BYTES),
+        .savestate_maxloadsize(32'd1503232),
         .osnotify_inmenu(),
         .savestate_start(savestate_start),
         .savestate_start_ack(savestate_start_ack),
@@ -170,6 +167,10 @@ module tb_psst (
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
+    logic rd_pend, rvalid;
+    logic [23:0] rd_addr;
+    logic [31:0] rword;
+
     pocket_sst sst (
         .clk_sys(clk_sys),
         .stb(stb),
@@ -177,6 +178,11 @@ module tb_psst (
         .addr(addr),
         .wdata(wdata),
         .pocket_sst_rdata(tb_psst_rdata),
+        .w_queued(w_queued),
+        .pocket_sst_rd_pend(rd_pend),
+        .pocket_sst_rd_addr(rd_addr),
+        .rd_rvalid(rvalid),
+        .rd_rword(rword),
         .clk_74a(clk_74a),
         .arst_n(arst_n),
         .bridge_wr(bridge_wr),
@@ -185,16 +191,6 @@ module tb_psst (
         .reset_n(tb_psst_reset_n),
         .pocket_sst_rd_data(tb_psst_rd_data),
         .pocket_sst_rd_sel(rd_sel),
-        .pocket_sst_save(tb_psst_save),
-        .sst_ready(sst_ready),
-        .pocket_sst_rd_idx(tb_psst_rd_idx),
-        .pocket_sst_rd_t(tb_psst_rd_t),
-        .sst_rdata(sst_rdata),
-        .sst_rvalid(sst_rvalid),
-        .pocket_sst_load(tb_psst_load),
-        .sst_load_done(sst_load_done),
-        .sst_load_err(sst_load_err),
-        .sst_load_why(sst_load_why),
         .savestate_start(savestate_start),
         .pocket_sst_start_ack(savestate_start_ack),
         .pocket_sst_start_busy(tb_psst_start_busy),
@@ -207,9 +203,68 @@ module tb_psst (
         .pocket_sst_load_err(tb_psst_load_err)
     );
 
+    logic cke;
+    logic [12:0] a;
+    logic [1:0] ba;
+    logic [1:0] dqm;
+    logic ras_n, cas_n, we_n;
+    logic [15:0] dq_c2m, dq_m2c;
+    logic dq_oe;
+    logic [31:0] refreshes, sref_clocks;
+
+    /* verilator lint_off PINCONNECTEMPTY */
+    pocket_sdram sdram (
+        .clk(clk_sys),
+        .pll_locked(1'b1),
+        .rd_pend(rd_pend),
+        .rd_addr(rd_addr),
+        .pocket_sdram_rword(rword),
+        .pocket_sdram_rvalid(rvalid),
+        .w_avail(1'b0),
+        .w_addr(25'd0),
+        .w_data(16'd0),
+        .w_mask(2'b00),
+        .pocket_sdram_wtake(),
+        .line_pend(1'b0),
+        .line_we(1'b0),
+        .line_addr(22'd0),
+        .line_wdata(128'd0),
+        .pocket_sdram_line_rdata(),
+        .pocket_sdram_line_done(),
+        .pocket_sdram_ready(tb_psst_sdram_ready),
+        .dram_cke(cke),
+        .dram_a(a),
+        .dram_ba(ba),
+        .dram_dqm(dqm),
+        .dram_ras_n(ras_n),
+        .dram_cas_n(cas_n),
+        .dram_we_n(we_n),
+        .dram_dq_out(dq_c2m),
+        .dram_dq_oe(dq_oe),
+        .dram_dq_in(dq_m2c)
+    );
+    /* verilator lint_on PINCONNECTEMPTY */
+
+    sdram_model chip (
+        .clk(~clk_sys),
+        .rst_n(arst_n),
+        .cke(cke),
+        .a(a),
+        .ba(ba),
+        .ras_n(ras_n),
+        .cas_n(cas_n),
+        .we_n(we_n),
+        .dqm(dqm),
+        .dq_in(dq_c2m),
+        .dq_oe(dq_oe),
+        .dq_out(dq_m2c),
+        .sdram_model_refreshes(refreshes),
+        .sdram_model_sref_clocks(sref_clocks)
+    );
+
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_tb_psst;
-    always_comb unused_tb_psst = rd_sel;
+    always_comb unused_tb_psst = ^{rd_sel, refreshes, sref_clocks};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

@@ -23,11 +23,12 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
     set(SW_SOURCES
         ${SW_SRC}/crt0.S ${SW_SRC}/ver.c ${SW_SRC}/main.c
         ${SW_SRC}/apf.c ${SW_SRC}/aud.c
-        ${SW_SRC}/wake.c
+        ${SW_SRC}/sleep.c ${SW_SRC}/fab.c
         ${SW_SRC}/cfg.c
         ${RP6502_SRC}/core/com/com.c ${RP6502_SRC}/core/com/manifold.c ${RP6502_SRC}/core/com/tio.c ${RP6502_SRC}/core/com/rln.c ${SW_SRC}/ria.c ${SW_SRC}/phi2.c ${SW_SRC}/resb.c ${SW_SRC}/hid.c
         ${SW_SRC}/mem.c ${RP6502_SRC}/core/sys/timer.c
         ${RP6502_SRC}/core/sys/crc32.c
+        ${RP6502_SRC}/core/sys/sst.c
         ${SW_SRC}/dir.c ${SW_SRC}/fs.c
         ${SW_SRC}/proc.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
         ${SW_SRC}/trap.c ${RP6502_SW_LOG} ${SW_SRC}/vga.c ${SW_SRC}/vid.c
@@ -79,13 +80,9 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/term/cells.c)
     rp6502_log_flags(SW_LOG_FLAGS)
     # AUD_NATIVE_RATE is the 48 kHz the fabric mixes at, which pcm_step
-    # divides by.
-    # stamp.h holds the time of this link, which crt0.S places in the image
-    # as the build stamp. It is written here and nowhere else, so a build
-    # with nothing to do leaves the firmware as it is.
+    # divides by. RP6502_SST builds the savestate's columns of the stdio
+    # rows, as on the emulators.
     add_custom_command(OUTPUT ${SW_BIN}
-        COMMAND ${CMAKE_COMMAND} -DOUT=${RP6502_ASSETS}/stamp.h
-            -P ${SW_SRC}/stamp.cmake
         COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
             -msave-restore
             -Os -ffreestanding -nostartfiles
@@ -100,16 +97,14 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             -DRP6502_EXFAT=0
             -DRP6502_LOCALE=EN
             -DRP6502_VGA_FABRIC
-            -DRP6502_CRC32_SMALL
             -DAUD_NATIVE_RATE=48000
+            -DRP6502_SST
             ${SW_LOG_FLAGS}
             -T ${SW_SRC}/link.ld
             -o ${RP6502_ASSETS}/sw.elf
             ${SW_SOURCES}
         COMMAND ${RISCV_OBJCOPY} -O binary ${RP6502_ASSETS}/sw.elf ${SW_BIN}
-        BYPRODUCTS ${RP6502_ASSETS}/stamp.h
         DEPENDS ${SW_SOURCES} ${SW_HEADERS} ${SW_SRC}/link.ld
-            ${SW_SRC}/stamp.cmake
             ${RP6502_GEN}/rsmp_half.h
             ${RP6502_GEN}/pocket_version.h
         COMMENT "Cross-compiling the soft CPU firmware"

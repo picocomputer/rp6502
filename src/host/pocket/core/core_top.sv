@@ -206,15 +206,16 @@ assign aux_scl = 1'bZ;
 assign vpll_feed = 1'bZ;
 
 
-// The first pattern is the 512 KB blob window, savestate_maxloadsize bytes
-// at savestate_addr. For reads inside it pocket_core returns pocket_sst's
-// data on file_bridge_rd_data.
+// The first pattern is the top 2 MB of the SDRAM, where the blob window,
+// savestate_maxloadsize bytes at savestate_addr, runs to the end. For reads
+// inside the window pocket_core returns pocket_sst's data on
+// file_bridge_rd_data.
 always @(*) begin
     casex(bridge_addr)
     default: begin
         bridge_rd_data <= 0;
     end
-    32'b0000_0011_1110_1xxx_xxxx_xxxx_xxxx_xxxx: begin
+    32'b0000_0011_111x_xxxx_xxxx_xxxx_xxxx_xxxx: begin
         bridge_rd_data <= file_bridge_rd_data;
     end
     32'h20xxxxxx: begin
@@ -254,21 +255,21 @@ end
     wire     [31:0] rtc_time_bcd;
     wire            rtc_valid;
 
-    // savestate_size is sst_engine's word count times four. pocket_sst
-    // has the same word count because it drops its save request when the
-    // last word of the blob arrives from sst_engine, and sst_engine
-    // resumes the machine once that request drops. savestate_maxloadsize
-    // is the whole blob window rather than the blob's size, because the
-    // host writes back the file it saved, which has the Pocket OS's header
-    // in front of the blob and a thumbnail behind it, and sst_engine scans
-    // that file for the blob's magic. One saved file had a 596-byte
-    // header and a 52764-byte thumbnail. stage_map_gate.py checks the size
-    // against sst_engine and pocket_sst, and the address and the load size
-    // against mmio.h.
+    // savestate_size is gen/version.py's SST_BYTES, which the firmware's
+    // savestate fits in. savestate_maxloadsize is the whole blob window,
+    // from savestate_addr to the end of the SDRAM, rather than the
+    // savestate's size. The Memories file on the card has a 596-byte
+    // header in front of the savestate and a 52764-byte thumbnail behind
+    // it (measured on a Pocket). Whether a load writes them into the
+    // window is not known; the Spacewar core,
+    // https://github.com/spacemen3/PDP-1, suggests it does not. The
+    // firmware finds the savestate in the window either way.
+    // stage_map_gate.py checks the address and the load size against
+    // mmio.h, and that the size and room for both fit in the window.
     wire            savestate_supported = 1'b1;
-    wire    [31:0]  savestate_addr = 32'h03E8_0000;
-    wire    [31:0]  savestate_size = 32'd300368;
-    wire    [31:0]  savestate_maxloadsize = 32'd524288;
+    wire    [31:0]  savestate_addr = 32'h03E9_1000;
+    wire    [31:0]  savestate_size = pocket_version_pkg::SST_BYTES;
+    wire    [31:0]  savestate_maxloadsize = 32'd1503232;
 
     wire            savestate_start;
     wire            savestate_start_ack;
@@ -417,9 +418,9 @@ pocket_pll pll (
 
 // dram_clk leaves from a DDR output register in the I/O cell, which
 // drives it high on the rising edge of clk_dram and low on the falling
-// edge. Every other SDRAM pin except dram_dqm, which is tied low, also
-// leaves from an I/O cell register, so the clock and the signals the
-// SDRAM samples on it take the same kind of path to the pads, and the
+// edge. Every other SDRAM pin also leaves from an I/O cell register,
+// so the clock and the signals the SDRAM samples on it take the same
+// kind of path to the pads, and the
 // 180-degree shift set in pocket_pll is preserved at the chip. A clock
 // driven onto the pin by an assign would take a fabric route chosen by
 // the fitter, which adds an unknown delay to that shift.
@@ -439,33 +440,7 @@ wire core_rst_n_74 = pll_locked_s;
 wire core_rst_n_sys;
 synch_3 s_rst_sys (core_rst_n_74, core_rst_n_sys, clk_sys);
 
-// The clock control block below stops clk_mach for a savestate, so every
-// register on clk_mach misses the same edge and resumes on the same edge,
-// and no register needs a clock enable for the stop. The soft CPU runs on
-// clk_rv, which is not gated, and sst_engine halts it through the soft
-// CPU's debug port instead.
-wire core_stop_req, core_stop_req_74;
-synch_3 s_stopreq (core_stop_req, core_stop_req_74, clk_74a);
-reg mach_clk_en = 1'b1;
-always @(posedge clk_74a)
-    mach_clk_en <= !core_stop_req_74;
-// altclkctrl registers ena on the falling edge of clk_sys, so clk_mach
-// stops or restarts only while clk_sys is low and no high phase of
-// clk_mach is ever cut short.
-wire clk_mach;
-altclkctrl #(
-    .clock_type("AUTO"),
-    .ena_register_mode("falling edge"),
-    .number_of_clocks(1),
-    .use_glitch_free_switch_over_implementation("OFF"),
-    .width_clkselect(1)
-) gate_sys ( .inclk(clk_sys), .ena(mach_clk_en), .clkselect(1'b0),
-             .outclk(clk_mach) );
-
 pocket_core core (
-    .mach_running ( mach_clk_en ),
-    .clk_mach     ( clk_mach ),
-    .pocket_core_stop_req    ( core_stop_req ),
     .clk_74a  ( clk_74a ),
     .clk_sys  ( clk_sys ),
     .clk_rv   ( clk_rv ),
@@ -556,7 +531,7 @@ wire dbglog_event, dbglog_done;
 wire [31:0] dbglog_id;
 
 pocket_dbglog dbglog (
-    .clk_mach    ( clk_mach ),
+    .clk_sys     ( clk_sys ),
     .rv_tx_data  ( con_rv_data ),
     .rv_tx_valid ( con_rv_valid ),
     .clk_74a     ( clk_74a ),
@@ -571,7 +546,7 @@ pocket_dbglog dbglog (
 );
 
 pocket_dbg dbg (
-    .clk_mach    ( clk_mach ),
+    .clk_sys     ( clk_sys ),
     .rst_n       ( core_rst_n_sys ),
     .rv_tx_data  ( con_rv_data ),
     .rv_tx_valid ( con_rv_valid ),

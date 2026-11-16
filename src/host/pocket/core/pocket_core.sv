@@ -7,17 +7,13 @@
 module pocket_core
     import mem_pkg::*, pocket_version_pkg::*;
 (
-    output logic pocket_core_stop_req,
-    input logic mach_running,
-
-    input logic clk_mach,
     input logic clk_rv,
     input logic clk_a2,
     input logic clk_ph,
 
     input logic clk_74a,
     input logic clk_sys,
-input logic clk_vid,
+    input logic clk_vid,
     input logic rst_n,
     input logic arst_n,
 
@@ -92,11 +88,18 @@ input logic clk_vid,
     output logic pocket_core_rv_halted
 );
 
-    /* The soft CPU's memory is the SDRAM from this byte address up to
-     * the savestate window, the first 512 KB after the ROM slot. Its ROM
-     * block is first, where the host loads firmware.bin as a data slot,
-     * and stage_map_gate.py checks this address against data.json. */
+    /* The soft CPU's memory starts at this byte address, after the ROM
+     * slot: the ROM block, where the host loads firmware.bin as a data
+     * slot, and the RAM block after it, MEM_BYTES in all. They are the
+     * only SDRAM its cache holds. The file windows and the Get File scratch follow them, and
+     * the savestate window, SST_WINDOW bytes at SST_BASE, is last and runs
+     * to the end of the SDRAM. The soft CPU reaches all three through the
+     * staging store. stage_map_gate.py checks these against data.json and
+     * mmio.h. */
     localparam logic [31:0] MEM_BASE = 32'h03E0_0000;
+    localparam logic [31:0] MEM_BYTES = 32'h0005_0000;
+    localparam logic [31:0] SST_BASE = 32'h03E9_1000;
+    localparam logic [31:0] SST_WINDOW = 32'h0016_F000;
 
     logic run;
 
@@ -122,9 +125,9 @@ input logic clk_vid,
     logic [3:0][15:0] cont_trig_sys;
     logic [31:0] slot_len;
 
-    logic w_avail, w_queued, w_take;
-    logic [24:0] w_addr;
-    logic [15:0] w_data;
+    logic bw_avail, w_queued, bw_take;
+    logic [24:0] bw_addr;
+    logic [15:0] bw_data;
 
     logic [9:0] bridge_dt_addr, file_dt_addr;
     logic dt_busy, file_dt_req;
@@ -133,7 +136,7 @@ input logic clk_vid,
 
     pocket_bridge #(
         .MEM_BASE(MEM_BASE),
-        .MEM_AW(MEM_AW)
+        .MEM_BYTES(MEM_BYTES)
     ) bridge (
         .clk_74a(clk_74a),
         .arst_n(arst_n),
@@ -153,11 +156,11 @@ input logic clk_vid,
         .cont_trig(cont_trig),
         .clk_sys(clk_sys),
         .sdram_ready(pocket_core_ready),
-        .w_take(w_take),
-        .pocket_bridge_w_avail(w_avail),
+        .w_take(bw_take),
+        .pocket_bridge_w_avail(bw_avail),
         .pocket_bridge_w_queued(w_queued),
-        .pocket_bridge_w_addr(w_addr),
-        .pocket_bridge_w_data(w_data),
+        .pocket_bridge_w_addr(bw_addr),
+        .pocket_bridge_w_data(bw_data),
         .pocket_bridge_run(run),
         .pocket_bridge_slot_set(slot_set),
         .pocket_bridge_slot_len(slot_len),
@@ -176,18 +179,75 @@ input logic clk_vid,
         .pocket_bridge_rtc_valid(rtc_valid_sys)
     );
 
-    logic stage_pend;
+    /* The SDRAM's read client is the soft CPU's staging store, and
+     * pocket_sst's while it fetches a word of the savestate for the
+     * host, which stalls the soft CPU's read meanwhile. */
+    logic stage_pend, stage_we;
     logic [27:0] stage_addr;
-    logic [31:0] stage_word;
+    logic [31:0] stage_word, stage_wdata;
+    logic [3:0] stage_wstrb;
     logic stage_rvalid;
     logic stage_stall;
-    always_comb stage_stall = stage_pend && !stage_rvalid;
+    logic sst_rd_pend;
+    logic [23:0] sst_rd_addr;
 
-    /* The line port's request comes from the engine's clk_sys registers
-     * or from the cache through wiring's falling-edge samplers, so it
-     * reaches the controller half a clock old at worst. The answer is
-     * the controller's clk_sys registers, which the engine takes on
-     * clk_sys and the cache on clk_rv, a whole clk_sys later or two. */
+    /* The soft CPU's writes to the staging store go to the SDRAM's write
+     * client a halfword at a time, and a half its strobes leave out is
+     * skipped. The bridge's writes go first, because its queue cannot
+     * make the host wait. A staging access waits while a write of the
+     * soft CPU's is still on its way, and the controller drops its
+     * look-ahead line when it takes a write, so a read after a write is
+     * given its bytes. sw_strb holds the bytes still to write. */
+    logic [23:0] sw_addr;
+    logic [31:0] sw_data;
+    logic [3:0] sw_strb;
+    logic sw_busy, sw_hi;
+    always_comb begin
+        sw_busy = sw_strb != 4'd0;
+        sw_hi = sw_strb[1:0] == 2'd0;
+        stage_stall = stage_pend && (sw_busy
+            || (!stage_we && (sst_rd_pend || !stage_rvalid)));
+    end
+
+    /* The controller takes a write a clock after it chooses it, so the
+     * choice is kept for the take. */
+    logic w_avail, w_take, w_cpu, w_cpu_q;
+    logic [24:0] w_addr;
+    logic [15:0] w_data;
+    logic [1:0] w_mask;
+    always_comb begin
+        w_cpu = !bw_avail;
+        w_avail = bw_avail || sw_busy;
+        w_addr = w_cpu ? {sw_addr, sw_hi} : bw_addr;
+        w_data = !w_cpu ? bw_data : sw_hi ? sw_data[31:16] : sw_data[15:0];
+        w_mask = !w_cpu ? 2'b11 : sw_hi ? sw_strb[3:2] : sw_strb[1:0];
+        bw_take = w_take && !w_cpu_q;
+    end
+    initial begin
+        sw_addr = '0;
+        sw_data = '0;
+        sw_strb = '0;
+        w_cpu_q = 1'b0;
+    end
+    always_ff @(posedge clk_sys) begin
+        w_cpu_q <= w_cpu;
+        if (w_take && w_cpu_q) begin
+            if (sw_hi)
+                sw_strb[3:2] <= 2'd0;
+            else
+                sw_strb[1:0] <= 2'd0;
+        end
+        if (stage_pend && stage_we && !stage_stall) begin
+            sw_addr <= stage_addr[25:2];
+            sw_data <= stage_wdata;
+            sw_strb <= stage_wstrb;
+        end
+    end
+
+    /* The line port's request comes from the cache through wiring's
+     * falling-edge samplers, so it reaches the controller half a clock
+     * old. The answer is the controller's clk_sys registers, which the
+     * cache takes on clk_rv, a whole clk_sys later or two. */
     logic line_pend, line_we;
     logic [MEM_AW-3:0] line_addr;
     logic [127:0] line_wdata, line_rdata;
@@ -196,13 +256,14 @@ input logic clk_vid,
     pocket_sdram sdram (
         .clk(clk_sys),
         .pll_locked(rst_n),
-        .rd_pend(stage_pend),
-        .rd_addr(stage_addr[25:2]),
+        .rd_pend((stage_pend && !stage_we) || sst_rd_pend),
+        .rd_addr(sst_rd_pend ? sst_rd_addr : stage_addr[25:2]),
         .pocket_sdram_rword(stage_word),
         .pocket_sdram_rvalid(stage_rvalid),
         .w_avail(w_avail),
         .w_addr(w_addr),
         .w_data(w_data),
+        .w_mask(w_mask),
         .pocket_sdram_wtake(w_take),
         .line_pend(line_pend),
         .line_we(line_we),
@@ -222,16 +283,6 @@ input logic clk_vid,
         .dram_dq_oe(dram_dq_oe),
         .dram_dq_in(dram_dq_in)
     );
-
-    (* preserve *) logic run_s1, run_s2;
-    initial begin
-        run_s1 = 1'b1;
-        run_s2 = 1'b1;
-    end
-    always_ff @(posedge clk_sys) begin
-        run_s1 <= mach_running;
-        run_s2 <= run_s1;
-    end
 
     logic [27:0] host_addr;
     logic host_stb, host_we;
@@ -256,15 +307,14 @@ input logic clk_vid,
                 default: set_rdata <= '0;
             endcase
     end
-    /* The numbers this bitstream shares with its firmware, which
-     * gen/version.py states: the register layout at 0x80030000 and the
-     * savestate version at 0x80030004. The firmware reads them before
-     * it uses any other register, so these two addresses never move. */
+    /* The register layout this bitstream shares with its firmware,
+     * which gen/version.py states, at 0x80030000. The firmware reads it
+     * before it uses any other register, so this address never moves. */
     logic [31:0] ver_rdata;
     initial ver_rdata = '0;
     always_ff @(posedge clk_sys)
         if (host_stb)
-            ver_rdata <= host_addr[2] ? SST_VERSION : REG_VERSION;
+            ver_rdata <= REG_VERSION;
 
     always_comb
         case (host_sel_q)
@@ -289,48 +339,17 @@ input logic clk_vid,
     logic [31:0] rv_exit_code;
     logic [9:0] scanline;
 
-    logic sst_save, sst_ready, sst_rd_sel, sst_word_valid, sst_rd_t;
-    logic sst_load, sst_load_done, sst_load_err;
-    logic [2:0] sst_load_why;
-    logic [17:0] sst_rd_idx;
-    logic [31:0] sst_word, sst_rd_data;
+    logic sst_rd_sel;
+    logic [31:0] sst_rd_data;
 
-    /* verilator lint_off PINCONNECTEMPTY */
     wiring machine (
-        .clk_mach(clk_mach),
         .rom_stop(rom_coming),
-        .mach_running(mach_running),
-        .wiring_sst_stop_req(pocket_core_stop_req),
         .wiring_line_pend(line_pend),
         .wiring_line_we(line_we),
         .wiring_line_addr(line_addr),
         .wiring_line_wdata(line_wdata),
         .line_done(line_done),
         .line_rdata(line_rdata),
-        .sst_flush(1'b0),
-        .wiring_sst_cache_idle(),
-        .sst_dbg_halt(1'b0),
-        .sst_dbg_halt_on_reset(1'b0),
-        .sst_dbg_resume(1'b0),
-        .wiring_sst_dbg_halted(),
-        .sst_dbg_data0(32'd0),
-        .wiring_sst_dbg_data0(),
-        .wiring_sst_dbg_data0_wen(),
-        .sst_dbg_instr(32'd0),
-        .sst_dbg_instr_vld(1'b0),
-        .wiring_sst_dbg_instr_rdy(),
-        .wiring_sst_dbg_ebreak(),
-        .wiring_sst_dbg_fault(),
-        .sst_save(sst_save),
-        .sst_load(sst_load),
-        .wiring_sst_load_done(sst_load_done),
-        .wiring_sst_load_err(sst_load_err),
-        .wiring_sst_load_why(sst_load_why),
-        .wiring_sst_ready(sst_ready),
-        .sst_rd_idx(sst_rd_idx),
-        .sst_rd_t(sst_rd_t),
-        .wiring_sst_rdata(sst_word),
-        .wiring_sst_rvalid(sst_word_valid),
         .clk_sys(clk_sys),
         .clk_rv(clk_rv),
         .clk_a2(clk_a2),
@@ -347,6 +366,9 @@ input logic clk_vid,
         .wiring_rv_exit_code(rv_exit_code),
         .wiring_stage_addr(stage_addr),
         .wiring_stage_pend(stage_pend),
+        .wiring_stage_we(stage_we),
+        .wiring_stage_wdata(stage_wdata),
+        .wiring_stage_wstrb(stage_wstrb),
         .stage_stall(stage_stall),
         .stage_word(stage_word),
         .wiring_host_addr(host_addr),
@@ -372,7 +394,6 @@ input logic clk_vid,
         .wiring_scanline(scanline),
         .wiring_vid_frame(vid_frame)
     );
-    /* verilator lint_on PINCONNECTEMPTY */
 
     pocket_file file (
         .clk_sys(clk_sys),
@@ -382,7 +403,6 @@ input logic clk_vid,
         .wdata(host_wdata),
         .pocket_file_rdata(file_rdata),
         .w_pending(w_queued),
-        .loading(sst_load && !sst_load_done),
         .clk_74a(clk_74a),
         .arst_n(arst_n),
         .bridge_addr(bridge_addr),
@@ -408,13 +428,21 @@ input logic clk_vid,
         .target_dataslot_err(target_dataslot_err)
     );
 
-    pocket_sst sst (
+    pocket_sst #(
+        .BLOB_BASE(SST_BASE),
+        .BLOB_WINDOW(SST_WINDOW)
+    ) sst (
         .clk_sys(clk_sys),
         .stb(host_stb && host_addr[17:16] == 2'd2),
         .we(host_we),
         .addr(host_addr),
         .wdata(host_wdata),
         .pocket_sst_rdata(sst_rdata),
+        .w_queued(w_queued),
+        .pocket_sst_rd_pend(sst_rd_pend),
+        .pocket_sst_rd_addr(sst_rd_addr),
+        .rd_rvalid(stage_rvalid),
+        .rd_rword(stage_word),
         .clk_74a(clk_74a),
         .arst_n(arst_n),
         .bridge_wr(bridge_wr),
@@ -423,16 +451,6 @@ input logic clk_vid,
         .reset_n(reset_n),
         .pocket_sst_rd_data(sst_rd_data),
         .pocket_sst_rd_sel(sst_rd_sel),
-        .pocket_sst_save(sst_save),
-        .pocket_sst_load(sst_load),
-        .sst_load_done(sst_load_done),
-        .sst_load_err(sst_load_err),
-        .sst_load_why(sst_load_why),
-        .sst_ready(sst_ready),
-        .pocket_sst_rd_idx(sst_rd_idx),
-        .pocket_sst_rd_t(sst_rd_t),
-        .sst_rdata(sst_word),
-        .sst_rvalid(sst_word_valid),
         .savestate_start(savestate_start),
         .pocket_sst_start_ack(pocket_core_savestate_start_ack),
         .pocket_sst_start_busy(pocket_core_savestate_start_busy),
@@ -450,8 +468,7 @@ input logic clk_vid,
         pocket_core_bridge_rd_data = sst_rd_sel ? sst_rd_data : file_rd_data;
 
     pocket_video video (
-        .run(run_s2),
-        .clk_mach(clk_mach),
+        .clk_sys(clk_sys),
         .vid_pixel(vid_pixel),
         .vid_de(vid_de),
         .vid_frame(vid_frame),
@@ -465,7 +482,7 @@ input logic clk_vid,
     );
 
     pocket_i2s i2s (
-        .clk_mach(clk_mach),
+        .clk_sys(clk_sys),
         .aud_l(aud_l),
         .aud_r(aud_r),
         .aud_valid(aud_valid),
@@ -481,9 +498,7 @@ input logic clk_vid,
     always_comb unused_pocket_core_key = key_pending;
     logic unused_pocket_core;
     always_comb unused_pocket_core = ^{rx_taken, rv_exit_code, scanline,
-                                       stage_addr[27:26], stage_addr[1:0],
-                                       MEM_BASE[31:26],
-                                       MEM_BASE[MEM_AW+1:0]};
+                                       stage_addr[27:26], stage_addr[1:0]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

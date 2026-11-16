@@ -17,7 +17,7 @@
  * field. A field io() leaves out comes back stale from a snapshot, so a new
  * field of the bench goes into io() too.
  *
- * Snapshots are files, so every test process can start from one another
+ * Snapshots kept between runs are files, so every test process can start from one another
  * process made. A file is named for what made it: the test executable,
  * which holds the model and the bench, and a key the test makes of what it
  * fed the machine, such as the firmware, the ROM and the card. What runs up
@@ -26,8 +26,10 @@
  * run alone needs none. A new executable makes new files, and the first it
  * writes removes those of the executables before it.
  *
- * test_psleep.cpp's psleep.a_restored_machine_is_the_booted_one holds a
- * restored machine to the one that booted. */
+ * A snapshot also forks a session in memory: test_psleep.cpp runs its
+ * reference from one, and holds it tick for tick to the machine that ran
+ * on, so a restored machine that is not the one it was taken from fails
+ * there. */
 
 #include "verilated_save.h"
 
@@ -190,21 +192,16 @@ static void tb_snap_io(VerilatedDeserialize &is, std::map<K, V> &v)
     }
 }
 
-/* The model and the bench as they are, into v, which keeps its capacity
- * from one snapshot to the next. */
-template <typename Model, typename Bench>
-static void tb_snap_take(Model &model, Bench &bench, std::vector<uint8_t> &v)
-{
-    tb_snap_out os(v);
-    os << model;
-    bench.io(os);
-}
-
+/* The model and the bench as they are. */
 template <typename Model, typename Bench>
 static std::vector<uint8_t> tb_snap_take(Model &model, Bench &bench)
 {
     std::vector<uint8_t> v;
-    tb_snap_take(model, bench, v);
+    {
+        tb_snap_out os(v);
+        os << model;
+        bench.io(os);
+    }
     return v;
 }
 

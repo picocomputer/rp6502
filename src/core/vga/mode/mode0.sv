@@ -16,9 +16,6 @@
 
 module mode0 (
     input logic clk,
-    /* The cells run on the clock that does not stop, so the savestate
-     * serializer can read them with the render standing still. */
-    input logic clk_mem,
     input logic frame_start,
 
     input logic [9:0] h,
@@ -38,15 +35,6 @@ module mode0 (
     output logic [13:0] mode0_f_addr,
     input logic f_gnt,
     input logic [7:0] f_data,
-
-    /* The savestate serializer, which owns the bus side while it has
-     * the machine. It reads and writes whole words; the byte strobes
-     * apply only to the machine's own writes. */
-    input logic sst_own,
-    input logic [13:0] sst_addr,
-    input logic sst_we,
-    input logic [31:0] sst_wdata,
-    output logic [31:0] mode0_sst_rdata,
 
     input logic b_stb,
     input logic b_we,
@@ -76,7 +64,7 @@ module mode0 (
     logic [7:0] cell3[15360] /*verilator public_flat_rw*/;
 
     logic [13:0] cell_idx;
-    always_comb cell_idx = sst_own ? sst_addr : b_addr[15:2];
+    always_comb cell_idx = b_addr[15:2];
 
     /* cursor {enabled[25], lit[24], style[23:16], y[15:8], x[7:0]};
      * prog {enable[31], end[25:16], begin[9:0]}. */
@@ -88,9 +76,7 @@ module mode0 (
 
     /* The scanout read stands alone and unreset: a block RAM's output
      * register has no asynchronous clear, and a read inside the
-     * pipeline's reset would keep the cells out of memory entirely. It
-     * is on the render's own clock, so a savestate's stop holds the word
-     * the render asked for until it takes it. */
+     * pipeline's reset would keep the cells out of memory entirely. */
     always_ff @(posedge clk)
         fetch_q <= {cell3[fetch_word], cell2[fetch_word],
                     cell1[fetch_word], cell0[fetch_word]};
@@ -99,24 +85,18 @@ module mode0 (
     logic sel_cells;
     always_comb mode0_b_rdata = sel_cells ? cells_q : regs_q;
 
-    always_comb mode0_sst_rdata = cells_q;
-
     logic cell_w0, cell_w1, cell_w2, cell_w3;
     logic [31:0] cell_d;
     always_comb begin
-        cell_w0 = sst_own ? sst_we : (b_stb && !b_addr[16] && b_we
-                                      && b_wstrb[0]);
-        cell_w1 = sst_own ? sst_we : (b_stb && !b_addr[16] && b_we
-                                      && b_wstrb[1]);
-        cell_w2 = sst_own ? sst_we : (b_stb && !b_addr[16] && b_we
-                                      && b_wstrb[2]);
-        cell_w3 = sst_own ? sst_we : (b_stb && !b_addr[16] && b_we
-                                      && b_wstrb[3]);
-        cell_d = sst_own ? sst_wdata : b_wdata;
+        cell_w0 = b_stb && !b_addr[16] && b_we && b_wstrb[0];
+        cell_w1 = b_stb && !b_addr[16] && b_we && b_wstrb[1];
+        cell_w2 = b_stb && !b_addr[16] && b_we && b_wstrb[2];
+        cell_w3 = b_stb && !b_addr[16] && b_we && b_wstrb[3];
+        cell_d = b_wdata;
     end
 
-    always_ff @(posedge clk_mem) begin
-        if (sst_own || b_stb) begin
+    always_ff @(posedge clk) begin
+        if (b_stb) begin
             cells_q <= {cell3[cell_idx], cell2[cell_idx],
                         cell1[cell_idx], cell0[cell_idx]};
             if (cell_w0) cell0[cell_idx] <= cell_d[7:0];
@@ -125,7 +105,8 @@ module mode0 (
             if (cell_w3) cell3[cell_idx] <= cell_d[31:24];
         end
     end
-    /* The firmware reads back only the frame counter. */
+    /* The firmware reads back only the frame counter, which it can also
+     * write, so a savestate puts back the count it was taken at. */
     always_ff @(posedge clk) begin
         if (b_stb) begin
             sel_cells <= !b_addr[16];
@@ -149,6 +130,7 @@ module mode0 (
                 6'd33: cursor_color_shadow <= b_wdata[15:0];
                 6'd34: blink_shadow <= b_wdata[1:0];
                 6'd35: prog_shadow <= b_wdata;
+                6'd40: frame_count <= b_wdata;
                 default: ;
             endcase
         end

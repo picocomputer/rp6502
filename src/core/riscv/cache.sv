@@ -42,16 +42,9 @@
  *   S_REPLAY reads the memories at dph_word.
  *   S_RUN    the access hits, and the next address phase is this clock.
  *
- * flush walks every way of every set through S_TAG, S_VIC, S_RD and
- * S_WO as a miss does. S_CLEAN writes the tag back clean and S_NEXT
- * steps to the next way. empty and
- * reset walk S_EMPTY, one set a clock, which writes every tag invalid
- * and ptr to way 0. An access that arrives during a walk waits for
- * S_REPLAY.
- *
- * cache_idle is low from the clock flush or empty goes high until that
- * walk has finished, and stays high after it until the level has gone
- * low and high again. */
+ * Reset walks S_EMPTY, one set a clock, which writes every tag invalid
+ * and ptr to way 0. An access that arrives during the walk waits for
+ * S_REPLAY. */
 /* One memory holding an entry for every way, with a write enable for
  * each. Quartus packs the ways into one block memory with byte enables only
  * when the writes are spelled out a way at a time under one write enable;
@@ -133,10 +126,6 @@ module cache #(
     output logic [31:0] cache_rdata,
     output logic cache_ready,
 
-    input logic flush,
-    input logic empty,
-    output logic cache_idle,
-
     output logic cache_line_pend,
     output logic cache_line_we,
     output logic [$clog2(MEM_WORDS)-3:0] cache_line_addr,
@@ -164,23 +153,17 @@ module cache #(
         S_VIC,
         S_RD,
         S_WO,
-        S_CLEAN,
-        S_NEXT,
         S_FILL,
         S_CP
     } state_t;
 
     state_t state;
-    /* walk is high in S_EMPTY and during a flush, when the set being
-     * worked on is walk_set and not the set of the CPU's access. */
-    logic walk;
+    /* In S_EMPTY the set being worked on is walk_set and not the set of
+     * the CPU's access. */
     logic [SET_AW-1:0] walk_set;
-    logic [WAY_AW-1:0] walk_way;
     logic [WAY_AW-1:0] way;
     logic [TAG_W-1:0] vic_tag;
     logic [1:0] n;
-    logic flush_done;
-    logic empty_done;
 
     logic [TAG_W-1:0] dph_tag;
     logic [SET_AW-1:0] dph_set;
@@ -188,7 +171,7 @@ module cache #(
     always_comb {dph_tag, dph_set, dph_off} = dph_word;
 
     logic [SET_AW-1:0] set;
-    always_comb set = walk ? walk_set : dph_set;
+    always_comb set = state == S_EMPTY ? walk_set : dph_set;
 
     /* The tag of the next access is not looked at until its data phase. */
     /* verilator lint_off UNUSEDSIGNAL */
@@ -287,10 +270,6 @@ module cache #(
         cache_ready = !dph || (state == S_RUN && |hit);
     end
 
-    /* The victim in S_VIC, before way has it. */
-    logic [WAY_AW-1:0] vic;
-    always_comb vic = walk ? walk_way : ptr_q;
-
     always_comb begin
         lane_waddr = {set, state == S_RUN ? dph_off : n};
         for (int b = 0; b < 4; b++) begin
@@ -319,10 +298,6 @@ module cache #(
                 ptr_we = 1'b1;
                 ptr_wdata = '0;
             end
-            S_CLEAN: begin
-                tag_we[way] = 1'b1;
-                tag_wdata.tag = vic_tag;
-            end
             S_CP: begin
                 tag_we[way] = n == 2'd3;
                 ptr_we = n == 2'd3;
@@ -334,8 +309,6 @@ module cache #(
     always_comb begin
         cache_line_we = state == S_WO;
         cache_line_addr = {state == S_WO ? vic_tag : dph_tag, set};
-        cache_idle = state == S_RUN && !(flush && !flush_done)
-                     && !(empty && !empty_done);
     end
 
     /* Loads and stores that were answered with no wait, and those that
@@ -344,20 +317,13 @@ module cache #(
     logic [31:0] misses /*verilator public_flat_rd*/;
     logic missed;
 
-    /* Either walk ends with walk_way and walk_set back at zero. */
-    logic way_last, set_last;
-    always_comb begin
-        way_last = walk_way == WAY_AW'(WAYS - 1);
-        set_last = walk_set == SET_AW'(SETS - 1);
-    end
+    /* The walk ends with walk_set back at zero. */
+    logic set_last;
+    always_comb set_last = walk_set == SET_AW'(SETS - 1);
 
     initial begin
         state = S_EMPTY;
-        walk = 1'b1;
         walk_set = '0;
-        walk_way = '0;
-        flush_done = 1'b0;
-        empty_done = 1'b0;
         cache_line_pend = 1'b0;
         hits = '0;
         misses = '0;
@@ -367,11 +333,8 @@ module cache #(
         case (state)
             S_EMPTY: begin
                 walk_set <= walk_set + 1'b1;
-                if (set_last) begin
-                    walk <= 1'b0;
-                    empty_done <= 1'b1;
+                if (set_last)
                     state <= S_REPLAY;
-                end
             end
             S_REPLAY: state <= S_RUN;
             S_RUN: begin
@@ -379,19 +342,10 @@ module cache #(
                     misses <= misses + 32'd1;
                     missed <= 1'b1;
                     state <= S_TAG;
-                end else begin
-                    if (dph) begin
-                        if (!missed)
-                            hits <= hits + 32'd1;
-                        missed <= 1'b0;
-                    end
-                    if (empty && !empty_done) begin
-                        walk <= 1'b1;
-                        state <= S_EMPTY;
-                    end else if (flush && !flush_done) begin
-                        walk <= 1'b1;
-                        state <= S_TAG;
-                    end
+                end else if (dph) begin
+                    if (!missed)
+                        hits <= hits + 32'd1;
+                    missed <= 1'b0;
                 end
             end
             S_TAG: begin
@@ -399,14 +353,14 @@ module cache #(
                 state <= S_VIC;
             end
             S_VIC: begin
-                way <= vic;
-                vic_tag <= tag_v[vic].tag;
-                cache_line_wdata <= {lane_v[vic], cache_line_wdata[127:32]};
+                way <= ptr_q;
+                vic_tag <= tag_v[ptr_q].tag;
+                cache_line_wdata <= {lane_v[ptr_q], cache_line_wdata[127:32]};
                 n <= 2'd2;
-                if (tag_v[vic].valid && tag_v[vic].dirty)
+                if (tag_v[ptr_q].valid && tag_v[ptr_q].dirty)
                     state <= S_RD;
                 else
-                    state <= walk ? S_NEXT : S_FILL;
+                    state <= S_FILL;
             end
             S_RD: begin
                 cache_line_wdata <= {lane_v[way], cache_line_wdata[127:32]};
@@ -420,23 +374,8 @@ module cache #(
                 else if (line_done) begin
                     cache_line_pend <= 1'b0;
                     n <= 2'd0;
-                    if (state == S_FILL)
-                        state <= S_CP;
-                    else
-                        state <= walk ? S_CLEAN : S_FILL;
+                    state <= state == S_FILL ? S_CP : S_FILL;
                 end
-            end
-            S_CLEAN: state <= S_NEXT;
-            S_NEXT: begin
-                walk_way <= walk_way + 1'b1;
-                if (way_last)
-                    walk_set <= walk_set + 1'b1;
-                if (way_last && set_last) begin
-                    walk <= 1'b0;
-                    flush_done <= 1'b1;
-                    state <= S_REPLAY;
-                end else
-                    state <= S_TAG;
             end
             S_CP: begin
                 n <= n + 2'd1;
@@ -445,17 +384,9 @@ module cache #(
             end
             default: ;
         endcase
-        if (!flush)
-            flush_done <= 1'b0;
-        if (!empty)
-            empty_done <= 1'b0;
         if (!rst_n) begin
             state <= S_EMPTY;
-            walk <= 1'b1;
             walk_set <= '0;
-            walk_way <= '0;
-            flush_done <= 1'b0;
-            empty_done <= 1'b0;
             cache_line_pend <= 1'b0;
             missed <= 1'b0;
         end

@@ -24,6 +24,24 @@ static long a_next, s_next, g_sys;
 static uint32_t dt_pipe[2];
 static uint32_t g_dt[64];
 
+/* The host's side of the file commands, and where each piece comes from:
+ * - The commands, their parameters and result codes: Analogue's docs,
+ *   https://www.analogue.co/developer/docs/openfpga/host-target-commands
+ * - The handshake and the parameter and response structs: Analogue's
+ *   template, core_bridge_cmd.v in vendor/openfpga,
+ *   https://github.com/open-fpga/core-template
+ * - A relative name is a malformed path; a file is made only with the
+ *   create and resize bits both set, and the create bit alone answers
+ *   created and makes nothing; the struct's integers are read as whole
+ *   bridge words: measured on a Pocket, as the README tells it.
+ * - Flush is answered ok here. The Pocket never answers it (seen on a
+ *   Pocket), which vendor/openfpga_rp6502's deadline covers; answering
+ *   keeps these tests short (our choice).
+ * - The bytes a resize adds: not known. The model fills them with 0xA5
+ *   (our guess).
+ * - Reads served while a Memory is written: not modelled. A community
+ *   PlayStation core, https://github.com/GuardianSoul/openfpga-PlayStation,
+ *   reports the Pocket serves none then. */
 static std::map<std::string, std::vector<uint8_t>> g_files;
 static std::set<std::string> g_dirs;
 static std::string g_bound[16];
@@ -578,7 +596,7 @@ UTEST(pfile, a_read_is_not_answered_by_someone_elses_command)
     for (int u = 0; u < 64; u++)
         for (const char *c = "0123456789ABCDEF"; *c; c++)
             dat.push_back((uint8_t)*c);
-    g_files["/Assets/rp6502/common/probe.dat"] = dat;
+    g_files["/Saves/rp6502/common/probe.dat"] = dat;
 
     /* The open and the two Slot Reads that fill the file's window come
      * before the 500th byte. After them the host sees no command, and the
@@ -709,7 +727,7 @@ UTEST(pfile, a_window_filled_again_is_read_again)
     std::vector<uint8_t> f(TWICE_AT + 512, 0);
     memcpy(f.data(), "old!", 4);
     memcpy(f.data() + TWICE_AT, "new!", 4);
-    g_files["/Assets/rp6502/common/twice.dat"] = f;
+    g_files["/Saves/rp6502/common/twice.dat"] = f;
 
     for (long i = 0; i < 40000000L && g_console.find('\n') == std::string::npos;
          i++)

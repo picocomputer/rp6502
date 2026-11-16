@@ -29,15 +29,17 @@ void os_dir_path_drop(char *path)
     path[0] = '\0';
 }
 
+/* The working directory is fixed, at FS_SAVES_PATH, with the user's data. */
+static const char drive_cwd[] = FS_DRIVE FS_SAVES_PATH;
+
 bool drive_getcwd(char *buf, size_t size, api_errno *err)
 {
-    static const char cwd[] = FS_DRIVE FS_ASSETS_PATH;
-    if (size < sizeof cwd)
+    if (size < sizeof drive_cwd)
     {
         *err = API_ERANGE;
         return false;
     }
-    memcpy(buf, cwd, sizeof cwd);
+    memcpy(buf, drive_cwd, sizeof drive_cwd);
     return true;
 }
 
@@ -71,9 +73,12 @@ bool drive_mkdir(const char *path, api_errno *err)
     return drive_enosys(err);
 }
 
+/* A change to where it already is succeeds, which a savestate's load of
+ * the working directory makes. */
 bool drive_chdir(const char *path, api_errno *err)
 {
-    (void)path;
+    if (!strcmp(path, drive_cwd))
+        return true;
     return drive_enosys(err);
 }
 

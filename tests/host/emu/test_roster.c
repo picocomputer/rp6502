@@ -203,6 +203,8 @@ static void a_committed_machine(void)
 }
 
 static uint8_t blob[64];
+/* Where a load saves the machine it may have to put back. */
+static uint8_t undo[sizeof blob];
 
 UTEST(roster, both_savestate_walks_go_forward)
 {
@@ -211,9 +213,9 @@ UTEST(roster, both_savestate_walks_go_forward)
     ASSERT_STREQ("aScS", walked);
 
     walked[0] = '\0';
-    ASSERT_EQ(sst_load(blob, sizeof blob, 0), (const char *)NULL);
-    /* An untrusted load first saves the machine into a scratch copy, so every
-     * row's save runs before its load. */
+    ASSERT_EQ(sst_load(blob, sizeof blob, undo, 0), (const char *)NULL);
+    /* A load handed an undo buffer first saves the machine into it, so
+     * every row's save runs before its load. */
     ASSERT_STREQ("aScSaLcL", walked);
 }
 
@@ -251,7 +253,7 @@ UTEST(roster, the_unused_tail_of_a_slot_is_zero)
 }
 
 /* C's load fails and C comes after A, so A has already loaded the blob's
- * byte, and the rollback from the scratch copy has to put 0x33 back. */
+ * byte, and the rollback from the undo buffer has to put 0x33 back. */
 UTEST(roster, a_row_that_refuses_puts_the_machine_back)
 {
     a_committed_machine();
@@ -262,7 +264,7 @@ UTEST(roster, a_row_that_refuses_puts_the_machine_back)
     a_held = 0x33;
     c_held = 0x44;
     c_refuses = true;
-    ASSERT_NE(sst_load(blob, sizeof blob, 0), (const char *)NULL);
+    ASSERT_NE(sst_load(blob, sizeof blob, undo, 0), (const char *)NULL);
     ASSERT_EQ((int)a_held, 0x33);
     ASSERT_EQ((int)c_held, 0x44);
     c_refuses = false;
@@ -278,11 +280,11 @@ UTEST(roster, every_row_is_handed_the_same_flags)
     ASSERT_EQ(saw, (uint32_t)SST_SHARED);
 }
 
-UTEST(roster, a_trusted_load_takes_no_scratch)
+UTEST(roster, a_load_with_no_undo_takes_no_copy)
 {
     a_committed_machine();
     ASSERT_EQ(sst_save(blob, sizeof blob, SST_TRUSTED), (const char *)NULL);
     walked[0] = '\0';
-    ASSERT_EQ(sst_load(blob, sizeof blob, SST_TRUSTED), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sizeof blob, NULL, SST_TRUSTED), (const char *)NULL);
     ASSERT_STREQ("aLcL", walked);
 }

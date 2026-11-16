@@ -174,10 +174,38 @@ static inline void sst_get_str(sst_cursor_t *c, char *s, size_t slot)
     s[slot - 1] = 0;
 }
 
+/* The next n bytes where they lie in the blob, for a load that takes them
+ * as they are rather than copying them aside first. NULL and a failed
+ * cursor when they would cross the row's end. */
+static inline const uint8_t *sst_view(sst_cursor_t *c, size_t n)
+{
+    if (c->fail || (size_t)(c->end - c->at) < n)
+    {
+        c->fail = true;
+        return NULL;
+    }
+    const uint8_t *p = c->at;
+    c->at += n;
+    return p;
+}
+
+/* A slot sst_put_str wrote, as the string where it lies in the blob. A slot
+ * whose last byte is not NUL fails the cursor and reads as "", as one that
+ * would cross the row's end does. */
+static inline const char *sst_view_str(sst_cursor_t *c, size_t slot)
+{
+    const uint8_t *p = sst_view(c, slot);
+    if (!p || p[slot - 1] != 0)
+    {
+        c->fail = true;
+        return "";
+    }
+    return (const char *)p;
+}
+
 /* TRUSTED  the caller made this blob and loads it right back, so the load
- *          skips the scratch copy of the machine that would let a failed load
- *          be undone. The blob is known to be good, and the copy costs a save
- *          on every load.
+ *          skips the payload sum. The blob is known to be good, and the sum
+ *          costs a pass over it on every load.
  * SHARED   the blob is sent to another machine for netplay. core/api/dir.c
  *          writes its path slots empty, and a load leaves the open
  *          directories and the working directory as they are, because a path
@@ -185,10 +213,10 @@ static inline void sst_get_str(sst_cursor_t *c, char *s, size_t slot)
  *          player's machine, and the two machines would fall out of sync. For
  *          the same reason, core/api/std.c does not record files opened by
  *          path, and a load closes them; a SAVE: file is recorded by its
- *          name.
+ *          name. A SHARED load skips the payload sum too.
  *
- * Neither flag means a plain load from a file, which takes the scratch and
- * checks the payload sum. */
+ * Neither flag means a plain load from a file, which checks the payload
+ * sum. */
 
 #define SST_TRUSTED 0x01
 #define SST_SHARED 0x02
@@ -199,10 +227,20 @@ static inline void sst_get_str(sst_cursor_t *c, char *s, size_t slot)
 size_t sst_size(void);
 
 /* NULL on success, else a static reason. A save refuses a machine that is
- * mid-fan-out. A load that a row refuses partway through puts back what it had
- * already written over, but only when the scratch copy was taken, so a
- * SST_TRUSTED load that a row refuses leaves the machine half loaded. */
+ * mid-fan-out.
+ *
+ * A load overwrites the machine one row at a time, so a row that refuses
+ * partway through leaves the rows before it already loaded. undo, sst_size()
+ * bytes of the caller's, is where the load first saves the machine as it
+ * stands, and a refused load puts it back from there. A caller with no undo
+ * passes NULL and is left with a half loaded machine when a row refuses. */
 const char *sst_save(void *buf, size_t len, unsigned flags);
-const char *sst_load(const void *buf, size_t len, unsigned flags);
+const char *sst_load(const void *buf, size_t len, void *undo, unsigned flags);
+
+/* The first blob of this build's size whose magic is in the len bytes at
+ * buf, or NULL. A frontend whose blob comes back with its own header in
+ * front finds it with this. Only the magic is looked at; sst_load checks
+ * the rest. */
+const uint8_t *sst_find(const void *buf, size_t len);
 
 #endif /* _CORE_SYS_SST_H_ */

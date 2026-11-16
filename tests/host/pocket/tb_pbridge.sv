@@ -144,6 +144,7 @@ module tb_pbridge (
         .w_avail(w_avail),
         .w_addr(w_addr),
         .w_data(w_data),
+        .w_mask(2'b11),
         .pocket_sdram_wtake(w_take),
         .line_pend(line_pend),
         .line_we(line_we),
@@ -175,6 +176,7 @@ module tb_pbridge (
         .ras_n(ras_n),
         .cas_n(cas_n),
         .we_n(we_n),
+        .dqm(dqm),
         .dq_in(dq_c2m),
         .dq_oe(dq_oe),
         .dq_out(dq_m2c),
@@ -184,7 +186,7 @@ module tb_pbridge (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_tb_pbridge;
-    always_comb unused_tb_pbridge = ^{dqm, refreshes, sref_clocks,
+    always_comb unused_tb_pbridge = ^{refreshes, sref_clocks,
                                       dt_busy, set_tz, set_tz_min,
                                       set_tz_sign, set_kb,
                                       rtc_epoch_s, rtc_valid_s};

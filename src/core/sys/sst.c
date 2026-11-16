@@ -15,6 +15,7 @@
  */
 
 #include "core/sys/sst.h"
+#include "core/sys/sst_size.h"
 
 #include "core/api/std.h"
 #include "core/aud/mix.h"
@@ -22,55 +23,16 @@
 #include "core/wdc/resb.h"
 #include "host/host.h"
 
-/* A driver's slot size may be built from the machine's own constants, so
- * machine.h is included before the driver list in drivers.h. */
-#include "machine.h"
-#include "drivers.h"
-
 #include <string.h>
 
 #define SST_MAGIC "RP65"
 #define SST_END_MAGIC "56PR" /* the magic reversed, so a truncated tail is not a header */
 #define SST_FORMAT 1
 
-/* magic 4, format 2, count 2, total 4, manifest 4, latch 2 */
-#define SST_HEADER_LEN 18
-/* id 4, version 2, used 4 */
-#define SST_CHUNK_HDR 10
-/* payload sum 4, end magic 4 */
-#define SST_TRAILER_LEN 8
-
-#define SST(id, ver, size, sv, ld) +(SST_CHUNK_HDR + (size))
-enum
-{
-    SST_PAYLOAD_LEN = 0
-#include "core/sys/driver_walk.h"
-        DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#include "core/sys/driver_walk_end.h"
-};
-#define SST(id, ver, size, sv, ld) +1
-enum
-{
-    SST_COUNT = 0
-#include "core/sys/driver_walk.h"
-        DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
-#include "core/sys/driver_walk_end.h"
-};
-
-#define SST_TOTAL (SST_HEADER_LEN + SST_PAYLOAD_LEN + SST_TRAILER_LEN)
-
 size_t sst_size(void)
 {
     return SST_TOTAL;
 }
-
-/* A load overwrites the machine one driver at a time, so a driver that
- * refuses partway through leaves the drivers before it already applied. This
- * holds the machine as it stood before the load started. It is a static
- * rather than an allocation because sst_load fills it before the first driver
- * is written and replays it after a refusal, and neither may fail for want of
- * memory. */
-static uint8_t sst_scratch[SST_TOTAL];
 
 /* Every driver's id, version and slot size, hashed in driver list order, so a
  * machine whose list differs in any of the three refuses a blob rather than
@@ -243,7 +205,16 @@ const char *sst_save(void *buf, size_t len, unsigned flags)
     return sst_write((uint8_t *)buf, flags);
 }
 
-const char *sst_load(const void *buf, size_t len, unsigned flags)
+const uint8_t *sst_find(const void *buf, size_t len)
+{
+    const uint8_t *p = (const uint8_t *)buf;
+    for (size_t at = 0; at + SST_TOTAL <= len; at++)
+        if (memcmp(p + at, SST_MAGIC, 4) == 0)
+            return p + at;
+    return NULL;
+}
+
+const char *sst_load(const void *buf, size_t len, void *undo, unsigned flags)
 {
     const uint8_t *p = (const uint8_t *)buf;
 
@@ -277,8 +248,7 @@ const char *sst_load(const void *buf, size_t len, unsigned flags)
     if (!flags && sst_get32(p + SST_TOTAL - SST_TRAILER_LEN) != sst_payload_crc(p))
         return "a savestate that does not add up";
 
-    bool guarded = !(flags & SST_TRUSTED);
-    if (guarded && sst_write(sst_scratch, flags) != NULL)
+    if (undo && sst_write((uint8_t *)undo, flags) != NULL)
         return "the machine could not be copied aside";
 
     if (!sys_latch_apply(&latch))
@@ -299,16 +269,17 @@ const char *sst_load(const void *buf, size_t len, unsigned flags)
         return NULL;
 
     const char *why = sst_why;
-    if (guarded)
+    if (undo)
     {
+        const uint8_t *u = (const uint8_t *)undo;
         aud_pcm_clear();
-        sst_body = sst_scratch + SST_HEADER_LEN;
+        sst_body = (uint8_t *)undo + SST_HEADER_LEN;
         sst_offset = 0;
         sst_walk_bad = false;
         sys_latch_t was;
-        was.state = sst_scratch[16];
-        was.held = (sst_scratch[17] & 1) != 0;
-        was.breaking = (sst_scratch[17] & 2) != 0;
+        was.state = u[16];
+        was.held = (u[17] & 1) != 0;
+        was.breaking = (u[17] & 2) != 0;
         sys_latch_apply(&was);
 #define SST(id, ver, size, sv, ld) sst_row_load(#id, (ver), (size), ld, flags);
 #include "core/sys/driver_walk.h"

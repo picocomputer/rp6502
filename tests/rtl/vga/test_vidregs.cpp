@@ -27,8 +27,8 @@ static bool boot(const char *name, size_t px)
     if (!tb_rom_read(path.c_str(), rom) || !tb_boot(dut, rom))
         return false;
     static uint32_t once[640 * 480];
-    tb_capture(dut, once, px);
-    tb_capture(dut, fb, px);
+    tb_capture(dut, rom, once, px);
+    tb_capture(dut, rom, fb, px);
     return memcmp(once, fb, px * sizeof(uint32_t)) == 0;
 }
 

@@ -28,13 +28,13 @@ static Vwiring *dut;
  * pinned phase is written again before every clock rather than once. */
 static int pinned_blink = -1;
 
-static void capture_frame(uint32_t *fb)
+static void capture_frame(const std::vector<uint8_t> &rom, uint32_t *fb)
 {
-    auto ck = [] {
+    auto ck = [&] {
         if (pinned_blink >= 0)
             dut->rootp->wiring__DOT__mode0__DOT__blink_shadow =
                 (uint8_t)pinned_blink;
-        tb_clock(dut);
+        tb_platform_clock(dut, rom, nullptr);
     };
     while (dut->wiring_scanline != 524)
         ck();
@@ -73,11 +73,11 @@ UTEST(blink, off_phase_blanks_the_glyph)
 
     static uint32_t on[640 * 480], off[640 * 480];
     pinned_blink = 0;
-    capture_frame(on);
-    capture_frame(on);
+    capture_frame(rom, on);
+    capture_frame(rom, on);
     pinned_blink = 2;
-    capture_frame(off);
-    capture_frame(off);
+    capture_frame(rom, off);
+    capture_frame(rom, off);
     pinned_blink = -1;
 
     bool changed = false;

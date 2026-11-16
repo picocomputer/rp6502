@@ -4,10 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mmio.h"
-
-#include "core/aud/bel.h"
-#include "core/aud/mix.h"
+#include "aud.h"
 
 /* The open PCM: device's AUD_PCM_CTRL, 0 while it is closed. */
 static uint32_t aud_pcm_ctrl;
@@ -27,11 +24,9 @@ void aud_init(void)
     bel_init();
 }
 
-/* The bell waits out a wake, until wake_task has moved its deadlines. */
 void aud_task(void)
 {
-    if (!(SST_CTL & SST_RESTORED))
-        bel_task();
+    bel_task();
 }
 
 void aud_bel_put(unsigned i, uint8_t val) { AUD_BEL = i << 8 | val; }
@@ -108,3 +103,39 @@ void aud_pcm_clear(void) { AUD_PCM_CLEAR = 0; }
 uint32_t aud_opl_overruns(void) { return AUD_OPL_OVERRUNS; }
 
 uint32_t aud_pcm_underruns(void) { return AUD_PCM_UNDERRUNS; }
+
+/* The hold that a savestate is made under parks the engines, so nothing
+ * stamped waits to be applied. */
+void aud_sst_settle(void)
+{
+}
+
+void aud_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    sst_put_u32(c, aud_pcm_ctrl);
+    sst_put_u8(c, aud_pcm_stage);
+    bel_sst_save(c, flags);
+    AUD_OWN = 1;
+    for (uint32_t w = 0; w < AUD_SST_WORDS; w++)
+        sst_put_u32(c, AUD_SST(w));
+    AUD_OWN = 0;
+}
+
+bool aud_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    uint32_t ctrl = sst_get_u32(c);
+    uint8_t stage = sst_get_u8(c);
+    if (!sst_ok(c) || ctrl > 7 || stage > 3 || !bel_sst_load(c, flags))
+        return false;
+    const uint8_t *p = sst_view(c, AUD_SST_WORDS * 4);
+    if (!p)
+        return false;
+    aud_pcm_ctrl = ctrl;
+    aud_pcm_stage = stage;
+    AUD_OWN = 1;
+    for (uint32_t w = 0; w < AUD_SST_WORDS; w++, p += 4)
+        AUD_SST(w) = (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16
+                     | (uint32_t)p[2] << 8 | p[3];
+    AUD_OWN = 0;
+    return true;
+}

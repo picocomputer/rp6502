@@ -16,11 +16,9 @@
  * its SDRAM. The ROM block is the first TB_RAM_ROM bytes, which hold the
  * program and take no store, and the RAM block starts after it. The cache
  * in soc.sv holds the newest copy of the lines the soft CPU has stored
- * to, so a test reads this array after tb_ram_flush. */
+ * to, so a program hands a test its results through the staging store. */
 #define TB_RAM_BYTES 0x80000u
 #define TB_RAM_ROM 0x40000u
-/* The RAM block's first word, for tb_ram_word and tb_ram_put. */
-#define TB_RAM_WORD (TB_RAM_ROM / 4)
 
 /* A line takes this many clocks, about what the Pocket's SDRAM takes. */
 #define TB_RAM_WAIT 16
@@ -41,13 +39,6 @@ static tb_ram_t &tb_ram()
 static void tb_ram_clear()
 {
     memset(tb_ram().mem, 0, TB_RAM_BYTES);
-}
-
-static uint32_t tb_ram_word(uint32_t w)
-{
-    uint32_t v;
-    memcpy(&v, tb_ram().mem + w * 4, 4);
-    return v;
 }
 
 static void tb_ram_put(uint32_t w, uint32_t v)
@@ -89,19 +80,6 @@ template <typename Dut> static void tb_ram_tick(Dut *dut)
         ram.done = true;
     }
     dut->line_done = ram.done;
-}
-
-/* Has the cache write out every line it holds a newer copy of. The soft
- * CPU waits while it does, and goes on after. */
-template <typename Dut, typename Clock>
-static void tb_ram_flush(Dut *dut, Clock clock)
-{
-    dut->sst_flush = 1;
-    while (dut->wiring_sst_cache_idle)
-        clock();
-    while (!dut->wiring_sst_cache_idle)
-        clock();
-    dut->sst_flush = 0;
 }
 
 #endif /* _TESTS_BENCH_TB_RAM_H_ */

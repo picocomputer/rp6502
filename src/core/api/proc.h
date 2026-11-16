@@ -7,6 +7,9 @@
 #ifndef _CORE_API_PROC_H_
 #define _CORE_API_PROC_H_
 
+#include "core/ria/regs.h"
+#include "core/sys/sst.h"
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -43,11 +46,16 @@ bool proc_is_launcher(void);
 int16_t proc_get_exit_code(void);
 void proc_set_exit_code(int16_t code);
 
-/* The two paths a savestate carries. A load puts them back here rather than
- * through proc_run, because proc_run takes argv[0] from the argument buffer
- * and the load has not restored that buffer yet. */
 const char *proc_launcher(void);
-void proc_restore_paths(const char *running, const char *launcher);
+
+/* What a savestate carries of the program and its chain, for every
+ * machine's PROC row: the exit code, the running program's path, the
+ * launcher's path and the whole argv buffer, 2 + 256 + 256 + XSTACK_SIZE.
+ * The load takes all of it or none. */
+#define PROC_PATH_SLOT 256
+#define PROC_CHAIN_SST_SIZE (2 + 2 * PROC_PATH_SLOT + XSTACK_SIZE)
+void proc_chain_sst_save(sst_cursor_t *c);
+bool proc_chain_sst_load(sst_cursor_t *c);
 
 /* Program EXIT, op 0xFF: record the code and stop. */
 void proc_exit(int16_t exit_code);

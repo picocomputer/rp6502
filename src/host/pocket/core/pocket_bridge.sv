@@ -6,14 +6,30 @@
  * core_top ties bridge_endian_little to 0, so the first byte of each
  * slot word arrives in bridge_wr_data[31:24]. Each word is written to
  * the SDRAM as two halfwords with the even byte in the low half.
+ *
+ * Where the Pocket's side of this comes from:
+ * - The bridge, its 0xF8xxxxxx commands and the slot writes elsewhere:
+ *   Analogue's docs,
+ *   https://www.analogue.co/developer/docs/openfpga/bus-communication
+ * - 0x0082, 0x008A, 0x008F and 0x0090, sent once at core boot:
+ *   https://www.analogue.co/developer/docs/openfpga/host-target-commands
+ *   0x008A comes only for a user-reloadable slot:
+ *   .../openfpga/core-definition-files/data-json
+ * - bridge_endian_little and the fastest host access, one every 88
+ *   clk_74a cycles: Analogue's template, core_top.v and
+ *   io_bridge_peripheral.v in vendor/openfpga,
+ *   https://github.com/open-fpga/core-template
+ * - A hot reload of the ROM is 0x0082, the image, its table entry and a
+ *   second 0x008F: measured on the owner's Pocket.
+ * - That the host rewrites the firmware slot on a reload: not known.
  */
 
 module pocket_bridge #(
-    /* The soft CPU's memory, its ROM block and its RAM block: 2**MEM_AW
-     * words of four bytes at the SDRAM byte address MEM_BASE. pocket_core
-     * sets both. */
+    /* The soft CPU's ROM block and RAM block, which its cache holds:
+     * MEM_BYTES at the SDRAM byte address MEM_BASE. pocket_core sets
+     * both. */
     parameter logic [31:0] MEM_BASE = 32'h03E0_0000,
-    parameter int MEM_AW = 17
+    parameter logic [31:0] MEM_BYTES = 32'h0005_0000
 ) (
     input logic clk_74a,
     input logic arst_n,
@@ -188,17 +204,20 @@ module pocket_bridge #(
         .pocket_fifo_rdata({pocket_bridge_w_addr, pocket_bridge_w_data})
     );
 
-    /* A write into the soft CPU's memory is the firmware loading, and it
+    /* A write into the ROM or RAM block is the firmware loading, and it
      * is taken only while the machine is in reset. Once the machine
-     * runs, the cache holds lines of that memory and would not see a
+     * runs, the cache holds lines of those blocks and would not see a
      * write behind it, so the write leaves the queue here and never
      * reaches the SDRAM. The host is not known to rewrite the firmware slot
      * when it reloads a ROM into a running machine; if it does, this
      * is where it stops. */
+    localparam logic [24:0] HELD_LO = MEM_BASE[25:1];
+    localparam logic [24:0] HELD_HI = 25'((MEM_BASE + MEM_BYTES) >> 1);
     logic w_drop;
     always_comb begin
         w_drop = !wf_empty && pocket_bridge_run
-            && pocket_bridge_w_addr[24:MEM_AW+1] == MEM_BASE[25:MEM_AW+2];
+            && pocket_bridge_w_addr >= HELD_LO
+            && pocket_bridge_w_addr < HELD_HI;
         pocket_bridge_w_avail = !wf_empty && !w_drop;
         pocket_bridge_w_queued = !wf_empty;
     end
@@ -378,9 +397,7 @@ module pocket_bridge #(
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_pocket_bridge;
-    always_comb unused_pocket_bridge = ^{bridge_addr[27:26],
-                                         MEM_BASE[31:26],
-                                         MEM_BASE[MEM_AW+1:0]};
+    always_comb unused_pocket_bridge = ^bridge_addr[27:26];
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

@@ -4,7 +4,9 @@
 #
 # The 6502 and the VIA change state only on the PHI2 enable, except in
 # reset and on st_jam, which loads their registers during a savestate
-# restore. The firmware limits PHI2 to PHI2_MAX_KHZ, 8000 kHz, which
+# restore. wiring.sv holds st_jam for four clocks with the enable held
+# low, and loads the same words on each. The firmware limits PHI2 to
+# PHI2_MAX_KHZ, 8000 kHz, which
 # against the 50400 kHz clk_sys puts consecutive enables at least six
 # clk_sys clocks apart, so a path that one enable launches and the next
 # one captures has at least six clocks, and the multicycles on cpu and via

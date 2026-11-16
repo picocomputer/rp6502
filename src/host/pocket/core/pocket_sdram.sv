@@ -3,12 +3,13 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The staging store. Its clients are the soft CPU and the savestate
- * engine, never the 6502, and the floor they need is full-speed USB,
+ * The staging store. Its clients are the soft CPU, the bridge and
+ * pocket_sst, never the 6502, and the floor they need is full-speed USB,
  * 1.5 MB/s. An access is ten clocks and more, so a clock spent here to
  * take arithmetic off a path costs nothing that matters.
  *
- * There are three clients. The write client moves one 16-bit word.
+ * There are three clients. The write client moves one 16-bit word, or
+ * the bytes of it w_mask names, bit 0 the low byte; DQM masks the rest.
  * The read client and the line client move a line, eight words that
  * share a row: a line's address is the word address without its low
  * three bits, and bits [16k+15:16k] of the line are word k. A line is
@@ -54,6 +55,7 @@ module pocket_sdram #(
     input logic w_avail,
     input logic [24:0] w_addr,
     input logic [15:0] w_data,
+    input logic [1:0] w_mask,
     output logic pocket_sdram_wtake,
 
     input logic line_pend,
@@ -120,6 +122,7 @@ module pocket_sdram #(
     logic op_is_line;
     logic [24:0] op_addr;
     logic [15:0] op_wdata;
+    logic [1:0] op_wmask;
 
     logic [127:0] held;
     logic [21:0] held_addr;
@@ -162,7 +165,6 @@ module pocket_sdram #(
         req_needs_pre = bank_active[req_bank] && !req_hit;
     end
 
-    always_comb dram_dqm = 2'b00;
 
     initial begin
         state = S_BOOT;
@@ -177,6 +179,7 @@ module pocket_sdram #(
         op_is_line = 1'b0;
         op_addr = '0;
         op_wdata = '0;
+        op_wmask = '0;
         held = '0;
         held_addr = '0;
         held_valid = 1'b0;
@@ -196,10 +199,12 @@ module pocket_sdram #(
         dram_we_n = 1'b1;
         dram_dq_out = '0;
         dram_dq_oe = 1'b0;
+        dram_dqm = '0;
     end
     always_ff @(posedge clk) begin
         {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b111;
         dram_dq_oe <= 1'b0;
+        dram_dqm <= 2'b00;
         pocket_sdram_wtake <= 1'b0;
 
         if (pocket_sdram_ready && state != S_SREF) begin
@@ -285,6 +290,7 @@ module pocket_sdram #(
                     op_is_line <= 1'b0;
                     op_addr <= w_addr;
                     op_wdata <= w_data;
+                    op_wmask <= w_mask;
                     pocket_sdram_wtake <= 1'b1;
                     held_valid <= 1'b0;
                     state <= S_OPEN;
@@ -423,6 +429,7 @@ module pocket_sdram #(
                 dram_dq_out <= op_is_line ? pocket_sdram_line_rdata[15:0]
                                           : op_wdata;
                 dram_dq_oe <= 1'b1;
+                dram_dqm <= op_is_line ? 2'b00 : ~op_wmask;
                 if (op_is_line)
                     pocket_sdram_line_rdata[111:0] <=
                         pocket_sdram_line_rdata[127:16];

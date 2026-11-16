@@ -212,8 +212,7 @@ bool ria_sst_load(sst_cursor_t *c, unsigned flags)
     uint8_t cells[0x20];
     for (int i = 0; i < 0x20; i++)
         cells[i] = sst_get_u8(c);
-    static uint8_t stack[XSTACK_SIZE + 1];
-    sst_get(c, stack, sizeof stack);
+    const uint8_t *stack = sst_view(c, XSTACK_SIZE + 1);
     uint16_t ptr = sst_get_u16(c);
     if (!sst_ok(c))
         return false;
@@ -224,7 +223,7 @@ bool ria_sst_load(sst_cursor_t *c, unsigned flags)
     ria.irq_pending = pending;
     for (int i = 0; i < 0x20; i++)
         regs[i] = cells[i];
-    memcpy(xstack, stack, sizeof stack);
+    memcpy(xstack, stack, XSTACK_SIZE + 1);
     xstack_ptr = ptr;
     return true;
 }

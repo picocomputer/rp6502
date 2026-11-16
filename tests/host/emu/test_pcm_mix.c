@@ -34,6 +34,8 @@
 #define FRAME 800
 
 static uint8_t blob[1 << 20];
+/* Where a load saves the machine it may have to put back. */
+static uint8_t undo[1 << 20];
 static float out[FRAME * 2 * 120];
 
 /* Frames run and their sound taken, appended at at. */
@@ -284,7 +286,7 @@ UTEST(pcm_mix, an_underrun_before_a_save_comes_back)
     ASSERT_EQ(ssys_write_xram(fd, TABLE, 1000), 1000);
     pull(0, 4);
     ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
-    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     ASSERT_EQ(underruns(), 1);
     ASSERT_EQ(ssys_close(fd), 0);
 }
@@ -358,7 +360,7 @@ UTEST(pcm_mix, a_savestate_resumes_the_stream)
     }
     memcpy(went, out, n * 2 * sizeof *out);
 
-    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     table_at = saved_at;
     ASSERT_EQ(ssys_lseek(fd, 0, WHENCE_CUR), level);
     size_t m = 0;
@@ -383,7 +385,7 @@ UTEST(pcm_mix, a_load_over_playing_sound_does_not_wait)
     const int fd = ssys_open("PCM:22050,16,1", O_WR);
     ASSERT_TRUE(fd >= 0);
     ASSERT_EQ(ssys_write_xram(fd, TABLE, PCM_BUF_SIZE), PCM_BUF_SIZE);
-    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     ASSERT_TRUE(ssys_lseek(fd, 0, WHENCE_CUR) < 0);
     const int again = ssys_open("PCM:22050,16,1", O_WR);
     ASSERT_TRUE(again >= 0);

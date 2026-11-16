@@ -13,7 +13,7 @@ from rp6502_asm import (API_A, API_ERRNO, API_OP, API_X, OP_ATTR_GET,
                         OP_ATTR_SET, OP_CLOSE, OP_ERRNO_OPT, OP_EXIT, OP_LSEEK,
                         OP_OPEN, OP_SYNCFS, OP_WRITE_XRAM, OP_WRITE_XSTACK,
                         O_WRONLY, RIA_TX, RW0_ADDR, RW0_DATA, RW0_STEP,
-                        RW1_ADDR, RW1_DATA, RW1_STEP, SEEK_CUR, SEEK_END, SEEK_SET, VIA_ACR, VIA_IFR,
+                        SEEK_CUR, SEEK_END, SEEK_SET, VIA_ACR, VIA_IFR,
                         VIA_T1_HI, VIA_T1_LO, VIA_T1L_HI, VIA_T1L_LO, XSTACK,
                         Asm)
 from rp6502_rom import main, rom
@@ -546,41 +546,6 @@ def aud_sst_prog():
     return p
 
 
-def aud_snoop_prog():
-    """The PSG and the OPL playing, then W on the console and RW0 and RW1
-    writing them back to back, so a stop often finds a 6502 write in
-    flight: RW0 into voice 0's frequency once in eight, RW1 into the OPL's
-    queue, which overflows, the rest."""
-    p = Prog()
-    p.xreg(0, 1, 0, PSG)
-    for at, val in ((0, 0x28), (1, 0x05), (2, 0x80), (3, 0x00), (4, 0x00),
-                    (5, 0x30), (6, 0x01)):
-        p.poke(PSG + at, val)
-    p.xreg(0, 1, 1, SST_OPL)
-    for reg, val in (
-        (0x20, 0x21), (0x23, 0x01), (0x40, 0x10), (0x43, 0x00), (0x60, 0xF4),
-        (0x63, 0xF4), (0x80, 0x57), (0x83, 0x57), (0xC0, 0x0A), (0xA0, 0x98),
-        (0xB0, 0x31),
-    ):
-        p.poke(SST_OPL + reg, val)
-    p.store(RW0_STEP, 0x00)
-    p.store(RW0_ADDR, PSG & 0xFF)
-    p.store(RW0_ADDR + 1, PSG >> 8)
-    p.store(RW1_STEP, 0x00)
-    p.store(RW1_ADDR, 0xA0)
-    p.store(RW1_ADDR + 1, SST_OPL >> 8)
-    p.lda_imm(ord("W"))
-    p.putc_a()
-    p.ldx_imm(0)
-    p.symbol("flood")
-    p.stx_abs(RW0_DATA)
-    for _ in range(7):
-        p.stx_abs(RW1_DATA)
-    p.inx()
-    p.jmp_abs("flood")
-    return p
-
-
 # pcm_rules_prog's answers, a word each from RULES, then 1 at RULES_DONE.
 RULES = 0x0220
 (R_OPEN_48001, R_ERRNO_48001, R_OPEN_48000, R_OPEN_BUSY, R_ERRNO_BUSY,
@@ -957,8 +922,7 @@ ROMS = {"psg": psg_prog, "psg_pre": psg_pre_prog, "opl": opl_prog,
         "opl_overruns": opl_overruns_prog, "pcm_dry": pcm_dry_prog,
         "bel": bel_prog, "bel_off": bel_off_prog, "opl_bel": opl_bel_prog,
         "pcm": pcm_prog, "pcm_rules": pcm_rules_prog,
-        "pcm_order": pcm_order_prog, "aud_sst": aud_sst_prog,
-        "aud_snoop": aud_snoop_prog}
+        "pcm_order": pcm_order_prog, "aud_sst": aud_sst_prog}
 TESTS = {"psg": test_psg, "psg_pre": test_psg_pre, "opl": test_opl,
          "opl_exit": test_opl_exit, "opl_init": test_opl_init,
          "bel": test_bel, "bel_off": test_bel_off, "opl_bel": test_opl_bel,

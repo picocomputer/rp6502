@@ -48,6 +48,7 @@ module tb_psdram (
         .w_avail(w_avail),
         .w_addr(w_addr),
         .w_data(w_data),
+        .w_mask(2'b11),
         .pocket_sdram_wtake(tb_psdram_wtake),
         .line_pend(line_pend),
         .line_we(line_we),
@@ -77,16 +78,12 @@ module tb_psdram (
         .ras_n(ras_n),
         .cas_n(cas_n),
         .we_n(we_n),
+        .dqm(dqm),
         .dq_in(dq_c2m),
         .dq_oe(dq_oe),
         .dq_out(dq_m2c),
         .sdram_model_refreshes(tb_psdram_refreshes),
         .sdram_model_sref_clocks(tb_psdram_sref_clocks)
     );
-
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_tb_psdram;
-    always_comb unused_tb_psdram = ^dqm;
-    /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

@@ -2,6 +2,18 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Where the Pocket's side of this comes from:
+ * - The target commands 0x0180, 0x0184, 0x0188, 0x0190 and 0x0192, their
+ *   parameters and results: Analogue's docs,
+ *   https://www.analogue.co/developer/docs/openfpga/host-target-commands
+ * - The request lines, the parameter and response structs and the host's
+ *   'bu' and 'ok' in target_0: Analogue's template, core_bridge_cmd.v in
+ *   vendor/openfpga, https://github.com/open-fpga/core-template. Flush
+ *   is in the docs and not the template; vendor/openfpga_rp6502 adds it.
+ * - Reads are buffered one word: the template's io_bridge_peripheral.v.
+ * - The Pocket never answers Flush, so a command ends at the 0.9 s
+ *   deadline: seen on a Pocket (vendor/openfpga_rp6502).
  */
 
 module pocket_file #(
@@ -23,9 +35,6 @@ module pocket_file #(
     input logic [31:0] wdata,
     output logic [31:0] pocket_file_rdata,
     input logic w_pending,
-    /* A savestate load is with the engine, from its request until the
-     * engine releases the soft CPU. */
-    input logic loading,
 
     input logic clk_74a,
     input logic arst_n,
@@ -86,13 +95,6 @@ module pocket_file #(
     logic wrote_flag /*verilator public_flat_rd*/;
     (* preserve *) logic ret_t1, ret_t2, ret_t3;
     logic win_we, reg_we;
-    /* A command's registers and its window are not in the savestate, so
-     * a command that a restore lands in would run with whatever this
-     * configuration holds: another slot, another address, another
-     * length. The firmware writes the slot first, which arms the
-     * command, and a load disarms it. A command written unarmed is not
-     * run and reads back as timed out. */
-    logic armed;
 
     always_comb begin
         win_we = stb && we && addr[12];
@@ -105,18 +107,11 @@ module pocket_file #(
         pocket_file_length = '0;
         pocket_file_bridgeaddr = '0;
         r_op = '0;
-        armed = 1'b0;
         wrote_flag = 1'b0;
         go_t = 1'b0;
         busy = 1'b0;
-        /* tmo_flag starts set because a wake reconfigures the FPGA, and
-         * the firmware restored from the savestate may still be polling
-         * for a command it issued before the sleep. With busy, error and
-         * timeout all clear, that poll would read a command this
-         * configuration never ran as a success. fs_start writes
-         * FILE_CTL, which clears the flag, whenever the firmware issues
-         * a command, so a poll for a command issued after the wake never
-         * reads the power-up value. */
+        /* tmo_flag starts set, so a poll before the first command does
+         * not read as a command that succeeded. */
         tmo_flag = 1'b1;
         r_err = '0;
         r_result = '0;
@@ -138,26 +133,19 @@ module pocket_file #(
         end
         if (reg_we)
             case (addr[4:2])
-                3'd0: begin
-                    pocket_file_id <= wdata[15:0];
-                    armed <= 1'b1;
-                end
+                3'd0: pocket_file_id <= wdata[15:0];
                 3'd1: pocket_file_slotoffset <= wdata;
                 3'd2: pocket_file_length <= wdata;
                 3'd3: pocket_file_bridgeaddr <= wdata;
                 3'd4: begin
-                    armed <= 1'b0;
-                    if (armed) begin
-                        r_op <= wdata[2:0];
-                        go_t <= !go_t;
-                        busy <= 1'b1;
-                        tmo_flag <= 1'b0;
-                        wrote_flag <= 1'b0;
-                    end else tmo_flag <= 1'b1;
+                    r_op <= wdata[2:0];
+                    go_t <= !go_t;
+                    busy <= 1'b1;
+                    tmo_flag <= 1'b0;
+                    wrote_flag <= 1'b0;
                 end
                 default: ;
             endcase
-        if (loading) armed <= 1'b0;
         if (stb)
             pocket_file_rdata <= addr[2]
                 ? r_result

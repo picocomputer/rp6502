@@ -28,6 +28,8 @@
 #define WHENCE_CUR 1
 
 static uint8_t blob[1 << 20];
+/* Where a load saves the machine it may have to put back. */
+static uint8_t undo[1 << 20];
 
 static const char *take(void)
 {
@@ -94,7 +96,7 @@ UTEST(sst, nothing_but_a_savestate_is_believed)
     ASSERT_EQ(take(), (const char *)NULL);
     scrub();
     blob[0] = 'X';
-    ASSERT_NE(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_NE(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     ASSERT_TRUE(scrub_intact());
 }
 
@@ -103,7 +105,7 @@ UTEST(sst, a_format_this_build_does_not_know_is_refused)
     ASSERT_EQ(take(), (const char *)NULL);
     scrub();
     blob[5] = 99;
-    ASSERT_NE(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_NE(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     ASSERT_TRUE(scrub_intact());
 }
 
@@ -112,7 +114,7 @@ UTEST(sst, a_roster_that_differs_is_refused)
     ASSERT_EQ(take(), (const char *)NULL);
     scrub();
     blob[12] ^= 0xFF; /* the manifest sum */
-    ASSERT_NE(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_NE(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     ASSERT_TRUE(scrub_intact());
 }
 
@@ -121,7 +123,7 @@ UTEST(sst, a_blob_that_does_not_add_up_is_refused)
     ASSERT_EQ(take(), (const char *)NULL);
     scrub();
     blob[sst_size() - 8] ^= 0xFF; /* the payload sum */
-    ASSERT_NE(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_NE(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     ASSERT_TRUE(scrub_intact());
 }
 
@@ -130,7 +132,7 @@ UTEST(sst, a_blob_that_ends_early_is_refused)
     ASSERT_EQ(take(), (const char *)NULL);
     scrub();
     memset(blob + sst_size() - 4, 0, 4); /* the end magic */
-    ASSERT_NE(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_NE(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     ASSERT_TRUE(scrub_intact());
 }
 
@@ -138,9 +140,9 @@ UTEST(sst, a_truncated_blob_is_refused)
 {
     ASSERT_EQ(take(), (const char *)NULL);
     scrub();
-    ASSERT_NE(sst_load(blob, sst_size() - 1, 0), (const char *)NULL);
-    ASSERT_NE(sst_load(blob, 4, 0), (const char *)NULL);
-    ASSERT_NE(sst_load(blob, 0, 0), (const char *)NULL);
+    ASSERT_NE(sst_load(blob, sst_size() - 1, undo, 0), (const char *)NULL);
+    ASSERT_NE(sst_load(blob, 4, undo, 0), (const char *)NULL);
+    ASSERT_NE(sst_load(blob, 0, undo, 0), (const char *)NULL);
     ASSERT_TRUE(scrub_intact());
 }
 
@@ -149,12 +151,23 @@ UTEST(sst, a_machine_that_could_not_have_existed_is_refused)
     ASSERT_EQ(take(), (const char *)NULL);
     scrub();
     blob[16] = 1; /* starting, which sst_save never writes */
-    ASSERT_NE(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_NE(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     ASSERT_TRUE(scrub_intact());
     ASSERT_EQ(take(), (const char *)NULL);
     blob[16] = 0;      /* stopped ... */
     blob[17] &= ~1;    /* ... but not held, which sys_latch_get never reports */
-    ASSERT_NE(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_NE(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
+    ASSERT_TRUE(scrub_intact());
+}
+
+/* With no undo buffer a load has nothing to roll back with, so it must
+ * still refuse a bad blob before any row has loaded. */
+UTEST(sst, a_load_with_no_undo_still_checks_the_sum)
+{
+    ASSERT_EQ(take(), (const char *)NULL);
+    scrub();
+    blob[sst_size() - 8] ^= 0xFF; /* the payload sum */
+    ASSERT_NE(sst_load(blob, sst_size(), NULL, 0), (const char *)NULL);
     ASSERT_TRUE(scrub_intact());
 }
 
@@ -162,9 +175,9 @@ UTEST(sst, a_trusted_blob_skips_the_sum_and_keeps_the_frame)
 {
     ASSERT_EQ(take(), (const char *)NULL);
     blob[sst_size() - 8] ^= 0xFF;
-    ASSERT_EQ(sst_load(blob, sst_size(), SST_TRUSTED), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), NULL, SST_TRUSTED), (const char *)NULL);
     blob[0] = 'X';
-    ASSERT_NE(sst_load(blob, sst_size(), SST_TRUSTED), (const char *)NULL);
+    ASSERT_NE(sst_load(blob, sst_size(), NULL, SST_TRUSTED), (const char *)NULL);
 }
 
 UTEST(sst, what_a_row_carries_comes_back)
@@ -178,7 +191,7 @@ UTEST(sst, what_a_row_carries_comes_back)
     scrub();
     ASSERT_TRUE(scrub_intact());
 
-    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     for (int i = 0; i < 0x100; i++)
         ASSERT_EQ(sram[i], (uint8_t)(i * 7 + 1));
     for (int i = 0; i < 0x100; i++)
@@ -196,14 +209,14 @@ UTEST(sst, a_programs_own_size_comes_back)
     ASSERT_EQ(take(), (const char *)NULL);
     rln_set_term_width(0);
     ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS);
-    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS + 1);
     ASSERT_EQ(term_shown(&cells_term)->width, 132);
     ASSERT_EQ(term_pos(term_shown(&cells_term))->x, 100);
     rln_set_term_width(0);
     ASSERT_EQ(take(), (const char *)NULL);
     rln_set_term_width(60);
-    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS);
 }
 
@@ -219,7 +232,7 @@ UTEST(sst, a_program_picks_up_where_it_was)
 
     sram_init();
     xram_init();
-    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     ASSERT_EQ(bus_cycles(), at_save);
 
     emu_frames(20);
@@ -304,7 +317,7 @@ UTEST(sst, a_note_in_flight_comes_back)
     ASSERT_EQ(psg_xaddr_get(), (uint16_t)0x3000);
     aud_pull(came, 2);
 
-    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     ASSERT_EQ(psg_xaddr_get(), (uint16_t)0x3000);
     ASSERT_EQ(opl_xaddr_get(), (uint16_t)0xFFFF);
     ASSERT_EQ(aud_pull(came, 3), n);
@@ -335,7 +348,7 @@ UTEST(sst, an_opl_chord_comes_back)
     ASSERT_EQ(opl_xaddr_get(), (uint16_t)0x4000);
     aud_pull(came, 2);
 
-    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     ASSERT_EQ(opl_xaddr_get(), (uint16_t)0x4000);
     ASSERT_EQ(psg_xaddr_get(), (uint16_t)0xFFFF);
     ASSERT_EQ(aud_pull(came, 3), n);
@@ -373,7 +386,7 @@ UTEST(sst, an_opl_burst_comes_back_mid_flight)
     ASSERT_TRUE(xreg0(1, 1, 0x4000));
     aud_pull(came, 1);
 
-    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     for (int k = 0; k < 300; k++)
         ria_xram_write((uint16_t)(0x4060 + k % 6), (uint8_t)(0xF0 | (k & 15)));
     ASSERT_EQ(aud_pull(came, 3), n);
@@ -397,7 +410,7 @@ UTEST(sst, an_old_opl_chunk_is_refused)
     const uint32_t sum = host_crc32(0, blob, total - 8);
     for (int i = 0; i < 4; i++)
         blob[total - 8 + i] = (uint8_t)(sum >> (24 - 8 * i));
-    ASSERT_NE(sst_load(blob, total, 0), (const char *)NULL);
+    ASSERT_NE(sst_load(blob, total, undo, 0), (const char *)NULL);
     ASSERT_TRUE(scrub_intact());
 }
 
@@ -412,7 +425,7 @@ UTEST(sst, both_engines_come_back)
     aud_stop();
     ASSERT_EQ(psg_xaddr_get(), (uint16_t)0xFFFF);
     ASSERT_EQ(opl_xaddr_get(), (uint16_t)0xFFFF);
-    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     ASSERT_EQ(psg_xaddr_get(), (uint16_t)0x3000);
     ASSERT_EQ(opl_xaddr_get(), (uint16_t)0x4000);
 }
@@ -462,7 +475,7 @@ UTEST(sst, a_bell_mid_tone_comes_back)
     bel_add(&bel_nfc_fail);
     aud_pull(came, 2);
 
-    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     ASSERT_EQ(aud_pull(came, 3), n);
     ASSERT_TRUE(aud_sounded(went, n * 2));
     ASSERT_EQ(memcmp(went, came, n * 2 * sizeof *went), 0);
@@ -565,7 +578,7 @@ UTEST(sst, every_engine_comes_back_at_once)
     bel_add(&bel_nfc_fail);
     aud_pull_pcm(fd, came, 1);
 
-    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     aud_table_at = saved_at;
     ASSERT_EQ(psg_xaddr_get(), (uint16_t)0x3000);
     ASSERT_EQ(opl_xaddr_get(), (uint16_t)0x4000);
@@ -611,7 +624,7 @@ UTEST(sst, a_console_size_comes_back_and_stays_for_the_session)
     ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
     ASSERT_TRUE(on_console(640, 480, 30));
 
-    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     ASSERT_TRUE(on_console(640, 400, 25));
 
     ASSERT_TRUE(vga_canvas_select(vga_canvas_320_240));
@@ -635,7 +648,7 @@ static void put_u16(uint8_t *p, uint16_t v)
     p[1] = (uint8_t)v;
 }
 
-/* The VGA row is loaded on its own here, where no scratch copy puts back what
+/* The VGA row is loaded on its own here, where no undo buffer puts back what
  * a refused row set, so a console that survives a refusal survives by the
  * row's own doing. The row's canvas is at byte 10 and the console's height at
  * 12. The last case is a console a host could give on a canvas no build has,

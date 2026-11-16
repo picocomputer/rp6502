@@ -14,10 +14,10 @@
 #include "fs.h"
 #include "proc.h"
 #include "rom.h"
+#include "sleep.h"
 #include "core/rom/rom.h"
 #include "vga.h"
 #include "vid.h"
-#include "wake.h"
 #include "core/api/api.h"
 #include "core/api/attr.h"
 #include "core/api/clk.h"
@@ -60,12 +60,6 @@ static uint8_t main_upd_seen;
  * the first one. */
 static bool main_restaging;
 
-void main_restored(void)
-{
-    main_upd_seen = (uint8_t)MMIO_UPD_N;
-    MMIO_SLOT = 0;
-}
-
 static void main_stage(void)
 {
     rom_assets_reset();
@@ -107,20 +101,16 @@ int main(void)
         sys_task();
 
         /* The host asks for a start by loading a ROM, which changes
-         * MMIO_UPD_N and MMIO_SLOT. A wake's host sets both as well, and
-         * wake_task marks them handled before it ends a restore, so neither
-         * is acted on while a wake is in progress. They are read before the
-         * wake is, because a save can halt the firmware anywhere: what was
-         * read before the save is then from the session that was saved, and
-         * a restore that came between the reads shows as a wake. */
-        uint8_t upd = (uint8_t)MMIO_UPD_N;
-        bool slot = MMIO_SLOT != 0;
+         * MMIO_UPD_N and MMIO_SLOT. The host of a wake sets both as well,
+         * so neither is acted on while a load is on its way, and a load
+         * that lands marks both as handled. */
+        bool wake = sleep_waking();
         /* A new ROM is being written over the old one's file. The bitstream
          * already holds the 6502; the program stops here and nothing
          * starts until the image has landed and MMIO_SLOT says so. */
         bool coming = ROM_COMING != 0;
-        bool wake = wake_pending();
-        if (!wake && (slot || upd != main_upd_seen))
+        uint8_t upd = (uint8_t)MMIO_UPD_N;
+        if (!wake && (MMIO_SLOT != 0 || upd != main_upd_seen))
         {
             main_upd_seen = upd;
             main_restaging = true;
@@ -131,15 +121,19 @@ int main(void)
             sys_stop();
         }
         sys_commit();
+        if (sleep_task())
+        {
+            main_upd_seen = (uint8_t)MMIO_UPD_N;
+            MMIO_SLOT = 0;
+            main_restaging = false;
+            continue;
+        }
         /* The start comes after sys_commit rather than from a stop hook,
          * because the stop hooks run only when a running machine is
          * stopped, so a start asked for while the machine is already
-         * stopped would never be made. Nothing starts while a wake is in
-         * progress, because the restore replaces the machine's memory but
-         * not a file the program creates or truncates before the load, so
-         * a start, an exec or a launcher's return waits for the wake to
-         * end. */
-        if (!sys_active() && !wake && !coming)
+         * stopped would never be made. Nothing starts while a load is on
+         * its way, because the load replaces the machine. */
+        if (!sys_active() && !sleep_waking() && !coming)
         {
             if (main_restaging)
             {

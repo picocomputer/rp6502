@@ -4,8 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * This module is a behavioral model of the Pocket's SDRAM, an
- * AS4C32M16MSA-6BIN, which is a 512 Mbit x16 SDR part. The timing limits
- * are that datasheet's figures at 50.4 MHz, where a clock is 19.841 ns:
+ * AS4C32M16MSA-6BIN, which is a 512 Mbit x16 SDR part. The part is from
+ * Analogue's docs,
+ * https://www.analogue.co/developer/docs/openfpga/external-hardware, and
+ * its behaviour from Alliance's datasheet,
+ * https://www.alliancememory.com/datasheets/as4c32m16msa/. The timing
+ * limits are that datasheet's figures at 50.4 MHz, where a clock is
+ * 19.841 ns:
  *
  *   tRCD  18 ns    1 clk      tRAS min  48 ns     3 clk
  *   tRP   18 ns    1 clk      tRAS max 100 us  5040 clk
@@ -37,6 +42,9 @@ module sdram_model (
     input logic ras_n,
     input logic cas_n,
     input logic we_n,
+    /* A WRITE leaves the bytes it masks as they were. The controller
+     * never masks a read. */
+    input logic [1:0] dqm,
     input logic [15:0] dq_in,
     input logic dq_oe,
     output logic [15:0] dq_out,
@@ -248,6 +256,8 @@ module sdram_model (
                         $fatal(1, "sdram_model: READ on closed bank");
                     if (since_act[ba] < 1)
                         $fatal(1, "sdram_model: tRCD violated on read");
+                    if (dqm != 2'b00)
+                        $fatal(1, "sdram_model: a masked read");
                     rd_p0 <= mem[{ba, row[ba], a[9:0]}];
                     rd_v0 <= 1'b1;
                     if (a[10]) begin
@@ -262,7 +272,10 @@ module sdram_model (
                         $fatal(1, "sdram_model: tRCD violated on write");
                     if (!dq_oe)
                         $fatal(1, "sdram_model: write with dq released");
-                    mem[{ba, row[ba], a[9:0]}] <= dq_in;
+                    if (!dqm[0])
+                        mem[{ba, row[ba], a[9:0]}][7:0] <= dq_in[7:0];
+                    if (!dqm[1])
+                        mem[{ba, row[ba], a[9:0]}][15:8] <= dq_in[15:8];
                     since_wr[ba] <= 0;
                     if (a[10]) begin
                         row_open[ba] <= 1'b0;

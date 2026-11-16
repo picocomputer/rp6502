@@ -101,14 +101,13 @@ bool dir_sst_load(sst_cursor_t *c, unsigned flags)
     for (int i = 0; i < DIR_MAX_OPEN; i++)
         at[i] = sst_get_i32(c);
     bool open[DIR_MAX_OPEN];
-    char paths[DIR_MAX_OPEN][DIR_SLOT];
+    const char *paths[DIR_MAX_OPEN];
     for (int i = 0; i < DIR_MAX_OPEN; i++)
     {
         open[i] = sst_get_bool(c);
-        sst_get_str(c, paths[i], DIR_SLOT);
+        paths[i] = sst_view_str(c, DIR_SLOT);
     }
-    char cwd[DIR_SLOT];
-    sst_get_str(c, cwd, DIR_SLOT);
+    const char *cwd = sst_view_str(c, DIR_SLOT);
     if (!sst_ok(c))
         return false;
 

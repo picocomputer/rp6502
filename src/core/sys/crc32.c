@@ -3,23 +3,15 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * CRC-32/ISO-HDLC. Each table entry is the reflected polynomial 0xEDB88320
- * folded through the entry's index, low bit first.
- *
- * The byte table costs 1024 bytes of rodata and the nibble table 64, so
- * RP6502_CRC32_SMALL buys back 960 bytes for two table lookups per byte
- * instead of one. Only the Pocket defines it (src/host/pocket/sw.cmake),
- * because its firmware shares one 96 KB memory with its stack and heap.
- * Both arms compute the same CRC, which matters because core/rom/pump.c
- * checks a .rp6502 record against the CRC tools/rp6502.py wrote, so a ROM
- * built on a desktop verifies on the Pocket. A host that already links a CRC
- * answers host_crc32 with that instead of compiling this file, as the RIA
- * does with littlefs's.
+ * CRC-32/ISO-HDLC, a table lookup a byte. Each table entry is the reflected
+ * polynomial 0xEDB88320 folded through the entry's index, low bit first.
+ * core/rom/pump.c checks a .rp6502 record against the CRC tools/rp6502.py
+ * wrote, so a ROM built on a desktop verifies on every machine. A host that
+ * already links a CRC answers host_crc32 with that instead of compiling
+ * this file, as the RIA does with littlefs's.
  */
 
 #include "host/host.h"
-
-#ifndef RP6502_CRC32_SMALL
 
 static const uint32_t crc32_byte[256] = {
     0x00000000u, 0x77073096u, 0xEE0E612Cu, 0x990951BAu,
@@ -88,30 +80,11 @@ static const uint32_t crc32_byte[256] = {
     0xB40BBE37u, 0xC30C8EA1u, 0x5A05DF1Bu, 0x2D02EF8Du,
 };
 
-#else
-
-static const uint32_t crc32_nibble[16] = {
-    0x00000000u, 0x1DB71064u, 0x3B6E20C8u, 0x26D930ACu,
-    0x76DC4190u, 0x6B6B51F4u, 0x4DB26158u, 0x5005713Cu,
-    0xEDB88320u, 0xF00F9344u, 0xD6D6A3E8u, 0xCB61B38Cu,
-    0x9B64C2B0u, 0x86D3D2D4u, 0xA00AE278u, 0xBDBDF21Cu,
-};
-
-#endif
-
 uint32_t host_crc32(uint32_t crc, const void *buf, size_t len)
 {
     crc ^= 0xFFFFFFFFu;
     const uint8_t *p = buf;
     while (len--)
-    {
-#ifndef RP6502_CRC32_SMALL
         crc = (crc >> 8) ^ crc32_byte[(crc ^ *p++) & 0xFFu];
-#else
-        crc ^= *p++;
-        crc = (crc >> 4) ^ crc32_nibble[crc & 0x0F];
-        crc = (crc >> 4) ^ crc32_nibble[crc & 0x0F];
-#endif
-    }
     return crc ^ 0xFFFFFFFFu;
 }

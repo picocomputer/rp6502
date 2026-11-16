@@ -48,11 +48,15 @@ rp6502_add_module_test(fifo
 
 rp6502_add_module_test(psst
     TOP tb_psst
-    RTL ${RP6502_POCKET_CORE}/pocket_sst.sv
+    RTL ${RP6502_ASSETS}/pocket_version_pkg.sv
+        ${RP6502_POCKET_CORE}/pocket_sst.sv
+        ${RP6502_POCKET_CORE}/pocket_sdram.sv
         ${RP6502_VENDOR}/openfpga_rp6502/core_bridge_cmd.v
-        ${POCKET_TB}/tb_psst.sv
+        ${POCKET_TB}/sdram_model.sv ${POCKET_TB}/tb_psst.sv
+    INCLUDES ${RP6502_GEN}
     ARGS ${RP6502_BENCH}/apf.vlt
-    TIMEOUT 120)
+    DEPENDS rp6502_gen_assets rp6502_gen_c
+    TIMEOUT 300)
 
 rp6502_add_module_test(pdbglog
     TOP pocket_dbglog
@@ -101,13 +105,10 @@ if(RP6502_SOFT_CPU)
     rp6502_add_machine_test(psleep FIRMWARE SPLIT SAVABLE
         TOP tb_pocket
         RTL ${POCKET_STACK}
-        DEFS FILE_ROM="${FILE_ROM}" STREAM_ROM="${STREAM_ROM}"
-            OPL_ROM="${OPL_ROM}" PCM_ROM="${PCM_ROM}"
-            OPL_BEL_ROM="${OPL_BEL_ROM}" AUD_SST_ROM="${AUD_SST_ROM}"
-            AUD_SNOOP_ROM="${AUD_SNOOP_ROM}" WAKECLK_ROM="${WAKECLK_ROM}"
-            SLEEPTRAP_ROM="${SLEEPTRAP_ROM}"
-            ROMS_DIR="${RP6502_TEST_CORPUS}"
-        DEPENDS file_roms stream_roms aud_roms wakeclk_roms sleeptrap_roms
+        DEFS FILE_ROM="${FILE_ROM}" AUD_SST_ROM="${AUD_SST_ROM}"
+            SLEEPFILE_ROM="${SLEEPFILE_ROM}"
+            SLEEPASSET_ROM="${SLEEPASSET_ROM}" WAKECLK_ROM="${WAKECLK_ROM}"
+        DEPENDS file_roms aud_roms sleepfile_roms sleepasset_roms wakeclk_roms
         TIMEOUT 1200)
 
     rp6502_add_machine_test(pfile FIRMWARE SPLIT SAVABLE
@@ -130,13 +131,13 @@ add_test(NAME stage_map
         --data ${POCKET_CORE_JSON}/data.json
         --mmio ${RP6502_SRC}/host/pocket/sw/mmio.h
         --bench ${RP6502_ROOT}/tests/bench/tb_stage.h
-        --engine ${RP6502_POCKET_CORE}/sst_engine.sv
         --mem ${RP6502_SRC}/core/riscv/mem_pkg.sv
         --sst ${RP6502_POCKET_CORE}/pocket_sst.sv
         --top ${RP6502_SRC}/host/pocket/core/core_top.sv
         --core ${RP6502_POCKET_CORE}/pocket_core.sv
         --bridge ${RP6502_POCKET_CORE}/pocket_bridge.sv
-        --link ${RP6502_SRC}/host/pocket/sw/link.ld)
+        --link ${RP6502_SRC}/host/pocket/sw/link.ld
+        --version ${RP6502_SRC}/host/pocket/gen/version.py)
 set_tests_properties(stage_map PROPERTIES LABELS "gate;host.pocket")
 
 rp6502_submodule(vendor/openfpga SENTINEL src/fpga/ap_core.qsf

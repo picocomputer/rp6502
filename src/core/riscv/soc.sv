@@ -28,32 +28,12 @@ module soc
 
     output logic [15:0] soc_phi2_khz,
 
-    input logic sst_dbg_halt,
-    input logic sst_dbg_halt_on_reset,
-    input logic sst_dbg_resume,
-    output logic soc_dbg_halted,
-    input logic [31:0] sst_dbg_data0,
-    output logic [31:0] soc_dbg_data0,
-    output logic soc_dbg_data0_wen,
-    input logic [31:0] sst_dbg_instr,
-    input logic sst_dbg_instr_vld,
-    output logic soc_dbg_instr_rdy,
-    output logic soc_dbg_ebreak,
-    output logic soc_dbg_fault,
-
-    input logic sst_phi2_we,
-    input logic [15:0] sst_phi2_wdata,
-    output logic [63:0] soc_mtime,
-    input logic sst_mtime_we,
-    input logic [63:0] sst_mtime_wdata,
+    /* mtime stands still while this is high: the platform holds the
+     * machine whose clock mtime is, and that machine loses no time. */
+    input logic mtime_hold,
 
     /* The memory is lines of four words behind this port, which the
-     * platform answers. cache.sv says how it is used. sst_flush and
-     * sst_empty are raised only while the core is halted, when it makes
-     * no access. */
-    input logic sst_flush,
-    input logic sst_empty,
-    output logic soc_cache_idle,
+     * platform answers. cache.sv says how it is used. */
     output logic soc_line_pend,
     output logic soc_line_we,
     output logic [MEM_AW-3:0] soc_line_addr,
@@ -92,34 +72,11 @@ module soc
     /* verilator lint_on UNUSEDSIGNAL */
 
     /* verilator lint_off PINCONNECTEMPTY */
-    /* The core makes its data0 write from a register through its CSR
-     * path, and the falling edge that takes it in wiring is half a
-     * system clock on, so it is registered here first. */
-    logic [31:0] dbg_data0_w;
-    logic dbg_data0_wen_w;
-    initial begin
-        soc_dbg_data0 = '0;
-        soc_dbg_data0_wen = 1'b0;
-    end
-    always_ff @(posedge clk) begin
-        soc_dbg_data0 <= dbg_data0_w;
-        soc_dbg_data0_wen <= dbg_data0_wen_w;
-    end
-
-    /* The core takes an instruction at its debug port only while its
-     * fetch path is at rest. It jumps when it enters debug mode and at
-     * every ebreak, and a jump drops an instruction given on that clock
-     * and sends a fetch out. While that fetch waits on the cache, the
-     * next jump would also drop the core's ready, which reads as an
-     * instruction taken. So the port is ready, and an instruction valid,
-     * only with no jump and no bus access in progress. */
-    logic dbg_rest, dbg_instr_rdy_w;
-
     hazard3_cpu_1port #(
         .RESET_VECTOR(32'h0000_0000),
         .MTVEC_INIT(32'h0000_0000),
         .NUM_IRQS(1),
-        .DEBUG_SUPPORT(1)
+        .DEBUG_SUPPORT(0)
     ) cpu (
         .clk(clk),
         .clk_always_on(clk),
@@ -146,19 +103,19 @@ module soc
         .fence_i_vld(),
         .fence_d_vld(),
         .fence_rdy(1'b1),
-        .dbg_req_halt(sst_dbg_halt),
-        .dbg_req_halt_on_reset(sst_dbg_halt_on_reset),
-        .dbg_req_resume(sst_dbg_resume),
-        .dbg_halted(soc_dbg_halted),
+        .dbg_req_halt(1'b0),
+        .dbg_req_halt_on_reset(1'b0),
+        .dbg_req_resume(1'b0),
+        .dbg_halted(),
         .dbg_running(),
-        .dbg_data0_rdata(sst_dbg_data0),
-        .dbg_data0_wdata(dbg_data0_w),
-        .dbg_data0_wen(dbg_data0_wen_w),
-        .dbg_instr_data(sst_dbg_instr),
-        .dbg_instr_data_vld(sst_dbg_instr_vld && dbg_rest),
-        .dbg_instr_data_rdy(dbg_instr_rdy_w),
-        .dbg_instr_caught_exception(soc_dbg_fault),
-        .dbg_instr_caught_ebreak(soc_dbg_ebreak),
+        .dbg_data0_rdata(32'h0),
+        .dbg_data0_wdata(),
+        .dbg_data0_wen(),
+        .dbg_instr_data(32'h0),
+        .dbg_instr_data_vld(1'b0),
+        .dbg_instr_data_rdy(),
+        .dbg_instr_caught_exception(),
+        .dbg_instr_caught_ebreak(),
         .dbg_sbus_addr(32'h0),
         .dbg_sbus_write(1'b0),
         .dbg_sbus_size(2'h0),
@@ -188,11 +145,6 @@ module soc
     logic cache_ready;
     always_comb hready = !(dph_active && dph_ext && !dph_waited)
         && cache_ready;
-
-    always_comb begin
-        dbg_rest = !dph_active && !soc_dbg_ebreak && !soc_dbg_fault;
-        soc_dbg_instr_rdy = dbg_instr_rdy_w && dbg_rest;
-    end
 
     logic [3:0] strb;
     always_comb begin
@@ -224,9 +176,6 @@ module soc
         .wdata(hwdata),
         .cache_rdata(mem_rdata),
         .cache_ready(cache_ready),
-        .flush(sst_flush),
-        .empty(sst_empty),
-        .cache_idle(soc_cache_idle),
         .cache_line_pend(soc_line_pend),
         .cache_line_we(soc_line_we),
         .cache_line_addr(soc_line_addr),
@@ -277,31 +226,59 @@ module soc
     always_comb soc_key_pending = mmio_key_valid;
     logic [31:0] mmio_slot_len /*verilator public_flat_rw*/;
 
+    /* An MMIO write, data phase and all, is done on the clock its data
+     * phase ends, and the side effect of a read is taken there too. */
+    logic mmio_we, mmio_re;
+    always_comb begin
+        mmio_we = dph_active && dph_write && dph_mmio && hready;
+        mmio_re = dph_active && !dph_write && dph_mmio && hready;
+    end
+
+    /* mtime is the machine's clock, which a savestate carries, so it
+     * counts only while mtime_hold is low. It is written as two halves,
+     * the low one first: a write of the low half is kept until the high
+     * half's write puts both in, so a savestate puts the count back
+     * whole. */
     logic [63:0] mtime_us /*verilator public_flat_rd*/;
     logic [15:0] mtime_acc;
+    logic [31:0] mtime_lo;
     initial begin
         mtime_us = 64'd0;
         mtime_acc = '0;
+        mtime_lo = '0;
     end
-    always_comb soc_mtime = mtime_us;
-    /* mtime_us does not count while the core is halted, because Hazard3
-     * hardwires dcsr.stoptime to 1, which means that timers local to the
-     * core do not count in debug mode. */
     always_ff @(posedge clk) begin
-        if (!soc_dbg_halted) begin
-            if ({16'd0, mtime_acc} + 32'(MTIME_ADD) >= 32'(MTIME_WRAP))
-            begin
+        if (!mtime_hold) begin
+            if ({16'd0, mtime_acc} + 32'(MTIME_ADD) >= 32'(MTIME_WRAP)) begin
                 mtime_acc <= 16'(32'(mtime_acc) + 32'(MTIME_ADD)
                                  - 32'(MTIME_WRAP));
                 mtime_us <= mtime_us + 64'd1;
-            end else begin
+            end else
                 mtime_acc <= mtime_acc + 16'(MTIME_ADD);
-            end
         end
-        if (sst_mtime_we) begin
-            mtime_us <= sst_mtime_wdata;
+        if (mmio_we && mmio_reg == 7'h10)
+            mtime_lo <= hwdata;
+        if (mmio_we && mmio_reg == 7'h14) begin
+            mtime_us <= {hwdata, mtime_lo};
             mtime_acc <= '0;
         end
+    end
+
+    /* uptime counts microseconds from configuration, with nothing to stop
+     * or write it, so the wall clock follows real time through a hold. */
+    logic [63:0] uptime_us;
+    logic [15:0] uptime_acc;
+    initial begin
+        uptime_us = 64'd0;
+        uptime_acc = '0;
+    end
+    always_ff @(posedge clk) begin
+        if ({16'd0, uptime_acc} + 32'(MTIME_ADD) >= 32'(MTIME_WRAP)) begin
+            uptime_acc <= 16'(32'(uptime_acc) + 32'(MTIME_ADD)
+                              - 32'(MTIME_WRAP));
+            uptime_us <= uptime_us + 64'd1;
+        end else
+            uptime_acc <= uptime_acc + 16'(MTIME_ADD);
     end
 
     always_comb begin
@@ -314,6 +291,8 @@ module soc
                 7'h10: hrdata = mtime_us[31:0];
                 7'h14: hrdata = mtime_us[63:32];
                 7'h18: hrdata = mmio_slot_len;
+                7'h20: hrdata = uptime_us[31:0];
+                7'h24: hrdata = uptime_us[63:32];
                 7'h4C: hrdata = {24'd0, upd_n};
                 7'h1C: hrdata = {22'd0, mmio_key_valid, mmio_key_data};
                 7'h50: hrdata = cont_key[0];
@@ -348,9 +327,9 @@ module soc
     end
     always_ff @(posedge clk) begin
             soc_tx_valid <= 1'b0;
-            if (dph_active && !dph_write && dph_mmio && mmio_reg == 7'h08)
+            if (mmio_re && mmio_reg == 7'h08)
                 mmio_kbd_valid <= 1'b0;
-            if (dph_active && !dph_write && dph_mmio && mmio_reg == 7'h1C)
+            if (mmio_re && mmio_reg == 7'h1C)
                 mmio_key_valid <= 1'b0;
             if (slot_set)
                 mmio_slot_len <= slot_len;
@@ -358,7 +337,7 @@ module soc
                 mmio_key_data <= key_code;
                 mmio_key_valid <= 1'b1;
             end
-            if (dph_active && dph_write && dph_mmio) begin
+            if (mmio_we) begin
                 case (mmio_reg)
                     7'h00: begin
                         soc_tx_data <= hwdata[7:0];
@@ -373,10 +352,6 @@ module soc
                     default: ;
                 endcase
             end
-            /* sst_phi2_we is tested after the register writes so that
-             * sst_phi2_wdata takes priority over a core write to
-             * soc_phi2_khz on the same edge. */
-            if (sst_phi2_we) soc_phi2_khz <= sst_phi2_wdata;
     end
 
 endmodule

@@ -21,7 +21,7 @@
 #define TB_STAGE_MEM_SIZE 0x00080000u
 #define TB_STAGE_MEM_ROM_SIZE 0x00040000u
 #define TB_STAGE_MEM_RAM_SIZE 0x00010000u
-#define TB_STAGE_WIN_BASE 0x03F00000u
+#define TB_STAGE_WIN_BASE 0x03E50000u
 #define TB_STAGE_WIN_SIZE 0x00008000u
 
 static const std::vector<uint8_t> &tb_stage_load(const char *path,
@@ -103,6 +103,16 @@ static uint32_t tb_stage_word(const std::vector<uint8_t> &rom, uint32_t addr)
     return w;
 }
 
+/* A write of the machine's, the bytes strb names of the word at addr,
+ * the lowest address in the low byte. */
+static void tb_stage_write_word(uint32_t addr, uint32_t data, uint32_t strb)
+{
+    addr &= ~3u;
+    for (uint32_t i = 0; i < 4; i++)
+        if (strb & (1u << i))
+            tb_stage_write(addr + i, (uint8_t)(data >> (8 * i)));
+}
+
 /* What a platform shows while no access is pending, which the machine
  * must not use. */
 #define TB_STAGE_IDLE 0xDEADBEEFu
@@ -117,6 +127,19 @@ static uint8_t tb_stage(const std::vector<uint8_t> &rom, uint32_t addr)
         && addr - TB_STAGE_ROM_BASE < rom.size())
         return rom[addr - TB_STAGE_ROM_BASE];
     return 0;
+}
+
+/* Called before every clock. It takes the machine's write, if one is
+ * pending, and shows the word a pending read wants. */
+template <typename Dut>
+static void tb_stage_tick(Dut *dut, const std::vector<uint8_t> &rom)
+{
+    uint32_t at = dut->wiring_stage_addr;
+    if (dut->wiring_stage_pend && dut->wiring_stage_we)
+        tb_stage_write_word(at, dut->wiring_stage_wdata,
+                            dut->wiring_stage_wstrb);
+    dut->stage_word = dut->wiring_stage_pend ? tb_stage_word(rom, at)
+                                             : TB_STAGE_IDLE;
 }
 
 #endif /* _TESTS_FPGA_TB_STAGE_H_ */

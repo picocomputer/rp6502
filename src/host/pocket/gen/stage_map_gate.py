@@ -19,9 +19,18 @@ FIRMWARE_FILE = "firmware.bin"
 
 # The Pocket's SDRAM is 64 MB. The ROM slot is its first 62 MB, a limit of
 # the system: a whole ROM has to load into it, so nothing takes from it.
-# Everything else is in the 2 MB above.
+# Everything else is packed into the 2 MB above, in this order: the ROM
+# block, the RAM block, the file windows, the Get File scratch and last
+# the savestate window, which runs to the end of the SDRAM. Whatever the
+# Pocket OS puts around a savestate grows into the window's free end.
 SDRAM_BYTES = 0x04000000
 ROM_SLOT_BYTES = 0x03E00000
+
+# The Memories file on the card has the Pocket OS's header in front of the
+# savestate and a thumbnail behind it: one had a 596-byte header and a
+# 52764-byte thumbnail (measured on a Pocket). Whether a load writes them
+# into the window is not known, so the window keeps room for both.
+HOST_WRAP_BYTES = 0x10000
 
 
 def defines(path: Path) -> dict:
@@ -48,13 +57,13 @@ def main() -> int:
     ap.add_argument("--data", required=True)
     ap.add_argument("--mmio", required=True)
     ap.add_argument("--bench")
-    ap.add_argument("--engine")
     ap.add_argument("--mem", help="package holding the soft CPU's memory")
     ap.add_argument("--sst")
     ap.add_argument("--top")
     ap.add_argument("--core")
     ap.add_argument("--bridge")
     ap.add_argument("--link")
+    ap.add_argument("--version", help="gen/version.py")
     a = ap.parse_args()
 
     ds = slots(Path(a.data))
@@ -75,14 +84,19 @@ def main() -> int:
     want("ROM base", mm["ROM_BRIDGE"], addr(0))
     want("ROM ceiling", mm["ROM_MAX"], ROM_SLOT_BYTES)
 
-    # The soft CPU's memory follows the ROM slot and the savestate window
-    # follows it. The ROM block is at its start and the RAM block after.
+    # The top 2 MB, packed from the bottom in order. The ROM block is first
+    # and the RAM block follows it. The cache's window, MEM_MAX bytes at
+    # MEM_BRIDGE, is a power of two at a multiple of its size and holds
+    # both blocks.
     want("memory base", mm["MEM_BRIDGE"], mm["ROM_MAX"])
-    want("memory ceiling", mm["MEM_BRIDGE"] + mm["MEM_MAX"],
-         mm["SST_BLOB_BRIDGE"])
     want("RAM block base", mm["MEM_RAM"], mm["MEM_ROM_MAX"])
     if mm["MEM_RAM"] + mm["MEM_RAM_MAX"] > mm["MEM_MAX"]:
-        bad.append("the RAM block runs off the soft CPU's memory")
+        bad.append("the RAM block runs off the cache's window")
+    if mm["MEM_MAX"] & (mm["MEM_MAX"] - 1) or \
+            mm["MEM_BRIDGE"] % mm["MEM_MAX"]:
+        bad.append("the cache's window is not a power of two at a "
+                   "multiple of its size")
+    blocks_end = mm["MEM_BRIDGE"] + mm["MEM_RAM"] + mm["MEM_RAM_MAX"]
     fw = [i for i, s in ds.items() if s.get("filename") == FIRMWARE_FILE]
     if len(fw) != 1:
         bad.append(f"data.json has {len(fw)} {FIRMWARE_FILE} slots")
@@ -94,10 +108,18 @@ def main() -> int:
         if not s.get("required") or s.get("deferload"):
             bad.append("the firmware slot is not loaded before the core "
                        "leaves reset")
-    want("savestate blob ceiling",
-         mm["SST_BLOB_BRIDGE"] + mm["SST_BLOB_MAX"],
-         addr(FILE_SLOT_FIRST))
-    want("savestate blob window",
+    want("first file window", addr(FILE_SLOT_FIRST), blocks_end)
+    want("first file window in the staging store",
+         mm["SLOT_WIN_BASE"], STAGE_BASE + mm["SLOT_WIN_BRIDGE"])
+    want("first file window's bridge address",
+         mm["SLOT_WIN_BRIDGE"], addr(FILE_SLOT_FIRST))
+    files_end = addr(FILE_SLOT_FIRST) + FILE_SLOT_COUNT * mm["SLOT_WIN_SIZE"]
+    want("Get File scratch", mm["GETFILE_BRIDGE"], files_end)
+    want("savestate window", mm["SST_BLOB_BRIDGE"],
+         mm["GETFILE_BRIDGE"] + mm["GETFILE_MAX"])
+    want("savestate window's end",
+         mm["SST_BLOB_BRIDGE"] + mm["SST_BLOB_MAX"], SDRAM_BYTES)
+    want("savestate window in the staging store",
          mm["SST_BLOB"], STAGE_BASE + mm["SST_BLOB_BRIDGE"])
 
     for d in range(FILE_SLOT_COUNT):
@@ -116,12 +138,11 @@ def main() -> int:
          mm["GETFILE_WIN"], STAGE_BASE + mm["GETFILE_BRIDGE"])
 
     # Every region of the SDRAM, each slot at the most it can hold. No two
-    # may share a byte and none may run off the chip. The Get File scratch
-    # is one bridge word here; the path the host writes there ends before
-    # the next region begins.
+    # may share a byte and none may run off the chip.
     regions = [("the savestate blob window", mm["SST_BLOB_BRIDGE"],
                 mm["SST_BLOB_MAX"]),
-               ("the Get File scratch", mm["GETFILE_BRIDGE"], 4),
+               ("the Get File scratch", mm["GETFILE_BRIDGE"],
+                mm["GETFILE_MAX"]),
                ("the ROM block", mm["MEM_BRIDGE"], mm["MEM_ROM_MAX"]),
                ("the RAM block", mm["MEM_BRIDGE"] + mm["MEM_RAM"],
                 mm["MEM_RAM_MAX"])]
@@ -177,31 +198,37 @@ def main() -> int:
     if a.core:
         want_sv(a.core, r"localparam logic \[31:0\] MEM_BASE",
                 "pocket_core memory base", mm["MEM_BRIDGE"])
+        want_sv(a.core, r"localparam logic \[31:0\] SST_BASE",
+                "pocket_core savestate window", mm["SST_BLOB_BRIDGE"])
+        want_sv(a.core, r"localparam logic \[31:0\] SST_WINDOW",
+                "pocket_core savestate window size", mm["SST_BLOB_MAX"])
+        core = Path(a.core).read_text(encoding="utf-8")
+        if not re.search(r"\.BLOB_BASE\(SST_BASE\),\s*"
+                         r"\.BLOB_WINDOW\(SST_WINDOW\)", core):
+            bad.append("pocket_core does not give pocket_sst its window")
+        want_sv(a.core, r"localparam logic \[31:0\] MEM_BYTES",
+                "pocket_core's ROM and RAM blocks",
+                mm["MEM_RAM"] + mm["MEM_RAM_MAX"])
+        if not re.search(r"\.MEM_BASE\(MEM_BASE\),\s*"
+                         r"\.MEM_BYTES\(MEM_BYTES\)", core):
+            bad.append("pocket_core does not give pocket_bridge the ROM "
+                       "and RAM blocks")
     if a.bridge:
         want_sv(a.bridge, r"parameter logic \[31:0\] MEM_BASE",
                 "pocket_bridge memory base", mm["MEM_BRIDGE"])
-        m = re.search(r"parameter int MEM_AW = (\d+)",
-                      Path(a.bridge).read_text(encoding="utf-8"))
-        if not m:
-            bad.append("pocket_bridge has no MEM_AW")
-        else:
-            want("pocket_bridge memory size", 4 << int(m.group(1)),
-                 mm["MEM_MAX"])
+        want_sv(a.bridge, r"parameter logic \[31:0\] MEM_BYTES",
+                "pocket_bridge's ROM and RAM blocks",
+                mm["MEM_RAM"] + mm["MEM_RAM_MAX"])
     pkg = {}
     if a.mem:
         pkg = dict(re.findall(r"localparam int (\w+) = (\d+);",
                               Path(a.mem).read_text(encoding="utf-8")))
         for name, size in (("MEM_WORDS", "MEM_MAX"),
-                           ("ROM_WORDS", "MEM_ROM_MAX"),
-                           ("RAM_WORDS", "MEM_RAM_MAX")):
+                           ("ROM_WORDS", "MEM_ROM_MAX")):
             if name not in pkg:
                 bad.append(f"the memory package has no {name}")
             else:
                 want(f"package {name}", int(pkg[name]) * 4, mm[size])
-        if mm["MEM_MAX"] & (mm["MEM_MAX"] - 1) or \
-                mm["MEM_BRIDGE"] % mm["MEM_MAX"]:
-            bad.append("the soft CPU's memory is not a power of two at a "
-                       "multiple of its size")
     if a.link:
         link = Path(a.link).read_text(encoding="utf-8")
         for name, flags, base, size in (("ROM", "rx", 0, "MEM_ROM_MAX"),
@@ -215,53 +242,34 @@ def main() -> int:
                 want(f"linked {name} base", int(m.group(1), 16), base)
                 want(f"linked {name} size", int(m.group(2)) * 1024, mm[size])
 
-    words = None
-    if a.engine:
-        src = Path(a.engine).read_text(encoding="utf-8")
-        want_sv(a.engine, r"localparam int A_STAGE_OFF",
-                "engine blob address", mm["SST_BLOB_BRIDGE"])
-        parts = dict(re.findall(r"localparam int (W_\w+) = (\w+);", src))
-        parts = {k: pkg.get(v, v) for k, v in parts.items()}
-        parts = {k: v for k, v in parts.items() if v.isdigit()}
-        order = ["W_HDR", "W_STATE", "W_REGS", "W_SRAM", "W_XRAM",
-                 "W_CELLS", "W_XPROG", "W_RAM", "W_AUD", "W_END"]
-        missing = [k for k in order if k not in parts]
-        if missing:
-            bad.append(f"sst_engine is missing {', '.join(missing)}")
-        else:
-            words = sum(int(parts[k]) for k in order)
+    # pocket_sst's defaults are the window tb_psst.sv tests.
     if a.sst:
-        want("blob window alignment",
-             mm["SST_BLOB_BRIDGE"] % mm["SST_BLOB_MAX"], 0)
-    if words is not None and a.sst:
-        src = Path(a.sst).read_text(encoding="utf-8")
-        m = re.search(r"parameter int BLOB_WORDS = (\d+)", src)
-        if not m:
-            bad.append("pocket_sst has no BLOB_WORDS")
-        else:
-            want("bridge blob words", int(m.group(1)), words)
         want_sv(a.sst, r"parameter logic \[31:0\] BLOB_BASE",
-                "bridge blob address", mm["SST_BLOB_BRIDGE"])
+                "pocket_sst's default blob address", mm["SST_BLOB_BRIDGE"])
         want_sv(a.sst, r"parameter logic \[31:0\] BLOB_WINDOW",
-                "bridge blob window", mm["SST_BLOB_MAX"])
-    if words is not None and a.top:
-        src = Path(a.top).read_text(encoding="utf-8")
-        m = re.search(r"savestate_size = 32'd(\d+)", src)
-        m2 = re.search(r"savestate_maxloadsize = 32'd(\d+)", src)
-        if not m or not m2:
-            bad.append("core_top has no savestate size")
+                "pocket_sst's default blob window", mm["SST_BLOB_MAX"])
+    sst_bytes = None
+    if a.version:
+        m = re.search(r"^SST_BYTES = (0[xX][0-9A-Fa-f]+|\d+)$",
+                      Path(a.version).read_text(encoding="utf-8"), re.M)
+        if not m:
+            bad.append("version.py has no SST_BYTES")
         else:
-            want("host blob size", int(m.group(1)), words * 4)
-            # The host writes a saved state back with the Pocket OS's header
-            # in front of the blob and a thumbnail after it, so the maximum
-            # load size is the whole blob window and sst_engine searches the
-            # first 1024 word offsets of that window for the start of the
-            # blob.
-            want("host max load size", int(m2.group(1)),
-                 mm["SST_BLOB_MAX"])
-        if words * 4 > mm["SST_BLOB_MAX"]:
-            bad.append(f"blob {words * 4:#x} is over the window's "
-                       f"{mm['SST_BLOB_MAX']:#x}")
+            sst_bytes = int(m.group(1), 0)
+            if sst_bytes + HOST_WRAP_BYTES > mm["SST_BLOB_MAX"]:
+                bad.append(f"savestate {sst_bytes:#x} and the host's "
+                           f"{HOST_WRAP_BYTES:#x} around it are over the "
+                           f"window's {mm['SST_BLOB_MAX']:#x}")
+    if a.top:
+        src = Path(a.top).read_text(encoding="utf-8")
+        if not re.search(r"savestate_size = pocket_version_pkg::SST_BYTES;",
+                         src):
+            bad.append("core_top's savestate size is not SST_BYTES")
+        m = re.search(r"savestate_maxloadsize = 32'd(\d+)", src)
+        if not m:
+            bad.append("core_top has no savestate load size")
+        else:
+            want("host max load size", int(m.group(1)), mm["SST_BLOB_MAX"])
         want_sv(a.top, "savestate_addr", "host blob address",
                 mm["SST_BLOB_BRIDGE"])
 
@@ -269,7 +277,7 @@ def main() -> int:
         raise SystemExit("stage_map_gate: the staging map disagrees\n"
                          + "\n".join(f"  {line}" for line in bad))
 
-    blob = f", state {words * 4 // 1024} KB" if words else ""
+    blob = f", state {sst_bytes // 1024} KB" if sst_bytes else ""
     print(f"stage map ok: {len(ds)} slots, ROM ceiling {mm['ROM_MAX']:#010x}, "
           f"ROM block {mm['MEM_ROM_MAX'] // 1024} KB, "
           f"RAM block {mm['MEM_RAM_MAX'] // 1024} KB, "

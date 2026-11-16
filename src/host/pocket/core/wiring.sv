@@ -10,7 +10,6 @@ module wiring
     parameter int SYS_KHZ = 50400
 ) (
     input logic clk_sys,
-    input logic clk_mach,
     /* The host is writing a new ROM: the 6502 goes into reset and stays
      * there while this is high. */
     input logic rom_stop,
@@ -36,18 +35,21 @@ module wiring
     output logic wiring_rv_halted,
     output logic [31:0] wiring_rv_exit_code,
 
-    /* The staging store, read only. stage_word has to hold the four
-     * bytes at wiring_stage_addr with its low two bits dropped, the
-     * lowest address in bits 7 to 0, in any cycle where
-     * wiring_stage_pend is high and stage_stall is low, so a slow
-     * platform holds stage_stall high until the word is there. */
+    /* The staging store, the memory the cache does not hold. An access
+     * is taken on the first clock with wiring_stage_pend high and
+     * stage_stall low. For a read, stage_word has to hold the four bytes
+     * at wiring_stage_addr with its low two bits dropped, the lowest
+     * address in bits 7 to 0, on that clock, so a slow platform holds
+     * stage_stall high until the word is there. A write puts the bytes
+     * of wiring_stage_wdata that wiring_stage_wstrb names at the same
+     * word, laid out the same way, and a read after it is given them. */
     output logic [27:0] wiring_stage_addr,
     output logic wiring_stage_pend,
+    output logic wiring_stage_we,
+    output logic [31:0] wiring_stage_wdata,
+    output logic [3:0] wiring_stage_wstrb,
     input logic stage_stall,
     input logic [31:0] stage_word,
-
-    input logic mach_running,
-    output logic wiring_sst_stop_req,
 
     /* The soft CPU's memory, a line of four words at a time. A line is
      * 128 bits with word 0 in bits 31 to 0, and wiring_line_addr counts
@@ -55,48 +57,13 @@ module wiring
      * read or a write is wanted and not yet done, and the other three
      * hold with it. line_done rises when it is done, with line_rdata
      * valid for a read, and falls once wiring_line_pend has fallen;
-     * line_rdata holds until the next request is taken. Nothing on this
-     * path runs on clk_mach, because the savestate engine uses it while
-     * the machine is stopped. */
+     * line_rdata holds until the next request is taken. */
     output logic wiring_line_pend,
     output logic wiring_line_we,
     output logic [MEM_AW-3:0] wiring_line_addr,
     output logic [127:0] wiring_line_wdata,
     input logic line_done,
     input logic [127:0] line_rdata,
-
-    /* A test bench raises sst_flush to have the cache write its newer
-     * lines out, and holds it until wiring_sst_cache_idle has gone low
-     * and come back. */
-    input logic sst_flush,
-    output logic wiring_sst_cache_idle,
-
-    /* Once a save has stopped the machine, it stays stopped until
-     * sst_save drops, so the blob, which is the savestate that the host
-     * reads a word at a time through sst_rd_idx, does not change while
-     * it is read. */
-    input logic sst_save,
-    input logic sst_load,
-    output logic wiring_sst_load_done,
-    output logic wiring_sst_load_err,
-    output logic [2:0] wiring_sst_load_why,
-    output logic wiring_sst_ready,
-    input logic [17:0] sst_rd_idx,
-    input logic sst_rd_t,
-    output logic [31:0] wiring_sst_rdata,
-    output logic wiring_sst_rvalid,
-    input logic sst_dbg_halt,
-    input logic sst_dbg_halt_on_reset,
-    input logic sst_dbg_resume,
-    output logic wiring_sst_dbg_halted,
-    input logic [31:0] sst_dbg_data0,
-    output logic [31:0] wiring_sst_dbg_data0,
-    output logic wiring_sst_dbg_data0_wen,
-    input logic [31:0] sst_dbg_instr,
-    input logic sst_dbg_instr_vld,
-    output logic wiring_sst_dbg_instr_rdy,
-    output logic wiring_sst_dbg_ebreak,
-    output logic wiring_sst_dbg_fault,
 
     /* wiring_host_stb is a one-clock strobe, and host_rdata must be
      * valid from the clock after it until the soft CPU reads it, which
@@ -132,18 +99,18 @@ module wiring
     localparam int RV_KHZ = SYS_KHZ / 2;
 
     logic [15:0] phi2_khz, phi2_acc;
-    logic phi2_en;
+    logic phi2_en, phi2_pulse;
 
-    /* The jam's first edge loads an enable of 0, still in the reset
-     * hold, so nothing steps in the second, which loads the saved one. */
     phi2 #(.SYS_KHZ(SYS_KHZ)) phi2 (
-        .clk(clk_mach),
+        .clk(clk_sys),
         .phi2_khz(phi2_khz),
-        .st_jam(eng_st_jam),
-        .st_jam_acc(eng_jam_mach[1][31:16]),
-        .st_jam_en(eng_jam_mach[0][1] && !eng_hold_res),
+        .hold(held),
+        .st_jam(st_jam),
+        .st_jam_acc(jam_acc),
+        .st_jam_pulse(jam_pulse),
         .phi2_en(phi2_en),
-        .phi2_acc(phi2_acc)
+        .phi2_acc(phi2_acc),
+        .phi2_pulse(phi2_pulse)
     );
 
     logic [15:0] cpu_addr;
@@ -152,47 +119,132 @@ module wiring
     logic via_irq;
 
     logic resb /*verilator public_flat_rw*/;
-    /* eng_hold_res rises during a restore while clk_mach is still
-     * stopped. It drives the asynchronous resets of the 6502 and the VIA
-     * through resb_eff, so both are in reset before clk_mach returns. */
-    logic resb_eff;
-    always_comb resb_eff = resb && !eng_hold_res;
     logic cpu_stp;
-    logic eng_st_jam, eng_os_jam;
-    logic [63:0] mtime;
-    logic [31:0] eng_jam_mach[4], eng_jam_cpu[5], eng_jam_via[7];
-    logic [24:0] eng_jam_xr;
 
-    localparam logic [1:0] SEL_MACH = 2'd0;
-    localparam logic [1:0] SEL_W65C02 = 2'd1;
+    /* The machine's savestate registers, the soft CPU's window at
+     * 0x90000000, by soc_addr[13] and then soc_addr[6:2]:
+     *
+     *   0x00     MACH_HOLD. Bit 0 written set asks for the hold, and the
+     *            machine stops on the first clock its audio engines are
+     *            quiet: the 6502's enable, the audio engines' sample
+     *            counters, the RIA's vsync and mtime stand still
+     *            together, and the engines stay quiet. Bit 0 reads what
+     *            was asked, and bit 1 is set while the hold is in force.
+     *            Bit 0 written clear lets them all go on the same clock.
+     *   0x04     ST_SEL. The group in bits 4:3, 0 MACH, 1 the 6502,
+     *            2 the VIA, 3 the bus, and the word in bits 2:0.
+     *   0x08     ST_DATA. The word ST_SEL picks. MACH word 0 is the
+     *            pending PHI2 enable in bit 1 and RESB in bit 0, and
+     *            word 1 the PHI2 accumulator in bits 31:16 and the rate
+     *            in bits 15:0. The bus's word 0 is the open-bus byte.
+     *   0x0C     JAM. A write, while the hold is in force, loads the
+     *            JAM_DATA words into the 6502, the VIA, the bus and the
+     *            PHI2 count together. The 6502 and the VIA take theirs
+     *            only out of reset, so RESB is written first.
+     *   0x10     REGS_RESTORE. Bit 0 set has the RIA window's writes put
+     *            back what its reads gave; regs.sv says which words
+     *            differ.
+     *   0x14     AUD_OWN. Bit 0 set gives the audio engines' memories to
+     *            AUD_SST. It is taken only while the hold is in force,
+     *            and the hold's end drops it.
+     *   0x40     JAM_DATA, fifteen words, laid out as ST_DATA reads them:
+     *            0-4 the 6502's words, 5-11 the VIA's, 12-13 MACH's, 14
+     *            the bus's.
+     *   0x2000   AUD_SST, 2048 words, the audio engines' state at
+     *            psg.sv's, opl.sv's and pcm.sv's savestate addresses,
+     *            read and written while AUD_OWN is set.
+     *
+     * ST_DATA and AUD_SST read the machine as it is, so a savestate reads
+     * them with the hold in force. */
+    localparam int JAM_VIA = 5, JAM_MACH = 12, JAM_BUS = 14;
+    /* The jam is held this many clocks, the multicycle the timing
+     * constraints give paths into the 6502 and the VIA. It loads the
+     * same words on each, with the PHI2 enable held low. */
+    localparam int JAM_CLOCKS = 4;
+    logic hold_req, regs_restore, aud_own, st_jam;
+    logic held /*verilator public_flat_rd*/;
+    logic [4:0] st_sel;
+    logic [2:0] jam_left;
+    logic [31:0] jam_cpu[5], jam_via[7];
+    logic [15:0] jam_acc;
+    logic [7:0] jam_bus;
+    logic jam_pulse;
+    logic aud_quiet;
+    always_comb st_jam = jam_left != 3'd0;
+
+    logic mach_we, aud_sst_we;
+    always_comb begin
+        mach_we = soc_stb && soc_we && soc_sel_mach && !soc_addr[13];
+        aud_sst_we = soc_stb && soc_we && soc_sel_mach && soc_addr[13]
+            && aud_own;
+    end
+    initial begin
+        hold_req = 1'b0;
+        held = 1'b0;
+        regs_restore = 1'b0;
+        aud_own = 1'b0;
+        st_sel = '0;
+        jam_left = '0;
+    end
+    always_ff @(posedge clk_sys) begin
+        held <= hold_req && (held || aud_quiet);
+        if (st_jam)
+            jam_left <= jam_left - 3'd1;
+        if (mach_we && soc_addr[6]) begin
+            if (soc_addr[5:2] < 4'(JAM_VIA))
+                jam_cpu[3'(soc_addr[5:2])] <= soc_wdata;
+            else if (soc_addr[5:2] < 4'(JAM_MACH))
+                jam_via[3'(soc_addr[5:2] - 4'(JAM_VIA))] <= soc_wdata;
+            else if (soc_addr[5:2] == 4'(JAM_MACH))
+                jam_pulse <= soc_wdata[1];
+            else if (soc_addr[5:2] == 4'(JAM_MACH + 1))
+                jam_acc <= soc_wdata[31:16];
+            else if (soc_addr[5:2] == 4'(JAM_BUS))
+                jam_bus <= soc_wdata[7:0];
+        end else if (mach_we)
+            case (soc_addr[4:2])
+                3'd0: hold_req <= soc_wdata[0];
+                3'd1: st_sel <= soc_wdata[4:0];
+                3'd3: if (held) jam_left <= 3'(JAM_CLOCKS);
+                3'd4: regs_restore <= soc_wdata[0];
+                3'd5: aud_own <= soc_wdata[0] && held;
+                default: ;
+            endcase
+        if (!held)
+            aud_own <= 1'b0;
+    end
 
     logic [31:0] cpu_st_rdata, via_st_rdata, mach_st_rdata, st_rdata;
+    logic [7:0] bus_hold;
     always_comb begin
-        /* mtime is saved because the firmware keeps its deadlines as
-         * absolute mtime readings in the soft CPU's memory, which is in
-         * the blob. If mtime were not restored, each deadline would be
-         * off by the difference between the counter's value at the save
-         * and its value at the restore. The savestate engine reads mtime
-         * while the soft CPU is halted, which is the only time the
-         * counter stands still. */
-        case (eng_st_idx)
-            3'd0: mach_st_rdata = {30'd0, phi2_en, resb};
+        case (st_sel[2:0])
+            3'd0: mach_st_rdata = {30'd0, phi2_pulse, resb};
             3'd1: mach_st_rdata = {phi2_acc, phi2_khz};
-            3'd2: mach_st_rdata = mtime[31:0];
-            3'd3: mach_st_rdata = mtime[63:32];
             default: mach_st_rdata = '0;
         endcase
-        case (eng_st_sel)
-            SEL_MACH:   st_rdata = mach_st_rdata;
-            SEL_W65C02: st_rdata = cpu_st_rdata;
-            default:    st_rdata = via_st_rdata;
+        case (st_sel[4:3])
+            2'd0: st_rdata = mach_st_rdata;
+            2'd1: st_rdata = cpu_st_rdata;
+            2'd2: st_rdata = via_st_rdata;
+            default: st_rdata = {24'd0, bus_hold};
         endcase
     end
 
+    logic [31:0] mach_rdata;
+    always_comb
+        case (soc_addr[4:2])
+            3'd0: mach_rdata = {30'd0, held, hold_req};
+            3'd1: mach_rdata = {27'd0, st_sel};
+            3'd2: mach_rdata = st_rdata;
+            3'd4: mach_rdata = {31'd0, regs_restore};
+            3'd5: mach_rdata = {31'd0, aud_own};
+            default: mach_rdata = '0;
+        endcase
+
     logic ria_hold;
     cpu cpu (
-        .clk(clk_mach),
-        .rst_n(resb_eff),
+        .clk(clk_sys),
+        .rst_n(resb),
         .en(phi2_en),
         .data_i(cpu_din),
         .irq_i(via_irq || ria_irq),
@@ -203,142 +255,22 @@ module wiring
         .cpu_data(cpu_dout),
         .cpu_we(cpu_we),
         .cpu_stp(cpu_stp),
-        .st_idx(eng_st_idx),
+        .st_idx(st_sel[2:0]),
         .cpu_st_rdata(cpu_st_rdata),
-        .st_jam(eng_st_jam),
-        .st_jam_data(eng_jam_cpu)
-    );
-
-    logic eng_freeze;
-    always_comb wiring_sst_stop_req = eng_freeze;
-
-    logic eng_own;
-
-    logic eng_arr_own, eng_hold_res;
-    logic [13:0] eng_mem_addr;
-    logic [31:0] eng_mem_wdata;
-    logic [1:0] eng_xprog_word;
-    logic eng_xram_we, eng_cell_we, eng_xprog_we;
-    logic eng_sram_we, eng_regs_we;
-    logic eng_stage_pend;
-    logic [27:0] eng_stage_addr;
-    logic [7:0] eng_regs_word;
-    logic [31:0] eng_regs_wdata;
-    logic [15:0] eng_sram_addr;
-    logic [7:0] eng_sram_wdata;
-    logic [31:0] eng_cell_rdata, eng_xprog_rdata;
-    logic eng_aud_we, eng_aud_st_we, eng_park, eng_aud_mask, eng_regs_own;
-    logic [31:0] aud_sst_rdata;
-    logic aud_quiet;
-
-    logic eng_dbg_halt, eng_dbg_vld;
-    logic eng_flush, eng_empty, eng_line_pend, eng_line_we;
-    logic [MEM_AW-3:0] eng_line_addr;
-    logic [127:0] eng_line_wdata;
-    logic [1:0] eng_st_sel;
-    logic [2:0] eng_st_idx;
-    logic [31:0] eng_dbg_instr, eng_dbg_data0;
-    logic eng_dbg_resume;
-
-    sst_engine #(
-        .MEM_WORDS(MEM_WORDS),
-        .ROM_WORDS(ROM_WORDS),
-        .RAM_WORDS(RAM_WORDS)
-    ) engine (
-        .clk_sys(clk_sys),
-        .rst_n(rst_n),
-        .sst_save(sst_save),
-        .sst_load(sst_load),
-        .sst_engine_load_done(wiring_sst_load_done),
-        .sst_engine_load_err(wiring_sst_load_err),
-        .sst_engine_load_why(wiring_sst_load_why),
-        .sst_engine_busy(eng_own),
-        .sst_engine_freeze(eng_freeze),
-        .running(mach_running),
-        .sst_engine_dbg_halt(eng_dbg_halt),
-        .dbg_halted(wiring_sst_dbg_halted),
-        .sst_engine_ready(wiring_sst_ready),
-        .rd_idx(sst_rd_idx),
-        .rd_t(sst_rd_t),
-        .sst_engine_rdata(wiring_sst_rdata),
-        .sst_engine_rvalid(wiring_sst_rvalid),
-        .sst_engine_stage_pend(eng_stage_pend),
-        .sst_engine_stage_addr(eng_stage_addr),
-        .stage_stall(stage_stall),
-        .stage_word(stage_word),
-        .sst_engine_arr_own(eng_arr_own),
-        .sst_engine_hold_res(eng_hold_res),
-        .sst_engine_mem_addr(eng_mem_addr),
-        .sst_engine_mem_wdata(eng_mem_wdata),
-        .sst_engine_xram_we(eng_xram_we),
-        .sst_engine_regs_own(eng_regs_own),
-        .sst_engine_regs_word(eng_regs_word),
-        .sst_engine_regs_we(eng_regs_we),
-        .sst_engine_regs_wdata(eng_regs_wdata),
-        .regs_rdata(regs_b_rdata),
-        .sst_engine_sram_addr(eng_sram_addr),
-        .sst_engine_sram_we(eng_sram_we),
-        .sst_engine_sram_wdata(eng_sram_wdata),
-        .sram_rdata(sram_b_rdata),
-        .sst_engine_cell_we(eng_cell_we),
-        .sst_engine_xprog_we(eng_xprog_we),
-        .sst_engine_xprog_word(eng_xprog_word),
-        .xram_rdata(xram_sst_rdata),
-        .cell_rdata(eng_cell_rdata),
-        .xprog_rdata(eng_xprog_rdata),
-        .sst_engine_aud_we(eng_aud_we),
-        .sst_engine_aud_st_we(eng_aud_st_we),
-        .aud_rdata(aud_sst_rdata),
-        .aud_quiet(aud_quiet),
-        .sst_engine_park(eng_park),
-        .sst_engine_aud_mask(eng_aud_mask),
-        .sst_engine_flush(eng_flush),
-        .sst_engine_empty(eng_empty),
-        .cache_idle(wiring_sst_cache_idle),
-        .sst_engine_line_pend(eng_line_pend),
-        .sst_engine_line_we(eng_line_we),
-        .sst_engine_line_addr(eng_line_addr),
-        .sst_engine_line_wdata(eng_line_wdata),
-        .line_done(line_done),
-        .line_rdata(line_rdata),
-        .sst_engine_st_sel(eng_st_sel),
-        .sst_engine_st_idx(eng_st_idx),
-        .st_rdata(st_rdata),
-        .sst_engine_st_jam(eng_st_jam),
-        .sst_engine_os_jam(eng_os_jam),
-        .sst_engine_jam_mach(eng_jam_mach),
-        .sst_engine_jam_cpu(eng_jam_cpu),
-        .sst_engine_jam_via(eng_jam_via),
-        .sst_engine_jam_xr(eng_jam_xr),
-        .sst_engine_dbg_data0(eng_dbg_data0),
-        .sst_engine_dbg_resume(eng_dbg_resume),
-        .sst_engine_dbg_instr(eng_dbg_instr),
-        .sst_engine_dbg_instr_vld(eng_dbg_vld),
-        .dbg_instr_rdy(wiring_sst_dbg_instr_rdy),
-        .dbg_ebreak(wiring_sst_dbg_ebreak),
-        .dbg_data0(wiring_sst_dbg_data0),
-        .dbg_data0_wen(wiring_sst_dbg_data0_wen)
+        .st_jam(st_jam),
+        .st_jam_data(jam_cpu)
     );
 
     logic sel_via, sel_ria;
 
     /* Every 6502 write also lands in RAM, including a write to
      * $FF00-$FFFF, where 6502 reads come from the VIA, the RIA or open
-     * bus instead.
-     *
-     * Port A reads a clock behind its address. The restored 6502 takes
-     * its address on the jam's last edge, and the next edge can be a PHI2
-     * enable, so during the jam port A reads at the address in the jam
-     * word. */
+     * bus instead. */
     logic [7:0] sram_rdata;
     logic [7:0] sram_b_rdata;
     sram sram (
         .clk(clk_sys),
-        .sst_own(eng_arr_own),
-        .sst_addr(eng_sram_addr),
-        .sst_we(eng_sram_we),
-        .sst_wdata(eng_sram_wdata),
-        .a_addr(eng_st_jam ? eng_jam_cpu[4][31:16] : cpu_addr),
+        .a_addr(cpu_addr),
         .a_wdata(cpu_dout),
         .a_we(cpu_we && phi2_en),
         .sram_a_rdata(sram_rdata),
@@ -351,8 +283,8 @@ module wiring
     logic ria_irq;
     logic [7:0] via_data;
     via via (
-        .clk(clk_mach),
-        .rst_n(resb_eff),
+        .clk(clk_sys),
+        .rst_n(resb),
         .en(phi2_en),
         .cs(sel_via),
         .we(cpu_we),
@@ -360,10 +292,10 @@ module wiring
         .data_i(cpu_dout),
         .via_data(via_data),
         .via_irq(via_irq),
-        .st_idx(eng_st_idx),
+        .st_idx(st_sel[2:0]),
         .via_st_rdata(via_st_rdata),
-        .st_jam(eng_st_jam),
-        .st_jam_data(eng_jam_via)
+        .st_jam(st_jam),
+        .st_jam_data(jam_via)
     );
 
     /* Everything the soft CPU drives into the machine is taken on the
@@ -379,7 +311,7 @@ module wiring
      *
      * The console valid, which can stay high for more than one clk_sys
      * cycle, is narrowed to one on the way, and slot_set and key_set are
-     * stretched by one clk_mach cycle so that a clk_rv edge samples
+     * stretched by one clk_sys cycle so that a clk_rv edge samples
      * them. */
     logic rv_tx_valid_raw, rv_tx_valid_n, rv_tx_valid_q;
     logic [7:0] rv_tx_data;
@@ -389,16 +321,11 @@ module wiring
     logic [31:0] rv_bus_addr, rv_bus_wdata;
     logic [3:0] rv_bus_wstrb;
     logic [15:0] rv_phi2_khz;
-    logic [63:0] rv_mtime;
-    logic [31:0] rv_dbg_data0, rv_exit_code;
-    logic rv_cache_idle, rv_line_pend, rv_line_we;
+    logic [31:0] rv_exit_code;
+    logic rv_line_pend, rv_line_we;
     logic [MEM_AW-3:0] rv_line_addr;
     logic [127:0] rv_line_wdata;
-    logic soc_line_pend, soc_line_we;
-    logic [MEM_AW-3:0] soc_line_addr;
-    logic [127:0] soc_line_wdata;
-    logic rv_dbg_halted, rv_dbg_data0_wen, rv_dbg_instr_rdy, rv_dbg_ebreak,
-        rv_dbg_fault, rv_halted, rv_key_pending;
+    logic rv_halted, rv_key_pending;
     initial begin
         soc_pend = 1'b0;
         soc_we = 1'b0;
@@ -408,18 +335,10 @@ module wiring
         rv_tx_valid_n = 1'b0;
         wiring_rv_tx_data = '0;
         phi2_khz = 16'd8000;
-        mtime = '0;
-        wiring_sst_dbg_halted = 1'b0;
-        wiring_sst_dbg_data0 = '0;
-        wiring_sst_dbg_data0_wen = 1'b0;
-        wiring_sst_dbg_instr_rdy = 1'b0;
-        wiring_sst_dbg_ebreak = 1'b0;
-        wiring_sst_dbg_fault = 1'b0;
-        wiring_sst_cache_idle = 1'b0;
-        soc_line_pend = 1'b0;
-        soc_line_we = 1'b0;
-        soc_line_addr = '0;
-        soc_line_wdata = '0;
+        wiring_line_pend = 1'b0;
+        wiring_line_we = 1'b0;
+        wiring_line_addr = '0;
+        wiring_line_wdata = '0;
         wiring_rv_halted = 1'b0;
         wiring_rv_exit_code = '0;
         wiring_key_pending = 1'b0;
@@ -433,18 +352,10 @@ module wiring
         rv_tx_valid_n <= rv_tx_valid_raw;
         wiring_rv_tx_data <= rv_tx_data;
         phi2_khz <= rv_phi2_khz;
-        mtime <= rv_mtime;
-        wiring_sst_dbg_halted <= rv_dbg_halted;
-        wiring_sst_dbg_data0 <= rv_dbg_data0;
-        wiring_sst_dbg_data0_wen <= rv_dbg_data0_wen;
-        wiring_sst_dbg_instr_rdy <= rv_dbg_instr_rdy;
-        wiring_sst_dbg_ebreak <= rv_dbg_ebreak;
-        wiring_sst_dbg_fault <= rv_dbg_fault;
-        wiring_sst_cache_idle <= rv_cache_idle;
-        soc_line_pend <= rv_line_pend;
-        soc_line_we <= rv_line_we;
-        soc_line_addr <= rv_line_addr;
-        soc_line_wdata <= rv_line_wdata;
+        wiring_line_pend <= rv_line_pend;
+        wiring_line_we <= rv_line_we;
+        wiring_line_addr <= rv_line_addr;
+        wiring_line_wdata <= rv_line_wdata;
         wiring_rv_halted <= rv_halted;
         wiring_rv_exit_code <= rv_exit_code;
         wiring_key_pending <= rv_key_pending;
@@ -454,28 +365,29 @@ module wiring
         slot_set_q = 1'b0;
         key_set_q = 1'b0;
     end
-    always_ff @(posedge clk_mach) begin
+    always_ff @(posedge clk_sys) begin
         rv_tx_valid_q <= rv_tx_valid_n;
         slot_set_q <= slot_set;
         key_set_q <= key_set;
     end
     always_comb wiring_rv_tx_valid = rv_tx_valid_n && !rv_tx_valid_q;
 
-    /* An access is taken on the first clk_mach edge that finds it pending
+    /* An access is taken on the first clk_sys edge that finds it pending
      * and its target able to finish it: XRAM once its port is free, the
-     * staging store once it holds the data, everything else at once. That decision is the machine's, made from the sampled
-     * request on its own edge, so it can never run ahead of the stalls
-     * it depends on. soc_stb is the request while it waits, one clock for
-     * the targets that never stall. soc_taken then stays high until
-     * soc_pend drops, because the soft CPU samples it only on clk_rv
-     * edges, which are every second clk_sys edge. */
+     * staging store once it stops stalling, everything else at once.
+     * That decision is the machine's, made from the sampled request on
+     * its own edge, so it can never run ahead of the stalls it depends
+     * on. soc_stb is the request while it waits, one clock for the
+     * targets that never stall. soc_taken then stays high until soc_pend
+     * drops, because the soft CPU samples it only on clk_rv edges, which
+     * are every second clk_sys edge. */
     logic soc_taken, soc_take;
     initial soc_taken = 1'b0;
     always_comb soc_stb = soc_pend && !soc_taken;
     always_comb soc_take = soc_stb
         && (soc_sel_xram ? xram_go
             : soc_sel_stage ? !stage_stall : 1'b1);
-    always_ff @(posedge clk_mach) begin
+    always_ff @(posedge clk_sys) begin
         if (!soc_pend)
             soc_taken <= 1'b0;
         else if (soc_take)
@@ -485,22 +397,12 @@ module wiring
     logic [3:0] soc_wstrb;
     logic [31:0] soc_rdata;
 
-    /* The line port is the cache's, and the engine's while the engine
-     * has a request up. The engine raises one only with the soft CPU
-     * halted and the cache idle, so the port never changes hands with a
-     * request on it. line_done and line_rdata go to both as they come,
-     * the cache's copy included, because that path ends in clk_rv. */
-    always_comb begin
-        wiring_line_pend = eng_line_pend || soc_line_pend;
-        wiring_line_we = eng_line_pend ? eng_line_we : soc_line_we;
-        wiring_line_addr = eng_line_pend ? eng_line_addr : soc_line_addr;
-        wiring_line_wdata = eng_line_pend ? eng_line_wdata : soc_line_wdata;
-    end
-
     /* mtime_acc is clocked by clk_rv, so the rate here is RV_KHZ and not
      * SYS_KHZ. At the default 50.4 MHz clk_sys, a microsecond is 25.2
      * clk_rv cycles, so adding 10 per cycle and wrapping at RV_KHZ / 100,
-     * which is 252, counts microseconds exactly. */
+     * which is 252, counts microseconds exactly. mtime takes held on
+     * clk_rv's edges, so it stops and goes on within a clk_rv cycle of the
+     * 6502, 40 ns at most. */
     soc #(
         .MTIME_ADD(10),
         .MTIME_WRAP(RV_KHZ / 100)
@@ -508,26 +410,7 @@ module wiring
         .clk(clk_rv),
         .rst_n(rst_n),
         .soc_phi2_khz(rv_phi2_khz),
-        .sst_dbg_halt(sst_dbg_halt || eng_dbg_halt),
-        .sst_dbg_halt_on_reset(sst_dbg_halt_on_reset),
-        .sst_dbg_resume(sst_dbg_resume || eng_dbg_resume),
-        .soc_dbg_halted(rv_dbg_halted),
-        .sst_dbg_data0(eng_own ? eng_dbg_data0 : sst_dbg_data0),
-        .soc_dbg_data0(rv_dbg_data0),
-        .soc_dbg_data0_wen(rv_dbg_data0_wen),
-        .sst_dbg_instr(eng_own ? eng_dbg_instr : sst_dbg_instr),
-        .sst_dbg_instr_vld(eng_own ? eng_dbg_vld : sst_dbg_instr_vld),
-        .soc_dbg_instr_rdy(rv_dbg_instr_rdy),
-        .soc_dbg_ebreak(rv_dbg_ebreak),
-        .soc_dbg_fault(rv_dbg_fault),
-        .sst_phi2_we(eng_os_jam),
-        .sst_phi2_wdata(eng_jam_mach[1][15:0]),
-        .soc_mtime(rv_mtime),
-        .sst_mtime_we(eng_os_jam),
-        .sst_mtime_wdata({eng_jam_mach[3], eng_jam_mach[2]}),
-        .sst_flush(sst_flush || eng_flush),
-        .sst_empty(eng_empty),
-        .soc_cache_idle(rv_cache_idle),
+        .mtime_hold(held),
         .soc_line_pend(rv_line_pend),
         .soc_line_we(rv_line_we),
         .soc_line_addr(rv_line_addr),
@@ -572,7 +455,7 @@ module wiring
     end
 
     logic soc_sel_sram, soc_sel_regs, soc_sel_ctl, soc_sel_stage,
-        soc_sel_vid, soc_sel_xram, soc_sel_aud, soc_sel_host;
+        soc_sel_vid, soc_sel_xram, soc_sel_aud, soc_sel_host, soc_sel_mach;
     always_comb begin
         soc_sel_sram = soc_addr[31:28] == 4'h1;
         soc_sel_xram = soc_addr[31:28] == 4'h3;
@@ -582,6 +465,7 @@ module wiring
         soc_sel_vid = soc_addr[31:28] == 4'h5;
         soc_sel_aud = soc_addr[31:28] == 4'h7;
         soc_sel_host = soc_addr[31:28] == 4'h8;
+        soc_sel_mach = soc_addr[31:28] == 4'h9;
     end
 
     always_comb begin
@@ -591,45 +475,48 @@ module wiring
         wiring_host_wdata = soc_wdata;
     end
 
-    /* wiring_stage_addr follows soc_addr while the soft CPU's request is
-     * pending, which starts before its strobe, so a slow platform can
-     * fetch the word before the strobe. The strobe that takes the access
-     * captures the word in stage_q, so the platform owes nothing once
-     * the request stops pending, and the soft CPU's load data comes from
-     * a register and never from the address taken on the falling edge. */
+    /* wiring_stage_pend is high from the soft CPU's request until the
+     * clock that takes it, so a slow platform can fetch the word before
+     * then, and a write is taken once. That clock captures the word in
+     * stage_q, so the platform owes nothing after it, and the soft CPU's
+     * load data comes from a register and never from the address taken
+     * on the falling edge. */
     logic [31:0] stage_q;
     always_comb begin
-        /* During a load the engine reads the staging store directly
-         * while clk_mach is stopped, which works because the store does
-         * not run on clk_mach. */
-        wiring_stage_pend = eng_stage_pend || (soc_pend && soc_sel_stage);
-        wiring_stage_addr = eng_stage_pend ? eng_stage_addr : soc_addr[27:0];
+        wiring_stage_pend = soc_stb && soc_sel_stage;
+        wiring_stage_addr = soc_addr[27:0];
+        wiring_stage_we = soc_we;
+        wiring_stage_wdata = soc_wdata;
+        wiring_stage_wstrb = soc_wstrb;
     end
 
     logic api_pending;
-    logic soc_ctl_api, soc_ctl_us;
+    logic soc_ctl_api, vid_prog_q;
     logic [31:0] regs_b_rdata, regs_b_q;
-    logic [31:0] vid_b_rdata;
-    logic [31:0] aud_rdata, aud_q;
-    logic [2:0] soc_rsel;
+    logic [31:0] mode0_b_rdata, prog_b_rdata;
+    logic [31:0] aud_rdata, aud_q, mach_q, aud_sst_rdata, aud_sst_q;
+    logic [3:0] soc_rsel;
     initial begin
-        soc_rsel = 3'd0;
+        soc_rsel = 4'd0;
         soc_ctl_api = 1'b0;
-        soc_ctl_us = 1'b0;
+        vid_prog_q = 1'b0;
         stage_q = '0;
         aud_q = '0;
+        mach_q = '0;
     end
-    always_ff @(posedge clk_mach) begin
+    always_ff @(posedge clk_sys) begin
         if (soc_stb) begin
-            soc_rsel <= soc_sel_regs ? 3'd1
-                : (soc_sel_ctl ? 3'd2
-                : (soc_sel_stage ? 3'd3
-                : (soc_sel_vid ? 3'd4
-                : (soc_sel_xram ? 3'd5
-                : (soc_sel_host ? 3'd6
-                : (soc_sel_aud ? 3'd7 : 3'd0))))));
+            soc_rsel <= soc_sel_regs ? 4'd1
+                : soc_sel_ctl ? 4'd2
+                : soc_sel_stage ? 4'd3
+                : soc_sel_vid ? 4'd4
+                : soc_sel_xram ? 4'd5
+                : soc_sel_host ? 4'd6
+                : soc_sel_aud ? 4'd7
+                : soc_sel_mach ? (soc_addr[13] ? 4'd9 : 4'd8)
+                : 4'd0;
             soc_ctl_api <= soc_addr[2];
-            soc_ctl_us <= soc_addr[3];
+            vid_prog_q <= soc_addr[17];
             stage_q <= stage_word;
             /* regs_b_q is captured at the strobe, because a read of word
              * 16 of the regs window pops the console queue on this edge,
@@ -640,13 +527,20 @@ module wiring
             /* The same for the OPL's drop count and PCM's underruns, which
              * their reads clear. */
             aud_q <= aud_rdata;
+            mach_q <= mach_rdata;
         end
     end
+    /* The audio engines' memories read a clock after their address, so
+     * AUD_SST is taken on every clock and the soft CPU reads it a clock
+     * or more after its strobe. */
+    always_ff @(posedge clk_sys)
+        aud_sst_q <= aud_sst_rdata;
 
+    /* The 6502 is in reset while the core is, so no program runs on
+     * without its firmware, and while the host writes a new ROM. */
     initial resb = 1'b0;
-    always_ff @(posedge clk_mach)
-        if (eng_os_jam) resb <= eng_jam_mach[0][0];
-        else if (rom_stop) resb <= 1'b0;
+    always_ff @(posedge clk_sys)
+        if (!rst_n || rom_stop) resb <= 1'b0;
         else if (soc_stb && soc_we && soc_sel_ctl && !soc_addr[2])
             resb <= soc_wbyte[0];
 
@@ -656,26 +550,26 @@ module wiring
     logic [7:0] soc_rbyte;
     always_comb begin
         case (soc_rsel)
-            3'd2: soc_rbyte = soc_ctl_api ? {7'b0, api_pending}
-                : {6'b0, cpu_stp, resb_eff};
-            3'd5: soc_rbyte = xram_b_hold;
+            4'd2: soc_rbyte = soc_ctl_api ? {7'b0, api_pending}
+                : {6'b0, cpu_stp, resb};
+            4'd5: soc_rbyte = xram_b_hold;
             default: soc_rbyte = sram_b_rdata;
         endcase
-        /* SST_SAVED_US: the low word of the mtime the last load restored,
-         * which the engine holds until the next load. */
-        soc_rdata = soc_rsel == 3'd1 ? regs_b_q
-            : (soc_rsel == 3'd3 ? stage_q
-            : (soc_rsel == 3'd4 ? vid_b_rdata
-               : (soc_rsel == 3'd6 ? host_rdata
-                  : (soc_rsel == 3'd7 ? aud_q
-                     : (soc_rsel == 3'd2 && soc_ctl_us ? eng_jam_mach[2]
-                        : {4{soc_rbyte}})))));
+        case (soc_rsel)
+            4'd1: soc_rdata = regs_b_q;
+            4'd3: soc_rdata = stage_q;
+            4'd4: soc_rdata = vid_prog_q ? prog_b_rdata : mode0_b_rdata;
+            4'd6: soc_rdata = host_rdata;
+            4'd7: soc_rdata = aud_q;
+            4'd8: soc_rdata = mach_q;
+            4'd9: soc_rdata = aud_sst_q;
+            default: soc_rdata = {4{soc_rbyte}};
+        endcase
     end
 
     logic [7:0] ria_data;
     regs ria (
-        .clk(clk_mach),
-        .clk_mem(clk_sys),
+        .clk(clk_sys),
         .en(phi2_en),
         .cs(sel_ria),
         .we(cpu_we),
@@ -687,9 +581,9 @@ module wiring
         .rx_valid(rx_valid),
         .rx_data(rx_data),
         .regs_rx_taken(wiring_rx_taken),
-        /* Parked through a load's wake, so the 6502 resumes at the frame
-         * count and interrupt it saved. */
-        .vsync_pulse(prog_vsync_pulse && !eng_park),
+        /* Held with the 6502, so it resumes at the frame count and the
+         * interrupt it stopped at. */
+        .vsync_pulse(prog_vsync_pulse && !held),
         .regs_irq(ria_irq),
         .regs_xr_busy(xr_busy),
         .regs_xr_we(xr_we),
@@ -697,12 +591,7 @@ module wiring
         .regs_xr_wdata(xr_wdata),
         .xr_rdata(xram_b_rdata),
         .xr_cpu_want(soc_pend && soc_sel_xram),
-        .sst_jam(eng_st_jam),
-        .sst_jam_xr(eng_jam_xr),
-        .sst_own(eng_regs_own),
-        .sst_word(eng_regs_word),
-        .sst_we(eng_regs_we),
-        .sst_wdata(eng_regs_wdata),
+        .sst_restore(regs_restore),
         .b_we(soc_stb && soc_we && soc_sel_regs),
         .b_re(soc_stb && !soc_we && soc_sel_regs),
         .b_word(soc_addr[9:2]),
@@ -715,7 +604,7 @@ module wiring
     );
 
     bus bus (
-        .clk(clk_mach),
+        .clk(clk_sys),
         .en(phi2_en),
         .addr(cpu_addr),
         .we(cpu_we),
@@ -725,7 +614,10 @@ module wiring
         .sram_rdata(sram_rdata),
         .bus_din(cpu_din),
         .bus_sel_via(sel_via),
-        .bus_sel_ria(sel_ria)
+        .bus_sel_ria(sel_ria),
+        .bus_hold(bus_hold),
+        .st_jam(st_jam),
+        .st_jam_hold(jam_bus)
     );
 
     logic [9:0] vid_h /*verilator public_flat_rd*/;
@@ -740,7 +632,7 @@ module wiring
     logic prog_vsync_pulse;
     logic vid_px_first, vid_px_last;
     timing timing (
-        .clk(clk_mach),
+        .clk(clk_sys),
         .timing_h(vid_h),
         .timing_v(vid_v),
         .timing_px_first(vid_px_first),
@@ -763,7 +655,7 @@ module wiring
     logic xr_busy, xr_we;
     logic [15:0] xr_addr;
     logic [7:0] xr_wdata;
-    logic [31:0] xram_f_rdata, xram_s_rdata, xram_sst_rdata;
+    logic [31:0] xram_f_rdata, xram_s_rdata;
     logic [1:0] mf_req;
     logic [13:0] mf_addr[2];
     logic f_rotor, f_sel;
@@ -781,13 +673,13 @@ module wiring
         end
     end
     initial f_rotor = 1'd0;
-    always_ff @(posedge clk_mach)
+    always_ff @(posedge clk_sys)
         if (f_any)
             f_rotor <= f_sel + 1'd1;
 
     logic [7:0] font_bits;
     font font (
-        .clk(clk_mach),
+        .clk(clk_sys),
         .addr(mf_addr[f_sel]),
         .font_bits(font_bits),
         .w_stb(soc_stb && soc_we && soc_sel_vid && soc_addr[18]),
@@ -804,7 +696,7 @@ module wiring
 
     logic xram_owed;
     initial xram_owed = 1'b0;
-    always_ff @(posedge clk_mach) begin
+    always_ff @(posedge clk_sys) begin
         if (!soc_pend)
             xram_owed <= 1'b0;
         else if (soc_stb && soc_sel_xram && xr_busy)
@@ -819,15 +711,12 @@ module wiring
     /* The XRAM writes on port B, the RW engine's and the soft CPU's. The
      * PSG and the OPL snoop the RW engine's alone, the 6502's writes
      * through RW0 and RW1, as on every machine; a write the OS makes, such
-     * as read_xram's, reaches XRAM only. The park holds the RW engine's
-     * write through the jam, so a restored pending write lands on the
-     * 6502's first edge. */
+     * as read_xram's, reaches XRAM only. */
     logic xw_we;
     logic [15:0] xw_addr;
     logic [7:0] xw_wdata;
     always_comb begin
-        xw_we = xr_busy ? (xr_we && !eng_arr_own && !eng_park)
-                        : (xram_go && soc_we && !eng_arr_own);
+        xw_we = xr_busy ? xr_we : (xram_go && soc_we);
         xw_addr = xr_busy ? xr_addr : soc_addr[15:0];
         xw_wdata = xr_busy ? xr_wdata : soc_wbyte;
     end
@@ -842,7 +731,7 @@ module wiring
         xram_cap = 1'b0;
         xram_b_hold = '0;
     end
-    always_ff @(posedge clk_mach) begin
+    always_ff @(posedge clk_sys) begin
         xram_cap <= xram_go && !soc_we;
         if (xram_cap)
             xram_b_hold <= xram_b_rdata;
@@ -853,13 +742,9 @@ module wiring
      * the register one path would run from the soft CPU's bus through
      * that arithmetic in a single clk_sys period. Neither the PSG nor
      * the OPL reads XRAM, so a one-clock delay on the snooped write
-     * cannot put either out of step with the array.
-     *
-     * A savestate keeps it as the audio region's word 0x7A0, qs_we in bit
-     * 25 and bit 24 zero. On a load it is held and masked until the second
-     * pass has put it back, and the engines take it on the first edge
-     * after. */
-    logic qs_we, qs_go;
+     * cannot put either out of step with the array. A savestate takes
+     * the machine with this write long since landed. */
+    logic qs_we;
     logic [15:0] qs_addr;
     logic [7:0] qs_val;
     initial begin
@@ -867,28 +752,16 @@ module wiring
         qs_addr = '0;
         qs_val = '0;
     end
-    always_ff @(posedge clk_mach)
-        if (eng_aud_st_we && eng_mem_addr[10:0] == 11'h7A0)
-            {qs_we, qs_addr, qs_val}
-                <= {eng_mem_wdata[25], eng_mem_wdata[23:0]};
-        else if (!eng_aud_mask)
-            {qs_we, qs_addr, qs_val}
-                <= {xw_we && xr_busy, xw_addr, xw_wdata};
-    always_comb qs_go = qs_we && !eng_aud_mask;
+    always_ff @(posedge clk_sys)
+        {qs_we, qs_addr, qs_val} <= {xw_we && xr_busy, xw_addr, xw_wdata};
     xram xram (
         .clk(clk_sys),
-        .clk_mach(clk_mach),
         .clk_a2(clk_a2),
         .clk_ph(clk_ph),
         .f_addr(ma_addr[0]),
         .xram_f_rdata(xram_f_rdata),
         .s_addr(ma_addr[1]),
         .xram_s_rdata(xram_s_rdata),
-        .sst_own(eng_arr_own),
-        .sst_addr(eng_mem_addr),
-        .sst_we(eng_xram_we),
-        .sst_wdata(eng_mem_wdata),
-        .xram_sst_rdata(xram_sst_rdata),
         .b_addr(xw_addr),
         .b_wdata(xw_wdata),
         .b_we(xw_we),
@@ -905,8 +778,7 @@ module wiring
     logic [15:0] pm_config;
 
     prog prog (
-        .clk(clk_mach),
-        .clk_mem(clk_sys),
+        .clk(clk_sys),
         .frame_start(vid_frame_start),
         .v(vid_v),
         .px_first(vid_px_first),
@@ -921,17 +793,12 @@ module wiring
         .prog_p_config(pm_config),
         .s_idx(sp_s_idx),
         .prog_s_data(sp_s_data),
-        .sst_own(eng_arr_own),
-        .sst_addr(eng_mem_addr[10:0]),
-        .sst_word(eng_xprog_word),
-        .sst_we(eng_xprog_we),
-        .sst_wdata(eng_mem_wdata),
-        .prog_sst_rdata(eng_xprog_rdata),
         .b_stb(soc_stb && soc_sel_vid && !soc_addr[18]
                && soc_addr[17]),
         .b_we(soc_we),
         .b_addr(soc_addr[15:0]),
-        .b_wdata(soc_wdata)
+        .b_wdata(soc_wdata),
+        .prog_b_rdata(prog_b_rdata)
     );
 
     /* The beam's derived columns, computed once for the line buffers:
@@ -951,8 +818,7 @@ module wiring
 
     logic [15:0] mode0_pix;
     mode0 mode0 (
-        .clk(clk_mach),
-        .clk_mem(clk_sys),
+        .clk(clk_sys),
         .frame_start(vid_frame_start),
         .h(vid_h),
         .v(vid_v),
@@ -967,18 +833,13 @@ module wiring
         .mode0_f_addr(mf_addr[1]),
         .f_gnt(f_any && f_sel == 1'd1),
         .f_data(font_bits),
-        .sst_own(eng_arr_own),
-        .sst_addr(eng_mem_addr),
-        .sst_we(eng_cell_we),
-        .sst_wdata(eng_mem_wdata),
-        .mode0_sst_rdata(eng_cell_rdata),
         .b_stb(soc_stb && soc_sel_vid && !soc_addr[18]
                && !soc_addr[17]),
         .b_we(soc_we),
         .b_addr(soc_addr[16:0]),
         .b_wstrb(soc_wstrb),
         .b_wdata(soc_wdata),
-        .mode0_b_rdata(vid_b_rdata)
+        .mode0_b_rdata(mode0_b_rdata)
     );
 
     logic [15:0] m_pix[3];
@@ -997,7 +858,7 @@ module wiring
     logic [2:0] m_done;
     logic [2:0] sched_term;
     sched sched (
-        .clk(clk_mach),
+        .clk(clk_sys),
         .rst_n(rst_n),
         .v(vid_v),
         .h(vid_h),
@@ -1024,7 +885,7 @@ module wiring
         .sched_term(sched_term)
     );
     fill fill (
-        .clk(clk_mach),
+        .clk(clk_sys),
         .row_start(vid_row_start),
         .start(fl_start),
         .mode(fl_mode),
@@ -1049,7 +910,7 @@ module wiring
     generate
         for (gi = 0; gi < 3; gi++) begin : gen_mode
             linebuf linebuf (
-                .clk(clk_mach),
+                .clk(clk_sys),
                 .rd_addr(vid_rd_addr),
                 .h_last(vid_h_last),
                 .px_last(vid_px_last),
@@ -1066,7 +927,7 @@ module wiring
     endgenerate
 
     sprite sprite (
-        .clk(clk_mach),
+        .clk(clk_sys),
         .sc_addr(vid_sc_addr),
         .rd_addr(vid_rd_addr),
         .h_last(vid_h_last),
@@ -1091,17 +952,15 @@ module wiring
         aud_rd = soc_stb && !soc_we && soc_sel_aud;
     end
 
-    /* One write bus for the audio engines' registers and the savestate,
-     * which owns it while the soft CPU is halted. */
-    logic [31:0] aud_wdata;
-    always_comb aud_wdata = (eng_arr_own || eng_aud_mask) ? eng_mem_wdata
-                                                          : soc_wdata;
+    /* AUD_SST's address and data are the soft CPU's. The engines' flop
+     * words take a write on the same strobe as their memories, and each
+     * engine takes only the words at its own addresses. */
+    logic [10:0] aud_sst_addr;
+    always_comb aud_sst_addr = soc_addr[12:2];
     logic [31:0] psg_sst_rdata, opl_sst_rdata, pcm_sst_rdata;
     logic psg_quiet, opl_quiet, pcm_quiet;
     always_comb begin
-        aud_sst_rdata = psg_sst_rdata | opl_sst_rdata | pcm_sst_rdata
-            | (eng_mem_addr[10:0] == 11'h7A0
-                ? {6'd0, qs_we, 1'b0, qs_addr, qs_val} : 32'd0);
+        aud_sst_rdata = psg_sst_rdata | opl_sst_rdata | pcm_sst_rdata;
         aud_quiet = psg_quiet && opl_quiet && pcm_quiet;
     end
 
@@ -1123,27 +982,25 @@ module wiring
     logic signed [15:0] psg_l, psg_r;
     /* verilator lint_off PINCONNECTEMPTY */
     psg psg (
-        .clk(clk_mach),
-        .clk_sys(clk_sys),
+        .clk(clk_sys),
         .xaddr_we(aud_we && soc_addr[5:2] == 4'h0),
-        .xaddr_wdata(aud_wdata[15:0]),
-        .q_we(qs_go),
+        .xaddr_wdata(soc_wdata[15:0]),
+        .q_we(qs_we),
         .q_addr(qs_addr),
         .q_val(qs_val),
         .bel_we(aud_we && soc_addr[5:2] == 4'h4),
-        .bel_idx(aud_wdata[10:8]),
-        .bel_val(aud_wdata[7:0]),
+        .bel_idx(soc_wdata[10:8]),
+        .bel_val(soc_wdata[7:0]),
         .psg_l(psg_l),
         .psg_r(psg_r),
         .psg_valid(),
         .psg_tick(psg_tick),
         .psg_busy(psg_busy),
-        .sst_own(eng_arr_own),
-        .sst_addr(eng_mem_addr[10:0]),
-        .sst_we(eng_aud_we),
-        .sst_st_we(eng_aud_st_we),
-        .sst_wdata(aud_wdata),
-        .sst_park(eng_park),
+        .sst_own(aud_own),
+        .sst_addr(aud_sst_addr),
+        .sst_we(aud_sst_we),
+        .sst_wdata(soc_wdata),
+        .sst_park(held),
         .psg_sst_rdata(psg_sst_rdata),
         .psg_quiet(psg_quiet)
     );
@@ -1153,11 +1010,10 @@ module wiring
     logic opl_valid;
     /* verilator lint_off PINCONNECTEMPTY */
     opl opl (
-        .clk(clk_mach),
-        .clk_sys(clk_sys),
+        .clk(clk_sys),
         .xaddr_we(aud_we && soc_addr[5:2] == 4'h2),
-        .xaddr_wdata(aud_wdata[15:0]),
-        .q_we(qs_go),
+        .xaddr_wdata(soc_wdata[15:0]),
+        .q_we(qs_we),
         .q_addr(qs_addr),
         .q_val(qs_val),
         .drops_take(aud_rd && soc_addr[5:2] == 4'h3),
@@ -1165,12 +1021,11 @@ module wiring
         .opl_valid(opl_valid),
         .opl_enabled(),
         .opl_drops(opl_drops),
-        .sst_own(eng_arr_own),
-        .sst_addr(eng_mem_addr[10:0]),
-        .sst_we(eng_aud_we),
-        .sst_st_we(eng_aud_st_we),
-        .sst_wdata(eng_mem_wdata),
-        .sst_park(eng_park),
+        .sst_own(aud_own),
+        .sst_addr(aud_sst_addr),
+        .sst_we(aud_sst_we),
+        .sst_wdata(soc_wdata),
+        .sst_park(held),
         .opl_sst_rdata(opl_sst_rdata),
         .opl_quiet(opl_quiet)
     );
@@ -1189,8 +1044,7 @@ module wiring
     logic signed [PCM_W-1:0] pcm_l, pcm_r;
     /* verilator lint_off PINCONNECTEMPTY */
     pcm pcm (
-        .clk(clk_mach),
-        .clk_sys(clk_sys),
+        .clk(clk_sys),
         .tick(psg_tick),
         .ctrl_we(aud_we && soc_addr[5:2] == 4'h6),
         .step_we(aud_we && soc_addr[5:2] == 4'h7),
@@ -1198,7 +1052,7 @@ module wiring
         .byte_we(aud_we && soc_addr[5:2] == 4'h9),
         .clear_we(aud_we && soc_addr[5:2] == 4'hA),
         .commit_we(aud_we && soc_addr[5:2] == 4'hD),
-        .wdata(aud_wdata),
+        .wdata(soc_wdata),
         .under_take(aud_rd && soc_addr[5:2] == 4'hC),
         .pcm_level(pcm_level),
         .pcm_under(pcm_under),
@@ -1211,10 +1065,9 @@ module wiring
         /* rsmp_valid is unused because opl_rs holds its value until the
          * audio output takes it on the next tick. */
         .rsmp_valid(),
-        .sst_own(eng_arr_own),
-        .sst_addr(eng_mem_addr[10:0]),
-        .sst_we(eng_aud_we),
-        .sst_st_we(eng_aud_st_we),
+        .sst_own(aud_own),
+        .sst_addr(aud_sst_addr),
+        .sst_we(aud_sst_we),
         .pcm_sst_rdata(pcm_sst_rdata),
         .pcm_quiet(pcm_quiet)
     );
@@ -1255,7 +1108,7 @@ module wiring
         for (int i = 0; i < 3; i++)
             c_pix[i] = sched_term[i] ? mode0_pix : m_pix[i];
     compose compose (
-        .clk(clk_mach),
+        .clk(clk_sys),
         .de(vid_de),
         .p0_pix(c_pix[0]),
         .s0_pix(sp_pix[0]),

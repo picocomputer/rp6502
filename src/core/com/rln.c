@@ -178,12 +178,9 @@ void rln_sst_save(sst_cursor_t *c, unsigned flags)
 bool rln_sst_load(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    static char history[RLN_HISTORY_SIZE][RLN_BUF_SIZE];
-    for (int i = 0; i < RLN_HISTORY_SIZE; i++)
-        sst_get(c, history[i], RLN_BUF_SIZE);
+    const uint8_t *history = sst_view(c, sizeof rln_history);
     uint8_t hcount = sst_get_u8(c), hpos = sst_get_u8(c);
-    static char line[RLN_BUF_SIZE];
-    sst_get(c, line, sizeof line);
+    const uint8_t *line = sst_view(c, sizeof rln_buf);
     uint8_t reader = sst_get_u8(c);
     uint64_t idle = sst_get_u64(c);
     uint8_t buflen = sst_get_u8(c), bufpos = sst_get_u8(c);
@@ -197,8 +194,7 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     uint8_t cur = sst_get_u8(c);
     bool over = sst_get_bool(c);
     uint8_t maxrow = sst_get_u8(c), lastlen = sst_get_u8(c);
-    static uint8_t lastkey[RLN_LASTKEY_MAX];
-    sst_get(c, lastkey, sizeof lastkey);
+    const uint8_t *lastkey = sst_view(c, sizeof rln_lastkey_buf);
     uint8_t lastkey_len = sst_get_u8(c);
     bool acted = sst_get_bool(c), key_acted = sst_get_bool(c);
     uint8_t line_end[RLN_SOURCE_COUNT];

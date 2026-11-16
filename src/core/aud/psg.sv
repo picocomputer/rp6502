@@ -25,9 +25,8 @@
  *
  * A savestate reads and writes the voices through the sst port at
  * savestate offsets: the structures at 0x640, the bell's at 0x6D0, the
- * voice words at 0x700 and the flops at 0x788. Both memories run on
- * clk_sys, the flops on clk. Between walks every other flop and every
- * registered read is dead, so only that state is kept.
+ * voice words at 0x700 and the flops at 0x788. Between walks every other
+ * flop and every registered read is dead, so only that state is kept.
  */
 
 module psg
@@ -40,7 +39,6 @@ module psg
     parameter int TICKS_PER_SAMPLE = 1050
 ) (
     input logic clk,
-    input logic clk_sys,
 
     /* The device register: the sw's validated pointer, 0xFFFF off. */
     input logic xaddr_we,
@@ -69,13 +67,13 @@ module psg
      * zero. A write to the block before then may be lost. */
     output logic psg_busy,
 
-    /* sst_own gives the memories' ports to sst_addr, written on sst_we.
-     * sst_st_we writes the flop word at sst_addr on clk. sst_park holds
-     * the sample counter, so no walk starts and psg_tick stays low. */
+    /* sst_own gives the memories' ports to sst_addr. sst_we writes the
+     * word at sst_addr, a memory's while sst_own is set and a flop word
+     * at any time. sst_park holds the sample counter, so no walk starts
+     * and psg_tick stays low. */
     input logic sst_own,
     input logic [10:0] sst_addr,
     input logic sst_we,
-    input logic sst_st_we,
     input logic [31:0] sst_wdata,
     input logic sst_park,
     output logic [31:0] psg_sst_rdata,
@@ -102,8 +100,8 @@ module psg
         st_k = sst_addr[2:0];
     end
 
-    /* A stop lands within a few clocks of psg_quiet, and no walk may
-     * start before it does. */
+    /* A savestate's hold parks the counter a clock after psg_quiet, and
+     * no walk may start before it does. */
     localparam int QUIET_LEAD = 24;
 
     /* The C's entries are all N << 16 with N no wider than nine bits, so
@@ -199,8 +197,9 @@ module psg
     end
 
     /* A bell byte that lands on a snooped byte's clock waits one clock.
-     * One is enough: the 6502 writes a PHI2 apart, the soft CPU's strobes
-     * are two clocks apart, and the soft CPU is halted before any stop. */
+     * One is enough: the 6502 writes a PHI2 apart, and the soft CPU's
+     * strobes are two clocks apart, so a savestate, which the soft CPU
+     * reads with more accesses, never finds one waiting. */
     logic hold_v;
     logic [2:0] hold_idx;
     logic [7:0] hold_val;
@@ -238,7 +237,7 @@ module psg
         if (cw_a[2:0] == 3'd7)
             cw_e = 1'b0;
     end
-    always_ff @(posedge clk_sys) begin
+    always_ff @(posedge clk) begin
         if (cw_e)
             cfg[cw_a] <= cw_d;
         if (snoop_cfg && bel_we) begin
@@ -253,7 +252,7 @@ module psg
     logic [7:0] cfg_q;
     logic [6:0] cr_a;
     always_comb cr_a = sst_own ? sst_cfg_a : {ch, t[2:0]};
-    always_ff @(posedge clk_sys)
+    always_ff @(posedge clk)
         cfg_q <= cfg[cr_a];
 
     /* The voice words, in a block for the same reason. The bell's noise
@@ -273,7 +272,7 @@ module psg
     logic [31:0] vq;
     logic [6:0] vr_a;
     always_comb vr_a = sst_own ? sst_addr[6:0] : {t[2:0], ch};
-    always_ff @(posedge clk_sys)
+    always_ff @(posedge clk)
         vq <= vm[vr_a];
 
     logic signed [15:0] r_smp;
@@ -532,7 +531,7 @@ module psg
         vw_a = sst_own ? sst_addr[6:0] : {wk, ch};
         vw_d = sst_own ? sst_wdata : w_d;
     end
-    always_ff @(posedge clk_sys)
+    always_ff @(posedge clk)
         if (vw_e)
             vm[vw_a] <= vw_d;
 
@@ -680,7 +679,7 @@ module psg
             xreg_pend <= 1'b1;
         end
 
-        if (sst_st_we && sel_st)
+        if (sst_we && sel_st)
             case (st_k)
                 3'd1: clr <= sst_wdata[25];
                 3'd2: begin

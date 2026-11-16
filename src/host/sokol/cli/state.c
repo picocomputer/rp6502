@@ -73,8 +73,13 @@ bool state_load_file(const char *path, const char **why)
         return false;
     }
     void *buf = malloc((size_t)len ? (size_t)len : 1);
-    if (!buf)
+    /* Where the load saves the machine first, so a refused one puts it
+     * back. */
+    void *undo = malloc(sst_size());
+    if (!buf || !undo)
     {
+        free(buf);
+        free(undo);
         fclose(f);
         *why = "out of memory";
         return false;
@@ -84,6 +89,7 @@ bool state_load_file(const char *path, const char **why)
     if (!read)
     {
         free(buf);
+        free(undo);
         *why = "cannot read the whole file";
         return false;
     }
@@ -93,8 +99,9 @@ bool state_load_file(const char *path, const char **why)
      * what lets it carry no savestate chunk. */
     paste_cancel();
     fs_std_settle();
-    const char *bad = sst_load(buf, (size_t)len, 0);
+    const char *bad = sst_load(buf, (size_t)len, undo, 0);
     free(buf);
+    free(undo);
     if (bad)
     {
         *why = bad;

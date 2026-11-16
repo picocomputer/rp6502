@@ -618,10 +618,8 @@ UTEST(pocket, a_reset_and_a_reload_boot_clean)
     ASSERT_TRUE(rom_holds(fw, FW_CODE));
 }
 
-/* The image's register layout version and its savestate version, the two
- * words after its reset jump and its build stamp. */
-#define FW_REG_VERSION 8u
-#define FW_SST_VERSION 12u
+/* The image's register layout version, the word after its reset jump. */
+#define FW_REG_VERSION 4u
 
 static uint32_t fw_word(const std::vector<uint8_t> &fw, size_t at)
 {
@@ -633,13 +631,12 @@ static uint32_t fw_word(const std::vector<uint8_t> &fw, size_t at)
  * The 6502 stays in reset, nothing is said on either console, and the
  * screen stays black. A firmware that runs on logs within its first
  * frames. */
-static void stops_dead(int *utest_result, size_t version_word)
+UTEST(pocket, a_firmware_of_another_register_layout_stops)
 {
     std::vector<uint8_t> fw = tb_stage_firmware(SW_BIN);
     ASSERT_GT(fw.size(), (size_t)FW_CODE);
     ASSERT_EQ((uint32_t)POCKET_REG_VERSION, fw_word(fw, FW_REG_VERSION));
-    ASSERT_EQ((uint32_t)POCKET_SST_VERSION, fw_word(fw, FW_SST_VERSION));
-    fw[version_word] ^= 1;
+    fw[FW_REG_VERSION] ^= 1;
     std::vector<uint8_t> rom = read_rom("mode3_1bpp");
     ASSERT_TRUE(rom.size() > 0);
     power_on(utest_result, false);
@@ -667,16 +664,6 @@ static void stops_dead(int *utest_result, size_t version_word)
     ASSERT_FALSE(said);
     ASSERT_FALSE(ran);
     ASSERT_FALSE(lit);
-}
-
-UTEST(pocket, a_firmware_of_another_register_layout_stops)
-{
-    stops_dead(utest_result, FW_REG_VERSION);
-}
-
-UTEST(pocket, a_firmware_of_another_savestate_version_stops)
-{
-    stops_dead(utest_result, FW_SST_VERSION);
 }
 
 UTEST_STATE();

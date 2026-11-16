@@ -4,6 +4,23 @@ These notes are for working on this core. Nothing here is needed to use
 it — the distribution tree is described in
 `src/host/pocket/dist/rp6502.txt`.
 
+## Sources
+
+What this core knows of the Pocket comes from these, and the files that
+model the Pocket tag each behaviour with one of them:
+
+- Analogue's developer docs,
+  <https://www.analogue.co/developer/docs/overview>, above all the
+  host/target commands,
+  <https://www.analogue.co/developer/docs/openfpga/host-target-commands>.
+- Analogue's template, `vendor/openfpga`,
+  <https://github.com/open-fpga/core-template>.
+- The Spacewar core, <https://github.com/spacemen3/PDP-1>, Analogue's own
+  example with Sleep and Memories. Where the docs are silent it is the
+  reference.
+- Other community cores, named where used.
+- Measurements on a Pocket. Anything else is marked as our guess.
+
 ## The board's memory
 
 Analogue names the board's memory parts. This core uses only the SDRAM.
@@ -35,31 +52,39 @@ while the SDRAM controller reads the line, eight words back to back,
 after writing out the line it replaces if the soft CPU stored to that
 one. The rest of the block memory is XRAM, the video and the audio.
 
-**The rest of what the soft CPU reads from the SDRAM**, the ROM image,
-the file windows and the Get File scratch, comes through a look-ahead
-in the SDRAM controller. It holds one line of 16 bytes. One trip to the
-SDRAM fetches the line, and the reads that follow in it are answered at
-once, a word at a time. Any write by the Pocket throws the line away,
-so the firmware has no rule to remember.
+**The rest of the SDRAM**, the ROM image, the savestate window, the
+file windows and the Get File scratch, the soft CPU reads and writes
+past the cache, through the staging store. Its reads come through a
+look-ahead in the SDRAM controller, which holds one line of 16 bytes.
+One trip to the SDRAM fetches the line, and the reads that follow in it
+are answered at once, a word at a time. Its writes go to the
+controller's write client a halfword at a time, with DQM masking a byte
+it does not write, after any write the host has queued. Any write, the
+Pocket's or the soft CPU's, throws the line away, and a read waits for
+the soft CPU's last write to land, so the firmware has no rule to
+remember.
 
 **The SDRAM's map.** The ROM slot is the first 62 MB and stays 62 MB,
-because a whole ROM has to load into it. Everything else is in the
-2 MB above:
+because a whole ROM has to load into it. Everything else is packed into
+the 2 MB above, and the savestate window is last, running to the end of
+the SDRAM. Whatever the Pocket OS puts around a savestate grows into
+the window's free end.
 
 | Address | Size | Use |
 |---|---|---|
 | 0x00000000 | 62 MB | The ROM slot |
 | 0x03E00000 | 256 KB | The soft CPU's ROM block, `firmware.bin` |
 | 0x03E40000 | 64 KB | The soft CPU's RAM block |
-| 0x03E50000 | 192 KB | Spare, for the RAM block to grow into |
-| 0x03E80000 | 512 KB | The savestate window |
-| 0x03F00000 | 256 KB | Eight file windows of 32 KB |
-| 0x03F40000 | 4 KB | Get File scratch |
+| 0x03E50000 | 256 KB | Eight file windows of 32 KB |
+| 0x03E90000 | 4 KB | Get File scratch |
+| 0x03E91000 | 1468 KB | The savestate window, to 0x04000000 |
 
-The 512 KB from 0x03E00000 are the soft CPU's addresses 0 to 0x7FFFF.
-The rest, up to 64 MB, is spare. `stage_map_gate.py` checks every place
-that states this map against the others, and fails if the ROM slot is
-anything but 62 MB.
+The two blocks are the soft CPU's addresses 0 to 0x4FFFF. The cache's
+window is the 512 KB from 0x03E00000, a power of two, and nothing is
+linked in it past the RAM block. The bridge drops a host write into the
+two blocks while the machine runs. `stage_map_gate.py` checks every
+place that states this map against the others, checks the order, and
+fails if the ROM slot is anything but 62 MB.
 
 The controller decodes the SDRAM as 4 banks × 8192 rows × 1024 columns
 × 16 bits, so a row is **2 KB**. The datasheet requires 8192 auto
@@ -94,321 +119,118 @@ register during initialization with PASR selecting all four banks.
 Sleeping on openFPGA means producing a savestate, because wake
 reconfigures the FPGA and the core starts again from its bitstream. At
 sleep the host sends command 0x00A0 to create a savestate, powers down,
-and writes the savestate back into the core on wake. A create signals
-completion before the data is copied out. A load has the blob written
-into the core as ordinary bridge writes and is asked for with 0x00A4.
-Analogue documents no order for a wake's blob, its 0x00A4 and Reset
-Exit, so the core takes them in any order.
+and writes the savestate back into the core on wake. A load has the blob
+written into the core as ordinary bridge writes and is asked for with
+0x00A4. Analogue documents no order for a wake's blob, its 0x00A4 and
+Reset Exit, so the core takes them in any order.
 
-The blob is 293 KB, format version 10, and the savestate engine,
-`sst_engine.sv`, makes it in logic rather than in firmware. It holds the soft CPU's RAM block and
-none of its ROM block, which a wake loads from `firmware.bin` again.
-The Pocket saves it with a header in front and a thumbnail behind,
-about 53 KB more, and the window it is written back into is 512 KB.
+The savestate is core's, made by `core/sys/sst.c` as on the emulators.
+The firmware builds it with `RP6502_SST`, and its driver list carries
+the rows. Two rows are this machine's own: `FAB_`, in `sw/fab.c`, holds
+what only the bitstream keeps, and `AUD_`, in `sw/aud.c`, holds the
+audio engines. The blob is about 230 KB. The size the host is given is
+`SST_BYTES` in `gen/version.py`, and the firmware's build fails when
+core's total does not fit in it. The Memories file on the card has a
+header in front of the blob and a thumbnail behind it. Whether a load
+writes those into the window is not known, so the firmware finds the
+blob in the window with core's `sst_find`.
 
-**A state belongs to the firmware that made it.** The firmware carries
-a build stamp, the time it was linked, in the word after its reset
-jump, ahead of its two version words. A save reads the stamp from the
-ROM block and puts it in the blob's header, and a load reads it again
-and refuses a blob that names another build, as it refuses another blob
-version. That catches a card
-whose `firmware.bin` changed while the Pocket slept: the state's stack
-and data would not fit the new code.
+**A bitstream runs only the firmware built for it.** The register layout
+version covers the registers and the memory map. It is written once, in
+`gen/version.py`, which makes a package for the RTL and a header for the
+firmware. The bitstream shows it at 0x80030000, and `firmware.bin`
+carries its own in the word after its reset jump. `ver_check` compares
+them before the firmware uses any other register, so that address never
+moves. When they differ the firmware stops there and touches nothing
+more. The 6502 stays in reset and the screen stays black. Raise the
+version when a register the firmware uses moves, changes meaning or is
+added, or when the memory map in `mmio.h`, `mem_pkg.sv` or `link.ld`
+changes.
 
-**A bitstream runs only the firmware built for it.** Two numbers say
-whether they match: the savestate version, which is the blob's format,
-and the register layout version, which covers the registers and the
-memory map. Both are written once, in `gen/version.py`, which makes a
-package for the RTL and a header for the firmware. The bitstream shows
-them at 0x80030000 and 0x80030004, and `firmware.bin` carries its own in
-the two words after its build stamp. `ver_check` compares them before
-the firmware uses any other register, so those two addresses never
-move. When either differs the firmware stops there and touches nothing
-more. The 6502 stays in reset and the screen stays black. A savestate
-load skips that check, so the engine refuses a load while the two words
-in `firmware.bin` differ from the bitstream's.
-
-Raise the savestate version when the blob changes: its header, what it
-holds, or the order or size of anything in it. Raise the register
-layout version when a register the firmware uses moves, changes meaning
-or is added, or when the memory map in `mmio.h`, `mem_pkg.sv` or
-`link.ld` changes. A change to one side alone needs neither.
+A blob from a firmware whose rows differ is refused by core's manifest,
+a sum over every row's id, version and size.
 
 ### The host's commands
 
-`pocket_sst.sv` answers 0x00A0 and 0x00A4, because the engine halts the
-soft CPU for both. `core_bridge_cmd` holds a request until it is
-acknowledged and gives the host the status lines of that clock as the
-result, so the acknowledge comes one clock after the request, when the
-lines already describe it. No request returns the result of the one
-before.
+`pocket_sst.sv` latches 0x00A0 and 0x00A4 and answers busy until the
+firmware writes its answer to `SST_CTL`. `core_bridge_cmd` holds a
+request until it is acknowledged and gives the host the status lines of
+that clock as the result, so the acknowledge comes one clock after the
+request, when the lines already describe it.
 
 | Request | Result |
 |---|---|
-| A save | busy until the blob is ready, then ok. err once a word was not served in time |
-| A save, a file open for writing | err at once, and nothing is saved |
-| A load, the machine running | busy until the engine has finished, then ok, or err for a refused blob |
+| A save | busy until the firmware has made the blob, then ok; err for a refused save or a word not served in time |
+| A load, the machine running | busy until the firmware has loaded the blob, then ok, or err for a refused blob |
 | A load, the core in reset | ok at once, and ok from then on |
 
 **A wake's load can arrive while the Pocket holds the core in reset.**
-Other cores report it from hardware, and that the Pocket can wait for
-the answer before it sends Reset Exit. The engine cannot run in reset,
-so a load that waited for it would never be answered. Such a load is
-answered ok at once and kept, and the engine performs it when the reset
-is released. The firmware's first read of `SST_CTL` shows a wake on its
-way, so it stages no program first. If the engine then refuses the blob
-the answer stays ok: the host has had it. `SST_CTL` tells the firmware how the wake
-went: that the load came in reset, and for a refusal which check it
-was.
+Such a load is answered ok at once and its request is kept, so the
+firmware finds it when it boots. If the firmware then refuses the blob
+the answer stays ok: the host has had it.
 
-A request that comes while a load is with the engine, or with the
-firmware finishing the wake, starts no second load and is answered
-with the first one's status. A save asked for again while its blob is
-held reads the same blob from the start.
+### Saving
 
-**No savestate while a file is open for writing.** A write in
-progress, such as a game saving its progress, cannot be caught whole,
-so core refuses a savestate then, and this machine follows the same
-rule: `std_sst_refused` in `core/api/std.c` is the one question both
-ask. The engine makes the savestate here, so the firmware hands the
-answer to the bitstream. `wake_task` writes it to `SST_REFUSE` on every
-pass of the main loop, set while a descriptor is open for writing or an
-open that may create a file is under way. While it is set, a save
-request is answered err at once, the engine is not asked and the
-machine runs on. A Memories save from the menu is the same request and
-is refused the same way.
+`sleep_task` answers the requests. `main` calls it right after
+`sys_commit`, where the machine is settled as stopped or running and no
+driver is partway through a pass. A save waits there until no
+`pocket_file` command is in flight. A save while a file is open for
+writing is answered err, because a write in progress cannot be caught
+whole; `std_sst_refused` in `core/api/std.c` says so on every machine.
 
-There is no window at either end. An open that can change the card
-claims its descriptor and sends nothing until `SST_REFUSING` reads set,
-which means the refusal is in force and no save is in progress. A save
-taken before that halts a firmware that has sent none of the open's
-commands, and the whole open is made after the wake. A close is done
-before the refusal drops.
+Otherwise the firmware writes `MACH_HOLD`. The machine stops on the
+first clock its audio engines are quiet: the 6502, the VIA and the bus
+stand still, and so do the audio engines' sample counters, the RIA's
+vsync and mtime, so the hold costs the machine no time. The clock keeps
+running, so the firmware can read every register of the machine. It runs
+`sst_save` into `SST_BLOB`, the blob window in the staging store, past
+the cache, lets the machine go and answers ok, or err if the save
+failed. The host reads the window from the SDRAM at its own pace, with the
+machine already running again.
 
-What the Pocket does with a sleep the core refuses is not documented:
-it may stay awake or power down anyway. If it powers down, the wake has
-no blob for that sleep. With no load asked for, the wake is a plain
-boot and the screen says nothing of it. With a load asked for and no
-blob written, the console shows `wake: no header` and the 6502 stays in
-reset until the core is reloaded. A blob left from an earlier sleep of the same firmware would be
-taken for this one's and resumed.
+### Loading
 
-A write into the blob window is the first the firmware sees of a wake,
-in `SST_BLOB_SEEN`, and the machine stays stopped until a load comes. A
-blob the host writes again while its load is in progress belongs to that
-load, and is no new wake once the load is over.
+A load stops a running machine first, so the stop closes its files as
+any stop does, and waits for the host's write queue to empty. Then the
+firmware finds the blob behind the host's header in `SST_BLOB` with
+`sst_find`, holds the machine and runs `sst_load`. Then `apf_refresh` has the controllers
+sent again, because the load put back what was held at the save.
 
-### The architecture: one clock gate
+- `FAB_` puts back mtime and the frame count, the 6502's RAM and XRAM,
+  the scanline table and the RIA's registers, then RESB, and with `JAM`
+  loads the 6502, the VIA, the PHI2 count and the open bus on one clock.
+  mtime comes back because every deadline the firmware keeps is an
+  absolute mtime reading. The time of day is the RTC reading plus
+  `UPTIME`, a microsecond count that nothing stops or writes, so it
+  follows real time through the hold and the load.
+- `PROC` and `ASET` bring back the running program's name and its image,
+  which `fs_rom_open` stages again in slot 0.
+- `STD_` reopens the program's files by name, through `fs_std_reopen`.
+- `AUD_` loads after `STD_`, because the reopen of PCM: empties the FIFO
+  it then puts back.
+- `VID_` writes the canvas, the vsync line and `VID_PROG` again, and
+  builds the font memories for the saved code page, since none of them
+  can be read back.
 
-**The machine's clock stops at its source.** One `altclkctrl` in
-`core_top.sv` gates clk_sys to make clk_mach, the machine clock, and it
-registers its enable on the falling edge of clk_sys so no high phase of
-clk_mach is cut short. The 6502, the VIA, the RIA's control logic,
-video and audio all run on clk_mach and stop wherever they are. Every
-register on clk_mach misses the same edge and resumes on the same edge,
-so no logic in the machine needs a clock enable for a savestate.
+The firmware then lets the machine go, marks the host's slot updates as
+handled so they start no program, and answers ok.
 
-Three parts keep their clocks. The SDRAM staging store, which holds what
-the host writes into the data slots, stays on clk_sys, so its controller
-keeps it refreshed. The engine and the memory arrays stay on clk_sys
-too, and the engine reads and writes the arrays through a separate port.
-The audio engines' memories are arrays like the others: the OPL's
-register file, queue, slots and channels, the PSG's voices, the
-resampler's history, and PCM's buffer and history. The arrays sit idle
-because the logic driving their machine-side inputs is stopped, and the
-engine masks their frozen write enables with `arr_own` for the whole
-savestate, because a write enable that froze high would otherwise repeat
-its stale write every cycle. The soft CPU is not clock-gated at all. Its
-clock, clk_rv, keeps running, and the engine halts it at its debug port
-and spills its registers by injecting `csrw dmdata0, xN` and then
-`ebreak`, which marks the end of each injected instruction.
-
-A machine signal consumed by logic on an ungated clock is a **level**,
-not an event. When clk_mach stops, the signal freezes wherever it was,
-and a consumer that takes it once per cycle acts on it on every cycle
-of the savestate. Each such consumer on this board is therefore clocked
-by clk_mach: the pixel queue in `pocket_video.sv`, the sample queue in
-`pocket_i2s.sv`, and the console queues in `pocket_dbg.sv` and
-`pocket_dbglog.sv`. Where a mask is needed instead, it takes the form
-of `arr_own`. `arr_own` rises only once the gate has closed, so it
-never masks an access the machine makes before then, and it falls as
-soon as the stop request drops, which is several cycles of clk_74a, the
-74.25 MHz bridge clock, before the gate opens again. The 6502's RAM
-masks its port A write with `arr_own`, so a write enable frozen high
-does not write again on every cycle of the stop.
-
-**The stop waits for the audio to be quiet.** The engine asks for the
-stop only while every audio engine is idle with no sample due for 24
-clocks, which comes within about 30 us, and the gate closes within four
-clocks of the ask. No engine then holds work in flight: a pipeline
-register, a read in progress or a sample half made would each be state
-the blob does not hold, and between samples none of them is live.
-
-The soft CPU's memory is in the SDRAM, behind a cache that holds the
-newest copy of the lines the soft CPU stored to last. The engine reads
-and writes that memory a line of four words at a time, through the port
-the cache uses, and only while the soft CPU is halted and the cache is
-idle. Nothing on that path runs on clk_mach.
-
-A save runs in this order. The engine halts the soft CPU, spills its
-registers, has the cache write its newer lines out to the SDRAM, and
-stops the machine clock. The registers are x1 to x31, dpc, and mepc,
-mcause, mstatus and mtvec: the firmware emulates every misaligned
-access in its trap handler, so a save can halt it there, and a wake can
-halt a new firmware before it has set its own mtvec. The CSRs are read
-out through x31, which the spill then writes back, since the machine
-runs on after a save. It then checksums the whole blob
-in one pass before it signals completion, because the host may read
-words in any order and more than once. It serves each word as the host
-reads it, and a word that is not ready by the host's next read sets the
-save's error status. Serving the last word ends the save, because
-completion was signalled before the copy began and no host command
-marks the copy's end. The engine then restarts the machine clock and
-asserts the soft CPU's resume request, `dbg_req_resume`, since Hazard3
-stays halted when its halt request drops.
-
-### Restoring
-
-The engine checks the whole staged blob before it writes any of it,
-because a blob found bad partway through writing would leave the
-machine half overwritten. It checks the header, the version, the
-length, the build stamp, the sum and the trailer. A refused blob writes
-nothing, and the engine names the check that refused it in `SST_CTL`.
-
-**A refused wake stops there.** The firmware stops the program when the first of a wake shows, the blob or the load
-command, and starts nothing until the wake is over, because the restore
-replaces the machine's memory but not a file the program creates or
-truncates before the load. A firmware that boots into a wake stages no
-program for the same reason. When the engine refuses the blob, the
-console says `bad savestate` and the 6502 stays in reset until the user
-reloads the core. A refused load restored nothing, so it ends without
-waiting for the firmware.
-
-When the blob is good, with the
-machine still stopped, every array is written back through the engine's
-ports, the audio's among them, the soft CPU's RAM block is written into
-the SDRAM and its cache emptied, and the flop state (6502, VIA, the RW engine's pending write,
-resb, the 6502's clock rate and phase, the microsecond counter) is held
-in the engine until the steps below write it back. The RIA window's and
-the audio's flops are fetched from the staging store again in step 3.
-During the jam, the 6502's RAM reads at the restored 6502's address, so
-the byte it takes on its first PHI2 enable is the one at that address.
-
-Waking the machine takes these steps in order:
-
-1. The engine's reset hold, `hold_res`, rises while the machine is
-   still stopped. It drives the asynchronous resets of the 6502 and the
-   VIA, so it needs no clock.
-2. The machine clock returns with the 6502 already in reset, so the
-   6502 takes no cycle that could write over the restored memory. The
-   machine is parked: the audio engines' sample counters hold, no
-   sample starts, and the RIA's frame counter takes no vsync.
-3. The engine fetches the RIA window's flop words and the audio
-   region's flop words a second time and writes them with the clock
-   running, each word on one machine edge. The window is then as the
-   6502 left it, so what the soft CPU's wake does there stays: an API
-   call the save interrupted finishes with its own arguments, and the
-   console's bytes go out once. The 6502's write that the audio snoop
-   held at the save goes back with the audio's words and lands in the
-   engines before the wake goes on; until then the snoop is masked.
-4. The soft CPU's microsecond counter, mtime, its register for the
-   6502's clock rate and `resb` are written back on a separate level
-   held through the register injection in step 5, because the soft CPU
-   resumes before the jam in step 6, and a jam would undo what the wake
-   writes. mtime is in the blob's state page because every deadline the
-   firmware keeps is an absolute mtime reading in its memory, which the
-   blob contains, so without it each deadline would be off by the
-   difference between the counter's value at the save and its value at
-   the restore.
-5. The soft CPU's registers and CSRs are written back through the debug port,
-   and the core resumes at the instruction where the save halted it,
-   running the blob's firmware on the blob's stack. The firmware reads
-   `SST_RESTORED` set and puts back the state the blob does not
-   contain: it builds the video device's font memories again for the
-   code page the blob holds, rewrites the canvas, the vsync line and the terminal's window
-   from its own copies, marks every open file to be checked and, if
-   needed, reopened by its saved name, derives the wall clock again
-   from the host's RTC, marks the wake's slot updates as handled so
-   they do not start a new program, and moves the
-   bell's deadlines and the program's `clock()` by how long the machine
-   has been parked, counted from the saved mtime it resumed at, which
-   it reads from `SST_SAVED_US`. The main loop acts on no slot update
-   from the first sign of a wake until this step is done, and it reads
-   the updates before it reads the wake's state, so a save that halted
-   it between the two reads resumes into a wake and not into a new
-   program.
-6. The firmware clears `SST_RESTORED`, and two jam cycles follow, in
-   which the engine writes the rest of the held flop state into the
-   flops. The first drops `hold_res` and loads a PHI2 enable of 0, so
-   nothing steps in the second. In the second, every 6502 and VIA flop
-   takes its saved value with the asynchronous resets already released,
-   since an asynchronous reset takes priority over the jam, so a wake
-   that stopped the 6502 leaves it stopped. The RW engine's pending XRAM
-   write and the PHI2 accumulator and enable take theirs too, so the
-   6502 steps on the clocks it would have. The park drops at the
-   second, so the audio and the frame counter take their next clock on
-   the 6502's.
-
-The 6502 then continues from the cycle at which the save stopped it, and
-the audio from the sample it was in.
-
-### The console queue
-
-The RIA holds up to sixteen bytes of console output that the 6502 has
-written and the soft CPU has not read yet. Reading word 16 of the regs
-window removes a byte from that queue, so `REGS_HOLE` leaves that word
-out of the blob, since a save that read it would drop a character every
-time a state was made.
-
-The queue is saved through words 20 to 24 of the regs window instead,
-which can be read without side effects: word 20 holds the read and
-write positions and the count, and words 21 to 24 hold the sixteen
-bytes. The bytes are an array on clk_sys and are written back through
-the window with the xstack, and the positions and the count are flops
-on clk_mach that the second pass restores.
+**A refused load stops there.** Nothing starts while a load is on its
+way, because the load replaces the machine. A load with no undo leaves a
+half loaded machine when a row refuses, and a fresh boot has nothing to
+undo to, so a refused load says `bad savestate`, stops the 6502 and
+leaves it in reset until the user reloads the core.
 
 ### What does not survive a sleep
 
-- The audio comes back sample for sample, but three things that drive it
-  are not exact. The video beam is not in the blob, so a write paced by
-  vsync can land up to a frame off. Firmware deadlines, such as the
-  bell's restrike, release and end, and the program's `clock()` are
-  moved by how long the machine was parked, so each is met on the first
-  main-loop pass after it, as in a run that never slept, which can be a
-  pass from where that run met it. Soft-CPU traffic that delays a PHI2
-  enable, and audio writes the soft CPU makes, are timed by the firmware
-  in every run, slept or not: a PCM write the save interrupted finishes
-  during the wake with the machine parked, so it takes the room the
-  buffer had then, a few bytes short of what a run that never slept
-  takes.
-- A sleep while a file is open for writing is refused, as above, so
-  nothing of a write has to survive one.
-- The blob does not contain the host's slot bindings or the staging
-  store, so `fs_restore` marks every open file stale and drops its
-  cached bytes. Analogue does not document whether a slot keeps a
-  binding made at runtime with Open File (`0x0192`) across a sleep, so
-  on the file's next use `fs_rebind` reads the slot's binding with Get
-  File (`0x0190`) and opens the file again by its saved name only when
-  the slot no longer holds it.
-
-### The picture across a freeze
-
-The scaler is in the Pocket's other FPGA and keeps running while the
-machine is stopped, so the reader in `pocket_video.sv` keeps its
-raster, its vs, its hs and its de running the whole way through, and
-only the pixels go black. The frames the scaler receives keep the same
-shape throughout.
-
-The lock between the two rasters does not survive a freeze. The
-rasters are phase-locked with the writer at least `X_DE0`, eight
-pixels, ahead, and a freeze stops the writer mid-frame and restarts it
-mid-frame while the reader keeps counting. The lock is taken again from
-a tag bit that the writer pushes into the queue with the frame's first
-pixel, so the tag arrives at the reader with its pixel and not after
-it. The reader discards pixels up to the tag and locks on it. Relocking
-restarts the reader's raster at its first pixel and pulses vs, which
-cuts short the frame the reader was in, so each resume produces one
-short frame.
+- The video beam is not in the blob, so a write paced by vsync can land
+  up to a frame off.
+- A program's clock is mtime, which stands still with the machine while
+  a save or a load is made. The time of day does not, so the two drift
+  apart by the hold. In simulation a save holds the machine for about
+  0.44 s, and a load for about 0.11 s after it puts mtime back.
+- The blob does not contain the staging store, so a reopened file starts
+  with nothing in its window.
 
 ## The Core Settings menu
 
@@ -480,26 +302,25 @@ Alt-F4 is passed to the program too.
 ## The host's filesystem
 
 `FS:` is the microSD card, and the drive is writable. The working
-directory is `/Assets/rp6502/common`, the folder that holds the core's
-files and the ROMs a user picks in the Pocket's menu, and no call moves
-it. getcwd returns `FS:/Assets/rp6502/common`, and a relative name
-resolves in that folder, so `foo.txt`, `FS:foo.txt` and
-`FS:/Assets/rp6502/common/foo.txt` name the same file. A name that
-starts with a separator is absolute, and `/` and `\` both separate.
+directory is `/Saves/rp6502/common`, the folder for the user's data, and
+no call moves it. getcwd returns `FS:/Saves/rp6502/common`, and a
+relative name resolves in that folder, so `foo.txt`, `FS:foo.txt`,
+`SAVE:foo.txt` and `FS:/Saves/rp6502/common/foo.txt` name the same file.
+The ROMs a user picks in the Pocket's menu are in `/Assets/rp6502/common`,
+so a program that runs another ROM names it by its absolute path, or by
+the folder in its own argv[0]. A name that starts with a separator is
+absolute, and `/` and `\` both separate.
 
-`SAVE:` names a file in `/Saves/rp6502/common/`, so `SAVE:hopper.hiscore`
-is `/Saves/rp6502/common/hopper.hiscore` on the card. `fs_save_open`
-joins the name to that folder and opens it through the same code as a
-name on `FS:`, so every call after the open is the same for both. The
-folder is the same for every ROM, so `fs_save_start` is empty. Whether
-the Pocket accepts a write in Assets is not recorded, so a program saves
-through `SAVE:`.
+`SAVE:` names a file in `/Saves/rp6502/common/`. `fs_save_open` joins
+the name to that folder and opens it through the same code as a name on
+`FS:`. The folder is the same for every ROM, so `fs_save_start` is
+empty.
 
 **The host resolves no relative name and no `.` or `..`.** A name sent
 without a leading slash fails to open, so `fs_card_path` makes every
 name absolute before the firmware sends it and removes each `.` and `..`
 on the way. A `..` at the card root stays at the root. `fs_pool[].name`
-holds that absolute path, so the rebind after a restore and the resize
+holds that absolute path, so the reopen after a wake and the resize
 before a write past the end send the same path as the open. The bench's
 host model in `tests/host/pocket/test_pfile.cpp` returns 4, malformed
 path, for a relative name, so a firmware change that sends one fails a
@@ -563,12 +384,6 @@ bytes it adds has not been measured. The main loop stops until those
 writes finish, because a driver's lseek has no pending result. A seek
 past the end of a file open only for reading stops at the end.
 
-**An open runs in two steps.** `fs_std_open` claims a descriptor and
-sends nothing, and core calls `fs_std_opening` from the main loop until
-the open is made. That gives the wake task a pass in which to refuse
-savestates before an open that can change the card sends its first
-command.
-
 **Creating a file takes both flag bits.** With bit 0, create, on its
 own, Open File returns 1, created and opened, and makes no file. The
 file is made only when bit 1, resize, is set as well. Both bits on an
@@ -611,26 +426,9 @@ tasks run during the deadline. `std_stop` calls close in a loop that
 runs no other task until the close finishes. Close therefore collects
 the result of a command that another descriptor left in flight.
 
-**A sleep never lands in a write.** No savestate is made while a file
-is open for writing, so a write, a sync, a seek that extends a file, a
-close's flush and an open that creates or truncates run in one session
-from end to end, and none of them looks for a restore.
-
-**A read that a sleep interrupts ends after the wake as it would
-have.** A file open only for reading refuses nothing, and a save can
-halt the firmware anywhere in its calls, so a command can be issued, or
-its status read, on the host that woke, where the slot is bound to
-nothing. Such a status says nothing about the file. A read asks whether
-a restore is open before it sends a command, before it acts on a
-status and after it copies from its window, and returns pending so the
-call is made again once the wake task has marked the descriptors
-stale. An open for reading, a ROM load, Get File and the data table
-lookup block through their commands, so they note whether a restore
-opened while they ran and run their commands again in the session that
-woke. An open sends nothing while a restore is open: the session the
-restore replaced can have left a command in flight, and the wake task
-takes that over first. See "A command belongs to one session" below
-for the command a restore lands inside.
+**A sleep never lands in a command.** A save waits until no file
+command is in flight, and is refused while a file is open for writing.
+A wake opens each file again by name, at the position it had.
 
 **The bridge's deadline is the shorter of the two.** The bridge and
 `pocket_file` both time out a data slot command, the bridge after 2^26
@@ -684,23 +482,12 @@ in both cases and does not distinguish them.
 one register. `fs.c` issues each command under a worker id, one per
 descriptor and one for the firmware's own commands. While one worker's
 command is in flight, other work in the same main loop can use the
-drive, such as a rebind after a restore or another descriptor's write,
+drive, such as another descriptor's write,
 and a read that took another worker's status would copy a window that
 was not filled for it. `fs.c` records the worker whose command is in
 flight and keeps a finished command's status for that worker rather than
 dropping it, so a blocking command can wait for another worker's command
 to finish instead of deadlocking against it.
-
-### A command belongs to one session
-
-`pocket_file`'s registers and its window are not in the savestate. A
-save can halt the firmware between a command's registers and the
-command, and after the wake the command would run with the registers
-of the configuration that woke: slot 0, the ROM, at offset 0, or what
-the fresh firmware last wrote there. So a command is armed by its
-write to `FILE_ID`, which `fs.c` makes first, and a savestate load
-disarms it. A command written unarmed is not run and reads back as
-timed out, and `fs.c` runs the call again.
 
 ## Reading the console
 

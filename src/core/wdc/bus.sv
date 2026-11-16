@@ -32,7 +32,13 @@ module bus (
 
     output logic [7:0] bus_din,
     output logic bus_sel_via,
-    output logic bus_sel_ria
+    output logic bus_sel_ria,
+
+    /* A savestate reads the open-bus byte on bus_hold and puts it back
+     * with st_jam. */
+    output logic [7:0] bus_hold,
+    input logic st_jam,
+    input logic [7:0] st_jam_hold
 );
 
     /* Open bus carries whatever the bus last held, and on a write the 6502 is
@@ -42,7 +48,7 @@ module bus (
      * Not reset by RESB, where bus.c's parked byte is. Nothing can see the
      * difference -- a reset ignores the data bus and every device re-drives
      * before the first fetch -- but the two implementations do differ here. */
-    logic [7:0] hold;
+    logic [7:0] hold /*verilator public_flat_rd*/;
 
     /* A4-A15 decoded off-chip into CS1 on the board (os.rst), and the RIA
      * takes the top 32 bytes. What is left in the page is mapped to nothing.
@@ -63,7 +69,10 @@ module bus (
     end
 
     initial hold = 8'h00;
-    always_ff @(posedge clk) if (en) hold <= we ? dout : bus_din;
+    always_ff @(posedge clk)
+        if (st_jam) hold <= st_jam_hold;
+        else if (en) hold <= we ? dout : bus_din;
+    always_comb bus_hold = hold;
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_bus;

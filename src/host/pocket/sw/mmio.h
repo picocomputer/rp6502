@@ -9,19 +9,23 @@
 
 #include <stdint.h>
 
-/* The bitstream's register layout version and its savestate version,
- * which gen/version.py states. ver_check reads them before the firmware
- * uses any other register and goes no further when either is not this
- * firmware's own. So these two addresses never move, whatever else in
- * this file does. */
+/* The bitstream's register layout version, which gen/version.py states.
+ * ver_check reads it before the firmware uses any other register and
+ * goes no further when it is not this firmware's own. So this address
+ * never moves, whatever else in this file does. */
 #define VER_REG (*(volatile const uint32_t *)0x80030000u)
-#define VER_SST (*(volatile const uint32_t *)0x80030004u)
 
 #define MMIO_CONSOLE (*(volatile uint32_t *)0xF0000000u)
 #define MMIO_PHI2 (*(volatile uint32_t *)0xF000000Cu)
+/* mtime in microseconds. A write of MTIME_LO is kept until a write of
+ * MTIME_HI puts the two in together, so the low half is written first. */
 #define MTIME_LO (*(volatile uint32_t *)0xF0000010u)
 #define MTIME_HI (*(volatile uint32_t *)0xF0000014u)
 #define MMIO_SLOT (*(volatile uint32_t *)0xF0000018u)
+/* Microseconds from configuration. Nothing stops or writes it, so it goes
+ * on through a hold, when mtime stands still. */
+#define UPTIME_LO (*(volatile const uint32_t *)0xF0000020u)
+#define UPTIME_HI (*(volatile const uint32_t *)0xF0000024u)
 #define MMIO_HIDKEY (*(volatile uint32_t *)0xF000001Cu)
 #define MMIO_UPD_ID (*(volatile uint32_t *)0xF0000044u)
 #define MMIO_UPD_LEN (*(volatile uint32_t *)0xF0000048u)
@@ -33,18 +37,27 @@
 
 #define SRAM ((volatile uint8_t *)0x10000000u)
 #define XRAM_WIN ((volatile uint8_t *)0x30000000u)
-/* The SDRAM, read only, at its bridge addresses. It reads as memory
- * does, a byte, a half or a word, and the hardware keeps the last 16-byte
- * line it fetched, so a word read costs what a byte read does. */
+/* The SDRAM at its bridge addresses, past the cache. It reads and
+ * writes as memory does, a byte, a half or a word. The hardware keeps
+ * the last 16-byte line it fetched, so a word read costs what a byte
+ * read does, and a write drops that line. The cache holds only the
+ * memory this firmware runs in, so everything else in the SDRAM is
+ * reached here. */
 #define STAGE ((volatile const uint8_t *)0x60000000u)
 
 /* These addresses must agree with the slots in data.json.
  * stage_map_gate.py checks every one of them against it and against the
- * hardware. ROM_MAX is the ROM slot's size_maximum. MEM_BRIDGE is the
- * memory this firmware runs in, MEM_MAX bytes that the soft CPU sees at
- * address 0. Its first MEM_ROM_MAX bytes are the ROM block, which the
- * host loads as firmware.bin, and the MEM_RAM_MAX bytes at MEM_RAM are
- * the RAM block. The rest is spare. */
+ * hardware. ROM_MAX is the ROM slot's size_maximum. Everything else is
+ * packed above it in this order. The soft CPU's memory is at MEM_BRIDGE
+ * and the soft CPU sees it at address 0: the first MEM_ROM_MAX bytes are
+ * the ROM block, which the host loads as firmware.bin, and the
+ * MEM_RAM_MAX bytes at MEM_RAM are the RAM block. MEM_MAX is the cache's
+ * window, a power of two, and only the two blocks are linked in it. The
+ * eight file windows follow the RAM block, then the Get File scratch.
+ * The savestate window is last, SST_BLOB_MAX bytes at SST_BLOB_BRIDGE
+ * that run to the end of the SDRAM, where the host reads a save and
+ * writes a load. SST_BLOB is the window in the staging store, where the
+ * firmware writes a save and reads a load. */
 #define ROM_IMG ((volatile const uint8_t *)0x60000000u)
 #define ROM_BRIDGE 0x00000000u
 #define ROM_MAX 0x03E00000u
@@ -53,16 +66,17 @@
 #define MEM_ROM_MAX 0x00040000u
 #define MEM_RAM 0x00040000u
 #define MEM_RAM_MAX 0x00010000u
-#define SST_BLOB_BRIDGE 0x03E80000u
-#define SST_BLOB ((volatile const uint8_t *)0x63E80000u)
-#define SST_BLOB_MAX 0x00080000u
 #define SLOT_WIN_SIZE 0x8000u
-#define SLOT_WIN(d) \
-    ((volatile const uint8_t *)(0x63F00000u + (uint32_t)(d) * SLOT_WIN_SIZE))
-#define SLOT_WIN_BRIDGE(d) (0x03F00000u + (uint32_t)(d) * SLOT_WIN_SIZE)
+#define SLOT_WIN_BASE ((volatile const uint8_t *)0x63E50000u)
+#define SLOT_WIN(d) (SLOT_WIN_BASE + (uint32_t)(d) * SLOT_WIN_SIZE)
+#define SLOT_WIN_BRIDGE(d) (0x03E50000u + (uint32_t)(d) * SLOT_WIN_SIZE)
 #define FILE_XFER_MAX SLOT_WIN_SIZE
-#define GETFILE_WIN ((volatile const uint8_t *)0x63F40000u)
-#define GETFILE_BRIDGE 0x03F40000u
+#define GETFILE_WIN ((volatile const uint8_t *)0x63E90000u)
+#define GETFILE_BRIDGE 0x03E90000u
+#define GETFILE_MAX 0x1000u
+#define SST_BLOB_BRIDGE 0x03E91000u
+#define SST_BLOB ((uint8_t *)0x63E91000u)
+#define SST_BLOB_MAX 0x0016F000u
 
 /* FILE_WIN is the write port of a dual-port RAM in pocket_file.sv. The
  * RAM's read port is on the bridge, so the firmware cannot read FILE_WIN
@@ -70,9 +84,8 @@
  * whole word. FILE_WIN_BASE is the bridge address of the same RAM and
  * must match WINDOW_BASE in pocket_file.sv.
  *
- * A write to FILE_ID arms the command that the next write to FILE_CTL
- * starts, and a savestate load disarms it. A write to FILE_CTL with no
- * command armed starts nothing and sets FILE_ST_TIMEOUT. */
+ * A write to FILE_CTL starts the command that the other registers
+ * describe. */
 #define FILE_ID (*(volatile uint32_t *)0x80000000u)
 #define FILE_OFFSET (*(volatile uint32_t *)0x80000004u)
 #define FILE_LENGTH (*(volatile uint32_t *)0x80000008u)
@@ -81,40 +94,27 @@
 #define FILE_RESULT (*(volatile uint32_t *)0x80000014u)
 #define FILE_WIN ((volatile uint32_t *)0x80001000u)
 
-/* SST_RESTORED is set when a savestate load finishes, whether or not the
- * load succeeded, and SST_RESTORE_ERR is set beside it when the load
- * failed, with the check that refused the blob in SST_WHY. After a
- * successful load the 6502 stays in reset until the firmware writes
- * SST_RESTORED to SST_CTL, so the state that the blob does not contain is
- * put back before that write.
- *
- * SST_BLOB_SEEN is set by a bridge write into the blob window or by the
- * host's load command, and clears when the load finishes. While it is
- * set a wake is on its way.
- *
- * SST_LOAD_EARLY is set when the last load command came while the host
- * held the core in reset. */
+/* The host's savestate commands. SST_SAVE_REQ reads set from the host's
+ * save request until the firmware writes SST_SAVE_OK or SST_SAVE_ERR,
+ * which the host is then answered with. The host reads POCKET_SST_BYTES
+ * of the window once it has its ok. SST_LOAD_REQ reads set from the
+ * host's load request until the firmware writes SST_LOAD_OK or
+ * SST_LOAD_ERR. A load the host asked for while it held the core in
+ * reset was answered ok at once, and its request is here when the
+ * firmware boots. SST_BLOB_SEEN is set by a host write into the window
+ * or by a load request, either of which can come first, and clears when
+ * the load is answered: while it is set a load is on its way.
+ * SST_WQ_EMPTY is set while no host write waits to reach the SDRAM, so
+ * a blob the host wrote is all in the window. */
 #define SST_CTL (*(volatile uint32_t *)0x80020000u)
-
-#define SST_RESTORED 0x01u
-#define SST_BLOB_SEEN 0x02u
-#define SST_UNDERRUN 0x04u
-#define SST_RESTORE_ERR 0x08u
-#define SST_LOAD_EARLY 0x10u
-#define SST_WHY(ctl) (((ctl) >> 8) & 7u)
-#define SST_WHY_NO_BLOB 1u
-#define SST_WHY_VERSION 2u
-#define SST_WHY_SIZE 3u
-#define SST_WHY_BUILD 4u
-#define SST_WHY_SUM 5u
-#define SST_WHY_TRAILER 6u
-
-/* The host's Savestate Start is answered with an error, and nothing is
- * saved, while the firmware has 1 here. SST_REFUSING reads set once that
- * is in force and no save is in progress, and from then until the
- * firmware writes 0 no save begins. */
-#define SST_REFUSE (*(volatile uint32_t *)0x80020004u)
-#define SST_REFUSING 0x01u
+#define SST_SAVE_REQ 0x01u
+#define SST_LOAD_REQ 0x02u
+#define SST_BLOB_SEEN 0x04u
+#define SST_WQ_EMPTY 0x08u
+#define SST_SAVE_OK 1u
+#define SST_SAVE_ERR 2u
+#define SST_LOAD_OK 3u
+#define SST_LOAD_ERR 4u
 /* The UTC offset comes from three interact menu entries because a menu
  * list holds at most sixteen options and the offset spans twenty-seven
  * whole hours. SET_KB is a position in def/keyboard.def plus one, so zero
@@ -165,8 +165,14 @@ static inline int32_t set_tz_minutes(void)
 #define VID_CURSOR_COLOR (*(volatile uint32_t *)0x50010084u)
 #define VID_BLINK (*(volatile uint32_t *)0x50010088u)
 #define VID_PROG (*(volatile uint32_t *)0x5001008Cu)
+/* The frames since power-up. A write sets the count. */
 #define VID_FRAME (*(volatile uint32_t *)0x500100A0u)
 
+/* The scanline program, which reads back as it was written, less the
+ * bits it does not keep: core/vga/vga.h's VGA_PROG_MAX lines of
+ * SCANVIDEO_PLANE_COUNT planes, VID_XPROG_WORDS words a plane, at a
+ * stride of 16 words a line. */
+#define VID_XPROG_WORDS 4
 #define VID_XPROG(line, plane, w) \
     (((volatile uint32_t *)0x50020000u)[(line) * 16 + (plane) * 4 + (w)])
 #define VID_CANVAS (*(volatile uint32_t *)0x50028000u)
@@ -223,8 +229,59 @@ static inline int32_t set_tz_minutes(void)
 #define AUD_PCM_COMMIT (*(volatile uint32_t *)0x70000034u)
 #define CPU_RESB (*(volatile uint8_t *)0x40000000u)
 #define API_PENDING (*(volatile uint8_t *)0x40000004u)
-/* The low word of the mtime that the last savestate load restored, which
- * the soft CPU resumed at, so a wake can measure how long it ran. */
-#define SST_SAVED_US (*(volatile uint32_t *)0x40000008u)
+
+/* The machine's state for a savestate. MACH_HOLD written with
+ * MACH_HOLD_ON stops the machine on the first clock its audio engines
+ * are quiet: the 6502, the VIA and the bus stand still, and so do the
+ * audio engines' sample counters and the RIA's vsync. MACH_HELD reads
+ * set from then until MACH_HOLD is written 0, which lets everything go
+ * on the same clock. Everything below is read and written with the
+ * machine held.
+ *
+ * ST_SEL picks a word of a group with ST_PICK and ST_DATA reads it.
+ * ST_MACH's word 0 is the pending PHI2 enable in bit 1 and RESB in bit
+ * 0, and its word 1 the PHI2 accumulator in bits 31:16 and the rate in
+ * bits 15:0. ST_BUS's word is the open-bus byte.
+ *
+ * JAM_DATA holds the words of all four groups at JAM_CPU, JAM_VIA,
+ * JAM_MACH and JAM_BUS, laid out as ST_DATA reads them, and a write to
+ * JAM loads them all at once. Only the pending PHI2 enable, the PHI2
+ * accumulator and the open-bus byte are taken from ST_MACH's and ST_BUS's
+ * words. The 6502 and the VIA take theirs only out of reset, so
+ * CPU_RESB is written first.
+ *
+ * REGS_RESTORE set has writes to REGS_WIN put back what reads of it
+ * gave: word 18 the RX state and the API flag, word 20 the console
+ * queue's pointers, and word 200 the xstack pointer with its $FFEC
+ * mirror. Words 16, 26 and 27 have side effects when read, and a
+ * savestate leaves them out.
+ *
+ * AUD_OWN set gives the audio engines' state to AUD_SST, at psg.sv's,
+ * opl.sv's and pcm.sv's savestate addresses. It is taken only while
+ * MACH_HELD reads set, and the hold's end drops it. */
+#define MACH_HOLD (*(volatile uint32_t *)0x90000000u)
+#define MACH_HOLD_ON 0x01u
+#define MACH_HELD 0x02u
+#define ST_SEL (*(volatile uint32_t *)0x90000004u)
+#define ST_DATA (*(volatile const uint32_t *)0x90000008u)
+#define ST_PICK(group, word) (((group) << 3) | (word))
+#define ST_MACH 0u
+#define ST_CPU 1u
+#define ST_VIA 2u
+#define ST_BUS 3u
+#define ST_MACH_WORDS 2
+#define ST_CPU_WORDS 5
+#define ST_VIA_WORDS 7
+#define ST_BUS_WORDS 1
+#define JAM (*(volatile uint32_t *)0x9000000Cu)
+#define REGS_RESTORE (*(volatile uint32_t *)0x90000010u)
+#define AUD_OWN (*(volatile uint32_t *)0x90000014u)
+#define JAM_DATA(n) (((volatile uint32_t *)0x90000040u)[n])
+#define JAM_CPU 0
+#define JAM_VIA 5
+#define JAM_MACH 12
+#define JAM_BUS 14
+#define AUD_SST(w) (((volatile uint32_t *)0x90002000u)[w])
+#define AUD_SST_WORDS 2048
 
 #endif /* _HOST_POCKET_SW_MMIO_H_ */

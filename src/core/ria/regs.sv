@@ -24,13 +24,6 @@
 
 module regs (
     input logic clk,
-    /* The register file, the stack and the console queue run on the
-     * clock that does not stop, so the savestate serializer reaches
-     * them with the rest of the machine standing still. Nothing in them
-     * moves while it is: every signal they are driven by comes from
-     * logic that has no clock, so they settle where they were and stay
-     * there. */
-    input logic clk_mem,
     input logic en,
 
     input logic cs,
@@ -71,26 +64,13 @@ module regs (
     input logic [3:0] b_wstrb,
     input logic [31:0] b_wdata,
 
-    /* The savestate serializer owns this window while the machine's
-     * clock is stopped, and on a load again once the clock is back,
-     * before the soft CPU resumes. It reads and writes whole words and
-     * has no read strobe, because a strobed read of word 16 takes the
-     * console's outgoing byte off the queue, one of word 26 takes back
-     * the byte the 6502 has not read, and one of word 27 clears SIGINT.
-     * The window is half array and half flops. The arrays are on the
-     * clock that survives a savestate and take their words while the
-     * machine is stopped; the flops are on the machine's clock and take
-     * theirs once it is back, so whatever the soft CPU's wake writes here
-     * stays. */
-    input logic sst_own,
-    input logic [7:0] sst_word,
-    input logic sst_we,
-    input logic [31:0] sst_wdata,
-    /* The RW engine's pending write waits for the jam, because the
-     * machine's next edge carries it to XRAM and the audio engines'
-     * snoop. */
-    input logic sst_jam,
-    input logic [24:0] sst_jam_xr,
+    /* sst_restore has the window's writes put back what its reads gave a
+     * savestate, where a plain write is the OS's own: word 18 writes the
+     * RX state and the API flag instead of offering a byte, word 20 writes
+     * the console queue's pointers, and word 200 also refills $FFEC's
+     * mirror. A savestate never reads word 16, 26 or 27, whose reads
+     * take bytes or SIGINT. */
+    input logic sst_restore,
     output logic [31:0] regs_b_rdata,
 
     output logic regs_api_pending,
@@ -145,12 +125,8 @@ module regs (
     always_comb txf_len = txf_wr - txf_rd;
     logic txf_pop;
     logic push_now;
-    /* The !sst_own terms: machine logic freezes wherever it was when
-     * the clock is cut, and an enable that froze high would re-fire
-     * into these arrays -- which keep their clock -- every cycle of
-     * the savestate. */
     always_comb push_now = en && cs && we && rs == 5'h01
-        && txf_len < 5'd16 && !sst_own;
+        && txf_len < 5'd16;
 
     /* The console queue's four words in the regs window, and the fifth
      * that carries its pointers. Read here and nowhere else: word 16 is
@@ -161,8 +137,8 @@ module regs (
     logic txq_win;
     logic [1:0] txq_row;
     always_comb begin
-        txq_win = w_word >= 8'(TXQ_W0) && w_word < 8'(TXQ_W0 + 4);
-        txq_row = 2'(w_word - 8'(TXQ_W0));
+        txq_win = b_word >= 8'(TXQ_W0) && b_word < 8'(TXQ_W0 + 4);
+        txq_row = 2'(b_word - 8'(TXQ_W0));
     end
 
     logic xr_wr_pend;
@@ -266,24 +242,12 @@ module regs (
         end
     end
 
-    /* Registered with the side effect it reports: the offered byte is
-     * taken at the same edge that latches it, never a cycle before. */
-    logic [7:0] w_word;
-    logic w_we;
-    logic [3:0] w_strb;
-    logic [31:0] w_data;
-    always_comb begin
-        w_word = sst_own ? sst_word : b_word;
-        w_we = sst_own ? sst_we : b_we;
-        w_strb = sst_own ? 4'b1111 : b_wstrb;
-        w_data = sst_own ? sst_wdata : b_wdata;
-    end
 
     logic [7:0] xs_word;
     logic xs_win;
     always_comb begin
-        xs_word = w_word - 8'd64;
-        xs_win = w_word >= 8'd64 && w_word <= 8'd192;
+        xs_word = b_word - 8'd64;
+        xs_win = b_word >= 8'd64 && b_word <= 8'd192;
     end
 
     logic xs_push;
@@ -292,19 +256,18 @@ module regs (
     logic [6:0] xs_waddr0, xs_waddr1, xs_waddr2, xs_waddr3;
     logic [7:0] xs_wdat0, xs_wdat1, xs_wdat2, xs_wdat3;
     always_comb begin
-        xs_push = en && cs && we && rs == 5'h0C && xsp != 10'd0
-            && !sst_own;
+        xs_push = en && cs && we && rs == 5'h0C && xsp != 10'd0;
         xs_push_at = 9'(xsp - 10'd1);
-        xs_os_lane = {4{w_we && xs_win && !xs_word[7]}} & w_strb;
+        xs_os_lane = {4{b_we && xs_win && !xs_word[7]}} & b_wstrb;
         xs_we = xs_os_lane | ({3'd0, xs_push} << xs_push_at[1:0]);
         xs_waddr0 = xs_os_lane[0] ? xs_word[6:0] : xs_push_at[8:2];
         xs_waddr1 = xs_os_lane[1] ? xs_word[6:0] : xs_push_at[8:2];
         xs_waddr2 = xs_os_lane[2] ? xs_word[6:0] : xs_push_at[8:2];
         xs_waddr3 = xs_os_lane[3] ? xs_word[6:0] : xs_push_at[8:2];
-        xs_wdat0 = xs_os_lane[0] ? w_data[7:0] : data_i;
-        xs_wdat1 = xs_os_lane[1] ? w_data[15:8] : data_i;
-        xs_wdat2 = xs_os_lane[2] ? w_data[23:16] : data_i;
-        xs_wdat3 = xs_os_lane[3] ? w_data[31:24] : data_i;
+        xs_wdat0 = xs_os_lane[0] ? b_wdata[7:0] : data_i;
+        xs_wdat1 = xs_os_lane[1] ? b_wdata[15:8] : data_i;
+        xs_wdat2 = xs_os_lane[2] ? b_wdata[23:16] : data_i;
+        xs_wdat3 = xs_os_lane[3] ? b_wdata[31:24] : data_i;
     end
 
     logic [7:0] xs_fill_byte;
@@ -321,7 +284,7 @@ module regs (
 
     /* Outside the reset: an array an asynchronous reset can reach
      * infers as flip-flops, never as memory. */
-    always_ff @(posedge clk_mem) begin
+    always_ff @(posedge clk) begin
         if (push_now)
             txf[txf_wr[3:0]] <= data_i;
         if (xs_we[0]) begin
@@ -340,24 +303,24 @@ module regs (
             xs3[xs_waddr3] <= xs_wdat3;
             xm3[xs_waddr3] <= xs_wdat3;
         end
-        if (w_we && txq_win)
+        if (b_we && txq_win)
             for (int k = 0; k < 4; k++)
-                if (w_strb[k])
-                    txf[{txq_row, 2'(k)}] <= w_data[8 * k +: 8];
-        if (w_we && xs_win && xs_word[7]) begin
-            if (w_strb[0])
-                xs_guard[7:0] <= w_data[7:0];
-            if (w_strb[1])
-                xs_guard[15:8] <= w_data[15:8];
-            if (w_strb[2])
-                xs_guard[23:16] <= w_data[23:16];
-            if (w_strb[3])
-                xs_guard[31:24] <= w_data[31:24];
+                if (b_wstrb[k])
+                    txf[{txq_row, 2'(k)}] <= b_wdata[8 * k +: 8];
+        if (b_we && xs_win && xs_word[7]) begin
+            if (b_wstrb[0])
+                xs_guard[7:0] <= b_wdata[7:0];
+            if (b_wstrb[1])
+                xs_guard[15:8] <= b_wdata[15:8];
+            if (b_wstrb[2])
+                xs_guard[23:16] <= b_wdata[23:16];
+            if (b_wstrb[3])
+                xs_guard[31:24] <= b_wdata[31:24];
         end
     end
 
     always_comb begin
-        case (w_word)
+        case (b_word)
             8'd16: regs_b_rdata = {23'd0, txf_len != 5'd0, txf[txf_rd[3:0]]};
             /* The console queue, whole, for the one reader that must
              * not disturb it. */
@@ -388,10 +351,6 @@ module regs (
             8'd25, 8'd26: regs_b_rdata = {23'd0, rx_back_valid,
                                            rx_back_data};
             8'd200: regs_b_rdata = {22'd0, xsp};
-            /* The 6502's RW0 or RW1 write in its last cycle before a
-             * stop, which the machine's next edge carries to XRAM and the
-             * audio engines' snoop. */
-            8'd19: regs_b_rdata = {7'd0, xr_wr_pend, xr_wr_byte, xr_wr_addr};
             default: begin
                 if (xs_win)
                     regs_b_rdata = xs_word[7] ? xs_guard : {
@@ -400,8 +359,8 @@ module regs (
                     };
                 else
                     regs_b_rdata = {
-                        regs[{w_word[2:0], 2'd3}], regs[{w_word[2:0], 2'd2}],
-                        regs[{w_word[2:0], 2'd1}], regs[{w_word[2:0], 2'd0}]
+                        regs[{b_word[2:0], 2'd3}], regs[{b_word[2:0], 2'd2}],
+                        regs[{b_word[2:0], 2'd1}], regs[{b_word[2:0], 2'd0}]
                     };
             end
         endcase
@@ -422,17 +381,8 @@ module regs (
         irq_pending = 8'h00;
         irq_enabled = 8'h00;
     end
-    /* The machine's clock, not the one that survives a savestate. Every
-     * branch below is under `en`, the 6502's enable, which is machine
-     * logic and stops wherever it was. Whether that is high or low is a
-     * race: the clock is cut from the host's clock, which knows nothing
-     * about where the enable's pulse train had got to. Frozen high, on
-     * a clock that kept running, this block would re-execute the last
-     * access the 6502 made for the whole length of the savestate -- and
-     * the address arithmetic in it adds to itself, so the machine would
-     * come back with its RW pointer wound on by however long the host
-     * took to read the blob. A one-in-a-few chance of that is not a
-     * chance worth having. */
+    /* The 6502's side: every branch below is under `en`, the 6502's
+     * enable. */
     always_ff @(posedge clk) begin
         if (en) begin
             regs_tx_valid <= 1'b0;
@@ -542,14 +492,14 @@ module regs (
             regs[5'h10] <= pend_next;
             /* Last, so a restore beats the resolution above rather than
              * being overwritten by it on the same edge. */
-            if (w_we && w_word == 8'd17) begin
-                if (w_strb[0])
-                    irq_enabled <= w_data[7:0];
-                if (w_strb[1])
-                    irq_pending <= w_data[15:8];
+            if (b_we && b_word == 8'd17) begin
+                if (b_wstrb[0])
+                    irq_enabled <= b_wdata[7:0];
+                if (b_wstrb[1])
+                    irq_pending <= b_wdata[15:8];
             end
-            if (sst_own && w_we && w_word == 8'd18)
-                regs_api_pending <= w_data[2];
+            if (sst_restore && b_we && b_word == 8'd18)
+                regs_api_pending <= b_wdata[2];
         /* The RW stages reload one clock after their issue; a same-edge
          * 6502 or OS write is repaired by the restage that follows it. */
         if (xr_cap0)
@@ -563,15 +513,15 @@ module regs (
             regs[5'h0C] <= xs_fill_byte;
         /* Plain shared memory at the system clock: it lands regardless of
          * the 6502's enable, and a same-cell collision goes to the OS. */
-        if (w_we && w_word < 8'd8) begin
-            if (w_strb[0])
-                regs[{w_word[2:0], 2'd0}] <= w_data[7:0];
-            if (w_strb[1])
-                regs[{w_word[2:0], 2'd1}] <= w_data[15:8];
-            if (w_strb[2])
-                regs[{w_word[2:0], 2'd2}] <= w_data[23:16];
-            if (w_strb[3])
-                regs[{w_word[2:0], 2'd3}] <= w_data[31:24];
+        if (b_we && b_word < 8'd8) begin
+            if (b_wstrb[0])
+                regs[{b_word[2:0], 2'd0}] <= b_wdata[7:0];
+            if (b_wstrb[1])
+                regs[{b_word[2:0], 2'd1}] <= b_wdata[15:8];
+            if (b_wstrb[2])
+                regs[{b_word[2:0], 2'd2}] <= b_wdata[23:16];
+            if (b_wstrb[3])
+                regs[{b_word[2:0], 2'd3}] <= b_wdata[31:24];
         end
     end
 
@@ -622,8 +572,6 @@ module regs (
             end
             xr_fill_pend1 <= 1'b1;
         end
-        if (sst_jam)
-            {xr_wr_pend, xr_wr_byte, xr_wr_addr} <= sst_jam_xr;
         /* The 6502's stack ops, and the pop's one-clock-late refill of
          * the top-of-stack mirror out of the RAM. */
         xs_fill <= 1'b0;
@@ -651,16 +599,16 @@ module regs (
          * the mirror's word are back before the pointer. A blob cut one
          * clock after a pop would otherwise restore a mirror still
          * holding the byte that pop had already taken. */
-        if (w_we && w_word == 8'd200) begin
-            xsp <= w_data[9:0];
-            if (sst_own) begin
+        if (b_we && b_word == 8'd200) begin
+            xsp <= b_wdata[9:0];
+            if (sst_restore) begin
                 xs_fill <= 1'b1;
-                xs_fill_at <= w_data[9:0];
+                xs_fill_at <= b_wdata[9:0];
             end
         end
-        if (sst_own && w_we && w_word == 8'(TXQ_PTR)) begin
-            txf_wr <= w_data[4:0];
-            txf_rd <= w_data[9:5];
+        if (sst_restore && b_we && b_word == 8'(TXQ_PTR)) begin
+            txf_wr <= b_wdata[4:0];
+            txf_rd <= b_wdata[9:5];
         end
         else begin
             if (push_now)
@@ -677,18 +625,18 @@ module regs (
             rx_req <= 1'b1;
         if (en && pull)
             rx_req <= 1'b0;
-        if (sst_own && w_we && w_word == 8'd18) begin
-            rx_req <= w_data[1];
+        if (sst_restore && b_we && b_word == 8'd18) begin
+            rx_req <= b_wdata[1];
             /* Bit 0 rides the window's own polarity -- the OS reads it
              * as "the offer slot is free" -- so the restore undoes the
              * inversion the readback applied. */
-            os_rx_valid <= !w_data[0];
-            os_rx_data <= w_data[15:8];
-        end else if (w_we && w_word == 8'd18 && w_data[9])
+            os_rx_valid <= !b_wdata[0];
+            os_rx_data <= b_wdata[15:8];
+        end else if (b_we && b_word == 8'd18 && b_wdata[9])
             rx_req <= 1'b0;
-        else if (w_we && w_word == 8'd18 && !os_rx_valid) begin
+        else if (b_we && b_word == 8'd18 && !os_rx_valid) begin
             os_rx_valid <= 1'b1;
-            os_rx_data <= w_data[7:0];
+            os_rx_data <= b_wdata[7:0];
             rx_req <= 1'b0;
         end else if (rx_reclaim || (en && pull && !rx_valid)) begin
             os_rx_valid <= 1'b0;

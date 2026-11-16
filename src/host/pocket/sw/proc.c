@@ -39,11 +39,6 @@ void proc_restage(void)
         proc_argv0[0] = 0;
 }
 
-const char *proc_staged_path(void)
-{
-    return proc_running()[0] ? proc_running() : proc_argv0;
-}
-
 void proc_exec_start(void)
 {
     proc_exec_relaunch();
@@ -96,5 +91,25 @@ bool proc_exec_take(void)
         printf("exec: no %s\n", path);
         return false;
     }
+    return true;
+}
+
+void proc_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_str(c, proc_argv0, sizeof proc_argv0);
+    sst_put_bool(c, proc_exec_pending);
+    proc_chain_sst_save(c);
+}
+
+bool proc_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    const char *argv0 = sst_view_str(c, sizeof proc_argv0);
+    bool pending = sst_get_bool(c);
+    if (!sst_ok(c) || !proc_chain_sst_load(c))
+        return false;
+    strcpy(proc_argv0, argv0);
+    proc_exec_pending = pending;
     return true;
 }

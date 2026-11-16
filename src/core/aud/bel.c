@@ -104,16 +104,6 @@ void HOST_IN_FLASH_FUNC bel_init(void)
     bel_silence();
 }
 
-void bel_wake(uint64_t us)
-{
-    if (bel_restrike_at)
-        bel_restrike_at += us;
-    if (bel_release_at)
-        bel_release_at += us;
-    if (bel_end_at)
-        bel_end_at += us;
-}
-
 static void bel_strike(void)
 {
     const bel_sound_t *snd = RING_AT(&bel_queue, 0);

@@ -4,18 +4,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * A firmware.bin runs only under the bitstream it was built for. The
- * bitstream shows its register layout version and its savestate version
- * in two registers, this image carries its own two after its build stamp,
- * and crt0.S calls ver_check before anything else uses a register.
+ * bitstream shows its register layout version in a register, this image
+ * carries its own after its reset jump, and crt0.S calls ver_check before
+ * anything else uses a register.
  *
- * When either differs the firmware stops here for good and the screen
+ * When the two differ the firmware stops here for good and the screen
  * stays black. No register can be trusted to say more.
  */
 
 #include "mmio.h"
 
-/* This image's versions, in crt0.S. */
-extern const uint32_t ver_own[2];
+/* This image's version, in crt0.S. */
+extern const uint32_t ver_own;
 
 /* Nothing can be trusted under another bitstream, so the stop touches no
  * register at all. */
@@ -29,6 +29,6 @@ void ver_check(void);
 
 void ver_check(void)
 {
-    if (VER_REG != ver_own[0] || VER_SST != ver_own[1])
+    if (VER_REG != ver_own)
         ver_stop();
 }

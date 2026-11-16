@@ -50,10 +50,29 @@ const char *proc_launcher(void)
     return proc_launcher_path ? proc_launcher_path : "";
 }
 
-void proc_restore_paths(const char *running, const char *launcher)
+void proc_chain_sst_save(sst_cursor_t *c)
 {
+    sst_put_i16(c, proc_exit_code);
+    sst_put_str(c, proc_running(), PROC_PATH_SLOT);
+    sst_put_str(c, proc_launcher(), PROC_PATH_SLOT);
+    sst_put(c, arg_data(), arg_bytes());
+}
+
+/* The paths are put back here rather than through proc_run, because
+ * proc_run takes argv[0] from the argument buffer. */
+bool proc_chain_sst_load(sst_cursor_t *c)
+{
+    int16_t code = sst_get_i16(c);
+    const char *running = sst_view_str(c, PROC_PATH_SLOT);
+    const char *launcher = sst_view_str(c, PROC_PATH_SLOT);
+    const uint8_t *argv = sst_view(c, arg_bytes());
+    if (!sst_ok(c))
+        return false;
+    proc_exit_code = code;
     set_path(&proc_running_path, running);
     set_path(&proc_launcher_path, launcher);
+    arg_set_data(argv);
+    return true;
 }
 
 void proc_set_launcher(bool is_launcher)

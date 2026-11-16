@@ -1,6 +1,7 @@
 # The soft CPU's memory in SDRAM
 
-Built, and it runs on a Pocket: a game runs, and a sleep wakes.
+Built, and it runs on a Pocket: a game runs. The firmware-made savestate
+waits for a fit.
 
 The soft CPU's memory was 96 KB of block memory, 96 of the FPGA's 308 M10K
 blocks, with 305 in use. It is now in the SDRAM behind a small cache. The
@@ -18,18 +19,19 @@ design uses 219 blocks, so 89 are free.
 - **The main cache** (src/core/riscv/cache.sv) is for the two blocks alone.
   8 KB, 4 ways, 128 sets, lines of 16 bytes. A hit takes one clock and a
   miss about a microsecond. It costs 9 blocks.
-- **A look-ahead** for everything else the soft CPU reads from the SDRAM:
-  the ROM image, the file windows, the Get File scratch. It holds one
-  16-byte line, and any write by the Pocket throws it away.
-- **The savestate** saves the RAM block and never the ROM block: a wake
-  loads `firmware.bin` again. The blob is 293 KB.
-- **The build check.** The firmware carries its compile time and the blob
-  carries it too. A wake whose blob names another build is refused.
-- **Bitstream and firmware must match.** The bitstream shows its savestate
-  version and its register layout version in two registers, and the
-  firmware carries its own. It reads both first thing and stops if either
-  differs, touching nothing: the screen stays black. A savestate load is
-  refused while the firmware's two numbers differ from the bitstream's.
+- **Everything else is past the cache**, through the staging store: the
+  ROM image, the savestate window, the file windows, the Get File
+  scratch. Reads come through a look-ahead that holds one 16-byte line,
+  and any write, the Pocket's or the soft CPU's, throws it away. The soft
+  CPU's writes go to the controller a halfword at a time, DQM masking a
+  byte it leaves out.
+- **The savestate** is core's, made by the firmware into the blob window
+  in the staging store, at the end of the SDRAM. A wake boots the firmware
+  and then loads the blob. The blob is about 230 KB.
+- **Bitstream and firmware must match.** The bitstream shows its register
+  layout version in a register, and the firmware carries its own. It reads
+  it first thing and stops if they differ, touching nothing: the screen
+  stays black.
 - **The 6502's 64 KB is in block memory**, 64 blocks, which leaves 25 free.
   The SRAM chip's pins are tied off as Analogue's template ties off an
   unused part, so the design needs only the FPGA and the SDRAM.
@@ -38,17 +40,20 @@ design uses 219 blocks, so 89 are free.
 
 The ROM slot is 62 MB and stays 62 MB: a whole ROM has to load into it, so
 its size is a limit of the system. The top 2 MB is ours, and the map's gate
-holds the line. In the 2 MB:
+holds the line. The 2 MB is packed from the bottom, and the savestate
+window is last and runs to the end, so whatever the Pocket OS puts around
+a savestate grows into empty space:
 
-| Use | Size |
-|---|---|
-| The firmware's ROM block | 256 KB |
-| The firmware's RAM block | 64 KB |
-| The savestate window | 512 KB |
-| 8 file windows | 256 KB |
-| Get File scratch | 4 KB |
+| Address | Use | Size |
+|---|---|---|
+| 0x03E00000 | The firmware's ROM block | 256 KB |
+| 0x03E40000 | The firmware's RAM block | 64 KB |
+| 0x03E50000 | 8 file windows | 256 KB |
+| 0x03E90000 | Get File scratch | 4 KB |
+| 0x03E91000 | The savestate window | 1468 KB |
 
-About a megabyte is left over.
+The cache's window is the 512 KB from 0x03E00000, and only the two blocks
+are linked in it.
 
 ### What it costs
 
@@ -66,23 +71,22 @@ Timing after the last fit: setup 0.57 ns to spare, hold 0.11 ns.
 
 ## To do
 
-### Wakes that fail
+### Savestates
 
-Built: a load asked for in reset; a refused wake prints `bad savestate`
-and stops; no savestate while a file is open for writing, from the moment
-the open is asked for; and the bitstream and firmware match check, which
-a savestate load cannot get round. Left to do:
+Built and simulated (`psleep`): a save, a wake into a fresh boot with the
+load asked in reset, and a load into the running machine each run on
+tick for tick with a session never saved; a file and the ROM's asset read
+on from where they were; a save with a file open for writing answers
+err; a bad savestate prints `bad savestate` and stops.
 
-- **A blob arriving while a program runs** stops the program. The engine
-  halts the CPU for a load by itself, so the stop may not be needed.
-- **Tests.** Two psleep cases cannot tell a resume from a restart. The
-  load-in-reset guess is written outside the `ANSWER_` constants twice.
-  The trap case's second save lands before the emulated access.
-- **Core changed.** Run the emulator tests and a Pico build.
+mtime stands still while the machine is held, so a save or a load costs
+the program's clock nothing. The time of day comes from the RTC and
+`UPTIME`, which never stops, so it follows real time. In simulation a save holds the machine for
+0.38 s and a wake for 0.28 s.
 
-For the Pocket to show: whether the 1 in 20 is gone; whether it takes busy
-at a save or load request and ok at a load in reset; what it does with a
-sleep the core refuses.
+For the Pocket to show: whether it takes busy at a save or load request
+and ok at a load in reset; the order of a wake's file, its load request
+and Reset Exit; what it does with a sleep the core refuses.
 
 ### A new ROM from the menu
 
@@ -116,8 +120,8 @@ memories, and core's font builder writes whole 32-bit words.
 - The constant tables it copies from are aligned to 4, because a misaligned
   read on the soft CPU is a trap.
 - `vid_fonts` and `vid_font` go. After a wake the font memories are empty,
-  and the firmware builds them again for the saved code page with
-  `font_load_code_page`, where it copied them from RAM.
+  and the VID row builds them again for the saved code page with
+  `font_load_code_page`.
 - The same builder runs on the Pico, the VGA and the emulators, and their
   tests cover the tables' contents.
 - No bitstream change unless the font memories' addresses have to move to
@@ -136,12 +140,9 @@ memories, and core's font builder writes whole 32-bit words.
 
 ### To clean up
 
-- **The Pocket tests are near their mark.** One case moves the blob over
-  the bridge and the rest put it in place. The set takes about 60 seconds
-  and its slowest case about 45, with a Quartus fit on the same machine.
-  What is left is simulated time each case needs.
-- **A save during a cache miss** is only tested at the whole-core level,
-  where it was found. It wants a test beside the engine's own.
+- **The Pocket tests are past their mark.** The psleep set takes about
+  72 seconds, as long as its slowest case. A round trip's time is mostly
+  the load's sum and the save.
 
 ## For the next fit to confirm
 

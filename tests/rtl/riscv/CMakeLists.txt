@@ -2,9 +2,7 @@ rp6502_add_machine_test(mtime TIMEOUT 120)
 
 rp6502_add_machine_test(ram TIMEOUT 120)
 
-rp6502_add_machine_test(resume TIMEOUT 300)
-
-rp6502_add_machine_test(sst TIMEOUT 600)
+rp6502_add_machine_test(hold TIMEOUT 600)
 
 # cache.sv alone, at the size the machine uses, with two ways, and with so
 # few sets that nearly every miss replaces a line.

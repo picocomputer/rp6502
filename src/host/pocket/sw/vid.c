@@ -14,14 +14,14 @@
 #include "vga.h"
 #include "vid.h"
 
+#include "core/str/unicode.h"
 #include "core/term/cells.h"
 #include "core/term/font.h"
 #include "core/vga/mode/mode0.h"
 
 #include <stdint.h>
 
-/* The blob does not contain VID_PROG, so the value written to it is kept
- * here for vid_restore. */
+/* What was last written to VID_PROG, for the savestate row. */
 static uint32_t vid_prog_word;
 
 bool mode0_prog(uint16_t *xregs)
@@ -90,20 +90,6 @@ unsigned long vga_frame_count(void)
     return VID_FRAME;
 }
 
-uint32_t vid_prog_word_get(void)
-{
-    return vid_prog_word;
-}
-
-/* The blob does not contain the font memories, so they are written again
- * for the code page it restored. */
-void vid_restore(void)
-{
-    font_load_code_page(font_get_code_page());
-    VID_PROG = vid_prog_word;
-    vid_publish();
-}
-
 /* The console's code page and canvas are put back when a program stops.
  * Both are deferred to vid_task so that they land after every other stop hook
  * has run, which a stop hook itself could ensure only from the first row of
@@ -111,4 +97,35 @@ void vid_restore(void)
 void vid_stop(void)
 {
     vid_needs_restore = true;
+}
+
+/* The fabric's registers here are written, not read, so the row carries
+ * what was written: the canvas, VID_PROG and vga.c's record of the
+ * scanline table. The font memories cannot be read either, so it carries
+ * the code page and the load writes its glyphs again. The cells come back
+ * in their own row, before this one, and the load publishes them. */
+void vid_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u16(c, (uint16_t)vga_canvas_code());
+    sst_put_u32(c, vid_prog_word);
+    sst_put_u16(c, font_get_code_page());
+    vga_table_save(c);
+}
+
+bool vid_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t canvas = sst_get_u16(c);
+    uint32_t prog = sst_get_u32(c);
+    uint16_t cp = sst_get_u16(c);
+    if (!sst_ok(c) || !unicode_has_page(cp) || !vga_canvas_load(canvas)
+        || !vga_table_load(c))
+        return false;
+    vid_prog_word = prog;
+    VID_PROG = prog;
+    font_load_code_page(cp);
+    vid_publish();
+    vid_needs_restore = false;
+    return true;
 }
