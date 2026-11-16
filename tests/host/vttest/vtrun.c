@@ -11,7 +11,8 @@
  * the walk answers: the next choice on a menu, 0 on a menu with nothing left,
  * the keys a test asks for, and Return anywhere else. The walk types on the
  * machine's keyboard, so vttest gets what the keys send in the modes the
- * terminal is in.
+ * terminal is in. It runs on Linux, which shows when vttest is blocked
+ * reading its terminal.
  *
  * usage: vtrun OUTDIR [vttest arguments]
  *
@@ -45,12 +46,9 @@
 #include "host/host.h"
 #include "host/sokol/cli/png.h"
 #include <errno.h>
+#include <fcntl.h>
 #include <poll.h>
-#ifdef __APPLE__
-#include <util.h>
-#else
 #include <pty.h>
-#endif
 #include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -58,17 +56,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
-#include <termios.h>
 #include <time.h>
 #include <unistd.h>
 
-#define VT_FIRST_MS 7000 /* the longest vttest takes to start on a key: RIS sleeps 5 s */
-#define VT_IDLE_MS 350   /* then quiet this long and it is waiting for one */
-#define VT_RAW_MS 1000   /* the same in raw mode, where vttest asks the terminal
-                          * for reports and pauses 100 to 300 ms around them,
-                          * longer on a busy machine */
+#define VT_POLL_MS 2      /* how often the walk looks for vttest waiting */
+#define VT_STUCK_MS 7000  /* quiet and not reading this long, and it waits anyway:
+                           * longer than its longest pause, the 5 s after a RIS */
 #define VT_STEP_LIMIT 4000 /* screens before giving up on a walk gone wrong */
 #define VT_TEST_LIMIT 60   /* screens one test may take before it is left */
 #define VT_TIME_LIMIT 480  /* seconds for the whole walk, under ctest's 600 */
@@ -518,74 +515,67 @@ static const vt_answer_t vt_answers[] = {
 
 static const vt_answer_t *vt_answer; /* the row the walk is in */
 static int vt_step;                  /* and the next step of it */
-static bool vt_more;                 /* the step last typed was not its last */
 
-/* Whether buf is only the tty's echo of the keys last sent, which can arrive
- * while vttest sleeps and is not yet its answer. */
-static bool vt_is_echo(const char *buf, size_t n)
+static pid_t vt_pid;
+static int vt_slave = -1;
+
+/* Whether vttest waits for a key: it is blocked reading its terminal, and
+ * nothing is there for it to read. Linux shows the call a process is blocked
+ * in, and vttest reads keys, and the terminal's replies, with read on fd 0. */
+static bool vt_reading(void)
 {
-    for (size_t i = 0; i < n; i++)
-        if (buf[i] != '\r' && buf[i] != '\n' && !memchr(vt_echo, buf[i], vt_echo_len))
-            return false;
-    return n <= vt_echo_len + 2;
+    char path[64], line[256];
+    snprintf(path, sizeof path, "/proc/%d/syscall", (int)vt_pid);
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return false;
+    long nr = -1;
+    unsigned long fd = 1;
+    bool ok = fgets(line, sizeof line, f) && sscanf(line, "%ld 0x%lx", &nr, &fd) == 2;
+    fclose(f);
+    int queued = 1;
+    return ok && nr == SYS_read && fd == 0 && !ioctl(vt_slave, FIONREAD, &queued) && !queued;
 }
 
-/* Whether vttest has the tty in raw mode. It does that for its exchanges
- * with the terminal, though some of its tests also wait for a key that way. */
-static bool vt_raw(void)
+/* Reads what vttest writes until it waits for a key, answering as the
+ * terminal does. False once it is gone. vttest flushes its output before it
+ * reads, so all of a screen is in when it waits, and a reply the terminal
+ * gave is in its input until it reads it. Its pauses are sleeps, not reads,
+ * so no key lands in one. */
+static bool vt_drain(void)
 {
-    struct termios t;
-    return !tcgetattr(vt_master, &t) && !(t.c_lflag & ICANON);
-}
-
-/* Reads until vttest has been quiet for VT_IDLE_MS, or VT_RAW_MS with the
- * tty in raw mode, after waiting up to `first` ms for it to start. False
- * once it is gone. A test in the middle of its keys does its pausing before
- * it answers one and asks the terminal nothing, so it gets VT_IDLE_MS. */
-static bool vt_drain(int first)
-{
-    int wait = first;
+    int quiet = 0;
     for (;;)
     {
         struct pollfd p = {.fd = vt_master, .events = POLLIN};
-        int k = poll(&p, 1, wait);
-        if (k == 0)
-        {
-            if (wait == VT_IDLE_MS && !vt_more && vt_raw())
-            {
-                wait = VT_RAW_MS - VT_IDLE_MS;
-                continue;
-            }
-            return true;
-        }
+        int k = poll(&p, 1, VT_POLL_MS);
         if (k < 0 && errno == EINTR)
             continue;
-        char buf[4096];
-        ssize_t n = read(vt_master, buf, sizeof buf);
-        if (n <= 0)
-            return false;
-        vt_feed(buf, (size_t)n);
-        if (wait == first && vt_is_echo(buf, (size_t)n))
+        if (k > 0)
+        {
+            char buf[4096];
+            ssize_t n = read(vt_master, buf, sizeof buf);
+            if (n <= 0)
+                return false;
+            vt_feed(buf, (size_t)n);
+            quiet = 0;
             continue;
-        wait = VT_IDLE_MS;
+        }
+        if (vt_reading())
+            return true;
+        quiet += VT_POLL_MS;
+        if (quiet >= VT_STUCK_MS)
+            return true;
     }
 }
 
 /* Waits for vttest to want a key, with the lazy erases finished so the cells
- * are what the screen shows. A blank screen is vttest in a pause, such as the
- * five seconds it sleeps after a reset, so it is given that long to draw
- * something before the walk presses a key into its pause. */
+ * are what the screen shows. */
 static bool vt_wait(void)
 {
-    if (!vt_drain(VT_FIRST_MS))
+    if (!vt_drain())
         return false;
     vt_settle();
-    if (vt_blank())
-    {
-        if (!vt_drain(VT_FIRST_MS))
-            return false;
-        vt_settle();
-    }
     return true;
 }
 
@@ -857,15 +847,6 @@ int main(int argc, char **argv)
             args[n++] = argv[i];
         args[n++] = geometry;
         args[n] = NULL;
-        /* A new pty runs at 38400 baud on Linux and 9600 on macOS, and
-         * vttest's main menu shows the speed when it is not 9600. */
-        struct termios t;
-        if (!tcgetattr(0, &t))
-        {
-            cfsetispeed(&t, B38400);
-            cfsetospeed(&t, B38400);
-            tcsetattr(0, TCSANOW, &t);
-        }
         setenv("TERM", "vt102", 1);
         const char *vttest = getenv("VTTEST");
         args[0] = (char *)(vttest ? vttest : "vttest");
@@ -873,6 +854,13 @@ int main(int argc, char **argv)
         _exit(127);
     }
 
+    vt_pid = pid;
+    vt_slave = open(ptsname(vt_master), O_RDWR | O_NOCTTY);
+    if (vt_slave < 0)
+    {
+        perror("vtrun: the pty's terminal");
+        return 2;
+    }
     int steps = 0;
     int status = 0;
     time_t start = time(NULL);
@@ -920,7 +908,6 @@ int main(int argc, char **argv)
             vt_seq = 0;
             vt_left = m;
             vt_answer = NULL;
-            vt_more = false;
             if (!strcmp(m->id, "main") && choice == 0)
                 break;
         }
@@ -962,7 +949,6 @@ int main(int argc, char **argv)
                 if (!last)
                     vt_step++;
             }
-            vt_more = !last;
             if (last)
             {
                 snprintf(name, sizeof name, "%s-%02u", vt_path, ++vt_seq);
@@ -978,9 +964,8 @@ int main(int argc, char **argv)
         vt_log("step limit\n");
         status = 1;
     }
-    /* macOS keeps an exiting process until the output it left on its tty
-     * has been read, so the pty is closed before waiting for vttest. */
     kill(pid, SIGKILL);
+    close(vt_slave);
     close(vt_master);
     waitpid(pid, NULL, 0);
     fclose(vt_index);

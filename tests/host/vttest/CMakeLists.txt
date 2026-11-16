@@ -1,16 +1,13 @@
-# Thomas Dickey's vttest, run against the console terminal by vtrun. It needs
-# a pty, so it is built only where there is one.
-if(WIN32)
+# Thomas Dickey's vttest, run against the console terminal by vtrun. It is
+# built only on Linux: the walk reads /proc to see vttest wait for a key.
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     return()
 endif()
 
 add_executable(vtrun vtrun.c ${RP6502_SRC}/host/sokol/cli/png.c
     ${RP6502_BENCH}/tb_seed.c ${RP6502_BENCH}/tb_log.c ${RP6502_SRC}/core/sys/crc32.c)
 target_include_directories(vtrun PRIVATE ${RP6502_SRC} ${RP6502_BENCH})
-target_link_libraries(vtrun PRIVATE emu_core)
-if(NOT APPLE)
-    target_link_libraries(vtrun PRIVATE util)
-endif()
+target_link_libraries(vtrun PRIVATE emu_core util)
 
 # vttest is a submodule, pinned so the screens it draws stay the same, and
 # built with its own configure and make.
@@ -31,11 +28,11 @@ ExternalProject_Add(vttest_build
     BUILD_BYPRODUCTS ${_vttest_bin}/vttest)
 add_dependencies(vtrun vttest_build)
 
-# The walk takes about five minutes, most of it vttest's own pauses; vtrun
-# gives up after eight. golden.txt holds the approved screens: a CRC of the
-# cells of each and its cursor. A screen that differs, is new or is gone fails
-# the test and is saved in screens/ as text and PNG. To approve a changed
-# walk, look at those, then copy screens/screens.txt to golden.txt.
+# The walk takes about 45 seconds, most of it vttest's own pauses; vtrun
+# gives up after eight minutes. golden.txt holds the approved screens: a CRC
+# of the cells of each and its cursor. A screen that differs, is new or is
+# gone fails the test and is saved in screens/ as text and PNG. To approve a
+# changed walk, look at those, then copy screens/screens.txt to golden.txt.
 set(_golden ${CMAKE_CURRENT_LIST_DIR}/golden.txt)
 set(_screens ${CMAKE_CURRENT_BINARY_DIR}/screens)
 set(_env VTTEST=${_vttest_bin}/vttest)
