@@ -253,6 +253,21 @@ UTEST(com, a_break_during_a_paste_cancels_the_drip_too)
     ASSERT_FALSE(queued());
 }
 
+/* With bracketed paste set, a paste arrives between ESC [ 200 ~ and
+ * ESC [ 201 ~, and an ESC in the text is left out. */
+UTEST(com, a_bracketed_paste_is_marked_and_cannot_end_early)
+{
+    com_rx_clear();
+    manifold_write_to(COM_TERM_SCREEN, "\33[?2004h", 8);
+    paste_start("a\33[201~b");
+    paste_task();
+    char buf[64] = {0};
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, buf, sizeof buf - 1), (size_t)19);
+    ASSERT_STREQ(buf, "\33[200~a[201~b\33[201~");
+    manifold_write_to(COM_TERM_SCREEN, "\33[?2004l", 8);
+    com_rx_clear();
+}
+
 /* A key's sequence that does not fit is dropped whole. */
 UTEST(com, a_full_keyboard_ring_never_cuts_a_push)
 {

@@ -6,6 +6,7 @@
 
 #include "core/hid/paste.h"
 #include "core/str/oem.h"
+#include "core/term/cells.h"
 #include "machine.h"
 #include <stdlib.h>
 #include <string.h>
@@ -26,17 +27,39 @@ void paste_clear(void)
     manifold_keyboard_clear();
 }
 
+/* A program that set bracketed paste (?2004) gets the paste between
+ * ESC [ 200 ~ and ESC [ 201 ~, with any ESC of the text left out, so the
+ * text cannot end the bracket early. */
+static const char paste_open[] = "\33[200~";
+static const char paste_close[] = "\33[201~";
+
 void paste_start(const char *utf8)
 {
     paste_cancel();
     size_t n = utf8 ? strlen(utf8) : 0;
     if (!n)
         return;
-    paste_buf = malloc(n);
+    bool bracket = cells_term.bracketed_paste;
+    paste_buf = malloc(n + (bracket ? sizeof paste_open + sizeof paste_close : 0));
     if (!paste_buf)
         return;
-    memcpy(paste_buf, utf8, n);
-    paste_len = n;
+    size_t len = 0;
+    if (bracket)
+    {
+        memcpy(paste_buf, paste_open, sizeof paste_open - 1);
+        len = sizeof paste_open - 1;
+        for (size_t i = 0; i < n; i++)
+            if (utf8[i] != '\33')
+                paste_buf[len++] = utf8[i];
+        memcpy(paste_buf + len, paste_close, sizeof paste_close - 1);
+        len += sizeof paste_close - 1;
+    }
+    else
+    {
+        memcpy(paste_buf, utf8, n);
+        len = n;
+    }
+    paste_len = len;
     paste_pos = 0;
 }
 

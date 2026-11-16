@@ -13,8 +13,8 @@
 #include <string.h>
 
 // A VT102 with most of what xterm and the Linux console add: 256 colors and
-// truecolor, the alternate screen, the dynamic colors of OSC 4/10/11/12, the
-// Linux palette sequences and SGR 10/11. The parser follows the DEC/xterm
+// truecolor, the alternate screen, the dynamic colors of OSC 4/10/11/12,
+// bracketed paste and SGR 10/11. The parser follows the DEC/xterm
 // state machine (vt100.net), so unknown sequences and strings are taken apart
 // the way xterm does. Inside a sequence BS-SI and BEL act and the sequence
 // goes on, as in xterm; any other control ends it silently, as in Linux. DEC
@@ -101,6 +101,7 @@ static void term_reset_core(term_t *t)
     t->app_keypad = false;
     t->autorepeat = true;
     t->ice_colors = false;
+    t->bracketed_paste = false;
     t->protect_mode = TERM_PROTECT_OFF;
     t->erase_all = false;
     t->reverse_screen = false;
@@ -616,6 +617,9 @@ static void term_out_DECRQM(term_t *t, bool private)
         case 66: // DECNKM
             pm = t->app_keypad ? 1 : 2;
             break;
+        case 2004: // bracketed paste
+            pm = t->bracketed_paste ? 1 : 2;
+            break;
         case 47:
         case 1047:
         case 1049:
@@ -769,6 +773,9 @@ static void term_out_DECSET(term_t *t, bool set)
             break;
         case 66: // DECNKM: the keypad mode, as ESC = and ESC >
             t->app_keypad = set;
+            break;
+        case 2004: // bracketed paste
+            t->bracketed_paste = set;
             break;
         case 47: /* the alternate screen, swap only */
             if (set)
@@ -989,19 +996,6 @@ static void term_osc_byte(term_t *t, uint8_t ch)
             t->osc_len = 0;
             t->osc_item = 0;
         }
-        else if (!t->osc_len && ch == 'P')
-        {
-            // Linux: ESC ] P nrrggbb sets palette entry n, with no terminator.
-            t->ansi_state = ansi_state_osc_palette;
-            t->osc_len = 0;
-        }
-        else if (!t->osc_len && ch == 'R')
-        {
-            // Linux: ESC ] R resets palette 0-15, with no terminator.
-            for (unsigned i = 0; i < 16; i++)
-                cells_color_reset(t, i);
-            t->ansi_state = ansi_state_ground;
-        }
         else
             t->osc_stage = 2;
         break;
@@ -1019,28 +1013,6 @@ static void term_osc_byte(term_t *t, uint8_t ch)
             t->osc_len = TERM_OSC_SPEC_MAX + 1;
         break;
     }
-}
-
-// Linux's ESC ] P nrrggbb: the palette entry n (0-f) and its color, seven
-// hex digits and no terminator. Anything else ends it, and is dropped.
-static void term_osc_palette_byte(term_t *t, uint8_t ch)
-{
-    if (term_hex((char)ch) < 0)
-    {
-        t->ansi_state = ansi_state_ground;
-        return;
-    }
-    t->osc_spec[t->osc_len++] = (char)ch;
-    if (t->osc_len < 7)
-        return;
-    t->ansi_state = ansi_state_ground;
-    t->rep_valid = false;
-    const char *s = t->osc_spec;
-    cells_color(t, (unsigned)term_hex(s[0]),
-                     SCANVIDEO_ALPHA_MASK |
-                         SCANVIDEO_PIXEL_FROM_RGB8(term_hex_run(&s[1], 2),
-                                                   term_hex_run(&s[3], 2),
-                                                   term_hex_run(&s[5], 2)));
 }
 
 /* ---- the parser -------------------------------------------------------- */
@@ -1513,9 +1485,6 @@ void term_write(term_t *t, uint8_t ch)
     case ansi_state_osc:
         term_osc_byte(t, ch);
         break;
-    case ansi_state_osc_palette:
-        term_osc_palette_byte(t, ch);
-        break;
     case ansi_state_string:
         break;
     case ansi_state_vt52_esc:
@@ -1605,6 +1574,7 @@ void term_sst_put(sst_cursor_t *c, const term_t *t)
     sst_put_bool(c, t->app_keypad);
     sst_put_bool(c, t->autorepeat);
     sst_put_bool(c, t->ice_colors);
+    sst_put_bool(c, t->bracketed_paste);
     sst_put_u8(c, t->protect_mode);
     sst_put_bool(c, t->erase_all);
     sst_put_bool(c, t->reverse_screen);
@@ -1653,6 +1623,7 @@ bool term_sst_get(sst_cursor_t *c, term_t *t)
     t->app_keypad = sst_get_bool(c);
     t->autorepeat = sst_get_bool(c);
     t->ice_colors = sst_get_bool(c);
+    t->bracketed_paste = sst_get_bool(c);
     t->protect_mode = sst_get_u8(c);
     t->erase_all = sst_get_bool(c);
     t->reverse_screen = sst_get_bool(c);
@@ -1680,8 +1651,7 @@ bool term_sst_get(sst_cursor_t *c, term_t *t)
     if (!sst_ok(c) || (alt && !TERM_ALT_SCREEN))
         return false;
     if (state >= ansi_state_count || t->protect_mode > TERM_PROTECT_ISO ||
-        t->csi_param_count > TERM_CSI_PARAM_MAX_LEN || t->osc_len > TERM_OSC_SPEC_MAX + 1 ||
-        (state == ansi_state_osc_palette && t->osc_len >= 7))
+        t->csi_param_count > TERM_CSI_PARAM_MAX_LEN || t->osc_len > TERM_OSC_SPEC_MAX + 1)
         return false;
     t->ansi_state = (ansi_state_t)state;
     term_show(t, alt);

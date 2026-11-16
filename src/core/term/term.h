@@ -97,7 +97,6 @@ typedef enum
     ansi_state_csi,         // after CSI, collecting parameters and intermediates
     ansi_state_csi_ignore,  // a malformed CSI, dropped through its final byte
     ansi_state_osc,         // an OSC string, up to BEL or ST
-    ansi_state_osc_palette, // Linux ESC ] P nrrggbb, seven hex digits
     ansi_state_string,      // DCS, SOS, PM or APC, ignored up to ST
     ansi_state_vt52_esc,    // after ESC in VT52 mode
     ansi_state_vt52_row,    // after ESC Y
@@ -195,6 +194,7 @@ typedef struct
     bool app_keypad;      // DECKPAM, ESC = or ?66: the keypad sends SS3
     bool autorepeat;      // DECARM, ?8
     bool ice_colors;      // ?33: SGR 5/6 means bright bg (the IBM VGA hack), not blink
+    bool bracketed_paste; // ?2004: a paste comes between ESC [ 200 ~ and ESC [ 201 ~
     uint8_t protect_mode; // TERM_PROTECT_
     bool erase_all;       // ERM, CSI 6 h: ED, EL and ECH erase the protected cells too
     bool reverse_screen;  // DECSCNM, ?5: every cell's colors swapped
@@ -300,7 +300,7 @@ static inline unsigned term_cell_height(const term_grid_t *g)
 }
 
 #define TERM_PEN_SST_SIZE 23
-#define TERM_SST_SIZE (4 * TERM_PEN_SST_SIZE + 101)
+#define TERM_SST_SIZE (4 * TERM_PEN_SST_SIZE + 102)
 void term_sst_put(sst_cursor_t *c, const term_t *t);
 bool term_sst_get(sst_cursor_t *c, term_t *t);
 #define TERM_GRID_SST_SIZE(rows) (17 + TERM_TAB_BITMAP_BYTES + 2 * (rows))

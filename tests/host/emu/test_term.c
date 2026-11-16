@@ -752,16 +752,6 @@ UTEST(term, osc_ignores_line_feeds_inside)
     ASSERT_EQ(cell(0, 0)->fg_color, rgb(1, 2, 3));
 }
 
-UTEST(term, linux_palette)
-{
-    fresh();
-    feed("\33[31m\33]P1102030A");
-    ASSERT_EQ(cell(0, 0)->fg_color, rgb(0x10, 0x20, 0x30));
-    feed("\33]RB");
-    ASSERT_EQ(cell(0, 0)->fg_color, color_256[1]);
-    ASSERT_EQ(cell(1, 0)->fg_color, color_256[1]);
-}
-
 UTEST(term, ice_colors_survive_osc_11)
 {
     fresh();
@@ -1013,6 +1003,26 @@ UTEST(term, an_owed_erase_takes_a_recolor)
     fresh();
     feed("\33[44m\33[2J\33]4;4;#123456\7");
     ASSERT_EQ(cell(10, 10)->bg_color, rgb(0x12, 0x34, 0x56));
+}
+
+/* Bracketed paste is a mode a program sets, and a reset clears. */
+UTEST(term, bracketed_paste_is_a_mode)
+{
+    fresh();
+    feed("\33[?2004h");
+    ASSERT_STREQ(ask("\33[?2004$p"), "\33[?2004;1$y");
+    feed("\33c");
+    ASSERT_STREQ(ask("\33[?2004$p"), "\33[?2004;2$y");
+}
+
+/* Linux's palette sequences are not taken: ESC ] P begins an OSC like any
+ * other, which runs to its terminator. */
+UTEST(term, linux_palette_is_an_osc_like_any_other)
+{
+    fresh();
+    feed("\33[31m\33]P1102030A\7B");
+    ASSERT_STREQ(row(0), "B");
+    ASSERT_EQ(cell(0, 0)->fg_color, color_256[1]);
 }
 
 /* ---- protection ---------------------------------------------------------- */
