@@ -324,8 +324,8 @@ Waking the machine takes these steps in order:
    and the core resumes at the instruction where the save halted it,
    running the blob's firmware on the blob's stack. The firmware reads
    `SST_RESTORED` set and puts back the state the blob does not
-   contain: it fills the video device's font memories from its font
-   tables, rewrites the canvas, the vsync line and the terminal's window
+   contain: it builds the video device's font memories again for the
+   code page the blob holds, rewrites the canvas, the vsync line and the terminal's window
    from its own copies, marks every open file to be checked and, if
    needed, reopened by its saved name, derives the wall clock again
    from the host's RTC, marks the wake's slot updates as handled so
@@ -741,8 +741,8 @@ that the build makes:
   zero, and it may be as large as the 256 KB there. It is the only file
   the build puts in `Assets/rp6502/common/`. The fonts, the code page
   tables and the keyboard layouts are constants in it. The bitstream
-  holds no glyphs, so the firmware copies them to the video device at
-  every boot.
+  holds no glyphs, so the firmware builds the fonts on the video device
+  at every boot.
 - `Cores/Rumbledethumps.RP6502/icon.bin` and
   `Platforms/_images/rp6502.bin` are here already, made by
   `src/host/pocket/gen/image_gen.py`. Both use one format: two bytes a

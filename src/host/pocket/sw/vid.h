@@ -15,7 +15,6 @@ void vid_init(void);
 void vid_stop(void);
 void vid_task(void);
 void vid_restore(void);
-void vid_fonts(void);
 uint32_t vid_prog_word_get(void);
 
 bool mode0_prog(uint16_t *xregs);

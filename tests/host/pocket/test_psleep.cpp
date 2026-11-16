@@ -651,8 +651,8 @@ static void card_fresh()
 }
 
 /* A fresh configuration with rom loaded, on the card as it is or on a
- * fresh one, just out of reset. */
-static void boot_into(const std::vector<uint8_t> &rom, bool keep_card)
+ * fresh one, still held in reset. */
+static void boot_held(const std::vector<uint8_t> &rom, bool keep_card)
 {
     dut = new Vtb_pocket;
     bench_fresh();
@@ -687,10 +687,22 @@ static void boot_into(const std::vector<uint8_t> &rom, bool keep_card)
     host_write(0x1000000Cu, 5);
     host_write(0x10000010u, 30);
     host_write(0x10000014u, 0);
+}
 
+/* The host's 0x008F and Reset Exit. */
+static void release_reset()
+{
     dut->datatable_q = tb.dt[1];
     dut->dataslot_allcomplete = 1;
     dut->reset_n = 1;
+}
+
+/* A fresh configuration with rom loaded, on the card as it is or on a
+ * fresh one, just out of reset. */
+static void boot_into(const std::vector<uint8_t> &rom, bool keep_card)
+{
+    boot_held(rom, keep_card);
+    release_reset();
     for (int i = 0; i < 4000; i++)
         step();
 }
@@ -1026,12 +1038,16 @@ static bool boot_to_pcm(const std::vector<uint8_t> &rom)
     });
 }
 
+/* Runs past the 6502's release by SAVE_MARGIN and until the scaler has
+ * started a frame, which comes once in 420,000 pixel clocks, and returns
+ * where the machine's raster was at that start. */
 static long vid_offset_to_save(void)
 {
     long seen = -1;
     bool prev_start = true;
     bool released = false;
-    for (long after = 0; !released || after < SAVE_MARGIN;)
+    for (long after = 0;
+         (!released || after < SAVE_MARGIN || seen < 0) && after < 4000000L;)
     {
         step();
         if (released)
@@ -1095,6 +1111,13 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
 
     /* This case moves the blob over the bridge both ways, and holds what
      * every other case takes without the bridge to what the host reads. */
+    /* No savestate while the program has its file open for writing, so
+     * the save is asked for once the refusal is off on the host's side. */
+    for (long i = 0;
+         i < 20000000L && dut->rootp->tb_pocket__DOT__core__DOT__sst__DOT__refuse_s2;
+         i++)
+        step();
+    ASSERT_FALSE((int)dut->rootp->tb_pocket__DOT__core__DOT__sst__DOT__refuse_s2);
     std::vector<uint8_t> blob;
     ASSERT_TRUE(save_ready());
     read_blob_bridge(blob);
@@ -1149,15 +1172,19 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
 
     teardown();
 
-    boot_to_save_point(rom, false);
+    /* The wake, as other cores report the Pocket makes it: a fresh
+     * configuration on the card the sleeping session left, the blob written
+     * and the load asked for with the core still in reset, then the reset
+     * released. The program does not run before the load. */
+    boot_held(rom, true);
     ASSERT_NE(0xA0u, (uint32_t)MEM(xram__DOT__mem0)[0]);
-    ASSERT_TRUE((int)MEM(resb));
-    ASSERT_TRUE(tb.console.find(DONE) == std::string::npos);
-
     std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
     put_blob_bridge(file);
-
-    ASSERT_TRUE(load_state());
+    ASSERT_EQ(ANSWER_LOAD_IN_RESET, sst_cmd(true, true, false));
+    release_reset();
+    for (long i = 0; i < 60000000L && !(int)MEM(resb); i++)
+        step();
+    ASSERT_TRUE((int)MEM(resb));
     /* The SDRAM holds the file as put_blob puts it there. */
     for (size_t i = 0; i < file.size(); i += 2)
         ASSERT_EQ((uint32_t)(file[i] | file[i + 1] << 8),

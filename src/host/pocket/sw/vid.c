@@ -41,29 +41,11 @@ bool mode0_prog(uint16_t *xregs)
     return true;
 }
 
-/* The font memories take whole words. */
-static void vid_font(volatile uint32_t *dst, const uint8_t *src, uint32_t len)
-{
-    for (uint32_t i = 0; i < len; i += 4)
-        *dst++ = (uint32_t)src[i] | ((uint32_t)src[i + 1] << 8)
-                 | ((uint32_t)src[i + 2] << 16) | ((uint32_t)src[i + 3] << 24);
-}
-
-/* The fabric draws from its own font memories, which are filled here from
- * the tables core/term/font.c keeps. */
-void vid_fonts(void)
-{
-    vid_font(VID_FONT16, font16, sizeof font16);
-    vid_font(VID_FONT8, font8, sizeof font8);
-    vid_font(VID_ITALIC16, italic16, sizeof italic16);
-    vid_font(VID_FONT_DEC16, font_dec_16, sizeof font_dec_16);
-    vid_font(VID_FONT_DEC8, font_dec_8, sizeof font_dec_8);
-}
-
+/* link.ld places font.c's tables on the font memories the fabric draws
+ * from, so font_init writes them there. */
 void vid_init(void)
 {
     font_init();
-    vid_fonts();
     vga_canvas_select(0);
 }
 
@@ -113,11 +95,11 @@ uint32_t vid_prog_word_get(void)
     return vid_prog_word;
 }
 
-/* The blob does not contain the font memories. It does contain font.c's
- * tables, as the code page left them. */
+/* The blob does not contain the font memories, so they are written again
+ * for the code page it restored. */
 void vid_restore(void)
 {
-    vid_fonts();
+    font_load_code_page(font_get_code_page());
     VID_PROG = vid_prog_word;
     vid_publish();
 }

@@ -57,7 +57,9 @@ void font_set_code_page(uint16_t cp);
 
 /* The same tables as font_set_code_page, without the terminal reset. A
  * savestate has already put the terminal's cells back by the time it
- * restores the code page, and a reset would erase them. */
+ * restores the code page, and a reset would erase them. The tables are
+ * written even when the page is already cp, so a machine whose tables were
+ * lost can have them back. */
 void font_load_code_page(uint16_t cp);
 
 uint16_t font_get_code_page(void);

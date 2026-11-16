@@ -169,13 +169,6 @@ static inline int32_t set_tz_minutes(void)
 
 #define VID_XPROG(line, plane, w) \
     (((volatile uint32_t *)0x50020000u)[(line) * 16 + (plane) * 4 + (w)])
-/* The font RAM takes only whole, aligned word writes, because byte
- * enables would keep a dual-port RAM from being inferred. */
-#define VID_FONT16 ((volatile uint32_t *)0x50040000u)
-#define VID_FONT8 ((volatile uint32_t *)0x50041000u)
-#define VID_ITALIC16 ((volatile uint32_t *)0x50042000u)
-#define VID_FONT_DEC16 ((volatile uint32_t *)0x50043000u)
-#define VID_FONT_DEC8 ((volatile uint32_t *)0x50043200u)
 #define VID_CANVAS (*(volatile uint32_t *)0x50028000u)
 #define VID_VSYNC_LINE (*(volatile uint32_t *)0x50028004u)
 #define REGS_WIN ((volatile uint8_t *)0x20000000u)
