@@ -6,12 +6,6 @@
 # two they name are counted once, and a number here can be lower than
 # the structure count in the report.
 #
-# R101  wiring.sv's resb drives the asynchronous resets of the 6502 and
-#       the 6522. resb is a flop on clk_sys, the clock of the registers it
-#       resets, so it changes just after a rising edge of clk_sys, and its
-#       release is timed against them as recovery and removal.
-R101 1
-#
 # D101  Every finding is a crossing between clk_74a and clk_sys, in one
 #       direction or the other:
 #
