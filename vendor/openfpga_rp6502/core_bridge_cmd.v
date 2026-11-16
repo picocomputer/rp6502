@@ -2,6 +2,15 @@
 // bridge host/target command handler
 // 2022 Analogue
 //
+// rp6502: Analogue's template, vendor/openfpga's core_bridge_cmd.v from
+// https://github.com/open-fpga/core-template, with the changes marked
+// rp6502. The commands are Analogue's,
+// https://www.analogue.co/developer/docs/openfpga/host-target-commands,
+// where Flush (0x0188) and Debug Event Log (0x0152) are documented but the
+// template has neither. The deadlines are ours: that the Pocket never
+// answers Flush was seen on a Pocket, and nothing documents what the host
+// does with a command it does not answer.
+//
 // rp6502: when a data slot command or target command 0x0152 is dispatched,
 // all of target_0 is written in TARG_ST_IDLE, with 0x0000 in the upper
 // half, and "cm" (0x636D) is written there one cycle later. Since the host
