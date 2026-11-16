@@ -4,16 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Where the Pocket's side of this comes from:
- * - The target commands 0x0180, 0x0184, 0x0188, 0x0190 and 0x0192, their
+ * - The target commands 0x0180, 0x0184, 0x0190 and 0x0192, their
  *   parameters and results: Analogue's docs,
  *   https://www.analogue.co/developer/docs/openfpga/host-target-commands
  * - The request lines, the parameter and response structs and the host's
  *   'bu' and 'ok' in target_0: Analogue's template, core_bridge_cmd.v in
- *   vendor/openfpga, https://github.com/open-fpga/core-template. Flush
- *   is in the docs and not the template; vendor/openfpga_rp6502 adds it.
+ *   vendor/openfpga, https://github.com/open-fpga/core-template.
  * - Reads are buffered one word: the template's io_bridge_peripheral.v.
- * - The Pocket never answers Flush, so a command ends at the 0.9 s
- *   deadline: seen on a Pocket (vendor/openfpga_rp6502).
  */
 
 module pocket_file #(
@@ -54,7 +51,6 @@ module pocket_file #(
     output logic pocket_file_write,
     output logic pocket_file_openfile,
     output logic pocket_file_getfile,
-    output logic pocket_file_flush,
     output logic [15:0] pocket_file_id,
     output logic [31:0] pocket_file_slotoffset,
     output logic [31:0] pocket_file_bridgeaddr,
@@ -70,7 +66,6 @@ module pocket_file #(
     localparam logic [2:0] OP_OPEN = 3'd3;
     localparam logic [2:0] OP_DT = 3'd4;
     localparam logic [2:0] OP_GETFILE = 3'd5;
-    localparam logic [2:0] OP_FLUSH = 3'd6;
 
     localparam logic [3:0] F_IDLE = 4'd0;
     localparam logic [3:0] F_START = 4'd1;
@@ -199,7 +194,6 @@ module pocket_file #(
             pocket_file_write <= 1'b0;
             pocket_file_openfile <= 1'b0;
             pocket_file_getfile <= 1'b0;
-            pocket_file_flush <= 1'b0;
             pocket_file_dt_req <= 1'b0;
             pocket_file_dt_addr <= '0;
         end else begin
@@ -218,7 +212,6 @@ module pocket_file #(
                     pocket_file_write <= r_op == OP_WRITE;
                     pocket_file_openfile <= r_op == OP_OPEN;
                     pocket_file_getfile <= r_op == OP_GETFILE;
-                    pocket_file_flush <= r_op == OP_FLUSH;
                     gf_pend <= r_op == OP_GETFILE;
                     fstate <= F_ARM;
                 end
@@ -232,7 +225,6 @@ module pocket_file #(
                     pocket_file_write <= 1'b0;
                     pocket_file_openfile <= 1'b0;
                     pocket_file_getfile <= 1'b0;
-                    pocket_file_flush <= 1'b0;
                     if (!target_dataslot_done)
                         fstate <= F_WAIT;
                     else if (&tmo) begin

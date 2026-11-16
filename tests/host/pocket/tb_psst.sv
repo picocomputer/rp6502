@@ -147,7 +147,6 @@ module tb_psst (
         .target_dataslot_write(1'b0),
         .target_dataslot_getfile(1'b0),
         .target_dataslot_openfile(1'b0),
-        .target_dataslot_flush(1'b0),
         .target_dataslot_ack(),
         .target_dataslot_done(),
         .target_dataslot_err(),

@@ -84,7 +84,7 @@ static const int ANSWER_LOAD_IN_RESET = RES_OK;
 #define BLOB_BRIDGE 0x03EC1000u
 #define BLOB_BYTES POCKET_SST_BYTES
 
-enum { REQ_NONE = 0, REQ_OPEN, REQ_FLUSH, REQ_GETFILE, REQ_READ, REQ_WRITE };
+enum { REQ_NONE = 0, REQ_OPEN, REQ_GETFILE, REQ_READ, REQ_WRITE };
 
 /* The 6502's clock at a psg_tick: its PC and bus address, its PHI2
  * accumulator and VIA T1, so a machine that comes back a clock off shows
@@ -122,7 +122,7 @@ struct Bench
     int unserved = 0, rom_reads = 0;
 
     int req = REQ_NONE, servicing = 0;
-    int prev_r = 0, prev_w = 0, prev_o = 0, prev_f = 0, prev_g = 0;
+    int prev_r = 0, prev_w = 0, prev_o = 0, prev_g = 0;
 
     /* The mix and the 6502's clock at each rising psg_tick, and the result
      * of each API call as the 6502 takes it. */
@@ -159,7 +159,6 @@ struct Bench
         tb_snap_io(s, prev_r);
         tb_snap_io(s, prev_w);
         tb_snap_io(s, prev_o);
-        tb_snap_io(s, prev_f);
         tb_snap_io(s, prev_g);
         tb_snap_io(s, mix);
         tb_snap_io(s, cpu);
@@ -255,12 +254,9 @@ static void tick()
      * request line, so the lines are sampled on every tick(). */
     {
         int r = dut->tb_pocket_ds_read, w = dut->tb_pocket_ds_write,
-            o = dut->tb_pocket_ds_openfile, f = dut->tb_pocket_ds_flush,
-            g = dut->tb_pocket_ds_getfile;
+            o = dut->tb_pocket_ds_openfile, g = dut->tb_pocket_ds_getfile;
         if (o && !tb.prev_o)
             tb.req = REQ_OPEN;
-        else if (f && !tb.prev_f)
-            tb.req = REQ_FLUSH;
         else if (g && !tb.prev_g)
             tb.req = REQ_GETFILE;
         else if (r && !tb.prev_r)
@@ -270,7 +266,6 @@ static void tick()
         tb.prev_r = r;
         tb.prev_w = w;
         tb.prev_o = o;
-        tb.prev_f = f;
         tb.prev_g = g;
     }
     if (sedge)
@@ -450,16 +445,6 @@ static void do_slotwrite()
     target_answer(0);
 }
 
-/* pocket_file waits for target_dataslot_done to fall before it waits for
- * it to rise, so done is held low across a few clk_74a edges. */
-static void do_flush()
-{
-    dut->target_dataslot_done = 0;
-    for (int k = 0; k < 4; k++)
-        a_edge();
-    target_answer(0);
-}
-
 static void do_getfile()
 {
     dut->target_dataslot_done = 0;
@@ -487,7 +472,6 @@ static void step()
     switch (req)
     {
     case REQ_OPEN: do_openfile(); break;
-    case REQ_FLUSH: do_flush(); break;
     case REQ_GETFILE: do_getfile(); break;
     case REQ_READ: do_slotread(); break;
     default: do_slotwrite(); break;

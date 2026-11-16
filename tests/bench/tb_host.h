@@ -10,7 +10,9 @@
  *   https://www.analogue.co/developer/docs/openfpga/host-target-commands
  * - Get File writing the whole response struct, and an empty name for an
  *   unbound slot: measured on a Pocket.
- * - Write and Flush failing: our choice, since no boot here writes. */
+ * - Write failing: our choice, since no boot here writes.
+ * - Flush, 0x0188: no reply, measured on the owner's Pocket; the core never
+ *   sends it. */
 
 #ifndef _TESTS_FPGA_TB_HOST_H_
 #define _TESTS_FPGA_TB_HOST_H_
@@ -166,7 +168,7 @@ private:
         case 3: /* OPEN */
             err_ = (id_ == TB_HOST_SLOT_ROM && open_name() == name_) ? 0 : 3;
             break;
-        default: /* WRITE, FLUSH */
+        default: /* WRITE */
             err_ = 5;
             break;
         }

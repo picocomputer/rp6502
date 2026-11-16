@@ -59,7 +59,7 @@ D102 28
 #
 # D103  The three findings are the bits of r_op, pocket_file's command
 #       opcode, which is decoded on clk_74a into the read, write,
-#       openfile, getfile and flush strobes. r_op is written on the
+#       openfile and getfile strobes. r_op is written on the
 #       clk_sys edge that toggles go_t, and the clk_74a side decodes it
 #       only once go_t2 differs from go_t3.
 D103 3

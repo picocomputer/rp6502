@@ -34,9 +34,8 @@ static uint32_t g_dt[64];
  *   create and resize bits both set, and the create bit alone answers
  *   created and makes nothing; the struct's integers are read as whole
  *   bridge words: measured on a Pocket, as the README tells it.
- * - Flush is answered ok here. The Pocket never answers it (seen on a
- *   Pocket), which vendor/openfpga_rp6502's deadline covers; answering
- *   keeps these tests short (our choice).
+ * - Flush, 0x0188: no reply, measured on the owner's Pocket; the core never
+ *   sends it.
  * - The bytes a resize adds: not known. The model fills them with 0xA5
  *   (our guess).
  * - Reads served while a Memory is written: not modelled. A community
@@ -47,15 +46,15 @@ static std::set<std::string> g_dirs;
 static std::string g_bound[16];
 static std::string g_console;
 static std::string g_rv;
-static int g_opens, g_reads, g_writes, g_flushes, g_getfiles;
+static int g_opens, g_reads, g_writes, g_getfiles;
 
 /* Each data slot request line from pocket_file is high for one clk_74a
  * cycle. The handlers clock the DUT through tick(), so tick() latches
  * each rising edge, and a request raised while a handler runs is served
  * by the next step(). */
-enum { REQ_NONE = 0, REQ_OPEN, REQ_FLUSH, REQ_GETFILE, REQ_READ, REQ_WRITE };
+enum { REQ_NONE = 0, REQ_OPEN, REQ_GETFILE, REQ_READ, REQ_WRITE };
 static int g_req, g_servicing;
-static int g_prev_r, g_prev_w, g_prev_o, g_prev_f, g_prev_g;
+static int g_prev_r, g_prev_w, g_prev_o, g_prev_g;
 
 static void tick()
 {
@@ -89,12 +88,9 @@ static void tick()
 
     {
         int r = dut->tb_pocket_ds_read, w = dut->tb_pocket_ds_write,
-            o = dut->tb_pocket_ds_openfile, f = dut->tb_pocket_ds_flush,
-            g = dut->tb_pocket_ds_getfile;
+            o = dut->tb_pocket_ds_openfile, g = dut->tb_pocket_ds_getfile;
         if (o && !g_prev_o)
             g_req = REQ_OPEN;
-        else if (f && !g_prev_f)
-            g_req = REQ_FLUSH;
         else if (g && !g_prev_g)
             g_req = REQ_GETFILE;
         else if (r && !g_prev_r)
@@ -104,7 +100,6 @@ static void tick()
         g_prev_r = r;
         g_prev_w = w;
         g_prev_o = o;
-        g_prev_f = f;
         g_prev_g = g;
     }
     if (sedge)
@@ -303,15 +298,6 @@ static void do_slotwrite()
     target_done();
 }
 
-static void do_flush()
-{
-    dut->target_dataslot_done = 0;
-    g_flushes++;
-    for (int k = 0; k < 4; k++)
-        a_edge();
-    target_done();
-}
-
 static int g_getfile_seen;
 static int g_getfile_wrote;
 
@@ -348,7 +334,6 @@ static void step()
     switch (req)
     {
     case REQ_OPEN: do_openfile(); break;
-    case REQ_FLUSH: do_flush(); break;
     case REQ_GETFILE: do_getfile(); break;
     case REQ_READ: do_slotread(); break;
     default: do_slotwrite(); break;
@@ -384,7 +369,7 @@ static void boot(const std::vector<uint8_t> &rom, bool homeless)
         g_dirs.insert("/Saves/rp6502");
         g_dirs.insert("/Saves/rp6502/common");
     }
-    g_opens = g_reads = g_writes = g_flushes = g_getfiles = 0;
+    g_opens = g_reads = g_writes = g_getfiles = 0;
     memset(g_dt, 0, sizeof g_dt);
     for (auto &b : g_bound)
         b.clear();
@@ -452,10 +437,8 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
 
     if (g_console.find(want) == std::string::npos)
         fprintf(stderr,
-                "console: [%s] opens=%d reads=%d writes=%d flushes=%d "
-                "getfiles=%d\n",
-                g_console.c_str(), g_opens, g_reads, g_writes, g_flushes,
-                g_getfiles);
+                "console: [%s] opens=%d reads=%d writes=%d getfiles=%d\n",
+                g_console.c_str(), g_opens, g_reads, g_writes, g_getfiles);
     ASSERT_TRUE(g_console.find(want) != std::string::npos);
 
     size_t made = 0;
@@ -477,10 +460,6 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
     ASSERT_EQ(memcmp(f->data(), want.data(), want.size()), 0);
     ASSERT_GT(g_writes, 0);
     ASSERT_GT(g_reads, 0);
-    /* The ROM opens its file once for writing and once for reading, and
-     * it closes each descriptor without a sync. fs_std_close flushes only
-     * a descriptor opened for writing, so exactly one flush is sent. */
-    ASSERT_EQ(g_flushes, 1);
     ASSERT_EQ(g_getfiles, 1);
 
     teardown();

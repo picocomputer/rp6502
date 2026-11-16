@@ -28,6 +28,8 @@ Measured on the owner's Pocket:
   around it, and neither comes to the core. This agrees with Spacewar.
 - While a load request is unanswered, the Pocket serves no file command.
   One sent then gets no reply until the bridge's deadline.
+- Flush, `0x0188`, gets no reply and ends at the bridge's deadline with
+  result 7. Open File, Slot Write, Slot Read and Get File all reply.
 
 ## The board's memory
 
@@ -424,20 +426,11 @@ failures, 3 is not found and 4 is malformed path.
 
 **A completed Slot Write does not mean the card has the data.** Slot
 Write returns once the host has taken the bytes, which on a handheld
-that sleeps is not the same as the card having them. Flush, `0x0188`,
-would commit them, and the Pocket does not reply to it. The bridge
-override in `vendor/openfpga_rp6502` ends a data slot command after
-about 0.9 s without a reply, so a flush waits at most one deadline
-instead of the rest of the session. A flush is sent on every sync and
-every close of a file open for writing until one gets no reply. After
-that no flush is sent for the rest of the session, so a write is known
-to be stored only as far as the host's reply to the write shows. A sync
-of a file open only for reading sends no flush and returns at once.
-
-Close polls its flush from the main loop as sync does, so the other
-tasks run during the deadline. `std_stop` calls close in a loop that
-runs no other task until the close finishes. Close therefore collects
-the result of a command that another descriptor left in flight.
+that sleeps is not the same as the card having them. Analogue documents
+Flush, `0x0188`, to commit them, but the Pocket does not reply to it,
+so the core never sends it. Sync and close finish at once. No other
+Pocket core uses Flush; the PlayStation core keeps its memory cards with
+plain Slot Write.
 
 **A sleep never lands in a command.** A save waits until no file
 command is in flight, and is refused while a file is open for writing.

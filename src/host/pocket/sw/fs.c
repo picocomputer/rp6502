@@ -57,9 +57,8 @@ static uint32_t fs_mail_st[FS_W_MAX];
 
 /* Starting a command is separate from polling for its status because
  * core_bridge_cmd.v waits about 0.9 s for a host that does not reply before
- * it times the command out. fs_std_read, fs_std_write, fs_std_sync and
- * fs_std_close poll once per pass of the main loop so that the wait does not
- * stall every other task. */
+ * it times the command out. fs_std_read and fs_std_write poll once per pass
+ * of the main loop so that the wait does not stall every other task. */
 static void fs_start(uint32_t who, uint32_t op)
 {
     fs_owner = (uint8_t)who;
@@ -140,9 +139,8 @@ static uint32_t fs_command(uint32_t who, uint32_t op)
 static bool fs_grow;
 
 /* A program stopped partway through a call can leave its command in flight.
- * fs_stop collects it before std_stop closes the descriptors, because
- * fs_flush would otherwise read that command's result as the result of the
- * descriptor's Flush. */
+ * fs_stop collects it and drops its status, so the next program's command
+ * on that descriptor does not read it as its own. */
 void fs_stop(void)
 {
     fs_wait_free();
@@ -372,50 +370,6 @@ static int fs_desc(int desc)
     return desc;
 }
 
-/* core_bridge_cmd.v reports result 7 when a data slot command has not
- * completed within 2^26 clocks at 74.25 MHz, about 0.9 s, whether or not the
- * host has acknowledged it. pocket_file times out after twice that, so a host
- * that does not reply shows up as result 7 rather than as FILE_ST_TIMEOUT. */
-#define FS_RC_NO_HOST 7u
-
-static bool fs_unanswered(uint32_t st)
-{
-    return (st & FILE_ST_TIMEOUT)
-           || ((st & FILE_ST_ERR) >> 1) == FS_RC_NO_HOST;
-}
-
-/* The host does not reply to Flush, 0x0188, so each flush costs the
- * bridge's 0.9 s deadline and ends in result 7. No flush is sent after the
- * first one that ends in result 7 or FILE_ST_TIMEOUT. */
-static enum { FS_FLUSH_UNTRIED, FS_FLUSH_WORKS, FS_FLUSH_NEVER }
-    fs_flush_state;
-
-static std_rw_result fs_flush(int desc, api_errno *err)
-{
-    if (fs_flush_state == FS_FLUSH_NEVER)
-        return STD_OK;
-    uint32_t st;
-    if (fs_owner == FS_W_NONE)
-    {
-        FILE_ID = FS_SLOT_FIRST + (uint32_t)desc;
-        fs_start(FS_W(desc), FILE_OP_FLUSH);
-    }
-    if (!fs_poll(FS_W(desc), &st))
-        return STD_PENDING;
-    if (fs_unanswered(st))
-    {
-        fs_flush_state = FS_FLUSH_NEVER;
-        return STD_OK;
-    }
-    fs_flush_state = FS_FLUSH_WORKS;
-    if (st & FILE_ST_ERR)
-    {
-        *err = API_EIO;
-        return STD_ERROR;
-    }
-    return STD_OK;
-}
-
 /* The bridge's 0.9 s deadline covers the whole slot operation, and the host
  * writes at about 3.4 MB/s at worst, so fs_rom_pull reads the ROM slot in
  * 512 KB chunks that take about 0.15 s each. */
@@ -640,16 +594,9 @@ std_rw_result fs_std_close(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
-    std_rw_result res = STD_OK;
-    if (fs_pool[desc].flags & FS_WR)
-    {
-        res = fs_flush(desc, err);
-        if (res == STD_PENDING)
-            return res;
-    }
     fs_pool[desc].used = false;
     fs_pool[desc].cache_len = 0;
-    return res;
+    return STD_OK;
 }
 
 std_rw_result fs_std_read(int desc, char *buf, uint32_t count,
@@ -820,9 +767,7 @@ std_rw_result fs_std_sync(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
-    if (!(fs_pool[desc].flags & FS_WR))
-        return STD_OK;
-    return fs_flush(desc, err);
+    return STD_OK;
 }
 
 /* What a resize puts in the bytes it adds is unrecorded, so the gap that a

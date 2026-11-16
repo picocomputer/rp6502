@@ -142,14 +142,11 @@ static inline int32_t set_tz_minutes(void)
 #define FILE_OP_OPEN 3u
 #define FILE_OP_DT 4u
 #define FILE_OP_GETFILE 5u
-/* Flush, 0x0188, is missing from Analogue's core_bridge_cmd.v and is
- * added in vendor/openfpga_rp6502. core_bridge_cmd ends a data slot
- * command with result 7 when the host has not finished it within about
- * 0.9 s, half of pocket_file's deadline, so FILE_ST_TIMEOUT after a write
- * to FILE_CTL means that core_bridge_cmd itself has stopped.
- * FILE_ST_TIMEOUT also reads set from the time the FPGA is configured
- * until the first write to FILE_CTL. */
-#define FILE_OP_FLUSH 6u
+/* core_bridge_cmd ends a data slot command with result 7 when the host
+ * has not finished it within about 0.9 s, half of pocket_file's deadline,
+ * so FILE_ST_TIMEOUT after a write to FILE_CTL means that core_bridge_cmd
+ * itself has stopped. FILE_ST_TIMEOUT also reads set from the time the FPGA
+ * is configured until the first write to FILE_CTL. */
 
 #define FILE_ST_BUSY 0x01u
 #define FILE_ST_ERR 0x0Eu
