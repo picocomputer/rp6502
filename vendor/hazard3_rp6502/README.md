@@ -9,7 +9,7 @@ Upstream base: `vendor/hazard3` at v1.1.1,
 
 ## Build
 
-- `src/core/rtl.cmake` lists these four files in `RP6502_RTL_SOURCES`.
+- `src/core/rtl.cmake` lists these five files in `RP6502_RTL_SOURCES`.
   Every other Hazard3 module is found by module name in the upstream
   `hdl` folders (`-y` for Verilator, `SEARCH_PATH` for Quartus), so a
   module named here is taken from here and never from upstream.
@@ -23,15 +23,17 @@ The soft CPU runs at 50.4 MHz on the machine's clock in a Cyclone V
 5CEBA4F23C8. Hazard3 is written with ASICs in mind, and on this FPGA its
 longest path was the bypass select: the next instruction's register
 numbers decoded through the fetch buffer and the compressed expander,
-behind the stall signals that pick how far the buffer moves. These copies
-take the stall signals off that path without changing what the core does
-on any clock.
+behind the stall signals that pick how far the buffer moves. After that
+it was the same buffer move feeding the compressed expander into CIR.
+These copies take the stall signals off both paths without changing what
+the core does on any clock.
 
 | Copy | Change |
 |---|---|
 | hazard3_regfile_1w2r.v | The register file: see below. |
 | hazard3_decode.v | A new output, `df_cir_use_go`: how far the fetch buffer moves if X does not stall. `df_cir_use` is the same logic as upstream, built from it. |
-| hazard3_frontend.v | A new input, `cir_use_go`. A second copy of the buffer's shift and overlay, driven by it, gives `next_instr_go`, and the register-number predecode reads that. The decompressor still reads the real `next_instr`. |
+| hazard3_frontend.v | A new input, `cir_use_go`. The buffer's next state is built twice, for `cir_use` = 0 and for `cir_use` = `cir_use_go`, with an expander on each, and `cir_use` picks one last. The register-number predecode reads the second. The uop counter lives here. |
+| hazard3_instr_decompress.v | The uop counter moved out to the frontend, so two copies can share it: the step comes in and its next value goes out. No clock or reset. |
 | hazard3_core.v | The bypass select compares the held register number and the new predecode each against 0, `xm_rd`, `d_rd` and `mw_rd`, and the stall signals choose among the results last. The register file's read address is chosen the same way. `d_rs*_predecoded_nxt` and `mw_rd_nxt` are gone. |
 
 ### The register file
@@ -57,11 +59,31 @@ Whenever the stall that holds the decode stage is low, `cir_use` equals
 `cir_use_go`, so the predecode sees the same instruction as upstream, and
 the rest only reorders the same comparisons.
 
+### The fetch buffer and CIR
+
+Upstream moves the fetch buffer by `cir_use`, overlays fetched data,
+expands the result and loads it into CIR. `cir_use` waits for `x_stall`,
+which comes late, so the whole chain waited for it.
+
+`cir_use` is only ever 0 (X stalls, or D takes nothing) or `cir_use_go`.
+The frontend builds the buffer's next contents, its level, its room for
+fetched data and the expanded instruction once for each, from signals that
+do not wait for `x_stall`. `cir_use` picks between them just before the
+registers. That takes a second expander, about 110 ALMs, and drops
+upstream's shift by `cir_use`. With Zcmp the expander has a uop counter,
+so it moved to the frontend, where both copies read it and the chosen one
+sets its next value.
+
+Fetched data from the bus (`hrdata`) still runs through the overlay and
+the expander into CIR, as it did upstream.
+
 ## How the copies were checked
 
 A lockstep check ran upstream and these copies side by side on the same
 inputs and compared every output and the registers the change touches on
-every clock: the Pocket's own tests, 82 million clocks, and 65 of
-Hazard3's own `test/sim/sw_testcases`. No clock differed, and a fault
-planted on purpose stopped the check within 30 clocks. The other ten
-upstream cases need an assembler that knows Zcmp.
+every clock, CIR, the fetch buffer, the FIFO and the uop counter among
+them: the Pocket's own tests (pocket, psleep, pfile and riscv), 128
+million clocks, and 65 of Hazard3's own `test/sim/sw_testcases` in their
+all-features build, Zcmp included. No clock differed, and a fault planted
+on purpose stopped the check within 250 clocks. The other ten upstream
+cases need an assembler that knows Zcmp's register moves.

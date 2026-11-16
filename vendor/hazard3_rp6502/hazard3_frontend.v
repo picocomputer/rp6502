@@ -53,7 +53,7 @@ module hazard3_frontend #(
 	input  wire [1:0]        cir_use,              // number of halfwords D intends to consume
 	                                               // *may* be a function of hready
 	input  wire [1:0]        cir_use_go,           // rp6502: cir_use if X does not stall
-	output wire [1:0]        cir_err,             // Bus error on upper/lower halfword of CIR.
+	output wire [1:0]        cir_err,              // Bus error on upper/lower halfword of CIR.
 	output wire [1:0]        cir_predbranch,       // Set for last halfword of a predicted-taken branch
 	output wire              cir_break_any,        // Set for exact match of a breakpoint address on CIR LSB
 	output wire              cir_break_d_mode,     // As above but specifically break to debug mode
@@ -623,35 +623,66 @@ wire [2*W_SLOT-1:0] fetch_contents_aligned = {
 	fetch_data_hwvld[0] || ~|EXTENSION_C ? fetch_contents_hw0 : fetch_contents_hw1
 };
 
+// rp6502: D takes cir_use halfwords, and cir_use is 0 when X stalls and
+// cir_use_go otherwise (see hazard3_decode). Everything below that depends
+// on cir_use is built twice from signals that do not wait for x_stall: "_st"
+// for cir_use = 0 and "_go" for cir_use = cir_use_go. take_go picks one
+// last. When cir_use_go is 0 the two are the same.
+
+wire take_go = |cir_use;
+
 // Shift not-yet-used contents down to backfill D's consumption. We don't care
 // about anything which is invalid or will be overlaid with fresh data, so
 // choose these values in a way that minimises muxes.
-wire [3*W_SLOT-1:0] buf_shifted =
-	cir_use[1]                ? {buf_contents[W_SLOT +: 2 * W_SLOT], buf_contents[2 * W_SLOT +: W_SLOT]} :
-	cir_use[0] && EXTENSION_C ? {buf_contents[2 * W_SLOT +: W_SLOT], buf_contents[W_SLOT +: 2 * W_SLOT]} :
-	                            buf_contents;
+wire [3*W_SLOT-1:0] buf_shifted_go =
+	cir_use_go[1]                ? {buf_contents[W_SLOT +: 2 * W_SLOT], buf_contents[2 * W_SLOT +: W_SLOT]} :
+	cir_use_go[0] && EXTENSION_C ? {buf_contents[2 * W_SLOT +: W_SLOT], buf_contents[W_SLOT +: 2 * W_SLOT]} :
+	                               buf_contents;
 
-wire [1:0] level_next_no_fetch = buf_level - cir_use;
+wire [1:0] level_next_no_fetch_st = buf_level;
+wire [1:0] level_next_no_fetch_go = buf_level - cir_use_go;
 
 // Overlay fresh fetch data onto the shifted/recycled buffer contents. Again,
 // if something won't be looked at, generate the cheapest possible garbage.
-assign cir_room_for_fetch = level_next_no_fetch <= (|EXTENSION_C && ~&fetch_data_hwvld ? 2'h2 : 2'h1);
+wire [1:0] cir_room_limit = |EXTENSION_C && ~&fetch_data_hwvld ? 2'h2 : 2'h1;
+wire cir_room_for_fetch_st = level_next_no_fetch_st <= cir_room_limit;
+wire cir_room_for_fetch_go = level_next_no_fetch_go <= cir_room_limit;
+assign cir_room_for_fetch = take_go ? cir_room_for_fetch_go : cir_room_for_fetch_st;
 assign fifo_pop = cir_room_for_fetch && !fifo_empty;
 
-wire [3*W_SLOT-1:0] buf_shifted_plus_fetch =
-	!cir_room_for_fetch                    ? buf_shifted :
-	level_next_no_fetch[1] && |EXTENSION_C ? {fetch_contents_aligned[0 +: W_SLOT], buf_shifted[0 +: 2 * W_SLOT]} :
-	level_next_no_fetch[0] && |EXTENSION_C ? {fetch_contents_aligned, buf_shifted[0 +: W_SLOT]} :
-	                                         {buf_shifted[2 * W_SLOT +: W_SLOT], fetch_contents_aligned};
+function [3*W_SLOT-1:0] buf_overlay;
+	input [3*W_SLOT-1:0] shifted;
+	input [1:0]          level_next_no_fetch;
+	input                room_for_fetch;
+	input [2*W_SLOT-1:0] fetch;
+	begin
+		buf_overlay =
+			!room_for_fetch                        ? shifted :
+			level_next_no_fetch[1] && |EXTENSION_C ? {fetch[0 +: W_SLOT], shifted[0 +: 2 * W_SLOT]} :
+			level_next_no_fetch[0] && |EXTENSION_C ? {fetch, shifted[0 +: W_SLOT]} :
+			                                         {shifted[2 * W_SLOT +: W_SLOT], fetch};
+	end
+endfunction
 
-wire [1:0] fetch_fill_amount = cir_room_for_fetch && fetch_data_vld ? (
-	&fetch_data_hwvld || ~|EXTENSION_C ? 2'h2 : 2'h1
-) : 2'h0;
+wire [3*W_SLOT-1:0] buf_shifted_plus_fetch_st = buf_overlay(
+	buf_contents, level_next_no_fetch_st, cir_room_for_fetch_st, fetch_contents_aligned);
+wire [3*W_SLOT-1:0] buf_shifted_plus_fetch_go = buf_overlay(
+	buf_shifted_go, level_next_no_fetch_go, cir_room_for_fetch_go, fetch_contents_aligned);
+wire [3*W_SLOT-1:0] buf_shifted_plus_fetch = take_go ? buf_shifted_plus_fetch_go : buf_shifted_plus_fetch_st;
 
-wire [1:0] buf_level_next = {1'b1, |EXTENSION_C} & (
-	jump_now && cir_flush_behind ? (cir_is_32bit ? 2'h2 : 2'h1) :
-	jump_now                     ? 2'h0 : level_next_no_fetch + fetch_fill_amount
+wire [1:0] fetch_fill_size = &fetch_data_hwvld || ~|EXTENSION_C ? 2'h2 : 2'h1;
+wire [1:0] fetch_fill_amount_st = cir_room_for_fetch_st && fetch_data_vld ? fetch_fill_size : 2'h0;
+wire [1:0] fetch_fill_amount_go = cir_room_for_fetch_go && fetch_data_vld ? fetch_fill_size : 2'h0;
+
+wire [1:0] buf_level_jump = cir_flush_behind ? (cir_is_32bit ? 2'h2 : 2'h1) : 2'h0;
+
+wire [1:0] buf_level_next_st = {1'b1, |EXTENSION_C} & (
+	jump_now ? buf_level_jump : level_next_no_fetch_st + fetch_fill_amount_st
 );
+wire [1:0] buf_level_next_go = {1'b1, |EXTENSION_C} & (
+	jump_now ? buf_level_jump : level_next_no_fetch_go + fetch_fill_amount_go
+);
+wire [1:0] buf_level_next = take_go ? buf_level_next_go : buf_level_next_st;
 
 always @ (posedge clk or negedge rst_n) begin
 	if (!rst_n) begin
@@ -668,6 +699,7 @@ always @ (posedge clk or negedge rst_n) begin
 end
 
 `ifdef HAZARD3_ASSERTIONS
+wire [1:0] level_next_no_fetch = buf_level - cir_use; // rp6502: only checked here
 reg [1:0] prop_past_buf_level; // Workaround for weird non-constant $past reset issue
 always @ (posedge clk) begin
 	if (!rst_n) begin
@@ -702,32 +734,16 @@ assign cir_break_d_mode = buf_contents[0 * W_SLOT + SLOT_BREAK_D_MODE_BIT] && |c
 // ----------------------------------------------------------------------------
 // Register number predecode
 
-wire [31:0] next_instr = {
-	buf_shifted_plus_fetch[1 * W_SLOT +: W_BUNDLE],
-	buf_shifted_plus_fetch[0 * W_SLOT +: W_BUNDLE]
+// rp6502: the decompressor reads both of these, and the register number
+// predecode reads next_instr_go, the instruction CIR takes if X does not
+// stall. When X stalls an instruction in D, the core keeps that
+// instruction's numbers, and it picks between those and these with x_stall
+// last.
+
+wire [31:0] next_instr_st = {
+	buf_shifted_plus_fetch_st[1 * W_SLOT +: W_BUNDLE],
+	buf_shifted_plus_fetch_st[0 * W_SLOT +: W_BUNDLE]
 };
-
-// rp6502: the register numbers are predecoded from next_instr_go, the
-// instruction CIR takes if X does not stall. It is the same shift and
-// overlay as above with cir_use_go for cir_use, so x_stall is not on the
-// path through the shift, the overlay and the predecode. When X stalls an
-// instruction in D, the core keeps that instruction's numbers, and it picks
-// between those and these with x_stall last.
-
-wire [3*W_SLOT-1:0] buf_shifted_go =
-	cir_use_go[1]                ? {buf_contents[W_SLOT +: 2 * W_SLOT], buf_contents[2 * W_SLOT +: W_SLOT]} :
-	cir_use_go[0] && EXTENSION_C ? {buf_contents[2 * W_SLOT +: W_SLOT], buf_contents[W_SLOT +: 2 * W_SLOT]} :
-	                               buf_contents;
-
-wire [1:0] level_next_no_fetch_go = buf_level - cir_use_go;
-
-wire cir_room_for_fetch_go = level_next_no_fetch_go <= (|EXTENSION_C && ~&fetch_data_hwvld ? 2'h2 : 2'h1);
-
-wire [3*W_SLOT-1:0] buf_shifted_plus_fetch_go =
-	!cir_room_for_fetch_go                    ? buf_shifted_go :
-	level_next_no_fetch_go[1] && |EXTENSION_C ? {fetch_contents_aligned[0 +: W_SLOT], buf_shifted_go[0 +: 2 * W_SLOT]} :
-	level_next_no_fetch_go[0] && |EXTENSION_C ? {fetch_contents_aligned, buf_shifted_go[0 +: W_SLOT]} :
-	                                            {buf_shifted_go[2 * W_SLOT +: W_SLOT], fetch_contents_aligned};
 
 wire [31:0] next_instr_go = {
 	buf_shifted_plus_fetch_go[1 * W_SLOT +: W_BUNDLE],
@@ -858,41 +874,96 @@ if (~|EXTENSION_C) begin: no_decompress
 
 end else begin: have_decompress
 
-	wire        decomp_instr_is_32bit;
-	wire [31:0] decomp_instr_out;
-	wire        decomp_is_uop;
-	wire        decomp_is_final_uop;
-	wire        decomp_uop_no_pc_update;
-	wire        decomp_uop_atomic;
-	wire        decomp_invalid;
-
 	wire        first_uop           = ~|decomp_uop_step;
 	// Ensure the first uop goes straight through, as it is registered into CIR:
 	wire        uop_stall_non_first = first_uop ? ~|buf_level_next : uop_stall;
 	// Ensure the uop counter stops at 0 after rolling over once:
 	wire        uop_stall_on_repeat = cir_is_uop && !cir_uop_nonfinal && ~|cir_use;
 
+	// rp6502: one decompressor for each of next_instr_st and next_instr_go,
+	// and take_go picks between their outputs last. They share the uop
+	// counter, which is held here.
+
+	wire        decomp_instr_is_32bit_st,   decomp_instr_is_32bit_go;
+	wire [31:0] decomp_instr_out_st,        decomp_instr_out_go;
+	wire        decomp_is_uop_st,           decomp_is_uop_go;
+	wire        decomp_is_final_uop_st,     decomp_is_final_uop_go;
+	wire        decomp_uop_no_pc_update_st, decomp_uop_no_pc_update_go;
+	wire        decomp_uop_atomic_st,       decomp_uop_atomic_go;
+	wire        decomp_invalid_st,          decomp_invalid_go;
+	wire [3:0]  decomp_uop_step_nxt_st,     decomp_uop_step_nxt_go;
+
 	hazard3_instr_decompress #(
 		`include "hazard3_config_inst.vh"
-	) decomp (
-		.clk                        (clk),
-		.rst_n                      (rst_n),
+	) decomp_st (
+		.instr_in                   (next_instr_st),
 
-		.instr_in                   (next_instr),
+		.instr_is_32bit             (decomp_instr_is_32bit_st),
+		.instr_out                  (decomp_instr_out_st),
 
-		.instr_is_32bit             (decomp_instr_is_32bit),
-		.instr_out                  (decomp_instr_out),
-
-		.instr_out_is_uop           (decomp_is_uop),
-		.instr_out_is_final_uop     (decomp_is_final_uop),
-		.instr_out_uop_no_pc_update (decomp_uop_no_pc_update),
-		.instr_out_uop_atomic       (decomp_uop_atomic),
+		.instr_out_is_uop           (decomp_is_uop_st),
+		.instr_out_is_final_uop     (decomp_is_final_uop_st),
+		.instr_out_uop_no_pc_update (decomp_uop_no_pc_update_st),
+		.instr_out_uop_atomic       (decomp_uop_atomic_st),
 		.instr_out_uop_stall        (uop_stall_non_first || uop_stall_on_repeat),
 		.instr_out_uop_clear        (uop_clear),
 		.df_uop_step                (decomp_uop_step),
+		.df_uop_step_nxt            (decomp_uop_step_nxt_st),
 
-		.invalid                    (decomp_invalid)
+		.invalid                    (decomp_invalid_st)
 	);
+
+	hazard3_instr_decompress #(
+		`include "hazard3_config_inst.vh"
+	) decomp_go (
+		.instr_in                   (next_instr_go),
+
+		.instr_is_32bit             (decomp_instr_is_32bit_go),
+		.instr_out                  (decomp_instr_out_go),
+
+		.instr_out_is_uop           (decomp_is_uop_go),
+		.instr_out_is_final_uop     (decomp_is_final_uop_go),
+		.instr_out_uop_no_pc_update (decomp_uop_no_pc_update_go),
+		.instr_out_uop_atomic       (decomp_uop_atomic_go),
+		.instr_out_uop_stall        (uop_stall_non_first || uop_stall_on_repeat),
+		.instr_out_uop_clear        (uop_clear),
+		.df_uop_step                (decomp_uop_step),
+		.df_uop_step_nxt            (decomp_uop_step_nxt_go),
+
+		.invalid                    (decomp_invalid_go)
+	);
+
+	wire        decomp_instr_is_32bit   = take_go ? decomp_instr_is_32bit_go   : decomp_instr_is_32bit_st;
+	wire [31:0] decomp_instr_out        = take_go ? decomp_instr_out_go        : decomp_instr_out_st;
+	wire        decomp_is_uop           = take_go ? decomp_is_uop_go           : decomp_is_uop_st;
+	wire        decomp_is_final_uop     = take_go ? decomp_is_final_uop_go     : decomp_is_final_uop_st;
+	wire        decomp_uop_no_pc_update = take_go ? decomp_uop_no_pc_update_go : decomp_uop_no_pc_update_st;
+	wire        decomp_uop_atomic       = take_go ? decomp_uop_atomic_go       : decomp_uop_atomic_st;
+	wire        decomp_invalid          = take_go ? decomp_invalid_go          : decomp_invalid_st;
+
+	if (EXTENSION_ZCMP) begin: have_uop_ctr
+		wire [3:0] decomp_uop_step_nxt = take_go ? decomp_uop_step_nxt_go : decomp_uop_step_nxt_st;
+		reg  [3:0] uop_ctr_r;
+		assign decomp_uop_step = uop_ctr_r;
+		always @ (posedge clk or negedge rst_n) begin
+			if (!rst_n) begin
+				uop_ctr_r <= 4'h0;
+			end else begin
+				uop_ctr_r <= decomp_uop_step_nxt;
+`ifdef HAZARD3_ASSERTIONS
+				assert(decomp_is_uop || uop_ctr_r == 4'h0);
+				assert(decomp_is_uop || !decomp_uop_atomic);
+				assert(decomp_is_uop || !decomp_uop_no_pc_update);
+				if (decomp_is_final_uop) begin
+					assert(decomp_is_uop);
+					assert(uop_stall_non_first || uop_stall_on_repeat || decomp_uop_step_nxt == 4'h0);
+				end
+`endif
+			end
+		end
+	end else begin: no_uop_ctr
+		assign decomp_uop_step = 4'h0;
+	end
 
 	wire cir_clken =
 		~|cir_vld || (!cir_vld[1] && &buf_contents[1:0]) ||
