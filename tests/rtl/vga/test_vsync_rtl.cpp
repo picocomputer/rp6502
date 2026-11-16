@@ -68,9 +68,9 @@ UTEST(vsync_rtl, ffe3_counts_frames_and_fff0_interrupts)
     machine_reset();
     auto *r = dut->rootp;
     for (size_t i = 0; i < 0x10000; i++)
-        r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[i] = 0;
+        r->wiring__DOT__sram__DOT__mem[i] = 0;
     for (size_t i = 0; i < sizeof prog; i++)
-        r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[0x0200 + i] = prog[i];
+        r->wiring__DOT__sram__DOT__mem[0x0200 + i] = prog[i];
     r->wiring__DOT__ria__DOT__regs[0x1C] = 0x00;
     r->wiring__DOT__ria__DOT__regs[0x1D] = 0x02;
     r->wiring__DOT__ria__DOT__regs[0x1E] = 0x20;
@@ -121,9 +121,9 @@ UTEST(vsync_rtl, movable_line_keeps_the_cadence)
     auto *r = dut->rootp;
     r->wiring__DOT__prog__DOT__vsync_shadow = 240;
     for (size_t i = 0; i < 0x10000; i++)
-        r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[i] = 0;
+        r->wiring__DOT__sram__DOT__mem[i] = 0;
     for (size_t i = 0; i < sizeof prog; i++)
-        r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[0x0200 + i] = prog[i];
+        r->wiring__DOT__sram__DOT__mem[0x0200 + i] = prog[i];
     r->wiring__DOT__ria__DOT__regs[0x1C] = 0x00;
     r->wiring__DOT__ria__DOT__regs[0x1D] = 0x02;
 

@@ -22,6 +22,8 @@ module pocket_bridge #(
     input logic [31:0] bridge_wr_data,
     input logic dataslot_allcomplete,
     input logic dataslot_update,
+    input logic dataslot_requestwrite,
+    input logic [15:0] dataslot_requestwrite_id,
     input logic reset_n,
     output logic [9:0] pocket_bridge_dt_addr,
     output logic pocket_bridge_dt_busy,
@@ -41,6 +43,10 @@ module pocket_bridge #(
     output logic pocket_bridge_slot_set,
     output logic [31:0] pocket_bridge_slot_len,
     output logic [7:0] pocket_bridge_upd_n,
+    /* A new ROM is on its way: the host asked to write the ROM slot while
+     * the machine runs, and has not finished. It stops the 6502 at once,
+     * before the host writes over the file the running program reads. */
+    output logic pocket_bridge_rom_coming,
     output logic [3:0][31:0] pocket_bridge_cont_key,
     output logic [3:0][31:0] pocket_bridge_cont_joy,
     output logic [3:0][15:0] pocket_bridge_cont_trig,
@@ -63,6 +69,21 @@ module pocket_bridge #(
     logic [40:0] wf_wdata;
     logic slot_wr;
     always_comb slot_wr = bridge_wr && bridge_addr[31:28] == 4'h0;
+
+    /* rom_t toggles when the host asks to write slot 0, the ROM, with the
+     * core out of reset. A hot reload was measured as this request, then
+     * the image, then 0x008F. */
+    logic rom_t, rom_req_q;
+    always_ff @(posedge clk_74a or negedge arst_n)
+        if (!arst_n) begin
+            rom_t <= 1'b0;
+            rom_req_q <= 1'b0;
+        end else begin
+            rom_req_q <= dataslot_requestwrite;
+            if (dataslot_requestwrite && !rom_req_q
+                && dataslot_requestwrite_id == 16'd0 && reset_n)
+                rom_t <= !rom_t;
+        end
 
     logic upd_t;
     logic [7:0] upd_n, upd_g_74;
@@ -232,6 +253,7 @@ module pocket_bridge #(
     end
 
     (* preserve *) logic settle_t1, settle_t2, settle_t3;
+    (* preserve *) logic rom_t1, rom_t2, rom_t3;
     (* preserve *) logic [7:0] upd_g_s1;
     logic [7:0] upd_g_s2, upd_n_sys;
     (* preserve *) logic reset_n_s1, reset_n_s2;
@@ -253,11 +275,24 @@ module pocket_bridge #(
         post = '0;
         pocket_bridge_slot_len = '0;
         pocket_bridge_slot_set = 1'b0;
+        rom_t1 = 1'b0;
+        rom_t2 = 1'b0;
+        rom_t3 = 1'b0;
+        pocket_bridge_rom_coming = 1'b0;
     end
     always_ff @(posedge clk_sys) begin
         settle_t1 <= settle_t;
         settle_t2 <= settle_t1;
         settle_t3 <= settle_t2;
+        rom_t1 <= rom_t;
+        rom_t2 <= rom_t1;
+        rom_t3 <= rom_t2;
+        /* It ends when the new image's size is posted, the same clock the
+         * firmware's slot register takes it. */
+        if (rom_t2 != rom_t3)
+            pocket_bridge_rom_coming <= 1'b1;
+        else if (pocket_bridge_slot_set)
+            pocket_bridge_rom_coming <= 1'b0;
         upd_g_s1 <= upd_g_74;
         upd_g_s2 <= upd_g_s1;
         upd_n_sys <= g2b(upd_g_s2);

@@ -115,13 +115,17 @@ int main(void)
          * a restore that came between the reads shows as a wake. */
         uint8_t upd = (uint8_t)MMIO_UPD_N;
         bool slot = MMIO_SLOT != 0;
+        /* A new ROM is being written over the old one's file. The bitstream
+         * already holds the 6502; the program stops here and nothing
+         * starts until the image has landed and MMIO_SLOT says so. */
+        bool coming = ROM_COMING != 0;
         bool wake = wake_pending();
         if (!wake && (slot || upd != main_upd_seen))
         {
             main_upd_seen = upd;
             main_restaging = true;
         }
-        if (main_restaging && !wake)
+        if ((main_restaging || coming) && !wake)
         {
             proc_cancel_launcher();
             sys_stop();
@@ -135,7 +139,7 @@ int main(void)
          * not a file the program creates or truncates before the load, so
          * a start, an exec or a launcher's return waits for the wake to
          * end. */
-        if (!sys_active() && !wake)
+        if (!sys_active() && !wake && !coming)
         {
             if (main_restaging)
             {

@@ -34,13 +34,11 @@ set(POCKET_STACK
     ${RP6502_POCKET_CORE}/pocket_video.sv
     ${RP6502_POCKET_CORE}/pocket_i2s.sv
     ${RP6502_POCKET_CORE}/pocket_sdram.sv
-    ${RP6502_POCKET_CORE}/pocket_sram.sv
     ${RP6502_POCKET_CORE}/pocket_bridge.sv
     ${RP6502_POCKET_CORE}/pocket_file.sv
     ${RP6502_POCKET_CORE}/pocket_sst.sv
     ${RP6502_POCKET_CORE}/pocket_core.sv
     ${POCKET_TB}/sdram_model.sv
-    ${POCKET_TB}/asram_model.sv
     ${POCKET_TB}/tb_pocket.sv)
 
 rp6502_add_module_test(fifo

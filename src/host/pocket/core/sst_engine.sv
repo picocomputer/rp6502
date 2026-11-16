@@ -69,12 +69,10 @@ module sst_engine #(
     output logic [13:0] sst_engine_mem_addr,
     output logic [31:0] sst_engine_mem_wdata,
     output logic sst_engine_xram_we,
-    output logic sst_engine_sram_sel,
     output logic [15:0] sst_engine_sram_addr,
     output logic sst_engine_sram_we,
     output logic [7:0] sst_engine_sram_wdata,
     input logic [7:0] sram_rdata,
-    input logic sram_stall,
 
     /* regs.sv's window is the engine's while sst_engine_regs_own is
      * high: with arr_own, and in the second pass, which writes its flops
@@ -107,9 +105,6 @@ module sst_engine #(
      * pass has put it back. */
     output logic sst_engine_park,
     output logic sst_engine_aud_mask,
-    /* Fetches the restored 6502's next byte into pocket_sram while the
-     * machine is still stopped. */
-    output logic sst_engine_ram_refill,
 
     /* The soft CPU's memory is behind the line port, four words to a
      * line, and its cache holds the newest copy of some lines. A save has
@@ -421,16 +416,6 @@ module sst_engine #(
         sst_engine_aud_st_we = on_aud_q && state == S_LD_PUT && ld_pass2;
         sst_engine_park = park;
         sst_engine_aud_mask = aud_mask;
-        sst_engine_ram_refill = state == S_LD_PUT_DONE;
-
-        /* The select drops for one cycle between bytes because it
-         * drives pocket_sram's b_stb, and pocket_sram holds b_done until
-         * b_stb drops. If the select were held, sram_stall would stay
-         * low after the first byte and no new access would be made, so
-         * a read would take the first byte four times and a write would
-         * store only the first byte. */
-        sst_engine_sram_sel = on_sram_q && !sram_gap
-            && (state == S_READ || state == S_LD_PUT);
         sst_engine_regs_own = arr_own || ld_pass2;
         sst_engine_regs_word = off_q[7:0];
         /* In the first pass the flop words land nowhere, because the
@@ -547,8 +532,11 @@ module sst_engine #(
     logic [31:0] ld_word;
     logic ld_writing;
 
-    /* stop_q is want_stop held off until the audio engines are quiet. */
-    logic want_stop, stop_q, hold_res, arr_own, sram_gap;
+    /* stop_q is want_stop held off until the audio engines are quiet.
+     * The 6502's RAM answers a clock after its address, so a read waits
+     * a clock, sram_wait, before it takes each byte. off_q is the address
+     * from S_READ on, so the first byte waits there too. */
+    logic want_stop, stop_q, hold_res, arr_own, sram_wait;
     /* ld_pass2 is the second pass, over regs.sv's flop words and then the
      * audio's. */
     logic ld_pass2 /*verilator public_flat_rd*/;
@@ -601,7 +589,7 @@ module sst_engine #(
             ld_pass2 <= 1'b0;
             park <= 1'b0;
             aud_mask <= 1'b0;
-            sram_gap <= 1'b0;
+            sram_wait <= 1'b0;
             line_valid <= 1'b0;
             line_pend <= 1'b0;
             flush <= 1'b0;
@@ -895,12 +883,8 @@ module sst_engine #(
                     end else if (on_arr_q || on_regs_q || on_flops)
                         state <= S_LD_PUT_WAIT;
                     else if (on_sram_q) begin
-                        if (sram_gap) sram_gap <= 1'b0;
-                        else if (!sram_stall) begin
-                            if (byte_n == 2'd3) state <= S_LD_PUT_WAIT;
-                            else byte_n <= byte_n + 2'd1;
-                            sram_gap <= 1'b1;
-                        end
+                        if (byte_n == 2'd3) state <= S_LD_PUT_WAIT;
+                        else byte_n <= byte_n + 2'd1;
                     end else state <= S_LD_PUT_WAIT;
                 end
                 /* The second pass ends on the last flop word, and the soft
@@ -1111,7 +1095,10 @@ module sst_engine #(
                 /* S_READ_ARM waits one clock because off_q and the
                  * on_*_q flags are registered from hold_idx, which was
                  * set on the clock before. */
-                S_READ_ARM: state <= S_READ;
+                S_READ_ARM: begin
+                    sram_wait <= 1'b1;
+                    state <= S_READ;
+                end
 
                 S_READ:
                 if (direct) begin
@@ -1126,19 +1113,16 @@ module sst_engine #(
                 end else if (on_regs_q) begin
                     state <= S_READ_WAIT;
                 end else if (on_sram_q) begin
-                    if (sram_gap) sram_gap <= 1'b0;
-                    else if (!sram_stall) begin
-                        if (byte_n == 2'd3) begin
-                            hold <= {acc, sram_rdata};
-                            hold_valid <= 1'b1;
-                            byte_n <= '0;
-                            sram_gap <= 1'b0;
-                            state <= S_READY;
-                        end else begin
-                            acc <= {acc[15:0], sram_rdata};
-                            byte_n <= byte_n + 2'd1;
-                            sram_gap <= 1'b1;
-                        end
+                    if (sram_wait) sram_wait <= 1'b0;
+                    else if (byte_n == 2'd3) begin
+                        hold <= {acc, sram_rdata};
+                        hold_valid <= 1'b1;
+                        byte_n <= '0;
+                        state <= S_READY;
+                    end else begin
+                        acc <= {acc[15:0], sram_rdata};
+                        byte_n <= byte_n + 2'd1;
+                        sram_wait <= 1'b1;
                     end
                 end else if (on_ram_q) begin
                     /* The sum and the host's copy both walk the blob in

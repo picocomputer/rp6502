@@ -125,6 +125,9 @@
 #define RTC_VALID (*(volatile uint32_t *)0x80010010u)
 #define SET_TZ_MIN (*(volatile uint32_t *)0x80010014u)
 #define SET_TZ_WEST (*(volatile uint32_t *)0x80010018u)
+/* 1 from the host's request to write the ROM slot until the new image's
+ * size is in MMIO_SLOT. The bitstream holds the 6502 in reset meanwhile. */
+#define ROM_COMING (*(volatile const uint32_t *)0x8001001Cu)
 
 static inline int32_t set_tz_minutes(void)
 {

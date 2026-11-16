@@ -511,6 +511,18 @@ UTEST(pocket, hot_reload_without_a_reset)
 
     std::vector<uint8_t> second = read_rom("mode3_1bpp");
     ASSERT_TRUE(second.size() > 0);
+    /* The host asks to write the ROM slot before it writes the image, and
+     * the running 6502 is in reset within a few clocks of the request,
+     * before any of the new image lands. */
+    ASSERT_TRUE((int)dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__resb);
+    dut->dataslot_requestwrite_id = 0;
+    dut->dataslot_requestwrite = 1;
+    a_edge();
+    a_edge();
+    dut->dataslot_requestwrite = 0;
+    for (int i = 0; i < 20; i++)
+        a_edge();
+    ASSERT_FALSE((int)dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__resb);
     host_load(second);
 
     ASSERT_TRUE(run_until_quiet(nullptr));

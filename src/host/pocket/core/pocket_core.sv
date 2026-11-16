@@ -27,6 +27,8 @@ input logic clk_vid,
     input logic [31:0] bridge_wr_data,
     input logic dataslot_allcomplete,
     input logic dataslot_update,
+    input logic dataslot_requestwrite,
+    input logic [15:0] dataslot_requestwrite_id,
     input logic reset_n,
     output logic [9:0] pocket_core_dt_addr,
     input logic [31:0] datatable_q,
@@ -82,15 +84,6 @@ input logic clk_vid,
     output logic dram_dq_oe,
     input logic [15:0] dram_dq_in,
 
-    output logic [16:0] sram_a,
-    output logic [15:0] sram_dq_out,
-    output logic sram_dq_oe,
-    input logic [15:0] sram_dq_in,
-    output logic sram_oe_n,
-    output logic sram_we_n,
-    output logic sram_ub_n,
-    output logic sram_lb_n,
-
     output logic pocket_core_ready,
     output logic [7:0] pocket_core_tx_data,
     output logic pocket_core_tx_valid,
@@ -123,6 +116,7 @@ input logic clk_vid,
 
     logic slot_set;
     logic [7:0] upd_n;
+    logic rom_coming;
     logic key_pending;
     logic [3:0][31:0] cont_key_sys, cont_joy_sys;
     logic [3:0][15:0] cont_trig_sys;
@@ -148,6 +142,8 @@ input logic clk_vid,
         .bridge_wr_data(bridge_wr_data),
         .dataslot_allcomplete(dataslot_allcomplete),
         .dataslot_update(dataslot_update),
+        .dataslot_requestwrite(dataslot_requestwrite),
+        .dataslot_requestwrite_id(dataslot_requestwrite_id),
         .reset_n(reset_n),
         .pocket_bridge_dt_addr(bridge_dt_addr),
         .pocket_bridge_dt_busy(dt_busy),
@@ -166,6 +162,7 @@ input logic clk_vid,
         .pocket_bridge_slot_set(slot_set),
         .pocket_bridge_slot_len(slot_len),
         .pocket_bridge_upd_n(upd_n),
+        .pocket_bridge_rom_coming(rom_coming),
         .pocket_bridge_cont_key(cont_key_sys),
         .pocket_bridge_cont_joy(cont_joy_sys),
         .pocket_bridge_cont_trig(cont_trig_sys),
@@ -226,16 +223,6 @@ input logic clk_vid,
         .dram_dq_in(dram_dq_in)
     );
 
-    logic [15:0] ram_a_addr, ram_b_addr /*verilator public_flat_rd*/;
-    logic [7:0] ram_a_wdata, ram_b_wdata, ram_a_rdata, ram_b_rdata;
-    logic ram_refill;
-    logic ram_a_we, ram_b_we /*verilator public_flat_rd*/,
-        ram_b_stb /*verilator public_flat_rd*/,
-        ram_b_stall /*verilator public_flat_rd*/, ram_hold;
-    /* verilator lint_off SYNCASYNCNET */
-    logic machine_phi2_en, machine_resb;
-    /* verilator lint_on SYNCASYNCNET */
-
     (* preserve *) logic run_s1, run_s2;
     initial begin
         run_s1 = 1'b1;
@@ -245,33 +232,6 @@ input logic clk_vid,
         run_s1 <= mach_running;
         run_s2 <= run_s1;
     end
-
-    pocket_sram sram (
-        .clk(clk_sys),
-        .clk_mach(clk_mach),
-        .refill(ram_refill),
-        .phi2_en(machine_phi2_en),
-        .cpu_run(machine_resb),
-        .a_addr(ram_a_addr),
-        .a_wdata(ram_a_wdata),
-        .a_we(ram_a_we),
-        .pocket_sram_a_rdata(ram_a_rdata),
-        .b_addr(ram_b_addr),
-        .b_wdata(ram_b_wdata),
-        .b_we(ram_b_we),
-        .b_stb(ram_b_stb),
-        .pocket_sram_b_rdata(ram_b_rdata),
-        .pocket_sram_b_stall(ram_b_stall),
-        .pocket_sram_hold(ram_hold),
-        .pocket_sram_a(sram_a),
-        .pocket_sram_dq_out(sram_dq_out),
-        .pocket_sram_dq_oe(sram_dq_oe),
-        .sram_dq_in(sram_dq_in),
-        .pocket_sram_oe_n(sram_oe_n),
-        .pocket_sram_we_n(sram_we_n),
-        .pocket_sram_ub_n(sram_ub_n),
-        .pocket_sram_lb_n(sram_lb_n)
-    );
 
     logic [27:0] host_addr;
     logic host_stb, host_we;
@@ -292,6 +252,7 @@ input logic clk_vid,
                 3'd4: set_rdata <= {31'd0, rtc_valid_sys};
                 3'd5: set_rdata <= set_tz_min;
                 3'd6: set_rdata <= set_tz_sign;
+                3'd7: set_rdata <= {31'd0, rom_coming};
                 default: set_rdata <= '0;
             endcase
     end
@@ -335,8 +296,9 @@ input logic clk_vid,
     logic [31:0] sst_word, sst_rd_data;
 
     /* verilator lint_off PINCONNECTEMPTY */
-    wiring #(.EXT_RAM(1)) machine (
+    wiring machine (
         .clk_mach(clk_mach),
+        .rom_stop(rom_coming),
         .mach_running(mach_running),
         .wiring_sst_stop_req(pocket_core_stop_req),
         .wiring_line_pend(line_pend),
@@ -408,21 +370,7 @@ input logic clk_vid,
         .wiring_aud_r(aud_r),
         .wiring_aud_valid(aud_valid),
         .wiring_scanline(scanline),
-        .wiring_vid_frame(vid_frame),
-        .wiring_ram_a_addr(ram_a_addr),
-        .wiring_ram_a_wdata(ram_a_wdata),
-        .wiring_ram_a_we(ram_a_we),
-        .ram_a_rdata(ram_a_rdata),
-        .wiring_ram_b_addr(ram_b_addr),
-        .wiring_ram_b_wdata(ram_b_wdata),
-        .wiring_ram_b_we(ram_b_we),
-        .wiring_ram_b_stb(ram_b_stb),
-        .wiring_ram_refill(ram_refill),
-        .ram_b_rdata(ram_b_rdata),
-        .ram_b_stall(ram_b_stall),
-        .ram_hold(ram_hold),
-        .wiring_phi2_en(machine_phi2_en),
-        .wiring_cpu_run(machine_resb)
+        .wiring_vid_frame(vid_frame)
     );
     /* verilator lint_on PINCONNECTEMPTY */
 

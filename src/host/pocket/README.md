@@ -6,26 +6,22 @@ it — the distribution tree is described in
 
 ## The board's memory
 
-Analogue names the board's memory parts. This core uses the SDRAM and
-the SRAM, and the board's PSRAM (`cram0_*`, `cram1_*`) is not used.
+Analogue names the board's memory parts. This core uses only the SDRAM.
+The SRAM's pins and the PSRAM's (`cram0_*`, `cram1_*`) are tied off as
+Analogue's template ties off an unused part.
 
 | | part | size | organisation | interface |
 | --- | --- | --- | --- | --- |
 | SDRAM | `AS4C32M16MSA-6BIN` | 64 MB | 32M×16 | 1.8 V, synchronous |
-| SRAM | `AS6C2016-55BIN` | 256 KB | 128K×16 | 3.3 V, **asynchronous**, 55 ns |
 
 - <https://www.analogue.co/developer/docs/external-hardware>
 - <https://www.alliancememory.com/datasheets/as4c32m16msa/>
-- <https://www.alliancememory.com/datasheets/AS6C2016/>
 
-**The SRAM holds the 6502's 64 KB**, because block memory is what this
-design runs out of first, and 64 KB of block memory is 64 M10K blocks.
-
-The part's 55 ns access time fits inside the 6502's shortest cycle at
-8 MHz, which is six clocks of clk_sys, the 50.4 MHz system clock, or
-119 ns. Unlike the SDRAM, it has no rows, no refresh and no bank
-conflicts, so every access takes the same time and the 6502 runs at
-exactly the clock that was requested.
+**Block memory holds the 6502's 64 KB**, in 64 M10K blocks, as on the
+other machines. It answers a clock after its address, well inside the
+6502's shortest cycle at 8 MHz, which is six clocks of clk_sys, the
+50.4 MHz system clock, so the 6502 runs at exactly the clock that was
+requested.
 
 **The SDRAM holds the soft CPU's memory**, in two blocks as on a
 microcontroller. The ROM block is 256 KB of code and constants, which
@@ -64,13 +60,6 @@ The 512 KB from 0x03E00000 are the soft CPU's addresses 0 to 0x7FFFF.
 The rest, up to 64 MB, is spare. `stage_map_gate.py` checks every place
 that states this map against the others, and fails if the ROM slot is
 anything but 62 MB.
-
-Analogue's port list has no chip enable for the SRAM, so the part is
-always selected and the byte enables are the only deselect.
-`pocket_sram` uses the part as 64K x 8 on the low lane only, because
-tAA is 55 ns whether one byte is read or two. UB# stays high, and LB#
-is low only during an access, so a write happens only while WE# and LB#
-are both low. Both are registered and power up high.
 
 The controller decodes the SDRAM as 4 banks × 8192 rows × 1024 columns
 × 16 bits, so a row is **2 KB**. The datasheet requires 8192 auto
@@ -244,14 +233,9 @@ by clk_mach: the pixel queue in `pocket_video.sv`, the sample queue in
 of `arr_own`. `arr_own` rises only once the gate has closed, so it
 never masks an access the machine makes before then, and it falls as
 soon as the stop request drops, which is several cycles of clk_74a, the
-74.25 MHz bridge clock, before the gate opens again. `pocket_sram`'s
-port A takes no mask, because clk_sys logic cannot tell which of its
-edges the gate passes. It serves one access a PHI2 enable instead,
-launched on the first clock that sees the enable, and launches nothing
-more until the machine has taken an edge. When the machine stops just
-before an enable, that launch comes during the stop, and its byte is
-held back until the machine's next edge, so the 6502 still reads the
-byte for its present address when it resumes.
+74.25 MHz bridge clock, before the gate opens again. The 6502's RAM
+masks its port A write with `arr_own`, so a write enable frozen high
+does not write again on every cycle of the stop.
 
 **The stop waits for the audio to be quiet.** The engine asks for the
 stop only while every audio engine is idle with no sample due for 24
@@ -307,8 +291,8 @@ the SDRAM and its cache emptied, and the flop state (6502, VIA, the RW engine's 
 resb, the 6502's clock rate and phase, the microsecond counter) is held
 in the engine until the steps below write it back. The RIA window's and
 the audio's flops are fetched from the staging store again in step 3.
-Once the arrays are back, the engine fetches the 6502's next byte into
-`pocket_sram`, so no PHI2 enable after the jam waits on it.
+During the jam, the 6502's RAM reads at the restored 6502's address, so
+the byte it takes on its first PHI2 enable is the one at that address.
 
 Waking the machine takes these steps in order:
 

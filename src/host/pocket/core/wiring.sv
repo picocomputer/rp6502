@@ -7,11 +7,13 @@
 module wiring
     import timing_pkg::*, mem_pkg::*;
 #(
-    parameter int SYS_KHZ = 50400,
-    parameter bit EXT_RAM = 0
+    parameter int SYS_KHZ = 50400
 ) (
     input logic clk_sys,
     input logic clk_mach,
+    /* The host is writing a new ROM: the 6502 goes into reset and stays
+     * there while this is high. */
+    input logic rom_stop,
     /* clk_rv runs at half the rate of clk_sys and rises with it. It is
      * generated outside this module because a divider flop here would
      * put its edge after the clk_sys edge, and the soft CPU would then
@@ -124,36 +126,14 @@ module wiring
     output logic wiring_aud_valid,
 
     output logic [SCANLINE_W-1:0] wiring_scanline,
-    output logic wiring_vid_frame,
-
-    /* Port A has to return its byte before the next PHI2 enable, which
-     * is when the 6502 reads it. */
-    output logic [15:0] wiring_ram_a_addr,
-    output logic [7:0] wiring_ram_a_wdata,
-    output logic wiring_ram_a_we,
-    input logic [7:0] ram_a_rdata,
-    output logic [15:0] wiring_ram_b_addr,
-    output logic [7:0] wiring_ram_b_wdata,
-    output logic wiring_ram_b_we,
-    output logic wiring_ram_b_stb,
-    output logic wiring_ram_refill,
-    input logic [7:0] ram_b_rdata,
-    input logic ram_b_stall,
-    input logic ram_hold,
-    output logic wiring_phi2_en,
-    output logic wiring_cpu_run
+    output logic wiring_vid_frame
 );
 
     localparam int RV_KHZ = SYS_KHZ / 2;
 
     logic [15:0] phi2_khz, phi2_acc;
-    logic phi2_raw_en, phi2_en;
+    logic phi2_en;
 
-    /* When the 6502's RAM is off-chip, both ports share one SRAM chip,
-     * so ram_hold suppresses a PHI2 enable while the chip is serving an
-     * access or a port B access is waiting. */
-    always_comb phi2_en = phi2_raw_en && !ram_hold;
-    always_comb wiring_phi2_en = phi2_en;
     /* The jam's first edge loads an enable of 0, still in the reset
      * hold, so nothing steps in the second, which loads the saved one. */
     phi2 #(.SYS_KHZ(SYS_KHZ)) phi2 (
@@ -162,13 +142,13 @@ module wiring
         .st_jam(eng_st_jam),
         .st_jam_acc(eng_jam_mach[1][31:16]),
         .st_jam_en(eng_jam_mach[0][1] && !eng_hold_res),
-        .phi2_en(phi2_raw_en),
+        .phi2_en(phi2_en),
         .phi2_acc(phi2_acc)
     );
 
-    logic [15:0] cpu_addr, cpu_next_addr;
-    logic [7:0] cpu_dout, cpu_din, cpu_next_data;
-    logic cpu_we, cpu_next_we;
+    logic [15:0] cpu_addr;
+    logic [7:0] cpu_dout, cpu_din;
+    logic cpu_we;
     logic via_irq;
 
     logic resb /*verilator public_flat_rw*/;
@@ -177,7 +157,6 @@ module wiring
      * through resb_eff, so both are in reset before clk_mach returns. */
     logic resb_eff;
     always_comb resb_eff = resb && !eng_hold_res;
-    always_comb wiring_cpu_run = resb_eff;
     logic cpu_stp;
     logic eng_st_jam, eng_os_jam;
     logic [63:0] mtime;
@@ -197,7 +176,7 @@ module wiring
          * while the soft CPU is halted, which is the only time the
          * counter stands still. */
         case (eng_st_idx)
-            3'd0: mach_st_rdata = {30'd0, phi2_raw_en, resb};
+            3'd0: mach_st_rdata = {30'd0, phi2_en, resb};
             3'd1: mach_st_rdata = {phi2_acc, phi2_khz};
             3'd2: mach_st_rdata = mtime[31:0];
             3'd3: mach_st_rdata = mtime[63:32];
@@ -227,15 +206,11 @@ module wiring
         .st_idx(eng_st_idx),
         .cpu_st_rdata(cpu_st_rdata),
         .st_jam(eng_st_jam),
-        .st_jam_data(eng_jam_cpu),
-        .cpu_next_addr(cpu_next_addr),
-        .cpu_next_data(cpu_next_data),
-        .cpu_next_we(cpu_next_we)
+        .st_jam_data(eng_jam_cpu)
     );
 
-    logic eng_freeze, eng_ram_refill;
+    logic eng_freeze;
     always_comb wiring_sst_stop_req = eng_freeze;
-    always_comb wiring_ram_refill = eng_ram_refill;
 
     logic eng_own;
 
@@ -244,7 +219,7 @@ module wiring
     logic [31:0] eng_mem_wdata;
     logic [1:0] eng_xprog_word;
     logic eng_xram_we, eng_cell_we, eng_xprog_we;
-    logic eng_sram_sel, eng_sram_we, eng_regs_we;
+    logic eng_sram_we, eng_regs_we;
     logic eng_stage_pend;
     logic [27:0] eng_stage_addr;
     logic [7:0] eng_regs_word;
@@ -301,12 +276,10 @@ module wiring
         .sst_engine_regs_we(eng_regs_we),
         .sst_engine_regs_wdata(eng_regs_wdata),
         .regs_rdata(regs_b_rdata),
-        .sst_engine_sram_sel(eng_sram_sel),
         .sst_engine_sram_addr(eng_sram_addr),
         .sst_engine_sram_we(eng_sram_we),
         .sst_engine_sram_wdata(eng_sram_wdata),
         .sram_rdata(sram_b_rdata),
-        .sram_stall(ram_b_stall),
         .sst_engine_cell_we(eng_cell_we),
         .sst_engine_xprog_we(eng_xprog_we),
         .sst_engine_xprog_word(eng_xprog_word),
@@ -319,7 +292,6 @@ module wiring
         .aud_quiet(aud_quiet),
         .sst_engine_park(eng_park),
         .sst_engine_aud_mask(eng_aud_mask),
-        .sst_engine_ram_refill(eng_ram_refill),
         .sst_engine_flush(eng_flush),
         .sst_engine_empty(eng_empty),
         .cache_idle(wiring_sst_cache_idle),
@@ -352,69 +324,29 @@ module wiring
 
     /* Every 6502 write also lands in RAM, including a write to
      * $FF00-$FFFF, where 6502 reads come from the VIA, the RIA or open
-     * bus instead. */
+     * bus instead.
+     *
+     * Port A reads a clock behind its address. The restored 6502 takes
+     * its address on the jam's last edge, and the next edge can be a PHI2
+     * enable, so during the jam port A reads at the address in the jam
+     * word. */
     logic [7:0] sram_rdata;
     logic [7:0] sram_b_rdata;
-    generate
-        if (EXT_RAM) begin : g_ram_ext
-            always_comb begin
-                /* On the refill, port A is given the restored cpu_addr,
-                 * so it fetches the byte the restored 6502 reads on its
-                 * first PHI2 enable rather than one fetched before the
-                 * restore. It runs while the machine is still stopped,
-                 * so no enable after the jam waits on it.
-                 *
-                 * The address comes from the jam word and not from
-                 * cpu_next_addr, because the cpu flops have not taken
-                 * the jam yet. */
-                wiring_ram_a_addr = eng_ram_refill ? eng_jam_cpu[4][31:16]
-                    : cpu_next_addr;
-                wiring_ram_a_wdata = cpu_next_data;
-                wiring_ram_a_we = cpu_next_we && !eng_ram_refill;
-                wiring_ram_b_addr = eng_sram_sel
-                    ? eng_sram_addr : soc_addr[15:0];
-                wiring_ram_b_wdata = eng_sram_sel
-                    ? eng_sram_wdata : soc_wbyte;
-                wiring_ram_b_we = eng_sram_sel ? eng_sram_we
-                    : (soc_we && !eng_arr_own);
-                wiring_ram_b_stb = eng_sram_sel
-                    || (soc_pend && soc_sel_sram && !eng_arr_own);
-                sram_rdata = ram_a_rdata;
-                sram_b_rdata = ram_b_rdata;
-            end
-        end else begin : g_ram_bram
-            sram sram (
-                .clk(clk_sys),
-                .sst_own(eng_arr_own),
-                .sst_addr(eng_sram_addr),
-                .sst_we(eng_sram_we),
-                .sst_wdata(eng_sram_wdata),
-                .a_addr(cpu_addr),
-                .a_wdata(cpu_dout),
-                .a_we(cpu_we && phi2_en),
-                .sram_a_rdata(sram_rdata),
-                .b_addr(soc_addr[15:0]),
-                .b_wdata(soc_wbyte),
-                .b_we(soc_stb && soc_we && soc_sel_sram),
-                .sram_b_rdata(sram_b_rdata)
-            );
-            always_comb begin
-                wiring_ram_a_addr = '0;
-                wiring_ram_a_wdata = '0;
-                wiring_ram_a_we = 1'b0;
-                wiring_ram_b_addr = '0;
-                wiring_ram_b_wdata = '0;
-                wiring_ram_b_we = 1'b0;
-                wiring_ram_b_stb = 1'b0;
-            end
-            /* verilator lint_off UNUSEDSIGNAL */
-            logic unused_ram;
-            always_comb unused_ram = ^{ram_a_rdata, ram_b_rdata,
-                                       cpu_next_addr, cpu_next_data,
-                                       cpu_next_we, eng_sram_sel};
-            /* verilator lint_on UNUSEDSIGNAL */
-        end
-    endgenerate
+    sram sram (
+        .clk(clk_sys),
+        .sst_own(eng_arr_own),
+        .sst_addr(eng_sram_addr),
+        .sst_we(eng_sram_we),
+        .sst_wdata(eng_sram_wdata),
+        .a_addr(eng_st_jam ? eng_jam_cpu[4][31:16] : cpu_addr),
+        .a_wdata(cpu_dout),
+        .a_we(cpu_we && phi2_en),
+        .sram_a_rdata(sram_rdata),
+        .b_addr(soc_addr[15:0]),
+        .b_wdata(soc_wbyte),
+        .b_we(soc_stb && soc_we && soc_sel_sram),
+        .sram_b_rdata(sram_b_rdata)
+    );
 
     logic ria_irq;
     logic [7:0] via_data;
@@ -531,8 +463,7 @@ module wiring
 
     /* An access is taken on the first clk_mach edge that finds it pending
      * and its target able to finish it: XRAM once its port is free, the
-     * SRAM and the staging store once they hold the data, everything
-     * else at once. That decision is the machine's, made from the sampled
+     * staging store once it holds the data, everything else at once. That decision is the machine's, made from the sampled
      * request on its own edge, so it can never run ahead of the stalls
      * it depends on. soc_stb is the request while it waits, one clock for
      * the targets that never stall. soc_taken then stays high until
@@ -543,7 +474,6 @@ module wiring
     always_comb soc_stb = soc_pend && !soc_taken;
     always_comb soc_take = soc_stb
         && (soc_sel_xram ? xram_go
-            : soc_sel_sram ? !ram_b_stall
             : soc_sel_stage ? !stage_stall : 1'b1);
     always_ff @(posedge clk_mach) begin
         if (!soc_pend)
@@ -716,6 +646,7 @@ module wiring
     initial resb = 1'b0;
     always_ff @(posedge clk_mach)
         if (eng_os_jam) resb <= eng_jam_mach[0][0];
+        else if (rom_stop) resb <= 1'b0;
         else if (soc_stb && soc_we && soc_sel_ctl && !soc_addr[2])
             resb <= soc_wbyte[0];
 

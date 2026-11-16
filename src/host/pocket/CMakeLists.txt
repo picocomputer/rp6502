@@ -88,7 +88,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         endif()
         list(APPEND BS_MACHINE_SOURCES ${src})
     endforeach()
-    foreach(src pocket_fifo pocket_video pocket_i2s pocket_sdram pocket_sram
+    foreach(src pocket_fifo pocket_video pocket_i2s pocket_sdram
             pocket_bridge pocket_file pocket_sst pocket_bars pocket_dbg
             pocket_dbglog
             pocket_core)

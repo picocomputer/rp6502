@@ -51,23 +51,8 @@ set_multicycle_path -hold  -from [get_registers {*via:*}] 3
 set_multicycle_path -setup -to [get_registers {*via:*}] 4
 set_multicycle_path -hold  -to [get_registers {*via:*}] 3
 
-# When a PHI2 enable launches a port A access, pocket_sram captures the
-# 6502's byte on the fourth clock after that enable, and the 6502 reads it
-# on the next enable, at least six clocks after that launch, so the path
-# from that capture into the 6502 has two clocks. This rule names both
-# ends, so it takes precedence over the one-ended rule above.
-set_multicycle_path -setup -from [get_registers {*pocket_sram*}] \
-    -to [get_registers {*cpu:*}] 2
-set_multicycle_path -hold  -from [get_registers {*pocket_sram*}] \
-    -to [get_registers {*cpu:*}] 1
-
 set_multicycle_path -setup -from [get_registers {*regs:*}] 4
 set_multicycle_path -hold  -from [get_registers {*regs:*}] 3
-
-set_multicycle_path -setup -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 4
-set_multicycle_path -hold  -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 3
-set_multicycle_path -setup -to [get_registers {*pocket_sram*pocket_sram_dq_out[*]}] 4
-set_multicycle_path -hold  -to [get_registers {*pocket_sram*pocket_sram_dq_out[*]}] 3
 
 # dram_clk is clk_dram forwarded through a DDR output cell, and clk_dram
 # runs half a clk_sys period behind clk_sys. The SDRAM samples its inputs
@@ -102,35 +87,3 @@ if {[get_collection_size [get_ports -nowarn {dram_clk}]] > 0} {
         -to [get_registers {*pocket_sdram*dq_cap*}] 2
 }
 
-# pocket_sram loads pocket_sram_a and pocket_sram_dq_out for the soft
-# CPU on the first clk_sys edge after soc_bus_pend rises when pocket_sram
-# is idle, so the path from soc into them is one clock. These rules name
-# both ends, so they take precedence over the one-ended multicycles of
-# four above.
-set_multicycle_path -setup -from [get_registers {*soc*}] \
-    -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 1
-set_multicycle_path -hold  -from [get_registers {*soc*}] \
-    -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 0
-set_multicycle_path -setup -from [get_registers {*soc*}] \
-    -to [get_registers {*pocket_sram*pocket_sram_dq_out[*]}] 1
-set_multicycle_path -hold  -from [get_registers {*soc*}] \
-    -to [get_registers {*pocket_sram*pocket_sram_dq_out[*]}] 0
-
-# The board's SRAM, an AS6C2016-55BIN, has no clock, so there are no I/O
-# delays to declare, and the interface is bounded by its round trip:
-#
-#   4 clk_sys                     79.365 ns
-#   tAA, address to data valid   -55.000 ns
-#                                 ------
-#   left for both pad crossings    24.365 ns
-#
-# Eleven nanoseconds each way spends 22 ns of that and leaves 2.365 ns for
-# clock uncertainty and the board.
-if {[get_collection_size [get_ports -nowarn {sram_a[0]}]] > 0} {
-    set sram_pads [get_ports {sram_a[*] sram_dq[*] sram_oe_n sram_we_n \
-        sram_ub_n sram_lb_n}]
-    set_max_delay -to $sram_pads 11.0
-    set_min_delay -to $sram_pads 0.0
-    set_max_delay -from [get_ports {sram_dq[*]}] 11.0
-    set_min_delay -from [get_ports {sram_dq[*]}] 0.0
-}

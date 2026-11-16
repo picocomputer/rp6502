@@ -296,6 +296,51 @@ UTEST(pbridge, boot_verify_rereset_reload_keys)
 }
 
 /* The four halves of the words a test writes at one address. */
+/* A new ROM chosen from the menu while the machine runs: the host asks to
+ * write slot 0, writes the image, then sends 0x008F. The bridge says a ROM
+ * is coming from the request until the new size is posted. A request for
+ * another slot, or one made in reset, is no new ROM. */
+static void request_write(uint16_t id)
+{
+    dut->dataslot_requestwrite_id = id;
+    dut->dataslot_requestwrite = 1;
+    a_cycles(2);
+    dut->dataslot_requestwrite = 0;
+    a_cycles(10);
+}
+
+UTEST(pbridge, a_new_rom_stops_the_machine_until_it_has_landed)
+{
+    power_up(utest_result);
+    std::vector<uint8_t> img(64, 0x11);
+    dut->datatable_q = (uint32_t)img.size();
+    request_write(0);
+    ASSERT_EQ((int)dut->tb_pbridge_rom_coming, 0);
+    host_stream(img, 40);
+    dut->dataslot_allcomplete = 1;
+    dut->reset_n = 1;
+    a_cycles(30);
+    ASSERT_EQ((int)dut->tb_pbridge_run, 1);
+    ASSERT_EQ((int)dut->tb_pbridge_rom_coming, 0);
+
+    request_write(1);
+    ASSERT_EQ((int)dut->tb_pbridge_rom_coming, 0);
+
+    dut->dataslot_allcomplete = 0;
+    request_write(0);
+    ASSERT_EQ((int)dut->tb_pbridge_rom_coming, 1);
+    std::vector<uint8_t> img2(80, 0x22);
+    dut->datatable_q = (uint32_t)img2.size();
+    host_stream(img2, 40);
+    ASSERT_EQ((int)dut->tb_pbridge_rom_coming, 1);
+    size_t posts = g_slot_sets.size();
+    dut->dataslot_allcomplete = 1;
+    a_cycles(30);
+    ASSERT_GT(g_slot_sets.size(), posts);
+    ASSERT_EQ(g_slot_lens.back(), (uint32_t)img2.size());
+    ASSERT_EQ((int)dut->tb_pbridge_rom_coming, 0);
+}
+
 static uint32_t stage_word(uint32_t addr)
 {
     uint16_t lo = stage_read(addr >> 1);

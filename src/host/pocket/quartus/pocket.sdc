@@ -46,26 +46,6 @@ set_false_path -hold \
     -from [get_registers {*pocket_bridge*|pocket_bridge_slot_len[*]}] \
     -to [get_registers {*|mmio_slot_len[*]}]
 
-# general[0] is clk_sys, and general[1] is both clk_rv and clk_vid,
-# because Quartus merges those two identical PLL outputs into one
-# counter. clk_mach is clk_sys gated by gate_sys, the clkctrl cell in
-# core_top, and the analyzer propagates general[0] through that cell, so
-# every constraint here that names general[0] also applies to the
-# registers on clk_mach.
-set_clock_uncertainty -add -hold 0.060 \
-    -from [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}] \
-    -to [get_clocks {*|general[1].gpll~PLL_OUTPUT_COUNTER|divclk}]
-set_clock_uncertainty -add -hold 0.060 \
-    -from [get_clocks {*|general[1].gpll~PLL_OUTPUT_COUNTER|divclk}] \
-    -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
-
-set_clock_uncertainty -add -hold 0.080 \
-    -from [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}] \
-    -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
-set_clock_uncertainty -add -hold 0.080 \
-    -from [get_clocks {bridge_spiclk}] \
-    -to [get_clocks {bridge_spiclk}]
-
 # pocket_file's command parameters and r_op are read on clk_74a only
 # after go_t has passed two synchronizer flops, and r_op changes on the
 # same clk_sys edge that flips go_t. Each path is bounded to one clk_74a
@@ -93,6 +73,11 @@ set_max_delay -from [get_registers {*pocket_file*|r_op[*]}] \
 set_min_delay -from [get_registers {*pocket_file*|r_op[*]}] \
     -to [get_clocks {clk_74a}] 0
 
+# general[0] is clk_sys. clk_mach is clk_sys gated by gate_sys, the
+# clkctrl cell in core_top, and the analyzer propagates general[0] through
+# that cell, so a constraint here that names general[0] also applies to
+# the registers on clk_mach.
+#
 # The savestate read crosses in both directions. pocket_sst writes the
 # requested index into ask on the clk_74a edge that flips ask_t, and
 # sst_engine loads req_idx from it only after ask_t has passed two

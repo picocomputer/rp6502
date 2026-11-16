@@ -526,7 +526,7 @@ UTEST(sst, a_load_puts_the_blob_back)
         r->wiring__DOT__mode0__DOT__cell3[i] = 0xEE;
     }
     for (uint32_t i = 0; i < 32; i++)
-        r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[i] = 0xEE;
+        r->wiring__DOT__sram__DOT__mem[i] = 0xEE;
 
     dut->sst_load = 1;
     dut->eval();
@@ -549,17 +549,17 @@ UTEST(sst, a_load_puts_the_blob_back)
     }
     for (uint32_t i = 0; i < 4; i++)
     {
-        ASSERT_EQ(0x5Au, r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[i * 4]);
+        ASSERT_EQ(0x5Au, r->wiring__DOT__sram__DOT__mem[i * 4]);
         ASSERT_EQ(0x5Au,
-                  r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[i * 4 + 1]);
+                  r->wiring__DOT__sram__DOT__mem[i * 4 + 1]);
         ASSERT_EQ(0x00u,
-                  r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[i * 4 + 2]);
+                  r->wiring__DOT__sram__DOT__mem[i * 4 + 2]);
         ASSERT_EQ(i, (uint32_t)r
-                         ->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[i * 4 + 3]);
+                         ->wiring__DOT__sram__DOT__mem[i * 4 + 3]);
     }
     for (uint32_t i = 16; i < 32; i++)
         ASSERT_EQ(0xCBu,
-                  (uint32_t)r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[i]);
+                  (uint32_t)r->wiring__DOT__sram__DOT__mem[i]);
     for (uint32_t i = 0; i < 8; i++)
     {
         ASSERT_EQ(i, (uint32_t)r->wiring__DOT__mode0__DOT__cell0[i]);
@@ -772,8 +772,7 @@ UTEST(sst, every_stop_finds_the_audio_quiet)
 
 /* The second pass writes regs.sv's flop words and then the audio's once
  * each and in order, with the clock back and before the soft CPU's
- * registers go in; the park holds until the second jam edge, and the
- * refill is only the state before the second pass. */
+ * registers go in; the park holds until the second jam edge. */
 UTEST(sst, a_load_writes_the_flops_with_the_clock_back)
 {
     power_on();
@@ -794,7 +793,7 @@ UTEST(sst, a_load_writes_the_flops_with_the_clock_back)
     dut->sst_load = 1;
     dut->eval();
     std::vector<uint32_t> seen;
-    bool injected = false, late = false, refill_bad = false;
+    bool injected = false, late = false;
     bool park_bad = false;
     int prev = -1;
     long guard = 0;
@@ -809,7 +808,6 @@ UTEST(sst, a_load_writes_the_flops_with_the_clock_back)
             seen.push_back(r->wiring__DOT__engine__DOT__ld_idx);
             late |= injected || !dut->mach_running;
         }
-        refill_bad |= (bool)dut->wiring_ram_refill != (st == E_LD_PUT_DONE);
         if (r->wiring__DOT__engine__DOT__ld_pass2 || st > E_LD_PUT_DONE)
             park_bad |= !park;
         if (prev == E_LD_JAM2 && st == E_IDLE)
@@ -829,7 +827,6 @@ UTEST(sst, a_load_writes_the_flops_with_the_clock_back)
     }
     ASSERT_LT(guard, 40000000L);
     ASSERT_FALSE(late);
-    ASSERT_FALSE(refill_bad);
     ASSERT_FALSE(park_bad);
     std::vector<uint32_t> want;
     for (uint32_t i = 0; i <= 20; i++)

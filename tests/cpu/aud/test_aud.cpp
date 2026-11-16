@@ -187,7 +187,7 @@ UTEST(aud, opl_overruns_count_the_writes_the_queue_could_not_take)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_OPL_OVERRUNS));
     auto *r = dut->rootp;
-    auto &ram = r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem;
+    auto &ram = r->wiring__DOT__sram__DOT__mem;
     const uint16_t got = 0x0210;
     ram[got + 7] = 0;
     /* Each clock's push, drop and pop land on the next edge; a pop frees a
@@ -224,7 +224,7 @@ UTEST(aud, opl_overruns_count_the_writes_the_queue_could_not_take)
 UTEST(aud, pcm_underruns_counts_the_buffer_running_dry)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_PCM_DRY));
-    auto &ram = dut->rootp->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem;
+    auto &ram = dut->rootp->wiring__DOT__sram__DOT__mem;
     const uint16_t got = 0x0210;
     ram[got + 7] = 0;
     for (int frames = 0; frames < 12 && !ram[got + 7]; frames++)
@@ -374,7 +374,7 @@ UTEST(aud, pcm_keeps_the_rules)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_PCM_RULES));
     auto *r = dut->rootp;
-    auto &ram = r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem;
+    auto &ram = r->wiring__DOT__sram__DOT__mem;
     ram[RULES_DONE] = 0;
     uint32_t step[2] = {0, 0};
     int fmt[2] = {0, 0}, level[2] = {-1, -1};
@@ -496,7 +496,7 @@ UTEST(aud, pcm_writes_land_in_order)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_PCM_ORDER));
     auto *r = dut->rootp;
-    auto &ram = r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem;
+    auto &ram = r->wiring__DOT__sram__DOT__mem;
     ram[ORDER_DONE] = 0;
     for (int i = 0; i < 40 && !ram[ORDER_DONE]; i++)
         run_frame();

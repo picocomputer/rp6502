@@ -192,9 +192,12 @@ wire [15:0] dram_dq_out;
 wire        dram_dq_oe;
 assign dram_dq = dram_dq_oe ? dram_dq_out : {16{1'bZ}};
 
-wire [15:0] sram_dq_out;
-wire        sram_dq_oe;
-assign sram_dq = sram_dq_oe ? sram_dq_out : {16{1'bZ}};
+assign sram_a = 'h0;
+assign sram_dq = {16{1'bZ}};
+assign sram_oe_n  = 1;
+assign sram_we_n  = 1;
+assign sram_ub_n  = 1;
+assign sram_lb_n  = 1;
 
 wire dbg_tx_w;
 assign dbg_tx = dbg_tx_w;
@@ -478,6 +481,8 @@ pocket_core core (
     .bridge_wr_data       ( bridge_wr_data ),
     .dataslot_allcomplete ( dataslot_allcomplete ),
     .dataslot_update      ( dataslot_update ),
+    .dataslot_requestwrite    ( dataslot_requestwrite ),
+    .dataslot_requestwrite_id ( dataslot_requestwrite_id ),
     .reset_n              ( reset_n ),
     .pocket_core_dt_addr  ( datatable_addr ),
     .datatable_q          ( datatable_q ),
@@ -534,15 +539,6 @@ pocket_core core (
     .dram_we_n   ( dram_we_n ),
     .dram_dq_out ( dram_dq_out ),
     .dram_dq_oe  ( dram_dq_oe ),
-
-    .sram_a      ( sram_a ),
-    .sram_dq_out ( sram_dq_out ),
-    .sram_dq_oe  ( sram_dq_oe ),
-    .sram_dq_in  ( sram_dq ),
-    .sram_oe_n   ( sram_oe_n ),
-    .sram_we_n   ( sram_we_n ),
-    .sram_ub_n   ( sram_ub_n ),
-    .sram_lb_n   ( sram_lb_n ),
     .dram_dq_in  ( dram_dq ),
 
     .pocket_core_ready     ( ),

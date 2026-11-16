@@ -30,6 +30,9 @@ design uses 219 blocks, so 89 are free.
   firmware carries its own. It reads both first thing and stops if either
   differs, touching nothing: the screen stays black. A savestate load is
   refused while the firmware's two numbers differ from the bitstream's.
+- **The 6502's 64 KB is in block memory**, 64 blocks, which leaves 25 free.
+  The SRAM chip's pins are tied off as Analogue's template ties off an
+  unused part, so the design needs only the FPGA and the SDRAM.
 
 ### The SDRAM's map
 
@@ -90,16 +93,6 @@ learns of the new ROM only at 0x008F. On 0x0082 for slot 0 the bitstream
 holds the 6502 in reset at once; the firmware stops the program and
 stages the new ROM at 0x008F as now. Goes in with the next fit.
 
-### The 6502's memory on the die
-
-The 6502's 64 KB lives in the external SRAM chip. It moves into block
-memory, and the SRAM's pins are tied off as Analogue's template ties off an
-unused part. The design then needs only the FPGA and the SDRAM, which is
-what other boards have.
-
-It takes 64 of the 89 free blocks and leaves 25. Where it fits in the order
-is not decided.
-
 ### The font tables twice
 
 The Pocket builds core's font tables in its RAM as the VGA does, 9 KB, and
@@ -148,12 +141,11 @@ memories, and core's font builder writes whole 32-bit words.
   host moving the blob over the bridge a word at a time, 8 to 15 seconds.
 - **A save during a cache miss** is only tested at the whole-core level,
   where it was found. It wants a test beside the engine's own.
-- **Hold margins in pocket.sdc** that nobody remembers the reason for.
-- **PLL phase shifts written in rounded picoseconds.** Half of 19841 ps was
-  written 9920 ps, and the analyzer timed the SDRAM capture against an edge
-  1 ps after the launch. A rule in wiring.sdc names the right edge.
 
 ## For the next fit to confirm
 
 The hold check on dram_dq to pocket_sdram's dq_cap should read a relation
 of about 0 ns and positive slack, now that its hold multicycle is gone.
+
+The 6502's RAM should take 64 M10K blocks and leave about 25 free, and the
+paths from the 6502 into it and back should meet the multicycle of four.

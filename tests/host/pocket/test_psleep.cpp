@@ -1811,7 +1811,7 @@ UTEST(psleep, a_stop_before_a_phi2_enable_comes_back)
             step();
         tb.stop_arm = true;
         ASSERT_TRUE(save_ready());
-        if (MEM(phi2_raw_en))
+        if (MEM(phi2_en))
         {
             at = tb.stop_tick;
             read_blob(blob);
@@ -2051,11 +2051,11 @@ UTEST(psleep, a_bell_mid_tone_comes_back)
     ASSERT_LE(late < 0 ? -late : late, 8L);
 }
 
-/* The 6502's RAM, a byte to the low lane of each SRAM word. */
+/* A little-endian word of the 6502's RAM. */
 static uint16_t ram16(uint16_t a)
 {
-    auto &m = dut->rootp->tb_pocket__DOT__sram_chip__DOT__mem;
-    return (uint16_t)((m[a] & 0xFF) | (m[a + 1] & 0xFF) << 8);
+    auto &m = dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__sram__DOT__mem;
+    return (uint16_t)(m[a] | m[a + 1] << 8);
 }
 
 /* The program's clock leaves out the wake, which holds the 6502 for a few

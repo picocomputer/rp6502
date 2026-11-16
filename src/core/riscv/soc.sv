@@ -264,10 +264,6 @@ module soc
 
     always_comb soc_bus_pend = dph_active && dph_ext && !dph_waited;
     always_comb begin
-        /* soc_bus_we holds for the whole request, because when wiring is
-         * built with EXT_RAM set, pocket_sram captures the write enable
-         * when it starts a port B access, which is before the access is
-         * taken. */
         soc_bus_we = dph_write;
         soc_bus_addr = dph_addr;
         soc_bus_wdata = hwdata;
