@@ -9,6 +9,7 @@
 #include "core/term/color.h"
 #include "core/term/term.h"
 #include "core/vga/mode/mode0.h"
+#include "core/vga/mode/mode.h"
 #include "core/vga/pixel_format.h"
 #include "core/vga/vga.h"
 #include "machine.h"
@@ -68,67 +69,124 @@
 // anything can be seen.
 #define CELLS_CURSOR_INPUT_GAP_FRAMES 1
 
-// The cells DECSCA and SPA guard from the selective erases: a bit for each
-// cell of mode0_cells, beside it and indexed like it. The renderers never
-// read it. Rows seldom hold a guarded cell, so what moves or erases a row
-// first asks whether it has any.
-static uint32_t cells_guard[(MODE0_CELLS + 31) / 32];
+// Runs of cells. A cell is two words, and each has a byte of extras beside
+// it (mode0.h), which goes wherever the cell goes. Everything that writes
+// or moves more than a cell does it here.
 
 static inline uint32_t cells_at(const mode0_cell_t *cell)
 {
     return (uint32_t)(cell - mode0_cells);
 }
 
-static inline bool cells_guarded(uint32_t at)
-{
-    return (cells_guard[at >> 5] >> (at & 31)) & 1u;
-}
+// GCC turns a loop that copies or fills into a call of memmove or memset,
+// and the C library's are slower here: its memmove takes 646 cycles to move
+// a row of 80 a cell toward lower addresses and 1,103 toward higher, a byte
+// at a time, where the loops below take 514 and 458.
+#if defined(__GNUC__) && !defined(__clang__)
+#define CELLS_RUN __attribute__((optimize("no-tree-loop-distribute-patterns")))
+#else
+#define CELLS_RUN
+#endif
 
-// The bits of one word of cells_guard that the n cells from `at` have in
-// it, and how many of the n that is.
-static inline uint32_t cells_guard_mask(uint32_t at, unsigned n, unsigned *take)
+// The n cells at dst, and their extras, become `cell` and `extra`. Four
+// cells a pass: 280 cycles for a row of 80, where a cell a pass takes 533.
+static CELLS_RUN void cells_run_fill(mode0_cell_t *dst, unsigned n, mode0_cell_t cell,
+                                     uint8_t extra)
 {
-    unsigned bit = at & 31;
-    *take = 32 - bit < n ? 32 - bit : n;
-    return (*take == 32 ? ~0u : (1u << *take) - 1u) << bit;
-}
-
-// Whether any of the n cells from `at` is guarded.
-static bool cells_guard_any(uint32_t at, unsigned n)
-{
-    for (unsigned take; n; at += take, n -= take)
-        if (cells_guard[at >> 5] & cells_guard_mask(at, n, &take))
-            return true;
-    return false;
-}
-
-// Guard the n cells from `at`, or leave none of them guarded.
-static void cells_guard_set(uint32_t at, unsigned n, bool on)
-{
-    for (unsigned take; n; at += take, n -= take)
+    uint32_t w[2];
+    memcpy(w, &cell, sizeof(w));
+    const uint32_t w0 = w[0], w1 = w[1];
+    mode_word_t *d = (mode_word_t *)dst;
+    unsigned i = n;
+    for (; i >= 4; i -= 4, d += 8)
     {
-        uint32_t mask = cells_guard_mask(at, n, &take);
-        if (on)
-            cells_guard[at >> 5] |= mask;
-        else
-            cells_guard[at >> 5] &= ~mask;
+        d[0] = w0;
+        d[1] = w1;
+        d[2] = w0;
+        d[3] = w1;
+        d[4] = w0;
+        d[5] = w1;
+        d[6] = w0;
+        d[7] = w1;
     }
+    for (; i; i--, d += 2)
+    {
+        d[0] = w0;
+        d[1] = w1;
+    }
+    memset(&mode0_extras[cells_at(dst)], extra, n);
 }
 
-// The guards of the n cells at src go with them to dst. The two may
-// overlap, as the cells' own move does.
-static void cells_guard_move(const mode0_cell_t *dst, const mode0_cell_t *src, unsigned n)
+// The n cells at src, and their extras, move to dst. The two may overlap,
+// so a move toward lower addresses goes up from the first cell and one
+// toward higher addresses goes down from the last. Four cells a pass, and
+// four extras.
+static CELLS_RUN void cells_run_move(mode0_cell_t *dst, const mode0_cell_t *src, unsigned n)
 {
-    uint32_t d = cells_at(dst), f = cells_at(src);
-    if (!cells_guard_any(f, n))
+    mode_word_t *d = (mode_word_t *)dst;
+    const mode_word_t *f = (const mode_word_t *)src;
+    uint8_t *xd = &mode0_extras[cells_at(dst)];
+    const uint8_t *xf = &mode0_extras[cells_at(src)];
+    unsigned w = 2 * n, x = n;
+    if (dst < src)
     {
-        cells_guard_set(d, n, false);
-        return;
+        for (; w >= 8; w -= 8, d += 8, f += 8)
+        {
+            const uint32_t a = f[0], b = f[1], c = f[2], e = f[3];
+            const uint32_t g = f[4], h = f[5], i = f[6], j = f[7];
+            d[0] = a;
+            d[1] = b;
+            d[2] = c;
+            d[3] = e;
+            d[4] = g;
+            d[5] = h;
+            d[6] = i;
+            d[7] = j;
+        }
+        for (; w; w--)
+            *d++ = *f++;
+        for (; x >= 4; x -= 4, xd += 4, xf += 4)
+        {
+            uint32_t v;
+            memcpy(&v, xf, 4);
+            memcpy(xd, &v, 4);
+        }
+        for (; x; x--)
+            *xd++ = *xf++;
     }
-    for (unsigned k = 0; k < n; k++)
+    else if (dst > src)
     {
-        unsigned i = d < f ? k : n - 1 - k;
-        cells_guard_set(d + i, 1, cells_guarded(f + i));
+        d += w;
+        f += w;
+        for (; w >= 8; w -= 8)
+        {
+            d -= 8;
+            f -= 8;
+            const uint32_t a = f[7], b = f[6], c = f[5], e = f[4];
+            const uint32_t g = f[3], h = f[2], i = f[1], j = f[0];
+            d[7] = a;
+            d[6] = b;
+            d[5] = c;
+            d[4] = e;
+            d[3] = g;
+            d[2] = h;
+            d[1] = i;
+            d[0] = j;
+        }
+        for (; w; w--)
+            *--d = *--f;
+        xd += x;
+        xf += x;
+        for (; x >= 4; x -= 4)
+        {
+            uint32_t v;
+            xd -= 4;
+            xf -= 4;
+            memcpy(&v, xf, 4);
+            memcpy(xd, &v, 4);
+        }
+        for (; x; x--)
+            *--xd = *--xf;
     }
 }
 
@@ -292,17 +350,18 @@ static void fill_glyph(mode0_cell_t *row, unsigned start, unsigned end,
                        const cells_erase_t *e)
 {
     const mode0_cell_t blank = {e->glyph, 0, e->fg, e->bg, e->fg};
-    const uint32_t at = cells_at(row);
-    if (e->selective && cells_guard_any(at + start, end - start))
+    if (!e->selective)
     {
-        for (unsigned i = start; i < end; i++)
-            if (!cells_guarded(at + i))
-                row[i] = blank;
+        cells_run_fill(row + start, end - start, blank, 0);
         return;
     }
+    uint8_t *extra = &mode0_extras[cells_at(row)];
     for (unsigned i = start; i < end; i++)
-        row[i] = blank;
-    cells_guard_set(at + start, end - start, false);
+        if (!(extra[i] & MODE0_EXTRA_GUARD))
+        {
+            row[i] = blank;
+            extra[i] = 0;
+        }
 }
 
 // An erase in the pen's colors, selective or not.
@@ -511,10 +570,8 @@ void cells_glyphs(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, uint8_t by
     if (!cells_of(g))
         return;
     mode0_cell_t cell = cells_glyph_cell(term, byte);
-    mode0_cell_t *row = cells_row_ptr(cells_of(g), y) + x;
-    for (unsigned i = 0; i < n; i++)
-        row[i] = cell;
-    cells_guard_set(cells_at(row), n, term_protecting(term));
+    cells_run_fill(cells_row_ptr(cells_of(g), y) + x, n, cell,
+                   term_protecting(term) ? MODE0_EXTRA_GUARD : 0);
 }
 
 void cells_erase(term_t *term, term_grid_t *g, uint8_t y, unsigned from, unsigned to,
@@ -531,8 +588,7 @@ void cells_insert(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, unsigned n
         return;
     unsigned avail = term_cols(g, y) - x;
     mode0_cell_t *row = cells_row_ptr(cells_of(g), y);
-    memmove(&row[x + n], &row[x], (avail - n) * sizeof(mode0_cell_t));
-    cells_guard_move(&row[x + n], &row[x], avail - n);
+    cells_run_move(&row[x + n], &row[x], avail - n);
     cells_fill_erased(term, row, x, x + n, false);
 }
 
@@ -543,8 +599,7 @@ void cells_delete(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, unsigned n
     unsigned cols = term_cols(g, y);
     unsigned avail = cols - x;
     mode0_cell_t *row = cells_row_ptr(cells_of(g), y);
-    memmove(&row[x], &row[x + n], (avail - n) * sizeof(mode0_cell_t));
-    cells_guard_move(&row[x], &row[x + n], avail - n);
+    cells_run_move(&row[x], &row[x + n], avail - n);
     cells_fill_erased(term, row, cols - n, cols, false);
 }
 
@@ -566,14 +621,12 @@ void cells_shift(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigne
         mode0_cell_t *row = cells_row_ptr(cells, y);
         if (left)
         {
-            memmove(row, row + n, (cols - n) * sizeof(mode0_cell_t));
-            cells_guard_move(row, row + n, cols - n);
+            cells_run_move(row, row + n, cols - n);
             cells_fill_erased(term, row, cols - n, cols, false);
         }
         else
         {
-            memmove(row + n, row, (cols - n) * sizeof(mode0_cell_t));
-            cells_guard_move(row + n, row, cols - n);
+            cells_run_move(row + n, row, cols - n);
             cells_fill_erased(term, row, 0, n, false);
         }
     }
@@ -1050,8 +1103,7 @@ void cells_sst_save(sst_cursor_t *c, unsigned flags)
         sst_put(c, cells_40.bufs[b].mem, 40 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
         sst_put(c, cells_80.bufs[b].mem, 80 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
     }
-    for (unsigned i = 0; i < sizeof cells_guard / sizeof cells_guard[0]; i++)
-        sst_put_u32(c, cells_guard[i]);
+    sst_put(c, mode0_extras, sizeof mode0_extras);
     /* The faint half of the palette follows from the other. */
     for (unsigned i = 0; i < MODE0_ENTRIES; i++)
         sst_put_u16(c, mode0_palette[i]);
@@ -1077,8 +1129,7 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags)
         sst_get(c, cells_40.bufs[b].mem, 40 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
         sst_get(c, cells_80.bufs[b].mem, 80 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
     }
-    for (unsigned i = 0; i < sizeof cells_guard / sizeof cells_guard[0]; i++)
-        cells_guard[i] = sst_get_u32(c);
+    sst_get(c, mode0_extras, sizeof mode0_extras);
     for (unsigned i = 0; i < MODE0_ENTRIES; i++)
         cells_set_color(i, sst_get_u16(c));
     if (!sst_ok(c))

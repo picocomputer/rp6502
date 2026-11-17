@@ -67,6 +67,15 @@ _Static_assert(sizeof(mode0_cell_t) == 8, "the renderers read 8-byte cells");
 #define MODE0_CELLS ((40 + 80) * TERM_MAX_HEIGHT * MODE0_SCREENS)
 extern mode0_cell_t mode0_cells[MODE0_CELLS];
 
+/* What a cell has no room for: a byte for each cell, beside mode0_cells and
+ * indexed like it, that goes wherever its cell goes. A bit can live here or
+ * in the cell, whichever is faster for what reads it.
+ *
+ * MODE0_EXTRA_GUARD: DECSCA or SPA guards the cell from the selective
+ * erases. It is the console's own, and no renderer reads it. */
+extern uint8_t mode0_extras[MODE0_CELLS];
+#define MODE0_EXTRA_GUARD 0x80u
+
 /* The words, all of them whole 32-bit words, because a fabric's registers
  * take nothing smaller. They describe the terminal showing.
  *

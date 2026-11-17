@@ -19,6 +19,7 @@
 #include "core/vga/vga.h"
 #include "core/vga/vga_emu.h"
 #include "utest.h"
+#include <stdio.h>
 #include <string.h>
 
 static char reply[256];
@@ -1124,6 +1125,52 @@ UTEST(term, a_guard_moves_with_its_cell)
     ASSERT_STREQ(row(0), "");
     ASSERT_EQ(mode0_color(cell(3, 0)->bg_color), color_256[1]);
     ASSERT_EQ(mode0_color(cell(4, 0)->bg_color), color_256[1]);
+}
+
+/* ICH and DCH of every count from several columns: the cells that move
+ * keep their glyphs, and each takes its guard with it, so the selective
+ * erase after spares exactly the guarded cells where they now are. Every
+ * third cell of the row is guarded. */
+UTEST(term, a_run_of_cells_moves_whole_at_every_length)
+{
+    static const int from[] = {0, 1, 2, 3, 5, 40, 77};
+    for (unsigned f = 0; f < sizeof from / sizeof from[0]; f++)
+        for (int n = 1; n <= 80 - from[f]; n++)
+            for (int insert = 0; insert < 2; insert++)
+            {
+                char was[81], want[81], spared[81], seq[32];
+                fresh();
+                for (int i = 0; i < 80; i++)
+                {
+                    was[i] = (char)('!' + i);
+                    feed(i % 3 ? "\33[0\"q" : "\33[1\"q");
+                    feedn(&was[i], 1);
+                }
+                const int x = from[f];
+                memset(want, ' ', 80);
+                memset(spared, ' ', 80);
+                for (int i = 0; i < 80; i++)
+                {
+                    int to = i < x ? i : insert ? i + n : i - n;
+                    if (i >= x && !insert && i < x + n)
+                        continue; /* deleted */
+                    if (to >= 80)
+                        continue; /* pushed off the end */
+                    want[to] = was[i];
+                    if (i % 3 == 0)
+                        spared[to] = was[i];
+                }
+                for (int end = 80; end > 0 && want[end - 1] == ' '; end--)
+                    want[end - 1] = 0;
+                for (int end = 80; end > 0 && spared[end - 1] == ' '; end--)
+                    spared[end - 1] = 0;
+                want[80] = spared[80] = 0;
+                snprintf(seq, sizeof seq, "\33[1;%dH\33[%d%c", x + 1, n, insert ? '@' : 'P');
+                feed(seq);
+                ASSERT_STREQ(row(0), want);
+                feed("\33[?2K");
+                ASSERT_STREQ(row(0), spared);
+            }
 }
 
 /* The palette a program changed and the cells it guarded are in the

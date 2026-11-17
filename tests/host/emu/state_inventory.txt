@@ -230,7 +230,6 @@ core/term/font.c italic16: derived: font_load_code_page rebuilds the tables from
 core/term/cells.c cells_40: the CELL chunk
 core/term/cells.c cells_80: the CELL chunk
 core/term/cells.c cells_cursor_color: the CELL chunk
-core/term/cells.c cells_guard: the CELL chunk
 core/term/cells.c cells_stale: not carried: a load publishes everything, which clears it
 core/term/cells.c cells_term: the CELL chunk
 core/vga/canvas.c canvas_code: the VGA chunk
@@ -239,6 +238,7 @@ core/vga/canvas.c canvas_w: the VGA chunk
 core/vga/canvas.c console_h: the VGA chunk
 core/vga/canvas.c console_w: the VGA chunk
 core/vga/mode/mode0.c mode0_cells: the CELL chunk, through each screen's cells
+core/vga/mode/mode0.c mode0_extras: the CELL chunk
 core/vga/mode/mode0.c mode0_palette: the CELL chunk, its first half; the faint half follows from it
 core/vga/mode/mode0.c mode0_regs: derived: the CELL and VGA loads publish them again
 core/vga/mode/mode2.c mode2_options: the VGA chunk: each row's class rides as that row's attribute

@@ -10,7 +10,9 @@
 #include "core/term/font.h"
 #include "core/term/cells.h"
 
-mode0_cell_t mode0_cells[MODE0_CELLS];
+/* On a word, so the console can write and move cells a word at a time. */
+mode0_cell_t mode0_cells[MODE0_CELLS] __attribute__((aligned(4)));
+uint8_t mode0_extras[MODE0_CELLS];
 uint16_t mode0_palette[2 * MODE0_ENTRIES];
 volatile mode0_regs_t mode0_regs;
 
