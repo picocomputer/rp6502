@@ -189,12 +189,25 @@ static void vt_settle(void)
     }
 }
 
-/* A CRC-32 of the cells: glyphs, attributes and colors. */
+/* A CRC-32 of the cells: glyphs, attributes and the colors they show. A
+ * cell's color is a pixel or an entry of mode 0's palette; the pixel it is
+ * drawn as is what goes in, so the golden screens hold whichever a cell
+ * has. */
 static uint32_t vt_cells(void)
 {
     uint32_t crc = 0;
     for (int y = 0; y < vt_rows; y++)
-        crc = host_crc32(crc, tb_screen_row((uint8_t)y), (size_t)vt_cols * sizeof(mode0_cell_t));
+    {
+        const mode0_cell_t *row = tb_screen_row((uint8_t)y);
+        for (int x = 0; x < vt_cols; x++)
+        {
+            mode0_cell_t shown = row[x];
+            shown.fg_color = mode0_color(shown.fg_color);
+            shown.bg_color = mode0_color(shown.bg_color);
+            shown.ul_color = mode0_color(shown.ul_color);
+            crc = host_crc32(crc, &shown, sizeof shown);
+        }
+    }
     return crc;
 }
 

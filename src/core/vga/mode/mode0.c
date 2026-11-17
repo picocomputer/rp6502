@@ -11,6 +11,7 @@
 #include "core/term/cells.h"
 
 mode0_cell_t mode0_cells[MODE0_CELLS];
+uint16_t mode0_palette[2 * MODE0_ENTRIES];
 volatile mode0_regs_t mode0_regs;
 
 #ifndef RP6502_VGA_FABRIC
@@ -33,15 +34,16 @@ mode0_render_wide(uint16_t *buf, uint8_t bits, const uint32_t *pair)
         *w++ = pair[((bits >> k) & 1) * 3];
 }
 
-/* The pixel pairs of every cell of a row: its colors after DECSCNM and the
- * blink phase, as the four ways two pixels can land. */
+/* The pixel pairs of every cell of a row: its colors, looked up where they
+ * are entries of the palette, after DECSCNM and the blink phase, as the four
+ * ways two pixels can land. */
 static inline __attribute__((always_inline)) void
 mode0_row_pairs(uint32_t *pair, const mode0_cell_t *cell, int cols, uint8_t blink_mask, bool rev)
 {
     for (int i = 0; i < cols; i++, cell++, pair += 4)
     {
-        uint16_t fg = cell->fg_color;
-        uint16_t bg = cell->bg_color;
+        uint16_t fg = mode0_color(cell->fg_color);
+        uint16_t bg = mode0_color(cell->bg_color);
         if (rev)
         {
             uint16_t t = fg;
@@ -80,7 +82,7 @@ mode0_draw(uint16_t *rgb, const mode0_cell_t *cell, const uint32_t *pair, int co
             {
                 /* A line through the cell: the foreground all the way
                  * across, or the underline's own color. */
-                const uint32_t w = ul_row ? cell->ul_color * 0x10001u : pair[3];
+                const uint32_t w = ul_row ? mode0_color(cell->ul_color) * 0x10001u : pair[3];
                 mode_word_t *d = (mode_word_t *)rgb;
                 for (int k = 0; k < (wide ? 8 : 4); k++)
                     d[k] = w;
@@ -207,7 +209,8 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
                 cbits = italic_line[cp->font_code];
             if (cattr & line_mask)
                 cbits = 0xFF;
-            mode_pair_set(cpair, cursor_color, reverse ? cp->fg_color : cp->bg_color);
+            mode_pair_set(cpair, cursor_color,
+                          mode0_color(reverse ? cp->fg_color : cp->bg_color));
             if (wide)
                 mode0_render_wide(crgb, cbits, cpair);
             else

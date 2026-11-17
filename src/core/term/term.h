@@ -112,12 +112,10 @@ typedef enum
 // Where a pen's color comes from. A palette color keeps its index, so the
 // cells take a changed palette entry, and the default colors are their own
 // kind, apart from palette 7 and 0, so SGR 39/49 are not SGR 37/40 and OSC 4
-// never changes the defaults. TERM_COLOR_CLEAR is SGR 38;1, ours: the color
-// made transparent. It is added to the kind.
+// never changes the defaults.
 #define TERM_COLOR_DEFAULT 0
 #define TERM_COLOR_INDEX 1
 #define TERM_COLOR_RGB 2
-#define TERM_COLOR_CLEAR 4
 
 typedef struct
 {

@@ -14,6 +14,7 @@
  * that draws in fabric, where the linker places them on its memories. */
 
 #include "core/term/term.h"
+#include "core/vga/pixel_format.h"
 #include "core/vga/prog.h"
 #include "core/vga/vga.h"
 #include <stddef.h>
@@ -21,8 +22,14 @@
 #include <stdbool.h>
 
 /* A cell: its glyph, its TERM_ATTR_ bits and its colors, which cells.c
- * resolves from the pen as the cell is written. The underline color is
- * SGR 58's, or the foreground if none is set. */
+ * takes from the pen as the cell is written. The underline color is SGR
+ * 58's, or the foreground's if none is set.
+ *
+ * A color is one of two things, told apart by the pixel format's opaque
+ * bit. Set, it is a pixel, drawn as it is: an RGB color. Clear, it is an
+ * entry of mode0_palette, in bits 15:6, so a cell drawn in a palette color
+ * or a default color takes a change to that color with no one touching the
+ * cell. Whether such a color is transparent is the entry's to say. */
 typedef struct
 {
     uint8_t font_code;
@@ -31,6 +38,26 @@ typedef struct
     uint16_t bg_color;
     uint16_t ul_color;
 } mode0_cell_t;
+
+/* The colors a cell can name: the 256 palette entries and the default
+ * foreground and background, then all of those again at half brightness,
+ * for SGR 2. cells.c writes them. */
+#define MODE0_ENTRIES 258
+#define MODE0_DEFAULT_FG 256
+#define MODE0_DEFAULT_BG 257
+#define MODE0_ENTRY_SHIFT 6
+#define MODE0_ENTRY(entry, faint) \
+    ((uint16_t)(((unsigned)(entry) + ((faint) ? MODE0_ENTRIES : 0u)) << MODE0_ENTRY_SHIFT))
+extern uint16_t mode0_palette[2 * MODE0_ENTRIES];
+
+_Static_assert(MODE0_ENTRY_SHIFT == SCANVIDEO_ALPHA_PIN + 1,
+               "an entry sits above the opaque bit, which is clear for one");
+
+/* The pixel a cell's color is drawn as. */
+static inline uint16_t mode0_color(uint16_t color)
+{
+    return (color & SCANVIDEO_ALPHA_MASK) ? color : mode0_palette[color >> MODE0_ENTRY_SHIFT];
+}
 
 _Static_assert(sizeof(mode0_cell_t) == 8, "the renderers read 8-byte cells");
 

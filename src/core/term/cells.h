@@ -48,10 +48,9 @@ void cells_set_height(uint8_t width, uint8_t height);
 
 /* The chunk holds the terminal (term.h) and both sizes in full: each one's
  * grid, the layout of its screens' cells (the scroll remap and the pending
- * lazy erases) and its blinks, then the colors, the cells and where each
- * cell's colors came from. It also holds the runtime palette, because OSC 4
- * can change an entry and nothing else records what it changed to, and the
- * recolor that a change to it still owes the cells.
+ * lazy erases) and its blinks, then the cursor's color, the cells, which of
+ * them are guarded from the selective erases, and the palette the cells'
+ * colors name: its 256 entries and the default foreground and background.
  *
  * The cells' addresses are never written, because they are mode 0's
  * (mode0_cells), the same in every build of a machine.
@@ -59,20 +58,21 @@ void cells_set_height(uint8_t width, uint8_t height);
  * The chunk starts with the terminal dimensions and a load rejects a chunk
  * whose dimensions differ, because a blob made at a taller height would put
  * its rows in the wrong places. */
-#define CELLS_BUF_SST_SIZE (12 * TERM_MAX_HEIGHT + 3)
+#define CELLS_BUF_SST_SIZE (8 * TERM_MAX_HEIGHT + 3)
 #define CELLS_ONE_SST_SIZE (TERM_GRID_SST_SIZE(TERM_MAX_HEIGHT) + 2 * CELLS_BUF_SST_SIZE + 18)
-#define CELLS_MEM_SST_SIZE (8 * TERM_MAX_HEIGHT * (40 + 80) * (TERM_ALT_SCREEN ? 2 : 1))
-#define CELLS_SRC_SST_SIZE (3 * TERM_MAX_HEIGHT * (40 + 80) * (TERM_ALT_SCREEN ? 2 : 1))
-#define CELLS_RECOLOR_SST_SIZE (2 * 4 * 9 + 1)
-#define CELLS_SST_SIZE (3 + TERM_SST_SIZE + 2 * CELLS_ONE_SST_SIZE + 6 + CELLS_MEM_SST_SIZE + \
-                        CELLS_SRC_SST_SIZE + 512 + CELLS_RECOLOR_SST_SIZE)
+#define CELLS_COUNT_SST (TERM_MAX_HEIGHT * (40 + 80) * (TERM_ALT_SCREEN ? 2 : 1))
+#define CELLS_MEM_SST_SIZE (8 * CELLS_COUNT_SST)
+#define CELLS_GUARD_SST_SIZE (4 * ((CELLS_COUNT_SST + 31) / 32))
+#define CELLS_PALETTE_SST_SIZE (2 * 258)
+#define CELLS_SST_SIZE (3 + TERM_SST_SIZE + 2 * CELLS_ONE_SST_SIZE + 2 + CELLS_MEM_SST_SIZE + \
+                        CELLS_GUARD_SST_SIZE + CELLS_PALETTE_SST_SIZE)
 void cells_sst_save(sst_cursor_t *c, unsigned flags);
 bool cells_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define CELLS_DRIVER DRIVER(                                    \
     INIT(cells_init)                                            \
     TASK_FATFS(cells_task)                                      \
-    SST(CELL, 4, CELLS_SST_SIZE, cells_sst_save, cells_sst_load))
+    SST(CELL, 5, CELLS_SST_SIZE, cells_sst_save, cells_sst_load))
 
 /* ---- what the terminal asks of the screen ------------------------------
  *
@@ -82,8 +82,7 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags);
  *
  * The terminal has already changed its own state when it calls one, so the
  * cursor, the margins and the line sizes are the new ones. Colors come from
- * the pen, resolved here, and an erased cell takes the pen's colors, not
- * reversed. The cells follow t->alt_active for which screen is showing. All
+ * the pen, and an erased cell takes the pen's colors, not reversed. The cells follow t->alt_active for which screen is showing. All
  * but the colors and the replies are for one grid; the cells find their own
  * from it. A program's own size (term_add_grid) is a grid with no cells,
  * which these ignore. */

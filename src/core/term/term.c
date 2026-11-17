@@ -268,10 +268,9 @@ static void term_leave_alt(term_t *t, bool clear, bool restore)
 // Read the color of SGR 38, 48 or 58 starting at param i, with `subs` colon
 // sub-parameters after it. Returns how many params after i were taken; kind
 // is TERM_COLOR_DEFAULT when they named no color, in which case the pen keeps
-// its color, and TERM_COLOR_CLEAR for 38;1.
+// its color.
 //   38;5;N  38:5:N            palette N; nothing for N > 255
 //   38;2;r;g;b  38:2::r:g:b  38:2:r:g:b   truecolor; nothing for a channel > 255
-//   38;1  38:1               transparent (ours)
 // An unknown or cut-off form is taken whole, so its numbers are never run as
 // SGR codes of their own.
 static uint8_t term_sgr_color(const term_t *t, uint8_t i, uint8_t subs,
@@ -305,9 +304,6 @@ static uint8_t term_sgr_color(const term_t *t, uint8_t i, uint8_t subs,
             *kind = TERM_COLOR_RGB;
             *value = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(rgb[0], rgb[1], rgb[2]);
         }
-        break;
-    case 1:
-        *kind = TERM_COLOR_CLEAR;
         break;
     }
     if (subs)
@@ -431,20 +427,9 @@ static void term_out_SGR(term_t *t)
             if (kind == TERM_COLOR_DEFAULT)
                 break;
             term_color_t *dst = param == 38 ? &cur->fg : param == 48 ? &cur->bg : &cur->ul;
-            if (kind == TERM_COLOR_CLEAR)
-            {
-                // SGR 38;1: the color the pen has, made transparent. An
-                // underline that follows the foreground takes its color.
-                if (param == 58 && !cur->ul_set)
-                    cur->ul = cur->fg;
-                dst->kind |= TERM_COLOR_CLEAR;
-            }
-            else
-            {
-                dst->kind = kind;
-                dst->index = (uint8_t)value;
-                dst->rgb = value;
-            }
+            dst->kind = kind;
+            dst->index = (uint8_t)value;
+            dst->rgb = value;
             if (param == 58)
                 cur->ul_set = true;
             break;

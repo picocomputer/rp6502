@@ -33,9 +33,11 @@
 //    (underline, blink, DEC graphics, etc.). The renderer's hot
 //    path branches once on `attr != 0` per cell; the common path
 //    pays only a 1-byte load and a predicted-not-taken branch.
-// 4. The colors are resolved from the terminal's pen as each cell is
-//    written, so a palette or default color change reaches the next
-//    cell written with it.
+// 4. A cell names its colors: a palette entry or a default color as an
+//    entry of mode 0's palette, an RGB color as the pixel. The pen chooses
+//    which as each cell is written, and a palette or default color that
+//    changes afterwards is one write to the palette, which every cell
+//    drawn with it shows on the next frame.
 
 #define CELLS_FG_COLOR_INDEX 7
 #define CELLS_BG_COLOR_INDEX 0
@@ -66,52 +68,75 @@
 // anything can be seen.
 #define CELLS_CURSOR_INPUT_GAP_FRAMES 1
 
-// A color and where it came from, so a change to that palette entry or
-// default color reaches the cells drawn with it. kind is a CELLS_SRC_ kind,
-// with CELLS_INK_FAINT when the color is the source's halved.
-typedef struct
+// The cells DECSCA and SPA guard from the selective erases: a bit for each
+// cell of mode0_cells, beside it and indexed like it. The renderers never
+// read it. Rows seldom hold a guarded cell, so what moves or erases a row
+// first asks whether it has any.
+static uint32_t cells_guard[(MODE0_CELLS + 31) / 32];
+
+static inline uint32_t cells_at(const mode0_cell_t *cell)
 {
-    uint16_t color;
-    uint8_t entry; // the palette entry, for CELLS_SRC_PALETTE
-    uint8_t kind;
-} cells_ink_t;
+    return (uint32_t)(cell - mode0_cells);
+}
 
-#define CELLS_SRC_PALETTE 0
-#define CELLS_SRC_DEFAULT_FG 1
-#define CELLS_SRC_DEFAULT_BG 2
-#define CELLS_SRC_FIXED 3 // an RGB color, which nothing changes
-#define CELLS_INK_FAINT 4
-
-// Where each cell's colors came from, beside mode0_cells and indexed like
-// it: the foreground's and background's palette entries, and in flags their
-// CELLS_SRC_ kinds, whether each is faint, whether the cell is protected,
-// and whether its underline is its foreground. An underline that SGR 58
-// colored keeps that color through a recolor. The renderers never read it.
-typedef struct
+static inline bool cells_guarded(uint32_t at)
 {
-    uint8_t fg, bg;
-    uint8_t flags;
-} cells_src_t;
+    return (cells_guard[at >> 5] >> (at & 31)) & 1u;
+}
 
-#define CELLS_SRC_FG_KIND(f) ((f) & 3u)
-#define CELLS_SRC_BG_KIND(f) (((f) >> 2) & 3u)
-#define CELLS_SRC_FG_FAINT 0x10u
-#define CELLS_SRC_BG_FAINT 0x20u
-#define CELLS_SRC_PROTECTED 0x40u
-#define CELLS_SRC_UL_FG 0x80u
-
-static cells_src_t cells_srcs[MODE0_CELLS];
-
-static inline cells_src_t *cells_src_of(const mode0_cell_t *cell)
+// The bits of one word of cells_guard that the n cells from `at` have in
+// it, and how many of the n that is.
+static inline uint32_t cells_guard_mask(uint32_t at, unsigned n, unsigned *take)
 {
-    return &cells_srcs[cell - mode0_cells];
+    unsigned bit = at & 31;
+    *take = 32 - bit < n ? 32 - bit : n;
+    return (*take == 32 ? ~0u : (1u << *take) - 1u) << bit;
+}
+
+// Whether any of the n cells from `at` is guarded.
+static bool cells_guard_any(uint32_t at, unsigned n)
+{
+    for (unsigned take; n; at += take, n -= take)
+        if (cells_guard[at >> 5] & cells_guard_mask(at, n, &take))
+            return true;
+    return false;
+}
+
+// Guard the n cells from `at`, or leave none of them guarded.
+static void cells_guard_set(uint32_t at, unsigned n, bool on)
+{
+    for (unsigned take; n; at += take, n -= take)
+    {
+        uint32_t mask = cells_guard_mask(at, n, &take);
+        if (on)
+            cells_guard[at >> 5] |= mask;
+        else
+            cells_guard[at >> 5] &= ~mask;
+    }
+}
+
+// The guards of the n cells at src go with them to dst. The two may
+// overlap, as the cells' own move does.
+static void cells_guard_move(const mode0_cell_t *dst, const mode0_cell_t *src, unsigned n)
+{
+    uint32_t d = cells_at(dst), f = cells_at(src);
+    if (!cells_guard_any(f, n))
+    {
+        cells_guard_set(d, n, false);
+        return;
+    }
+    for (unsigned k = 0; k < n; k++)
+    {
+        unsigned i = d < f ? k : n - 1 - k;
+        cells_guard_set(d + i, 1, cells_guarded(f + i));
+    }
 }
 
 // A lazy erase owed to a row: its glyph, a space or DECALN's E, its colors,
 // and whether it leaves the protected cells alone.
 typedef struct
 {
-    cells_ink_t fg, bg;
+    uint16_t fg, bg; /* as a cell holds them */
     uint8_t glyph;
     bool selective;
 } cells_erase_t;
@@ -151,8 +176,6 @@ static cells_t cells_80;
 /* Something mode 0 draws changed outside a batch of the console's bytes,
  * for cells_task to publish. */
 static bool cells_stale;
-static uint16_t cells_default_fg;
-static uint16_t cells_default_bg;
 static uint16_t cells_cursor_color; // OSC 12
 
 /* A grid of this file's, or NULL for one with no cells: a program's own size
@@ -197,6 +220,7 @@ static inline mode0_cell_t *cells_row_ptr(cells_t *cells, uint8_t y)
 
 /* ---- colors ------------------------------------------------------------ */
 
+// A pixel at half brightness, for SGR 2.
 static uint16_t cells_faint(uint16_t c)
 {
     uint16_t r = SCANVIDEO_R5_FROM_PIXEL(c) >> 1;
@@ -205,134 +229,80 @@ static uint16_t cells_faint(uint16_t c)
     return SCANVIDEO_PIXEL_FROM_RGB5(r, g, b) | (c & SCANVIDEO_ALPHA_MASK);
 }
 
-// The color of a source now: its palette entry or default color, halved
-// for faint.
-static uint16_t cells_ink_color(uint8_t kind, uint8_t entry)
+// A cell's color at half brightness: an RGB pixel halved, or the faint twin
+// of an entry.
+static uint16_t cells_color_faint(uint16_t color)
 {
-    uint16_t v;
-    switch (kind & 3u)
-    {
-    case CELLS_SRC_DEFAULT_FG:
-        v = cells_default_fg;
-        break;
-    case CELLS_SRC_DEFAULT_BG:
-        v = cells_default_bg;
-        break;
-    default:
-        v = color_256_term[entry];
-        break;
-    }
-    return kind & CELLS_INK_FAINT ? cells_faint(v) : v;
+    if (color & SCANVIDEO_ALPHA_MASK)
+        return cells_faint(color);
+    return (uint16_t)(color + MODE0_ENTRY(MODE0_ENTRIES, false));
 }
 
-static cells_ink_t cells_ink(uint8_t kind, uint8_t entry)
+// A pen color before bold, faint and iCE colors, as a cell holds it: the
+// palette entry, the RGB pixel, or the default (dflt, MODE0_DEFAULT_FG or
+// _BG).
+static uint16_t cells_base(const term_color_t *c, unsigned dflt)
 {
-    cells_ink_t ink = {cells_ink_color(kind, entry), entry, kind};
-    return ink;
-}
-
-// A pen color before bold, faint and iCE colors: the palette entry, the RGB
-// or the default (dflt, CELLS_SRC_DEFAULT_FG or _BG), made transparent for
-// SGR 38;1. A transparent color shows nothing of itself, so it follows no
-// source.
-static cells_ink_t cells_base(const term_color_t *c, uint8_t dflt)
-{
-    cells_ink_t ink;
-    switch (c->kind & ~TERM_COLOR_CLEAR)
+    switch (c->kind)
     {
     case TERM_COLOR_INDEX:
-        ink = cells_ink(CELLS_SRC_PALETTE, c->index);
-        break;
+        return MODE0_ENTRY(c->index, false);
     case TERM_COLOR_RGB:
-        ink.color = c->rgb;
-        ink.entry = 0;
-        ink.kind = CELLS_SRC_FIXED;
-        break;
+        return c->rgb | SCANVIDEO_ALPHA_MASK;
     default:
-        ink = cells_ink(dflt, 0);
-        break;
+        return MODE0_ENTRY(dflt, false);
     }
-    if (c->kind & TERM_COLOR_CLEAR)
-    {
-        ink.color &= (uint16_t)~SCANVIDEO_ALPHA_MASK;
-        ink.kind = CELLS_SRC_FIXED;
-    }
-    return ink;
-}
-
-static cells_ink_t cells_ink_faint(cells_ink_t ink)
-{
-    ink.color = cells_faint(ink.color);
-    ink.kind |= CELLS_INK_FAINT;
-    return ink;
 }
 
 // The colors the pen draws in. Bold brightens palette colors 0-7 and the
 // default foreground (to 15, as Linux does); faint halves each channel. In
 // iCE colors mode (?33) SGR 5/6 brightens a background of 0-7 or the default
 // instead of blinking -- the IBM-VGA hack the BBS scene relies on. A
-// brightened color follows the entry it was brightened to.
-static cells_ink_t cells_pen_fg(const term_pen_t *pen)
+// brightened color is the entry it was brightened to.
+static uint16_t cells_pen_fg(const term_pen_t *pen)
 {
-    cells_ink_t fg;
+    uint16_t fg;
     if (pen->bold && pen->fg.kind == TERM_COLOR_INDEX && pen->fg.index < 8)
-        fg = cells_ink(CELLS_SRC_PALETTE, (uint8_t)(pen->fg.index + 8));
+        fg = MODE0_ENTRY(pen->fg.index + 8, false);
     else if (pen->bold && pen->fg.kind == TERM_COLOR_DEFAULT)
-        fg = cells_ink(CELLS_SRC_PALETTE, 15);
+        fg = MODE0_ENTRY(15, false);
     else
-        fg = cells_base(&pen->fg, CELLS_SRC_DEFAULT_FG);
-    return pen->faint ? cells_ink_faint(fg) : fg;
+        fg = cells_base(&pen->fg, MODE0_DEFAULT_FG);
+    return pen->faint ? cells_color_faint(fg) : fg;
 }
 
-static cells_ink_t cells_pen_bg(const term_t *term, const term_pen_t *pen)
+static uint16_t cells_pen_bg(const term_t *term, const term_pen_t *pen)
 {
     bool bright = term->ice_colors && (pen->sgr_attr & TERM_ATTR_ANY_BLINK);
     if (bright && pen->bg.kind == TERM_COLOR_INDEX && pen->bg.index < 8)
-        return cells_ink(CELLS_SRC_PALETTE, (uint8_t)(pen->bg.index + 8));
+        return MODE0_ENTRY(pen->bg.index + 8, false);
     if (bright && pen->bg.kind == TERM_COLOR_DEFAULT)
-        return cells_ink(CELLS_SRC_PALETTE, 8);
-    return cells_base(&pen->bg, CELLS_SRC_DEFAULT_BG);
-}
-
-// The default colors as inks, for what the defaults erase to.
-static cells_ink_t cells_default_ink(uint8_t kind)
-{
-    return cells_ink(kind, 0);
+        return MODE0_ENTRY(8, false);
+    return cells_base(&pen->bg, MODE0_DEFAULT_BG);
 }
 
 /* ---- cells and rows ---------------------------------------------------- */
 
-// The source flags of a cell in these colors.
-static inline uint8_t cells_src_flags(cells_ink_t fg, cells_ink_t bg)
-{
-    return (uint8_t)((fg.kind & 3u) | ((bg.kind & 3u) << 2) |
-                     (fg.kind & CELLS_INK_FAINT ? CELLS_SRC_FG_FAINT : 0) |
-                     (bg.kind & CELLS_INK_FAINT ? CELLS_SRC_BG_FAINT : 0));
-}
-
 // Paint [start, end) of `row` with erased cells: the erase's glyph in its
-// colors, with no attributes and no protection. A selective erase leaves the
-// protected cells as they are. An erase takes the pen's colors, not
-// reversed, and none of its attributes, as xterm and Linux do. The
-// foreground matters too, because the cursor is drawn from the cell it sits
-// on.
+// colors, with no attributes and no guard. A selective erase leaves the
+// guarded cells as they are. An erase takes the pen's colors, not reversed,
+// and none of its attributes, as xterm and Linux do. The foreground matters
+// too, because the cursor is drawn from the cell it sits on.
 static void fill_glyph(mode0_cell_t *row, unsigned start, unsigned end,
                        const cells_erase_t *e)
 {
-    cells_src_t *src = cells_src_of(row);
-    const cells_src_t blank = {e->fg.entry, e->bg.entry,
-                               (uint8_t)(cells_src_flags(e->fg, e->bg) | CELLS_SRC_UL_FG)};
-    for (unsigned i = start; i < end; i++)
+    const mode0_cell_t blank = {e->glyph, 0, e->fg, e->bg, e->fg};
+    const uint32_t at = cells_at(row);
+    if (e->selective && cells_guard_any(at + start, end - start))
     {
-        if (e->selective && (src[i].flags & CELLS_SRC_PROTECTED))
-            continue;
-        row[i].font_code = e->glyph;
-        row[i].attributes = 0;
-        row[i].fg_color = e->fg.color;
-        row[i].bg_color = e->bg.color;
-        row[i].ul_color = e->fg.color;
-        src[i] = blank;
+        for (unsigned i = start; i < end; i++)
+            if (!cells_guarded(at + i))
+                row[i] = blank;
+        return;
     }
+    for (unsigned i = start; i < end; i++)
+        row[i] = blank;
+    cells_guard_set(at + start, end - start, false);
 }
 
 // An erase in the pen's colors, selective or not.
@@ -454,8 +424,8 @@ static void cells_mark_rows_with(screen_buf_t *s, uint8_t from, uint8_t to,
 // Lazy-erase rows [from, to) to spaces in the default colors.
 static void cells_mark_rows_default(screen_buf_t *s, uint8_t from, uint8_t to)
 {
-    const cells_erase_t e = {cells_default_ink(CELLS_SRC_DEFAULT_FG),
-                             cells_default_ink(CELLS_SRC_DEFAULT_BG), ' ', false};
+    const cells_erase_t e = {MODE0_ENTRY(MODE0_DEFAULT_FG, false),
+                             MODE0_ENTRY(MODE0_DEFAULT_BG, false), ' ', false};
     cells_mark_rows_with(s, from, to, &e);
 }
 
@@ -501,28 +471,24 @@ void cells_touch(term_t *term, term_grid_t *g, uint8_t y)
 // the renderer pulls from font_dec_*. The UK set's pound sign is the DEC set's
 // 0x7D. The 0x80..0xFF font range stays reserved for the active codepage.
 // SGR 7 and 8 swap and hide at the cell, and in iCE colors mode (?33) the
-// blink bits are left off the cell: the bright background is the blink.
-static mode0_cell_t cells_glyph_cell(term_t *term, uint8_t byte, cells_src_t *src)
+// blink bits are left off the cell: the bright background is the blink. An
+// underline SGR 58 did not color holds the foreground's color.
+static mode0_cell_t cells_glyph_cell(term_t *term, uint8_t byte)
 {
     const term_pen_t *pen = term_pen(term);
     mode0_cell_t cell;
-    cells_ink_t f = cells_pen_fg(pen);
-    cells_ink_t b = cells_pen_bg(term, pen);
+    uint16_t f = cells_pen_fg(pen);
+    uint16_t b = cells_pen_bg(term, pen);
     if (pen->reverse)
     {
-        cells_ink_t tmp = f;
+        uint16_t tmp = f;
         f = b;
         b = tmp;
     }
     if (pen->conceal)
         f = b;
-    cell.fg_color = f.color;
-    cell.bg_color = b.color;
-    src->fg = f.entry;
-    src->bg = b.entry;
-    src->flags = (uint8_t)(cells_src_flags(f, b) |
-                           (pen->ul_set ? 0 : CELLS_SRC_UL_FG) |
-                           (term_protecting(term) ? CELLS_SRC_PROTECTED : 0));
+    cell.fg_color = f;
+    cell.bg_color = b;
     uint8_t cell_mask = TERM_ATTR_RENDER_MASK & ~TERM_ATTR_DEC;
     if (term->ice_colors)
         cell_mask &= (uint8_t)~TERM_ATTR_ANY_BLINK;
@@ -536,7 +502,7 @@ static mode0_cell_t cells_glyph_cell(term_t *term, uint8_t byte, cells_src_t *sr
         cell.attributes |= TERM_ATTR_DEC;
     }
     cell.font_code = byte;
-    cell.ul_color = pen->ul_set ? cells_base(&pen->ul, CELLS_SRC_DEFAULT_FG).color : f.color;
+    cell.ul_color = pen->ul_set ? cells_base(&pen->ul, MODE0_DEFAULT_FG) : f;
     return cell;
 }
 
@@ -544,15 +510,11 @@ void cells_glyphs(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, uint8_t by
 {
     if (!cells_of(g))
         return;
-    cells_src_t src;
-    mode0_cell_t cell = cells_glyph_cell(term, byte, &src);
+    mode0_cell_t cell = cells_glyph_cell(term, byte);
     mode0_cell_t *row = cells_row_ptr(cells_of(g), y) + x;
-    cells_src_t *srow = cells_src_of(row);
     for (unsigned i = 0; i < n; i++)
-    {
         row[i] = cell;
-        srow[i] = src;
-    }
+    cells_guard_set(cells_at(row), n, term_protecting(term));
 }
 
 void cells_erase(term_t *term, term_grid_t *g, uint8_t y, unsigned from, unsigned to,
@@ -569,9 +531,8 @@ void cells_insert(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, unsigned n
         return;
     unsigned avail = term_cols(g, y) - x;
     mode0_cell_t *row = cells_row_ptr(cells_of(g), y);
-    cells_src_t *srow = cells_src_of(row);
     memmove(&row[x + n], &row[x], (avail - n) * sizeof(mode0_cell_t));
-    memmove(&srow[x + n], &srow[x], (avail - n) * sizeof(cells_src_t));
+    cells_guard_move(&row[x + n], &row[x], avail - n);
     cells_fill_erased(term, row, x, x + n, false);
 }
 
@@ -582,9 +543,8 @@ void cells_delete(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, unsigned n
     unsigned cols = term_cols(g, y);
     unsigned avail = cols - x;
     mode0_cell_t *row = cells_row_ptr(cells_of(g), y);
-    cells_src_t *srow = cells_src_of(row);
     memmove(&row[x], &row[x + n], (avail - n) * sizeof(mode0_cell_t));
-    memmove(&srow[x], &srow[x + n], (avail - n) * sizeof(cells_src_t));
+    cells_guard_move(&row[x], &row[x + n], avail - n);
     cells_fill_erased(term, row, cols - n, cols, false);
 }
 
@@ -604,17 +564,16 @@ void cells_shift(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigne
         unsigned cols = term_cols(g, y);
         unsigned n = count < cols ? count : cols;
         mode0_cell_t *row = cells_row_ptr(cells, y);
-        cells_src_t *srow = cells_src_of(row);
         if (left)
         {
             memmove(row, row + n, (cols - n) * sizeof(mode0_cell_t));
-            memmove(srow, srow + n, (cols - n) * sizeof(cells_src_t));
+            cells_guard_move(row, row + n, cols - n);
             cells_fill_erased(term, row, cols - n, cols, false);
         }
         else
         {
             memmove(row + n, row, (cols - n) * sizeof(mode0_cell_t));
-            memmove(srow + n, srow, (cols - n) * sizeof(cells_src_t));
+            cells_guard_move(row + n, row, cols - n);
             cells_fill_erased(term, row, 0, n, false);
         }
     }
@@ -633,8 +592,8 @@ void cells_align(term_t *term, term_grid_t *g)
     if (!cells_of(g))
         return;
     (void)term;
-    const cells_erase_t e = {cells_default_ink(CELLS_SRC_DEFAULT_FG),
-                             cells_default_ink(CELLS_SRC_DEFAULT_BG), 'E', false};
+    const cells_erase_t e = {MODE0_ENTRY(MODE0_DEFAULT_FG, false),
+                             MODE0_ENTRY(MODE0_DEFAULT_BG, false), 'E', false};
     cells_mark_rows_with(cells_buf(cells_of(g)), 0, g->height, &e);
 }
 
@@ -776,129 +735,26 @@ void cells_height(term_grid_t *g, bool grow, bool top)
             cells->bufs[b].hidden = room;
 }
 
-/* ---- recolor ----------------------------------------------------------
+/* ---- the palette --------------------------------------------------------
  *
  * A palette entry or default color that changes reaches every cell drawn
- * with it, as on xterm and Linux. The cells take it in passes that
- * cells_task runs a row at a time, as it does the lazy erases, so no byte of
- * the stream waits on the whole screen. A pass recolors what changed before it began; what changes during
- * one waits for the next. A row's cells never leave the row, so a pass
- * that has passed a row is done with what was in it. */
+ * with it, as on xterm and Linux, because those cells hold the entry and
+ * not the color. */
 
-#define CELLS_RECOLOR_DEFAULT_FG 256
-#define CELLS_RECOLOR_DEFAULT_BG 257
-#define CELLS_RECOLOR_WORDS ((258 + 31) / 32)
-#define CELLS_ROWS_40 (MODE0_SCREENS * TERM_MAX_HEIGHT)
-#define CELLS_ROWS (2 * CELLS_ROWS_40)
-
-static uint32_t cells_recolor_next[CELLS_RECOLOR_WORDS]; // for the next pass
-static uint32_t cells_recolor_now[CELLS_RECOLOR_WORDS];  // this pass's
-static uint8_t cells_recolor_row = CELLS_ROWS;           // its next row, or CELLS_ROWS for none
-
-// Whether a source is in a set of changed colors.
-static inline bool cells_recolor_has(const uint32_t *set, uint8_t kind, uint8_t entry)
+// Set a palette entry or default color, and its faint twin.
+static void cells_set_color(unsigned entry, uint16_t color)
 {
-    unsigned bit;
-    switch (kind & 3u)
-    {
-    case CELLS_SRC_PALETTE:
-        bit = entry;
-        break;
-    case CELLS_SRC_DEFAULT_FG:
-        bit = CELLS_RECOLOR_DEFAULT_FG;
-        break;
-    case CELLS_SRC_DEFAULT_BG:
-        bit = CELLS_RECOLOR_DEFAULT_BG;
-        break;
-    default:
-        return false;
-    }
-    return (set[bit / 32] >> (bit % 32)) & 1u;
-}
-
-static void cells_recolor_ink(cells_ink_t *ink, const uint32_t *set)
-{
-    if (cells_recolor_has(set, ink->kind, ink->entry))
-        ink->color = cells_ink_color(ink->kind, ink->entry);
-}
-
-// The n cells from cell take the colors in set.
-static void cells_recolor_cells(mode0_cell_t *cell, unsigned n, const uint32_t *set)
-{
-    const cells_src_t *src = cells_src_of(cell);
-    for (unsigned i = 0; i < n; i++)
-    {
-        const uint8_t f = src[i].flags;
-        if (cells_recolor_has(set, CELLS_SRC_FG_KIND(f), src[i].fg))
-        {
-            uint8_t kind = (uint8_t)(CELLS_SRC_FG_KIND(f) |
-                                     (f & CELLS_SRC_FG_FAINT ? CELLS_INK_FAINT : 0));
-            cell[i].fg_color = cells_ink_color(kind, src[i].fg);
-            if (f & CELLS_SRC_UL_FG)
-                cell[i].ul_color = cell[i].fg_color;
-        }
-        if (cells_recolor_has(set, CELLS_SRC_BG_KIND(f), src[i].bg))
-        {
-            uint8_t kind = (uint8_t)(CELLS_SRC_BG_KIND(f) |
-                                     (f & CELLS_SRC_BG_FAINT ? CELLS_INK_FAINT : 0));
-            cell[i].bg_color = cells_ink_color(kind, src[i].bg);
-        }
-    }
-}
-
-// One row of mode0_cells: the 40-column screens' rows, then the 80's. A
-// pass begins with the lazy erases still owed, so the rows they clean during
-// it come out in the new colors. A row cleaned before then in the old ones is
-// recolored by the pass like any other.
-static void cells_recolor_task(void)
-{
-    if (cells_recolor_row >= CELLS_ROWS)
-    {
-        uint32_t any = 0;
-        for (unsigned i = 0; i < CELLS_RECOLOR_WORDS; i++)
-        {
-            any |= cells_recolor_next[i];
-            cells_recolor_now[i] = cells_recolor_next[i];
-            cells_recolor_next[i] = 0;
-        }
-        if (!any)
-            return;
-        cells_recolor_row = 0;
-        cells_t *const all[2] = {&cells_40, &cells_80};
-        for (int n = 0; n < 2; n++)
-            for (int b = 0; b < 2; b++)
-                for (uint8_t y = 0; y < TERM_MAX_HEIGHT; y++)
-                {
-                    cells_recolor_ink(&all[n]->bufs[b].erase[y].fg, cells_recolor_now);
-                    cells_recolor_ink(&all[n]->bufs[b].erase[y].bg, cells_recolor_now);
-                }
-    }
-    unsigned r = cells_recolor_row++;
-    if (r < CELLS_ROWS_40)
-        cells_recolor_cells(&mode0_cells[r * 40], 40, cells_recolor_now);
-    else
-        cells_recolor_cells(&mode0_cells[CELLS_ROWS_40 * 40 + (r - CELLS_ROWS_40) * 80], 80,
-                            cells_recolor_now);
-}
-
-// Set a palette entry or default color (bit is the entry, or
-// CELLS_RECOLOR_DEFAULT_FG or _BG), and if it changed, recolor what was
-// drawn with it in the next pass.
-static void cells_set_color(uint16_t *at, unsigned bit, uint16_t color)
-{
-    if (*at == color)
-        return;
-    *at = color;
-    cells_recolor_next[bit / 32] |= 1u << (bit % 32);
+    mode0_palette[entry] = color;
+    mode0_palette[MODE0_ENTRIES + entry] = cells_faint(color);
 }
 
 void cells_colors_reset(term_t *term)
 {
     (void)term;
     for (unsigned i = 0; i < 256; i++)
-        cells_set_color(&color_256_term[i], i, color_256[i]);
-    cells_set_color(&cells_default_fg, CELLS_RECOLOR_DEFAULT_FG, color_256[CELLS_FG_COLOR_INDEX]);
-    cells_set_color(&cells_default_bg, CELLS_RECOLOR_DEFAULT_BG, color_256[CELLS_BG_COLOR_INDEX]);
+        cells_set_color(i, color_256[i]);
+    cells_set_color(MODE0_DEFAULT_FG, color_256[CELLS_FG_COLOR_INDEX]);
+    cells_set_color(MODE0_DEFAULT_BG, color_256[CELLS_BG_COLOR_INDEX]);
     cells_cursor_color = color_256[CELLS_FG_COLOR_INDEX];
 }
 
@@ -910,8 +766,8 @@ void cells_reset(term_t *term, term_grid_t *g)
     cells_t *cells = cells_of(g);
     if (cells->bufs[1].mem)
     {
-        const cells_erase_t e = {cells_default_ink(CELLS_SRC_DEFAULT_FG),
-                                 cells_default_ink(CELLS_SRC_DEFAULT_BG), ' ', false};
+        const cells_erase_t e = {MODE0_ENTRY(MODE0_DEFAULT_FG, false),
+                                 MODE0_ENTRY(MODE0_DEFAULT_BG, false), ' ', false};
         cells_mark_buf_erased(&cells->bufs[1], g->height, &e);
     }
     cells_restart_blinks(cells);
@@ -921,11 +777,11 @@ void cells_color(term_t *term, unsigned which, uint16_t color)
 {
     (void)term;
     if (which < 256)
-        cells_set_color(&color_256_term[which], which, color);
+        cells_set_color(which, color);
     else if (which == CELLS_COLOR_FG)
-        cells_set_color(&cells_default_fg, CELLS_RECOLOR_DEFAULT_FG, color);
+        cells_set_color(MODE0_DEFAULT_FG, color);
     else if (which == CELLS_COLOR_BG)
-        cells_set_color(&cells_default_bg, CELLS_RECOLOR_DEFAULT_BG, color);
+        cells_set_color(MODE0_DEFAULT_BG, color);
     else if (which == CELLS_COLOR_CURSOR)
         cells_cursor_color = color;
 }
@@ -1008,12 +864,8 @@ static void cells_out_chars(const char *buf, int length)
 
 void cells_init(void)
 {
-    // The colors start as the reset leaves them, and nothing has been drawn
-    // in any, so nothing waits to be recolored.
-    memcpy(color_256_term, color_256, sizeof(color_256_term));
-    cells_default_fg = color_256[CELLS_FG_COLOR_INDEX];
-    cells_default_bg = color_256[CELLS_BG_COLOR_INDEX];
-    memset(cells_recolor_next, 0, sizeof cells_recolor_next);
+    // The colors start as the reset leaves them.
+    cells_colors_reset(&cells_term);
     // The cells are mode 0's: each size's primary, then its alternate.
     mode0_cell_t *mem = mode0_cells;
     cells_40.bufs[0].mem = mem;
@@ -1085,7 +937,6 @@ void cells_task(void)
         cells_publish();
     cells_clean_task(&cells_40);
     cells_clean_task(&cells_80);
-    cells_recolor_task();
 }
 
 void cells_RIS(void)
@@ -1107,6 +958,12 @@ void cells_RIS_no_clear(void)
  * cells and the blinks, then the colors, the cells and the palette. Written
  * field by field, so no padding reaches the blob. */
 
+// A color a blob gives a cell names an entry the palette has.
+static inline bool cells_color_ok(uint16_t color)
+{
+    return (color & SCANVIDEO_ALPHA_MASK) || (color >> MODE0_ENTRY_SHIFT) < 2 * MODE0_ENTRIES;
+}
+
 static void cells_put_buf(sst_cursor_t *c, const screen_buf_t *b)
 {
     for (int i = 0; i < TERM_MAX_HEIGHT; i++)
@@ -1116,12 +973,8 @@ static void cells_put_buf(sst_cursor_t *c, const screen_buf_t *b)
     for (int i = 0; i < TERM_MAX_HEIGHT; i++)
     {
         const cells_erase_t *e = &b->erase[i];
-        sst_put_u16(c, e->fg.color);
-        sst_put_u8(c, e->fg.entry);
-        sst_put_u8(c, e->fg.kind);
-        sst_put_u16(c, e->bg.color);
-        sst_put_u8(c, e->bg.entry);
-        sst_put_u8(c, e->bg.kind);
+        sst_put_u16(c, e->fg);
+        sst_put_u16(c, e->bg);
         sst_put_u8(c, e->glyph);
         sst_put_bool(c, e->selective);
     }
@@ -1139,12 +992,8 @@ static bool cells_get_buf(sst_cursor_t *c, screen_buf_t *b)
     for (int i = 0; i < TERM_MAX_HEIGHT; i++)
     {
         cells_erase_t *e = &b->erase[i];
-        e->fg.color = sst_get_u16(c);
-        e->fg.entry = sst_get_u8(c);
-        e->fg.kind = sst_get_u8(c);
-        e->bg.color = sst_get_u16(c);
-        e->bg.entry = sst_get_u8(c);
-        e->bg.kind = sst_get_u8(c);
+        e->fg = sst_get_u16(c);
+        e->bg = sst_get_u16(c);
         e->glyph = sst_get_u8(c);
         e->selective = sst_get_bool(c);
     }
@@ -1156,7 +1005,8 @@ static bool cells_get_buf(sst_cursor_t *c, screen_buf_t *b)
     if (!sst_ok(c) || b->y_offset >= TERM_MAX_HEIGHT || b->hidden >= TERM_MAX_HEIGHT)
         return false;
     for (int i = 0; i < TERM_MAX_HEIGHT; i++)
-        if (b->row_idx[i] >= TERM_MAX_HEIGHT)
+        if (b->row_idx[i] >= TERM_MAX_HEIGHT ||
+            !cells_color_ok(b->erase[i].fg) || !cells_color_ok(b->erase[i].bg))
             return false;
     return true;
 }
@@ -1194,22 +1044,17 @@ void cells_sst_save(sst_cursor_t *c, unsigned flags)
     term_sst_put(c, &cells_term);
     cells_put_one(c, &cells_40);
     cells_put_one(c, &cells_80);
-    sst_put_u16(c, cells_default_fg);
-    sst_put_u16(c, cells_default_bg);
     sst_put_u16(c, cells_cursor_color);
     for (int b = 0; b < (TERM_ALT_SCREEN ? 2 : 1); b++)
     {
         sst_put(c, cells_40.bufs[b].mem, 40 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
         sst_put(c, cells_80.bufs[b].mem, 80 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
     }
-    sst_put(c, cells_srcs, sizeof cells_srcs);
-    sst_put(c, color_256_term, sizeof color_256_term);
-    for (unsigned i = 0; i < CELLS_RECOLOR_WORDS; i++)
-    {
-        sst_put_u32(c, cells_recolor_next[i]);
-        sst_put_u32(c, cells_recolor_now[i]);
-    }
-    sst_put_u8(c, cells_recolor_row);
+    for (unsigned i = 0; i < sizeof cells_guard / sizeof cells_guard[0]; i++)
+        sst_put_u32(c, cells_guard[i]);
+    /* The faint half of the palette follows from the other. */
+    for (unsigned i = 0; i < MODE0_ENTRIES; i++)
+        sst_put_u16(c, mode0_palette[i]);
 }
 
 bool cells_sst_load(sst_cursor_t *c, unsigned flags)
@@ -1224,8 +1069,6 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags)
     if (!term_sst_get(c, &cells_term) ||
         !cells_get_one(c, &cells_40) || !cells_get_one(c, &cells_80))
         return false;
-    cells_default_fg = sst_get_u16(c);
-    cells_default_bg = sst_get_u16(c);
     cells_cursor_color = sst_get_u16(c);
     /* Never mem: the cells are mode 0's and their addresses are already
      * right. Only what is in them is the blob's. */
@@ -1234,16 +1077,16 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags)
         sst_get(c, cells_40.bufs[b].mem, 40 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
         sst_get(c, cells_80.bufs[b].mem, 80 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
     }
-    sst_get(c, cells_srcs, sizeof cells_srcs);
-    sst_get(c, color_256_term, sizeof color_256_term);
-    for (unsigned i = 0; i < CELLS_RECOLOR_WORDS; i++)
-    {
-        cells_recolor_next[i] = sst_get_u32(c);
-        cells_recolor_now[i] = sst_get_u32(c);
-    }
-    cells_recolor_row = sst_get_u8(c);
-    if (!sst_ok(c) || cells_recolor_row > CELLS_ROWS)
+    for (unsigned i = 0; i < sizeof cells_guard / sizeof cells_guard[0]; i++)
+        cells_guard[i] = sst_get_u32(c);
+    for (unsigned i = 0; i < MODE0_ENTRIES; i++)
+        cells_set_color(i, sst_get_u16(c));
+    if (!sst_ok(c))
         return false;
+    for (unsigned i = 0; i < MODE0_CELLS; i++)
+        if (!cells_color_ok(mode0_cells[i].fg_color) || !cells_color_ok(mode0_cells[i].bg_color) ||
+            !cells_color_ok(mode0_cells[i].ul_color))
+            return false;
     cells_publish();
     return true;
 }
