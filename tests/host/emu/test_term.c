@@ -149,10 +149,10 @@ UTEST(term, sub_and_del_are_silent)
     ASSERT_STREQ(row(0), "abc");
 }
 
-UTEST(term, sgr_11_draws_the_controls_and_sgr_10_stops)
+UTEST(term, crm_draws_the_controls)
 {
     fresh();
-    feed("\33[11m\x07\x09\x7f\x1a\x18\33[10m\x07" "x");
+    feed("\33[3h\x07\x09\x7f\x1a\x18\33[3l\x07" "x");
     ASSERT_EQ(ch(0, 0), '\x07');
     ASSERT_EQ(ch(1, 0), '\x09');
     ASSERT_EQ(ch(2, 0), '\x7f');
@@ -161,19 +161,22 @@ UTEST(term, sgr_11_draws_the_controls_and_sgr_10_stops)
     ASSERT_EQ(ch(5, 0), 'x');
 }
 
-UTEST(term, sgr_11_still_runs_the_line_controls)
+UTEST(term, crm_still_runs_the_line_controls)
 {
     fresh();
-    feed("\33[11mab\r\nc\bd\33[0m\x07");
+    feed("\33[3hab\r\nc\bd\33[0m\x07");
     ASSERT_STREQ(row(0), "ab");
-    ASSERT_STREQ(row(1), "d\x07"); /* SGR 0 leaves SGR 11 */
+    ASSERT_STREQ(row(1), "d\x07"); /* SGR 0 leaves CRM */
 }
 
-UTEST(term, crm_is_sgr_11)
+/* SGR 10 and 11, the Linux console's way to the same switch, are not taken. */
+UTEST(term, sgr_10_and_11_do_nothing)
 {
     fresh();
-    feed("\33[3h\x07\33[3l\x07" "z");
-    ASSERT_STREQ(row(0), "\x07z");
+    feed("\33[11m\x07" "z");
+    ASSERT_STREQ(row(0), "z");
+    feed("\r\33[3h\33[10m\x07");
+    ASSERT_STREQ(row(0), "\x07");
 }
 
 /* ---- the parser ---- */
@@ -427,7 +430,7 @@ UTEST(term, decstr_leaves_the_cursor_and_its_style)
 UTEST(term, ris_resets_the_world)
 {
     fresh();
-    feed("\33[11m\33[4h\33[20h\33[?33h\33[3 q\33]4;1;#123456\7\33]10;#010203\7\33c");
+    feed("\33[3h\33[4h\33[20h\33[?33h\33[3 q\33]4;1;#123456\7\33]10;#010203\7\33c");
     tb_screen_t v;
     tb_screen(&v);
     ASSERT_EQ(v.cursor_style, 0);

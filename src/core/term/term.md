@@ -20,7 +20,7 @@ core/vga/mode/mode0.h defines.
 | | Cells | Beside the cells | Free |
 |---|---|---|---|
 | RP6502-PICO | 30.7 KB in VIDEO | 46.1 KB of colors, 12 KB of fonts, and 1 KB of palette in VIDEO | about 59 KB of lower RAM, before the stacks and heap |
-| RP6502-FPGA | 57.6 KB in VIDCELLS | not built since the cells changed; see step 12 | |
+| RP6502-FPGA | 57.6 KB in VIDCELLS | not built since the cells changed; see step 9 | |
 
 A cell is 10 bytes in two tables. One has its glyph and 16 bits of
 attributes, in one word, which is all a scanline reads. The other has its
@@ -120,7 +120,53 @@ reaches the console through a debug probe; see tests/hil/pico/README.md.
 Every feature below is measured against the target, and kept or taken
 out.
 
-## 0. Kitty's keyboard protocol
+## 0. Report the console's name (XTVERSION)
+
+A program sends `CSI > q` and the console answers
+`DCS > | RP6502(0.25) ST`, so the program need not guess the terminal
+from its device attributes. The version is the firmware's, without a
+"v", or the CI build number.
+
+## 1. Rectangle sequences (VT420)
+
+DECFRA (fill), DECERA (erase), DECSERA (selective erase), DECCRA (copy),
+DECCARA and DECRARA (change and reverse attributes), and DECSACE, which
+chooses stream or rectangle. xterm has them, and DECSERA completes the
+protected areas.
+
+## 2. Left and right margins (DECSLRM)
+
+Scrolling and editing limited to a column range, allowed by mode ?69
+(DECLRMM). tmux and some editors use it when it is there. Every insert,
+delete, and scroll has to respect the margins.
+
+## 3. Window size reports (`CSI t`)
+
+Keep the reports; ignore the rest of `CSI t`, which moves and resizes
+desktop windows.
+
+- **11, is the window minimized?** Always "no" on the RP6502-PICO and the
+  RP6502-FPGA. The emulator can answer "yes" while its window is
+  minimized, which Sokol reports, and the web player while its page is
+  hidden. Where that is awkward, the answer is "no".
+- **14 and 16, sizes in pixels** of the text area and of one character.
+  A program drawing on the planes behind the console can line up with
+  the text.
+- **18 and 19, sizes in characters.** Both give the size the console is
+  shown at, or the size a program set with RIA_ATTR_RLN_WIDTH and HEIGHT.
+  They always match.
+
+## 4. Smooth scroll, DECSCLM (?4), as an experiment
+
+A VT100 scrolled smoothly at 6 lines a second, and told the computer
+sending it text to wait (XOFF) when it fell behind. Nothing here can tell
+a program to wait, so the text it writes during a scroll has to be held
+somewhere, and at 115200 baud a full canvas of text arrives in about 0.2
+s. The renderer would draw the scroll region at a pixel offset, which the
+row table could carry. Build a demo ROM for the emulator and the
+RP6502-PICO, look at it, then decide.
+
+## 5. Kitty's keyboard protocol
 
 **What it is.** A program reading stdin can tell every key apart without
 the RIA's keyboard registers. Neovim, Helix, and fish use it.
@@ -142,93 +188,25 @@ Releases need a path from the keyboard that does not exist today. A few
 bytes of flags and a table of about a hundred key codes. About a week
 with tests.
 
-## 1. Drop the Linux console's palette sequences
-
-`ESC ] P nrrggbb` and `ESC ] R` set and reset palette colors on the Linux
-console. xterm's OSC 4 and OSC 104 do the same and more: any of the 256
-entries, several in one sequence, X11 color names, and resetting one
-entry or all. Remove the Linux ones; `ESC ] P` then starts an ordinary
-OSC that runs to its BEL or ST, as on xterm.
-
-## 2. Bracketed paste (mode ?2004)
-
-When a program turns it on, pasted text arrives wrapped in `ESC [ 200 ~`
-and `ESC [ 201 ~`. An editor can then tell a paste from typing and not
-indent it, and a line editor does not run a pasted line. Any ESC inside
-the pasted text is dropped so the text cannot end the wrapper early.
-DECRQM reports the mode and RIS clears it. Paste comes from the emulator
-and the web player.
-
-## 3. Report the console's name (XTVERSION)
-
-A program sends `CSI > q` and the console answers
-`DCS > | RP6502(0.25) ST`, so the program need not guess the terminal
-from its device attributes. The version is the firmware's, without a
-"v", or the CI build number.
-
-## 4. Rectangle sequences (VT420)
-
-DECFRA (fill), DECERA (erase), DECSERA (selective erase), DECCRA (copy),
-DECCARA and DECRARA (change and reverse attributes), and DECSACE, which
-chooses stream or rectangle. xterm has them, and DECSERA completes the
-protected areas.
-
-## 5. Left and right margins (DECSLRM)
-
-Scrolling and editing limited to a column range, allowed by mode ?69
-(DECLRMM). tmux and some editors use it when it is there. Every insert,
-delete, and scroll has to respect the margins.
-
-## 6. Window size reports (`CSI t`)
-
-Keep the reports; ignore the rest of `CSI t`, which moves and resizes
-desktop windows.
-
-- **11, is the window minimized?** Always "no" on the RP6502-PICO and the
-  RP6502-FPGA. The emulator can answer "yes" while its window is
-  minimized, which Sokol reports, and the web player while its page is
-  hidden. Where that is awkward, the answer is "no".
-- **14 and 16, sizes in pixels** of the text area and of one character.
-  A program drawing on the planes behind the console can line up with
-  the text.
-- **18 and 19, sizes in characters.** Both give the size the console is
-  shown at, or the size a program set with RIA_ATTR_RLN_WIDTH and HEIGHT.
-  They always match.
-
-## 7. Drop SGR 10 and 11
-
-On the Linux console, SGR 11 makes bytes 1 to 31 and DEL print as their
-CP437 pictures and SGR 10 turns that off. The standard way is CRM
-(`CSI 3 h` and `CSI 3 l`), which the console already has and which sets
-the same switch. Remove SGR 10 and 11. The target is xterm, not the Linux
-console.
-
-## 8. Smooth scroll, DECSCLM (?4), as an experiment
-
-A VT100 scrolled smoothly at 6 lines a second, and told the computer
-sending it text to wait (XOFF) when it fell behind. Nothing here can tell
-a program to wait, so the text it writes during a scroll has to be held
-somewhere, and at 115200 baud a full canvas of text arrives in about 0.2
-s. The renderer would draw the scroll region at a pixel offset, which the
-row table could carry. Build a demo ROM for the emulator and the
-RP6502-PICO, look at it, then decide.
-
-## 9. The manual
+## 6. The manual
 
 - Open the Terminal section of term.rst with what the console is: a
   VT102 minus 132 columns, the xterm subset, ANSI-BBS, kitty's
-  underlines, and kitty's keyboard protocol if step 0 lands. It does not
+  underlines, and kitty's keyboard protocol if step 5 lands. It does not
   list what a VT102's hardware did that this machine cannot.
 - term.rst lists fast blink (SGR 6) and overline (SGR 53, 55) as features
   from other terminals. Both are ECMA-48's. The list loses them and gains
   xterm's, aixterm's, and SCO's.
 - Remove `SGR 38:1` and `48:1`, which the console no longer has, and
   explain transparency by palette entry 0 and the default background.
+- Remove SGR 10 and 11 and the Linux console's palette sequences
+  (`ESC ] P` and `ESC ] R`), which the console no longer has. CRM
+  (`CSI 3 h`) draws the controls.
 - A palette change shows on text already drawn, and an underline's color
   follows the palette.
 - Document each item above when it lands.
 
-## 10. Use less memory
+## 7. Use less memory
 
 Do these together, after the steps above.
 
@@ -243,7 +221,7 @@ Do these together, after the steps above.
   cells, if what the rebuild loses is acceptable.
 - src/core/harvest.md lists memory to win back elsewhere.
 
-## 11. scanvideo.c: decide at the end
+## 8. scanvideo.c: decide at the end
 
 What is found in scanvideo.c along the way is listed here. At the end,
 decide whether to change it, rewrite it, or leave it.
@@ -252,7 +230,7 @@ decide whether to change it, rewrite it, or leave it.
   one. One lock for each would save an estimated 50 to 100 cycles a
   scanline. Not tried.
 
-## 12. RP6502-FPGA: palette entries in cells
+## 9. RP6502-FPGA: palette entries in cells
 
 The cells now hold palette entries and the RP6502-FPGA still draws them
 as pixels, so its console's colors are wrong until this is done. mode0.sv

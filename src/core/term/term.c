@@ -12,11 +12,10 @@
 #include <stdio.h>
 #include <string.h>
 
-// A VT102 with most of what xterm and the Linux console add: 256 colors and
-// truecolor, the alternate screen, the dynamic colors of OSC 4/10/11/12,
-// bracketed paste and SGR 10/11. The parser follows the DEC/xterm
-// state machine (vt100.net), so unknown sequences and strings are taken apart
-// the way xterm does. Inside a sequence BS-SI and BEL act and the sequence
+// A VT102 with most of what xterm adds: 256 colors and truecolor, the
+// alternate screen, the dynamic colors of OSC 4/10/11/12 and bracketed
+// paste. The parser follows the DEC/xterm state machine (vt100.net), so
+// unknown sequences and strings are taken apart the way xterm does. Inside a sequence BS-SI and BEL act and the sequence
 // goes on, as in xterm; any other control ends it silently, as in Linux. DEC
 // Special Graphics is a character set (ESC ( 0 / SO / SI) the cells draw
 // from. Bytes 0x80-0xFF are always glyphs of the code page: there are no C1
@@ -32,8 +31,8 @@
 #define TERM_REPLY_MAX 24
 
 /* The C0 controls, as bitmaps of their codes. Linux acts on the ACTION set
- * and draws the rest as glyphs. With SGR 11 (or CRM, CSI 3 h) it draws
- * everything but the ALWAYS set. Inside a sequence the IN_SEQ set runs and
+ * and draws the rest as glyphs. With CRM (CSI 3 h) it draws everything but
+ * the ALWAYS set. Inside a sequence the IN_SEQ set runs and
  * the sequence goes on, as in xterm. */
 #define TERM_C0_ACTION 0x0D00FF81u
 #define TERM_C0_ALWAYS 0x0800F501u
@@ -373,12 +372,6 @@ static void term_out_SGR(term_t *t)
         case 9: // strikethrough
             cur->sgr_attr |= TERM_ATTR_STRIKE;
             break;
-        case 10: // primary font (SCO, Linux): controls act
-            t->disp_ctrl = false;
-            break;
-        case 11: // first alternate font (SCO, Linux): controls are drawn
-            t->disp_ctrl = true;
-            break;
         case 21: // double underline (ECMA-48, xterm)
             cur->sgr_attr = (uint8_t)((cur->sgr_attr & ~TERM_ATTR_UL_MASK) |
                                        TERM_ATTR_UL(TERM_UL_DOUBLE));
@@ -697,7 +690,7 @@ static void term_out_SM_RM(term_t *t, bool set)
     {
         switch (t->csi_param[i])
         {
-        case 3: // CRM: draw the controls, as SGR 11
+        case 3: // CRM: draw the controls
             t->disp_ctrl = set;
             break;
         case 4: // IRM: insert mode
@@ -1035,7 +1028,7 @@ static void term_print(term_t *t, uint8_t byte)
 }
 
 // A byte in the ground state. Bytes 0x20-0x7E and 0x80-0xFF are glyphs. A C0
-// control Linux has no action for is drawn too, and with SGR 11 (or CRM)
+// control Linux has no action for is drawn too, and with CRM (CSI 3 h)
 // every one but NUL, BS, LF, FF, CR, SO, SI and ESC is, DEL included. ENQ is
 // drawn: there is no answerback.
 static void term_ground(term_t *t, uint8_t ch)
@@ -1586,8 +1579,8 @@ void term_sst_put(sst_cursor_t *c, const term_t *t)
 }
 
 /* The grids are the owner's and are left as they are. Everything that
- * indexes is bounded: the parser's counts their arrays, and in the Linux
- * palette sequence osc_len the spec it is filling. The alternate screen only
+ * indexes is bounded: the parser's counts their arrays, and osc_len the
+ * spec it is filling. The alternate screen only
  * exists in a build that has one. */
 bool term_sst_get(sst_cursor_t *c, term_t *t)
 {

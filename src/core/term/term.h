@@ -7,7 +7,7 @@
 #ifndef _CORE_TERM_TERM_H_
 #define _CORE_TERM_TERM_H_
 
-/* The terminal: a VT102 with most of xterm and the Linux console. Bytes go in
+/* The terminal: a VT102 with most of what xterm adds. Bytes go in
  * with term_write and answers to queries come out through cells_reply (cells.h).
  *
  * One terminal follows one stream, and it can be followed at several sizes
@@ -195,7 +195,7 @@ typedef struct
     bool autowrap;        // DECAWM, ?7
     bool insert_mode;     // IRM, CSI 4 h
     bool newline_mode;    // LNM, CSI 20 h: LF, VT and FF also return the carriage
-    bool disp_ctrl;       // SGR 11 or CRM (CSI 3 h): draw the C0 controls
+    bool disp_ctrl;       // CRM, CSI 3 h: draw the C0 controls
     bool vt52;            // DECANM reset, ?2 l
     bool app_cursor;      // DECCKM, ?1: the cursor keys send SS3
     bool app_keypad;      // DECKPAM, ESC = or ?66: the keypad sends SS3
