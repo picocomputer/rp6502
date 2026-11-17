@@ -973,14 +973,54 @@ static cells_t *cells_visible(void)
     return vga_canvas_width() == 320 ? &cells_40 : &cells_80;
 }
 
+// The layout the row words were last written from: the screen showing, and
+// which row of memory and what line size each of its rows has. Only a
+// scroll, a line size, a change of height, or another screen showing
+// changes it, so most bytes leave the row words as they are.
+static struct
+{
+    const screen_buf_t *buf;
+    uint8_t y_offset;
+    uint8_t height;
+    uint8_t row_idx[TERM_MAX_HEIGHT];
+    uint8_t lines[TERM_MAX_HEIGHT];
+} cells_published;
+
+// TERM_MAX_HEIGHT bytes compared a word at a time.
+static inline bool cells_rows_differ(const uint8_t *a, const uint8_t *b)
+{
+    uint32_t diff = 0;
+    unsigned i = 0;
+    for (; i + 4 <= TERM_MAX_HEIGHT; i += 4)
+    {
+        uint32_t x, y;
+        memcpy(&x, a + i, 4);
+        memcpy(&y, b + i, 4);
+        diff |= x ^ y;
+    }
+    for (; i < TERM_MAX_HEIGHT; i++)
+        diff |= (uint32_t)(a[i] ^ b[i]);
+    return diff != 0;
+}
+
 void cells_publish(void)
 {
     cells_t *cells = cells_visible();
     const screen_buf_t *buf = cells_buf(cells);
     const uint8_t *ls = term_lines(&cells->grid);
-    for (uint8_t y = 0; y < cells->grid.height; y++)
-        mode0_regs.row[y] = MODE0_ROW(cells_buf_row(buf, y) - mode0_cells,
-                                      ls[y]);
+    if (cells_published.buf != buf || cells_published.y_offset != buf->y_offset ||
+        cells_published.height != cells->grid.height ||
+        cells_rows_differ(cells_published.row_idx, buf->row_idx) ||
+        cells_rows_differ(cells_published.lines, ls))
+    {
+        cells_published.buf = buf;
+        cells_published.y_offset = buf->y_offset;
+        cells_published.height = cells->grid.height;
+        memcpy(cells_published.row_idx, buf->row_idx, TERM_MAX_HEIGHT);
+        memcpy(cells_published.lines, ls, TERM_MAX_HEIGHT);
+        for (uint8_t y = 0; y < cells->grid.height; y++)
+            mode0_regs.row[y] = MODE0_ROW(cells_buf_row(buf, y) - mode0_cells, ls[y]);
+    }
     const term_pos_t *pos = term_pos(&cells->grid);
     // A pending wrap is shown as the column past the last, which is how the
     // renderer knows to draw it.
