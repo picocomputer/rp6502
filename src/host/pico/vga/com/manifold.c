@@ -7,6 +7,7 @@
 #include "vga/com/manifold.h"
 #include "core/sys/ring.h"
 #include "vga/usb/cdc.h"
+#include "rtt.h"
 #include <tusb.h>
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
@@ -74,6 +75,13 @@ static void manifold_out_chars(const char *buf, int length)
     }
 }
 
+#if RP6502_RTT_DEBUG
+static void manifold_rtt_out_chars(const char *buf, int length)
+{
+    rtt_write(buf, (size_t)length);
+}
+#endif
+
 void manifold_init(void)
 {
     /* The UART runs from the USB PLL, so changing the system clock for a new
@@ -96,6 +104,14 @@ void manifold_init(void)
         .crlf_enabled = true,
     };
     stdio_set_driver_enabled(&stdio_driver, true);
+#if RP6502_RTT_DEBUG
+    /* A debug probe hears what the USB port hears. */
+    static stdio_driver_t rtt_driver = {
+        .out_chars = manifold_rtt_out_chars,
+        .crlf_enabled = true,
+    };
+    stdio_set_driver_enabled(&rtt_driver, true);
+#endif
 }
 
 static stdio_driver_t manifold_term_driver = {.crlf_enabled = true};
@@ -122,6 +138,24 @@ void manifold_task(void)
     char ch;
     while (uart_is_writable(MANIFOLD_UART_INTERFACE) && RING_GET(&manifold_in, &ch))
         uart_get_hw(MANIFOLD_UART_INTERFACE)->dr = ch;
+
+    // IN from a debug probe joins the USB port's, and its break is a break
+    // on the UART, held as long as a host holds one.
+    while (manifold_in_free() && rtt_read(&ch, 1))
+        manifold_in_write(ch);
+    static absolute_time_t rtt_break_end;
+    static bool rtt_breaking;
+    if (rtt_break())
+    {
+        rtt_breaking = true;
+        rtt_break_end = make_timeout_time_ms(100);
+        manifold_set_uart_break(true);
+    }
+    else if (rtt_breaking && time_reached(rtt_break_end))
+    {
+        rtt_breaking = false;
+        manifold_set_uart_break(false);
+    }
 
     // OUT is sourced here from STD UART
     while (uart_is_readable(MANIFOLD_UART_INTERFACE))

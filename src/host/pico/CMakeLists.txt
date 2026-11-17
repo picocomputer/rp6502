@@ -30,6 +30,15 @@ function(rp6502_pico_memory TARGET)
         PROPERTIES COMPILE_OPTIONS "-fno-lto;-fdata-sections")
 endfunction()
 
+# The console on a debug probe, for the bench; see rtt.h. A release has none.
+option(RP6502_RTT_DEBUG "Put the console on a debug probe, as SEGGER RTT" OFF)
+function(rp6502_pico_rtt TARGET)
+    if(RP6502_RTT_DEBUG)
+        target_sources(${TARGET} PRIVATE ${RP6502_ROOT}/src/host/pico/rtt.c)
+        target_compile_definitions(${TARGET} PRIVATE RP6502_RTT_DEBUG=1)
+    endif()
+endfunction()
+
 include(${RP6502_ROOT}/submodules.cmake)
 rp6502_submodule(vendor/littlefs SENTINEL lfs.c
     WANTS "the firmware's flash filesystem")

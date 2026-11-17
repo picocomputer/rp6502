@@ -14,6 +14,7 @@
 #include "core/sys/ring.h"
 #include "ria/com/manifold.h"
 #include "ria/com/com_telnet.h"
+#include "rtt.h"
 #include "machine.h"
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>
@@ -88,6 +89,15 @@ void HOST_IN_RAM_FUNC manifold_uart_drain_rx(void)
             ria_trigger_sigint();
         RING_PUT(&manifold_uart_rx, c);
     }
+    /* A debug probe types on the UART's wire. Unlike the wire, it holds what
+     * the ring has no room for. */
+    char ch;
+    while (RING_AVAIL(&manifold_uart_rx) && rtt_read(&ch, 1))
+    {
+        if (ch == 0x03)
+            ria_trigger_sigint();
+        RING_PUT(&manifold_uart_rx, (uint8_t)ch);
+    }
 }
 
 /* manifold_task drains the UART's hardware FIFO into the ring once per pass. */
@@ -146,6 +156,8 @@ static void HOST_IN_RAM_FUNC manifold_uart_drain_tx(void)
             manifold_vga_write(0x03, ch);
         else
             uart_putc_raw(MANIFOLD_UART, ch);
+        /* A debug probe hears the UART's wire, at the wire's pace. */
+        rtt_write(&ch, 1);
         manifold_term_feed(ch);
         if (ch == '\a' && com_get_bel())
             bel_add(&bel_teletype);
@@ -311,6 +323,8 @@ void HOST_IN_RAM_FUNC manifold_task(void)
     else if (break_detect)
         proc_break();
     break_detect = current_break;
+    if (rtt_break())
+        proc_break();
 }
 
 int manifold_putchar(int c)
