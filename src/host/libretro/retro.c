@@ -468,6 +468,12 @@ const char *host_save_dir(void)
     return save_dir;
 }
 
+/* A frontend does not say what its window is doing. */
+bool host_minimized(void)
+{
+    return false;
+}
+
 /* The first load cold-boots the machine; every load after it refills RAM, so
  * no data from the last program remains in memory. The content path is
  * converted again on every boot, after sys_init has selected a code page,

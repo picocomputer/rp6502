@@ -9,6 +9,7 @@
 #include "osal/os.h"
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
+#include "host/host.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_glue.h"
@@ -411,8 +412,22 @@ bool app_boot_rom(const char *path)
     return true;
 }
 
+/* Sokol says when the window is minimized and when it is back. The web
+ * player's page has neither, and its machine stops while the page is
+ * hidden, so there it is never minimized. */
+static bool app_minimized;
+
+bool host_minimized(void)
+{
+    return app_minimized;
+}
+
 void app_input(const struct sapp_event *e)
 {
+    if (e->type == SAPP_EVENTTYPE_ICONIFIED)
+        app_minimized = true;
+    else if (e->type == SAPP_EVENTTYPE_RESTORED)
+        app_minimized = false;
     if (e->type == SAPP_EVENTTYPE_FILES_DROPPED)
     {
         host_window_files_dropped();

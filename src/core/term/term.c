@@ -9,6 +9,7 @@
 #include "core/term/grid.h"
 #include "core/term/term.h"
 #include "core/vga/pixel_format.h"
+#include "host/host.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -539,8 +540,11 @@ static void term_out_window(term_t *t)
     unsigned cell = term_cell_height(cells_shown(t));
     switch (t->csi_param[0])
     {
-    case 11: // iconified? never
-        TERM_REPLY(t, "\33[1t");
+    case 11: // minimized? only an emulator's window can be
+        if (host_minimized())
+            TERM_REPLY(t, "\33[2t");
+        else
+            TERM_REPLY(t, "\33[1t");
         break;
     case 14: // text area in pixels
         term_replyf(t, "\33[4;%u;%ut", g->height * cell, g->width * 8u, 0);

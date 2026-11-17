@@ -150,6 +150,11 @@ uint32_t os_random(void)
     return RTC_VALID ? (uint32_t)RTC_EPOCH : 0;
 }
 
+bool host_minimized(void)
+{
+    return false;
+}
+
 static uint32_t seed;
 static bool seed_taken;
 

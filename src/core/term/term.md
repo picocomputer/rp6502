@@ -20,7 +20,7 @@ core/vga/mode/mode0.h defines.
 | | Cells | Beside the cells | Free |
 |---|---|---|---|
 | RP6502-PICO | 30.7 KB in VIDEO | 46.1 KB of colors, 12 KB of fonts, and 1 KB of palette in VIDEO | about 59 KB of lower RAM, before the stacks and heap |
-| RP6502-FPGA | 57.6 KB in VIDCELLS | not built since the cells changed; see step 8 | |
+| RP6502-FPGA | 57.6 KB in VIDCELLS | not built since the cells changed; see step 7 | |
 
 A cell is 10 bytes in two tables. One has its glyph and 16 bits of
 attributes, in one word, which is all a scanline reads. The other has its
@@ -133,23 +133,7 @@ Scrolling and editing limited to a column range, allowed by mode ?69
 (DECLRMM). tmux and some editors use it when it is there. Every insert,
 delete, and scroll has to respect the margins.
 
-## 2. Window size reports (`CSI t`)
-
-Keep the reports; ignore the rest of `CSI t`, which moves and resizes
-desktop windows.
-
-- **11, is the window minimized?** Always "no" on the RP6502-PICO and the
-  RP6502-FPGA. The emulator can answer "yes" while its window is
-  minimized, which Sokol reports, and the web player while its page is
-  hidden. Where that is awkward, the answer is "no".
-- **14 and 16, sizes in pixels** of the text area and of one character.
-  A program drawing on the planes behind the console can line up with
-  the text.
-- **18 and 19, sizes in characters.** Both give the size the console is
-  shown at, or the size a program set with RIA_ATTR_RLN_WIDTH and HEIGHT.
-  They always match.
-
-## 3. Smooth scroll, DECSCLM (?4), as an experiment
+## 2. Smooth scroll, DECSCLM (?4), as an experiment
 
 A VT100 scrolled smoothly at 6 lines a second, and told the computer
 sending it text to wait (XOFF) when it fell behind. Nothing here can tell
@@ -159,7 +143,7 @@ s. The renderer would draw the scroll region at a pixel offset, which the
 row table could carry. Build a demo ROM for the emulator and the
 RP6502-PICO, look at it, then decide.
 
-## 4. Kitty's keyboard protocol
+## 3. Kitty's keyboard protocol
 
 **What it is.** A program reading stdin can tell every key apart without
 the RIA's keyboard registers. Neovim, Helix, and fish use it.
@@ -181,11 +165,11 @@ Releases need a path from the keyboard that does not exist today. A few
 bytes of flags and a table of about a hundred key codes. About a week
 with tests.
 
-## 5. The manual
+## 4. The manual
 
 - Open the Terminal section of term.rst with what the console is: a
   VT102 minus 132 columns, the xterm subset, ANSI-BBS, kitty's
-  underlines, and kitty's keyboard protocol if step 4 lands. It does not
+  underlines, and kitty's keyboard protocol if step 3 lands. It does not
   list what a VT102's hardware did that this machine cannot.
 - term.rst lists fast blink (SGR 6) and overline (SGR 53, 55) as features
   from other terminals. Both are ECMA-48's. The list loses them and gains
@@ -200,9 +184,12 @@ with tests.
 - XTVERSION: `CSI > q` is answered `DCS > | RP6502(version) ST`, the
   version being the firmware's as the status shows it. On the
   RP6502-PICO it is the RIA's.
+- `CSI 11 t` answers that the window is minimized while the emulator's
+  is. The RP6502-PICO, the RP6502-FPGA, and the web player always answer
+  that it is not.
 - Document each item above when it lands.
 
-## 6. Use less memory
+## 5. Use less memory
 
 Do these together, after the steps above.
 
@@ -217,7 +204,7 @@ Do these together, after the steps above.
   cells, if what the rebuild loses is acceptable.
 - src/core/harvest.md lists memory to win back elsewhere.
 
-## 7. scanvideo.c: decide at the end
+## 6. scanvideo.c: decide at the end
 
 What is found in scanvideo.c along the way is listed here. At the end,
 decide whether to change it, rewrite it, or leave it.
@@ -226,7 +213,7 @@ decide whether to change it, rewrite it, or leave it.
   one. One lock for each would save an estimated 50 to 100 cycles a
   scanline. Not tried.
 
-## 8. RP6502-FPGA: palette entries in cells
+## 7. RP6502-FPGA: palette entries in cells
 
 The cells now hold palette entries and the RP6502-FPGA still draws them
 as pixels, so its console's colors are wrong until this is done. mode0.sv
