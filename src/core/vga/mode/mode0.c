@@ -19,18 +19,19 @@ volatile mode0_regs_t mode0_regs;
 /* Indexed by row, then by style: none, single, double, curly, dotted,
  * dashed. The curly underline is a wave three rows tall and a cell wide on
  * the 16-row glyphs, and two rows tall and half a cell wide on the 8-row
- * ones. A dash is half a cell, under the middle of its glyph. */
+ * ones. A dash is five pixels, a pixel in from the left of its cell and
+ * two from the right. */
 const uint8_t mode0_underline16[4][8] = {
     {0},
     {0, 0x00, 0xFF, 0x60, 0x00, 0x00},
     {0, 0x00, 0x00, 0x91, 0x00, 0x00},
-    {0, 0xFF, 0xFF, 0x0E, 0xAA, 0x3C},
+    {0, 0xFF, 0xFF, 0x0E, 0xAA, 0x7C},
 };
 const uint8_t mode0_underline8[4][8] = {
     {0},
     {0, 0x00, 0xFF, 0x00, 0x00, 0x00},
     {0, 0x00, 0x00, 0x66, 0x00, 0x00},
-    {0, 0xFF, 0xFF, 0x99, 0xAA, 0x3C},
+    {0, 0xFF, 0xFF, 0x99, 0xAA, 0x7C},
 };
 
 #ifndef RP6502_VGA_FABRIC
