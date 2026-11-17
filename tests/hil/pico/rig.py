@@ -69,6 +69,8 @@ class RttDevice:
     # one down ring: the bytes it dropped, and a break request.
     DROPPED = 72
     BREAK = 76
+    # Console output kept for a reader that is behind; the oldest goes first.
+    HELD_MAX = 1 << 20
 
     TCL = r"""
 proc rp6502_rtt_find {lo hi} {
@@ -195,6 +197,7 @@ proc rp6502_rtt_io {cb tx} {
             raise
         self.near, self.far = socket.socketpair()
         self.near.setblocking(False)
+        self.far.setblocking(False)
         self.stopping = False
         self.error = None
         self.thread = threading.Thread(target=self.pump, daemon=True)
@@ -204,6 +207,7 @@ proc rp6502_rtt_io {cb tx} {
         """Polls the rings: console output to the socket pair, and the bytes
         waiting in tx to the chip as its ring has room."""
         failures = 0
+        held = bytearray()
         try:
             while not self.stopping:
                 with self.tx_lock:
@@ -225,7 +229,16 @@ proc rp6502_rtt_io {cb tx} {
                     with self.tx_lock:
                         self.tx = self.tx[sent:]
                 if len(reply) > 1:
-                    self.far.sendall(bytes(int(v, 0) for v in reply[1:]))
+                    held += bytes(int(v, 0) for v in reply[1:])
+                # The socket pair takes what the reader has room for. The
+                # rest is held here, so a reader that is slow, or is not
+                # reading at all, never stops the polls.
+                if held:
+                    try:
+                        del held[:self.far.send(held)]
+                    except BlockingIOError:
+                        pass
+                    del held[:-self.HELD_MAX]
         except Exception as e:
             # The reader is on another thread: it sees the output end, and
             # write raises this.
