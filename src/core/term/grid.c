@@ -228,8 +228,9 @@ static bool grid_full_region(const term_grid_t *g)
 
 // Index: down a row, scrolling the region at its bottom margin. The core of
 // LF, VT, FF, IND and NEL. Below the region the cursor walks down to the last
-// row and never scrolls.
-static void grid_index(term_t *t, term_grid_t *g)
+// row and never scrolls. grid_index_move leaves the cursor's new row
+// untouched, for a caller that fills it.
+static void grid_index_move(term_t *t, term_grid_t *g)
 {
     term_pos_t *pos = term_pos(g);
     pos->wrap_pending = false;
@@ -245,6 +246,11 @@ static void grid_index(term_t *t, term_grid_t *g)
     }
     else
         grid_scroll(t, g, g->margin_top, g->margin_bot, 1, true);
+}
+
+static void grid_index(term_t *t, term_grid_t *g)
+{
+    grid_index_move(t, g);
     grid_after_scroll(t, g);
 }
 
@@ -333,7 +339,8 @@ static void grid_put_glyph(term_t *t, term_grid_t *g, uint8_t byte)
 // of whole rows changes nothing; so a long count runs only that far, plus its
 // remainder. A run is a multiple of both a row's length and a double-size
 // row's, which is just the width when the width is even. The glyphs go a
-// row at a time, so a long REP costs about what printing the rows does.
+// row at a time, and a whole row with more to come is only owed its glyphs,
+// so a long REP writes the row it starts on and the row it ends on.
 static void grid_REP(term_t *t, term_grid_t *g)
 {
     unsigned n = grid_param(t, 0, 1);
@@ -350,12 +357,36 @@ static void grid_REP(term_t *t, term_grid_t *g)
     term_pos_t *pos = term_pos(g);
     while (n)
     {
-        grid_wrap(t, g);
+        // A pending wrap goes to the next row, as grid_wrap does, but the
+        // row is not touched until it is known what it gets.
+        bool moved = false;
+        if (pos->wrap_pending)
+        {
+            pos->wrap_pending = false;
+            if (t->autowrap)
+            {
+                pos->x = 0;
+                grid_index_move(t, g);
+                moved = true;
+            }
+        }
         unsigned cols = term_cols(g, pos->y);
+        if (pos->x >= cols)
+            pos->x = (uint8_t)(cols - 1);
         unsigned run = (unsigned)(cols - pos->x);
         if (run > n)
             run = n;
-        cells_glyphs(t, g, pos->y, pos->x, t->last_glyph, run);
+        if (run == g->width && n > run && t->autowrap)
+            // A whole row, with more to come: the row is owed the glyph,
+            // whatever it was owed, and the cursor goes on from it. Not a
+            // double-size row, whose far half keeps what it holds.
+            cells_fill_row(t, g, pos->y, t->last_glyph);
+        else
+        {
+            if (moved)
+                cells_touch(t, g, pos->y);
+            cells_glyphs(t, g, pos->y, pos->x, t->last_glyph, run);
+        }
         n -= run;
         if (pos->x + run < cols)
             pos->x = (uint8_t)(pos->x + run);

@@ -1173,6 +1173,208 @@ UTEST(term, a_run_of_cells_moves_whole_at_every_length)
             }
 }
 
+/* What a row is owed is never seen once it is paid. The same bytes are fed
+ * twice: once with every owed fill paid after each sequence, and once with
+ * them left owing until the end, through every scroll, insert, erase, shift
+ * and change of height that comes meanwhile. The two screens are the same,
+ * cell for cell, with the guards beside them. */
+static uint32_t lazy_state;
+static unsigned lazy_rand(unsigned n)
+{
+    lazy_state = lazy_state * 1664525u + 1013904223u;
+    return (lazy_state >> 8) % n;
+}
+
+static void lazy_op(char *out, size_t size)
+{
+    switch (lazy_rand(27))
+    {
+    case 0:
+    case 1:
+    case 2:
+    {
+        unsigned n = 1 + lazy_rand(100);
+        for (unsigned i = 0; i < n; i++)
+            out[i] = (char)('a' + lazy_rand(26));
+        out[n] = 0;
+        break;
+    }
+    case 3: snprintf(out, size, "\r\n"); break;
+    case 4: snprintf(out, size, "\n\n\n"); break;
+    case 5: snprintf(out, size, "\33M"); break;
+    case 6: snprintf(out, size, "\33[%u;%uH", 1 + lazy_rand(30), 1 + lazy_rand(80)); break;
+    case 7: snprintf(out, size, "\33[%uJ", lazy_rand(3)); break;
+    case 8: snprintf(out, size, "\33[%uK", lazy_rand(3)); break;
+    case 9: snprintf(out, size, "\33[?%u%c", lazy_rand(3), lazy_rand(2) ? 'J' : 'K'); break;
+    case 10: snprintf(out, size, "\33[%u%c", 1 + lazy_rand(31), lazy_rand(2) ? 'L' : 'M'); break;
+    case 11: snprintf(out, size, "\33[%u%c", 1 + lazy_rand(31), lazy_rand(2) ? 'S' : 'T'); break;
+    case 12: snprintf(out, size, "\33[%u%c", 1 + lazy_rand(81), "@PX"[lazy_rand(3)]); break;
+    case 13: snprintf(out, size, "\33[%u %c", 1 + lazy_rand(81), lazy_rand(2) ? '@' : 'A'); break;
+    case 14: snprintf(out, size, "%c\33[%ub", (char)('A' + lazy_rand(26)), 1 + lazy_rand(3000)); break;
+    case 15: snprintf(out, size, "%c\33[%ub", (char)('A' + lazy_rand(26)), 1 + lazy_rand(200)); break;
+    case 16:
+    {
+        unsigned top = 1 + lazy_rand(29);
+        snprintf(out, size, "\33[%u;%ur", top, top + lazy_rand(31 - top));
+        break;
+    }
+    case 17: snprintf(out, size, "\33[r"); break;
+    case 18: snprintf(out, size, "\33[%u;%um", 30 + lazy_rand(8), 40 + lazy_rand(8)); break;
+    case 19: snprintf(out, size, "\33[%um", (unsigned[]){0, 4, 7, 2, 5, 1}[lazy_rand(6)]); break;
+    case 20: snprintf(out, size, "\33[%u\"q", lazy_rand(2)); break;
+    case 21: snprintf(out, size, "\33#8"); break;
+    case 22: snprintf(out, size, "\33[?1049%c", lazy_rand(2) ? 'h' : 'l'); break;
+    case 23: snprintf(out, size, "\33#%c", "3456"[lazy_rand(4)]); break;
+    case 24: snprintf(out, size, "\33[4%c", lazy_rand(2) ? 'h' : 'l'); break;
+    case 25: snprintf(out, size, "\33[?7%c", lazy_rand(4) ? 'h' : 'l'); break;
+    default: out[0] = 0; break; /* a change of height, which the caller makes */
+    }
+}
+
+#define LAZY_OPS 60
+static char lazy_seq[LAZY_OPS][128];
+static uint8_t lazy_height[LAZY_OPS];
+static bool lazy_skip[LAZY_OPS];
+
+static void lazy_make(uint32_t seed)
+{
+    lazy_state = seed;
+    for (int k = 0; k < LAZY_OPS; k++)
+    {
+        lazy_op(lazy_seq[k], sizeof lazy_seq[k]);
+        lazy_height[k] = lazy_seq[k][0] ? 0 : (uint8_t)(10 + lazy_rand(21));
+        lazy_skip[k] = false;
+    }
+}
+
+static void lazy_run(bool pay_each, uint8_t *screen)
+{
+    fresh();
+    for (int k = 0; k < LAZY_OPS; k++)
+    {
+        if (lazy_skip[k])
+            continue;
+        if (lazy_height[k])
+            cells_set_height(80, lazy_height[k]);
+        else
+            feed(lazy_seq[k]);
+        if (pay_each)
+            for (int i = 0; i < TB_SCREEN_SETTLE; i++)
+                cells_task();
+    }
+    cells_set_height(80, 30);
+    for (int i = 0; i < TB_SCREEN_SETTLE; i++)
+        cells_task();
+    for (int y = 0; y < 30; y++)
+    {
+        const mode0_cell_t *r = tb_screen_row((uint8_t)y);
+        memcpy(screen + y * 80 * 9, r, 80 * 8);
+        memcpy(screen + y * 80 * 9 + 80 * 8, &mode0_extras[r - mode0_cells], 80);
+    }
+}
+
+static uint8_t lazy_paid[30 * 80 * 9], lazy_owing[30 * 80 * 9];
+static bool lazy_differs(void)
+{
+    lazy_run(true, lazy_paid);
+    lazy_run(false, lazy_owing);
+    return memcmp(lazy_paid, lazy_owing, sizeof lazy_paid) != 0;
+}
+
+UTEST(term, what_a_row_is_owed_is_never_seen)
+{
+    for (uint32_t seed = 1; seed <= 2000; seed++)
+    {
+        lazy_make(seed);
+        if (!lazy_differs())
+            continue;
+        /* The fewest of this seed's sequences that still differ. */
+        for (int k = 0; k < LAZY_OPS; k++)
+        {
+            lazy_skip[k] = true;
+            if (!lazy_differs())
+                lazy_skip[k] = false;
+        }
+        ASSERT_TRUE(lazy_differs());
+        int at = 0;
+        while (lazy_paid[at] == lazy_owing[at])
+            at++;
+        printf("seed %u: row %d, byte %d is %02x paid at once and %02x left owing, after:\n",
+               (unsigned)seed, at / 720, at % 720, lazy_paid[at], lazy_owing[at]);
+        for (int k = 0; k < LAZY_OPS; k++)
+        {
+            if (lazy_skip[k])
+                continue;
+            printf("  ");
+            if (lazy_height[k])
+                printf("height %u", lazy_height[k]);
+            for (const char *c = lazy_seq[k]; *c; c++)
+                printf(*c == 27 ? "ESC" : *c < 32 ? "^%c" : "%c", *c < 32 ? *c + 64 : *c);
+            printf("\n");
+        }
+        ASSERT_TRUE(false);
+    }
+}
+
+/* REP draws what printing the glyph that many times draws: the same cells,
+ * with the pen's attributes and guard, and the cursor in the same place.
+ * Its whole rows are only owed their glyphs, so this is those rows paid. */
+static void rep_screen(const char *before, int n, bool rep, uint8_t *screen, int *x, int *y)
+{
+    char seq[32];
+    fresh();
+    feed(before);
+    feed("Q");
+    if (rep)
+    {
+        snprintf(seq, sizeof seq, "\33[%db", n);
+        feed(seq);
+    }
+    else
+        for (int i = 0; i < n; i++)
+            feed("Q");
+    /* The far half of a double-size row shows when the row is single again. */
+    feed("\0337\33[10;1H\33#5\0338");
+    for (int i = 0; i < TB_SCREEN_SETTLE; i++)
+        cells_task();
+    for (int r = 0; r < 30; r++)
+    {
+        const mode0_cell_t *row = tb_screen_row((uint8_t)r);
+        memcpy(screen + r * 80 * 9, row, 80 * 8);
+        memcpy(screen + r * 80 * 9 + 80 * 8, &mode0_extras[row - mode0_cells], 80);
+    }
+    *x = cx();
+    *y = cy();
+}
+
+UTEST(term, rep_draws_what_printing_draws)
+{
+    static const char *const before[] = {
+        "",
+        "\33[4;5;31;42m\33[1\"q",
+        "\33[5;9r\33[6;40H",
+        "\33[10;1H\33#6abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\33[9;70H",
+        "\33[?7l\33[3;70H",
+        "\33[4h\33[2;1Hsome text to push along\33[2;5H",
+        "\33[30;1H",
+        "\33[2J\33[41m\33[29;60H",
+    };
+    static const int counts[] = {1, 9, 10, 11, 79, 80, 81, 159, 160, 161, 500, 2399, 2400, 2401};
+    static uint8_t a[30 * 80 * 9], b[30 * 80 * 9];
+    for (unsigned i = 0; i < sizeof before / sizeof before[0]; i++)
+        for (unsigned k = 0; k < sizeof counts / sizeof counts[0]; k++)
+        {
+            int ax, ay, bx, by;
+            rep_screen(before[i], counts[k], true, a, &ax, &ay);
+            rep_screen(before[i], counts[k], false, b, &bx, &by);
+            if (memcmp(a, b, sizeof a) || ax != bx || ay != by)
+                printf("REP %d after case %u differs\n", counts[k], i);
+            ASSERT_EQ(0, memcmp(a, b, sizeof a));
+            ASSERT_EQ(ax, bx);
+            ASSERT_EQ(ay, by);
+        }
+}
+
 /* The palette a program changed and the cells it guarded are in the
  * savestate: both come back over a console that has since lost them. */
 UTEST(term, the_palette_and_the_guards_come_back)

@@ -47,8 +47,8 @@ void cells_publish(void);
 void cells_set_height(uint8_t width, uint8_t height);
 
 /* The chunk holds the terminal (term.h) and both sizes in full: each one's
- * grid, the layout of its screens' cells (the scroll remap and the pending
- * lazy erases) and its blinks, then the cursor's color, the cells, the byte
+ * grid, the layout of its screens' cells (the scroll remap and the fills
+ * its rows are owed) and its blinks, then the cursor's color, the cells, the byte
  * of extras beside each, and the palette the cells' colors name: its 256
  * entries and the default foreground and background.
  *
@@ -58,7 +58,7 @@ void cells_set_height(uint8_t width, uint8_t height);
  * The chunk starts with the terminal dimensions and a load rejects a chunk
  * whose dimensions differ, because a blob made at a taller height would put
  * its rows in the wrong places. */
-#define CELLS_BUF_SST_SIZE (8 * TERM_MAX_HEIGHT + 3)
+#define CELLS_BUF_SST_SIZE (12 * TERM_MAX_HEIGHT + 3)
 #define CELLS_ONE_SST_SIZE (TERM_GRID_SST_SIZE(TERM_MAX_HEIGHT) + 2 * CELLS_BUF_SST_SIZE + 18)
 #define CELLS_COUNT_SST (TERM_MAX_HEIGHT * (40 + 80) * (TERM_ALT_SCREEN ? 2 : 1))
 #define CELLS_MEM_SST_SIZE (8 * CELLS_COUNT_SST)
@@ -72,7 +72,7 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags);
 #define CELLS_DRIVER DRIVER(                                    \
     INIT(cells_init)                                            \
     TASK_FATFS(cells_task)                                      \
-    SST(CELL, 6, CELLS_SST_SIZE, cells_sst_save, cells_sst_load))
+    SST(CELL, 7, CELLS_SST_SIZE, cells_sst_save, cells_sst_load))
 
 /* ---- what the terminal asks of the screen ------------------------------
  *
@@ -100,6 +100,11 @@ void cells_touch(term_t *t, term_grid_t *g, uint8_t y);
 // n copies of the glyph at row y from column x, in the pen and the active
 // character set. n never runs past the row's columns.
 void cells_glyphs(term_t *t, term_grid_t *g, uint8_t y, uint8_t x, uint8_t byte, unsigned n);
+
+// Every cell of row y becomes the glyph, in the pen and the active character
+// set, when the row is next touched or the task reaches it. The cursor's
+// row is never left owing one.
+void cells_fill_row(term_t *t, term_grid_t *g, uint8_t y, uint8_t byte);
 
 // Erase columns [from, to) of row y. A selective erase leaves the protected
 // cells.

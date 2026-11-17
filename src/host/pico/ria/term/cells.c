@@ -113,6 +113,11 @@ void cells_align(term_t *t, term_grid_t *g)
     (void)t, (void)g;
 }
 
+void cells_fill_row(term_t *t, term_grid_t *g, uint8_t y, uint8_t byte)
+{
+    (void)t, (void)g, (void)y, (void)byte;
+}
+
 void cells_scroll(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, uint8_t n, bool up)
 {
     (void)t, (void)g, (void)top, (void)bot, (void)n, (void)up;

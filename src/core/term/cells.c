@@ -193,24 +193,28 @@ static CELLS_RUN void cells_run_move(mode0_cell_t *dst, const mode0_cell_t *src,
     }
 }
 
-// A lazy erase owed to a row: its glyph, a space or DECALN's E, its colors,
-// and whether it leaves the protected cells alone.
+// A fill owed to a row: the cell every cell of the row becomes, and its
+// extras. An erase is a fill with a blank cell, DECALN's is a fill with an
+// E, and REP's is a fill with its glyph as the pen draws it. A selective
+// erase leaves the guarded cells alone.
 typedef struct
 {
-    uint16_t fg, bg; /* as a cell holds them */
-    uint8_t glyph;
+    /* On a word, so the record is copied a word at a time. */
+    _Alignas(4) mode0_cell_t cell;
+    uint8_t extra;
     bool selective;
-} cells_erase_t;
+} cells_fill_t;
 
 // The cells of a screen and how its rows are laid out: the scroll remap and
-// the lazy erases still owed. Rows are indexed by their place on the screen,
-// except row_idx, which is indexed by slot.
+// the fills still owed. A row of the screen is in a row of memory, which
+// row_idx gives by slot. A fill is owed to the row of memory, so it goes
+// where the row goes and a scroll moves none of them.
 typedef struct
 {
     mode0_cell_t *mem;
     uint8_t row_idx[TERM_MAX_HEIGHT];
-    bool dirty[TERM_MAX_HEIGHT];
-    cells_erase_t erase[TERM_MAX_HEIGHT];
+    bool owed[TERM_MAX_HEIGHT];
+    cells_fill_t fill[TERM_MAX_HEIGHT];
     uint8_t y_offset;
     /* The rows scrolled off the top that are still in the cell store, the
      * newest first. A taller view shows them again; ED 3 forgets them. */
@@ -266,10 +270,15 @@ static inline uint8_t cells_buf_slot(uint8_t y_offset, uint8_t row)
     return slot;
 }
 
+// The row of memory that row y of the screen is in.
+static inline uint8_t cells_buf_mem(const screen_buf_t *buf, uint8_t y)
+{
+    return buf->row_idx[cells_buf_slot(buf->y_offset, y)];
+}
+
 static inline mode0_cell_t *cells_buf_row(const screen_buf_t *buf, uint8_t width, uint8_t y)
 {
-    uint8_t slot = cells_buf_slot(buf->y_offset, y);
-    return buf->mem + (uint32_t)buf->row_idx[slot] * width;
+    return buf->mem + (uint32_t)cells_buf_mem(buf, y) * width;
 }
 
 // Translate a logical row (0..height-1) into the start of its physical
@@ -344,54 +353,60 @@ static uint16_t cells_pen_bg(const term_t *term, const term_pen_t *pen)
 
 /* ---- cells and rows ---------------------------------------------------- */
 
-// Paint [start, end) of `row` with erased cells: the erase's glyph in its
-// colors, with no attributes and no guard. A selective erase leaves the
-// guarded cells as they are. An erase takes the pen's colors, not reversed,
-// and none of its attributes, as xterm and Linux do. The foreground matters
-// too, because the cursor is drawn from the cell it sits on.
+// Fill [start, end) of `row`: every cell becomes the fill's cell, with its
+// extras. A selective erase leaves the guarded cells as they are.
 static void fill_glyph(mode0_cell_t *row, unsigned start, unsigned end,
-                       const cells_erase_t *e)
+                       const cells_fill_t *e)
 {
-    const mode0_cell_t blank = {e->glyph, 0, e->fg, e->bg, e->fg};
     if (!e->selective)
     {
-        cells_run_fill(row + start, end - start, blank, 0);
+        cells_run_fill(row + start, end - start, e->cell, e->extra);
         return;
     }
     uint8_t *extra = &mode0_extras[cells_at(row)];
     for (unsigned i = start; i < end; i++)
         if (!(extra[i] & MODE0_EXTRA_GUARD))
         {
-            row[i] = blank;
-            extra[i] = 0;
+            row[i] = e->cell;
+            extra[i] = e->extra;
         }
 }
 
-// An erase in the pen's colors, selective or not.
-static cells_erase_t cells_pen_erase(const term_t *term, bool selective)
+// A blank cell in these colors: a space, or DECALN's E, with no attributes
+// and no guard. The foreground matters too, because the cursor is drawn
+// from the cell it sits on.
+static cells_fill_t cells_blank(uint8_t glyph, uint16_t fg, uint16_t bg, bool selective)
+{
+    const cells_fill_t e = {{glyph, 0, fg, bg, fg}, 0, selective};
+    return e;
+}
+
+// An erase in the pen's colors, selective or not. An erase takes the pen's
+// colors, not reversed, and none of its attributes, as xterm and Linux do.
+static cells_fill_t cells_pen_erase(const term_t *term, bool selective)
 {
     const term_pen_t *pen = term_pen(term);
-    cells_erase_t e = {cells_pen_fg(pen), cells_pen_bg(term, pen), ' ', selective};
-    return e;
+    return cells_blank(' ', cells_pen_fg(pen), cells_pen_bg(term, pen), selective);
 }
 
 // Erase [start, end) of `row` in the pen's colors.
 static void cells_fill_erased(term_t *term, mode0_cell_t *row, unsigned start, unsigned end,
                               bool selective)
 {
-    const cells_erase_t e = cells_pen_erase(term, selective);
+    const cells_fill_t e = cells_pen_erase(term, selective);
     fill_glyph(row, start, end, &e);
 }
 
 // Make sure you call this any time you change rows.
-// It will process any pending screen clears on the row.
+// It does the fill the row is still owed.
 static void cells_clean_line(cells_t *cells, uint8_t y)
 {
     screen_buf_t *buf = cells_buf(cells);
-    if (!buf->dirty[y])
+    const uint8_t m = cells_buf_mem(buf, y);
+    if (!buf->owed[m])
         return;
-    buf->dirty[y] = false;
-    fill_glyph(cells_row_ptr(cells, y), 0, cells->grid.width, &buf->erase[y]);
+    buf->owed[m] = false;
+    fill_glyph(cells_row_ptr(cells, y), 0, cells->grid.width, &buf->fill[m]);
 }
 
 // Force the cursor unlit and arm the input-gap timer. Used by movement
@@ -423,10 +438,11 @@ static bool cells_clean_one_dirty(screen_buf_t *buf, uint8_t width, uint8_t heig
         return false;
     for (uint8_t i = 0; i < height; i++)
     {
-        if (buf->dirty[i])
+        const uint8_t m = cells_buf_mem(buf, i);
+        if (buf->owed[m])
         {
-            buf->dirty[i] = false;
-            fill_glyph(cells_buf_row(buf, width, i), 0, width, &buf->erase[i]);
+            buf->owed[m] = false;
+            fill_glyph(cells_buf_row(buf, width, i), 0, width, &buf->fill[m]);
             return true;
         }
     }
@@ -448,37 +464,25 @@ static void cells_clean_task(cells_t *cells)
         cells_clean_one_dirty(other, cells->grid.width, cells->grid.height);
 }
 
-static void cells_shift_meta_up(screen_buf_t *s, uint8_t count)
-{
-    for (uint8_t i = 0; i < count; i++)
-    {
-        s->dirty[i] = s->dirty[i + 1];
-        s->erase[i] = s->erase[i + 1];
-    }
-}
-
-static void cells_shift_meta_down(screen_buf_t *s, uint8_t start)
-{
-    for (int i = start; i > 0; i--)
-    {
-        s->dirty[i] = s->dirty[i - 1];
-        s->erase[i] = s->erase[i - 1];
-    }
-}
-
-// Lazy-erase rows [from, to). A selective erase of a row already owed a
-// whole one stays whole: that erase leaves no protected cell for this one
-// to spare.
+// Rows [from, to) of the screen are owed this fill, in place of whatever
+// they were owed. A row owed a whole fill has every cell guarded or none,
+// so a selective erase of it spares all of that fill or lands whole.
 static void cells_mark_rows_with(screen_buf_t *s, uint8_t from, uint8_t to,
-                                 const cells_erase_t *e)
+                                 const cells_fill_t *e)
 {
     for (uint8_t i = from; i < to; i++)
     {
-        bool whole = s->dirty[i] && !s->erase[i].selective;
-        s->dirty[i] = true;
-        s->erase[i] = *e;
-        if (whole)
-            s->erase[i].selective = false;
+        const uint8_t m = cells_buf_mem(s, i);
+        if (e->selective && s->owed[m] && !s->fill[m].selective)
+        {
+            if (s->fill[m].extra & MODE0_EXTRA_GUARD)
+                continue;
+            s->fill[m] = *e;
+            s->fill[m].selective = false;
+            continue;
+        }
+        s->owed[m] = true;
+        s->fill[m] = *e;
     }
     s->all_clean = false;
 }
@@ -486,8 +490,8 @@ static void cells_mark_rows_with(screen_buf_t *s, uint8_t from, uint8_t to,
 // Lazy-erase rows [from, to) to spaces in the default colors.
 static void cells_mark_rows_default(screen_buf_t *s, uint8_t from, uint8_t to)
 {
-    const cells_erase_t e = {MODE0_ENTRY(MODE0_DEFAULT_FG, false),
-                             MODE0_ENTRY(MODE0_DEFAULT_BG, false), ' ', false};
+    const cells_fill_t e = cells_blank(' ', MODE0_ENTRY(MODE0_DEFAULT_FG, false),
+                                       MODE0_ENTRY(MODE0_DEFAULT_BG, false), false);
     cells_mark_rows_with(s, from, to, &e);
 }
 
@@ -495,7 +499,7 @@ static void cells_mark_rows_default(screen_buf_t *s, uint8_t from, uint8_t to)
 static void cells_mark_rows_erase(term_t *term, cells_t *cells, uint8_t from, uint8_t to,
                                   bool selective)
 {
-    const cells_erase_t e = cells_pen_erase(term, selective);
+    const cells_fill_t e = cells_pen_erase(term, selective);
     cells_mark_rows_with(cells_buf(cells), from, to, &e);
 }
 
@@ -505,14 +509,14 @@ static void cells_mark_rows_erase(term_t *term, cells_t *cells, uint8_t from, ui
 // the background (one row per tick, on both buffers), and the active
 // buffer's cursor row is also cleaned synchronously when the terminal
 // touches it.
-static void cells_mark_buf_erased(screen_buf_t *buf, uint8_t height, const cells_erase_t *e)
+static void cells_mark_buf_erased(screen_buf_t *buf, uint8_t height, const cells_fill_t *e)
 {
     buf->y_offset = 0;
     buf->hidden = 0;
     for (uint8_t y = 0; y < TERM_MAX_HEIGHT; y++)
     {
         buf->row_idx[y] = y;
-        buf->dirty[y] = false;
+        buf->owed[y] = false;
     }
     cells_mark_rows_with(buf, 0, height, e);
 }
@@ -577,6 +581,15 @@ void cells_glyphs(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, uint8_t by
                    term_protecting(term) ? MODE0_EXTRA_GUARD : 0);
 }
 
+void cells_fill_row(term_t *term, term_grid_t *g, uint8_t y, uint8_t byte)
+{
+    if (!cells_of(g))
+        return;
+    const cells_fill_t e = {cells_glyph_cell(term, byte),
+                            term_protecting(term) ? MODE0_EXTRA_GUARD : 0, false};
+    cells_mark_rows_with(cells_buf(cells_of(g)), y, (uint8_t)(y + 1), &e);
+}
+
 void cells_erase(term_t *term, term_grid_t *g, uint8_t y, unsigned from, unsigned to,
                  bool selective)
 {
@@ -606,17 +619,21 @@ void cells_delete(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, unsigned n
     cells_fill_erased(term, row, cols - n, cols, false);
 }
 
-// A line waiting on a whole lazy erase is left to it. One waiting on a
-// selective erase is erased first, because its protected cells move.
+// A row owed a whole fill of the very cells the shift brings in is left to
+// it: shifted, it is the same row. Any other row is paid what it is owed
+// first, because its cells move.
 void cells_shift(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigned count, bool left)
 {
     if (!cells_of(g))
         return;
     cells_t *cells = cells_of(g);
+    const cells_fill_t in = cells_pen_erase(term, false);
     for (uint8_t y = top; y <= bot; y++)
     {
         const screen_buf_t *buf = cells_buf(cells);
-        if (buf->dirty[y] && !buf->erase[y].selective)
+        const uint8_t m = cells_buf_mem(buf, y);
+        if (buf->owed[m] && !buf->fill[m].selective && buf->fill[m].extra == in.extra &&
+            !memcmp(&buf->fill[m].cell, &in.cell, sizeof(in.cell)))
             continue;
         cells_clean_line(cells, y);
         unsigned cols = term_cols(g, y);
@@ -648,13 +665,14 @@ void cells_align(term_t *term, term_grid_t *g)
     if (!cells_of(g))
         return;
     (void)term;
-    const cells_erase_t e = {MODE0_ENTRY(MODE0_DEFAULT_FG, false),
-                             MODE0_ENTRY(MODE0_DEFAULT_BG, false), 'E', false};
+    const cells_fill_t e = cells_blank('E', MODE0_ENTRY(MODE0_DEFAULT_FG, false),
+                                       MODE0_ENTRY(MODE0_DEFAULT_BG, false), false);
     cells_mark_rows_with(cells_buf(cells_of(g)), 0, g->height, &e);
 }
 
-// Rotate row_idx within the region by n, and each row's lazy erase with it;
-// the n rows coming in are lazy-erased in the pen's colors.
+// Rotate row_idx within the region by n. Each row's owed fill is its row of
+// memory's, so it goes with it. The n rows coming in are lazy-erased in the
+// pen's colors.
 void cells_scroll(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, uint8_t n, bool up)
 {
     if (!cells_of(g))
@@ -671,11 +689,6 @@ void cells_scroll(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, uint8_
             s->row_idx[cells_buf_slot(y_off, i)] = s->row_idx[cells_buf_slot(y_off, (uint8_t)(i + n))];
         for (uint8_t i = 0; i < n; i++)
             s->row_idx[cells_buf_slot(y_off, (uint8_t)(bot - n + 1 + i))] = saved[i];
-        for (uint8_t i = top; (uint8_t)(i + n) <= bot; i++)
-        {
-            s->dirty[i] = s->dirty[i + n];
-            s->erase[i] = s->erase[i + n];
-        }
         cells_mark_rows_erase(term, cells, (uint8_t)(bot - n + 1), (uint8_t)(bot + 1), false);
     }
     else
@@ -686,11 +699,6 @@ void cells_scroll(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, uint8_
             s->row_idx[cells_buf_slot(y_off, (uint8_t)i)] = s->row_idx[cells_buf_slot(y_off, (uint8_t)(i - n))];
         for (uint8_t i = 0; i < n; i++)
             s->row_idx[cells_buf_slot(y_off, (uint8_t)(top + i))] = saved[i];
-        for (int i = (int)bot; i - (int)n >= (int)top; i--)
-        {
-            s->dirty[i] = s->dirty[i - n];
-            s->erase[i] = s->erase[i - n];
-        }
         cells_mark_rows_erase(term, cells, top, (uint8_t)(top + n), false);
     }
 }
@@ -709,7 +717,6 @@ void cells_index(term_t *term, term_grid_t *g, bool up)
             s->y_offset = 0;
         if (s->hidden < TERM_MAX_HEIGHT - g->height)
             s->hidden++;
-        cells_shift_meta_up(s, last);
         cells_mark_rows_erase(term, cells, last, g->height, false);
     }
     else
@@ -717,7 +724,6 @@ void cells_index(term_t *term, term_grid_t *g, bool up)
         s->y_offset = s->y_offset ? (uint8_t)(s->y_offset - 1) : (uint8_t)(TERM_MAX_HEIGHT - 1);
         if (s->hidden)
             s->hidden--;
-        cells_shift_meta_down(s, last);
         cells_mark_rows_erase(term, cells, 0, 1, false);
     }
 }
@@ -734,7 +740,7 @@ void cells_clear(term_t *term, term_grid_t *g)
 {
     if (!cells_of(g))
         return;
-    const cells_erase_t e = cells_pen_erase(term, false);
+    const cells_fill_t e = cells_pen_erase(term, false);
     cells_mark_buf_erased(cells_buf(cells_of(g)), g->height, &e);
 }
 
@@ -745,6 +751,9 @@ void cells_height(term_grid_t *g, bool grow, bool top)
     cells_t *cells = cells_of(g);
     screen_buf_t *s = cells_buf(cells);
     uint8_t h = g->height;
+    // Other rows are in view now, and one of them may be owed a fill from
+    // before it left.
+    cells->bufs[0].all_clean = cells->bufs[1].all_clean = false;
     if (grow && top)
     {
         // Everything moves down a row and the row above comes into view. It
@@ -753,16 +762,13 @@ void cells_height(term_grid_t *g, bool grow, bool top)
             s->y_offset = TERM_MAX_HEIGHT - 1;
         else
             s->y_offset--;
-        cells_shift_meta_down(s, (uint8_t)(h - 1));
+        // A row of scrollback comes back as it left, with the fill it was
+        // still owed.
         if (s->hidden)
-        {
             s->hidden--;
-            s->dirty[0] = false;
-        }
         else
             cells_mark_rows_default(s, 0, 1);
-        // shift_meta_down may have copied a dirty flag into the cursor's new
-        // row; uphold the "the cursor's row is never dirty" invariant.
+        // The cursor's row is another row now, and is never owed a fill.
         cells_clean_line(cells, term_pos(g)->y);
     }
     else if (grow)
@@ -775,7 +781,6 @@ void cells_height(term_grid_t *g, bool grow, bool top)
         // The top row goes out of view and joins the scrollback.
         if (++s->y_offset >= TERM_MAX_HEIGHT)
             s->y_offset -= TERM_MAX_HEIGHT;
-        cells_shift_meta_up(s, h);
         s->hidden++;
         cells_clean_line(cells, term_pos(g)->y);
     }
@@ -822,8 +827,8 @@ void cells_reset(term_t *term, term_grid_t *g)
     cells_t *cells = cells_of(g);
     if (cells->bufs[1].mem)
     {
-        const cells_erase_t e = {MODE0_ENTRY(MODE0_DEFAULT_FG, false),
-                                 MODE0_ENTRY(MODE0_DEFAULT_BG, false), ' ', false};
+        const cells_fill_t e = cells_blank(' ', MODE0_ENTRY(MODE0_DEFAULT_FG, false),
+                                           MODE0_ENTRY(MODE0_DEFAULT_BG, false), false);
         cells_mark_buf_erased(&cells->bufs[1], g->height, &e);
     }
     cells_restart_blinks(cells);
@@ -1025,13 +1030,16 @@ static void cells_put_buf(sst_cursor_t *c, const screen_buf_t *b)
     for (int i = 0; i < TERM_MAX_HEIGHT; i++)
         sst_put_u8(c, b->row_idx[i]);
     for (int i = 0; i < TERM_MAX_HEIGHT; i++)
-        sst_put_bool(c, b->dirty[i]);
+        sst_put_bool(c, b->owed[i]);
     for (int i = 0; i < TERM_MAX_HEIGHT; i++)
     {
-        const cells_erase_t *e = &b->erase[i];
-        sst_put_u16(c, e->fg);
-        sst_put_u16(c, e->bg);
-        sst_put_u8(c, e->glyph);
+        const cells_fill_t *e = &b->fill[i];
+        sst_put_u8(c, e->cell.font_code);
+        sst_put_u8(c, e->cell.attributes);
+        sst_put_u16(c, e->cell.fg_color);
+        sst_put_u16(c, e->cell.bg_color);
+        sst_put_u16(c, e->cell.ul_color);
+        sst_put_u8(c, e->extra);
         sst_put_bool(c, e->selective);
     }
     sst_put_u8(c, b->y_offset);
@@ -1044,13 +1052,16 @@ static bool cells_get_buf(sst_cursor_t *c, screen_buf_t *b)
     for (int i = 0; i < TERM_MAX_HEIGHT; i++)
         b->row_idx[i] = sst_get_u8(c);
     for (int i = 0; i < TERM_MAX_HEIGHT; i++)
-        b->dirty[i] = sst_get_bool(c);
+        b->owed[i] = sst_get_bool(c);
     for (int i = 0; i < TERM_MAX_HEIGHT; i++)
     {
-        cells_erase_t *e = &b->erase[i];
-        e->fg = sst_get_u16(c);
-        e->bg = sst_get_u16(c);
-        e->glyph = sst_get_u8(c);
+        cells_fill_t *e = &b->fill[i];
+        e->cell.font_code = sst_get_u8(c);
+        e->cell.attributes = sst_get_u8(c);
+        e->cell.fg_color = sst_get_u16(c);
+        e->cell.bg_color = sst_get_u16(c);
+        e->cell.ul_color = sst_get_u16(c);
+        e->extra = sst_get_u8(c);
         e->selective = sst_get_bool(c);
     }
     b->y_offset = sst_get_u8(c);
@@ -1062,7 +1073,9 @@ static bool cells_get_buf(sst_cursor_t *c, screen_buf_t *b)
         return false;
     for (int i = 0; i < TERM_MAX_HEIGHT; i++)
         if (b->row_idx[i] >= TERM_MAX_HEIGHT ||
-            !cells_color_ok(b->erase[i].fg) || !cells_color_ok(b->erase[i].bg))
+            !cells_color_ok(b->fill[i].cell.fg_color) ||
+            !cells_color_ok(b->fill[i].cell.bg_color) ||
+            !cells_color_ok(b->fill[i].cell.ul_color))
             return false;
     return true;
 }
