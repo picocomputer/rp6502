@@ -362,7 +362,10 @@ bool vga_frame_crc(uint32_t *crc)
  * The VGA firmware diverges here: it paints a plane's sprites into the buffer
  * of the most recently filled plane at or below it, not into the plane's
  * own. */
-/* The emulators render one line at a time, so one set of caches serves. */
+/* The emulators render one line at a time, so one set of caches serves. A
+ * row of text is forgotten before every line, which builds its pairs again:
+ * a color then shows on the very next line, and a savestate, which carries
+ * no cache, loads into the picture the machine that saved it would draw. */
 static vga_fill_cache_t vga_fill_cache[SCANVIDEO_PLANE_COUNT];
 
 static void render_scanline(int y, uint32_t *fb)
@@ -374,8 +377,11 @@ static void render_scanline(int y, uint32_t *fb)
     for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
     {
         if (p->fill_fn[i])
+        {
+            vga_fill_cache_forget_row(&vga_fill_cache[i]);
             filled[i] = p->fill_fn[i](i, (int16_t)y, (int16_t)W, plane[i], p->fill_config[i],
                                       &vga_fill_cache[i]);
+        }
         if (p->sprite_fn[i])
         {
             if (!filled[i])

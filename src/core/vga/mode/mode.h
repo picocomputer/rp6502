@@ -24,6 +24,14 @@
 #define MODE_PIN(name) ((void)0)
 #endif
 
+/* Says which way a branch of a hot loop goes, so GCC lays the common path
+ * out as the fall through; a taken branch costs a cycle more. */
+#if defined(__GNUC__)
+#define MODE_LIKELY(x) __builtin_expect(!!(x), 1)
+#else
+#define MODE_LIKELY(x) (x)
+#endif
+
 #define MODE_TABLE(name, n)          \
     uint32_t name##_storage[n];      \
     uint32_t *name = name##_storage; \

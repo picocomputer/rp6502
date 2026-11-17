@@ -127,17 +127,36 @@ static inline int16_t vga_vsync_line(void)
     return highest * vga_canvas_y_scale();
 }
 
-/* What a plane's fill renderer keeps from one line to the next: every byte
- * of 4bpp as its two pixels, and the palette and bit order they were built
- * from. The caller keeps one per plane, and a set for each thread that
- * renders lines at the same time as another. It starts zeroed, which is a
- * correct table for a palette of all zeros. */
+/* What a plane's fill renderer keeps from one line to the next. The caller
+ * keeps one per plane, and a set for each thread that renders lines at the
+ * same time as another, and starts them zeroed.
+ *
+ * pairs_4bpp is every byte of 4bpp as its two pixels, with the palette and
+ * bit order they were built from. Zeroed, it is a correct table for a
+ * palette of all zeros.
+ *
+ * row_pair is a row of text: for each cell across the line, the four ways
+ * two of its pixels can land, in the cell's colors. A row is 8 or 16 lines
+ * in the same colors, so the renderer builds them for the first line it
+ * draws of the row and only looks glyphs up for the rest. row_key is what
+ * they were built from, and it always includes the frame, so a color that
+ * changes while its row is drawn shows on the next frame at the latest.
+ * Its first word is never 0 for a built row. */
+#define VGA_FILL_ROW_CELLS 81
 typedef struct
 {
     uint32_t pairs_4bpp[256];
     uint16_t palette_4bpp[16];
     bool reverse_4bpp;
+    uint32_t row_pair[VGA_FILL_ROW_CELLS][4];
+    uint32_t row_key[7];
 } vga_fill_cache_t;
+
+/* Forgets the row of text, so the next line builds its pairs again. */
+static inline void vga_fill_cache_forget_row(vga_fill_cache_t *cache)
+{
+    cache->row_key[0] = 0;
+}
 
 typedef bool (*vga_fill_fn_t)(int16_t plane_id, int16_t scanline, int16_t width,
                               uint16_t *rgb, uint16_t config_ptr,
