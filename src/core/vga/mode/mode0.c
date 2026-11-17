@@ -18,14 +18,15 @@ volatile mode0_regs_t mode0_regs;
 
 /* Indexed by row, then by style: none, single, double, curly, dotted,
  * dashed. The curly underline is a wave three rows tall and a cell wide on
- * the 16-row glyphs, and two rows tall and half a cell wide on the 8-row
- * ones. A dash is five pixels, a pixel in from the left of its cell and
+ * the 16-row glyphs, its crest and its trough three pixels each, with the
+ * trough under the middle of the glyph so it passes below a descender. On
+ * the 8-row glyphs it is two rows tall and half a cell wide. A dash is five pixels, a pixel in from the left of its cell and
  * two from the right. */
 const uint8_t mode0_underline16[4][8] = {
     {0},
-    {0, 0x00, 0xFF, 0x60, 0x00, 0x00},
-    {0, 0x00, 0x00, 0x91, 0x00, 0x00},
-    {0, 0xFF, 0xFF, 0x0E, 0xAA, 0x7C},
+    {0, 0x00, 0xFF, 0x83, 0x00, 0x00},
+    {0, 0x00, 0x00, 0x44, 0x00, 0x00},
+    {0, 0xFF, 0xFF, 0x38, 0xAA, 0x7C},
 };
 const uint8_t mode0_underline8[4][8] = {
     {0},
