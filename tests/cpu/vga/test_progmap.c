@@ -17,9 +17,11 @@
 #include "core/vga/mode/mode5.h"
 #include "core/term/color.h"
 #include "core/term/font.h"
+#include "core/term/term.h"
 #include "emu_boot.h"
 #include "utest.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* Mode 2 is left out because all of its attributes share one renderer, so
@@ -300,6 +302,171 @@ UTEST(progmap, a_terminal_row_keeps_no_colors_it_should_not)
     ASSERT_TRUE(term(0, 6, 640, line, 0, &cache));
     ASSERT_EQ(line[0], green);
     terminal_write("\33[2J\33[H");
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
+}
+
+/* Every underline style, drawn by the terminal's renderer and checked a
+ * pixel at a time against what the style's rows of pixels say: on the
+ * glyph's last three rows, in the foreground's color as more of the glyph,
+ * or in SGR 58's color over the glyph. On both sizes of glyph, on a
+ * double-width row, and on a reversed screen, where an underline in the
+ * foreground's color reverses with the glyph and one in its own color does
+ * not. The last cell has a strike through it as well. */
+UTEST(progmap, the_terminal_draws_every_underline_style)
+{
+    static uint16_t line[640];
+    static vga_fill_cache_t cache;
+    static const struct
+    {
+        vga_canvas_t canvas;
+        int width, ch;
+    } sizes[] = {{vga_canvas_640_480, 640, 16}, {vga_canvas_320_240, 320, 8}};
+    const vga_fill_fn_t term = mode0_fill_fn(0);
+    for (unsigned z = 0; z < 2; z++)
+        for (int wide = 0; wide < 2; wide++)
+            for (int reverse = 0; reverse < 2; reverse++)
+            {
+                const int ch = sizes[z].ch, last = ch - 1;
+                const uint8_t *font = ch == 16 ? font16 : font8;
+                const uint8_t (*table)[8] = ch == 16 ? mode0_underline16 : mode0_underline8;
+                ASSERT_TRUE(vga_canvas_select(sizes[z].canvas));
+                ASSERT_TRUE(terminal_at(0, 0));
+                terminal_write(reverse ? "\33[?5h" : "\33[?5l");
+                terminal_write("\33[m\33[2J\33[H");
+                terminal_write(wide ? "\33#6" : "\33#5");
+                terminal_write("\33[38;2;255;0;0;48;2;0;0;255m");
+                int cells = 0;
+                for (int own = 0; own < 2; own++)
+                    for (int style = 0; style <= 5; style++, cells++)
+                    {
+                        char seq[40];
+                        snprintf(seq, sizeof seq, "%s\33[4:%dmg", own ? "\33[58;2;0;255;0m" : "\33[59m", style);
+                        terminal_write(seq);
+                    }
+                terminal_write("\33[59;9;4:3mg");
+                cells++;
+                emu_frames(1);
+                const mode0_cell_t *cell = &mode0_cells[MODE0_ROW_CELL(mode0_regs.row[0])];
+                const mode0_colors_t *colors = &mode0_colors[MODE0_ROW_CELL(mode0_regs.row[0])];
+                for (int y = 0; y < ch; y++)
+                {
+                    ASSERT_TRUE(term(0, (int16_t)y, (int16_t)sizes[z].width, line, 0, &cache));
+                    const uint8_t *underline = table[y + 3 > last ? y + 3 - last : 0];
+                    for (int i = 0; i < cells; i++)
+                    {
+                        const uint16_t attr = cell[i].attributes;
+                        const bool own = attr & MODE0_ATTR_UL_COLOR;
+                        ASSERT_EQ((int)own, (int)(i >= 7 && i < 12));
+                        uint8_t bits = font[y * 256 + 'g'];
+                        if ((attr & TERM_ATTR_STRIKE) && y == ch / 2)
+                            bits = 0xFF;
+                        const uint8_t ul = underline[(attr >> TERM_ATTR_UL_SHIFT) & 7];
+                        uint16_t fg = mode0_color(colors[i].fg_color);
+                        uint16_t bg = mode0_color(colors[i].bg_color);
+                        if (reverse)
+                        {
+                            const uint16_t t = fg;
+                            fg = bg;
+                            bg = t;
+                        }
+                        for (int k = 0; k < 8; k++)
+                        {
+                            const bool on = (bits >> (7 - k)) & 1, line_on = (ul >> (7 - k)) & 1;
+                            const uint16_t want = own && line_on ? mode0_color(colors[i].ul_color)
+                                                  : on || line_on ? fg
+                                                                  : bg;
+                            for (int d = 0; d <= wide; d++)
+                                ASSERT_EQ(line[(i * 8 + k) * (wide + 1) + d], want);
+                        }
+                    }
+                }
+            }
+    /* The shapes: nothing above the last three rows, a single line on the
+     * last row, a double one on the last and the third from last, and
+     * every style its own. */
+    for (int t = 0; t < 2; t++)
+    {
+        const uint8_t (*table)[8] = t ? mode0_underline8 : mode0_underline16;
+        for (int style = 0; style < 8; style++)
+        {
+            ASSERT_EQ(table[0][style], 0);
+            const bool drawn = table[1][style] | table[2][style] | table[3][style];
+            ASSERT_EQ((int)drawn, (int)(style >= 1 && style <= 5));
+            for (int other = 0; other < style; other++)
+                if (drawn)
+                    ASSERT_TRUE(table[1][style] != table[1][other] || table[2][style] != table[2][other] ||
+                                table[3][style] != table[3][other]);
+        }
+        ASSERT_EQ(table[1][TERM_UL_SINGLE] | table[2][TERM_UL_SINGLE], 0);
+        ASSERT_EQ(table[3][TERM_UL_SINGLE], 0xFF);
+        ASSERT_EQ(table[1][TERM_UL_DOUBLE] & table[3][TERM_UL_DOUBLE], 0xFF);
+        ASSERT_EQ(table[2][TERM_UL_DOUBLE], 0);
+    }
+    /* The pixels themselves, as pictures: the last three rows of the
+     * 16-row glyphs, then of the 8-row ones. */
+    static const char *const shapes[2][6][3] = {
+        {{"........", "........", "........"},
+         {"........", "........", "XXXXXXXX"},
+         {"XXXXXXXX", "........", "XXXXXXXX"},
+         {".XX.....", "X..X...X", "....XXX."},
+         {"........", "........", "X.X.X.X."},
+         {"........", "........", "XXXXX..."}},
+        {{"........", "........", "........"},
+         {"........", "........", "XXXXXXXX"},
+         {"XXXXXXXX", "........", "XXXXXXXX"},
+         {"........", ".XX..XX.", "X..XX..X"},
+         {"........", "........", "X.X.X.X."},
+         {"........", "........", "XXXXX..."}}};
+    for (int t = 0; t < 2; t++)
+        for (int style = 0; style < 6; style++)
+            for (int r = 0; r < 3; r++)
+                for (int k = 0; k < 8; k++)
+                    ASSERT_EQ((int)(((t ? mode0_underline8 : mode0_underline16)[r + 1][style] >> (7 - k)) & 1),
+                              (int)(shapes[t][style][r][k] == 'X'));
+    /* A block cursor on an underlined cell shows the underline through it,
+     * in the cell's background, as it shows the glyph. */
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_640_480));
+    ASSERT_TRUE(terminal_at(0, 0));
+    terminal_write("\33[?5l\33[m\33#5\33[2J\33[H\33[48;2;0;0;255;4m \33[H\33[2 q");
+    emu_frames(1);
+    ASSERT_TRUE(term(0, 15, 640, line, 0, &cache));
+    const uint16_t blue = mode0_color(mode0_colors[MODE0_ROW_CELL(mode0_regs.row[0])].bg_color);
+    for (int k = 0; k < 8; k++)
+        ASSERT_EQ(line[k], blue);
+    ASSERT_TRUE(term(0, 14, 640, line, 0, &cache));
+    for (int k = 0; k < 8; k++)
+        ASSERT_NE(line[k], blue);
+    /* The font's second table: an italic is not the upright glyph, and a
+     * DEC Special Graphics line is a line. On the 8-row glyphs, which have
+     * no italics, an italic is the upright glyph. */
+    static uint16_t upright[640];
+    terminal_write("\33[m\33[2J\33[HR\33[3mR\33[23m\33(0q\33(B\33[H\33[?25l");
+    emu_frames(1);
+    bool differs = false, drawn = false;
+    for (int y = 0; y < 16; y++)
+    {
+        ASSERT_TRUE(term(0, (int16_t)y, 640, line, 0, &cache));
+        differs |= memcmp(line, line + 8, 8 * sizeof line[0]) != 0;
+        for (int k = 0; k < 8; k++)
+            drawn |= line[16 + k] != line[639];
+    }
+    ASSERT_TRUE(differs);
+    ASSERT_TRUE(drawn);
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_320_240));
+    ASSERT_TRUE(terminal_at(0, 0));
+    terminal_write("\33[m\33[2J\33[HR\33[3mR\33[23m\33(0q\33(B\33[H\33[?25l");
+    emu_frames(1);
+    drawn = false;
+    for (int y = 0; y < 8; y++)
+    {
+        ASSERT_TRUE(term(0, (int16_t)y, 320, upright, 0, &cache));
+        ASSERT_EQ(0, memcmp(upright, upright + 8, 8 * sizeof upright[0]));
+        for (int k = 0; k < 8; k++)
+            drawn |= upright[16 + k] != upright[319];
+    }
+    ASSERT_TRUE(drawn);
+    terminal_write("\33[?25h");
+    terminal_write("\33[?5l\33[m\33#5\33[2J\33[H\33[0 q");
     ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
 }
 

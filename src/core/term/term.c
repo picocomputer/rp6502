@@ -352,12 +352,10 @@ static void term_out_SGR(term_t *t)
             break;
         case 4: // underline; kitty's 4:n picks a style
         {
-            uint16_t style = subs ? t->csi_param[i + 1] : 1;
-            cur->sgr_attr &= (uint8_t)~(TERM_ATTR_UNDERLINE | TERM_ATTR_DBL_UL);
-            if (style == 2)
-                cur->sgr_attr |= TERM_ATTR_DBL_UL;
-            else if (style >= 1 && style <= 5)
-                cur->sgr_attr |= TERM_ATTR_UNDERLINE;
+            uint16_t style = subs ? t->csi_param[i + 1] : TERM_UL_SINGLE;
+            cur->sgr_attr &= (uint8_t)~TERM_ATTR_UL_MASK;
+            if (style <= TERM_UL_DASHED)
+                cur->sgr_attr |= (uint8_t)TERM_ATTR_UL(style);
             break;
         }
         case 5: // slow blink (~1.5 Hz)
@@ -382,7 +380,8 @@ static void term_out_SGR(term_t *t)
             t->disp_ctrl = true;
             break;
         case 21: // double underline (ECMA-48, xterm)
-            cur->sgr_attr |= TERM_ATTR_DBL_UL;
+            cur->sgr_attr = (uint8_t)((cur->sgr_attr & ~TERM_ATTR_UL_MASK) |
+                                       TERM_ATTR_UL(TERM_UL_DOUBLE));
             break;
         case 22: // normal intensity: cancels both bold and faint
             cur->bold = false;
@@ -392,7 +391,7 @@ static void term_out_SGR(term_t *t)
             cur->sgr_attr &= (uint8_t)~TERM_ATTR_ITALIC;
             break;
         case 24: // underline off
-            cur->sgr_attr &= (uint8_t)~(TERM_ATTR_UNDERLINE | TERM_ATTR_DBL_UL);
+            cur->sgr_attr &= (uint8_t)~TERM_ATTR_UL_MASK;
             break;
         case 25: // not blink (clears slow and rapid)
             cur->sgr_attr &= (uint8_t)~TERM_ATTR_ANY_BLINK;

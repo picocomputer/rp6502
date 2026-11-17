@@ -157,8 +157,8 @@ static void vt_row(int y, char *out, size_t size)
     for (int x = 0; x < vt_cols && o + 8 < size; x++)
     {
         const mode0_cell_t *c = &row[x];
-        uint32_t cp = c->font_code;
-        if ((c->attributes & TERM_ATTR_DEC) && cp >= 0x5F && cp <= 0x7E)
+        uint32_t cp = mode0_glyph_code(c->glyph);
+        if (mode0_glyph_is_dec(c->glyph) && cp >= 0x5F && cp <= 0x7E)
             cp = vt_dec[cp - 0x5F];
         else if (cp < 0x20)
             cp = vt_cp437_low[cp]; /* a control drawn as its glyph */
@@ -193,6 +193,21 @@ static void vt_settle(void)
  * cell's color is a pixel or an entry of mode 0's palette; the pixel it is
  * drawn as is what goes in, so the golden screens hold whichever a cell
  * has. */
+/* A cell's attributes as the byte golden.txt's digests were made from:
+ * the blinks in bits 0 and 1, an underline that is not double in bit 2 and
+ * a double one in bit 3, then the strike, the overline, DEC graphics and
+ * italics. */
+static uint8_t vt_attributes(const mode0_cell_t *c)
+{
+    const uint16_t a = c->attributes;
+    const unsigned ul = (a & TERM_ATTR_UL_MASK) >> TERM_ATTR_UL_SHIFT;
+    return (uint8_t)((a & TERM_ATTR_ANY_BLINK) |
+                     (ul == TERM_UL_DOUBLE ? 8 : ul ? 4 : 0) |
+                     (a & TERM_ATTR_STRIKE ? 16 : 0) | (a & TERM_ATTR_OVERLINE ? 32 : 0) |
+                     (mode0_glyph_is_dec(c->glyph) ? 64 : 0) |
+                     (c->glyph >= 0x100 && !mode0_glyph_is_dec(c->glyph) ? 128 : 0));
+}
+
 static uint32_t vt_cells(void)
 {
     uint32_t crc = 0;
@@ -210,7 +225,7 @@ static uint32_t vt_cells(void)
                 uint16_t fg_color;
                 uint16_t bg_color;
                 uint16_t ul_color;
-            } shown = {row[x].font_code, (uint8_t)row[x].attributes,
+            } shown = {mode0_glyph_code(row[x].glyph), vt_attributes(&row[x]),
                        mode0_color(colors[x].fg_color), mode0_color(colors[x].bg_color),
                        mode0_color(colors[x].ul_color)};
             crc = host_crc32(crc, &shown, sizeof shown);

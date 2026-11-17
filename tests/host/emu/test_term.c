@@ -77,7 +77,7 @@ static const mode0_colors_t *ink(int x, int y)
 
 static char ch(int x, int y)
 {
-    return (char)cell(x, y)->font_code;
+    return (char)mode0_glyph_code(cell(x, y)->glyph);
 }
 
 /* The row's text with trailing spaces dropped. */
@@ -198,9 +198,9 @@ UTEST(term, esc_starts_over)
 {
     fresh();
     feed("\33\33[1mB\33]0;title\33[4mC");
-    ASSERT_TRUE(cell(0, 0)->font_code == 'B');
+    ASSERT_TRUE(cell(0, 0)->glyph == 'B');
     ASSERT_STREQ(row(0), "BC");
-    ASSERT_TRUE(cell(1, 0)->attributes & TERM_ATTR_UNDERLINE);
+    ASSERT_TRUE(cell(1, 0)->attributes & TERM_ATTR_UL_MASK);
 }
 
 UTEST(term, esc_intermediates_print_nothing)
@@ -325,7 +325,7 @@ UTEST(term, decrc_without_a_save_is_the_defaults)
     ASSERT_EQ(cx(), 1);
     ASSERT_EQ(cy(), 0);
     ASSERT_EQ(ch(0, 0), 'q');
-    ASSERT_EQ(cell(0, 0)->attributes & TERM_ATTR_DEC, 0);
+    ASSERT_TRUE(cell(0, 0)->glyph < 0x100);
     ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), color_256[7]);
 }
 
@@ -707,7 +707,7 @@ UTEST(term, erase_takes_the_background_and_no_attributes)
     fresh();
     feed("\33[4;7;5;41;32mx\33[2K");
     const mode0_cell_t *c = cell(0, 0);
-    ASSERT_EQ(c->font_code, ' ');
+    ASSERT_EQ(c->glyph, ' ');
     ASSERT_EQ(c->attributes, 0);
     ASSERT_EQ(mode0_color(ink(0, 0)->bg_color), color_256[1]);
     ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), color_256[2]);
@@ -794,11 +794,57 @@ UTEST(term, underline_styles)
 {
     fresh();
     feed("\33[4:3mA\33[4:2mB\33[4:0mC\33[1:5mD");
-    ASSERT_EQ(cell(0, 0)->attributes, TERM_ATTR_UNDERLINE);
-    ASSERT_EQ(cell(1, 0)->attributes, TERM_ATTR_DBL_UL);
+    ASSERT_EQ(cell(0, 0)->attributes, TERM_ATTR_UL(TERM_UL_CURLY));
+    ASSERT_EQ(cell(1, 0)->attributes, TERM_ATTR_UL(TERM_UL_DOUBLE));
     ASSERT_EQ(cell(2, 0)->attributes, 0);
     ASSERT_EQ(cell(3, 0)->attributes, 0); /* 1:5 is bold, not blink */
     ASSERT_EQ(mode0_color(ink(3, 0)->fg_color), color_256[15]);
+    /* Every style, the last one set standing; a style past the last is
+     * none; SGR 21 is the double one and SGR 24 ends them all. */
+    feed("\33[H\33[m\33[4mA\33[4:1mB\33[4:4mC\33[4:5mD\33[4:6mE\33[4;21mF\33[24mG");
+    ASSERT_EQ(cell(0, 0)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(cell(1, 0)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(cell(2, 0)->attributes, TERM_ATTR_UL(TERM_UL_DOTTED));
+    ASSERT_EQ(cell(3, 0)->attributes, TERM_ATTR_UL(TERM_UL_DASHED));
+    ASSERT_EQ(cell(4, 0)->attributes, 0);
+    ASSERT_EQ(cell(5, 0)->attributes, TERM_ATTR_UL(TERM_UL_DOUBLE));
+    ASSERT_EQ(cell(6, 0)->attributes, 0);
+}
+
+/* SGR 58 colors the underline and SGR 59 gives it back to the foreground.
+ * A cell says its underline has a color of its own only when it has an
+ * underline, so the renderer reads that color for no other cell. */
+UTEST(term, an_underline_says_when_its_color_is_its_own)
+{
+    fresh();
+    feed("\33[58;2;1;2;3mA\33[4:3mB\33[59mC\33[58;5;2;4mD\33[mE");
+    ASSERT_EQ(cell(0, 0)->attributes, 0);
+    ASSERT_EQ(cell(1, 0)->attributes, TERM_ATTR_UL(TERM_UL_CURLY) | MODE0_ATTR_UL_COLOR);
+    ASSERT_EQ(mode0_color(ink(1, 0)->ul_color), rgb(1, 2, 3));
+    ASSERT_EQ(cell(2, 0)->attributes, TERM_ATTR_UL(TERM_UL_CURLY));
+    ASSERT_EQ(ink(2, 0)->ul_color, ink(2, 0)->fg_color);
+    ASSERT_EQ(cell(3, 0)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE) | MODE0_ATTR_UL_COLOR);
+    ASSERT_EQ(mode0_color(ink(3, 0)->ul_color), color_256[2]);
+    ASSERT_EQ(cell(4, 0)->attributes, 0);
+}
+
+/* A cell holds where the font has its glyph. SGR 3 is the italics for
+ * ASCII and the code page's glyph for anything else, DEC Special Graphics
+ * wins over the italics, and neither is an attribute of the cell. */
+UTEST(term, a_cell_names_its_glyph_in_the_font)
+{
+    fresh();
+    feed("A\33[3mA\xC4\33(0qa\33(Bq\33[23mq");
+    ASSERT_EQ(cell(0, 0)->glyph, 'A');
+    ASSERT_EQ(cell(1, 0)->glyph, MODE0_GLYPH_ITALIC(16, 'A'));
+    ASSERT_EQ(cell(2, 0)->glyph, 0xC4);
+    ASSERT_EQ(cell(3, 0)->glyph, MODE0_GLYPH_DEC(16, 'q'));
+    ASSERT_EQ(cell(4, 0)->glyph, MODE0_GLYPH_DEC(16, 'a'));
+    ASSERT_EQ(cell(5, 0)->glyph, MODE0_GLYPH_ITALIC(16, 'q'));
+    ASSERT_EQ(cell(6, 0)->glyph, 'q');
+    for (int x = 0; x < 7; x++)
+        ASSERT_EQ(cell(x, 0)->attributes, 0);
+    ASSERT_STREQ(row(0), "AA\xC4qaqq");
 }
 
 /* ---- character sets ---- */
@@ -807,12 +853,11 @@ UTEST(term, the_uk_set_has_the_pound)
 {
     fresh();
     feed("\33(A#a\33(B#\33(U#\33)0\16q\17");
-    ASSERT_EQ(cell(0, 0)->font_code, 0x7D);
-    ASSERT_TRUE(cell(0, 0)->attributes & TERM_ATTR_DEC);
+    ASSERT_EQ(cell(0, 0)->glyph, MODE0_GLYPH_DEC(16, 0x7D));
     ASSERT_EQ(ch(1, 0), 'a');
     ASSERT_EQ(ch(2, 0), '#');
     ASSERT_EQ(cell(3, 0)->attributes, 0);
-    ASSERT_TRUE(cell(4, 0)->attributes & TERM_ATTR_DEC);
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(4, 0)->glyph));
 }
 
 /* ---- VT52 ---- */
@@ -823,7 +868,7 @@ UTEST(term, vt52_mode)
     feed("\33[?2l\33Y%*Z\33Z\33[\33Fq\33Gq\33<\33[2Cx");
     ASSERT_EQ(ch(10, 5), 'Z');
     ASSERT_STREQ(answer(), "\33/Z");
-    ASSERT_TRUE(cell(11, 5)->attributes & TERM_ATTR_DEC);
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(11, 5)->glyph));
     ASSERT_EQ(cell(12, 5)->attributes, 0);
     ASSERT_EQ(ch(15, 5), 'x');
 }
@@ -1182,7 +1227,7 @@ UTEST(term, shifts_owed_to_a_row_are_the_shifts_done)
         for (int i = 0; i < 80; i++)
         {
             const mode0_cell_t *c = cell(i, 2);
-            ASSERT_EQ(c->font_code, (uint8_t)glyph[i]);
+            ASSERT_EQ(c->glyph, (uint8_t)glyph[i]);
             if (bg[i])
                 ASSERT_EQ(mode0_color(ink(i, 2)->bg_color), color_256[bg[i]]);
             ASSERT_EQ((int)!!(c->attributes & MODE0_ATTR_GUARD), (int)guard[i]);

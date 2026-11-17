@@ -19,19 +19,32 @@ core/vga/mode/mode0.h defines.
 
 | | Cells | Beside the cells | Free |
 |---|---|---|---|
-| RP6502-PICO | 30.7 KB in VIDEO | 46.1 KB of colors and 1 KB of palette in VIDEO | about 62 KB of lower RAM, before the stacks and heap |
-| RP6502-FPGA | 57.6 KB in VIDCELLS | not built since the cells changed; see step 13 | |
+| RP6502-PICO | 30.7 KB in VIDEO | 46.1 KB of colors, 12 KB of fonts, and 1 KB of palette in VIDEO | about 59 KB of lower RAM, before the stacks and heap |
+| RP6502-FPGA | 57.6 KB in VIDCELLS | not built since the cells changed; see step 12 | |
 
-A cell is 10 bytes in two tables. One has its glyph, an unused byte, and
-16 bits of attributes, in one word, which is all a scanline reads. The
-other has its three 16-bit colors (foreground, background, and
-underline), which are read when a row's pixel pairs are built. A color is
-an RGB pixel or an entry of mode 0's palette, so a palette change is one
-write to the palette. The low byte of the attributes is what the renderer
-draws; one bit above it says DECSCA or SPA guards the cell from the
-selective erases, and seven are free. The 40-column and the 80-column
-console both follow every byte, and each has an alternate screen, so
-every table is paid four times.
+A cell is 10 bytes in two tables. One has its glyph and 16 bits of
+attributes, in one word, which is all a scanline reads. The other has its
+three 16-bit colors (foreground, background, and underline), which are
+read when a row's pixel pairs are built. A color is an RGB pixel or an
+entry of mode 0's palette, so a palette change is one write to the
+palette. The 40-column and the 80-column console both follow every byte,
+and each has an alternate screen, so every table is paid four times.
+
+The glyph is 16 bits: where the font has it. Each font has two tables of
+256 glyphs, the code page's and one with the italics and DEC Special
+Graphics, so a scanline draws any cell with one lookup and tests nothing.
+
+The attributes: the two blinks, three bits of underline style, the
+strike, the overline, whether the underline has a color of its own, and
+whether DECSCA or SPA guards the cell from the selective erases. Seven
+bits are free. Only the underlines, the strike, and the overline change what a
+scanline draws, and only on their own rows of the glyph: five of 16 rows.
+On the other rows a scanline does not read the attributes.
+
+The underlines are kitty's: SGR 4:0 to 4:5 for none, single, double,
+curly, dotted, and dashed, with SGR 58 and 59 for the color. Each style's
+pixels are in one table for each size of glyph, mode0_underline16 and
+mode0_underline8, for mode0.c and mode0.sv both.
 
 ## The console's speed
 
@@ -87,9 +100,12 @@ the loop is about 1,100 cycles.
 Three planes with a fill layer on each, a program writing to the console
 at 115200 baud, no late scanline, and a margin for sprites. It is met.
 
-A mode 0 scanline is 2,530 cycles of plain text and 2,330 with every cell
-in its own colors. With a fill layer on all three planes a scanline
-averages 10,500 cycles and core 0's slowest is 13,900, 0.8 byte-times.
+A mode 0 scanline averages 2,280 cycles of plain text, 2,250 with every
+cell in its own colors, 2,700 with every cell underlined, and 3,350 with
+every cell underlined in a curly line of its own color. A screen of those
+over two more fill layers has no late scanline. With a fill layer on all
+three planes a scanline averages 10,500 cycles and core 0's slowest is
+13,900, 0.8 byte-times.
 
 The margin is measured by making every scanline cost more cycles until
 one is late. Over the console and two mode 2 layers at 8 bpp, on a VGA
@@ -104,35 +120,7 @@ reaches the console through a debug probe; see tests/hil/pico/README.md.
 Every feature below is measured against the target, and kept or taken
 out.
 
-## 0. Kitty's underlines: all or nothing
-
-**What they are.** Underline styles chosen with a colon parameter: 4:0
-none, 4:1 single, 4:2 double, 4:3 curly, 4:4 dotted, and 4:5 dashed. SGR
-58 sets the underline's color and SGR 59 returns it to the foreground's.
-Editors mark errors and warnings with a colored curly underline. Most
-modern terminals have them, and terminfo names them (Smulx, Setulc).
-
-**Today.** The console accepts all of it but draws only single and
-double. Curly, dotted, and dashed draw as single.
-
-**The choice:**
-
-- **All.** Draw every style, with SGR 58 and 59. Curly is a wave 3 pixels
-  tall on 8x16 cells and 2 on 8x8. One table of each style's pixels
-  serves mode0.c and mode0.sv. The six styles need three bits and the
-  attribute byte has two for them, so the style goes in the byte of
-  extras beside each cell, and a bit in the cell's attributes says the
-  cell has an underline. Bits may move between the cell and its extras,
-  and bits that only tell the renderer what to draw may be added,
-  wherever that draws fastest.
-- **None.** SGR 4:n, 58, and 59 go, and the underline color leaves the
-  cell. A cell shrinks from 8 bytes to 6: about 15 KB saved on the
-  RP6502-PICO and 14 KB on the RP6502-FPGA. The cell's layout changes in
-  mode0.h, mode0.c, and mode0.sv, and the RP6502-FPGA needs a fit.
-
-All, to begin with; it can come out later if it is not wanted.
-
-## 1. Kitty's keyboard protocol, only if 0 is "all"
+## 0. Kitty's keyboard protocol
 
 **What it is.** A program reading stdin can tell every key apart without
 the RIA's keyboard registers. Neovim, Helix, and fish use it.
@@ -154,7 +142,7 @@ Releases need a path from the keyboard that does not exist today. A few
 bytes of flags and a table of about a hundred key codes. About a week
 with tests.
 
-## 2. Drop the Linux console's palette sequences
+## 1. Drop the Linux console's palette sequences
 
 `ESC ] P nrrggbb` and `ESC ] R` set and reset palette colors on the Linux
 console. xterm's OSC 4 and OSC 104 do the same and more: any of the 256
@@ -162,7 +150,7 @@ entries, several in one sequence, X11 color names, and resetting one
 entry or all. Remove the Linux ones; `ESC ] P` then starts an ordinary
 OSC that runs to its BEL or ST, as on xterm.
 
-## 3. Bracketed paste (mode ?2004)
+## 2. Bracketed paste (mode ?2004)
 
 When a program turns it on, pasted text arrives wrapped in `ESC [ 200 ~`
 and `ESC [ 201 ~`. An editor can then tell a paste from typing and not
@@ -171,27 +159,27 @@ the pasted text is dropped so the text cannot end the wrapper early.
 DECRQM reports the mode and RIS clears it. Paste comes from the emulator
 and the web player.
 
-## 4. Report the console's name (XTVERSION)
+## 3. Report the console's name (XTVERSION)
 
 A program sends `CSI > q` and the console answers
 `DCS > | RP6502(0.25) ST`, so the program need not guess the terminal
 from its device attributes. The version is the firmware's, without a
 "v", or the CI build number.
 
-## 5. Rectangle sequences (VT420)
+## 4. Rectangle sequences (VT420)
 
 DECFRA (fill), DECERA (erase), DECSERA (selective erase), DECCRA (copy),
 DECCARA and DECRARA (change and reverse attributes), and DECSACE, which
 chooses stream or rectangle. xterm has them, and DECSERA completes the
 protected areas.
 
-## 6. Left and right margins (DECSLRM)
+## 5. Left and right margins (DECSLRM)
 
 Scrolling and editing limited to a column range, allowed by mode ?69
 (DECLRMM). tmux and some editors use it when it is there. Every insert,
 delete, and scroll has to respect the margins.
 
-## 7. Window size reports (`CSI t`)
+## 6. Window size reports (`CSI t`)
 
 Keep the reports; ignore the rest of `CSI t`, which moves and resizes
 desktop windows.
@@ -207,7 +195,7 @@ desktop windows.
   shown at, or the size a program set with RIA_ATTR_RLN_WIDTH and HEIGHT.
   They always match.
 
-## 8. Drop SGR 10 and 11
+## 7. Drop SGR 10 and 11
 
 On the Linux console, SGR 11 makes bytes 1 to 31 and DEL print as their
 CP437 pictures and SGR 10 turns that off. The standard way is CRM
@@ -215,7 +203,7 @@ CP437 pictures and SGR 10 turns that off. The standard way is CRM
 the same switch. Remove SGR 10 and 11. The target is xterm, not the Linux
 console.
 
-## 9. Smooth scroll, DECSCLM (?4), as an experiment
+## 8. Smooth scroll, DECSCLM (?4), as an experiment
 
 A VT100 scrolled smoothly at 6 lines a second, and told the computer
 sending it text to wait (XOFF) when it fell behind. Nothing here can tell
@@ -225,12 +213,12 @@ s. The renderer would draw the scroll region at a pixel offset, which the
 row table could carry. Build a demo ROM for the emulator and the
 RP6502-PICO, look at it, then decide.
 
-## 10. The manual
+## 9. The manual
 
 - Open the Terminal section of term.rst with what the console is: a
-  VT102 minus 132 columns, the xterm subset, ANSI-BBS, and kitty's
-  underlines and keyboard protocol if 4 and 5 land. It does not list what
-  a VT102's hardware did that this machine cannot.
+  VT102 minus 132 columns, the xterm subset, ANSI-BBS, kitty's
+  underlines, and kitty's keyboard protocol if step 0 lands. It does not
+  list what a VT102's hardware did that this machine cannot.
 - term.rst lists fast blink (SGR 6) and overline (SGR 53, 55) as features
   from other terminals. Both are ECMA-48's. The list loses them and gains
   xterm's, aixterm's, and SCO's.
@@ -240,7 +228,7 @@ RP6502-PICO, look at it, then decide.
   follows the palette.
 - Document each item above when it lands.
 
-## 11. Use less memory
+## 10. Use less memory
 
 Do these together, after the steps above.
 
@@ -248,13 +236,14 @@ Do these together, after the steps above.
   each core, 8 KB in all, beside a 1 KB table for 4 bpp. A plane draws
   one or the other on a scanline, so the two can share their memory, and
   the 8 KB becomes about 1.6 KB. Not tried.
-- Dropping kitty's underlines (4) removes a quarter of each cell.
+- Dropping the underline's color removes a fifth of each cell, and SGR
+  58 and 59 with it.
 - Keep the cells of only one of the 40-column and 80-column consoles at a
   time and rebuild the other when the canvas changes. That halves the
   cells, if what the rebuild loses is acceptable.
 - src/core/harvest.md lists memory to win back elsewhere.
 
-## 12. scanvideo.c: decide at the end
+## 11. scanvideo.c: decide at the end
 
 What is found in scanvideo.c along the way is listed here. At the end,
 decide whether to change it, rewrite it, or leave it.
@@ -263,14 +252,15 @@ decide whether to change it, rewrite it, or leave it.
   one. One lock for each would save an estimated 50 to 100 cycles a
   scanline. Not tried.
 
-## 13. RP6502-FPGA: palette entries in cells
+## 12. RP6502-FPGA: palette entries in cells
 
 The cells now hold palette entries and the RP6502-FPGA still draws them
 as pixels, so its console's colors are wrong until this is done. mode0.sv
 needs a palette memory (one M10K block) written from mode0_palette, looks
-up as many as three colors a cell in its 8 clocks, and needs a fit. Once
-a renderer reads the extras beside the cells, as for step 0, it needs a
-memory for those too.
+up as many as three colors a cell in its 8 clocks, and needs a fit. The
+cells are two memories now, the glyphs and attributes in one and the
+colors in the other, the fonts have a second table each, and the
+underlines have their styles.
 
 ## Not doing
 

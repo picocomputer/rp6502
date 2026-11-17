@@ -16,11 +16,8 @@
 // A machine may link these tables onto memory that takes only whole words
 // and cannot be read back. So the builder writes them a word at a time
 // through a volatile pointer, and never reads them.
-alignas(4) uint8_t font8[2048];
-alignas(4) uint8_t font16[4096];
-alignas(4) uint8_t font_dec_8[8 * 32];
-alignas(4) uint8_t font_dec_16[16 * 32];
-alignas(4) uint8_t italic16[16 * 128];
+alignas(4) uint8_t font8[2 * 2048];
+alignas(4) uint8_t font16[2 * 4096];
 
 static uint16_t font_code_page;
 
@@ -3765,15 +3762,16 @@ static void font_words(uint8_t *dst, const uint8_t *src, size_t len)
         d[i] = s ? s[i] : 0;
 }
 
+// The upper half of the second table: DEC Special Graphics, each glyph at
+// its character's code, 0x5F to 0x7E, and nothing in the rest.
 static void font_build_dec_graphics(void)
 {
-    // font_dec_8 and font_dec_16 are laid out like font8 and font16: one scan
-    // row of every glyph, then the next row. A row is built here and then
-    // written out as words.
+    // One scan row of every glyph, then the next row, as the code page's
+    // table is laid out. A row is built here and then written out as words.
     for (int row = 0; row < 16; row++)
     {
-        uint32_t row16[8];
-        uint32_t row8[8];
+        uint32_t row16[32] = {0};
+        uint32_t row8[32] = {0};
         uint8_t *b16 = (uint8_t *)row16;
         uint8_t *b8 = (uint8_t *)row8;
         for (int idx = 0; idx < 0x20; idx++)
@@ -3805,12 +3803,12 @@ static void font_build_dec_graphics(void)
                 if (row < 8)
                     v8 = FONT8_CP437[row * 128 + (ch - 0x80)];
             }
-            b16[idx] = v16;
-            b8[idx] = v8;
+            b16[0x5F + idx] = v16;
+            b8[0x5F + idx] = v8;
         }
-        font_words(&font_dec_16[row * 32], b16, 32);
+        font_words(&font16[FONT_OTHER(16) + row * 256 + FONT_OTHER_DEC], b16, 128);
         if (row < 8)
-            font_words(&font_dec_8[row * 32], b8, 32);
+            font_words(&font8[FONT_OTHER(8) + row * 256 + FONT_OTHER_DEC], b8, 128);
     }
 }
 
@@ -3823,14 +3821,15 @@ static void font_build(const uint8_t *font8hi, const uint8_t *font16hi)
         font_words(&font16[row * 256], &FONT16_ASCII[row * 128], 128);
         font_words(&font16[row * 256 + 128],
                    font16hi ? &font16hi[row * 128] : NULL, 128);
+        font_words(&font16[FONT_OTHER(16) + row * 256], &FONT16_ASCII_ITALIC[row * 128], 128);
         if (row < 8)
         {
             font_words(&font8[row * 256], &FONT8_ASCII[row * 128], 128);
             font_words(&font8[row * 256 + 128],
                        font8hi ? &font8hi[row * 128] : NULL, 128);
+            font_words(&font8[FONT_OTHER(8) + row * 256], &FONT8_ASCII[row * 128], 128);
         }
     }
-    font_words(italic16, FONT16_ASCII_ITALIC, sizeof(italic16));
     font_build_dec_graphics();
 }
 

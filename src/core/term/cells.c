@@ -30,11 +30,12 @@
 //    buffer from overflowing, lines are cleared in a background task
 //    and checked as the cursor moves into them. Nothing fills more
 //    than one row of cells in a single operation.
-// 3. A cell's glyph and attributes are one word (mode0.h). The low
-//    byte of the attributes holds the render-time flags (underline,
-//    blink, DEC graphics, etc.). The renderer's hot path branches
-//    once per cell on that word being a bare glyph; the common path
-//    pays one load and a predicted-not-taken branch.
+// 3. A cell's glyph and attributes are one word (mode0.h). The glyph
+//    is where the font has it, so a scanline draws any cell with one
+//    lookup. The attributes hold the lines through a cell (underline,
+//    strike, overline), which a scanline reads only on the rows of the
+//    glyph where a line can be, and there it branches once per cell
+//    on the word being a bare glyph.
 // 4. A cell's colors are in a table beside the cells. A cell names its
 //    colors: a palette entry or a default color as an
 //    entry of mode 0's palette, an RGB color as the pixel. The pen chooses
@@ -437,14 +438,14 @@ static void fill_glyph(mode0_cell_t *row, unsigned start, unsigned end,
 // from the cell it sits on.
 static cells_fill_t cells_blank(uint8_t glyph, uint16_t fg, uint16_t bg, bool selective)
 {
-    const cells_fill_t e = {{glyph, 0, 0}, {fg, bg, fg}, selective};
+    const cells_fill_t e = {{glyph, 0}, {fg, bg, fg}, selective};
     return e;
 }
 
 // Two fills that leave a row the same.
 static inline bool cells_fill_same(const cells_fill_t *a, const cells_fill_t *b)
 {
-    return a->selective == b->selective && a->cell.font_code == b->cell.font_code &&
+    return a->selective == b->selective && a->cell.glyph == b->cell.glyph &&
            a->cell.attributes == b->cell.attributes &&
            a->colors.fg_color == b->colors.fg_color &&
            a->colors.bg_color == b->colors.bg_color &&
@@ -628,18 +629,19 @@ void cells_touch(term_t *term, term_grid_t *g, uint8_t y)
     cells_clean_line(cells_of(g), y);
 }
 
-// The cell a glyph lands as: the pen's colors and attributes, through the
-// active character set. DEC Special Graphics is applied at render time, not
-// at the font_code level: the cell keeps the original byte and is flagged so
-// the renderer pulls from font_dec_*. The UK set's pound sign is the DEC set's
-// 0x7D. The 0x80..0xFF font range stays reserved for the active codepage.
-// SGR 7 and 8 swap and hide at the cell, and in iCE colors mode (?33) the
-// blink bits are left off the cell: the bright background is the blink. An
-// underline SGR 58 did not color holds the foreground's color. A cell
+// The cell a glyph lands as on a grid: the pen's colors and attributes,
+// through the active character set. The cell holds where the font has the
+// glyph (mode0.h): DEC Special Graphics for that set's 0x5F to 0x7E, the
+// italics for SGR 3's ASCII, the code page's otherwise. The UK set's pound
+// sign is the DEC set's 0x7D. SGR 7 and 8 swap and hide at the cell, and in
+// iCE colors mode (?33) the blink bits are left off the cell: the bright
+// background is the blink. An underline SGR 58 colored is flagged, so the
+// renderer reads its color; any other holds the foreground's color. A cell
 // written while DECSCA or SPA protects is guarded.
-static cells_fill_t cells_glyph_cell(term_t *term, uint8_t byte)
+static cells_fill_t cells_glyph_cell(term_t *term, const term_grid_t *g, uint8_t byte)
 {
     const term_pen_t *pen = term_pen(term);
+    const unsigned rows = term_cell_height(g);
     cells_fill_t e;
     uint16_t f = cells_pen_fg(pen);
     uint16_t b = cells_pen_bg(term, pen);
@@ -653,22 +655,23 @@ static cells_fill_t cells_glyph_cell(term_t *term, uint8_t byte)
         f = b;
     e.colors.fg_color = f;
     e.colors.bg_color = b;
-    uint8_t cell_mask = TERM_ATTR_RENDER_MASK & ~TERM_ATTR_DEC;
+    uint16_t cell_mask = TERM_ATTR_CELL_MASK;
     if (term->ice_colors)
-        cell_mask &= (uint8_t)~TERM_ATTR_ANY_BLINK;
+        cell_mask &= (uint16_t)~TERM_ATTR_ANY_BLINK;
     uint16_t attributes = (uint16_t)(pen->sgr_attr & cell_mask);
-    uint8_t set = pen->gl_is_g1 ? pen->g1_charset : pen->g0_charset;
-    if (set == TERM_CS_DEC && byte >= 0x5F && byte <= 0x7E)
-        attributes |= TERM_ATTR_DEC;
-    else if (set == TERM_CS_UK && byte == '#')
-    {
-        byte = 0x7D;
-        attributes |= TERM_ATTR_DEC;
-    }
+    if (pen->ul_set && (attributes & TERM_ATTR_UL_MASK))
+        attributes |= MODE0_ATTR_UL_COLOR;
     if (term_protecting(term))
         attributes |= MODE0_ATTR_GUARD;
-    e.cell.font_code = byte;
-    e.cell.unused = 0;
+    uint16_t glyph = byte;
+    uint8_t set = pen->gl_is_g1 ? pen->g1_charset : pen->g0_charset;
+    if (set == TERM_CS_DEC && byte >= 0x5F && byte <= 0x7E)
+        glyph = MODE0_GLYPH_DEC(rows, byte);
+    else if (set == TERM_CS_UK && byte == '#')
+        glyph = MODE0_GLYPH_DEC(rows, 0x7D);
+    else if ((pen->sgr_attr & TERM_ATTR_ITALIC) && byte < 0x80)
+        glyph = MODE0_GLYPH_ITALIC(rows, byte);
+    e.cell.glyph = glyph;
     e.cell.attributes = attributes;
     e.colors.ul_color = pen->ul_set ? cells_base(&pen->ul, MODE0_DEFAULT_FG) : f;
     e.selective = false;
@@ -679,7 +682,7 @@ void cells_glyphs(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, uint8_t by
 {
     if (!cells_of(g))
         return;
-    const cells_fill_t e = cells_glyph_cell(term, byte);
+    const cells_fill_t e = cells_glyph_cell(term, g, byte);
     mode0_cell_t *at = cells_row_ptr(cells_of(g), y) + x;
     if (n == 1)
     {
@@ -695,7 +698,7 @@ void cells_fill_row(term_t *term, term_grid_t *g, uint8_t y, uint8_t byte)
 {
     if (!cells_of(g))
         return;
-    const cells_fill_t e = cells_glyph_cell(term, byte);
+    const cells_fill_t e = cells_glyph_cell(term, g, byte);
     cells_mark_rows_with(cells_buf(cells_of(g)), y, (uint8_t)(y + 1), &e);
 }
 
@@ -1252,13 +1255,13 @@ static void cells_put_buf(sst_cursor_t *c, const screen_buf_t *b)
         else if (b->owed[i] == CELLS_OWED_FILL)
         {
             const cells_fill_t *e = &b->what[i].fill;
-            sst_put_u8(c, e->cell.font_code);
+            sst_put_u16(c, e->cell.glyph);
             sst_put_u16(c, e->cell.attributes);
             sst_put_u16(c, e->colors.fg_color);
             sst_put_u16(c, e->colors.bg_color);
             sst_put_u16(c, e->colors.ul_color);
             sst_put_bool(c, e->selective);
-            sst_put_u16(c, 0);
+            sst_put_u8(c, 0);
         }
         else
             for (int k = 0; k < 12; k++)
@@ -1298,15 +1301,16 @@ static bool cells_get_buf(sst_cursor_t *c, screen_buf_t *b)
         else if (b->owed[i] == CELLS_OWED_FILL)
         {
             cells_fill_t *e = &b->what[i].fill;
-            e->cell.font_code = sst_get_u8(c);
+            e->cell.glyph = sst_get_u16(c);
             e->cell.attributes = sst_get_u16(c);
             e->colors.fg_color = sst_get_u16(c);
             e->colors.bg_color = sst_get_u16(c);
             e->colors.ul_color = sst_get_u16(c);
             e->selective = sst_get_bool(c);
-            sst_get_u16(c);
-            ok &= cells_color_ok(e->colors.fg_color) && cells_color_ok(e->colors.bg_color) &&
-                  cells_color_ok(e->colors.ul_color);
+            sst_get_u8(c);
+            ok &= mode0_glyph_ok(e->cell.glyph, b->width == 40 ? 8 : 16) &&
+                  cells_color_ok(e->colors.fg_color) &&
+                  cells_color_ok(e->colors.bg_color) && cells_color_ok(e->colors.ul_color);
         }
         else
         {
@@ -1402,6 +1406,16 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags)
         if (!cells_color_ok(mode0_colors[i].fg_color) || !cells_color_ok(mode0_colors[i].bg_color) ||
             !cells_color_ok(mode0_colors[i].ul_color))
             return false;
+    /* A glyph indexes the font of its size. */
+    for (int b = 0; b < (TERM_ALT_SCREEN ? 2 : 1); b++)
+    {
+        for (unsigned i = 0; i < 40 * TERM_MAX_HEIGHT; i++)
+            if (!mode0_glyph_ok(cells_40.bufs[b].mem[i].glyph, 8))
+                return false;
+        for (unsigned i = 0; i < 80 * TERM_MAX_HEIGHT; i++)
+            if (!mode0_glyph_ok(cells_80.bufs[b].mem[i].glyph, 16))
+                return false;
+    }
     cells_publish();
     return true;
 }

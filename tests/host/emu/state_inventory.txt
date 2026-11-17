@@ -224,9 +224,6 @@ core/sys/xram.c xram_fill_value: not carried: a session's fill setting
 core/term/font.c font16: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
 core/term/font.c font8: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
 core/term/font.c font_code_page: derived: the OEM chunk's load installs it through font_load_code_page
-core/term/font.c font_dec_16: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
-core/term/font.c font_dec_8: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
-core/term/font.c italic16: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
 core/term/cells.c cells_40: the CELL chunk
 core/term/cells.c cells_80: the CELL chunk
 core/term/cells.c cells_cursor_color: the CELL chunk

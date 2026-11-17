@@ -26,20 +26,62 @@
  * has its three colors, which are read when a row's pixel pairs are built.
  * cells.c takes both from the pen as the cell is written.
  *
- * The attributes are the TERM_ATTR_ bits in the low byte, which the
+ * The glyph is its place in a row of the font (core/term/font.h), so a
+ * scanline draws any cell with one lookup. A character of the code page is
+ * its code. Italics and DEC Special Graphics are in the font's second
+ * table, at MODE0_GLYPH_OTHER and on, and the size of the glyphs is in
+ * that, so the 40- and 80-column cells of one character differ.
+ *
+ * The attributes are the TERM_ATTR_ bits of TERM_ATTR_CELL_MASK, which the
  * renderer draws, and above them:
+ *
+ * MODE0_ATTR_UL_COLOR: the underline has a color of its own, SGR 58's.
+ * Without it the underline is the foreground's, and a scanline draws it
+ * with the glyph and reads no color.
  *
  * MODE0_ATTR_GUARD: DECSCA or SPA guards the cell from the selective
  * erases. It is the console's own, and no renderer draws it.
  *
- * The unused byte is always zero. */
+ * Only the underlines, the strike and the overline change what a scanline
+ * draws, and only on their own rows of the glyph. On every other row a
+ * scanline reads the glyph alone. */
 typedef struct
 {
-    uint8_t font_code;
-    uint8_t unused;
+    uint16_t glyph;
     uint16_t attributes;
 } mode0_cell_t;
-#define MODE0_ATTR_GUARD 0x100u
+#define MODE0_GLYPH_OTHER(rows) (0x100u * (rows))
+#define MODE0_GLYPH_ITALIC(rows, code) ((uint16_t)(MODE0_GLYPH_OTHER(rows) + (code)))
+#define MODE0_GLYPH_DEC(rows, code) ((uint16_t)(MODE0_GLYPH_OTHER(rows) + 0x80u + (code)))
+#define MODE0_ATTR_UL_COLOR (1u << 8)
+#define MODE0_ATTR_GUARD (1u << 9)
+
+/* Whether a glyph is in a font of this many rows: the code page's 256, the
+ * italics of ASCII, or DEC Special Graphics's 0x5F to 0x7E. */
+static inline bool mode0_glyph_ok(uint16_t glyph, unsigned rows)
+{
+    return glyph < 0x100 || (uint16_t)(glyph - MODE0_GLYPH_OTHER(rows)) < 0x80 ||
+           (uint16_t)(glyph - MODE0_GLYPH_DEC(rows, 0x5F)) < 0x20;
+}
+
+/* The character a glyph is, and whether it is DEC Special Graphics's. */
+static inline uint8_t mode0_glyph_code(uint16_t glyph)
+{
+    return glyph < 0x100 ? (uint8_t)glyph : (uint8_t)(glyph & 0x7F);
+}
+
+static inline bool mode0_glyph_is_dec(uint16_t glyph)
+{
+    return glyph >= 0x100 && (glyph & 0x80);
+}
+
+/* The underlines: the pixels of each TERM_UL_ style, leftmost in bit 7, on
+ * the last three rows of a glyph, which are [1] to [3]. Row [0] is every
+ * other row of the glyph and holds nothing. One for the 16 rows of the
+ * 80-column glyphs and one for the 8 rows of the 40-column ones. A style's
+ * pixels are the same in every cell, so a run of cells joins up. */
+extern const uint8_t mode0_underline16[4][8];
+extern const uint8_t mode0_underline8[4][8];
 
 /* The underline color is SGR 58's, or the foreground's if none is set.
  *

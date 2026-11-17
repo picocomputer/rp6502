@@ -592,12 +592,12 @@ UTEST(mode0, double_size_lines_320x240)
 
 UTEST(mode0, reverse_screen_640x480)
 {
-    run_case(utest_result, "mode0_rev640", 0xFE07B9CD, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_rev640", 0xEFBC7BF6, MUT_BUDGET_NONE);
 }
 
 UTEST(mode0, reverse_screen_320x240)
 {
-    run_case(utest_result, "mode0_rev320", 0x6D69A4F4, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_rev320", 0x109371F8, MUT_BUDGET_NONE);
 }
 
 UTEST(mode0, wrap_on_a_double_width_row_640x480)

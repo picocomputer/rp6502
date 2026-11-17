@@ -62,24 +62,33 @@
 /* One OSC item, such as "rgb:ffff/ffff/ffff". Longer items are ignored. */
 #define TERM_OSC_SPEC_MAX 20
 
-// The SGR attributes, which are also the cell's attribute bits.
+// The SGR attributes. All but the italics are also the low bits of a cell's
+// attributes (mode0.h); italics are a cell's font. SGR 5 (slow) and SGR 6
+// (rapid) live at bits 0-1 so they map onto the live blink phase counter
+// directly. A cell carries exactly one of the two; the renderer ANDs it
+// against the phase so each pulses at its own rate. See cells.c's
+// TERM_BLINK_TICK_FRAMES.
 #define TERM_ATTR_BLINK_FAST (1u << 0) // SGR 6 rapid (blink phase bit 0)
 #define TERM_ATTR_BLINK (1u << 1)      // SGR 5 slow  (blink phase bit 1)
-#define TERM_ATTR_UNDERLINE (1u << 2)  // SGR 4
-#define TERM_ATTR_DBL_UL (1u << 3)     // SGR 21
-#define TERM_ATTR_STRIKE (1u << 4)     // SGR 9
-#define TERM_ATTR_OVERLINE (1u << 5)   // SGR 53
-#define TERM_ATTR_DEC (1u << 6)        // cell renders from DEC graphics buffer
-#define TERM_ATTR_ITALIC (1u << 7)     // SGR 3 (ASCII-only, 8x16 mode only)
-// SGR 5 (slow) and SGR 6 (rapid) live at bits 0-1 so they map onto the live
-// blink phase counter directly. A cell carries exactly one of the two; the
-// renderer ANDs it against the phase so each pulses at its own rate. The two
-// underlines sit adjacent at bits 2-3. See cells.c's TERM_BLINK_TICK_FRAMES.
+// The underline's style, a TERM_UL_: SGR 4, kitty's SGR 4:n, and SGR 21.
+#define TERM_ATTR_UL_SHIFT 2
+#define TERM_ATTR_UL_MASK (7u << TERM_ATTR_UL_SHIFT)
+#define TERM_ATTR_UL(style) ((unsigned)(style) << TERM_ATTR_UL_SHIFT)
+#define TERM_ATTR_STRIKE (1u << 5)   // SGR 9
+#define TERM_ATTR_OVERLINE (1u << 6) // SGR 53
+#define TERM_ATTR_ITALIC (1u << 7)   // SGR 3 (ASCII-only, 8x16 mode only)
 #define TERM_ATTR_ANY_BLINK (TERM_ATTR_BLINK | TERM_ATTR_BLINK_FAST)
-#define TERM_ATTR_RENDER_MASK (TERM_ATTR_BLINK | TERM_ATTR_BLINK_FAST |     \
-                               TERM_ATTR_UNDERLINE | TERM_ATTR_DBL_UL |     \
-                               TERM_ATTR_STRIKE | TERM_ATTR_OVERLINE |      \
-                               TERM_ATTR_DEC | TERM_ATTR_ITALIC)
+#define TERM_ATTR_CELL_MASK (TERM_ATTR_BLINK | TERM_ATTR_BLINK_FAST | \
+                             TERM_ATTR_UL_MASK |                      \
+                             TERM_ATTR_STRIKE | TERM_ATTR_OVERLINE)
+
+// The underline styles, numbered as kitty's SGR 4:n.
+#define TERM_UL_NONE 0
+#define TERM_UL_SINGLE 1
+#define TERM_UL_DOUBLE 2
+#define TERM_UL_CURLY 3
+#define TERM_UL_DOTTED 4
+#define TERM_UL_DASHED 5
 
 // A line's size, DEC's line attributes (ESC # 3 to 6). A double-size line
 // holds half the columns, each drawn twice as wide; the double-height halves
@@ -128,7 +137,7 @@ typedef struct
 // with the cursor's position.
 typedef struct
 {
-    uint8_t sgr_attr; // TERM_ATTR_ bits, all but TERM_ATTR_DEC
+    uint8_t sgr_attr; // TERM_ATTR_ bits
     term_color_t fg, bg;
     term_color_t ul; // SGR 58, when ul_set
     bool ul_set;     // SGR 58 active; SGR 59 and SGR 0 clear it

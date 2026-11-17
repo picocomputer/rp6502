@@ -32,6 +32,22 @@
 #define MODE_LIKELY(x) (x)
 #endif
 
+/* The place of the lowest bit set in x, which is not zero. */
+static inline int mode_low_bit(uint32_t x)
+{
+#if defined(__GNUC__)
+    return __builtin_ctz(x);
+#else
+    int n = 0;
+    while (!(x & 1))
+    {
+        x >>= 1;
+        n++;
+    }
+    return n;
+#endif
+}
+
 #define MODE_TABLE(name, n)          \
     uint32_t name##_storage[n];      \
     uint32_t *name = name##_storage; \
