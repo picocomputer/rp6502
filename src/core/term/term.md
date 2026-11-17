@@ -83,8 +83,8 @@ when it is written to. A shift of a row that already owes one changes the
 record. A row is settled early only when one side is given a second
 color.
 
-The HIL term test sends SL 1 and SR 1 200 times back to back, and no
-byte is lost.
+The HIL term test sends SL 1 and SR 1 200 times back to back, and REP
+65535 twenty times. It loses no byte now, and must not after this.
 
 The savestate's console chunk changes with the record.
 
