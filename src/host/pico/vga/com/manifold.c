@@ -61,26 +61,40 @@ char manifold_out_read(void)
     return ch;
 }
 
-static void manifold_out_chars(const char *buf, int length)
+/* The console's terminal, which cells_init sets first of all; see drivers.h. */
+static void (*manifold_term_out)(const char *buf, int len);
+
+void manifold_set_term_out(void (*out_chars)(const char *buf, int len))
 {
-    for (;;)
+    manifold_term_out = out_chars;
+}
+
+void manifold_term_putc(char ch)
+{
+    manifold_term_out(&ch, 1);
+}
+
+/* OUT: a byte goes to the USB port, a debug probe, and the console. The USB
+ * port's ring is waited on for room, which cdc_task makes or purges. */
+void manifold_out_write(char ch)
+{
+    while (!RING_PUT(&manifold_out, ch))
     {
-        const uint32_t n = RING_IN(&manifold_out, buf, (uint32_t)length);
-        buf += n;
-        length -= (int)n;
-        if (!length)
-            break;
         cdc_task();
         tud_task();
     }
+#if RP6502_RTT_DEBUG
+    rtt_write(&ch, 1);
+#endif
+    manifold_term_out(&ch, 1);
 }
 
-#if RP6502_RTT_DEBUG
-static void manifold_rtt_out_chars(const char *buf, int length)
+/* What the VGA prints itself is one more source of OUT. */
+static void manifold_stdio_out_chars(const char *buf, int length)
 {
-    rtt_write(buf, (size_t)length);
+    for (int i = 0; i < length; i++)
+        manifold_out_write(buf[i]);
 }
-#endif
 
 void manifold_init(void)
 {
@@ -100,31 +114,10 @@ void manifold_init(void)
     uart_init(MANIFOLD_UART_INTERFACE, MANIFOLD_UART_BAUDRATE);
 
     static stdio_driver_t stdio_driver = {
-        .out_chars = manifold_out_chars,
+        .out_chars = manifold_stdio_out_chars,
         .crlf_enabled = true,
     };
     stdio_set_driver_enabled(&stdio_driver, true);
-#if RP6502_RTT_DEBUG
-    /* A debug probe hears what the USB port hears. */
-    static stdio_driver_t rtt_driver = {
-        .out_chars = manifold_rtt_out_chars,
-        .crlf_enabled = true,
-    };
-    stdio_set_driver_enabled(&rtt_driver, true);
-#endif
-}
-
-static stdio_driver_t manifold_term_driver = {.crlf_enabled = true};
-
-void manifold_set_term_out(void (*out_chars)(const char *buf, int len))
-{
-    manifold_term_driver.out_chars = out_chars;
-    stdio_set_driver_enabled(&manifold_term_driver, out_chars != NULL);
-}
-
-void manifold_term_putc(char ch)
-{
-    manifold_term_driver.out_chars(&ch, 1);
 }
 
 void manifold_set_uart_break(bool en)
@@ -157,7 +150,7 @@ void manifold_task(void)
         manifold_set_uart_break(false);
     }
 
-    // OUT is sourced here from STD UART
+    // OUT is sourced here from the UART
     while (uart_is_readable(MANIFOLD_UART_INTERFACE))
-        putchar_raw(uart_getc(MANIFOLD_UART_INTERFACE));
+        manifold_out_write(uart_getc(MANIFOLD_UART_INTERFACE));
 }

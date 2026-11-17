@@ -50,8 +50,11 @@ void manifold_in_write(char ch);
 
 // OUT is sourced here from UART
 // OUT is sourced from PIX $F:03
+// OUT is sourced from stdio, what the VGA prints itself
 // OUT is sunk to term
+// OUT is sunk to a debug probe
 // OUT is sunk by USB CDC
+void manifold_out_write(char ch);
 bool manifold_out_empty(void);
 bool manifold_out_full(void);
 char manifold_out_peek(void);

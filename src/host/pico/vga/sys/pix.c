@@ -71,7 +71,7 @@ static bool pix_ch15_xreg(uint8_t index, uint16_t word)
         font_set_code_page(word);
         return true;
     case 0x03: // UART_TX
-        putchar_raw(word);
+        manifold_out_write((char)word);
         return false;
     case 0x04: // BACKCHAN
         ria_backchan(word);
