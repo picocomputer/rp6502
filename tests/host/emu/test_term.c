@@ -69,6 +69,12 @@ static const mode0_cell_t *cell(int x, int y)
     return tb_screen_row((uint8_t)y) + x;
 }
 
+/* The colors of a cell. */
+static const mode0_colors_t *ink(int x, int y)
+{
+    return &mode0_colors[cell(x, y) - mode0_cells];
+}
+
 static char ch(int x, int y)
 {
     return (char)cell(x, y)->font_code;
@@ -233,7 +239,7 @@ UTEST(term, separators_past_sixteen_are_dropped)
     buf[sizeof buf - 1] = 'x';
     feedn(buf, sizeof buf);
     ASSERT_EQ(ch(0, 0), 'x');
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), color_256[7]);
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), color_256[7]);
 }
 
 UTEST(term, strings_are_ignored_to_st)
@@ -320,7 +326,7 @@ UTEST(term, decrc_without_a_save_is_the_defaults)
     ASSERT_EQ(cy(), 0);
     ASSERT_EQ(ch(0, 0), 'q');
     ASSERT_EQ(cell(0, 0)->attributes & TERM_ATTR_DEC, 0);
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), color_256[7]);
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), color_256[7]);
 }
 
 UTEST(term, scp_and_rcp_are_decsc)
@@ -328,7 +334,7 @@ UTEST(term, scp_and_rcp_are_decsc)
     fresh();
     feed("\33[3;4H\33[32m\33[s\33[H\33[0m\33[uA");
     ASSERT_EQ(ch(3, 2), 'A');
-    ASSERT_EQ(mode0_color(cell(3, 2)->fg_color), color_256[2]);
+    ASSERT_EQ(mode0_color(ink(3, 2)->fg_color), color_256[2]);
 }
 
 UTEST(term, screens_keep_their_own_saved_cursor)
@@ -430,8 +436,8 @@ UTEST(term, ris_resets_the_world)
     ASSERT_STREQ(ask("\33[20$p"), "\33[20;2$y");
     ASSERT_STREQ(ask("\33[?33$p"), "\33[?33;2$y");
     feed("\33[31mA\33[39mB");
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), color_256[1]);
-    ASSERT_EQ(mode0_color(cell(1, 0)->fg_color), color_256[7]);
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), color_256[1]);
+    ASSERT_EQ(mode0_color(ink(1, 0)->fg_color), color_256[7]);
 }
 
 UTEST(term, the_system_soft_reset_keeps_the_screen)
@@ -443,7 +449,7 @@ UTEST(term, the_system_soft_reset_keeps_the_screen)
     ASSERT_EQ(cx(), 5);
     feed("\33[31mX\33[4$p");
     ASSERT_STREQ(answer(), "\33[4;2$y");
-    ASSERT_EQ(mode0_color(cell(5, 0)->fg_color), color_256[1]);
+    ASSERT_EQ(mode0_color(ink(5, 0)->fg_color), color_256[1]);
 }
 
 UTEST(term, the_reset_strings_leave_vt52_mode)
@@ -453,7 +459,7 @@ UTEST(term, the_reset_strings_leave_vt52_mode)
     feed(STR_TERM_SOFT_RESET);
     feed("\33[31mA");
     ASSERT_STREQ(row(0), "A");
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), color_256[1]);
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), color_256[1]);
     feed("\33[?2l");
     feed(STR_TERM_HARD_RESET);
     ASSERT_STREQ(row(0), "");
@@ -479,11 +485,11 @@ UTEST(term, an_aborted_osc_keeps_the_pen_true)
 {
     fresh();
     feed("\33[31m\33]4;1;#00ff00;2;#0000ff\30X");
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), rgb(0, 255, 0));
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), rgb(0, 255, 0));
     feed("\33]4;1;#0000ff;\33[0mY\33[31mZ");
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), rgb(0, 0, 255));
-    ASSERT_EQ(mode0_color(cell(1, 0)->fg_color), color_256[7]);
-    ASSERT_EQ(mode0_color(cell(2, 0)->fg_color), rgb(0, 0, 255));
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), rgb(0, 0, 255));
+    ASSERT_EQ(mode0_color(ink(1, 0)->fg_color), color_256[7]);
+    ASSERT_EQ(mode0_color(ink(2, 0)->fg_color), rgb(0, 0, 255));
 }
 
 UTEST(term, alt_1049_off_restores_on_the_primary_too)
@@ -703,18 +709,18 @@ UTEST(term, erase_takes_the_background_and_no_attributes)
     const mode0_cell_t *c = cell(0, 0);
     ASSERT_EQ(c->font_code, ' ');
     ASSERT_EQ(c->attributes, 0);
-    ASSERT_EQ(mode0_color(c->bg_color), color_256[1]);
-    ASSERT_EQ(mode0_color(c->fg_color), color_256[2]);
+    ASSERT_EQ(mode0_color(ink(0, 0)->bg_color), color_256[1]);
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), color_256[2]);
 }
 
 UTEST(term, defaults_are_not_palette_entries)
 {
     fresh();
     feed("\33]4;7;#ff0000\7\33]4;0;#00ff00\7\33[37;40mA\33[39;49mB");
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), rgb(255, 0, 0));
-    ASSERT_EQ(mode0_color(cell(0, 0)->bg_color), rgb(0, 255, 0));
-    ASSERT_EQ(mode0_color(cell(1, 0)->fg_color), color_256[7]);
-    ASSERT_EQ(mode0_color(cell(1, 0)->bg_color), color_256[0]);
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), rgb(255, 0, 0));
+    ASSERT_EQ(mode0_color(ink(0, 0)->bg_color), rgb(0, 255, 0));
+    ASSERT_EQ(mode0_color(ink(1, 0)->fg_color), color_256[7]);
+    ASSERT_EQ(mode0_color(ink(1, 0)->bg_color), color_256[0]);
 }
 
 /* A palette entry reaches the pen, and the cells drawn with it follow it. */
@@ -722,27 +728,27 @@ UTEST(term, the_palette_reaches_the_pen)
 {
     fresh();
     feed("\33[31m\33]4;1;rgb:00/80/ff\7A");
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), rgb(0, 0x80, 0xff));
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), rgb(0, 0x80, 0xff));
     feed("\33]104\7B");
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), color_256[1]);
-    ASSERT_EQ(mode0_color(cell(1, 0)->fg_color), color_256[1]);
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), color_256[1]);
+    ASSERT_EQ(mode0_color(ink(1, 0)->fg_color), color_256[1]);
 }
 
 UTEST(term, osc_takes_many_items)
 {
     fresh();
     feed("\33]4;1;#010203;2;#040506\33\\\33[31mA\33[32mB");
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), rgb(1, 2, 3));
-    ASSERT_EQ(mode0_color(cell(1, 0)->fg_color), rgb(4, 5, 6));
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), rgb(1, 2, 3));
+    ASSERT_EQ(mode0_color(ink(1, 0)->fg_color), rgb(4, 5, 6));
     feed("\33]104;1\7\33[31mC\33[32mD");
-    ASSERT_EQ(mode0_color(cell(2, 0)->fg_color), color_256[1]);
-    ASSERT_EQ(mode0_color(cell(3, 0)->fg_color), rgb(4, 5, 6));
+    ASSERT_EQ(mode0_color(ink(2, 0)->fg_color), color_256[1]);
+    ASSERT_EQ(mode0_color(ink(3, 0)->fg_color), rgb(4, 5, 6));
     feed("\33]10;#102030;#405060\7\33[0mE");
-    ASSERT_EQ(mode0_color(cell(4, 0)->fg_color), rgb(0x10, 0x20, 0x30));
-    ASSERT_EQ(mode0_color(cell(4, 0)->bg_color), rgb(0x40, 0x50, 0x60));
+    ASSERT_EQ(mode0_color(ink(4, 0)->fg_color), rgb(0x10, 0x20, 0x30));
+    ASSERT_EQ(mode0_color(ink(4, 0)->bg_color), rgb(0x40, 0x50, 0x60));
     feed("\33]110\7\33]111\7F");
-    ASSERT_EQ(mode0_color(cell(5, 0)->fg_color), color_256[7]);
-    ASSERT_EQ(mode0_color(cell(5, 0)->bg_color), color_256[0]);
+    ASSERT_EQ(mode0_color(ink(5, 0)->fg_color), color_256[7]);
+    ASSERT_EQ(mode0_color(ink(5, 0)->bg_color), color_256[0]);
 }
 
 UTEST(term, osc_ignores_line_feeds_inside)
@@ -750,38 +756,38 @@ UTEST(term, osc_ignores_line_feeds_inside)
     fresh();
     feed("\33]4;1;#0\n10203\7\33[31mA");
     ASSERT_STREQ(row(0), "A");
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), rgb(1, 2, 3));
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), rgb(1, 2, 3));
 }
 
 UTEST(term, ice_colors_survive_osc_11)
 {
     fresh();
     feed("\33[?33h\33[5;44m\33]11;#102030\7A\33[49mB");
-    ASSERT_EQ(mode0_color(cell(0, 0)->bg_color), color_256[12]);
-    ASSERT_EQ(mode0_color(cell(1, 0)->bg_color), color_256[8]);
+    ASSERT_EQ(mode0_color(ink(0, 0)->bg_color), color_256[12]);
+    ASSERT_EQ(mode0_color(ink(1, 0)->bg_color), color_256[8]);
 }
 
 UTEST(term, extended_colors_check_their_numbers)
 {
     fresh();
     feed("\33[32m\33[38;5;999mA\33[38;2;300;0;0mB\33[38;5mC");
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), color_256[2]);
-    ASSERT_EQ(mode0_color(cell(1, 0)->fg_color), color_256[2]);
-    ASSERT_EQ(mode0_color(cell(2, 0)->fg_color), color_256[2]);
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), color_256[2]);
+    ASSERT_EQ(mode0_color(ink(1, 0)->fg_color), color_256[2]);
+    ASSERT_EQ(mode0_color(ink(2, 0)->fg_color), color_256[2]);
     ASSERT_EQ(cell(2, 0)->attributes & TERM_ATTR_ANY_BLINK, 0);
     feed("\33[38:2::1:2:3mD\33[38:2:4:5:6mE\33[48:5:3mF");
-    ASSERT_EQ(mode0_color(cell(3, 0)->fg_color), rgb(1, 2, 3));
-    ASSERT_EQ(mode0_color(cell(4, 0)->fg_color), rgb(4, 5, 6));
-    ASSERT_EQ(mode0_color(cell(5, 0)->bg_color), color_256[3]);
+    ASSERT_EQ(mode0_color(ink(3, 0)->fg_color), rgb(1, 2, 3));
+    ASSERT_EQ(mode0_color(ink(4, 0)->fg_color), rgb(4, 5, 6));
+    ASSERT_EQ(mode0_color(ink(5, 0)->bg_color), color_256[3]);
 }
 
 UTEST(term, bold_brightens_from_the_base)
 {
     fresh();
     feed("\33[1;31mA\33[22mB\33[1;39mC");
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), color_256[9]);
-    ASSERT_EQ(mode0_color(cell(1, 0)->fg_color), color_256[1]);
-    ASSERT_EQ(mode0_color(cell(2, 0)->fg_color), color_256[15]);
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), color_256[9]);
+    ASSERT_EQ(mode0_color(ink(1, 0)->fg_color), color_256[1]);
+    ASSERT_EQ(mode0_color(ink(2, 0)->fg_color), color_256[15]);
 }
 
 UTEST(term, underline_styles)
@@ -792,7 +798,7 @@ UTEST(term, underline_styles)
     ASSERT_EQ(cell(1, 0)->attributes, TERM_ATTR_DBL_UL);
     ASSERT_EQ(cell(2, 0)->attributes, 0);
     ASSERT_EQ(cell(3, 0)->attributes, 0); /* 1:5 is bold, not blink */
-    ASSERT_EQ(mode0_color(cell(3, 0)->fg_color), color_256[15]);
+    ASSERT_EQ(mode0_color(ink(3, 0)->fg_color), color_256[15]);
 }
 
 /* ---- character sets ---- */
@@ -835,7 +841,7 @@ UTEST(term, decaln_fills_the_screen_with_e)
     full[80] = 0;
     ASSERT_STREQ(row(0), full);
     ASSERT_STREQ(row(29), full);
-    ASSERT_EQ(mode0_color(cell(2, 2)->fg_color), color_256[7]);
+    ASSERT_EQ(mode0_color(ink(2, 2)->fg_color), color_256[7]);
     feed("\33[30;1H\n"); /* the margins reset, so this scrolls */
     ASSERT_STREQ(row(29), "");
 }
@@ -967,15 +973,15 @@ UTEST(term, the_defaults_recolor_what_was_drawn_in_them)
     fresh();
     feed("A\33[1mB");
     feed("\33]10;#102030;#405060\7");
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), rgb(0x10, 0x20, 0x30));
-    ASSERT_EQ(mode0_color(cell(0, 0)->bg_color), rgb(0x40, 0x50, 0x60));
-    ASSERT_EQ(mode0_color(cell(1, 0)->fg_color), color_256[15]);
-    ASSERT_EQ(mode0_color(cell(1, 0)->bg_color), rgb(0x40, 0x50, 0x60));
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), rgb(0x10, 0x20, 0x30));
+    ASSERT_EQ(mode0_color(ink(0, 0)->bg_color), rgb(0x40, 0x50, 0x60));
+    ASSERT_EQ(mode0_color(ink(1, 0)->fg_color), color_256[15]);
+    ASSERT_EQ(mode0_color(ink(1, 0)->bg_color), rgb(0x40, 0x50, 0x60));
     feed("\33]4;15;#0000ff\7");
-    ASSERT_EQ(mode0_color(cell(1, 0)->fg_color), rgb(0, 0, 255));
+    ASSERT_EQ(mode0_color(ink(1, 0)->fg_color), rgb(0, 0, 255));
     feed("\33]110\7\33]111\7");
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), color_256[7]);
-    ASSERT_EQ(mode0_color(cell(0, 0)->bg_color), color_256[0]);
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), color_256[7]);
+    ASSERT_EQ(mode0_color(ink(0, 0)->bg_color), color_256[0]);
 }
 
 /* A cell follows the entries it was drawn from through SGR 7, SGR 8 and
@@ -987,14 +993,14 @@ UTEST(term, a_recolor_follows_each_cells_sources)
     feed("\33[7;31;42mR\33[0m\33[8;31;42mC\33[0m\33[2;31mF\33[0m"
          "\33[4;31mU\33[58;5;3mV\33[0m\33[38;2;1;2;3mX");
     feed("\33]4;1;#ff0000\7\33]4;2;#00ff00\7\33]4;3;#0000ff\7");
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), rgb(0, 255, 0));
-    ASSERT_EQ(mode0_color(cell(0, 0)->bg_color), rgb(255, 0, 0));
-    ASSERT_EQ(mode0_color(cell(1, 0)->fg_color), rgb(0, 255, 0));
-    ASSERT_EQ(mode0_color(cell(1, 0)->bg_color), rgb(0, 255, 0));
-    ASSERT_EQ(mode0_color(cell(2, 0)->fg_color), SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB5(15, 0, 0));
-    ASSERT_EQ(mode0_color(cell(3, 0)->ul_color), rgb(255, 0, 0));
-    ASSERT_EQ(mode0_color(cell(4, 0)->ul_color), rgb(0, 0, 255));
-    ASSERT_EQ(mode0_color(cell(5, 0)->fg_color), rgb(1, 2, 3));
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), rgb(0, 255, 0));
+    ASSERT_EQ(mode0_color(ink(0, 0)->bg_color), rgb(255, 0, 0));
+    ASSERT_EQ(mode0_color(ink(1, 0)->fg_color), rgb(0, 255, 0));
+    ASSERT_EQ(mode0_color(ink(1, 0)->bg_color), rgb(0, 255, 0));
+    ASSERT_EQ(mode0_color(ink(2, 0)->fg_color), SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB5(15, 0, 0));
+    ASSERT_EQ(mode0_color(ink(3, 0)->ul_color), rgb(255, 0, 0));
+    ASSERT_EQ(mode0_color(ink(4, 0)->ul_color), rgb(0, 0, 255));
+    ASSERT_EQ(mode0_color(ink(5, 0)->fg_color), rgb(1, 2, 3));
 }
 
 /* A cell holds the entry and not the color, so a palette change needs no
@@ -1004,15 +1010,17 @@ UTEST(term, a_palette_change_touches_no_cell)
     fresh();
     feed("\33[31mA\33[2;32mB\33[0m\33[38;2;9;8;7mC");
     const mode0_cell_t before[3] = {*cell(0, 0), *cell(1, 0), *cell(2, 0)};
+    const mode0_colors_t inks[3] = {*ink(0, 0), *ink(1, 0), *ink(2, 0)};
     feed("\33]4;1;#102030\7\33]4;2;#204060\7");
     ASSERT_EQ(0, memcmp(before, cell(0, 0), sizeof before));
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), rgb(0x10, 0x20, 0x30));
-    ASSERT_EQ(mode0_color(cell(1, 0)->fg_color),
+    ASSERT_EQ(0, memcmp(inks, ink(0, 0), sizeof inks));
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), rgb(0x10, 0x20, 0x30));
+    ASSERT_EQ(mode0_color(ink(1, 0)->fg_color),
               SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB5(0x20 >> 4, 0x40 >> 4, 0x60 >> 4));
-    ASSERT_EQ(mode0_color(cell(2, 0)->fg_color), rgb(9, 8, 7));
+    ASSERT_EQ(mode0_color(ink(2, 0)->fg_color), rgb(9, 8, 7));
     /* An RGB color is the pixel itself. */
-    ASSERT_TRUE(cell(2, 0)->fg_color & SCANVIDEO_ALPHA_MASK);
-    ASSERT_FALSE(cell(0, 0)->fg_color & SCANVIDEO_ALPHA_MASK);
+    ASSERT_TRUE(ink(2, 0)->fg_color & SCANVIDEO_ALPHA_MASK);
+    ASSERT_FALSE(ink(0, 0)->fg_color & SCANVIDEO_ALPHA_MASK);
 }
 
 /* SGR 38:1 and 48:1 were the console's own transparent color. They are
@@ -1022,10 +1030,10 @@ UTEST(term, sgr_38_1_is_no_color)
 {
     fresh();
     feed("\33[31;38:1mA\33[0m\33[32;48:1mB\33[0m\33[31;38;1mC");
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), color_256[1]);
-    ASSERT_EQ(mode0_color(cell(1, 0)->fg_color), color_256[2]);
-    ASSERT_EQ(mode0_color(cell(1, 0)->bg_color), color_256[0]);
-    ASSERT_EQ(mode0_color(cell(2, 0)->fg_color), color_256[1]);
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), color_256[1]);
+    ASSERT_EQ(mode0_color(ink(1, 0)->fg_color), color_256[2]);
+    ASSERT_EQ(mode0_color(ink(1, 0)->bg_color), color_256[0]);
+    ASSERT_EQ(mode0_color(ink(2, 0)->fg_color), color_256[1]);
 }
 
 /* A lazy erase still owed takes a recolor too. */
@@ -1033,7 +1041,7 @@ UTEST(term, an_owed_erase_takes_a_recolor)
 {
     fresh();
     feed("\33[44m\33[2J\33]4;4;#123456\7");
-    ASSERT_EQ(mode0_color(cell(10, 10)->bg_color), rgb(0x12, 0x34, 0x56));
+    ASSERT_EQ(mode0_color(ink(10, 10)->bg_color), rgb(0x12, 0x34, 0x56));
 }
 
 /* Bracketed paste is a mode a program sets, and a reset clears. */
@@ -1053,7 +1061,7 @@ UTEST(term, linux_palette_is_an_osc_like_any_other)
     fresh();
     feed("\33[31m\33]P1102030A\7B");
     ASSERT_STREQ(row(0), "B");
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), color_256[1]);
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), color_256[1]);
 }
 
 /* ---- protection ---------------------------------------------------------- */
@@ -1123,8 +1131,8 @@ UTEST(term, a_guard_moves_with_its_cell)
      * selective erase in another color then reaches where they were. */
     feed("\33[2K\33[41m\33[?2K");
     ASSERT_STREQ(row(0), "");
-    ASSERT_EQ(mode0_color(cell(3, 0)->bg_color), color_256[1]);
-    ASSERT_EQ(mode0_color(cell(4, 0)->bg_color), color_256[1]);
+    ASSERT_EQ(mode0_color(ink(3, 0)->bg_color), color_256[1]);
+    ASSERT_EQ(mode0_color(ink(4, 0)->bg_color), color_256[1]);
 }
 
 /* SL and SR against a model of the row. A row is owed its shifts, and a
@@ -1176,16 +1184,17 @@ UTEST(term, shifts_owed_to_a_row_are_the_shifts_done)
             const mode0_cell_t *c = cell(i, 2);
             ASSERT_EQ(c->font_code, (uint8_t)glyph[i]);
             if (bg[i])
-                ASSERT_EQ(mode0_color(c->bg_color), color_256[bg[i]]);
-            ASSERT_EQ((int)!!(mode0_extras[c - mode0_cells] & MODE0_EXTRA_GUARD), (int)guard[i]);
+                ASSERT_EQ(mode0_color(ink(i, 2)->bg_color), color_256[bg[i]]);
+            ASSERT_EQ((int)!!(c->attributes & MODE0_ATTR_GUARD), (int)guard[i]);
         }
     }
 }
 
 /* ICH and DCH of every count from several columns: the cells that move
- * keep their glyphs, and each takes its guard with it, so the selective
- * erase after spares exactly the guarded cells where they now are. Every
- * third cell of the row is guarded. */
+ * keep their glyphs and their colors, and each takes its guard with it, so
+ * the selective erase after spares exactly the guarded cells where they now
+ * are. Every third cell of the row is guarded, and each cell has one of
+ * seven backgrounds. */
 UTEST(term, a_run_of_cells_moves_whole_at_every_length)
 {
     static const int from[] = {0, 1, 2, 3, 5, 40, 77};
@@ -1194,11 +1203,15 @@ UTEST(term, a_run_of_cells_moves_whole_at_every_length)
             for (int insert = 0; insert < 2; insert++)
             {
                 char was[81], want[81], spared[81], seq[32];
+                int came[80];
+                memset(came, -1, sizeof came);
                 fresh();
                 for (int i = 0; i < 80; i++)
                 {
                     was[i] = (char)('!' + i);
                     feed(i % 3 ? "\33[0\"q" : "\33[1\"q");
+                    snprintf(seq, sizeof seq, "\33[4%dm", 1 + i % 7);
+                    feed(seq);
                     feedn(&was[i], 1);
                 }
                 const int x = from[f];
@@ -1212,6 +1225,7 @@ UTEST(term, a_run_of_cells_moves_whole_at_every_length)
                     if (to >= 80)
                         continue; /* pushed off the end */
                     want[to] = was[i];
+                    came[to] = i;
                     if (i % 3 == 0)
                         spared[to] = was[i];
                 }
@@ -1223,6 +1237,9 @@ UTEST(term, a_run_of_cells_moves_whole_at_every_length)
                 snprintf(seq, sizeof seq, "\33[1;%dH\33[%d%c", x + 1, n, insert ? '@' : 'P');
                 feed(seq);
                 ASSERT_STREQ(row(0), want);
+                for (int i = 0; i < 80; i++)
+                    if (came[i] >= 0)
+                        ASSERT_EQ(mode0_color(ink(i, 0)->bg_color), color_256[1 + came[i] % 7]);
                 feed("\33[?2K");
                 ASSERT_STREQ(row(0), spared);
             }
@@ -1323,12 +1340,12 @@ static void lazy_run(bool pay_each, uint8_t *screen)
     for (int y = 0; y < 30; y++)
     {
         const mode0_cell_t *r = tb_screen_row((uint8_t)y);
-        memcpy(screen + y * 80 * 9, r, 80 * 8);
-        memcpy(screen + y * 80 * 9 + 80 * 8, &mode0_extras[r - mode0_cells], 80);
+        memcpy(screen + y * 80 * 10, r, 80 * 4);
+        memcpy(screen + y * 80 * 10 + 80 * 4, &mode0_colors[r - mode0_cells], 80 * 6);
     }
 }
 
-static uint8_t lazy_paid[30 * 80 * 9], lazy_owing[30 * 80 * 9];
+static uint8_t lazy_paid[30 * 80 * 10], lazy_owing[30 * 80 * 10];
 static bool lazy_differs(void)
 {
     lazy_run(true, lazy_paid);
@@ -1355,7 +1372,7 @@ UTEST(term, what_a_row_is_owed_is_never_seen)
         while (lazy_paid[at] == lazy_owing[at])
             at++;
         printf("seed %u: row %d, byte %d is %02x paid at once and %02x left owing, after:\n",
-               (unsigned)seed, at / 720, at % 720, lazy_paid[at], lazy_owing[at]);
+               (unsigned)seed, at / 800, at % 800, lazy_paid[at], lazy_owing[at]);
         for (int k = 0; k < LAZY_OPS; k++)
         {
             if (lazy_skip[k])
@@ -1395,8 +1412,8 @@ static void rep_screen(const char *before, int n, bool rep, uint8_t *screen, int
     for (int r = 0; r < 30; r++)
     {
         const mode0_cell_t *row = tb_screen_row((uint8_t)r);
-        memcpy(screen + r * 80 * 9, row, 80 * 8);
-        memcpy(screen + r * 80 * 9 + 80 * 8, &mode0_extras[row - mode0_cells], 80);
+        memcpy(screen + r * 80 * 10, row, 80 * 4);
+        memcpy(screen + r * 80 * 10 + 80 * 4, &mode0_colors[row - mode0_cells], 80 * 6);
     }
     *x = cx();
     *y = cy();
@@ -1415,7 +1432,7 @@ UTEST(term, rep_draws_what_printing_draws)
         "\33[2J\33[41m\33[29;60H",
     };
     static const int counts[] = {1, 9, 10, 11, 79, 80, 81, 159, 160, 161, 500, 2399, 2400, 2401};
-    static uint8_t a[30 * 80 * 9], b[30 * 80 * 9];
+    static uint8_t a[30 * 80 * 10], b[30 * 80 * 10];
     for (unsigned i = 0; i < sizeof before / sizeof before[0]; i++)
         for (unsigned k = 0; k < sizeof counts / sizeof counts[0]; k++)
         {
@@ -1442,8 +1459,8 @@ UTEST(term, the_palette_and_the_guards_come_back)
     ASSERT_STREQ(row(0), "");
     ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     ASSERT_STREQ(row(0), "ABGh");
-    ASSERT_EQ(mode0_color(cell(0, 0)->fg_color), rgb(0x10, 0x20, 0x30));
-    ASSERT_EQ(mode0_color(cell(1, 0)->fg_color), rgb(0x40, 0x50, 0x60));
+    ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), rgb(0x10, 0x20, 0x30));
+    ASSERT_EQ(mode0_color(ink(1, 0)->fg_color), rgb(0x40, 0x50, 0x60));
     feed("\33[?2K");
     ASSERT_STREQ(row(0), "  G");
 }
@@ -1460,10 +1477,10 @@ UTEST(term, a_shift_still_owed_comes_back)
     ASSERT_STREQ(row(2), "");
     ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
     ASSERT_STREQ(row(2), "BCDEF");
-    ASSERT_EQ(mode0_color(cell(79, 2)->bg_color), color_256[2]);
+    ASSERT_EQ(mode0_color(ink(79, 2)->bg_color), color_256[2]);
     feed("\33[3;1H\33[43m\33[2 A");
     ASSERT_STREQ(row(2), "  BCDEF");
-    ASSERT_EQ(mode0_color(cell(0, 2)->bg_color), color_256[3]);
+    ASSERT_EQ(mode0_color(ink(0, 2)->bg_color), color_256[3]);
 }
 
 /* Printing and DCH ignore protection, and DECSTR ends it. */

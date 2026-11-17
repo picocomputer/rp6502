@@ -30,11 +30,13 @@
 //    buffer from overflowing, lines are cleared in a background task
 //    and checked as the cursor moves into them. Nothing fills more
 //    than one row of cells in a single operation.
-// 3. Each cell's `attributes` byte holds render-time flags
-//    (underline, blink, DEC graphics, etc.). The renderer's hot
-//    path branches once on `attr != 0` per cell; the common path
-//    pays only a 1-byte load and a predicted-not-taken branch.
-// 4. A cell names its colors: a palette entry or a default color as an
+// 3. A cell's glyph and attributes are one word (mode0.h). The low
+//    byte of the attributes holds the render-time flags (underline,
+//    blink, DEC graphics, etc.). The renderer's hot path branches
+//    once per cell on that word being a bare glyph; the common path
+//    pays one load and a predicted-not-taken branch.
+// 4. A cell's colors are in a table beside the cells. A cell names its
+//    colors: a palette entry or a default color as an
 //    entry of mode 0's palette, an RGB color as the pixel. The pen chooses
 //    which as each cell is written, and a palette or default color that
 //    changes afterwards is one write to the palette, which every cell
@@ -69,69 +71,94 @@
 // anything can be seen.
 #define CELLS_CURSOR_INPUT_GAP_FRAMES 1
 
-// Runs of cells. A cell is two words, and each has a byte of extras beside
-// it (mode0.h), which goes wherever the cell goes. Everything that writes
-// or moves more than a cell does it here.
+// Runs of cells. A cell is a word, and its colors are three halfwords in
+// the table beside it (mode0.h), which go wherever the cell goes.
+// Everything that writes or moves more than a cell does it here.
 
 static inline uint32_t cells_at(const mode0_cell_t *cell)
 {
     return (uint32_t)(cell - mode0_cells);
 }
 
+// The colors of a cell.
+static inline mode0_colors_t *cells_colors(const mode0_cell_t *cell)
+{
+    return &mode0_colors[cells_at(cell)];
+}
+
 // GCC turns a loop that copies or fills into a call of memmove or memset,
-// and the C library's are slower here: its memmove takes 646 cycles to move
-// a row of 80 a cell toward lower addresses and 1,103 toward higher, a byte
-// at a time, where the loops below take 514 and 458.
+// and the C library's are slower here, a byte at a time.
 #if defined(__GNUC__) && !defined(__clang__)
 #define CELLS_RUN __attribute__((optimize("no-tree-loop-distribute-patterns")))
 #else
 #define CELLS_RUN
 #endif
 
-// The n cells at dst, and their extras, become `cell` and `extra`. Four
-// cells a pass: 280 cycles for a row of 80, where a cell a pass takes 533.
+// The n cells at dst become `cell`, and their colors `colors`. The cells
+// are written eight a pass. Two cells' colors are three words, so the
+// colors are written four cells a pass from the first that is on a word.
 static CELLS_RUN void cells_run_fill(mode0_cell_t *dst, unsigned n, mode0_cell_t cell,
-                                     uint8_t extra)
+                                     mode0_colors_t colors)
 {
-    uint32_t w[2];
-    memcpy(w, &cell, sizeof(w));
-    const uint32_t w0 = w[0], w1 = w[1];
+    uint32_t w;
+    memcpy(&w, &cell, sizeof(w));
     mode_word_t *d = (mode_word_t *)dst;
     unsigned i = n;
-    for (; i >= 4; i -= 4, d += 8)
+    for (; i >= 8; i -= 8, d += 8)
     {
-        d[0] = w0;
-        d[1] = w1;
-        d[2] = w0;
-        d[3] = w1;
-        d[4] = w0;
-        d[5] = w1;
-        d[6] = w0;
-        d[7] = w1;
+        d[0] = w;
+        d[1] = w;
+        d[2] = w;
+        d[3] = w;
+        d[4] = w;
+        d[5] = w;
+        d[6] = w;
+        d[7] = w;
     }
-    for (; i; i--, d += 2)
+    for (; i; i--)
+        *d++ = w;
+    mode0_colors_t *c = cells_colors(dst);
+    i = n;
+    if (i && (cells_at(dst) & 1))
     {
-        d[0] = w0;
-        d[1] = w1;
+        *c++ = colors;
+        i--;
     }
-    memset(&mode0_extras[cells_at(dst)], extra, n);
+    const mode0_colors_t two[2] = {colors, colors};
+    uint32_t p[3];
+    memcpy(p, two, sizeof(p));
+    const uint32_t p0 = p[0], p1 = p[1], p2 = p[2];
+    d = (mode_word_t *)c;
+    for (; i >= 4; i -= 4, d += 6)
+    {
+        d[0] = p0;
+        d[1] = p1;
+        d[2] = p2;
+        d[3] = p0;
+        d[4] = p1;
+        d[5] = p2;
+    }
+    for (; i >= 2; i -= 2, d += 3)
+    {
+        d[0] = p0;
+        d[1] = p1;
+        d[2] = p2;
+    }
+    if (i)
+        *(mode0_colors_t *)d = colors;
 }
 
-// The n cells at src, and their extras, move to dst. The two may overlap,
-// so a move toward lower addresses goes up from the first cell and one
-// toward higher addresses goes down from the last. Four cells a pass, and
-// four extras. The same move as ldmia and stmia of eight registers, and
-// ldmdb and stmdb for the other way, measured 437 and 427 cycles for a row
-// of 80 against this one's 514 and 458. It is not used, so every machine
-// runs one path, but it is there to take if the cycles are wanted.
-static CELLS_RUN void cells_run_move(mode0_cell_t *dst, const mode0_cell_t *src, unsigned n)
+// The n words at src move to dst. The two may overlap, so a move toward
+// lower addresses goes up from the first word and one toward higher
+// addresses goes down from the last, eight words a pass. The same move as
+// ldmia and stmia of eight registers, and ldmdb and stmdb for the other
+// way, measured 437 and 427 cycles for 160 words against this one's 514
+// and 458. It is not used, so every machine runs one path, but it is there
+// to take if the cycles are wanted.
+static inline __attribute__((always_inline)) void
+cells_words_move(mode_word_t *d, const mode_word_t *f, unsigned w)
 {
-    mode_word_t *d = (mode_word_t *)dst;
-    const mode_word_t *f = (const mode_word_t *)src;
-    uint8_t *xd = &mode0_extras[cells_at(dst)];
-    const uint8_t *xf = &mode0_extras[cells_at(src)];
-    unsigned w = 2 * n, x = n;
-    if (dst < src)
+    if (d < f)
     {
         for (; w >= 8; w -= 8, d += 8, f += 8)
         {
@@ -148,16 +175,8 @@ static CELLS_RUN void cells_run_move(mode0_cell_t *dst, const mode0_cell_t *src,
         }
         for (; w; w--)
             *d++ = *f++;
-        for (; x >= 4; x -= 4, xd += 4, xf += 4)
-        {
-            uint32_t v;
-            memcpy(&v, xf, 4);
-            memcpy(xd, &v, 4);
-        }
-        for (; x; x--)
-            *xd++ = *xf++;
     }
-    else if (dst > src)
+    else if (d > f)
     {
         d += w;
         f += w;
@@ -178,30 +197,37 @@ static CELLS_RUN void cells_run_move(mode0_cell_t *dst, const mode0_cell_t *src,
         }
         for (; w; w--)
             *--d = *--f;
-        xd += x;
-        xf += x;
-        for (; x >= 4; x -= 4)
-        {
-            uint32_t v;
-            xd -= 4;
-            xf -= 4;
-            memcpy(&v, xf, 4);
-            memcpy(xd, &v, 4);
-        }
-        for (; x; x--)
-            *--xd = *--xf;
     }
 }
 
+// The n cells at src, and their colors, move to dst. The colors are
+// halfwords, three a cell, moved as words. Those of an odd count of cells
+// are a halfword more than whole words: it goes first on the way down and
+// last on the way up. A move by an odd count of cells has its words off a
+// word boundary at one end, 699 cycles for a row of 80 moved a cell down
+// and 610 up, against 244 for 40 cells moved by 40. Peeling a halfword so
+// every read sits on a word measured no better.
+static CELLS_RUN void cells_run_move(mode0_cell_t *dst, const mode0_cell_t *src, unsigned n)
+{
+    cells_words_move((mode_word_t *)dst, (const mode_word_t *)src, n);
+    uint16_t *cd = (uint16_t *)cells_colors(dst);
+    const uint16_t *cf = (const uint16_t *)cells_colors(src);
+    const unsigned halves = 3 * n;
+    if ((halves & 1) && dst > src)
+        cd[halves - 1] = cf[halves - 1];
+    cells_words_move((mode_word_t *)cd, (const mode_word_t *)cf, halves / 2);
+    if ((halves & 1) && dst < src)
+        cd[halves - 1] = cf[halves - 1];
+}
+
 // A fill owed to a row: the cell every cell of the row becomes, and its
-// extras. An erase is a fill with a blank cell, DECALN's is a fill with an
+// colors. An erase is a fill with a blank cell, DECALN's is a fill with an
 // E, and REP's is a fill with its glyph as the pen draws it. A selective
 // erase leaves the guarded cells alone.
 typedef struct
 {
-    /* On a word, so the record is copied a word at a time. */
-    _Alignas(4) mode0_cell_t cell;
-    uint8_t extra;
+    mode0_cell_t cell;
+    mode0_colors_t colors;
     bool selective;
 } cells_fill_t;
 
@@ -387,22 +413,22 @@ static uint16_t cells_pen_bg(const term_t *term, const term_pen_t *pen)
 
 /* ---- cells and rows ---------------------------------------------------- */
 
-// Fill [start, end) of `row`: every cell becomes the fill's cell, with its
-// extras. A selective erase leaves the guarded cells as they are.
+// Fill [start, end) of `row`: every cell becomes the fill's cell, in its
+// colors. A selective erase leaves the guarded cells as they are.
 static void fill_glyph(mode0_cell_t *row, unsigned start, unsigned end,
                        const cells_fill_t *e)
 {
     if (!e->selective)
     {
-        cells_run_fill(row + start, end - start, e->cell, e->extra);
+        cells_run_fill(row + start, end - start, e->cell, e->colors);
         return;
     }
-    uint8_t *extra = &mode0_extras[cells_at(row)];
+    mode0_colors_t *colors = cells_colors(row);
     for (unsigned i = start; i < end; i++)
-        if (!(extra[i] & MODE0_EXTRA_GUARD))
+        if (!(row[i].attributes & MODE0_ATTR_GUARD))
         {
             row[i] = e->cell;
-            extra[i] = e->extra;
+            colors[i] = e->colors;
         }
 }
 
@@ -411,8 +437,18 @@ static void fill_glyph(mode0_cell_t *row, unsigned start, unsigned end,
 // from the cell it sits on.
 static cells_fill_t cells_blank(uint8_t glyph, uint16_t fg, uint16_t bg, bool selective)
 {
-    const cells_fill_t e = {{glyph, 0, fg, bg, fg}, 0, selective};
+    const cells_fill_t e = {{glyph, 0, 0}, {fg, bg, fg}, selective};
     return e;
+}
+
+// Two fills that leave a row the same.
+static inline bool cells_fill_same(const cells_fill_t *a, const cells_fill_t *b)
+{
+    return a->selective == b->selective && a->cell.font_code == b->cell.font_code &&
+           a->cell.attributes == b->cell.attributes &&
+           a->colors.fg_color == b->colors.fg_color &&
+           a->colors.bg_color == b->colors.bg_color &&
+           a->colors.ul_color == b->colors.ul_color;
 }
 
 // An erase in the pen's colors, selective or not. An erase takes the pen's
@@ -445,10 +481,15 @@ static void cells_pay(screen_buf_t *buf, uint8_t m)
         const cells_shift_t *s = &buf->what[m].shift;
         cells_run_move(row + s->to, row + s->from, (unsigned)(s->end - s->to));
         if (s->to)
-            cells_run_fill(row, s->to, cells_blank(' ', s->left_fg, s->left_bg, false).cell, 0);
+        {
+            const cells_fill_t e = cells_blank(' ', s->left_fg, s->left_bg, false);
+            cells_run_fill(row, s->to, e.cell, e.colors);
+        }
         if (s->end < s->cols)
-            cells_run_fill(row + s->end, (unsigned)(s->cols - s->end),
-                           cells_blank(' ', s->right_fg, s->right_bg, false).cell, 0);
+        {
+            const cells_fill_t e = cells_blank(' ', s->right_fg, s->right_bg, false);
+            cells_run_fill(row + s->end, (unsigned)(s->cols - s->end), e.cell, e.colors);
+        }
     }
 }
 
@@ -531,7 +572,7 @@ static void cells_mark_rows_with(screen_buf_t *s, uint8_t from, uint8_t to,
             cells_pay(s, m);
         else if (e->selective && s->owed[m] == CELLS_OWED_FILL && !fill->selective)
         {
-            if (fill->extra & MODE0_EXTRA_GUARD)
+            if (fill->cell.attributes & MODE0_ATTR_GUARD)
                 continue;
             *fill = *e;
             fill->selective = false;
@@ -594,11 +635,12 @@ void cells_touch(term_t *term, term_grid_t *g, uint8_t y)
 // 0x7D. The 0x80..0xFF font range stays reserved for the active codepage.
 // SGR 7 and 8 swap and hide at the cell, and in iCE colors mode (?33) the
 // blink bits are left off the cell: the bright background is the blink. An
-// underline SGR 58 did not color holds the foreground's color.
-static mode0_cell_t cells_glyph_cell(term_t *term, uint8_t byte)
+// underline SGR 58 did not color holds the foreground's color. A cell
+// written while DECSCA or SPA protects is guarded.
+static cells_fill_t cells_glyph_cell(term_t *term, uint8_t byte)
 {
     const term_pen_t *pen = term_pen(term);
-    mode0_cell_t cell;
+    cells_fill_t e;
     uint16_t f = cells_pen_fg(pen);
     uint16_t b = cells_pen_bg(term, pen);
     if (pen->reverse)
@@ -609,40 +651,51 @@ static mode0_cell_t cells_glyph_cell(term_t *term, uint8_t byte)
     }
     if (pen->conceal)
         f = b;
-    cell.fg_color = f;
-    cell.bg_color = b;
+    e.colors.fg_color = f;
+    e.colors.bg_color = b;
     uint8_t cell_mask = TERM_ATTR_RENDER_MASK & ~TERM_ATTR_DEC;
     if (term->ice_colors)
         cell_mask &= (uint8_t)~TERM_ATTR_ANY_BLINK;
-    cell.attributes = (uint8_t)(pen->sgr_attr & cell_mask);
+    uint16_t attributes = (uint16_t)(pen->sgr_attr & cell_mask);
     uint8_t set = pen->gl_is_g1 ? pen->g1_charset : pen->g0_charset;
     if (set == TERM_CS_DEC && byte >= 0x5F && byte <= 0x7E)
-        cell.attributes |= TERM_ATTR_DEC;
+        attributes |= TERM_ATTR_DEC;
     else if (set == TERM_CS_UK && byte == '#')
     {
         byte = 0x7D;
-        cell.attributes |= TERM_ATTR_DEC;
+        attributes |= TERM_ATTR_DEC;
     }
-    cell.font_code = byte;
-    cell.ul_color = pen->ul_set ? cells_base(&pen->ul, MODE0_DEFAULT_FG) : f;
-    return cell;
+    if (term_protecting(term))
+        attributes |= MODE0_ATTR_GUARD;
+    e.cell.font_code = byte;
+    e.cell.unused = 0;
+    e.cell.attributes = attributes;
+    e.colors.ul_color = pen->ul_set ? cells_base(&pen->ul, MODE0_DEFAULT_FG) : f;
+    e.selective = false;
+    return e;
 }
 
 void cells_glyphs(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, uint8_t byte, unsigned n)
 {
     if (!cells_of(g))
         return;
-    mode0_cell_t cell = cells_glyph_cell(term, byte);
-    cells_run_fill(cells_row_ptr(cells_of(g), y) + x, n, cell,
-                   term_protecting(term) ? MODE0_EXTRA_GUARD : 0);
+    const cells_fill_t e = cells_glyph_cell(term, byte);
+    mode0_cell_t *at = cells_row_ptr(cells_of(g), y) + x;
+    if (n == 1)
+    {
+        // A character: its word and its three colors.
+        *at = e.cell;
+        *cells_colors(at) = e.colors;
+        return;
+    }
+    cells_run_fill(at, n, e.cell, e.colors);
 }
 
 void cells_fill_row(term_t *term, term_grid_t *g, uint8_t y, uint8_t byte)
 {
     if (!cells_of(g))
         return;
-    const cells_fill_t e = {cells_glyph_cell(term, byte),
-                            term_protecting(term) ? MODE0_EXTRA_GUARD : 0, false};
+    const cells_fill_t e = cells_glyph_cell(term, byte);
     cells_mark_rows_with(cells_buf(cells_of(g)), y, (uint8_t)(y + 1), &e);
 }
 
@@ -719,7 +772,7 @@ void cells_shift(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigne
     cells_t *cells = cells_of(g);
     screen_buf_t *buf = cells_buf(cells);
     const cells_fill_t in = cells_pen_erase(term, false);
-    const uint16_t fg = in.cell.fg_color, bg = in.cell.bg_color;
+    const uint16_t fg = in.colors.fg_color, bg = in.colors.bg_color;
     const uint8_t width = buf->width;
     const uint8_t *lines = term_lines(g);
     cells_shift_t whole = {0, 0, width, width, fg, bg, fg, bg};
@@ -741,8 +794,7 @@ void cells_shift(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigne
         if (owed == CELLS_OWED_FILL)
         {
             const cells_fill_t *fill = &buf->what[m].fill;
-            if (!fill->selective && fill->extra == in.extra &&
-                !memcmp(&fill->cell, &in.cell, sizeof(in.cell)))
+            if (cells_fill_same(fill, &in))
                 continue;
             cells_pay(buf, m);
         }
@@ -1201,11 +1253,10 @@ static void cells_put_buf(sst_cursor_t *c, const screen_buf_t *b)
         {
             const cells_fill_t *e = &b->what[i].fill;
             sst_put_u8(c, e->cell.font_code);
-            sst_put_u8(c, e->cell.attributes);
-            sst_put_u16(c, e->cell.fg_color);
-            sst_put_u16(c, e->cell.bg_color);
-            sst_put_u16(c, e->cell.ul_color);
-            sst_put_u8(c, e->extra);
+            sst_put_u16(c, e->cell.attributes);
+            sst_put_u16(c, e->colors.fg_color);
+            sst_put_u16(c, e->colors.bg_color);
+            sst_put_u16(c, e->colors.ul_color);
             sst_put_bool(c, e->selective);
             sst_put_u16(c, 0);
         }
@@ -1248,15 +1299,14 @@ static bool cells_get_buf(sst_cursor_t *c, screen_buf_t *b)
         {
             cells_fill_t *e = &b->what[i].fill;
             e->cell.font_code = sst_get_u8(c);
-            e->cell.attributes = sst_get_u8(c);
-            e->cell.fg_color = sst_get_u16(c);
-            e->cell.bg_color = sst_get_u16(c);
-            e->cell.ul_color = sst_get_u16(c);
-            e->extra = sst_get_u8(c);
+            e->cell.attributes = sst_get_u16(c);
+            e->colors.fg_color = sst_get_u16(c);
+            e->colors.bg_color = sst_get_u16(c);
+            e->colors.ul_color = sst_get_u16(c);
             e->selective = sst_get_bool(c);
             sst_get_u16(c);
-            ok &= cells_color_ok(e->cell.fg_color) && cells_color_ok(e->cell.bg_color) &&
-                  cells_color_ok(e->cell.ul_color);
+            ok &= cells_color_ok(e->colors.fg_color) && cells_color_ok(e->colors.bg_color) &&
+                  cells_color_ok(e->colors.ul_color);
         }
         else
         {
@@ -1317,7 +1367,7 @@ void cells_sst_save(sst_cursor_t *c, unsigned flags)
         sst_put(c, cells_40.bufs[b].mem, 40 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
         sst_put(c, cells_80.bufs[b].mem, 80 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
     }
-    sst_put(c, mode0_extras, sizeof mode0_extras);
+    sst_put(c, mode0_colors, sizeof mode0_colors);
     /* The faint half of the palette follows from the other. */
     for (unsigned i = 0; i < MODE0_ENTRIES; i++)
         sst_put_u16(c, mode0_palette[i]);
@@ -1343,14 +1393,14 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags)
         sst_get(c, cells_40.bufs[b].mem, 40 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
         sst_get(c, cells_80.bufs[b].mem, 80 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
     }
-    sst_get(c, mode0_extras, sizeof mode0_extras);
+    sst_get(c, mode0_colors, sizeof mode0_colors);
     for (unsigned i = 0; i < MODE0_ENTRIES; i++)
         cells_set_color(i, sst_get_u16(c));
     if (!sst_ok(c))
         return false;
     for (unsigned i = 0; i < MODE0_CELLS; i++)
-        if (!cells_color_ok(mode0_cells[i].fg_color) || !cells_color_ok(mode0_cells[i].bg_color) ||
-            !cells_color_ok(mode0_cells[i].ul_color))
+        if (!cells_color_ok(mode0_colors[i].fg_color) || !cells_color_ok(mode0_colors[i].bg_color) ||
+            !cells_color_ok(mode0_colors[i].ul_color))
             return false;
     cells_publish();
     return true;

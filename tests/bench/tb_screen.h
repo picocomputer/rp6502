@@ -54,6 +54,12 @@ static inline const mode0_cell_t *tb_screen_row(uint8_t y)
     return &mode0_cells[MODE0_ROW_CELL(mode0_regs.row[y])];
 }
 
+/* The colors of the cells of a row, indexed like its cells. */
+static inline const mode0_colors_t *tb_screen_row_colors(uint8_t y)
+{
+    return &mode0_colors[MODE0_ROW_CELL(mode0_regs.row[y])];
+}
+
 static inline uint8_t tb_screen_row_size(uint8_t y)
 {
     return MODE0_ROW_SIZE(mode0_regs.row[y]);

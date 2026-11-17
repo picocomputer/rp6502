@@ -12,7 +12,7 @@
 
 /* On a word, so the console can write and move cells a word at a time. */
 mode0_cell_t mode0_cells[MODE0_CELLS] __attribute__((aligned(4)));
-uint8_t mode0_extras[MODE0_CELLS];
+mode0_colors_t mode0_colors[MODE0_CELLS] __attribute__((aligned(4)));
 uint16_t mode0_palette[2 * MODE0_ENTRIES];
 volatile mode0_regs_t mode0_regs;
 
@@ -40,12 +40,13 @@ mode0_render_wide(uint16_t *buf, uint8_t bits, const uint32_t *pair)
  * are entries of the palette, after DECSCNM and the blink phase, as the four
  * ways two pixels can land. */
 static inline __attribute__((always_inline)) void
-mode0_row_pairs(uint32_t *pair, const mode0_cell_t *cell, int cols, uint8_t blink_mask, bool rev)
+mode0_row_pairs(uint32_t *pair, const mode0_cell_t *cell, const mode0_colors_t *colors,
+                int cols, uint8_t blink_mask, bool rev)
 {
-    for (int i = 0; i < cols; i++, cell++, pair += 4)
+    for (int i = 0; i < cols; i++, cell++, colors++, pair += 4)
     {
-        uint16_t fg = mode0_color(cell->fg_color);
-        uint16_t bg = mode0_color(cell->bg_color);
+        uint16_t fg = mode0_color(colors->fg_color);
+        uint16_t bg = mode0_color(colors->bg_color);
         if (rev)
         {
             uint16_t t = fg;
@@ -63,7 +64,8 @@ mode0_row_pairs(uint32_t *pair, const mode0_cell_t *cell, int cols, uint8_t blin
  * constants, so each combination compiles to its own loop. A cell with no
  * attributes, the common one, is its glyph through its pairs. */
 static inline __attribute__((always_inline)) void
-mode0_draw(uint16_t *rgb, const mode0_cell_t *cell, const uint32_t *pair, int cols,
+mode0_draw(uint16_t *rgb, const mode0_cell_t *cell, const mode0_colors_t *colors,
+           const uint32_t *pair, int cols,
            const uint8_t *font_line, const uint8_t *font_line_dec, const uint8_t *italic_line,
            uint8_t line_mask, bool ul_row, bool wide)
 {
@@ -71,20 +73,20 @@ mode0_draw(uint16_t *rgb, const mode0_cell_t *cell, const uint32_t *pair, int co
     {
         /* The glyph and the attributes in one load: with no attributes
          * the value is the glyph. */
-        uint16_t ca;
+        uint32_t ca;
         memcpy(&ca, cell, sizeof(ca));
         uint8_t bits;
         if (MODE_LIKELY(ca < 0x100))
             bits = font_line[ca];
         else
         {
-            const uint8_t attr = (uint8_t)(ca >> 8);
+            const uint8_t attr = (uint8_t)(ca >> 16);
             const uint8_t code = (uint8_t)ca;
             if (attr & line_mask)
             {
                 /* A line through the cell: the foreground all the way
                  * across, or the underline's own color. */
-                const uint32_t w = ul_row ? mode0_color(cell->ul_color) * 0x10001u : pair[3];
+                const uint32_t w = ul_row ? mode0_color(colors[i].ul_color) * 0x10001u : pair[3];
                 mode_word_t *d = (mode_word_t *)rgb;
                 for (int k = 0; k < (wide ? 8 : 4); k++)
                     d[k] = w;
@@ -143,6 +145,7 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
                   (glyph_row == 0 ? TERM_ATTR_OVERLINE : 0));
     const bool ul_row = (line_mask & (TERM_ATTR_UNDERLINE | TERM_ATTR_DBL_UL)) != 0;
     const mode0_cell_t *cell = &mode0_cells[MODE0_ROW_CELL(row_word)];
+    const mode0_colors_t *colors = &mode0_colors[MODE0_ROW_CELL(row_word)];
     const bool wide = size != TERM_LINE_NORMAL;
     const int cols = wide ? width / 2 : width;
     /* The row's pairs are built for the first of its scanlines a thread
@@ -151,15 +154,15 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
     const uint32_t key[4] = {MODE0_ROW_KEY, row_word, screen, (uint32_t)vga_frame_count()};
     if (memcmp(cache->row_key, key, sizeof(key)))
     {
-        mode0_row_pairs(cache->row_pair[0], cell, cols, blink_mask, reverse);
+        mode0_row_pairs(cache->row_pair[0], cell, colors, cols, blink_mask, reverse);
         memcpy(cache->row_key, key, sizeof(key));
     }
     const uint32_t *pair = cache->row_pair[0];
     if (wide)
-        mode0_draw(rgb, cell, pair, width / 2, font_line, font_line_dec, italic_line,
+        mode0_draw(rgb, cell, colors, pair, width / 2, font_line, font_line_dec, italic_line,
                    line_mask, ul_row, true);
     else
-        mode0_draw(rgb, cell, pair, width, font_line, font_line_dec, italic_line,
+        mode0_draw(rgb, cell, colors, pair, width, font_line, font_line_dec, italic_line,
                    line_mask, ul_row, false);
     // DECSCUSR styles 2, 4 and 6 are the steady ones, so they draw whether or
     // not cursor_lit is set: cells.c toggles cursor_lit on a timer and leaves the
@@ -203,7 +206,8 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
         default:
         { // 0, 1, 2: block
             const mode0_cell_t *cp = cell + cx;
-            uint8_t cattr = cp->attributes;
+            const mode0_colors_t *cc = colors + cx;
+            uint8_t cattr = (uint8_t)cp->attributes;
             uint8_t cbits = font_line[cp->font_code];
             if (cattr & TERM_ATTR_DEC)
                 cbits = font_line_dec[(cp->font_code - 0x5F) & 31];
@@ -212,7 +216,7 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
             if (cattr & line_mask)
                 cbits = 0xFF;
             mode_pair_set(cpair, cursor_color,
-                          mode0_color(reverse ? cp->fg_color : cp->bg_color));
+                          mode0_color(reverse ? cc->fg_color : cc->bg_color));
             if (wide)
                 mode0_render_wide(crgb, cbits, cpair);
             else

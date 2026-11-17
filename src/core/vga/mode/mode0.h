@@ -21,9 +21,27 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* A cell: its glyph, its TERM_ATTR_ bits and its colors, which cells.c
- * takes from the pen as the cell is written. The underline color is SGR
- * 58's, or the foreground's if none is set.
+/* A cell is in two tables, indexed alike. mode0_cells has its glyph and
+ * its attributes in one word, which is all a scanline reads. mode0_colors
+ * has its three colors, which are read when a row's pixel pairs are built.
+ * cells.c takes both from the pen as the cell is written.
+ *
+ * The attributes are the TERM_ATTR_ bits in the low byte, which the
+ * renderer draws, and above them:
+ *
+ * MODE0_ATTR_GUARD: DECSCA or SPA guards the cell from the selective
+ * erases. It is the console's own, and no renderer draws it.
+ *
+ * The unused byte is always zero. */
+typedef struct
+{
+    uint8_t font_code;
+    uint8_t unused;
+    uint16_t attributes;
+} mode0_cell_t;
+#define MODE0_ATTR_GUARD 0x100u
+
+/* The underline color is SGR 58's, or the foreground's if none is set.
  *
  * A color is one of two things, told apart by the pixel format's opaque
  * bit. Set, it is a pixel, drawn as it is: an RGB color. Clear, it is an
@@ -32,12 +50,10 @@
  * cell. Whether such a color is transparent is the entry's to say. */
 typedef struct
 {
-    uint8_t font_code;
-    uint8_t attributes;
     uint16_t fg_color;
     uint16_t bg_color;
     uint16_t ul_color;
-} mode0_cell_t;
+} mode0_colors_t;
 
 /* The colors a cell can name: the 256 palette entries and the default
  * foreground and background, then all of those again at half brightness,
@@ -59,22 +75,15 @@ static inline uint16_t mode0_color(uint16_t color)
     return (color & SCANVIDEO_ALPHA_MASK) ? color : mode0_palette[color >> MODE0_ENTRY_SHIFT];
 }
 
-_Static_assert(sizeof(mode0_cell_t) == 8, "the renderers read 8-byte cells");
+_Static_assert(sizeof(mode0_cell_t) == 4, "a cell is a word");
+_Static_assert(sizeof(mode0_colors_t) == 6, "a cell's colors are three halfwords");
 
 /* The cells of every screen: the 40-column terminal's primary and
  * alternate, then the 80-column terminal's. */
 #define MODE0_SCREENS (TERM_ALT_SCREEN ? 2 : 1)
 #define MODE0_CELLS ((40 + 80) * TERM_MAX_HEIGHT * MODE0_SCREENS)
 extern mode0_cell_t mode0_cells[MODE0_CELLS];
-
-/* What a cell has no room for: a byte for each cell, beside mode0_cells and
- * indexed like it, that goes wherever its cell goes. A bit can live here or
- * in the cell, whichever is faster for what reads it.
- *
- * MODE0_EXTRA_GUARD: DECSCA or SPA guards the cell from the selective
- * erases. It is the console's own, and no renderer reads it. */
-extern uint8_t mode0_extras[MODE0_CELLS];
-#define MODE0_EXTRA_GUARD 0x80u
+extern mode0_colors_t mode0_colors[MODE0_CELLS];
 
 /* The words, all of them whole 32-bit words, because a fabric's registers
  * take nothing smaller. They describe the terminal showing.

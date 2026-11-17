@@ -199,12 +199,20 @@ static uint32_t vt_cells(void)
     for (int y = 0; y < vt_rows; y++)
     {
         const mode0_cell_t *row = tb_screen_row((uint8_t)y);
+        const mode0_colors_t *colors = tb_screen_row_colors((uint8_t)y);
         for (int x = 0; x < vt_cols; x++)
         {
-            mode0_cell_t shown = row[x];
-            shown.fg_color = mode0_color(shown.fg_color);
-            shown.bg_color = mode0_color(shown.bg_color);
-            shown.ul_color = mode0_color(shown.ul_color);
+            /* The eight bytes golden.txt's digests were made from. */
+            const struct
+            {
+                uint8_t font_code;
+                uint8_t attributes;
+                uint16_t fg_color;
+                uint16_t bg_color;
+                uint16_t ul_color;
+            } shown = {row[x].font_code, (uint8_t)row[x].attributes,
+                       mode0_color(colors[x].fg_color), mode0_color(colors[x].bg_color),
+                       mode0_color(colors[x].ul_color)};
             crc = host_crc32(crc, &shown, sizeof shown);
         }
     }
