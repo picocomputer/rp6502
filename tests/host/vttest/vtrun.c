@@ -562,7 +562,16 @@ static bool vt_drain(void)
             continue;
         }
         if (vt_reading())
+        {
+            /* vttest can write a screen and start to read between the poll
+             * and this look at it, and what it wrote is then still to be
+             * read here. Once it is seen reading it writes nothing more,
+             * so one more look at the terminal settles it. */
+            struct pollfd again = {.fd = vt_master, .events = POLLIN};
+            if (poll(&again, 1, 0) > 0)
+                continue;
             return true;
+        }
         quiet += VT_POLL_MS;
         if (quiet >= VT_STUCK_MS)
             return true;
