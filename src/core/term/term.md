@@ -124,7 +124,10 @@ out.
 
 ## 7. Store palette entries in cells
 
-A cell's 16-bit color is told apart by the opaque bit of the pixel
+Not done. A spike on the local branch spike-palette measured it; the
+cells on this branch still hold 16-bit colors and their color sources.
+
+A cell's 16-bit color would be told apart by the opaque bit of the pixel
 format, bit 5:
 
 - **Opaque**: a pixel, drawn as it is. SGR 38;2 colors are stored this
@@ -134,12 +137,12 @@ format, bit 5:
   background) and a bit for faint. One shift takes the entry out.
   Transparency comes from the table.
 
-Bold and iCE colors still choose their entry as the text is written, and
-SGR 7 still swaps the two colors at the cell.
+Bold and iCE colors would still choose their entry as the text is
+written, and SGR 7 would still swap the two colors at the cell.
 
-Mode 0 looks the entries up once a row, where it builds the row's color
-tables. In a spike that cost about 5% over the console and two mode 2
-layers at 8 bpp with every cell a different color, and nothing on
+Mode 0 would look the entries up once a row, where it builds the row's
+color tables. In the spike that cost about 5% over the console and two
+mode 2 layers at 8 bpp with every cell a different color, and nothing on
 ordinary text. Do this if the margin of step 6 has room for it.
 
 - **Saves about 21 KB** on the RP6502-PICO and 21.6 KB on the
