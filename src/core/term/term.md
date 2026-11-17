@@ -122,8 +122,9 @@ display, in cycles a scanline:
 | A program printing plain text that scrolls | 600 | 1,350 |
 | A program printing text with every cell in its own colors | 800 | 1,600 |
 
-The program printed 6,000 to 7,000 characters a second, not the 11,520
-of 115200 baud. Find out why before trusting these as the target.
+The program prints at the 11,520 characters a second of 115200 baud. A
+telnet session halves that for as long as it is connected, so the bench
+reaches the console through a debug probe; see tests/hil/pico/README.md.
 
 Every feature below is then measured against the target, and kept or
 taken out.
