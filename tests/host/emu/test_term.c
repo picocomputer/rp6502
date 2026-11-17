@@ -13,6 +13,7 @@
 #include "core/str/str.h"
 #include "core/sys/sst.h"
 #include "core/sys/sys.h"
+#include "core/sys/version.h"
 #include "core/term/color.h"
 #include "core/term/cells.h"
 #include "tb_screen.h"
@@ -543,6 +544,18 @@ UTEST(term, decreqtparm)
     ASSERT_STREQ(ask("\33[x"), "\33[2;1;1;112;112;1;0x");
     ASSERT_STREQ(ask("\33[1x"), "\33[3;1;1;112;112;1;0x");
     ASSERT_STREQ(ask("\33[2x"), "");
+}
+
+/* XTVERSION: the console's name and the firmware's version. */
+UTEST(term, xtversion_names_the_console_and_its_version)
+{
+    fresh();
+    char want[64];
+    snprintf(want, sizeof want, "\33P>|RP6502(%s)\33\\", version_bare());
+    ASSERT_STREQ(ask("\33[>q"), want);
+    ASSERT_STREQ(ask("\33[>0q"), want);
+    ASSERT_STREQ(ask("\33[>1q"), "");
+    ASSERT_STREQ(ask("\33[q"), "");
 }
 
 UTEST(term, window_reports)

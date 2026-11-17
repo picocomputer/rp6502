@@ -5,7 +5,8 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 add_executable(vtrun vtrun.c ${RP6502_SRC}/host/sokol/cli/png.c
-    ${RP6502_BENCH}/tb_seed.c ${RP6502_BENCH}/tb_log.c ${RP6502_SRC}/core/sys/crc32.c)
+    ${RP6502_BENCH}/tb_seed.c ${RP6502_BENCH}/tb_log.c ${RP6502_BENCH}/tb_version.c
+    ${RP6502_SRC}/core/sys/crc32.c)
 target_include_directories(vtrun PRIVATE ${RP6502_SRC} ${RP6502_BENCH})
 target_link_libraries(vtrun PRIVATE emu_core util)
 

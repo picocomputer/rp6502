@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/sys/version.h"
 #include "core/term/cells.h"
 #include "core/term/grid.h"
 #include "core/term/term.h"
@@ -28,7 +29,7 @@
 /* The longest answer the terminal builds for a query. Replies snprintf into a
  * buffer this size and drop the reply if it would not fit, so this bounds
  * what a program can be told, not what the console can hold. */
-#define TERM_REPLY_MAX 24
+#define TERM_REPLY_MAX 40
 
 /* The C0 controls, as bitmaps of their codes. Linux acts on the ACTION set
  * and draws the rest as glyphs. With CRM (CSI 3 h) it draws everything but
@@ -515,6 +516,16 @@ static void term_out_DSR(term_t *t)
         break;
     }
     }
+}
+
+// XTVERSION, CSI > q: the console's name and its firmware's version, so a
+// program need not guess the terminal from its device attributes.
+static void term_out_XTVERSION(term_t *t)
+{
+    char buf[TERM_REPLY_MAX];
+    int n = snprintf(buf, sizeof(buf), "\33P>|RP6502(%s)\33\\", version_bare());
+    if (n > 0 && n < (int)sizeof(buf))
+        cells_reply(t, buf, (size_t)n);
 }
 
 // xterm's window reports, CSI Ps t, of the ones that mean something here.
@@ -1283,9 +1294,13 @@ static void term_csi_final(term_t *t, uint8_t ch)
         else if (inter == '$' && ch == 'p')
             term_out_DECRQM(t, true);
         break;
-    case '>': // Secondary DA: type 0, firmware 1, ROM 0
-        if (!inter && ch == 'c' && !t->csi_param[0])
+    case '>':
+        if (inter || t->csi_param[0])
+            break;
+        if (ch == 'c') // Secondary DA: type 0, firmware 1, ROM 0
             TERM_REPLY(t, "\33[>0;1;0c");
+        else if (ch == 'q')
+            term_out_XTVERSION(t);
         break;
     case '=': // Tertiary DA: a unit ID of zeros
         if (!inter && ch == 'c' && !t->csi_param[0])

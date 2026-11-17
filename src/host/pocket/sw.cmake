@@ -78,12 +78,21 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/term/font.c
         ${RP6502_SRC}/core/term/term.c
         ${RP6502_SRC}/core/term/grid.c
-        ${RP6502_SRC}/core/term/cells.c)
+        ${RP6502_SRC}/core/term/cells.c
+        ${RP6502_SRC}/core/sys/version.c)
     rp6502_log_flags(SW_LOG_FLAGS)
     # AUD_NATIVE_RATE is the 48 kHz the fabric mixes at, which pcm_step
     # divides by. RP6502_SST builds the savestate's columns of the stdio
     # rows, as on the emulators.
+    # The firmware's version, for XTVERSION, is stamped as it is built.
     add_custom_command(OUTPUT ${SW_BIN}
+        COMMAND ${CMAKE_COMMAND}
+            -DOUTPUT=${RP6502_ASSETS}/rp6502_version.h
+            -DSTAMP_SCRIPT=${RP6502_STAMP_SCRIPT}
+            "-DSTAMP_VERSION=${RP6502_VERSION_VALUE}"
+            "-DSTAMP_CI=${RP6502_CI_VALUE}"
+            "-DSTAMP_GIT=${RP6502_GIT_VALUE}"
+            -P ${RP6502_GEN_VERSION_SCRIPT}
         COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
             -msave-restore
             -Os -ffreestanding -nostartfiles

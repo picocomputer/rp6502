@@ -139,7 +139,7 @@ void com_end_reset(void);
 /* The picker's held source (1) and its deadline (8), the bell (1), the
  * staged byte's source (1), and the held answer's length (1), how much of it
  * has been read (1), its buffer (32) and the quiet flag (1). */
-#define COM_SST_SIZE 46
+#define COM_SST_SIZE 62
 void com_sst_save(sst_cursor_t *c, unsigned flags);
 bool com_sst_load(sst_cursor_t *c, unsigned flags);
 
@@ -148,6 +148,6 @@ bool com_sst_load(sst_cursor_t *c, unsigned flags);
     RUN(com_run)                 \
     STOP(com_run)                \
     BREAK(com_rx_clear)          \
-    SST(COM_, 6, COM_SST_SIZE, com_sst_save, com_sst_load))
+    SST(COM_, 7, COM_SST_SIZE, com_sst_save, com_sst_load))
 
 #endif /* _CORE_COM_COM_H_ */

@@ -177,7 +177,8 @@ function(rp6502_add_test name)
         set(T_SOURCES test_${name}.c)
     endif()
 
-    list(APPEND T_SOURCES ${RP6502_BENCH}/tb_seed.c ${RP6502_SRC}/core/sys/crc32.c)
+    list(APPEND T_SOURCES ${RP6502_BENCH}/tb_seed.c ${RP6502_BENCH}/tb_version.c
+        ${RP6502_SRC}/core/sys/crc32.c)
     if(NOT T_SINK)
         list(APPEND T_SOURCES ${RP6502_BENCH}/tb_log.c)
     endif()

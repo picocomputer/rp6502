@@ -34,8 +34,9 @@ static bool com_bel_enabled = true;
 
 /* The console's terminal's answers, read from the UART's source. The first
  * com_reply_at bytes have been read, and while any have, the rest are read
- * before the UART's queue. */
-static uint8_t com_reply_buf[32];
+ * before the UART's queue. It holds the longest answer, XTVERSION's of a
+ * build stamped with its time, 38 bytes, and a short one behind it. */
+static uint8_t com_reply_buf[48];
 static uint8_t com_reply_len;
 static uint8_t com_reply_at;
 static bool com_reply_quiet;
