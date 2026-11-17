@@ -58,7 +58,7 @@ void cells_set_height(uint8_t width, uint8_t height);
  * The chunk starts with the terminal dimensions and a load rejects a chunk
  * whose dimensions differ, because a blob made at a taller height would put
  * its rows in the wrong places. */
-#define CELLS_BUF_SST_SIZE (12 * TERM_MAX_HEIGHT + 3)
+#define CELLS_BUF_SST_SIZE (14 * TERM_MAX_HEIGHT + 3)
 #define CELLS_ONE_SST_SIZE (TERM_GRID_SST_SIZE(TERM_MAX_HEIGHT) + 2 * CELLS_BUF_SST_SIZE + 18)
 #define CELLS_COUNT_SST (TERM_MAX_HEIGHT * (40 + 80) * (TERM_ALT_SCREEN ? 2 : 1))
 #define CELLS_MEM_SST_SIZE (8 * CELLS_COUNT_SST)
@@ -72,7 +72,7 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags);
 #define CELLS_DRIVER DRIVER(                                    \
     INIT(cells_init)                                            \
     TASK_FATFS(cells_task)                                      \
-    SST(CELL, 7, CELLS_SST_SIZE, cells_sst_save, cells_sst_load))
+    SST(CELL, 8, CELLS_SST_SIZE, cells_sst_save, cells_sst_load))
 
 /* ---- what the terminal asks of the screen ------------------------------
  *

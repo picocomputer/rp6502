@@ -1127,6 +1127,61 @@ UTEST(term, a_guard_moves_with_its_cell)
     ASSERT_EQ(mode0_color(cell(4, 0)->bg_color), color_256[1]);
 }
 
+/* SL and SR against a model of the row. A row is owed its shifts, and a
+ * second shift only changes what it is owed, so each run of one to six
+ * shifts, in three colors, is checked as one: the glyphs that are left,
+ * the color of every blank, and the guard beside every cell. The row is the
+ * cursor's on every fourth run, where it is paid at each shift. */
+UTEST(term, shifts_owed_to_a_row_are_the_shifts_done)
+{
+    uint32_t state = 1;
+    for (int run = 0; run < 3000; run++)
+    {
+        char glyph[80], seq[32];
+        int bg[80];
+        bool guard[80];
+        fresh();
+        feed("\33[3;1H");
+        for (int i = 0; i < 80; i++)
+        {
+            glyph[i] = (char)('!' + i);
+            bg[i] = 0;
+            guard[i] = i % 3 == 0;
+            feed(guard[i] ? "\33[1\"q" : "\33[0\"q");
+            feedn(&glyph[i], 1);
+        }
+        feed(run % 4 ? "\33[11;1H" : "\33[3;5H");
+        state = state * 1664525u + 1013904223u;
+        const int shifts = 1 + (int)((state >> 8) % 6);
+        for (int k = 0; k < shifts; k++)
+        {
+            state = state * 1664525u + 1013904223u;
+            const int n = 1 + (int)((state >> 8) % 12 ? (state >> 12) % 9 : (state >> 12) % 90);
+            const bool left = (state >> 20) & 1;
+            const int color = 1 + (int)((state >> 21) % 8 ? 0 : (state >> 24) % 3);
+            snprintf(seq, sizeof seq, "\33[4%dm\33[%d %c", color, n, left ? '@' : 'A');
+            feed(seq);
+            for (int j = 0; j < 80; j++)
+            {
+                const int i = left ? j : 79 - j;
+                const int f = left ? i + n : i - n;
+                const bool in = f >= 0 && f < 80;
+                glyph[i] = in ? glyph[f] : ' ';
+                bg[i] = in ? bg[f] : color;
+                guard[i] = in && guard[f];
+            }
+        }
+        for (int i = 0; i < 80; i++)
+        {
+            const mode0_cell_t *c = cell(i, 2);
+            ASSERT_EQ(c->font_code, (uint8_t)glyph[i]);
+            if (bg[i])
+                ASSERT_EQ(mode0_color(c->bg_color), color_256[bg[i]]);
+            ASSERT_EQ((int)!!(mode0_extras[c - mode0_cells] & MODE0_EXTRA_GUARD), (int)guard[i]);
+        }
+    }
+}
+
 /* ICH and DCH of every count from several columns: the cells that move
  * keep their glyphs, and each takes its guard with it, so the selective
  * erase after spares exactly the guarded cells where they now are. Every
@@ -1391,6 +1446,24 @@ UTEST(term, the_palette_and_the_guards_come_back)
     ASSERT_EQ(mode0_color(cell(1, 0)->fg_color), rgb(0x40, 0x50, 0x60));
     feed("\33[?2K");
     ASSERT_STREQ(row(0), "  G");
+}
+
+/* A shift a row is still owed is saved with the row and paid after the
+ * load: the survivors, and the blank color for each side. */
+UTEST(term, a_shift_still_owed_comes_back)
+{
+    static uint8_t blob[1 << 20], undo[1 << 20];
+    fresh();
+    feed("\33[3;1HABCDEF\33[10;1H\33[41m\33[2 A\33[42m\33[3 @");
+    ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
+    feed("\33c");
+    ASSERT_STREQ(row(2), "");
+    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
+    ASSERT_STREQ(row(2), "BCDEF");
+    ASSERT_EQ(mode0_color(cell(79, 2)->bg_color), color_256[2]);
+    feed("\33[3;1H\33[43m\33[2 A");
+    ASSERT_STREQ(row(2), "  BCDEF");
+    ASSERT_EQ(mode0_color(cell(0, 2)->bg_color), color_256[3]);
 }
 
 /* Printing and DCH ignore protection, and DECSTR ends it. */
