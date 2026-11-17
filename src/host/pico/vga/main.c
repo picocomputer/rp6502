@@ -40,8 +40,8 @@ static void init(void)
 #include "core/sys/driver_walk_end.h"
     /* Core 1 renders scanlines with vga_render_scanline, so it must not start
      * before ria_init, cells_init, font_init and vga_init have run. Until then,
-     * ria_lock is null, mutex_init has not run on vga_scanline_mutex, the
-     * terminal's screen pointer is null and the glyph tables are
+     * ria_lock is null, the fill caches are not zeroed, scanvideo is not set
+     * up, the terminal's screen pointer is null and the glyph tables are
      * uninitialized RAM. */
     vga_start_render_core();
 }

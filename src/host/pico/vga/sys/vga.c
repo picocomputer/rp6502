@@ -18,8 +18,14 @@
 #pragma GCC push_options
 #pragma GCC optimize("O3")
 
-static mutex_t vga_scanline_mutex;
+/* A render and a switch of the view keep out of each other's way with two
+ * flags and no lock. A render sets its core's vga_rendering and then reads
+ * vga_render_hold; a switch sets vga_render_hold and then reads
+ * vga_rendering. Each store is ordered before the load that follows it, so
+ * at least one of the two sees the other: the render gives the line up, or
+ * the switch waits for the render to finish. */
 static volatile bool vga_rendering[2];
+static volatile bool vga_render_hold;
 static volatile uint16_t vga_vsync_frame_fired;
 static vga_display_t vga_display_selected;
 static vga_canvas_t vga_canvas_selected;
@@ -202,10 +208,12 @@ static void vga_scanvideo_switch(void)
     if (!vga_view_switching)
         return;
 
-    // Prevent new renders from starting, then wait for any in-flight
-    // render to finish, since shared state including spinlocks gets zeroed.
-    mutex_enter_blocking(&vga_scanline_mutex);
-    while (vga_rendering[0] || vga_rendering[1])
+    // No render starts while vga_render_hold is set. Wait for any render
+    // in flight to finish, since shared state including spinlocks gets
+    // zeroed.
+    __atomic_store_n(&vga_render_hold, true, __ATOMIC_SEQ_CST);
+    while (__atomic_load_n(&vga_rendering[0], __ATOMIC_SEQ_CST) ||
+           __atomic_load_n(&vga_rendering[1], __ATOMIC_SEQ_CST))
         tight_loop_contents();
 
     // Set system clock for the new video mode; must run before scanvideo_set_mode()
@@ -228,8 +236,7 @@ static void vga_scanvideo_switch(void)
 
     vga_view_current = vga_view_selected;
     vga_view_switching = false;
-
-    mutex_exit(&vga_scanline_mutex);
+    vga_render_hold = false;
 }
 
 static unsigned long vga_frames;
@@ -275,17 +282,20 @@ vga_fill_cache[2][SCANVIDEO_PLANE_COUNT];
 
 static void vga_render_scanline(void)
 {
-    if (!mutex_try_enter(&vga_scanline_mutex, 0))
+    volatile bool *const rendering = &vga_rendering[get_core_num()];
+    __atomic_store_n(rendering, true, __ATOMIC_SEQ_CST);
+    if (__atomic_load_n(&vga_render_hold, __ATOMIC_SEQ_CST))
+    {
+        *rendering = false;
         return;
+    }
     scanvideo_scanline_buffer_t *const scanline_buffer =
         scanvideo_begin_scanline_generation();
     if (!scanline_buffer)
     {
-        mutex_exit(&vga_scanline_mutex);
+        *rendering = false;
         return;
     }
-    vga_rendering[get_core_num()] = true;
-    mutex_exit(&vga_scanline_mutex);
 
     const uint16_t width = vga_view_current->width;
     const uint32_t buffer_scanline_id = scanline_buffer->scanline_id;
@@ -354,7 +364,7 @@ static void vga_render_scanline(void)
     }
     scanvideo_end_scanline_generation(scanline_buffer);
     vga_scanline_complete(buffer_scanline_id);
-    vga_rendering[get_core_num()] = false;
+    *rendering = false;
 }
 
 // [canvas][display]. vga_xreg_canvas accepts exactly the canvases that have
@@ -453,7 +463,6 @@ void vga_init(void)
 {
     /* The VIDEO region is not zeroed at boot. */
     memset(vga_fill_cache, 0, sizeof(vga_fill_cache));
-    mutex_init(&vga_scanline_mutex);
     vga_set_display(vga_sd);
     vga_scanvideo_switch();
 }
