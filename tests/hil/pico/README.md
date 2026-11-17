@@ -12,6 +12,8 @@ on, so a developer runs them on a workstation with the rig attached.
   `rp6502.py run`. Its `device` and `key` select the console. `-d` and `-k`
   give them on the command line. With a key, the tests use the telnet
   console of a Pico 2 W. Without one, they use a serial port.
+- `-d rtt`, or `-d rtt:SERIAL` with several probes, uses the console on a
+  debug probe instead; see below.
 - `--elf` names the ELF of the firmware on the RIA. With it, the tests read
   the audio load through the probe, and `--flash` programs that ELF before
   the tests.
@@ -34,6 +36,30 @@ on, so a developer runs them on a workstation with the rig attached.
   OpenOCD in `$OPENOCD`, in `~/.pico-sdk/openocd/`, where the Pico extension
   of VS Code installs it, or on the PATH. For its reads, the probe uses the
   memory access ports alone (`memap.cfg`), so the cores never halt.
+
+## The console on a debug probe
+
+A firmware built with `-DRP6502_RTT_DEBUG=ON` keeps the console in RAM as
+SEGGER RTT channel 0, where a probe on the SWD pins reads and writes it. It
+is one more end of the console's UART: it carries what the UART carries, at
+115200 baud, with nothing between the tests and the machine but the probe.
+The telnet console holds a program's output to the pace of the network,
+about half of that over Wi-Fi, for as long as a session is connected.
+
+    cmake -S . -B build-rtt -DRP6502_RTT_DEBUG=ON
+    python3 tests/hil/pico/hil.py -d rtt:SERIAL --probe SERIAL \
+        --elf build-rtt/ria-w/rp6502-ria-w.elf term sizes bus audio tput
+
+The option is off in a release. The RIA and the VGA both take it, and a
+probe on either reaches the same console. A break is a word the probe sets
+beside the rings, since RTT has none.
+
+The rig reads the rings itself (`RttDevice` in `rig.py`), through the same
+OpenOCD and the same memory access ports as its other reads. The output
+ring is 256 bytes, 22 ms of a busy console, and the firmware drops and
+counts what does not fit. OpenOCD's own `rtt server` reads every 100 ms
+unless `rtt polling_interval` says otherwise, and has to attach to the
+cores.
 
 ## tput
 

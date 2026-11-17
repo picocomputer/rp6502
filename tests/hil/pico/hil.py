@@ -29,7 +29,7 @@ class Rig:
     def __init__(self, args):
         self.args = args
         self.board = rig.Board(args.device, args.key)
-        self.probe = rig.Probe(args.elf, args.probe) if args.elf else None
+        self.probe = rig.Probe(args.elf, args.probe, self.board) if args.elf else None
         self.tmp = tempfile.TemporaryDirectory()
 
     def rom(self, name):
@@ -282,7 +282,8 @@ def main():
     ap.add_argument("-c", "--config", metavar="file",
                     help="the settings file of rp6502.py, for the device and the key")
     ap.add_argument("-d", "--device", metavar="dev",
-                    help="the serial port, or the address of the telnet console")
+                    help="the serial port, the address of the telnet console, "
+                         "or rtt or rtt:SERIAL for the console on a debug probe")
     ap.add_argument("-k", "--key", metavar="key", help="the telnet passkey")
     ap.add_argument("--elf", metavar="file",
                     help="the ELF of the firmware on the RIA; enables the probe")
