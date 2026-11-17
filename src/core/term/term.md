@@ -29,110 +29,100 @@ can recolor the cells. The 40-column and the 80-column console both
 follow every byte, and each has an alternate screen, so every table is
 paid four times.
 
-## 0. Mode 0: prepare a row's colors once (done)
+## 0. Runs of cells
 
-Steps 0 to 3 make the fill layers draw faster on the RP6502-PICO. The
-measure is the cycles the VGA takes to draw one scanline. Its two cores
-have about 12,800 between them at 640x480.
+Steps 0 to 5 speed up the console. The VGA holds 8 bytes from the RIA and
+cannot tell it to wait. At 115200 baud a byte arrives every 17,500 cycles
+of core 0, a byte-time. One byte, with the rest of the main loop's pass,
+must take under 8 byte-times, and a stream must average under one.
 
-For every cell on every scanline, mode 0 read the cell's colors and
-built a small table from them. A row is 16 scanlines in the same colors,
-so mode 0 now builds the tables on the first scanline it draws of a row
-and reuses them for the rest. It went from 3,558 to 2,480 cycles a
-scanline.
+Measured on a full 80x30 screen:
 
-A cell recolored while its row is being drawn keeps its old colors until
-the next frame. The emulator builds the tables for every scanline, so it
-shows the new colors on the next scanline.
+| | Cycles for the slowest byte | Byte-times | Sent back to back |
+|---|---|---|---|
+| REP 65535 | 133,000 | 7.6 | 101% |
+| SR 1 | 132,000 | 7.6 | 157% |
+| SL 1 | 124,000 | 7.1 | 147% |
+| REP 2400 | 114,000 | 6.5 | 99% |
+| SL and SR by 40 or 80 | 65,000 to 82,000 | 3.7 to 4.7 | 68 to 84% |
+| LF at the bottom | 9,700 | 0.55 | 55% |
+| A character | 1,750 | 0.1 | 10% |
 
-## 1. Mode 1: prepare a row's colors once (done)
+Everything else is under 0.6 byte-times. SL 1 and SR 1 sent back to back
+lose bytes.
 
-The four depths of mode 1 with a color in every cell do what step 0
-does. With 8x16 cells they went from between 2,670 and 2,990 cycles a
-scanline to about 2,200, and with 8x8 cells to about 2,300.
+One 80-column row costs 2,500 cycles to move a cell sideways, 1,400 to
+blank, and 2,000 to fill with a glyph. Of the move, 1,790 is the color
+sources: 3-byte entries, which the C library copies a byte at a time.
 
-The tables of steps 0 and 1 take 1.3 KB for each plane on each core, 8 KB
-in all. Step 20 has a way to take less.
+Write two routines for the cells and their color sources: one writes a
+run of cells with one value, and one moves a run. A cell is two words.
+Measure each against the numbers above before anything uses it.
 
-## 2. Mode 2 at 8 bpp, and the other fill modes (done, nothing gained)
+## 1. REP
 
-Every standard fill mode on a canvas 640 wide, in cycles a scanline,
-before steps 0 and 1:
+REP already stops after one screen and a row, so 65535 costs what 2400
+does. 84,000 of REP 2400's cycles are the loop that writes the cells, at
+25 cycles a cell. Use the routine of step 0.
 
-| | Mode 1 | Mode 2, 8x8 tiles | Mode 2, 16x16 tiles | Mode 3 |
-|---|---|---|---|---|
-| 1 bpp | 1,780 | 2,257 | 1,892 | 1,478 |
-| 2 bpp | | 2,400 | 2,015 | 1,593 |
-| 4 bpp | 2,990 | 2,405 | 2,030 | 1,808 |
-| 8 bpp | 2,795 | 3,452 | 3,140 | 2,939 |
-| 16 bpp | 2,668 | | | 922 |
+If REP is still over 2 byte-times, mark whole rows as owed the glyph, as
+an erase marks them.
 
-8 bpp costs the most in modes 2 and 3, because every pixel needs its own
-palette lookup. Three other ways to write its loop were measured in mode
-3: reading the bitmap a byte at a time was 7% slower, 16 pixels a pass
-was 3% faster, and assembly with the loads together was 3.6% faster. The
-loop stays as it is.
+## 2. LF
 
-The two cores and the DMA that sends scanlines to the display share the
-same RAM. That costs 2 to 3%.
+5,000 of a line feed's cycles move the erase each row is owed up one
+place, 29 rows on each console size. 2,100 blank the new bottom row.
 
-## 3. The work outside the fill layers (done)
+Keep each owed erase with its row's memory, as the row map is kept, so a
+scroll of the screen moves none. Blank the new row with the routine of
+step 0.
 
-Each scanline cost about 350 cycles outside the fill layers: about 156 to
-take a scanline buffer, 45 to copy the scanline's modes, 56 to 87 to
-finish the planes' buffers, and 69 to hand the buffer back.
+## 3. SL and SR
 
-Taking a buffer took a mutex, whose only use is to stop the cores from
-drawing while the display or the canvas changes. Two flags do that now,
-and taking a buffer costs about 120 cycles. The rest of the work is in
-scanvideo.c; see step 21.
+A row records the shift it is owed: the columns that survive, where they
+go, and the blank color for each side. The command marks the rows and
+moves nothing. The task loop settles one row a pass, and a row is settled
+when it is written to. A shift of a row that already owes one changes the
+record. A row is settled early only when one side is given a second
+color.
 
-## 4. Console: speed up character handling
+The HIL term test sends SL 1 and SR 1 200 times back to back, and no
+byte is lost.
 
-The console has grown since it was last measured on hardware, and it
-takes core 0 away from drawing while a program writes to it. It can be
-rearchitected for speed. Measured:
+The savestate's console chunk changes with the record.
 
-- Every byte costs about 1,900 cycles. After each one the console
-  rewrites the row words of all 30 rows, resolves the pen's colors once
-  for each of the two console sizes, and the byte comes in through the
-  SDK's stdio. Tried: about 800 cycles. Not reviewed, and it needs a
-  test.
-- REP, SL, and SR do all their work in one byte: REP with a count of
-  65535 takes as long as drawing 25 scanlines, SL and SR by 40 columns as
-  long as 11. Measure every sequence that works on every row at once.
-  Not designed.
-- The main loop spends about 1,100 cycles a pass on tasks with nothing to
-  do. Tried: about 340. Not reviewed.
+## 4. Each byte
 
-## 5. The target
+After every byte the console rewrites the row words of all 30 rows, 720
+cycles of a character's 1,750. It resolves the pen's colors once for each
+of the two console sizes, and the byte comes in through the SDK's stdio.
+
+Tried: about 800 cycles a byte. Not reviewed, and it needs a test.
+
+## 5. The main loop
+
+The main loop spends about 1,100 cycles a pass on tasks with nothing to
+do. Tried: about 340. Not reviewed.
+
+## 6. The target
 
 Three planes with a fill layer on each, a program writing to the console
-at 115200 baud, no late scanline, and a margin for sprites. The HIL term
-test over the console and two mode 2 layers at 8 bpp loses scanlines
-today.
+at 115200 baud, no late scanline, and a margin for sprites.
 
 The margin is measured by making every scanline cost more cycles until
 one is late. Over the console and two mode 2 layers at 8 bpp, on a VGA
-display, in cycles a scanline:
-
-| | Before steps 0 to 3 | After |
-|---|---|---|
-| Nothing written to the console | 1,050 | 2,000 |
-| A program printing plain text that scrolls | 600 | 1,350 |
-| A program printing text with every cell in its own colors | 800 | 1,600 |
+display, it is 2,000 cycles a scanline with nothing written to the
+console, 1,350 with a program printing plain text that scrolls, and 1,600
+with a program printing text with every cell in its own colors.
 
 The program prints at the 11,520 characters a second of 115200 baud. A
 telnet session halves that for as long as it is connected, so the bench
 reaches the console through a debug probe; see tests/hil/pico/README.md.
 
-Every feature below is then measured against the target, and kept or
-taken out.
+Every feature below is measured against the target, and kept or taken
+out.
 
-The cycle counters that take these measurements are on the local branch
-spike-palette.
-
-## 6. Spike: palette entries in cells (done)
+## 7. Store palette entries in cells
 
 A cell's 16-bit color is told apart by the opaque bit of the pixel
 format, bit 5:
@@ -147,36 +137,23 @@ format, bit 5:
 Bold and iCE colors still choose their entry as the text is written, and
 SGR 7 still swaps the two colors at the cell.
 
-Measured with the console over two mode 2 layers at 8 bpp, every cell a
-different color, cycles a scanline:
-
-| | avg | max | late lines |
-|---|---|---|---|
-| Colors stored as pixels, as now | 10,553 | 10,911 | 0 |
-| Looked up for every cell, every scanline | 12,221 | 13,509 | 21,952 in 2 s |
-| Looked up once a row, then reused | 11,072 | 12,868 | 0 |
-
-Looked up once a row, it costs about 5% there, about 1,500 cycles on the
-first scanline of each row, and nothing on ordinary text.
-
-Looking every cell up once a frame was rejected: a row that scrolls in
-would show the colors of the row it replaced for a frame.
-
-## 7. Store palette entries in cells
-
-Do this after 0 to 3, if the fill rate has room for the lookup.
+Mode 0 looks the entries up once a row, where it builds the row's color
+tables. In a spike that cost about 5% over the console and two mode 2
+layers at 8 bpp with every cell a different color, and nothing on
+ordinary text. Do this if the margin of step 6 has room for it.
 
 - **Saves about 21 KB** on the RP6502-PICO and 21.6 KB on the
   RP6502-FPGA: the color sources, and the pass that recolors cells after
-  a palette change, both go. VIDEO gains about 1 KB for the color table
-  and 0.65 KB a core for a row's colors.
+  a palette change, both go. VIDEO gains about 1 KB for the color table.
+- **A row of cells moves in 700 cycles, not 2,500**, with no color
+  sources to move.
 - **Palette changes show on the next frame**, as on xterm.
 - **The underline color follows the palette for free.**
 - **The color table joins mode0.h**, and cells.c writes it.
 - **The RP6502-FPGA needs a palette memory** (one M10K block), looks up
   as many as three colors a cell in its 8 clocks, and needs a fit.
 
-If the fill rate has no room, cells stay as they are. An underline color
+If the margin has no room, cells stay as they are. An underline color
 from the palette then needs a third source for each cell to follow
 palette changes: about 7.5 KB on the RP6502-PICO and 7 KB on the
 RP6502-FPGA.
@@ -329,10 +306,10 @@ RP6502-PICO, look at it, then decide.
 
 Do these together, after the steps above.
 
-- The tables of steps 0 and 1 are 1.3 KB for each plane on each core,
-  beside a 1 KB table for 4 bpp. A plane draws one or the other on a
-  scanline, so the two can share their memory, and the 8 KB of steps 0
-  and 1 becomes about 1.6 KB. Not tried.
+- The row color tables of modes 0 and 1 are 1.3 KB for each plane on
+  each core, 8 KB in all, beside a 1 KB table for 4 bpp. A plane draws
+  one or the other on a scanline, so the two can share their memory, and
+  the 8 KB becomes about 1.6 KB. Not tried.
 - Palette entries in cells (7) remove the color sources.
 - Dropping kitty's underlines (8) removes a quarter of each cell.
 - Keep the cells of only one of the 40-column and 80-column consoles at a
