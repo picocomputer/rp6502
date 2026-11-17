@@ -412,14 +412,22 @@ class Board:
         starts with "?" is an error of the monitor and raises."""
         self.dev.flush_read_bufs()
         self.write(line + "\r")
+        # The output is what follows the monitor's echo of the line, up to
+        # the next prompt. A prompt still on its way from before the line was
+        # sent, as when a break lands on a program that just ended, is ahead
+        # of the echo and is not taken for the end of the output.
+        echo = line.encode("ascii") + b"\r\n"
         buf, end = b"", time.monotonic() + timeout
-        while b"\n]" not in buf:
+        while True:
+            at = buf.find(echo)
+            if at >= 0 and b"\n]" in buf[at + len(echo) - 1:]:
+                break
             b = self.dev.read(1)
             buf += b
             if not b and time.monotonic() > end:
                 raise TimeoutError(f"{line}: no prompt after {timeout} s")
-        out = clean(buf[: buf.rindex(b"\n]")].decode("ascii", "replace"))
-        lines = out.split("\n")[1:]
+        out = clean(buf[at + len(echo): buf.rindex(b"\n]") + 1].decode("ascii", "replace"))
+        lines = out.split("\n")[:-1]
         for text in lines:
             if text.startswith("?"):
                 raise RuntimeError(f"{line}: {text}")
