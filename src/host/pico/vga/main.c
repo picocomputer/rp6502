@@ -46,11 +46,12 @@ static void init(void)
     vga_start_render_core();
 }
 
-/* manifold_task runs after every driver's tasks because the UART's RX FIFO
- * holds only 32 bytes and overruns if a slow driver delays the next call. */
+/* pix_task runs after every driver's tasks because PIX's RX FIFO holds only
+ * 8 words, the RIA cannot be told to wait, and a slow driver delays the next
+ * call. The UART's FIFO holds 32 bytes, so manifold_task takes its turn. */
 static void task(void)
 {
-#define DRIVER(row) row manifold_task();
+#define DRIVER(row) row pix_task();
 #define TASK_PUMPED(f) f();
 #define TASK_FATFS(f) f();
 #define TASK_ALWAYS(f) f();

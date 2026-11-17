@@ -24,9 +24,9 @@
  * which cells_init gives it. MANIFOLD_UART comes next because manifold_init
  * installs its stdio driver, and any later driver may print. CELLS comes
  * before VGA because vga_init programs the console canvas through
- * mode0_prog, which sets the terminal's height. VGA comes before PIX because scanvideo claims DMA channels 0 to 4
- * with dma_claim_mask, which panics if pix_init has already claimed one of
- * them. */
+ * mode0_prog, which sets the terminal's height. VGA comes before PIX
+ * because scanvideo claims DMA channels 0 to 4 with dma_claim_mask, which
+ * panics if pix_init has already claimed one of them. */
 #define RP6502_MACH_DRIVERS                                              \
     CELLS_DRIVER, MANIFOLD_UART_DRIVER, RIA_DRIVER, FONT_DRIVER,          \
     VGA_DRIVER, CDC_DRIVER, USB_DRIVER, LED_DRIVER, PIX_DRIVER,          \

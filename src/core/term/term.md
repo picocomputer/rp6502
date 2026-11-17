@@ -20,7 +20,7 @@ core/vga/mode/mode0.h defines.
 | | Cells | Beside the cells | Free |
 |---|---|---|---|
 | RP6502-PICO | 61.4 KB in VIDEO | 7.7 KB of extras and 1 KB of palette in VIDEO | about 70 KB of lower RAM, before the stacks and heap |
-| RP6502-FPGA | 57.6 KB in VIDCELLS | not built since the cells changed; see step 15 | |
+| RP6502-FPGA | 57.6 KB in VIDCELLS | not built since the cells changed; see step 14 | |
 
 A cell is 8 bytes: glyph, attributes, and three 16-bit colors
 (foreground, background, and underline). A color is an RGB pixel or an
@@ -30,12 +30,12 @@ no room for: today, whether DECSCA or SPA guards it from the selective
 erases. The 40-column and the 80-column console both follow every byte,
 and each has an alternate screen, so every table is paid four times.
 
-## 0. The main loop
+## The console's speed
 
-This step speeds up the console. The VGA holds 8 bytes from the RIA and
-cannot tell it to wait. At 115200 baud a byte arrives every 17,500 cycles
-of core 0, a byte-time. One byte, with the rest of the main loop's pass,
-must take under 8 byte-times, and a stream must average under one.
+The VGA holds 8 bytes from the RIA and cannot tell it to wait. At 115200 baud a
+byte arrives every 17,500 cycles of core 0, a byte-time. One byte, with the
+rest of the main loop's pass, must take under 8 byte-times, and a stream must
+average under one.
 
 Measured on a full 80x30 screen:
 
@@ -73,10 +73,12 @@ measured no faster.
 The HIL term test sends SL 1 and SR 1 200 times back to back, and REP
 65535 twenty times, and loses no byte.
 
-The main loop spends about 1,100 cycles a pass on tasks with nothing to
-do. Tried: about 340. Not reviewed.
+On the Pico VGA, PIX's FIFO is read after every task of the main loop. It
+goes unread for 5,800 cycles at most, the scanline core 0 renders, and
+holds 3 of its 8 words at most, in a stream of REP 65535. An idle pass of
+the loop is about 1,100 cycles.
 
-## 1. The target
+## 0. The target
 
 Three planes with a fill layer on each, a program writing to the console
 at 115200 baud, no late scanline, and a margin for sprites.
@@ -94,7 +96,7 @@ reaches the console through a debug probe; see tests/hil/pico/README.md.
 Every feature below is measured against the target, and kept or taken
 out.
 
-## 2. Kitty's underlines: all or nothing
+## 1. Kitty's underlines: all or nothing
 
 **What they are.** Underline styles chosen with a colon parameter: 4:0
 none, 4:1 single, 4:2 double, 4:3 curly, 4:4 dotted, and 4:5 dashed. SGR
@@ -122,7 +124,7 @@ double. Curly, dotted, and dashed draw as single.
 
 All, to begin with; it can come out later if it is not wanted.
 
-## 3. Kitty's keyboard protocol, only if 2 is "all"
+## 2. Kitty's keyboard protocol, only if 1 is "all"
 
 **What it is.** A program reading stdin can tell every key apart without
 the RIA's keyboard registers. Neovim, Helix, and fish use it.
@@ -144,7 +146,7 @@ Releases need a path from the keyboard that does not exist today. A few
 bytes of flags and a table of about a hundred key codes. About a week
 with tests.
 
-## 4. Drop the Linux console's palette sequences
+## 3. Drop the Linux console's palette sequences
 
 `ESC ] P nrrggbb` and `ESC ] R` set and reset palette colors on the Linux
 console. xterm's OSC 4 and OSC 104 do the same and more: any of the 256
@@ -152,7 +154,7 @@ entries, several in one sequence, X11 color names, and resetting one
 entry or all. Remove the Linux ones; `ESC ] P` then starts an ordinary
 OSC that runs to its BEL or ST, as on xterm.
 
-## 5. Bracketed paste (mode ?2004)
+## 4. Bracketed paste (mode ?2004)
 
 When a program turns it on, pasted text arrives wrapped in `ESC [ 200 ~`
 and `ESC [ 201 ~`. An editor can then tell a paste from typing and not
@@ -161,27 +163,27 @@ the pasted text is dropped so the text cannot end the wrapper early.
 DECRQM reports the mode and RIS clears it. Paste comes from the emulator
 and the web player.
 
-## 6. Report the console's name (XTVERSION)
+## 5. Report the console's name (XTVERSION)
 
 A program sends `CSI > q` and the console answers
 `DCS > | RP6502(0.25) ST`, so the program need not guess the terminal
 from its device attributes. The version is the firmware's, without a
 "v", or the CI build number.
 
-## 7. Rectangle sequences (VT420)
+## 6. Rectangle sequences (VT420)
 
 DECFRA (fill), DECERA (erase), DECSERA (selective erase), DECCRA (copy),
 DECCARA and DECRARA (change and reverse attributes), and DECSACE, which
 chooses stream or rectangle. xterm has them, and DECSERA completes the
 protected areas.
 
-## 8. Left and right margins (DECSLRM)
+## 7. Left and right margins (DECSLRM)
 
 Scrolling and editing limited to a column range, allowed by mode ?69
 (DECLRMM). tmux and some editors use it when it is there. Every insert,
 delete, and scroll has to respect the margins.
 
-## 9. Window size reports (`CSI t`)
+## 8. Window size reports (`CSI t`)
 
 Keep the reports; ignore the rest of `CSI t`, which moves and resizes
 desktop windows.
@@ -197,7 +199,7 @@ desktop windows.
   shown at, or the size a program set with RIA_ATTR_RLN_WIDTH and HEIGHT.
   They always match.
 
-## 10. Drop SGR 10 and 11
+## 9. Drop SGR 10 and 11
 
 On the Linux console, SGR 11 makes bytes 1 to 31 and DEL print as their
 CP437 pictures and SGR 10 turns that off. The standard way is CRM
@@ -205,7 +207,7 @@ CP437 pictures and SGR 10 turns that off. The standard way is CRM
 the same switch. Remove SGR 10 and 11. The target is xterm, not the Linux
 console.
 
-## 11. Smooth scroll, DECSCLM (?4), as an experiment
+## 10. Smooth scroll, DECSCLM (?4), as an experiment
 
 A VT100 scrolled smoothly at 6 lines a second, and told the computer
 sending it text to wait (XOFF) when it fell behind. Nothing here can tell
@@ -215,7 +217,7 @@ s. The renderer would draw the scroll region at a pixel offset, which the
 row table could carry. Build a demo ROM for the emulator and the
 RP6502-PICO, look at it, then decide.
 
-## 12. The manual
+## 11. The manual
 
 - Open the Terminal section of term.rst with what the console is: a
   VT102 minus 132 columns, the xterm subset, ANSI-BBS, and kitty's
@@ -230,7 +232,7 @@ RP6502-PICO, look at it, then decide.
   follows the palette.
 - Document each item above when it lands.
 
-## 13. Use less memory
+## 12. Use less memory
 
 Do these together, after the steps above.
 
@@ -244,7 +246,7 @@ Do these together, after the steps above.
   cells, if what the rebuild loses is acceptable.
 - src/core/harvest.md lists memory to win back elsewhere.
 
-## 14. scanvideo.c: decide at the end
+## 13. scanvideo.c: decide at the end
 
 What is found in scanvideo.c along the way is listed here. At the end,
 decide whether to change it, rewrite it, or leave it.
@@ -253,13 +255,13 @@ decide whether to change it, rewrite it, or leave it.
   one. One lock for each would save an estimated 50 to 100 cycles a
   scanline. Not tried.
 
-## 15. RP6502-FPGA: palette entries in cells
+## 14. RP6502-FPGA: palette entries in cells
 
 The cells now hold palette entries and the RP6502-FPGA still draws them
 as pixels, so its console's colors are wrong until this is done. mode0.sv
 needs a palette memory (one M10K block) written from mode0_palette, looks
 up as many as three colors a cell in its 8 clocks, and needs a fit. Once
-a renderer reads the extras beside the cells, as for step 2, it needs a
+a renderer reads the extras beside the cells, as for step 1, it needs a
 memory for those too.
 
 ## Not doing

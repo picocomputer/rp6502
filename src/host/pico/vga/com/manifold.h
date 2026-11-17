@@ -63,6 +63,6 @@ char manifold_out_read(void);
 /* One byte from PIX $F:05 to the terminal alone, as it is. */
 void manifold_term_putc(char ch);
 
-#define MANIFOLD_UART_DRIVER DRIVER(INIT(manifold_init))
+#define MANIFOLD_UART_DRIVER DRIVER(INIT(manifold_init) TASK_PUMPED(manifold_task))
 
 #endif /* _VGA_COM_MANIFOLD_H_ */
