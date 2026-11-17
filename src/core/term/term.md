@@ -19,7 +19,7 @@ core/vga/mode/mode0.h defines.
 
 | | Cells | Color sources | Free |
 |---|---|---|---|
-| RP6502-PICO | 61.4 KB in VIDEO | 23 KB in lower RAM | about 66 KB of lower RAM, before the stacks and heap |
+| RP6502-PICO | 61.4 KB in VIDEO | 23 KB in lower RAM | about 54 KB of lower RAM, before the stacks and heap |
 | RP6502-FPGA | 57.6 KB in VIDCELLS | 21.6 KB of the 64 KB RAM block | about 21 KB of the RAM block; 192 KB more in its window for the block to grow |
 
 A cell is 8 bytes: glyph, attributes, and three 16-bit colors
@@ -29,39 +29,63 @@ can recolor the cells. The 40-column and the 80-column console both
 follow every byte, and each has an alternate screen, so every table is
 paid four times.
 
-## 0. Mode 0: prepare a row's colors once
+## 0. Mode 0: prepare a row's colors once (done)
 
 Steps 0 to 3 make the fill layers draw faster on the RP6502-PICO. The
 measure is the cycles the VGA takes to draw one scanline. Its two cores
 have about 12,800 between them at 640x480.
 
-Mode 0, the console, takes 3,286 cycles a scanline. For every cell on
-every scanline, it reads the cell's colors and builds a small table from
-them. A row is 16 scanlines in the same colors, so build the tables on
-the row's first scanline and reuse them.
+For every cell on every scanline, mode 0 read the cell's colors and
+built a small table from them. A row is 16 scanlines in the same colors,
+so mode 0 now builds the tables on the first scanline it draws of a row
+and reuses them for the rest. It went from 3,558 to 2,480 cycles a
+scanline.
 
-Tried: about 2,360 cycles a scanline, for 2.6 KB of RAM. Not reviewed.
+A cell recolored while its row is being drawn keeps its old colors until
+the next frame. The emulator builds the tables for every scanline, so it
+shows the new colors on the next scanline.
 
-## 1. Mode 1: prepare a row's colors once
+## 1. Mode 1: prepare a row's colors once (done)
 
-Mode 1 at 16-bit color with 8x16 cells takes 2,668 cycles a scanline. It
-draws cells the way mode 0 does, so try what step 0 does. If the RAM for
-that is too much, build a cell's table only when its colors differ from
-the cell before it. Not tried.
+The four depths of mode 1 with a color in every cell do what step 0
+does. With 8x16 cells they went from between 2,670 and 2,990 cycles a
+scanline to about 2,200, and with 8x8 cells to about 2,300.
 
-## 2. Mode 2 at 8 bpp, and the other fill modes
+The tables of steps 0 and 1 take 1.3 KB for each plane on each core, 8 KB
+in all. Step 20 has a way to take less.
 
-Mode 2 at 8 bpp with 8x8 tiles is the costliest fill layer measured:
-3,452 cycles a scanline, and two such layers about 7,360. Its loop is
-about 4.3 instructions a pixel, and an instruction is about a cycle.
-Nothing to gain has been found yet. The DSP instructions are not tried.
+## 2. Mode 2 at 8 bpp, and the other fill modes (done, nothing gained)
 
-Profile the other fill modes, costliest first.
+Every standard fill mode on a canvas 640 wide, in cycles a scanline,
+before steps 0 and 1:
 
-## 3. The work outside the fill layers
+| | Mode 1 | Mode 2, 8x8 tiles | Mode 2, 16x16 tiles | Mode 3 |
+|---|---|---|---|---|
+| 1 bpp | 1,780 | 2,257 | 1,892 | 1,478 |
+| 2 bpp | | 2,400 | 2,015 | 1,593 |
+| 4 bpp | 2,990 | 2,405 | 2,030 | 1,808 |
+| 8 bpp | 2,795 | 3,452 | 3,140 | 2,939 |
+| 16 bpp | 2,668 | | | 922 |
 
-Each scanline costs 300 to 390 cycles outside the fill layers. Find where
-they go and cut what is not needed. Not tried.
+8 bpp costs the most in modes 2 and 3, because every pixel needs its own
+palette lookup. Three other ways to write its loop were measured in mode
+3: reading the bitmap a byte at a time was 7% slower, 16 pixels a pass
+was 3% faster, and assembly with the loads together was 3.6% faster. The
+loop stays as it is.
+
+The two cores and the DMA that sends scanlines to the display share the
+same RAM. That costs 2 to 3%.
+
+## 3. The work outside the fill layers (done)
+
+Each scanline cost about 350 cycles outside the fill layers: about 156 to
+take a scanline buffer, 45 to copy the scanline's modes, 56 to 87 to
+finish the planes' buffers, and 69 to hand the buffer back.
+
+Taking a buffer took a mutex, whose only use is to stop the cores from
+drawing while the display or the canvas changes. Two flags do that now,
+and taking a buffer costs about 120 cycles. The rest of the work is in
+scanvideo.c; see step 21.
 
 ## 4. Console: speed up character handling
 
@@ -87,6 +111,19 @@ Three planes with a fill layer on each, a program writing to the console
 at 115200 baud, no late scanline, and a margin for sprites. The HIL term
 test over the console and two mode 2 layers at 8 bpp loses scanlines
 today.
+
+The margin is measured by making every scanline cost more cycles until
+one is late. Over the console and two mode 2 layers at 8 bpp, on a VGA
+display, in cycles a scanline:
+
+| | Before steps 0 to 3 | After |
+|---|---|---|
+| Nothing written to the console | 1,050 | 2,000 |
+| A program printing plain text that scrolls | 600 | 1,350 |
+| A program printing text with every cell in its own colors | 800 | 1,600 |
+
+The program printed 6,000 to 7,000 characters a second, not the 11,520
+of 115200 baud. Find out why before trusting these as the target.
 
 Every feature below is then measured against the target, and kept or
 taken out.
@@ -287,6 +324,30 @@ RP6502-PICO, look at it, then decide.
   palette entry 0 and the default background.
 - Document each item above when it lands.
 
+## 20. Use less memory
+
+Do these together, after the steps above.
+
+- The tables of steps 0 and 1 are 1.3 KB for each plane on each core,
+  beside a 1 KB table for 4 bpp. A plane draws one or the other on a
+  scanline, so the two can share their memory, and the 8 KB of steps 0
+  and 1 becomes about 1.6 KB. Not tried.
+- Palette entries in cells (7) remove the color sources.
+- Dropping kitty's underlines (8) removes a quarter of each cell.
+- Keep the cells of only one of the 40-column and 80-column consoles at a
+  time and rebuild the other when the canvas changes. That halves the
+  cells, if what the rebuild loses is acceptable.
+- src/core/harvest.md lists memory to win back elsewhere.
+
+## 21. scanvideo.c: decide at the end
+
+What is found in scanvideo.c along the way is listed here. At the end,
+decide whether to change it, rewrite it, or leave it.
+
+- Taking a scanline buffer takes two locks and handing it back takes
+  one. One lock for each would save an estimated 50 to 100 cycles a
+  scanline. Not tried.
+
 ## Not doing
 
 - **Kitty's graphics protocol.** The terminal keeps the images a program
@@ -301,14 +362,3 @@ RP6502-PICO, look at it, then decide.
   asks for the whole.
 - **The hardware of a VT102**: 132 columns, interlace, the keyboard LEDs,
   the printer, and the answerback.
-
-## Ways to use less memory
-
-To work out with the plan, not after it.
-
-- Palette entries in cells (7) remove the color sources.
-- Dropping kitty's underlines (8) removes a quarter of each cell.
-- Keep the cells of only one of the 40-column and 80-column consoles at a
-  time and rebuild the other when the canvas changes. That halves the
-  cells, if what the rebuild loses is acceptable.
-- src/core/harvest.md lists memory to win back elsewhere.
