@@ -17,6 +17,7 @@
  * local reading to the UTC the API returns.
  */
 
+#include "core/sys/div64.h"
 #include "mmio.h"
 
 #include "tim.h"
@@ -94,8 +95,9 @@ void tim_set_tz_minutes(int32_t min)
 bool tim_get_time(tim_spec_t *ts)
 {
     uint64_t us = tim_uptime_us() - tim_base_us;
-    ts->sec = tim_base_sec + (int64_t)(us / 1000000u);
-    ts->nsec = (uint32_t)(us % 1000000u) * 1000;
+    uint32_t into;
+    ts->sec = tim_base_sec + (int64_t)div64(us, 1000000, &into);
+    ts->nsec = into * 1000;
     return true;
 }
 

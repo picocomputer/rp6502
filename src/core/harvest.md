@@ -29,30 +29,3 @@ Left: the tests are 6 to 9 minutes of each job, and the runners differ
 by half again. A's half costs 22% more than B's, because every other
 test gives A the three longest. Splitting them by what they cost, or
 into three jobs, is what would shorten it further.
-
-## 2. 64-bit divides
-
-On the RP6502-FPGA the library's three routines left are 2.6 KB
-together, and one goes when nothing calls it. The time library took the
-fourth with it, the signed remainder, 900 bytes. Its callers there:
-
-| | Routine |
-|---|---|
-| `apf_slot_task`, four places | signed divide |
-| `hid_scale_analog` | signed divide |
-| `tim_get_time` | unsigned divide and remainder |
-| `attr_get_clk_run` | unsigned divide |
-| `pcm_open_fmt` | unsigned divide |
-| `sys_walk` | unsigned divide |
-
-The RP6502-PICO keeps its one routine, `__udivmoddi4`, 830 bytes. The
-SDK calls it: `printf` of a 64-bit number, the Wi-Fi driver, lwIP's
-clock, and TinyUSB's. Our own callers there are the same ones, with the
-MIDI and mass storage drivers and the UF2 progress line, and rewriting
-them saves nothing on the Pico.
-
-Each caller is looked at for what it divides. Most divide a count of
-microseconds by a constant or by a 32-bit number, and a time in
-microseconds that is kept as seconds and a remainder never needs the
-divide at all. core/tim has a divide by a number under 65536 in 32-bit
-steps, `tim_divide`, which may serve the others.

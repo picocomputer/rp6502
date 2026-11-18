@@ -5,6 +5,7 @@
  */
 
 #include "core/hid/hid.h"
+#include "core/sys/div64.h"
 #include "core/hid/tablet.h"
 #include "core/sys/debug_log.h"
 #include "core/sys/xram.h"
@@ -187,6 +188,15 @@ static int32_t HOST_IN_RAM_FUNC tablet_axis_value(const uint8_t *r, uint16_t len
     return (int32_t)hid_extract_bits(r, len, off, size);
 }
 
+/* A place on the canvas is a small number, and one past it is off the
+ * canvas however far, so the divide that finds it is the short one: 15 bits
+ * of answer, which is more than any canvas, and no call to the compiler's
+ * 64-bit divide. */
+static int64_t HOST_IN_RAM_FUNC tablet_divide(int64_t n, int64_t d)
+{
+    return div64_small((uint64_t)n, (uint64_t)d, 15);
+}
+
 /* An absolute device's report to canvas pixels, rounded down, and false for a
  * touch off the canvas. A touchscreen covers the display, so a touch is placed
  * on the picture and the canvas is found in it: the canvas fills the picture's
@@ -212,11 +222,11 @@ static bool HOST_IN_RAM_FUNC tablet_place(const tablet_connection_t *conn,
         int dw, dh;
         vga_display_size(&dw, &dh);
         const int64_t xn = xs + 1, yn = ys + 1;
-        x = dx * cw / xn;
+        x = dx < 0 ? 0 : tablet_divide(dx * cw, xn);
         int64_t num = 2 * dy * dh * cw - ((int64_t)dh * cw - (int64_t)ch * dw) * yn;
         if (num < 0)
             return false;
-        y = num / (2 * yn * dw);
+        y = tablet_divide(num, 2 * yn * dw);
         if (y >= ch)
             return false;
     }
@@ -233,8 +243,8 @@ static bool HOST_IN_RAM_FUNC tablet_place(const tablet_connection_t *conn,
             kn = ch, kd = ph;
         int64_t nx = (2 * dx - xs) * pw * kn + (int64_t)cw * xs * kd;
         int64_t ny = (2 * dy - ys) * ph * kn + (int64_t)ch * ys * kd;
-        x = nx < 0 ? 0 : nx / (2 * xs * kd);
-        y = ny < 0 ? 0 : ny / (2 * ys * kd);
+        x = nx < 0 ? 0 : tablet_divide(nx, 2 * xs * kd);
+        y = ny < 0 ? 0 : tablet_divide(ny, 2 * ys * kd);
     }
     tablet_x = (int16_t)(x > cw - 1 ? cw - 1 : x);
     tablet_y = (int16_t)(y > ch - 1 ? ch - 1 : y);

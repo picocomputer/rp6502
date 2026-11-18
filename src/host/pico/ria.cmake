@@ -292,6 +292,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/str/str.c
     ${RP6502_ROOT}/src/core/sys/config.c
     ${RP6502_ROOT}/src/core/sys/random.c
+    ${RP6502_ROOT}/src/core/sys/div64.c
     ${RP6502_ROOT}/src/core/sys/ring.c
     ${RP6502_ROOT}/src/core/sys/timer.c
     ${RP6502_ROOT}/src/core/sys/xram.c

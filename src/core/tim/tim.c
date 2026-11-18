@@ -7,24 +7,7 @@
 #include "core/tim/tim.h"
 #include "core/str/oem.h"
 #include "core/str/unicode.h"
-
-/* v becomes v / d, and v % d is returned, for a d under 65536. It goes 16
- * bits at a time, so no step is wider than 32 bits and the compiler's
- * 64-bit divide is never called. */
-static uint32_t tim_divide(uint64_t *v, uint32_t d)
-{
-    const uint32_t hi = (uint32_t)(*v >> 32), lo = (uint32_t)*v;
-    uint32_t part = hi >> 16;
-    const uint32_t q3 = part / d;
-    part = (part % d) << 16 | (hi & 0xFFFF);
-    const uint32_t q2 = part / d;
-    part = (part % d) << 16 | lo >> 16;
-    const uint32_t q1 = part / d;
-    part = (part % d) << 16 | (lo & 0xFFFF);
-    const uint32_t q0 = part / d;
-    *v = (uint64_t)(q3 << 16 | q2) << 32 | (q1 << 16 | q0);
-    return part % d;
-}
+#include "core/sys/div64.h"
 
 /* Seconds as whole days and the seconds into the last, which is never
  * negative. For seconds of either sign up to SPLIT_MAX. */
@@ -33,14 +16,12 @@ static uint32_t tim_divide(uint64_t *v, uint32_t d)
 #define SPLIT_MAX ((int64_t)DAY * SPLIT_DAYS)
 static int32_t tim_split(int64_t sec, int32_t *into_day)
 {
-    /* Made positive by a whole number of days, then divided by 128 and by
-     * 675, which is 86400. */
-    uint64_t v = (uint64_t)(sec + SPLIT_MAX);
-    const uint32_t low = (uint32_t)v & 127;
-    v >>= 7;
-    const uint32_t rem = tim_divide(&v, 675);
-    *into_day = (int32_t)(rem << 7 | low);
-    return (int32_t)(uint32_t)v - SPLIT_DAYS;
+    /* Made positive by a whole number of days, and divided with no call to
+     * the compiler's 64-bit divide. */
+    uint32_t rem;
+    const uint64_t days = div64((uint64_t)(sec + SPLIT_MAX), DAY, &rem);
+    *into_day = (int32_t)rem;
+    return (int32_t)(uint32_t)days - SPLIT_DAYS;
 }
 
 /* Days to a date and back, by the 400 years the calendar repeats in, which
@@ -236,8 +217,11 @@ static bool tim_put_number(tim_out_t *o, int64_t value, int width, char pad)
     int n = 0;
     uint64_t v = value < 0 ? (uint64_t)-value : (uint64_t)value;
     do
-        digits[n++] = (char)('0' + tim_divide(&v, 10));
-    while (v);
+    {
+        uint32_t digit;
+        v = div64(v, 10, &digit);
+        digits[n++] = (char)('0' + digit);
+    } while (v);
     if (value < 0 && !tim_put(o, '-'))
         return false;
     for (int i = n + (value < 0); i < width; i++)

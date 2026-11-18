@@ -6,6 +6,7 @@
 
 #include "core/api/api.h"
 #include "core/tim/clk.h"
+#include "core/sys/div64.h"
 #include "core/tim/tim.h"
 #include "host/host.h"
 #include "machine.h"
@@ -38,7 +39,7 @@ bool clk_sst_load(sst_cursor_t *c, unsigned flags)
 
 uint32_t clk_get_run(uint32_t us_per_tick)
 {
-    return (host_clock_us() - clk_start_us) / us_per_tick;
+    return (uint32_t)div64(host_clock_us() - clk_start_us, us_per_tick, NULL);
 }
 
 bool HOST_IN_FLASH_FUNC clk_api_time_get(void)

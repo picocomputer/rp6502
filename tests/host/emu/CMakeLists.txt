@@ -171,6 +171,9 @@ endif()
 
 rp6502_add_test(roster INCLUDES ${CMAKE_CURRENT_LIST_DIR}/roster)
 
+rp6502_add_test(div64 SOURCES test_div64.c ${RP6502_SRC}/core/sys/div64.c
+    INCLUDES ${RP6502_SRC}/host/sokol)
+
 rp6502_add_test(ring SOURCES test_ring.c ${RP6502_SRC}/core/sys/ring.c
     INCLUDES ${RP6502_SRC}/host/sokol)
 
