@@ -110,7 +110,9 @@ patches over today.
    struct, with no `sscanf`.
 6. **`strftime`**: every conversion of C99, which is what the manual
    promises: `%a %A %b %B %c %C %d %D %e %F %g %G %h %H %I %j %m %M %n %p
-   %r %R %S %t %T %u %U %V %w %W %x %X %y %Y %z %Z %%`. `%E` and `%O`
+   %r %R %S %t %T %u %U %V %w %W %x %X %y %Y %z %Z %%`, and four more:
+   `%k` and `%l`, the hour padded with a space, `%P`, am or pm in lower
+   case, and `%s`, the seconds since 1970. `%E` and `%O`
    have no effect, as now. `%z` and `%Z` come from the zone and
    `tm_isdst`, as now, because the 6502's `struct tm` has no offset. The
    words go through the code page as they are written.
@@ -150,12 +152,22 @@ RTL tests run them on the Pocket's firmware.
 `HELP SET` on the RP6502-PICO does not list `SET LOC`. It is missing
 from `STR_HELP_SET` in every language.
 
-### To decide
+### Decided
 
-- Whether `strftime` takes more than C99's conversions. newlib also
-  has `%k %l %P %s`, and a program may use them today on the Pico.
-- Whether an RP6502-RIA W keeps the allocator for the one Bluetooth
-  buffer, or the SDK's override gives it a buffer of its own.
+- `strftime` also takes `%k %l %P %s`, which newlib has and a program
+  may use on the Pico today. The manual lists every conversion and marks
+  these four as not in C99.
+- The allocator goes on the RP6502-RIA W too. The Bluetooth firmware's
+  download takes its two buffers, 600 and 332 bytes, from `buf1k`,
+  through `cyw43_malloc` and `cyw43_free` in ria-w/cyw43_config.h. The
+  download is one call that runs none of our tasks, at boot and after a
+  reset of the radio. The reset is a pumped task today, so it can start
+  while a monitor command waits on a drive with its data in `buf1k`: it
+  waits for the monitor and the loader to be idle, and runs from the
+  main loop only.
+- A local date becomes seconds by a guess: ask for the zone at the
+  guess, correct by its offset, and ask once more in case that crossed a
+  change.
 
 ## 3. 64-bit divides
 

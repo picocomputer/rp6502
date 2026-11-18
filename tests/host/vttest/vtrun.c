@@ -72,8 +72,46 @@
 
 static int vt_master = -1;
 
+/* What vttest has read in all, from /proc: the bytes its reads returned. */
+static pid_t vt_pid;
+static uint64_t vt_read_count(void)
+{
+    char path[64], line[128];
+    snprintf(path, sizeof path, "/proc/%d/io", (int)vt_pid);
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return 0;
+    unsigned long long n = 0;
+    while (fgets(line, sizeof line, f))
+        if (sscanf(line, "rchar: %llu", &n) == 1)
+            break;
+    fclose(f);
+    return n;
+}
+
+/* What was written to vttest and it has yet to read: vt_owed bytes, counted
+ * from where its reads stood at vt_owed_from. A write to a pseudoterminal
+ * reaches the other side later, from a worker of the kernel's, and until it
+ * does vttest still sleeps in its read with nothing to read, which is how it
+ * looks when it waits for a key. So it is not waiting until it has read
+ * what it was sent. */
+static uint64_t vt_owed, vt_owed_from;
+
+static bool vt_taken(void)
+{
+    if (vt_owed && vt_read_count() - vt_owed_from >= vt_owed)
+        vt_owed = 0;
+    return !vt_owed;
+}
+
 static void vt_reply(const char *s, size_t n)
 {
+    if (!vt_taken() || n)
+    {
+        if (!vt_owed)
+            vt_owed_from = vt_read_count();
+        vt_owed += n;
+    }
     while (n)
     {
         ssize_t w = write(vt_master, s, n);
@@ -554,7 +592,6 @@ static const vt_answer_t vt_answers[] = {
 static const vt_answer_t *vt_answer; /* the row the walk is in */
 static int vt_step;                  /* and the next step of it */
 
-static pid_t vt_pid;
 static int vt_slave = -1;
 
 /* Whether vttest sleeps: its state in /proc is S, a process waiting for
@@ -595,7 +632,7 @@ static bool vt_reading(void)
     bool ok = fgets(line, sizeof line, f) && sscanf(line, "%ld 0x%lx", &nr, &fd) == 2;
     fclose(f);
     int queued = 1;
-    return ok && nr == SYS_read && fd == 0 && vt_asleep() &&
+    return ok && nr == SYS_read && fd == 0 && vt_asleep() && vt_taken() &&
            !ioctl(vt_slave, FIONREAD, &queued) && !queued;
 }
 
