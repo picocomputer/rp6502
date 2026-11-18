@@ -1416,6 +1416,16 @@ void cells_color(term_t *term, unsigned which, uint16_t color)
         cells_cursor_color = color;
 }
 
+uint16_t cells_color_get(const term_t *term, unsigned which)
+{
+    (void)term;
+    if (which < 256)
+        return mode0_palette[which];
+    if (which == CELLS_COLOR_CURSOR)
+        return cells_cursor_color;
+    return mode0_palette[which == CELLS_COLOR_BG ? MODE0_DEFAULT_BG : MODE0_DEFAULT_FG];
+}
+
 void cells_color_reset(term_t *term, unsigned which)
 {
     if (which < 256)

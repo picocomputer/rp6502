@@ -72,7 +72,7 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags);
 #define CELLS_DRIVER DRIVER(                                    \
     INIT(cells_init)                                            \
     TASK_FATFS(cells_task)                                      \
-    SST(CELL, 11, CELLS_SST_SIZE, cells_sst_save, cells_sst_load))
+    SST(CELL, 12, CELLS_SST_SIZE, cells_sst_save, cells_sst_load))
 
 /* ---- what the terminal asks of the screen ------------------------------
  *
@@ -183,5 +183,8 @@ void cells_colors_reset(term_t *t);
 #define CELLS_COLOR_CURSOR 258
 void cells_color(term_t *t, unsigned which, uint16_t color);
 void cells_color_reset(term_t *t, unsigned which);
+// The color as it is now, for a program that asks (OSC 4, 10, 11 and 12
+// with a "?").
+uint16_t cells_color_get(const term_t *t, unsigned which);
 
 #endif /* _CORE_TERM_CELLS_H_ */

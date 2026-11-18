@@ -34,11 +34,13 @@ static bool com_bel_enabled = true;
 
 /* The console's terminal's answers, read from the UART's source. The first
  * com_reply_at bytes have been read, and while any have, the rest are read
- * before the UART's queue. It holds the longest answer, XTVERSION's of a
- * build stamped with its time, 38 bytes, and a short one behind it. */
-static uint8_t com_reply_buf[48];
-static uint8_t com_reply_len;
-static uint8_t com_reply_at;
+ * before the UART's queue. A program asks many things at once as it
+ * starts, and an answer that does not fit is dropped, so this holds all
+ * that Neovim asks for with none of it read yet, 152 bytes, with room to
+ * spare. The longest single answer, DECRQSS's of a full pen, is 84. */
+static uint8_t com_reply_buf[256];
+static uint16_t com_reply_len;
+static uint16_t com_reply_at;
 static bool com_reply_quiet;
 static bool com_reply_default;
 
@@ -48,7 +50,7 @@ static size_t HOST_IN_RAM_FUNC com_reply_read(char *buf, size_t n)
     if (got > n)
         got = n;
     memcpy(buf, &com_reply_buf[com_reply_at], got);
-    com_reply_at += (uint8_t)got;
+    com_reply_at += (uint16_t)got;
     if (com_reply_at == com_reply_len)
         com_reply_len = com_reply_at = 0;
     return got;
@@ -204,7 +206,7 @@ void HOST_IN_FLASH_FUNC com_reply(const char *s, size_t n)
     if (com_reply_quiet || n > sizeof com_reply_buf - com_reply_len)
         return;
     memcpy(&com_reply_buf[com_reply_len], s, n);
-    com_reply_len += (uint8_t)n;
+    com_reply_len += (uint16_t)n;
 }
 
 bool HOST_IN_FLASH_FUNC com_get_reply_quiet(void)
@@ -311,8 +313,8 @@ void com_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_u64(c, com_rx_deadline);
     sst_put_bool(c, com_bel_enabled);
     sst_put_u8(c, (uint8_t)com_rx_staged);
-    sst_put_u8(c, com_reply_len);
-    sst_put_u8(c, com_reply_at);
+    sst_put_u16(c, com_reply_len);
+    sst_put_u16(c, com_reply_at);
     sst_put(c, com_reply_buf, sizeof com_reply_buf);
     sst_put_bool(c, com_reply_quiet);
 }
@@ -324,8 +326,8 @@ bool com_sst_load(sst_cursor_t *c, unsigned flags)
     uint64_t deadline = sst_get_u64(c);
     bool bel = sst_get_bool(c);
     uint8_t staged = sst_get_u8(c);
-    uint8_t reply_len = sst_get_u8(c);
-    uint8_t reply_at = sst_get_u8(c);
+    uint16_t reply_len = sst_get_u16(c);
+    uint16_t reply_at = sst_get_u16(c);
     uint8_t reply[sizeof com_reply_buf];
     sst_get(c, reply, sizeof reply);
     bool quiet = sst_get_bool(c);

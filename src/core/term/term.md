@@ -20,7 +20,7 @@ core/vga/mode/mode0.h defines.
 | | Cells | Beside the cells | Free |
 |---|---|---|---|
 | RP6502-PICO | 30.7 KB in VIDEO | 46.1 KB of colors, 12 KB of fonts, and 1 KB of palette in VIDEO | about 59 KB of lower RAM, before the stacks and heap |
-| RP6502-FPGA | 57.6 KB in VIDCELLS | not built since the cells changed; see step 5 | |
+| RP6502-FPGA | 57.6 KB in VIDCELLS | not built since the cells changed; see step 3 | |
 
 A cell is 10 bytes in two tables. One has its glyph and 16 bits of
 attributes, in one word, which is all a scanline reads. The other has its
@@ -48,6 +48,18 @@ The underlines are kitty's: SGR 4:0 to 4:5 for none, single, double,
 curly, dotted, and dashed, with SGR 58 and 59 for the color. Each style's
 pixels are in one table for each size of glyph, mode0_underline16 and
 mode0_underline8, for mode0.c and mode0.sv both.
+
+A program finds the underlines by asking. Neovim sets `CSI 4:3 m` and
+sends DECRQSS for SGR, `DCS $ q m ST`; the console answers with the pen,
+`DCS 1 $ r 0;4:3 m ST`, and Neovim then uses every style and the
+underline's color. It finds truecolor the same way, so the pen keeps an
+RGB color's three channels as they were given. Kitty's keyboard protocol
+is asked for apart from this, with `CSI ? u`, and is not answered.
+
+The answers wait in 256 bytes on the machine that gives them, which on
+the RP6502-PICO is the RIA. One that does not fit is dropped whole. All
+that Neovim asks as it starts is 152 bytes of answers. The RIA follows
+the palette, 518 bytes, to answer what a color is.
 
 ## The console's speed
 
@@ -166,53 +178,7 @@ s. The renderer would draw the scroll region at a pixel offset, which the
 row table could carry. Build a demo ROM for the emulator and the
 RP6502-PICO, look at it, then decide.
 
-## 1. Answer what a program asks to find kitty's underlines
-
-Decided: the underline styles and the underline's color stay, and a
-program has to be able to find them. Neovim finds them by asking, not by
-the console's name: with no `Smulx` in terminfo, which `xterm-256color`
-has not, it sends `CSI 0 m`, `CSI 4:3 m`, and then DECRQSS for SGR,
-`DCS $ q m ST`. An answer of `DCS 1 $ r 4:3 m ST`, or the same with `0;`
-before the `4:3`, turns on every style and the underline's color, which
-it sends as `CSI 58:2::r:g:b m`. With no answer every style is a plain
-underline. The console drops every DCS string today, so it gives none.
-
-- **DECRQSS for SGR.** Answer with the pen as it is: its attributes and
-  its colors, the colors in the colon form. The same answer finds
-  truecolor: with COLORTERM unset Neovim sets `CSI 48;2;1;2;3 m`, asks
-  again, and wants `48:2:1:2:3` back. The answer goes out as the others
-  do, so it has to fit the 48 bytes the answers wait in, or they grow.
-- **The other settings DECRQSS can ask for** (DECSTBM, DECSLRM, DECSCUSR,
-  DECSCA): decide with this step. xterm answers them.
-- **A test that sends what Neovim sends when it starts**, byte for byte,
-  and checks every answer and that the screen and the pen are left as
-  they were.
-
-What else Neovim sends when it starts, and what the console does with it
-today, from reading both sources; not yet run:
-
-- **DECRQM for ?69, ?2026, ?2027, ?2031, and ?2048.** Answered: ?69 as it
-  is, the others as not recognized, which Neovim takes as "no".
-- **`OSC 11 ; ?` and `CSI 5 n`**, for the background color. The DSR is
-  answered, so Neovim does not warn. The OSC is not: a `?` is no color.
-  Neovim then keeps its dark default, which is right for the console's
-  default colors and wrong after a program changes them. Not decided:
-  answer the `?` of OSC 4, 10, 11, and 12 as xterm does.
-- **XTGETTCAP, `DCS + q ... ST`,** for truecolor and for the clipboard
-  (`Ms`). Dropped with every other DCS string, which is a correct "no".
-  There is no clipboard to offer.
-- **`CSI ? u` and `CSI c`,** for kitty's keyboard protocol. Only the
-  second is answered, so Neovim falls back to xterm's modifyOtherKeys,
-  `CSI > 4 ; 2 m`, which the console ignores. Keys arrive as they do
-  today.
-- **`CSI > SP q`,** kitty's extra cursors. Ignored, and not mistaken for
-  XTVERSION, which has no space.
-- **`CSI 11 m`,** which Neovim uses as an alternate font. Ignored, now
-  that SGR 11 is gone.
-- **At exit, `CSI c` again.** Answered, so Neovim does not wait a second
-  for it.
-
-## 2. The manual
+## 1. The manual
 
 - Open the Terminal section of term.rst with what the console is: a
   VT102 minus 132 columns, the xterm subset, ANSI-BBS, and kitty's
@@ -244,22 +210,13 @@ today, from reading both sources; not yet run:
 - The rectangles: DECFRA, DECERA, DECSERA, DECCRA, DECCARA, DECRARA, and
   DECSACE. DECCARA and DECRARA take 1, 4, 5, and 7 (and 22, 24, 25, 27,
   and 0); bold is the bright color, as the pen draws it.
+- DECRQSS, `DCS $ q Pt ST`, for SGR, DECSTBM, DECSLRM, DECSCUSR, DECSCA,
+  and DECSACE, and that it is how a program finds the underline styles.
+- A `?` for the color in OSC 4, 10, 11, and 12 is answered with the
+  color, to the five bits of a channel the console shows.
 - Document each item above when it lands.
 
-## 3. Use less memory
-
-Do these together, after the steps above.
-
-- The row color tables of modes 0 and 1 are 1.3 KB for each plane on
-  each core, 8 KB in all, beside a 1 KB table for 4 bpp. A plane draws
-  one or the other on a scanline, so the two can share their memory, and
-  the 8 KB becomes about 1.6 KB. Not tried.
-- Keep the cells of only one of the 40-column and 80-column consoles at a
-  time and rebuild the other when the canvas changes. That halves the
-  cells, if what the rebuild loses is acceptable.
-- src/core/harvest.md lists memory to win back elsewhere.
-
-## 4. scanvideo.c: decide at the end
+## 2. scanvideo.c: decide at the end
 
 What is found in scanvideo.c along the way is listed here. At the end,
 decide whether to change it, rewrite it, or leave it.
@@ -268,7 +225,7 @@ decide whether to change it, rewrite it, or leave it.
   one. One lock for each would save an estimated 50 to 100 cycles a
   scanline. Not tried.
 
-## 5. RP6502-FPGA: palette entries in cells
+## 3. RP6502-FPGA: palette entries in cells
 
 The cells now hold palette entries and the RP6502-FPGA still draws them
 as pixels, so its console's colors are wrong until this is done. mode0.sv

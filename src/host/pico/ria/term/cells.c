@@ -6,6 +6,7 @@
 
 #include "core/com/com.h"
 #include "core/com/manifold.h"
+#include "core/term/color.h"
 #include "ria/sys/vga.h"
 #include "ria/term/cells.h"
 #include "machine.h"
@@ -167,17 +168,35 @@ void cells_reset(term_t *t, term_grid_t *g)
     (void)t, (void)g;
 }
 
-void cells_colors_reset(term_t *t)
-{
-    (void)t;
-}
+/* The colors are followed, for a program that asks what one is: the
+ * palette, then the default foreground, the default background and the
+ * cursor's. */
+#define CELLS_FG_COLOR_INDEX 7
+#define CELLS_BG_COLOR_INDEX 0
+static uint16_t cells_colors[256 + 3];
 
 void cells_color(term_t *t, unsigned which, uint16_t color)
 {
-    (void)t, (void)which, (void)color;
+    (void)t;
+    if (which < sizeof cells_colors / sizeof cells_colors[0])
+        cells_colors[which] = color;
 }
 
 void cells_color_reset(term_t *t, unsigned which)
 {
-    (void)t, (void)which;
+    cells_color(t, which, color_256[which < 256                 ? which
+                                    : which == CELLS_COLOR_BG ? CELLS_BG_COLOR_INDEX
+                                                              : CELLS_FG_COLOR_INDEX]);
+}
+
+void cells_colors_reset(term_t *t)
+{
+    for (unsigned i = 0; i < sizeof cells_colors / sizeof cells_colors[0]; i++)
+        cells_color_reset(t, i);
+}
+
+uint16_t cells_color_get(const term_t *t, unsigned which)
+{
+    (void)t;
+    return which < sizeof cells_colors / sizeof cells_colors[0] ? cells_colors[which] : 0;
 }

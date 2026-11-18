@@ -2261,4 +2261,149 @@ UTEST(term, line_feeds_between_margins_add_up)
     ASSERT_STREQ(row(0), "aaaaaaaaaa");
 }
 
+/* ---- what a program asks ------------------------------------------------- */
+
+/* DECRQSS for SGR answers with the pen: a 0, the attributes, then the
+ * colors, with an underline style and an RGB color in the colon forms. */
+UTEST(term, decrqss_answers_with_the_pen)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33P$qm\33\\"), "\33P1$r0m\33\\");
+    ASSERT_STREQ(ask("\33[4m\33P$qm\33\\"), "\33P1$r0;4m\33\\");
+    ASSERT_STREQ(ask("\33[0;4:3m\33P$qm\33\\"), "\33P1$r0;4:3m\33\\");
+    ASSERT_STREQ(ask("\33[0;21m\33P$qm\33\\"), "\33P1$r0;4:2m\33\\");
+    ASSERT_STREQ(ask("\33[0;31;44m\33P$qm\33\\"), "\33P1$r0;31;44m\33\\");
+    ASSERT_STREQ(ask("\33[0;92;105m\33P$qm\33\\"), "\33P1$r0;92;105m\33\\");
+    ASSERT_STREQ(ask("\33[0;38;5;100;48;5;200;4;58;5;9m\33P$qm\33\\"),
+                 "\33P1$r0;4;38:5:100;48:5:200;58:5:9m\33\\");
+    ASSERT_STREQ(ask("\33[0;38;2;10;20;30m\33P$qm\33\\"), "\33P1$r0;38:2::10:20:30m\33\\");
+    ASSERT_STREQ(ask("\33[0;48:2:1:2:3m\33P$qm\33\\"), "\33P1$r0;48:2::1:2:3m\33\\");
+    ASSERT_STREQ(ask("\33[0;48:2::4:5:6m\33P$qm\33\\"), "\33P1$r0;48:2::4:5:6m\33\\");
+    ASSERT_STREQ(ask("\33[0;6;7m\33P$qm\33\\"), "\33P1$r0;6;7m\33\\");
+    /* Everything at once is the longest answer there is. */
+    ASSERT_STREQ(ask("\33[0;1;2;3;4:5;5;7;8;9;53m\33[38:2::255:255:255m"
+                     "\33[48:2::255:255:255m\33[58:2::255:255:255m\33P$qm\33\\"),
+                 "\33P1$r0;1;2;3;4:5;5;7;8;9;53;38:2::255:255:255;48:2::255:255:255"
+                 ";58:2::255:255:255m\33\\");
+    /* The saved pen keeps its colors as they were given. */
+    ASSERT_STREQ(ask("\33[0;38;2;9;8;7m\0337\33[0m\0338\33P$qm\33\\"),
+                 "\33P1$r0;38:2::9:8:7m\33\\");
+}
+
+/* The other settings DECRQSS gives, and its answer to one it has not. */
+UTEST(term, decrqss_answers_with_the_other_settings)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33P$qr\33\\"), "\33P1$r1;30r\33\\");
+    ASSERT_STREQ(ask("\33[5;20r\33P$qr\33\\"), "\33P1$r5;20r\33\\");
+    ASSERT_STREQ(ask("\33P$qs\33\\"), "\33P1$r1;80s\33\\");
+    ASSERT_STREQ(ask("\33[?69h\33[11;70s\33P$qs\33\\"), "\33P1$r11;70s\33\\");
+    ASSERT_STREQ(ask("\33P$q q\33\\"), "\33P1$r1 q\33\\");
+    ASSERT_STREQ(ask("\33[4 q\33P$q q\33\\"), "\33P1$r4 q\33\\");
+    ASSERT_STREQ(ask("\33P$q\"q\33\\"), "\33P1$r0\"q\33\\");
+    ASSERT_STREQ(ask("\33[1\"q\33P$q\"q\33\\"), "\33P1$r1\"q\33\\");
+    ASSERT_STREQ(ask("\33P$q*x\33\\"), "\33P1$r0*x\33\\");
+    ASSERT_STREQ(ask("\33[2*x\33P$q*x\33\\"), "\33P1$r2*x\33\\");
+    ASSERT_STREQ(ask("\33P$q\"p\33\\"), "\33P0$r\33\\");
+    ASSERT_STREQ(ask("\33P$qz\33\\"), "\33P0$r\33\\");
+}
+
+/* Any other DCS string is dropped to its ST, and so is one cut short. */
+UTEST(term, a_dcs_string_that_is_not_decrqss_is_dropped)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33P+q5463;524742;73657472676266;73657472676262\33\\a"), "");
+    ASSERT_STREQ(ask("\33P+q4d73\33\\b"), "");
+    ASSERT_STREQ(ask("\33P$q\33\\c"), "\33P0$r\33\\");
+    ASSERT_STREQ(ask("\33P$qm\30" "d"), "");
+    ASSERT_STREQ(ask("\33P$qm\33[1m" "e"), "");
+    ASSERT_STREQ(ask("\33P$qmmmmmmmmmmmmmmmmmmmmmmmm\33\\f"), "\33P0$r\33\\");
+    ASSERT_STREQ(ask("\33P+qmmmmmmmmmmmmmmmmmmmmmmmm\33\\"), "");
+    ASSERT_STREQ(row(0), "abcdef");
+    /* A string split across a savestate is still answered. */
+    static uint8_t blob[1 << 20], undo[1 << 20];
+    feed("\33P$qr\33");
+    ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
+    feed("\33c");
+    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
+    ASSERT_STREQ(ask("\\"), "\33P1$r1;30r\33\\");
+}
+
+/* The color a channel of five bits is, as four hex digits. */
+static unsigned hex4(unsigned five)
+{
+    return five * 0xFFFFu / 31u;
+}
+
+static const char *color_answer(const char *head, uint16_t pixel, const char *end)
+{
+    static char want[64];
+    snprintf(want, sizeof want, "%s;rgb:%04x/%04x/%04x%s", head,
+             hex4(SCANVIDEO_R5_FROM_PIXEL(pixel)), hex4(SCANVIDEO_G5_FROM_PIXEL(pixel)),
+             hex4(SCANVIDEO_B5_FROM_PIXEL(pixel)), end);
+    return want;
+}
+
+/* A "?" for a color's spec asks what the color is. The answer is the OSC
+ * that would set it, and ends as the question did. */
+UTEST(term, osc_colors_can_be_asked_for)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33]11;?\7"), "\33]11;rgb:0000/0000/0000\7");
+    ASSERT_STREQ(ask("\33]10;?\33\\"), color_answer("\33]10", color_256[7], "\33\\"));
+    ASSERT_STREQ(ask("\33]12;?\7"), color_answer("\33]12", color_256[7], "\7"));
+    ASSERT_STREQ(ask("\33]4;9;?\7"), color_answer("\33]4;9", color_256[9], "\7"));
+    ASSERT_STREQ(ask("\33]4;255;?\33\\"), "\33]4;255;rgb:ef7a/ef7a/ef7a\33\\");
+    /* A color a program set is the color it gets back, to five bits. */
+    ASSERT_STREQ(ask("\33]4;1;#ff0000\7\33]4;1;?\7"), "\33]4;1;rgb:ffff/0000/0000\7");
+    ASSERT_STREQ(ask("\33]11;#00ff00\7\33]11;?\7"), "\33]11;rgb:0000/ffff/0000\7");
+    ASSERT_STREQ(ask("\33]12;#0000ff\7\33]12;?\7"), "\33]12;rgb:0000/0000/ffff\7");
+    /* Each item of OSC 10 is the next color, asked or set. */
+    ASSERT_STREQ(ask("\33]10;#ff0000;?;?\7"),
+                 "\33]11;rgb:0000/ffff/0000\7\33]12;rgb:0000/0000/ffff\7");
+    ASSERT_STREQ(ask("\33]10;?\7"), "\33]10;rgb:ffff/0000/0000\7");
+    /* Two entries of the palette in one OSC 4, each as it was when asked
+     * for, and every answer ends as the OSC did. */
+    ASSERT_STREQ(ask("\33]4;1;?;1;#00ff00;2;#0000ff\33\\\33]4;2;?;1;?\7"),
+                 "\33]4;1;rgb:ffff/0000/0000\33\\"
+                 "\33]4;2;rgb:0000/0000/ffff\7\33]4;1;rgb:0000/ffff/0000\7");
+    /* An OSC cut short answers nothing. */
+    ASSERT_STREQ(ask("\33]4;1;?;2;?\30\33]4;2;?\7"), "\33]4;2;rgb:0000/0000/ffff\7");
+    /* No entry 256, and a reset gives the first colors back. */
+    ASSERT_STREQ(ask("\33]4;256;?\7"), "");
+    ASSERT_STREQ(ask("\33c\33]4;1;?\7"), color_answer("\33]4;1", color_256[1], "\7"));
+}
+
+/* Everything Neovim asks as it starts, in one burst with nothing read
+ * until the end: every answer is there, in order, and the screen, the
+ * cursor and the pen's underline are as a program expects. */
+UTEST(term, what_neovim_asks_as_it_starts_is_all_answered)
+{
+    fresh();
+    feed("\33[?69$p\33[?2026$p\33[?2027$p\33[?2031$p\33[?2048$p"
+         "\33[0m\33[4:3m\33P$qm\33\\"
+         "\33[?u\33[c"
+         "\33]11;?\7\33[5n"
+         "\33]11;?\7\33[5n"
+         "\33P+q5463;524742;73657472676266;73657472676262\33\\"
+         "\33[0m\33[48;2;1;2;3m\33P$qm\33\\"
+         "\33[c\33P+q4d73\33\\"
+         "\33[> q"
+         "\33[>4;2m\33[0m");
+    ASSERT_STREQ(answer(),
+                 "\33[?69;2$y\33[?2026;0$y\33[?2027;0$y\33[?2031;0$y\33[?2048;0$y"
+                 "\33P1$r0;4:3m\33\\"
+                 "\33[?6c"
+                 "\33]11;rgb:0000/0000/0000\7\33[0n"
+                 "\33]11;rgb:0000/0000/0000\7\33[0n"
+                 "\33P1$r0;48:2::1:2:3m\33\\"
+                 "\33[?6c");
+    ASSERT_STREQ(row(0), "");
+    ASSERT_EQ(cx(), 0);
+    ASSERT_EQ(cy(), 0);
+    ASSERT_STREQ(ask("\33P$qm\33\\"), "\33P1$r0m\33\\");
+    /* And as it leaves. */
+    ASSERT_STREQ(ask("\33[>4;0m\33[c"), "\33[?6c");
+}
+
 UTEST_MAIN();

@@ -59,7 +59,11 @@
 #define TERM_MAX_GRIDS 3
 /* 16 parameters, as Linux's NPAR. More are dropped; the sequence still runs. */
 #define TERM_CSI_PARAM_MAX_LEN 16
-/* One OSC item, such as "rgb:ffff/ffff/ffff". Longer items are ignored. */
+/* One OSC item, such as "rgb:ffff/ffff/ffff", or the bytes of a DCS string.
+ * Longer ones are ignored. */
+/* The colors one OSC can ask for. They are answered when the OSC ends, and
+ * this many answers are what the machine holds unread. */
+#define TERM_OSC_ASK_MAX 6
 #define TERM_OSC_SPEC_MAX 20
 
 // The SGR attributes. All but the italics are also the low bits of a cell's
@@ -106,10 +110,11 @@ typedef enum
     ansi_state_csi,         // after CSI, collecting parameters and intermediates
     ansi_state_csi_ignore,  // a malformed CSI, dropped through its final byte
     ansi_state_osc,         // an OSC string, up to BEL or ST
-    ansi_state_string,      // DCS, SOS, PM or APC, ignored up to ST
+    ansi_state_string,      // SOS, PM or APC, ignored up to ST
     ansi_state_vt52_esc,    // after ESC in VT52 mode
     ansi_state_vt52_row,    // after ESC Y
     ansi_state_vt52_col,    // after ESC Y and the row
+    ansi_state_dcs,         // a DCS string, kept for DECRQSS, up to ST
     ansi_state_count
 } ansi_state_t;
 
@@ -128,9 +133,10 @@ typedef enum
 
 typedef struct
 {
-    uint8_t kind;  // TERM_COLOR_
-    uint8_t index; // the palette entry, for TERM_COLOR_INDEX
-    uint16_t rgb;  // the color, for TERM_COLOR_RGB
+    uint8_t kind;    // TERM_COLOR_
+    uint8_t index;   // the palette entry, for TERM_COLOR_INDEX
+    uint16_t rgb;    // the color as a pixel, for TERM_COLOR_RGB
+    uint8_t r, g, b; // the color as SGR gave it, which DECRQSS gives back
 } term_color_t;
 
 // The pen: SGR, origin mode and the character sets, what DECSC saves along
@@ -223,12 +229,19 @@ typedef struct
     bool csi_colon;           // a ':' was seen, which only SGR takes
     bool csi_any;             // a parameter byte was seen, so a private marker is too late
     bool osc_pending;         // an ESC arrived inside an OSC, so ESC \ ends it
+    bool dcs_pending;         // the same inside a DCS, whose bytes are in osc_spec
     uint16_t osc_ps;          // the OSC command number
     uint8_t osc_stage;        // 0 collecting the number, 1 the items, 2 dropping the string
     uint8_t osc_item;         // how many items of the command are done
     uint16_t osc_index;       // OSC 4: the palette entry the next color is for
     uint8_t osc_len;          // bytes in osc_spec, or more than TERM_OSC_SPEC_MAX when too long
     char osc_spec[TERM_OSC_SPEC_MAX];
+    uint8_t osc_asks;         // the colors this OSC has asked for so far
+    struct
+    {
+        uint16_t which; // a palette entry, or CELLS_COLOR_
+        uint16_t color; // what it was when it was asked for
+    } osc_ask[TERM_OSC_ASK_MAX];
     /* The sizes it is followed at. */
     term_grid_t *grids[TERM_MAX_GRIDS];
     uint8_t grid_count;
@@ -310,8 +323,8 @@ static inline unsigned term_cell_height(const term_grid_t *g)
     return g->width == 40 ? 8 : 16;
 }
 
-#define TERM_PEN_SST_SIZE 23
-#define TERM_SST_SIZE (4 * TERM_PEN_SST_SIZE + 104)
+#define TERM_PEN_SST_SIZE 32
+#define TERM_SST_SIZE (4 * TERM_PEN_SST_SIZE + 106 + 4 * TERM_OSC_ASK_MAX)
 void term_sst_put(sst_cursor_t *c, const term_t *t);
 bool term_sst_get(sst_cursor_t *c, term_t *t);
 #define TERM_GRID_SST_SIZE(rows) (19 + TERM_TAB_BITMAP_BYTES + 2 * (rows))

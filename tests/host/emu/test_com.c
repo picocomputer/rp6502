@@ -215,7 +215,7 @@ UTEST(com, an_answer_not_started_waits_behind_the_wire)
 UTEST(com, an_answer_too_big_to_hold_is_dropped_whole)
 {
     com_rx_clear();
-    char big[64];
+    char big[257];
     memset(big, 'x', sizeof big);
     com_reply(big, sizeof big);
     char buf[MANIFOLD_RING_SIZE];

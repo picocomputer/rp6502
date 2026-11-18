@@ -16,7 +16,8 @@
 
 // A VT102 with most of what xterm adds: 256 colors and truecolor, the
 // alternate screen, the dynamic colors of OSC 4/10/11/12, bracketed paste,
-// and the VT420's left and right margins and rectangles. The parser follows the DEC/xterm state machine (vt100.net), so
+// the VT420's left and right margins and rectangles, and DECRQSS, which is
+// how a program finds kitty's underlines. The parser follows the DEC/xterm state machine (vt100.net), so
 // unknown sequences and strings are taken apart the way xterm does. Inside a sequence BS-SI and BEL act and the sequence
 // goes on, as in xterm; any other control ends it silently, as in Linux. DEC
 // Special Graphics is a character set (ESC ( 0 / SO / SI) the cells draw
@@ -27,10 +28,11 @@
 // modes, the pens, the character sets and the queries. What moves the cursor
 // or the rows it hands to each grid (grid.c).
 
-/* The longest answer the terminal builds for a query. Replies snprintf into a
- * buffer this size and drop the reply if it would not fit, so this bounds
- * what a program can be told, not what the console can hold. */
-#define TERM_REPLY_MAX 40
+/* The longest answer the terminal builds for a query: DECRQSS's of a pen
+ * with every attribute and three RGB colors is 84 bytes. Replies snprintf
+ * into a buffer this size and drop the reply if it would not fit, so this
+ * bounds what a program can be told, not what the console can hold. */
+#define TERM_REPLY_MAX 96
 
 /* The C0 controls, as bitmaps of their codes. Linux acts on the ACTION set
  * and draws the rest as glyphs. With CRM (CSI 3 h) it draws everything but
@@ -81,6 +83,7 @@ static void term_reset_parser(term_t *t)
     t->ansi_state = ansi_state_ground;
     t->csi_intermediate = 0;
     t->osc_pending = false;
+    t->dcs_pending = false;
     t->rep_valid = false;
 }
 
@@ -275,11 +278,12 @@ static void term_leave_alt(term_t *t, bool clear, bool restore)
 // is TERM_COLOR_DEFAULT when they named no color, in which case the pen keeps
 // its color.
 //   38;5;N  38:5:N            palette N; nothing for N > 255
-//   38;2;r;g;b  38:2::r:g:b  38:2:r:g:b   truecolor; nothing for a channel > 255
+//   38;2;r;g;b  38:2::r:g:b  38:2:r:g:b   truecolor; nothing for a channel > 255;
+//                                         channels is where its three are
 // An unknown or cut-off form is taken whole, so its numbers are never run as
 // SGR codes of their own.
 static uint8_t term_sgr_color(const term_t *t, uint8_t i, uint8_t subs,
-                              uint8_t *kind, uint16_t *value)
+                              uint8_t *kind, uint16_t *value, const uint16_t **channels)
 {
     const uint16_t *p = t->csi_param;
     uint8_t avail = subs ? subs : (uint8_t)(t->csi_param_count - 1 - i);
@@ -307,6 +311,7 @@ static uint8_t term_sgr_color(const term_t *t, uint8_t i, uint8_t subs,
         if (rgb && rgb[0] < 256 && rgb[1] < 256 && rgb[2] < 256)
         {
             *kind = TERM_COLOR_RGB;
+            *channels = rgb;
             *value = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(rgb[0], rgb[1], rgb[2]);
         }
         break;
@@ -421,13 +426,20 @@ static void term_out_SGR(term_t *t)
         {
             uint8_t kind;
             uint16_t value = 0;
-            used = term_sgr_color(t, i, subs, &kind, &value);
+            const uint16_t *rgb = NULL;
+            used = term_sgr_color(t, i, subs, &kind, &value, &rgb);
             if (kind == TERM_COLOR_DEFAULT)
                 break;
             term_color_t *dst = param == 38 ? &cur->fg : param == 48 ? &cur->bg : &cur->ul;
             dst->kind = kind;
             dst->index = (uint8_t)value;
             dst->rgb = value;
+            if (kind == TERM_COLOR_RGB)
+            {
+                dst->r = (uint8_t)rgb[0];
+                dst->g = (uint8_t)rgb[1];
+                dst->b = (uint8_t)rgb[2];
+            }
             if (param == 58)
                 cur->ul_set = true;
             break;
@@ -683,6 +695,87 @@ static void term_out_DECREQTPARM(term_t *t)
         term_replyf(t, "\33[%u;1;1;112;112;1;0x", ps + 2u, 0, 0);
 }
 
+// A pen color as SGR sets it, for DECRQSS: 30-37 and 90-97 (or 40s and
+// 100s) for the first sixteen palette entries, otherwise the colon forms
+// 38:5:n and 38:2::r:g:b. `base` is 30, 40, or 0 for the underline's, which
+// has only the colon forms. Returns the bytes written.
+static int term_format_color(char *buf, size_t size, const term_color_t *c, unsigned base)
+{
+    unsigned ext = base ? base + 8 : 58;
+    if (c->kind == TERM_COLOR_RGB)
+        return snprintf(buf, size, ";%u:2::%u:%u:%u", ext, c->r, c->g, c->b);
+    if (c->kind != TERM_COLOR_INDEX)
+        return 0;
+    if (base && c->index < 8)
+        return snprintf(buf, size, ";%u", base + c->index);
+    if (base && c->index < 16)
+        return snprintf(buf, size, ";%u", base + 60 + c->index - 8);
+    return snprintf(buf, size, ";%u:5:%u", ext, c->index);
+}
+
+// DECRQSS, DCS $ q Pt ST: what a setting is now, as the sequence that would
+// set it. Pt is the end of that sequence: m for SGR, r for DECSTBM, s for
+// DECSLRM, SP q for DECSCUSR, " q for DECSCA and * x for DECSACE. The
+// answer is DCS 1 $ r, the setting, Pt and ST; for any other Pt it is
+// DCS 0 $ r ST, as on xterm. SGR is the pen, after a 0 as xterm has it: a
+// program learns from it that an underline style or an RGB color it just
+// set was taken, so those are in the colon forms a program sets them in.
+static void term_out_DECRQSS(term_t *t, const char *pt, unsigned len)
+{
+    char buf[TERM_REPLY_MAX];
+    const size_t size = sizeof(buf) - 2; // room for ST
+    const term_pen_t *pen = term_pen(t);
+    const term_grid_t *g = term_shown(t);
+    int n = snprintf(buf, size, "\33P1$r");
+    if (len == 1 && pt[0] == 'm')
+    {
+        const char *const flags[] = {";1", ";2", ";3", ";7", ";8", ";9", ";53"};
+        const bool on[] = {pen->bold, pen->faint, pen->sgr_attr & TERM_ATTR_ITALIC,
+                           pen->reverse, pen->conceal, pen->sgr_attr & TERM_ATTR_STRIKE,
+                           pen->sgr_attr & TERM_ATTR_OVERLINE};
+        const unsigned ul = (pen->sgr_attr & TERM_ATTR_UL_MASK) >> TERM_ATTR_UL_SHIFT;
+        n += snprintf(buf + n, size - (size_t)n, "0");
+        for (unsigned i = 0; i < 3; i++)
+            if (on[i])
+                n += snprintf(buf + n, size - (size_t)n, "%s", flags[i]);
+        if (ul == TERM_UL_SINGLE)
+            n += snprintf(buf + n, size - (size_t)n, ";4");
+        else if (ul)
+            n += snprintf(buf + n, size - (size_t)n, ";4:%u", ul);
+        if (pen->sgr_attr & TERM_ATTR_BLINK)
+            n += snprintf(buf + n, size - (size_t)n, ";5");
+        if (pen->sgr_attr & TERM_ATTR_BLINK_FAST)
+            n += snprintf(buf + n, size - (size_t)n, ";6");
+        for (unsigned i = 3; i < 7; i++)
+            if (on[i])
+                n += snprintf(buf + n, size - (size_t)n, "%s", flags[i]);
+        n += term_format_color(buf + n, size - (size_t)n, &pen->fg, 30);
+        n += term_format_color(buf + n, size - (size_t)n, &pen->bg, 40);
+        if (pen->ul_set)
+            n += term_format_color(buf + n, size - (size_t)n, &pen->ul, 0);
+        n += snprintf(buf + n, size - (size_t)n, "m");
+    }
+    else if (len == 1 && pt[0] == 'r')
+        n += snprintf(buf + n, size - (size_t)n, "%u;%ur", g->margin_top + 1u, g->margin_bot + 1u);
+    else if (len == 1 && pt[0] == 's')
+        n += snprintf(buf + n, size - (size_t)n, "%u;%us", g->margin_left + 1u,
+                      g->margin_right + 1u);
+    else if (len == 2 && pt[0] == ' ' && pt[1] == 'q')
+        n += snprintf(buf + n, size - (size_t)n, "%u q", t->cursor_style ? t->cursor_style : 1u);
+    else if (len == 2 && pt[0] == '"' && pt[1] == 'q')
+        n += snprintf(buf + n, size - (size_t)n, "%u\"q",
+                      t->protect_mode == TERM_PROTECT_DEC && pen->protect ? 1u : 0u);
+    else if (len == 2 && pt[0] == '*' && pt[1] == 'x')
+        n += snprintf(buf + n, size - (size_t)n, "%u*x", t->rect_attrs ? 2u : 0u);
+    else
+        n = snprintf(buf, size, "\33P0$r");
+    if (n >= (int)size)
+        return;
+    buf[n++] = '\33';
+    buf[n++] = '\\';
+    cells_reply(t, buf, (size_t)n);
+}
+
 /* ---- modes ------------------------------------------------------------- */
 
 // ?12 turns the cursor's blink on or off, as xterm does. It shares the
@@ -895,17 +988,51 @@ static int term_parse_index(const char *s, unsigned len)
     return v <= 255 ? v : -1;
 }
 
+// A color a program asked for with a "?" in place of a spec is answered when
+// the OSC ends, because the answer ends as the OSC did, with BEL or ST. It
+// is the color as it was when it was asked for, as on xterm.
+static void term_osc_ask(term_t *t, unsigned which)
+{
+    if (t->osc_asks < TERM_OSC_ASK_MAX)
+    {
+        t->osc_ask[t->osc_asks].which = (uint16_t)which;
+        t->osc_ask[t->osc_asks].color = cells_color_get(t, which);
+        t->osc_asks++;
+    }
+}
+
+// The answer: the OSC that would set the color, with each channel as four
+// hex digits, as xterm answers. The console shows five bits of a channel,
+// so those are the bits it gives back.
+static void term_reply_color(const term_t *t, unsigned which, uint16_t color, const char *end)
+{
+    char buf[TERM_REPLY_MAX];
+    const unsigned number = which < 256 ? 4 : 10 + which - CELLS_COLOR_FG;
+    const int entry = which < 256 ? (int)which : -1;
+    const unsigned r = SCANVIDEO_R5_FROM_PIXEL(color) * 0xFFFFu / 31u;
+    const unsigned g = SCANVIDEO_G5_FROM_PIXEL(color) * 0xFFFFu / 31u;
+    const unsigned b = SCANVIDEO_B5_FROM_PIXEL(color) * 0xFFFFu / 31u;
+    int n = snprintf(buf, sizeof(buf), "\33]%u", number);
+    if (entry >= 0)
+        n += snprintf(buf + n, sizeof(buf) - (size_t)n, ";%d", entry);
+    n += snprintf(buf + n, sizeof(buf) - (size_t)n, ";rgb:%04x/%04x/%04x%s", r, g, b, end);
+    if (n < (int)sizeof(buf))
+        cells_reply(t, buf, (size_t)n);
+}
+
 // One ';'-separated item of an OSC, applied as it ends.
 //   OSC 4 ; N ; spec ; N ; spec ...   set palette entries
 //   OSC 104 ; N ; N ...               reset palette entries
 //   OSC 10 ; fg ; bg ; cursor         set the dynamic colors, each item the
 //                                     next one, as xterm does
+// A spec of "?" asks for the color instead.
 static void term_osc_item(term_t *t)
 {
     unsigned len = t->osc_len;
     if (len > TERM_OSC_SPEC_MAX)
         len = 0; // too long: no item matches an empty one
     const char *s = t->osc_spec;
+    const bool ask = len == 1 && s[0] == '?';
     uint16_t color;
     switch (t->osc_ps)
     {
@@ -915,6 +1042,8 @@ static void term_osc_item(term_t *t)
             int idx = term_parse_index(s, len);
             t->osc_index = idx < 0 ? 0xFFFF : (uint16_t)idx;
         }
+        else if (t->osc_index < 256 && ask)
+            term_osc_ask(t, t->osc_index);
         else if (t->osc_index < 256 && term_parse_color(s, len, &color))
             cells_color(t, t->osc_index, color);
         break;
@@ -928,21 +1057,19 @@ static void term_osc_item(term_t *t)
     case 10:
     case 11:
     case 12:
-        if (!term_parse_color(s, len, &color))
+    {
+        const unsigned number = t->osc_ps + t->osc_item;
+        if (number > 12)
             break;
-        switch (t->osc_ps + t->osc_item)
-        {
-        case 10:
-            cells_color(t, CELLS_COLOR_FG, color);
-            break;
-        case 11:
-            cells_color(t, CELLS_COLOR_BG, color);
-            break;
-        case 12:
-            cells_color(t, CELLS_COLOR_CURSOR, color);
-            break;
-        }
+        const unsigned which = number == 10   ? CELLS_COLOR_FG
+                               : number == 11 ? CELLS_COLOR_BG
+                                              : CELLS_COLOR_CURSOR;
+        if (ask)
+            term_osc_ask(t, which);
+        else if (term_parse_color(s, len, &color))
+            cells_color(t, which, color);
         break;
+    }
     }
 }
 
@@ -951,11 +1078,16 @@ static void term_osc_item(term_t *t)
 //   OSC 104   reset the palette     OSC 110   reset the default foreground
 //   OSC 111   the default background  OSC 112   the cursor color
 // Other commands, such as the titles, are taken and ignored.
-static void term_osc_end(term_t *t)
+static void term_osc_end(term_t *t, const char *end)
 {
     t->rep_valid = false;
     if (t->osc_stage == 1)
+    {
         term_osc_item(t);
+        for (unsigned i = 0; i < t->osc_asks; i++)
+            term_reply_color(t, t->osc_ask[i].which, t->osc_ask[i].color, end);
+        t->osc_asks = 0;
+    }
     else if (t->osc_stage == 0)
     {
         switch (t->osc_ps)
@@ -982,7 +1114,7 @@ static void term_osc_byte(term_t *t, uint8_t ch)
     if (ch == '\a')
     {
         t->ansi_state = ansi_state_ground;
-        term_osc_end(t);
+        term_osc_end(t, "\a");
         return;
     }
     if (ch < 0x20)
@@ -1162,12 +1294,36 @@ static void term_start_osc(term_t *t)
     t->osc_stage = 0;
     t->osc_len = 0;
     t->osc_item = 0;
+    t->osc_asks = 0;
+}
+
+// A byte of a DCS string, kept for DECRQSS, the one DCS the terminal takes.
+// Any other, such as XTGETTCAP's, runs to its ST and is dropped.
+static void term_dcs_byte(term_t *t, uint8_t ch)
+{
+    if (ch < 0x20)
+        return; // controls inside a string are ignored
+    if (t->osc_len < TERM_OSC_SPEC_MAX)
+        t->osc_spec[t->osc_len++] = (char)ch;
+    else
+        t->osc_len = TERM_OSC_SPEC_MAX + 1;
+}
+
+// The DCS ended with ST.
+static void term_dcs_end(term_t *t)
+{
+    t->rep_valid = false;
+    // A Pt that is empty or too long is one it has not, and is told so.
+    if (t->osc_len >= 2 && t->osc_spec[0] == '$' && t->osc_spec[1] == 'q')
+        term_out_DECRQSS(t, &t->osc_spec[2], t->osc_len - 2u);
 }
 
 static void term_esc_byte(term_t *t, uint8_t ch)
 {
     bool st = t->osc_pending;
+    bool dcs = t->dcs_pending;
     t->osc_pending = false;
+    t->dcs_pending = false;
     if (term_seq_control(t, ch))
         return;
     if (ch < 0x30)
@@ -1188,14 +1344,19 @@ static void term_esc_byte(term_t *t, uint8_t ch)
         term_start_osc(t);
         break;
     case 'P': // DCS
+        t->ansi_state = ansi_state_dcs;
+        t->osc_len = 0;
+        break;
     case 'X': // SOS
     case '^': // PM
     case '_': // APC
         t->ansi_state = ansi_state_string;
         break;
-    case '\\': // ST: the end of a string, which ends an OSC
+    case '\\': // ST: the end of a string, which ends an OSC or a DCS
         if (st)
-            term_osc_end(t);
+            term_osc_end(t, "\33\\");
+        else if (dcs)
+            term_dcs_end(t);
         break;
     case 'c': // RIS
         term_RIS(t);
@@ -1477,8 +1638,10 @@ void term_write(term_t *t, uint8_t ch)
     ansi_state_t state = t->ansi_state;
     if (ch == TERM_C0_ESC)
     {
-        // ESC starts a new sequence from any state; in an OSC it may be ST.
+        // ESC starts a new sequence from any state; in an OSC or a DCS it
+        // may be ST.
         t->osc_pending = (state == ansi_state_osc);
+        t->dcs_pending = (state == ansi_state_dcs);
         t->ansi_state = t->vt52 ? ansi_state_vt52_esc : ansi_state_esc;
         return;
     }
@@ -1510,6 +1673,9 @@ void term_write(term_t *t, uint8_t ch)
         break;
     case ansi_state_string:
         break;
+    case ansi_state_dcs:
+        term_dcs_byte(t, ch);
+        break;
     case ansi_state_vt52_esc:
         term_vt52_byte(t, ch);
         break;
@@ -1534,6 +1700,9 @@ static void term_put_color(sst_cursor_t *c, const term_color_t *col)
     sst_put_u8(c, col->kind);
     sst_put_u8(c, col->index);
     sst_put_u16(c, col->rgb);
+    sst_put_u8(c, col->r);
+    sst_put_u8(c, col->g);
+    sst_put_u8(c, col->b);
 }
 
 static void term_get_color(sst_cursor_t *c, term_color_t *col)
@@ -1541,6 +1710,9 @@ static void term_get_color(sst_cursor_t *c, term_color_t *col)
     col->kind = sst_get_u8(c);
     col->index = sst_get_u8(c);
     col->rgb = sst_get_u16(c);
+    col->r = sst_get_u8(c);
+    col->g = sst_get_u8(c);
+    col->b = sst_get_u8(c);
 }
 
 static void term_put_pen(sst_cursor_t *c, const term_pen_t *pen)
@@ -1618,12 +1790,19 @@ void term_sst_put(sst_cursor_t *c, const term_t *t)
     sst_put_bool(c, t->csi_colon);
     sst_put_bool(c, t->csi_any);
     sst_put_bool(c, t->osc_pending);
+    sst_put_bool(c, t->dcs_pending);
     sst_put_u16(c, t->osc_ps);
     sst_put_u8(c, t->osc_stage);
     sst_put_u8(c, t->osc_item);
     sst_put_u16(c, t->osc_index);
     sst_put_u8(c, t->osc_len);
     sst_put(c, t->osc_spec, TERM_OSC_SPEC_MAX);
+    sst_put_u8(c, t->osc_asks);
+    for (int i = 0; i < TERM_OSC_ASK_MAX; i++)
+    {
+        sst_put_u16(c, t->osc_ask[i].which);
+        sst_put_u16(c, t->osc_ask[i].color);
+    }
 }
 
 /* The grids are the owner's and are left as they are. Everything that
@@ -1669,17 +1848,28 @@ bool term_sst_get(sst_cursor_t *c, term_t *t)
     t->csi_colon = sst_get_bool(c);
     t->csi_any = sst_get_bool(c);
     t->osc_pending = sst_get_bool(c);
+    t->dcs_pending = sst_get_bool(c);
     t->osc_ps = sst_get_u16(c);
     t->osc_stage = sst_get_u8(c);
     t->osc_item = sst_get_u8(c);
     t->osc_index = sst_get_u16(c);
     t->osc_len = sst_get_u8(c);
     sst_get(c, t->osc_spec, TERM_OSC_SPEC_MAX);
+    t->osc_asks = sst_get_u8(c);
+    for (int i = 0; i < TERM_OSC_ASK_MAX; i++)
+    {
+        t->osc_ask[i].which = sst_get_u16(c);
+        t->osc_ask[i].color = sst_get_u16(c);
+    }
     if (!sst_ok(c) || (alt && !TERM_ALT_SCREEN))
         return false;
     if (state >= ansi_state_count || t->protect_mode > TERM_PROTECT_ISO ||
-        t->csi_param_count > TERM_CSI_PARAM_MAX_LEN || t->osc_len > TERM_OSC_SPEC_MAX + 1)
+        t->csi_param_count > TERM_CSI_PARAM_MAX_LEN || t->osc_len > TERM_OSC_SPEC_MAX + 1 ||
+        t->osc_asks > TERM_OSC_ASK_MAX)
         return false;
+    for (int i = 0; i < TERM_OSC_ASK_MAX; i++)
+        if (t->osc_ask[i].which > CELLS_COLOR_CURSOR)
+            return false;
     t->ansi_state = (ansi_state_t)state;
     term_show(t, alt);
     return true;

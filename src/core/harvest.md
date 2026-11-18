@@ -49,3 +49,20 @@ On every platform, with only what we use: no `strftime`, `tzset` (and the
 `sscanf` it pulls in), `mktime`, `localtime`, `gmtime` or `setenv`; 32-bit
 day arithmetic. About 6 KB on the Pocket, not measured again, and the last
 1.8 KB of the 64-bit divides.
+
+## 6. The row color tables of modes 0 and 1
+
+They are 1.3 KB for each plane on each core, 8 KB in all, beside a 1 KB
+table for 4 bpp. A plane draws one or the other on a scanline, so the two
+can share their memory, and the 8 KB becomes about 1.6 KB. Not tried.
+
+## 7. The cells of one console at a time
+
+The 40-column and the 80-column console both follow every byte, and each
+has an alternate screen, so the cells and their colors are paid four
+times: 30.7 KB of cells and 46.1 KB of colors on the Pico. Keep the cells
+of only one of the two at a time and rebuild the other when the canvas
+changes. That halves the cells, if what the rebuild loses is acceptable.
+It also halves what a scroll between left and right margins and the
+rectangle sequences cost, since both consoles do them today
+(src/core/term/term.md).
