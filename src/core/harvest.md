@@ -64,5 +64,4 @@ times: 30.7 KB of cells and 46.1 KB of colors on the Pico. Keep the cells
 of only one of the two at a time and rebuild the other when the canvas
 changes. That halves the cells, if what the rebuild loses is acceptable.
 It also halves what a scroll between left and right margins and the
-rectangle sequences cost, since both consoles do them today
-(src/core/term/term.md).
+rectangle sequences cost, since both consoles do them today.
