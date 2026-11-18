@@ -20,7 +20,7 @@ core/vga/mode/mode0.h defines.
 | | Cells | Beside the cells | Free |
 |---|---|---|---|
 | RP6502-PICO | 30.7 KB in VIDEO | 46.1 KB of colors, 12 KB of fonts, and 1 KB of palette in VIDEO | about 59 KB of lower RAM, before the stacks and heap |
-| RP6502-FPGA | 57.6 KB in VIDCELLS | not built since the cells changed; see step 2 | |
+| RP6502-FPGA | 57.6 KB in VIDCELLS | not built since the cells changed; see step 1 | |
 
 A cell is 10 bytes in two tables. One has its glyph and 16 bits of
 attributes, in one word, which is all a scanline reads. The other has its
@@ -165,6 +165,15 @@ The program prints at the 11,520 characters a second of 115200 baud. A
 telnet session halves that for as long as it is connected, so the bench
 reaches the console through a debug probe; see tests/hil/pico/README.md.
 
+There are ten scanline buffers, 3,908 bytes each. Over the terminal
+stream on the worst canvas, 30 seconds on each display, five and six
+buffers showed a missing line and seven showed none. Ten stays.
+
+The line interrupt starts the scanline DMA 160 cycles after it is
+entered, 179 at most, at 1280x1024, where it has 720. Core 0 takes about
+1.5 times its own cycles in wall time, and the line interrupt does not
+explain it. Not found yet.
+
 Every feature below is measured against the target, and kept or taken
 out.
 
@@ -178,26 +187,7 @@ s. The renderer would draw the scroll region at a pixel offset, which the
 row table could carry. Build a demo ROM for the emulator and the
 RP6502-PICO, look at it, then decide.
 
-## 1. scanvideo.c: what is left
-
-It was read through and changed in place: the clear of the scanline
-buffers on a mode set is gone, the line interrupt's state is its own,
-there is one lock where there were two, what held a constant is the
-constant, and vga.c draws pixels and no longer writes PIO tokens. The
-line interrupt starts the DMA 160 cycles after it is entered, 179 at
-most, at 1280x1024, where it has 720.
-
-1. **One mode-set path**: what is done once, the timing, and the view,
-   in place of two copies of the view setup. This is where a lost sync
-   comes from, so bench every pair of canvas and display both ways.
-2. **Measure how many scanline buffers are needed.** Each is 3,908
-   bytes. There are ten.
-
-Core 0 takes about 1.5 times its own cycles in wall time, and this
-module does not explain it: the line interrupt is 160 cycles of a
-3,375-cycle line. Not found yet.
-
-## 2. RP6502-FPGA: palette entries in cells
+## 1. RP6502-FPGA: palette entries in cells
 
 The cells now hold palette entries and the RP6502-FPGA still draws them
 as pixels, so its console's colors are wrong until this is done. mode0.sv
