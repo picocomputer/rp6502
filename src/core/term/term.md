@@ -166,34 +166,58 @@ s. The renderer would draw the scroll region at a pixel offset, which the
 row table could carry. Build a demo ROM for the emulator and the
 RP6502-PICO, look at it, then decide.
 
-## 1. Kitty's keyboard protocol
+## 1. Answer what a program asks to find kitty's underlines
 
-**What it is.** A program reading stdin can tell every key apart without
-the RIA's keyboard registers. Neovim, Helix, and fish use it.
+Decided: the underline styles and the underline's color stay, and a
+program has to be able to find them. Neovim finds them by asking, not by
+the console's name: with no `Smulx` in terminfo, which `xterm-256color`
+has not, it sends `CSI 0 m`, `CSI 4:3 m`, and then DECRQSS for SGR,
+`DCS $ q m ST`. An answer of `DCS 1 $ r 4:3 m ST`, or the same with `0;`
+before the `4:3`, turns on every style and the underline's color, which
+it sends as `CSI 58:2::r:g:b m`. With no answer every style is a plain
+underline. The console drops every DCS string today, so it gives none.
 
-- **The flags.** A program pushes, pops, sets, and queries them with
-  `CSI > n u`, `CSI < u`, `CSI = n u`, and `CSI ? u`. Each screen keeps a
-  small stack. They go in term.c, which the RIA's terminal shares.
-- **The keys.** Each is reported as `CSI code ; modifiers u`. The code is
-  the Unicode code point of the key's unshifted character, or one from
-  kitty's table for keys with no character. The modifiers include Super,
-  Hyper, Meta, Caps Lock, and Num Lock.
-- **What the flags ask for.** Telling apart keys that send the same bytes
-  today (Tab and Ctrl+I, Enter and Ctrl+M, Escape and Alt), repeats and
-  releases, alternate keys, every key as a sequence, and the text a key
-  types. Programs often ask for the first alone.
+- **DECRQSS for SGR.** Answer with the pen as it is: its attributes and
+  its colors, the colors in the colon form. The same answer finds
+  truecolor: with COLORTERM unset Neovim sets `CSI 48;2;1;2;3 m`, asks
+  again, and wants `48:2:1:2:3` back. The answer goes out as the others
+  do, so it has to fit the 48 bytes the answers wait in, or they grow.
+- **The other settings DECRQSS can ask for** (DECSTBM, DECSLRM, DECSCUSR,
+  DECSCA): decide with this step. xterm answers them.
+- **A test that sends what Neovim sends when it starts**, byte for byte,
+  and checks every answer and that the screen and the pen are left as
+  they were.
 
-**The cost.** The key encoder (vtkey.c, about 220 lines) roughly doubles.
-Releases need a path from the keyboard that does not exist today. A few
-bytes of flags and a table of about a hundred key codes. About a week
-with tests.
+What else Neovim sends when it starts, and what the console does with it
+today, from reading both sources; not yet run:
+
+- **DECRQM for ?69, ?2026, ?2027, ?2031, and ?2048.** Answered: ?69 as it
+  is, the others as not recognized, which Neovim takes as "no".
+- **`OSC 11 ; ?` and `CSI 5 n`**, for the background color. The DSR is
+  answered, so Neovim does not warn. The OSC is not: a `?` is no color.
+  Neovim then keeps its dark default, which is right for the console's
+  default colors and wrong after a program changes them. Not decided:
+  answer the `?` of OSC 4, 10, 11, and 12 as xterm does.
+- **XTGETTCAP, `DCS + q ... ST`,** for truecolor and for the clipboard
+  (`Ms`). Dropped with every other DCS string, which is a correct "no".
+  There is no clipboard to offer.
+- **`CSI ? u` and `CSI c`,** for kitty's keyboard protocol. Only the
+  second is answered, so Neovim falls back to xterm's modifyOtherKeys,
+  `CSI > 4 ; 2 m`, which the console ignores. Keys arrive as they do
+  today.
+- **`CSI > SP q`,** kitty's extra cursors. Ignored, and not mistaken for
+  XTVERSION, which has no space.
+- **`CSI 11 m`,** which Neovim uses as an alternate font. Ignored, now
+  that SGR 11 is gone.
+- **At exit, `CSI c` again.** Answered, so Neovim does not wait a second
+  for it.
 
 ## 2. The manual
 
 - Open the Terminal section of term.rst with what the console is: a
-  VT102 minus 132 columns, the xterm subset, ANSI-BBS, kitty's
-  underlines, and kitty's keyboard protocol if step 1 lands. It does not
-  list what a VT102's hardware did that this machine cannot.
+  VT102 minus 132 columns, the xterm subset, ANSI-BBS, and kitty's
+  underlines. It does not list what a VT102's hardware did that this
+  machine cannot.
 - term.rst lists fast blink (SGR 6) and overline (SGR 53, 55) as features
   from other terminals. Both are ECMA-48's. The list loses them and gains
   xterm's, aixterm's, and SCO's.
@@ -230,8 +254,6 @@ Do these together, after the steps above.
   each core, 8 KB in all, beside a 1 KB table for 4 bpp. A plane draws
   one or the other on a scanline, so the two can share their memory, and
   the 8 KB becomes about 1.6 KB. Not tried.
-- Dropping the underline's color removes a fifth of each cell, and SGR
-  58 and 59 with it.
 - Keep the cells of only one of the 40-column and 80-column consoles at a
   time and rebuild the other when the canvas changes. That halves the
   cells, if what the rebuild loses is acceptable.
@@ -263,6 +285,11 @@ have three bits no renderer draws.
 - **Kitty's graphics protocol.** The terminal keeps the images a program
   sends, often megabytes. There is no room, and a program draws pictures
   on the planes.
+- **Kitty's keyboard protocol.** A program asks for it on its own, with
+  `CSI ? u`, and finding the underlines does not turn it on. Without it
+  Neovim, Helix, and fish read keys as they do on xterm. It would have
+  roughly doubled the key encoder (vtkey.c) and needed key releases,
+  which have no path from the keyboard today.
 - **Kitty's other protocols**: notifications, color control by name (OSC
   21, which overlaps OSC 4, 10, and 11), and text in larger sizes. Few
   programs use them.
