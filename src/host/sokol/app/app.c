@@ -379,11 +379,10 @@ bool app_boot_rom(const char *path)
      * image, on that one descriptor, so it goes to the loader unchecked. */
     if (rom[0] != ':')
     {
-        uint8_t buf[ROM_RECORD_MAX];
         rom_pump_t pump;
         api_errno err;
         int fd = fs_std_open(rom, FS_RD, &err);
-        if (fd < 0 || !rom_pump_open_fd(&pump, fd, buf, &err))
+        if (fd < 0 || !rom_pump_open_fd(&pump, fd, &err))
         {
             com_printf(err == API_ENOEXEC ? "not a .rp6502 file (bad magic)\n"
                                           : "cannot read dropped file\n");

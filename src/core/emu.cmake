@@ -32,6 +32,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/rom/rom.c
     ${RP6502_SRC}/core/rom/asset.c
     ${RP6502_SRC}/core/rom/pump.c
+    ${RP6502_SRC}/core/sys/buf1k.c
     ${RP6502_SRC}/core/sys/random.c
     ${RP6502_SRC}/core/sys/ring.c
     ${RP6502_SRC}/core/sys/timer.c

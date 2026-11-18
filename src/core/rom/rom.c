@@ -10,6 +10,7 @@
 
 #include "osal/fs.h"
 #include "core/rom/rom.h"
+#include "core/sys/buf1k.h"
 #include "core/ria/regs.h"
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
@@ -55,18 +56,17 @@ bool rom_load(const char *path)
     rom_assets_reset();
     api_errno err;
     rom_pump_t pump;
-    static uint8_t buf[ROM_RECORD_MAX];
     /* An installed ":name" is opened as its host file here, because
      * fs_rom_open on these hosts has no list of installed ROMs. */
     int fd = rom_alias_open(path, &err);
-    if (fd < 0 || !rom_pump_open_fd(&pump, fd, buf, &err))
+    if (fd < 0 || !rom_pump_open_fd(&pump, fd, &err))
     {
         rom_error = api_errno_str(err);
         return false;
     }
     rom_record_t rec;
     rom_pump_result r;
-    while ((r = rom_pump_next(&pump, buf, &rec, &err)) != ROM_PUMP_EOF)
+    while ((r = rom_pump_next(&pump, &rec, &err)) != ROM_PUMP_EOF)
     {
         if (r == ROM_PUMP_SKIP)
             continue;
@@ -76,7 +76,7 @@ bool rom_load(const char *path)
             rom_pump_close(&pump);
             return false;
         }
-        rom_deposit(&rec, buf);
+        rom_deposit(&rec, buf1k);
     }
     if (!rom_pump_complete(&pump))
     {

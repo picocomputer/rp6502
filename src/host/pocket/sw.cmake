@@ -38,6 +38,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/rom/alias.c
         ${RP6502_SRC}/core/rom/asset.c
         ${RP6502_SRC}/core/rom/pump.c
+        ${RP6502_SRC}/core/sys/buf1k.c
         ${RP6502_SRC}/core/api/xreg0.c
         ${RP6502_SRC}/core/api/xreg1.c
         ${RP6502_SRC}/core/sys/random.c

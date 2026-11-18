@@ -21,13 +21,18 @@
 static int lines;
 static char last[256];
 
+/* The history these reads are handed, as the monitor hands its own. */
+static char history_lines[4][RLN_LINE_MAX];
+static rln_history_t history = {history_lines, 4, 0, 0};
+static rln_history_t *reading_with = &history;
+
 static void got_line(bool timeout, const char *buf)
 {
     (void)timeout;
     lines++;
     strncpy(last, buf, sizeof last - 1);
     last[sizeof last - 1] = 0;
-    rln_read_line(got_line);
+    rln_read_line(got_line, reading_with);
 }
 
 static void tasks(void)
@@ -49,6 +54,8 @@ static void wire(const char *s)
  * size from it. */
 static void fresh(void)
 {
+    history.count = 0;
+    reading_with = &history;
     cells_init();
     com_set_reply_default(true);
     rln_set_plain(false);
@@ -63,7 +70,7 @@ static void reading(void)
 {
     lines = 0;
     last[0] = 0;
-    rln_read_line(got_line);
+    rln_read_line(got_line, reading_with);
 }
 
 UTEST(rln, either_spelling_ends_a_line)
@@ -228,7 +235,7 @@ static void next(void)
     if (need_next)
     {
         need_next = false;
-        rln_read_line(got_line_later);
+        rln_read_line(got_line_later, reading_with);
     }
 }
 
@@ -1105,6 +1112,40 @@ UTEST(rln, the_lf_of_a_crlf_pair_keeps_the_next_prompt_column)
     wire("\33[D");
     manifold_set_tx_tap(NULL);
     ASSERT_STREQ(shown, "\r\33[8C");
+}
+
+/* A history is its caller's, with as many lines as the caller gave it: the
+ * one being typed and three entered here. */
+UTEST(rln, a_history_holds_the_lines_its_caller_gave_it)
+{
+    fresh();
+    reading();
+    wire("one\rtwo\rthree\rfour\r");
+    ASSERT_EQ(lines, 4);
+    ASSERT_EQ((int)history.count, 3);
+    wire("\33[A\33[A\33[A\33[A\r");
+    ASSERT_EQ(lines, 5);
+    ASSERT_STREQ(last, "two");
+    /* The same line again is not entered twice. */
+    wire("two\r\33[A\33[A\r");
+    ASSERT_STREQ(last, "four");
+}
+
+UTEST(rln, a_read_handed_no_history_keeps_and_recalls_nothing)
+{
+    fresh();
+    reading();
+    wire("kept\r");
+    reading_with = NULL;
+    reading();
+    wire("secret\r");
+    wire("\33[A\r");
+    ASSERT_STREQ(last, "");
+    reading_with = &history;
+    reading();
+    wire("\33[A\r");
+    ASSERT_STREQ(last, "kept");
+    ASSERT_EQ((int)history.count, 1);
 }
 
 UTEST_MAIN();

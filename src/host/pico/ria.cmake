@@ -255,6 +255,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/rom/alias.c
     ${RP6502_ROOT}/src/core/rom/asset.c
     ${RP6502_ROOT}/src/core/rom/pump.c
+    ${RP6502_ROOT}/src/core/sys/buf1k.c
     ${RP6502_ROOT}/src/core/str/path.c
     ${RP6502_ROOT}/src/core/str/oem.c
     ${RIA_SRC}/api/proc.c

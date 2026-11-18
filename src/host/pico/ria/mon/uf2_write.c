@@ -21,7 +21,7 @@
 bool uf2_read_block(FIL *fil)
 {
     UINT br;
-    return f_read(fil, mbuf, 512, &br) == FR_OK && br == 512;
+    return f_read(fil, buf1k, 512, &br) == FR_OK && br == 512;
 }
 
 void uf2_block_pages(uint32_t *first, uint32_t *count)

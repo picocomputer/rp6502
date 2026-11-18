@@ -42,7 +42,6 @@
 
 #define RLN_BUF_SIZE 256
 _Static_assert(RLN_BUF_SIZE == RLN_LINE_MAX, "rln.h publishes this bound");
-#define RLN_HISTORY_SIZE 8
 #define RLN_LASTKEY_MAX 32
 _Static_assert(RLN_LASTKEY_MAX >= TIO_ITEM_MAX, "every key fits the last key");
 
@@ -61,13 +60,8 @@ _Static_assert(RLN_LASTKEY_MAX >= TIO_ITEM_MAX, "every key fits the last key");
 #define RLN_POKE COM_SOURCE_ANY
 #define RLN_SOURCE_COUNT (RLN_POKE + 1)
 
-// History storage. The live edit buffer is rln_buf; history[0] is a
-// scratch slot used to stash the user's unsubmitted line while they
-// navigate older entries. history[1..RLN_HISTORY_SIZE-1] hold previous
-// entries, newest at [1].
-static char rln_history[RLN_HISTORY_SIZE][RLN_BUF_SIZE];
-static uint8_t rln_history_count;
-static uint8_t rln_history_pos;
+// The history of the read in progress, its caller's, or NULL for none.
+static rln_history_t *rln_history;
 
 // Input state
 static char rln_buf[RLN_BUF_SIZE];
@@ -81,7 +75,6 @@ static com_source_t rln_line_src;
 static timer_mach_t rln_idle_deadline;
 static uint8_t rln_buflen;
 static uint8_t rln_bufpos;
-static bool rln_skip_history;
 static uint8_t rln_max_length;
 static uint32_t rln_idle_timeout_ms;
 static uint8_t rln_caps;
@@ -108,7 +101,7 @@ static uint16_t rln_pinned_width;
 static uint16_t rln_pinned_height;
 static term_grid_t rln_grid;
 static uint8_t rln_grid_lines[2 * RLN_GRID_ROWS];
-_Static_assert(RLN_SST_SIZE == 2379 + TERM_GRID_SST_SIZE(RLN_GRID_ROWS),
+_Static_assert(RLN_SST_SIZE == 328 + TERM_GRID_SST_SIZE(RLN_GRID_ROWS),
                "the pinned size's grid is part of the chunk");
 
 // The CR or LF each source, the poke stream included, last ended a line
@@ -133,15 +126,11 @@ static bool rln_has_grid(void)
 void rln_sst_save(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    for (int i = 0; i < RLN_HISTORY_SIZE; i++)
-        sst_put(c, rln_history[i], RLN_BUF_SIZE);
-    sst_put_u8(c, rln_history_count);
-    sst_put_u8(c, rln_history_pos);
     sst_put(c, rln_buf, RLN_BUF_SIZE);
     /* A callback is a function pointer, which cannot be written to a blob, so
      * it is saved as a token. std.c's reader is the only one this file can
      * name, and any other callback fails the save rather than being restored
-     * as the wrong reader. */
+     * as the wrong reader. Its reads have no history, so none is carried. */
     if (!rln_callback)
         sst_put_u8(c, 0);
     else if (rln_callback == std_rln_reader())
@@ -151,7 +140,6 @@ void rln_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_u64(c, rln_idle_deadline);
     sst_put_u8(c, rln_buflen);
     sst_put_u8(c, rln_bufpos);
-    sst_put_bool(c, rln_skip_history);
     sst_put_u8(c, rln_max_length);
     sst_put_u32(c, rln_idle_timeout_ms);
     sst_put_u8(c, rln_caps);
@@ -178,13 +166,10 @@ void rln_sst_save(sst_cursor_t *c, unsigned flags)
 bool rln_sst_load(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    const uint8_t *history = sst_view(c, sizeof rln_history);
-    uint8_t hcount = sst_get_u8(c), hpos = sst_get_u8(c);
     const uint8_t *line = sst_view(c, sizeof rln_buf);
     uint8_t reader = sst_get_u8(c);
     uint64_t idle = sst_get_u64(c);
     uint8_t buflen = sst_get_u8(c), bufpos = sst_get_u8(c);
-    bool skip = sst_get_bool(c);
     uint8_t maxlen = sst_get_u8(c);
     uint32_t idle_ms = sst_get_u32(c);
     uint8_t caps = sst_get_u8(c);
@@ -207,8 +192,7 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
      * they index. */
     _Static_assert(RLN_BUF_SIZE > UINT8_MAX, "a byte length must not escape rln_buf");
     if (!sst_ok(c) || reader > 1 || bufpos > buflen ||
-        cur > buflen || lastkey_len > RLN_LASTKEY_MAX ||
-        hcount > RLN_HISTORY_SIZE || hpos > RLN_HISTORY_SIZE)
+        cur > buflen || lastkey_len > RLN_LASTKEY_MAX)
         return false;
     if (grid && !rln_has_grid())
         term_add_grid(&cells_term, &rln_grid, cells_shown(&cells_term),
@@ -218,15 +202,12 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     if (!term_grid_sst_get(c, &rln_grid) || !sst_ok(c))
         return false;
 
-    memcpy(rln_history, history, sizeof rln_history);
-    rln_history_count = hcount;
-    rln_history_pos = hpos;
+    rln_history = NULL;
     memcpy(rln_buf, line, sizeof rln_buf);
     rln_callback = reader ? std_rln_reader() : NULL;
     rln_idle_deadline = idle;
     rln_buflen = buflen;
     rln_bufpos = bufpos;
-    rln_skip_history = skip;
     rln_max_length = maxlen;
     rln_idle_timeout_ms = idle_ms;
     rln_caps = caps;
@@ -522,34 +503,36 @@ static void rln_replace_buf_from_history(void)
 // dir > 0 walks toward older entries (up arrow), dir < 0 toward newer.
 static void rln_history_step(int dir)
 {
-    if (rln_idle_timeout_ms || rln_skip_history)
+    rln_history_t *h = rln_history;
+    if (!h)
         return;
-    if (dir > 0 && rln_history_pos >= rln_history_count)
+    if (dir > 0 && h->pos >= h->count)
         return;
-    if (dir < 0 && !rln_history_pos)
+    if (dir < 0 && !h->pos)
         return;
     rln_buf[rln_buflen] = 0;
-    memcpy(rln_history[rln_history_pos], rln_buf, rln_buflen + 1);
-    rln_history_pos += dir;
-    memcpy(rln_buf, rln_history[rln_history_pos], RLN_BUF_SIZE);
+    memcpy(h->line[h->pos], rln_buf, rln_buflen + 1);
+    h->pos += dir;
+    memcpy(rln_buf, h->line[h->pos], RLN_BUF_SIZE);
     rln_action_taken = true;
     rln_replace_buf_from_history();
 }
 
+// The line entered becomes the newest, unless it is empty or the newest
+// again, and the oldest is dropped from a history that is full.
 static void rln_history_add(void)
 {
-    if (rln_idle_timeout_ms || rln_skip_history)
-        return;
-    if (rln_buflen == 0)
+    rln_history_t *h = rln_history;
+    if (!h || h->lines < 2 || rln_buflen == 0)
         return;
     rln_buf[rln_buflen] = 0;
-    if (rln_history_count > 0 && strcmp(rln_history[1], rln_buf) == 0)
+    if (h->count > 0 && strcmp(h->line[1], rln_buf) == 0)
         return;
-    memmove(rln_history[2], rln_history[1], (size_t)(RLN_HISTORY_SIZE - 2) * RLN_BUF_SIZE);
-    memcpy(rln_history[1], rln_buf, rln_buflen + 1);
-    rln_history[0][0] = 0;
-    if (rln_history_count < RLN_HISTORY_SIZE - 1)
-        rln_history_count++;
+    memmove(h->line[2], h->line[1], (size_t)(h->lines - 2) * RLN_BUF_SIZE);
+    memcpy(h->line[1], rln_buf, rln_buflen + 1);
+    h->line[0][0] = 0;
+    if (h->count < h->lines - 1)
+        h->count++;
 }
 
 // The cursor shape as DECSCUSR's Ps: 1 a block for overwrite, 5 a bar for
@@ -1131,14 +1114,15 @@ static void rln_follow(void)
 
 /* ----- Top-level task / driver hooks ----- */
 
-static void rln_start(rln_read_callback_t callback)
+static void rln_start(rln_read_callback_t callback, rln_history_t *history)
 {
     rln_idle_timeout_ms = 0;
-    rln_skip_history = false;
     rln_buflen = 0;
     rln_bufpos = 0;
     rln_callback = callback;
-    rln_history_pos = 0;
+    rln_history = history;
+    if (history)
+        history->pos = 0;
     rln_buf[0] = 0;
     rln_lastkey_len = 0;
     rln_action_taken = false;
@@ -1151,24 +1135,18 @@ static void rln_start(rln_read_callback_t callback)
     rln_line_src = COM_SOURCE_ANY;
 }
 
-void rln_read_line(rln_read_callback_t callback)
+void rln_read_line(rln_read_callback_t callback, rln_history_t *history)
 {
-    rln_start(callback);
+    rln_start(callback, history);
     rln_lay_out();
 }
 
 void rln_read_line_script(rln_read_callback_t callback, uint32_t timeout_ms)
 {
     assert(timeout_ms);
-    rln_start(callback);
+    rln_start(callback, NULL);
     rln_idle_timeout_ms = timeout_ms;
     rln_idle_deadline = timer_mach_in_ms(rln_idle_timeout_ms);
-}
-
-void rln_read_line_no_history(rln_read_callback_t callback)
-{
-    rln_read_line(callback);
-    rln_skip_history = true;
 }
 
 com_source_t rln_line_source(void)

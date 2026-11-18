@@ -101,9 +101,7 @@ core/com/rln.c rln_cur_idx: the RLN chunk
 core/com/rln.c rln_grid: the RLN chunk
 core/com/rln.c rln_grid_lines: the RLN chunk
 core/com/rln.c rln_grid_width: the RLN chunk
-core/com/rln.c rln_history: the RLN chunk
-core/com/rln.c rln_history_count: the RLN chunk
-core/com/rln.c rln_history_pos: the RLN chunk
+core/com/rln.c rln_history: not carried: its caller's, and the one reader the RLN chunk can name has none
 core/com/rln.c rln_idle_deadline: the RLN chunk
 core/com/rln.c rln_idle_timeout_ms: the RLN chunk
 core/com/rln.c rln_last_render_buflen: the RLN chunk
@@ -120,7 +118,6 @@ core/com/rln.c rln_plain: not carried: host wiring
 core/com/rln.c rln_prompt_col: the RLN chunk
 core/com/rln.c rln_rendered_max_row: the RLN chunk
 core/com/rln.c rln_rows: the RLN chunk
-core/com/rln.c rln_skip_history: the RLN chunk
 core/com/rln.c rln_suppress_newline: the RLN chunk
 core/com/rln.c rln_width: the RLN chunk
 core/com/tio.c tio_sources: the TIO chunk
@@ -185,7 +182,6 @@ core/rom/asset.c g_rom_generation: the ASET chunk
 core/rom/asset.c rom_assets_start: the ASET chunk
 core/rom/asset.c rom_fd: the ASET chunk
 core/rom/asset.c windows: not carried: each open window is the STD chunk's own record of that descriptor
-core/rom/rom.c buf: parse scratch, dead at every frame boundary
 core/rom/rom.c rom_error: not carried: the message for the last failed load, which proc_boot reads right after the load
 core/str/oem.c oem_auto_cp: not carried: the locale's code page, the host's to re-announce
 core/str/oem.c oem_code_page_run: the OEM chunk
@@ -197,6 +193,7 @@ core/str/str.c str_tab_EN: the linked table image and a parse buffer dead at eve
 core/str/str.c str_tab_FR: the linked table image and a parse buffer dead at every frame boundary
 core/str/str.c str_tab_PL: the linked table image and a parse buffer dead at every frame boundary
 core/str/str.c str_tabs: the linked table image and a parse buffer dead at every frame boundary
+core/sys/buf1k.c buf1k: scratch, dead at every frame boundary
 core/sys/config.c config_depth: not carried: host settings, not machine state
 core/sys/config.c config_dirty: not carried: host settings, not machine state
 core/sys/config.c config_oem_code_page: not carried: host settings, not machine state

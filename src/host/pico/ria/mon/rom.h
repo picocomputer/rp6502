@@ -55,7 +55,7 @@ int rom_installed_response(char *buf, size_t buf_size, int state, unsigned width
 // Configuration setting BOOT
 // No loader because this isn't stored in RAM
 bool rom_set_boot(const char *args);
-const char *rom_get_boot(void); // uses mbuf
+const char *rom_get_boot(void); // uses buf1k
 
 /* STDIO 
  */

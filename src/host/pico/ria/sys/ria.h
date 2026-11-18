@@ -79,7 +79,7 @@ bool ria_uart_tx_dequeue(uint8_t *ch);
 bool ria_uart_tx_empty(void);
 bool ria_uart_rx_offer_ready(void);
 
-/* A transfer copies between mbuf and 6502 memory by resetting the 6502 into a
+/* A transfer copies between buf1k and 6502 memory by resetting the 6502 into a
  * loop at $FFF0, so it must be started while the machine is stopped. The
  * callback is called from ria_task after any timeout or verify error has been
  * queued, and a write that finishes is verified before its callback is

@@ -265,7 +265,7 @@ static void HOST_ISR_FUNC vga_backchannel_irq_handler(void)
 static void vga_rln_callback(bool timeout)
 {
     // VGA1 means VGA on PIX 1
-    if (!timeout && mbuf_len == 4 && !strncasecmp(STR_VGA1, (char *)mbuf, 4))
+    if (!timeout && mbuf_len == 4 && !strncasecmp(STR_VGA1, (char *)buf1k, 4))
         vga_state = VGA_FOUND;
     else
         vga_state = VGA_NOT_FOUND;
