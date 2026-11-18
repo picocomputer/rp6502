@@ -34,10 +34,12 @@
 **     No absolute Y; no writes past rln_max_length.
 **   - rln owns only rln_max_length cells from the start of input, so no EL
 **     unless the input can take more than its row.
-**   - A plain line (rln_set_plain, a script read, or a read that starts in
-**     VT52 mode) lays nothing out and sends no escape sequence: it echoes,
-**     moves left with BS and right by printing what is there, erases with
-**     spaces, and the terminal wraps it.
+**   - A plain line (rln_set_plain, or a script read) lays nothing out and
+**     sends no escape sequence: it echoes, moves left with BS and right by
+**     printing what is there, erases with spaces, and the terminal wraps it.
+**   - A terminal in VT52 mode is sent a VT52's commands: ESC A, B and C to
+**     move, each once for each row or column, and ESC K to erase. It has no
+**     insert mode and is sent no cursor shape.
 */
 
 #define RLN_BUF_SIZE 256
@@ -256,14 +258,36 @@ static void rln_buf_to_screen(uint8_t i, uint8_t *row, uint16_t *col)
     *col = (uint16_t)(logical % w) + 1;
 }
 
-// Move to column col of the cursor's row: CR, then CUF. VT100 and VT102 have
-// no CHA. CR goes to the real cell from a pending wrap at the margin, and
-// clears it.
+// A move of the cursor up, down or right by n ('A', 'B' or 'C'), and an
+// erase to the end of the line, each as the console's terminal takes it now.
+// A VT52 has them as ESC and the letter, with no count, so a move by n is
+// the command n times.
+static void rln_emit_move(char way, unsigned n)
+{
+    if (!n)
+        return;
+    if (!cells_term.vt52)
+        com_printf("\33[%u%c", n, way);
+    else
+        for (; n; n--)
+        {
+            manifold_putchar('\33');
+            manifold_putchar(way);
+        }
+}
+
+static void rln_emit_erase(void)
+{
+    com_printf(cells_term.vt52 ? "\33K" : "\33[K");
+}
+
+// Move to column col of the cursor's row: CR, then right. VT100 and VT102
+// have no CHA. CR goes to the real cell from a pending wrap at the margin,
+// and clears it.
 static void rln_emit_col(uint16_t col)
 {
     manifold_putchar('\r');
-    if (col > 1)
-        com_printf("\33[%uC", col - 1);
+    rln_emit_move('C', col - 1u);
 }
 
 // Move the visible cursor so that it sits at the screen position
@@ -292,9 +316,9 @@ static void rln_sync_cursor_to(uint8_t target)
         rln_buf_to_screen(rln_cur_idx, &fr, &fc);
         rln_buf_to_screen(target, &tr, &tc);
         if (tr > fr)
-            com_printf("\33[%uB", tr - fr);
+            rln_emit_move('B', (unsigned)(tr - fr));
         else if (tr < fr)
-            com_printf("\33[%uA", fr - tr);
+            rln_emit_move('A', (unsigned)(fr - tr));
         if (tr != fr || tc != fc || rln_input_no_wrap())
             rln_emit_col(tc);
     }
@@ -413,13 +437,13 @@ static void rln_emit_trailing_spaces(uint8_t count)
 static void rln_clear_rows_below(uint8_t rows, uint16_t col)
 {
     for (uint8_t k = 0; k < rows; k++)
-        com_printf("\33[B\r\33[K");
-    if (rows)
     {
-        com_printf("\33[%uA", rows);
-        if (col > 1)
-            com_printf("\33[%uC", col - 1);
+        com_printf(cells_term.vt52 ? "\33B\r" : "\33[B\r");
+        rln_emit_erase();
     }
+    rln_emit_move('A', rows);
+    if (rows)
+        rln_emit_move('C', col - 1u);
 }
 
 // Redraw the buffer, then place the cursor at rln_bufpos. Two paths:
@@ -451,7 +475,7 @@ static void rln_render_from(uint8_t start)
         // The cursor is past the line, or on its last cell when a full line
         // ends on the last column, where EL would erase that cell.
         if (rln_cur_idx == rln_buflen && rln_last_render_buflen > rln_buflen)
-            com_printf("\33[K");
+            rln_emit_erase();
         uint8_t er;
         uint16_t ec;
         rln_buf_to_screen(rln_cur_idx, &er, &ec);
@@ -538,10 +562,11 @@ static void rln_history_add(void)
 // The cursor shape as DECSCUSR's Ps: 1 a block for overwrite, 5 a bar for
 // insert, 0 the default. A terminal on the UART or telnet may print it, as
 // minicom prints its 'q', so it goes to the screen alone and the mode shows
-// nowhere else. Plain lines get none.
+// nowhere else. Plain lines get none, and a terminal in VT52 mode takes no
+// CSI.
 static void rln_cursor_shape(uint8_t ps)
 {
-    if (!rln_prompt_col)
+    if (!rln_prompt_col || cells_term.vt52)
         return;
     char seq[] = "\33[0 q";
     seq[2] = (char)('0' + ps);
@@ -1070,13 +1095,13 @@ static void rln_item(com_source_t src, const char *item, size_t len)
 // out at that row's columns, half the width on a double-size row. Everything
 // already printed reaches the terminals and cells_term first, then the modes
 // go to every terminal. A cursor in a pending wrap gets a CR LF, so the line
-// starts in column 1 of the next row. A terminal in VT52 mode takes no CSI,
-// so its line is plain, and so it gets no modes either.
+// starts in column 1 of the next row. A terminal in VT52 mode has no insert
+// mode to turn off, and is sent a VT52's form of every move and erase.
 static void rln_lay_out(void)
 {
     manifold_flush();
-    bool plain = rln_plain || cells_term.vt52;
-    if (!plain)
+    bool plain = rln_plain;
+    if (!plain && !cells_term.vt52)
         manifold_write_to(COM_TERM_ALL, RLN_MODES, sizeof RLN_MODES - 1);
     if (term_pos(term_shown(&cells_term))->wrap_pending)
     {

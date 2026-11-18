@@ -833,29 +833,71 @@ UTEST(rln, plain_lines_edit_with_no_escape_sequences)
     screen_done();
 }
 
-/* A terminal in VT52 mode takes no CSI, so a read that starts there is a
- * plain line of any length. */
-UTEST(rln, a_read_in_vt52_mode_is_a_plain_line)
+/* A terminal in VT52 mode takes no CSI. A read there is laid out all the
+ * same, with a VT52's own moves and erase, each without a count. */
+UTEST(rln, a_read_in_vt52_mode_is_laid_out_in_vt52_commands)
 {
     fresh();
     com_printf("> \33[?2l");
     capture();
     reading();
+    const uint8_t top = pos()->y;
     type_n(100, 'a');
-    wire("\33D\33Dxy\33H\33F\b");
+    /* 78 fit on the prompt's row and the rest are on the next. */
+    ASSERT_EQ(pos()->y, top + 1);
+    ASSERT_EQ(pos()->x, 22);
+    ASSERT_TRUE(strstr(shown, "\r\n") != NULL);
+    /* Left twice, two typed, then Home, which is up a row and right to the
+     * prompt's column, and End, which is down a row and right again. */
+    wire("\33D\33Dxy");
+    shown_len = 0;
+    wire("\33H");
+    ASSERT_STREQ(shown, "\33A\r\33C\33C");
+    ASSERT_EQ(pos()->y, top);
+    ASSERT_EQ(pos()->x, 2);
+    wire("\33F");
+    ASSERT_EQ(pos()->y, top + 1);
+    ASSERT_EQ(pos()->x, 24);
+    /* A backspace at the end erases with a VT52's erase. */
+    shown_len = 0;
+    wire("\b");
     manifold_set_tx_tap(NULL);
-    ASSERT_TRUE(strchr(shown, '\33') == NULL);
+    ASSERT_TRUE(strstr(shown, "\33K") != NULL || strchr(shown, ' ') != NULL);
+    ASSERT_TRUE(strstr(shown, "\33[") == NULL);
     ASSERT_TRUE(cells_term.vt52);
     wire("\r");
     ASSERT_EQ(lines, 1);
     ASSERT_EQ(strlen(last), (size_t)101);
     ASSERT_STREQ(last + 97, "axya");
-    /* The next read starts in ANSI mode and is laid out again. */
+    /* The next read starts in ANSI mode, and is sent that mode's commands. */
     com_printf("\33<");
     capture();
     reading();
     manifold_set_tx_tap(NULL);
     ASSERT_STREQ(shown, "\33[4l");
+}
+
+/* Nothing of a whole read in VT52 mode is a CSI: the history, a line that
+ * shrinks over a row, and the cursor's shape among it. */
+UTEST(rln, a_read_in_vt52_mode_sends_no_csi)
+{
+    fresh();
+    com_printf("> \33[?2l");
+    capture();
+    reading();
+    type_n(100, 'b');
+    wire("\r");
+    type_n(10, 'c');
+    wire("\33A\33B\33A\33H\33C\33C\33F");
+    for (int i = 0; i < 30; i++)
+        wire("\b");
+    wire("\r");
+    manifold_set_tx_tap(NULL);
+    ASSERT_TRUE(strstr(shown, "\33[") == NULL);
+    ASSERT_TRUE(strstr(shown, "\33K") != NULL);
+    ASSERT_EQ(lines, 2);
+    ASSERT_EQ(strlen(last), (size_t)70);
+    com_printf("\33<");
 }
 
 /* A VT52's arrows, Home and End work in every mode. */

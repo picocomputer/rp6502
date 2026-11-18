@@ -3,34 +3,7 @@
 Each section is done properly: where the architecture is what is in the
 way, the architecture changes.
 
-## 1. The whole line editor in VT52 mode
-
-A read that starts with the terminal in VT52 mode is laid out plainly:
-the line editor echoes, backs up with BS, erases with spaces, and leaves
-long lines for the terminal to wrap (core/com/rln.c). A VT52 does not
-wrap. Its cursor stays on the last column.
-
-A VT52 has every command the laid-out line needs, each without a count:
-
-| The line editor sends | In VT52 mode |
-|---|---|
-| `CSI n A`, up | `ESC A`, n times |
-| `CSI n B`, down | `ESC B`, n times |
-| `CSI n C`, right | `ESC C`, n times |
-| `CSI K`, erase to the end of the line | `ESC K` |
-| `CSI 4 l`, insert mode off | nothing: a VT52 has no insert mode |
-| the cursor's shape, to the screen alone | nothing |
-
-So VT52 mode stops making a line plain, and the line editor sends the
-VT52's form of each where the terminal is in that mode. The keys need
-nothing: `ESC A` to `ESC D`, `ESC H`, and `ESC F` are already read as a
-VT52's arrows, Home, and End.
-
-A plain line stays for what asks for one by name: a script's read, and
-the command line emulator when its output is a pipe or a file and not a
-terminal (`rln_set_plain`), which no other machine sets.
-
-## 2. The line editor inside margins
+## 1. The line editor inside margins
 
 The line editor lays a line out for the whole width of the cursor's row,
 and goes to a column with a CR and a move right (core/com/rln.c). It does
