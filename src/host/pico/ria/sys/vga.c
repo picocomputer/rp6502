@@ -36,14 +36,18 @@
 /* At power on the VGA starts with the RIA and is ready later: it runs from
  * RAM, so it first copies itself there, and it builds its fonts and starts
  * its display before it listens to PIX. A request sent before then is lost,
- * since PIX has no handshake. On the bench the VGA first answers about 50 ms
- * after both resets, so the RIA keeps asking until it has been up this long.
- * A machine with no VGA waits all of it at every start. */
-#define VGA_BOOT_MS 250
+ * since PIX has no handshake. On the bench the VGA first answers when the
+ * RIA has been up about 60 ms, so the RIA keeps asking until it has been up
+ * this long. A machine with no VGA waits all of it at every start. */
+#define VGA_BOOT_MS 100
 // The UART with nothing arriving for this long is idle: a byte takes 87 us.
 #define VGA_UART_IDLE_MS 1
 // How long to wait before aborting version string
 #define VGA_VERSION_WATCHDOG_MS 3
+// How many times the version is asked for, to have the same one twice
+#define VGA_VERSION_TRIES 5
+// How many times at least the VGA is asked for
+#define VGA_REQUEST_TRIES 3
 // Abandon backchannel after two missed vsync messages
 // with 10ms added for UART drain and safety margin
 // when changing canvas or timing.
@@ -61,7 +65,6 @@ static enum {
 static bool vga_needs_reset = true;
 static vga_canvas_t vga_canvas_current = vga_canvas_console;
 static volatile uint32_t vga_vsync_deadline;
-static absolute_time_t vga_version_timer;
 static uint8_t vga_vsync_frame;
 
 static int vga_vsync_alarm = -1;
@@ -71,7 +74,6 @@ static volatile bool vga_vsync_trap_fired;
 
 #define VGA_VERSION_MESSAGE_SIZE 64
 static char vga_version_message[VGA_VERSION_MESSAGE_SIZE];
-static size_t vga_version_message_length;
 
 static inline void vga_pix_backchannel_disable(void)
 {
@@ -300,36 +302,85 @@ static void HOST_IN_FLASH_FUNC vga_mbuf_wait(void)
     }
 }
 
+/* One version off the backchannel into vga_version_message. Returns a hash
+ * of it that is never 0, or 0 when the VGA stops sending before a whole one
+ * came. A version is "VGA ", then printable characters, then a CR. A vsync,
+ * an ACK or a NAK may come between its bytes. Anything else is noise, or
+ * the end of a byte the line was part way through, and the read starts over
+ * at the next V. Only a character that is kept gives the VGA more time, so
+ * noise cannot hold the read. */
+static uint32_t HOST_IN_FLASH_FUNC vga_read_version(void)
+{
+    static const char begins[] = "VGA ";
+    size_t length = 0;
+    uint32_t hash = 0;
+    absolute_time_t timer = make_timeout_time_ms(VGA_VERSION_WATCHDOG_MS);
+    while (!time_reached(timer))
+    {
+        if (pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
+            continue;
+        uint8_t byte = pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM) >> 24;
+        if (byte >= 0x80 && byte < 0xB0)
+        {
+            vga_backchannel_command(byte);
+            continue;
+        }
+        if (byte == '\r' && length > sizeof begins - 1)
+            return hash | 1;
+        if (byte < ' ' || byte > '~' || length == VGA_VERSION_MESSAGE_SIZE - 1u ||
+            (length < sizeof begins - 1 && byte != begins[length]))
+        {
+            length = 0;
+            hash = 0;
+            if (byte != begins[0])
+                continue;
+        }
+        else
+            timer = make_timeout_time_ms(VGA_VERSION_WATCHDOG_MS);
+        vga_version_message[length] = byte;
+        vga_version_message[++length] = 0;
+        hash = (hash ^ byte) * 16777619u; // FNV-1a
+    }
+    return 0;
+}
+
 /* Only the UART, the VGA's own link, is cleared and read, so a reconnect at
  * the run after a lost link keeps the keyboard and telnet type-ahead. */
 static void HOST_IN_FLASH_FUNC vga_connect(void)
 {
     vga_backchannel_irq_disable();
+    const bool was_lost = vga_state == VGA_CONNECTION_LOST;
 
-    /* Test if VGA connected. The request repeats while a VGA that started
-     * with the RIA may still be on its way up; a reconnect long after that
-     * asks once. */
-    while (true)
+    /* Test if VGA connected. The request repeats a few times, so one answer
+     * spoiled by noise is not the end of it, and at power on for as long as
+     * a VGA that started with the RIA may still be on its way up. */
+    for (unsigned asked = 1;; asked++)
     {
         com_rx_clear_source(COM_SOURCE_UART);
         mbuf_read(COM_SOURCE_UART, VGA_BACKCHANNEL_ACK_MS, vga_rln_callback, 4);
         vga_pix_backchannel_request();
         vga_mbuf_wait();
-        if (vga_state == VGA_FOUND || time_us_64() >= VGA_BOOT_MS * 1000)
+        if (vga_state == VGA_FOUND)
             break;
         /* An answer that began as the wait ended, or came behind a stray
          * byte, is still arriving. Asked again now, the VGA would answer
          * straight after it and every read would be as far out of step, so
          * the line goes idle first, or the time runs out on a line that
-         * never does. */
+         * never does. What came is not something typed. */
+        const absolute_time_t noisy = make_timeout_time_ms(VGA_BACKCHANNEL_ACK_MS);
         do
         {
             mbuf_read(COM_SOURCE_UART, VGA_UART_IDLE_MS, vga_idle_callback, 1);
             vga_mbuf_wait();
-        } while (!vga_uart_idle && time_us_64() < VGA_BOOT_MS * 1000);
+        } while (!vga_uart_idle && !time_reached(noisy));
+        if (asked >= VGA_REQUEST_TRIES && time_us_64() >= VGA_BOOT_MS * 1000)
+            break;
     }
-    if (vga_state == VGA_NOT_FOUND)
+    if (vga_state != VGA_FOUND)
     {
+        /* A VGA that was lost is asked for again at the next run. */
+        vga_state = was_lost ? VGA_CONNECTION_LOST : VGA_NOT_FOUND;
+        com_rx_clear_source(COM_SOURCE_UART);
         vga_pix_backchannel_disable();
         gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
         vga_follow_none();
@@ -341,44 +392,23 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
     // Drain bytes the PIO sampled off the pin before the VGA took it
     while (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
         (void)pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM);
-    vga_pix_backchannel_enable();
 
-    // Wait for version
-    vga_version_message_length = 0;
-    vga_version_timer = make_timeout_time_ms(VGA_VERSION_WATCHDOG_MS);
-    while (true)
+    /* The version is asked for until one comes that has come before, since
+     * a line that took in noise gives a different wrong one each time. The
+     * state stays found until then, which keeps the vsync trap from arming
+     * on a version byte's start bit. */
+    uint32_t seen[VGA_VERSION_TRIES];
+    bool same = false;
+    for (unsigned asked = 0; asked < VGA_VERSION_TRIES && !same; asked++)
     {
-        if (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
-        {
-            uint8_t byte = pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM) >> 24;
-            if (byte & 0x80)
-            {
-                vga_backchannel_command(byte);
-            }
-            else
-            {
-                vga_version_timer = make_timeout_time_ms(VGA_VERSION_WATCHDOG_MS);
-                if (byte == '\r' || byte == '\n')
-                {
-                    if (vga_version_message_length > 0)
-                    {
-                        vga_state = VGA_CONNECTED;
-                        break;
-                    }
-                }
-                else if (vga_version_message_length < VGA_VERSION_MESSAGE_SIZE - 1u)
-                {
-                    vga_version_message[vga_version_message_length] = byte;
-                    vga_version_message[++vga_version_message_length] = 0;
-                }
-            }
-        }
-        if (time_reached(vga_version_timer))
-        {
-            vga_state = VGA_NO_VERSION;
-            break;
-        }
+        vga_pix_backchannel_enable();
+        seen[asked] = vga_read_version();
+        for (unsigned i = 0; seen[asked] && i < asked; i++)
+            same |= seen[i] == seen[asked];
     }
+    if (!same)
+        vga_version_message[0] = 0;
+    vga_state = same ? VGA_CONNECTED : VGA_NO_VERSION;
 
     /* A VGA that answered a request late answers the next one too, and the
      * second answer is not something typed. It is on the wire before the
