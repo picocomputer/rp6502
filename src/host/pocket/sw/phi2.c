@@ -22,6 +22,24 @@ uint16_t phi2_get_khz_run(void)
     return (uint16_t)MMIO_PHI2;
 }
 
+void phi2_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u16(c, phi2_get_khz_run());
+}
+
+bool phi2_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t khz = sst_get_u16(c);
+    if (!sst_ok(c))
+        return false;
+    if (!phi2_check_khz(&khz))
+        return sst_refuse(c, "a PHI2 rate out of range");
+    phi2_set_khz_run(khz);
+    return true;
+}
+
 bool phi2_check_khz(uint16_t *v)
 {
     return *v >= PHI2_MIN_KHZ && *v <= PHI2_MAX_KHZ;

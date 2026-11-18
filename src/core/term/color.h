@@ -13,6 +13,5 @@
 
 extern const uint16_t color_2[2];
 extern const uint16_t color_256[256];
-extern uint16_t color_256_term[256];
 
 #endif /* _CORE_TERM_COLOR_H_ */

@@ -6,8 +6,10 @@
  * opl.sv's savestate port. Session A plays and stops at a quiet point;
  * session B has played something else, takes A's image, and then both take
  * one stream of writes and must agree on every sample and on the drop
- * count. B has random words written over everything first, so an item the
- * restore leaves out shows.
+ * count. Both are parked with their clocks running while the image is
+ * taken and put back, as wiring.sv's hold has them. B has random words
+ * written over its memories first, so an item the restore leaves out
+ * shows.
  */
 
 #include "Vopl_sst.h"
@@ -65,26 +67,22 @@ static bool skipped(int skip, int a)
     }
 }
 
-static void edge(Vopl_sst *d, bool mach)
+static void edge(Vopl_sst *d)
 {
-    d->clk_sys = 1;
-    d->clk = mach;
+    d->clk = 1;
     d->eval();
-    d->clk_sys = 0;
     d->clk = 0;
     d->eval();
     d->q_we = 0;
     d->xaddr_we = 0;
     d->drops_take = 0;
     d->sst_we = 0;
-    d->sst_st_we = 0;
 }
 
 static Vopl_sst *make(const char *name)
 {
     Vopl_sst *d = new Vopl_sst{name};
     d->clk = 0;
-    d->clk_sys = 0;
     d->eval();
     return d;
 }
@@ -162,14 +160,14 @@ static void put(Vopl_sst *d, int page, int reg, int val)
     d->q_we = 1;
     d->q_addr = (uint16_t)(page << 8 | reg);
     d->q_val = (uint8_t)val;
-    edge(d, true);
+    edge(d);
 }
 
 static void map(Vopl_sst *d, int page)
 {
     d->xaddr_we = 1;
     d->xaddr_wdata = (uint16_t)(page << 8);
-    edge(d, true);
+    edge(d);
 }
 
 /* A melodic channel with feedback, vibrato and tremolo depth, and the
@@ -201,51 +199,39 @@ static std::vector<uint32_t> image(Vopl_sst *d, const std::vector<int> &at)
     for (int a : at)
     {
         d->sst_addr = (uint16_t)a;
-        edge(d, false);
+        edge(d);
         img.push_back(d->opl_sst_rdata);
     }
     d->sst_own = 0;
-    edge(d, false);
+    edge(d);
     return img;
 }
 
-/* B, stopped at a quiet point, takes img: random words everywhere, then
- * the image but for skip, and with cut cleared in flop word cut_at. The
- * flop words go in clocked and parked. */
+/* B, parked at a quiet point, takes img: random words in its memories,
+ * then the image but for skip, and with cut cleared in flop word cut_at,
+ * all with its clock running. */
 static void restore(Vopl_sst *d, const std::vector<uint32_t> &img, int skip,
                     int cut_at, uint32_t cut, std::mt19937 &r)
 {
     std::vector<int> arr = arrays(), fl = flops();
-    d->sst_own = 1;
-    for (int pass = 0; pass < 2; pass++)
-        for (size_t i = 0; i < arr.size(); i++)
-        {
-            if (pass && skipped(skip, arr[i]))
-                continue;
-            d->sst_addr = (uint16_t)arr[i];
-            d->sst_wdata = pass ? img[i] : (uint32_t)r();
-            d->sst_we = 1;
-            edge(d, false);
-        }
-    d->sst_own = 0;
-    edge(d, false);
     d->sst_park = 1;
-    for (int k = 0; k < 5; k++)
-        edge(d, true);
-    for (int pass = 0; pass < 2; pass++)
-        for (size_t i = 0; i < fl.size(); i++)
-        {
-            if (pass && skipped(skip, fl[i]))
-                continue;
-            d->sst_addr = (uint16_t)fl[i];
-            d->sst_wdata = pass ? img[arr.size() + i]
-                                      & ~(fl[i] == cut_at ? cut : 0u)
-                                : (uint32_t)r();
-            d->sst_st_we = 1;
-            edge(d, true);
-        }
+    d->sst_own = 1;
+    /* One pass in address order, as the firmware's AUD row writes them.
+     * A word left out takes a random word, so B does not keep a value
+     * that happens to be A's. */
+    for (size_t i = 0; i < arr.size() + fl.size(); i++)
+    {
+        int at = i < arr.size() ? arr[i] : fl[i - arr.size()];
+        d->sst_addr = (uint16_t)at;
+        d->sst_wdata = skipped(skip, at)
+            ? (uint32_t)r()
+            : img[i] & ~(at == cut_at ? cut : 0u);
+        d->sst_we = 1;
+        edge(d);
+    }
+    d->sst_own = 0;
     for (int k = 0; k < 50; k++)
-        edge(d, true);
+        edge(d);
 }
 
 /* What the last stop held, for the sweep's report. */
@@ -302,7 +288,7 @@ static long run_case(const Case &c, bool check_image = true)
     for (long i = 0; i < 77777 + (long)(c.seed % 5) * 3331; i++)
     {
         sb.drive(b);
-        edge(b, true);
+        edge(b);
     }
 
     map(a, 0x12);
@@ -311,9 +297,9 @@ static long run_case(const Case &c, bool check_image = true)
     for (long i = 0; i < pre; i++)
     {
         sa.drive(a);
-        edge(a, true);
+        edge(a);
         sb.drive(b);
-        edge(b, true);
+        edge(b);
     }
     /* The request's frame. In clear mode a pointer write between frames
      * makes the next one the reset, and a burst fills the queue either
@@ -321,7 +307,7 @@ static long run_case(const Case &c, bool check_image = true)
     while (a->rootp->opl__DOT__tickctr != (c.clear ? 300 : 0))
     {
         sa.drive(a);
-        edge(a, true);
+        edge(a);
     }
     if (c.clear)
         map(a, 0x12);
@@ -329,17 +315,17 @@ static long run_case(const Case &c, bool check_image = true)
     for (int i = 0; i < c.offset; i++)
     {
         sa.drive(a);
-        edge(a, true);
+        edge(a);
     }
     while (!a->opl_quiet)
     {
         sa.drive(a);
-        edge(a, true);
+        edge(a);
     }
     for (int i = 0; i < c.lag; i++)
     {
         sa.drive(a);
-        edge(a, true);
+        edge(a);
     }
     if (c.rare == RARE_EGC)
     {
@@ -347,8 +333,8 @@ static long run_case(const Case &c, bool check_image = true)
          * once in 2^19 frames, carries on the next. */
         a->sst_addr = 0x784;
         a->sst_wdata = peek(a, 0x784) | 0x3FFFFu | 1u << 19;
-        a->sst_st_we = 1;
-        edge(a, true);
+        a->sst_we = 1;
+        edge(a);
     }
     for (long f = 0; c.rare != RARE_NONE && !rare_held(a, c.rare); f++)
     {
@@ -361,16 +347,17 @@ static long run_case(const Case &c, bool check_image = true)
         do
         {
             sa.drive(a);
-            edge(a, true);
+            edge(a);
         } while (a->opl_quiet);
         while (!a->opl_quiet)
         {
             sa.drive(a);
-            edge(a, true);
+            edge(a);
         }
     }
     std::vector<int> at = arrays(), fl = flops();
     at.insert(at.end(), fl.begin(), fl.end());
+    a->sst_park = 1;
     std::vector<uint32_t> img = image(a, at);
     g_q_len = a->rootp->opl__DOT__q_len;
     g_rst_pend = a->rootp->opl__DOT__rst_pend;
@@ -378,7 +365,7 @@ static long run_case(const Case &c, bool check_image = true)
     while (!b->opl_quiet)
     {
         sb.drive(b);
-        edge(b, true);
+        edge(b);
     }
     restore(b, img, c.skip, c.cut_at, c.cut, rr);
     if (check_image && c.skip == SKIP_NONE && !c.cut)
@@ -394,6 +381,7 @@ static long run_case(const Case &c, bool check_image = true)
                 return -2;
             }
     }
+    a->sst_park = 0;
     b->sst_park = 0;
 
     Stream s(c.seed + 555, 0x12);
@@ -406,8 +394,8 @@ static long run_case(const Case &c, bool check_image = true)
         s.apply(b);
         if (i == 900L * TICKS)
             a->drops_take = b->drops_take = 1;
-        edge(a, true);
-        edge(b, true);
+        edge(a);
+        edge(b);
         if (a->opl_valid != b->opl_valid || a->opl_drops != b->opl_drops
             || (a->opl_valid && a->opl_out != b->opl_out))
         {

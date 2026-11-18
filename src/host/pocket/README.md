@@ -4,35 +4,112 @@ These notes are for working on this core. Nothing here is needed to use
 it — the distribution tree is described in
 `src/host/pocket/dist/rp6502.txt`.
 
+## Sources
+
+What this core knows of the Pocket comes from these, and the files that
+model the Pocket tag each behaviour with one of them:
+
+- Analogue's developer docs,
+  <https://www.analogue.co/developer/docs/overview>, above all the
+  host/target commands,
+  <https://www.analogue.co/developer/docs/openfpga/host-target-commands>.
+- Analogue's template, `vendor/openfpga`,
+  <https://github.com/open-fpga/core-template>.
+- The Spacewar core, <https://github.com/spacemen3/PDP-1>, Analogue's own
+  example with Sleep and Memories. Where the docs are silent it is the
+  reference.
+- Other community cores, named where used.
+- Measurements on a Pocket. Anything else is marked as our guess.
+
+Measured on the owner's Pocket:
+
+- A load writes the savestate at `savestate_addr` with nothing in front.
+  The Memories file on the card has a 596-byte header and a thumbnail
+  around it, and neither comes to the core. This agrees with Spacewar.
+- While a load request is unanswered, the Pocket serves no file command.
+  One sent then gets no reply until the bridge's deadline.
+- Flush, `0x0188`, gets no reply and ends at the bridge's deadline with
+  result 7. Open File, Slot Write, Slot Read and Get File all reply.
+
 ## The board's memory
 
-Analogue names the board's memory parts. This core uses the SDRAM and
-the SRAM, and the board's PSRAM (`cram0_*`, `cram1_*`) is not used.
+Analogue names the board's memory parts. This core uses only the SDRAM.
+The SRAM's pins and the PSRAM's (`cram0_*`, `cram1_*`) are tied off as
+Analogue's template ties off an unused part.
 
 | | part | size | organisation | interface |
 | --- | --- | --- | --- | --- |
 | SDRAM | `AS4C32M16MSA-6BIN` | 64 MB | 32M×16 | 1.8 V, synchronous |
-| SRAM | `AS6C2016-55BIN` | 256 KB | 128K×16 | 3.3 V, **asynchronous**, 55 ns |
 
 - <https://www.analogue.co/developer/docs/external-hardware>
 - <https://www.alliancememory.com/datasheets/as4c32m16msa/>
-- <https://www.alliancememory.com/datasheets/AS6C2016/>
 
-**The SRAM holds the 6502's 64 KB**, because block memory is what this
-design runs out of first, and 64 KB of block memory is 64 M10K blocks.
+**Block memory holds the 6502's 64 KB**, in 64 M10K blocks, as on the
+other machines. It answers a clock after its address, well inside the
+6502's shortest cycle at 8 MHz, which is six clocks of clk_sys, the
+50.4 MHz system clock, so the 6502 runs at exactly the clock that was
+requested.
 
-The part's 55 ns access time fits inside the 6502's shortest cycle at
-8 MHz, which is six clocks of clk_sys, the 50.4 MHz system clock, or
-119 ns. Unlike the SDRAM, it has no rows, no refresh and no bank
-conflicts, so every access takes the same time and the 6502 runs at
-exactly the clock that was requested.
+**The SDRAM holds the soft CPU's memory**, in two blocks as on a
+microcontroller. The ROM block is 256 KB of code and constants, which
+the Pocket loads from `firmware.bin` and nothing writes afterwards: a
+store to it is dropped. The RAM block is 64 KB of data, heap and stack.
+The startup code copies the data's first values from the ROM block and
+clears the rest. In front of both is one 8 KB cache in block memory,
+in `cache.sv`: four ways of 128 sets, with lines of 16 bytes. A hit
+answers in one clock, as block memory would. A miss holds the soft CPU
+while the SDRAM controller reads the line, eight words back to back,
+after writing out the line it replaces if the soft CPU stored to that
+one. The rest of the block memory is XRAM, the video and the audio.
 
-Analogue's port list has no chip enable for the SRAM, so the part is
-always selected and the byte enables are the only deselect.
-`pocket_sram` uses the part as 64K x 8 on the low lane only, because
-tAA is 55 ns whether one byte is read or two. UB# stays high, and LB#
-is low only during an access, so a write happens only while WE# and LB#
-are both low. Both are registered and power up high.
+The cache's shape was measured with the firmware in simulation: the share
+of the soft CPU's clocks spent waiting on it. A miss costs about 35
+clocks.
+
+| Work | 8 KB 4-way | 8 KB 2-way | 4 KB 4-way | 4 KB 2-way |
+|---|---|---|---|---|
+| Reset Exit to the 6502 starting | 23-34% | 24-35% | 35-39% | 35-39% |
+| A program calling the API in a loop | 16% | 21% | 41% | 58% |
+| The main loop idle, audio playing | 0.05% | 21% | 38% | 46% |
+| Heavy file work | 12% | 20% | 40% | 45% |
+
+Every smaller shape waits several points more, and two ways cannot hold
+the idle main loop. 8 KB 2-way would use the same 9 blocks.
+
+**The rest of the SDRAM**, the ROM image, the savestate window, the
+file windows and the Get File scratch, the soft CPU reads and writes
+past the cache, through the staging store. Its reads come through a
+look-ahead in the SDRAM controller, which holds one line of 16 bytes.
+One trip to the SDRAM fetches the line, and the reads that follow in it
+are answered at once, a word at a time. Its writes go to the
+controller's write client a halfword at a time, with DQM masking a byte
+it does not write, after any write the host has queued. Any write, the
+Pocket's or the soft CPU's, throws the line away, and a read waits for
+the soft CPU's last write to land, so the firmware has no rule to
+remember.
+
+**The SDRAM's map.** The ROM slot is the first 62 MB and stays 62 MB,
+because a whole ROM has to load into it. Everything else is packed into
+the 2 MB above, and the savestate window is last, running to the end of
+the SDRAM. Whatever the Pocket OS puts around a savestate grows into
+the window's free end.
+
+| Address | Size | Use |
+|---|---|---|
+| 0x00000000 | 62 MB | The ROM slot |
+| 0x03E00000 | 256 KB | The soft CPU's ROM block, `firmware.bin` |
+| 0x03E40000 | 64 KB | The soft CPU's RAM block |
+| 0x03E50000 | 192 KB | Free, for the two blocks to grow |
+| 0x03E80000 | 256 KB | Eight file windows of 32 KB |
+| 0x03EC0000 | 4 KB | Get File scratch |
+| 0x03EC1000 | 1276 KB | The savestate window, to 0x04000000 |
+
+The two blocks are the soft CPU's addresses 0 to 0x4FFFF. The 512 KB
+from 0x03E00000 is the soft CPU's alone and the cache's window, a power
+of two, so the blocks can grow in it. The bridge drops a host write into the
+two blocks while the machine runs. `stage_map_gate.py` checks every
+place that states this map against the others, checks the order, and
+fails if the ROM slot is anything but 62 MB.
 
 The controller decodes the SDRAM as 4 banks × 8192 rows × 1024 columns
 × 16 bits, so a row is **2 KB**. The datasheet requires 8192 auto
@@ -67,198 +144,124 @@ register during initialization with PASR selecting all four banks.
 Sleeping on openFPGA means producing a savestate, because wake
 reconfigures the FPGA and the core starts again from its bitstream. At
 sleep the host sends command 0x00A0 to create a savestate, powers down,
-and writes the savestate back into the core on wake. The boot
-documentation fixes the order in both directions: a create signals
-completion before the data is copied out, and a load has the blob
-written into the core as ordinary bridge writes before 0x00A4 arrives.
+and writes the savestate back into the core on wake. A load has the blob
+written into the core as ordinary bridge writes and is asked for with
+0x00A4. Analogue documents no order for a wake's blob, its 0x00A4 and
+Reset Exit, so the core takes them in any order. On the owner's Pocket a
+wake's load was still unanswered while the firmware ran, so that 0x00A4
+came after Reset Exit.
 
-The blob is 325 KB, and the savestate engine, `sst_engine.sv`, makes it
-in logic rather than in firmware.
+The savestate is core's, made by `core/sys/sst.c` as on the emulators.
+The firmware builds it with `RP6502_SST`, and its driver list carries
+the rows. Two rows are this machine's own: `FAB_`, in `sw/fab.c`, holds
+what only the bitstream keeps, and `AUD_`, in `sw/aud.c`, holds the
+audio engines. The blob is about 230 KB. The size the host is given is
+`SST_BYTES` in `gen/version.py`, and the firmware's build fails when
+core's total does not fit in it. A load writes the blob at the start of
+the window.
 
-### The architecture: one clock gate
+**A bitstream runs only the firmware built for it.** The register layout
+version covers the registers and the memory map. It is written once, in
+`gen/version.py`, which makes a package for the RTL and a header for the
+firmware. The bitstream shows it at 0x80030000, and `firmware.bin`
+carries its own in the word after its reset jump. `ver_check` compares
+them before the firmware uses any other register, so that address never
+moves. When they differ the firmware stops there and touches nothing
+more. The 6502 stays in reset and the screen stays black. Raise the
+version when a register the firmware uses moves, changes meaning or is
+added, or when the memory map in `mmio.h`, `mem_pkg.sv` or `link.ld`
+changes.
 
-**The machine's clock stops at its source.** One `altclkctrl` in
-`core_top.sv` gates clk_sys to make clk_mach, the machine clock, and it
-registers its enable on the falling edge of clk_sys so no high phase of
-clk_mach is cut short. The 6502, the VIA, the RIA's control logic,
-video and audio all run on clk_mach and stop wherever they are. Every
-register on clk_mach misses the same edge and resumes on the same edge,
-so no logic in the machine needs a clock enable for a savestate.
+A blob from a firmware whose rows differ is refused by core's manifest,
+a sum over every row's id, version and size.
 
-Three parts keep their clocks. The SDRAM staging store, which holds what
-the host writes into the data slots, stays on clk_sys, so its controller
-keeps it refreshed. The engine and the memory arrays stay on clk_sys
-too, and the engine reads and writes the arrays through a separate port.
-The audio engines' memories are arrays like the others: the OPL's
-register file, queue, slots and channels, the PSG's voices, the
-resampler's history, and PCM's buffer and history. The arrays sit idle
-because the logic driving their machine-side inputs is stopped, and the
-engine masks their frozen write enables with `arr_own` for the whole
-savestate, because a write enable that froze high would otherwise repeat
-its stale write every cycle. The soft CPU is not clock-gated at all. Its
-clock, clk_rv, keeps running, and the engine halts it at its debug port
-and spills its registers by injecting `csrw dmdata0, xN` and then
-`ebreak`, which marks the end of each injected instruction.
+### The host's commands
 
-A machine signal consumed by logic on an ungated clock is a **level**,
-not an event. When clk_mach stops, the signal freezes wherever it was,
-and a consumer that takes it once per cycle acts on it on every cycle
-of the savestate. Each such consumer on this board is therefore clocked
-by clk_mach: the pixel queue in `pocket_video.sv`, the sample queue in
-`pocket_i2s.sv`, and the console queues in `pocket_dbg.sv` and
-`pocket_dbglog.sv`. Where a mask is needed instead, it takes the form
-of `arr_own`. `arr_own` rises only once the gate has closed, so it
-never masks an access the machine makes before then, and it falls as
-soon as the stop request drops, which is several cycles of clk_74a, the
-74.25 MHz bridge clock, before the gate opens again. `pocket_sram`'s
-port A takes no mask, because clk_sys logic cannot tell which of its
-edges the gate passes. It serves one access a PHI2 enable instead,
-launched on the first clock that sees the enable, and launches nothing
-more until the machine has taken an edge. When the machine stops just
-before an enable, that launch comes during the stop, and its byte is
-held back until the machine's next edge, so the 6502 still reads the
-byte for its present address when it resumes.
+`pocket_sst.sv` latches 0x00A0 and 0x00A4 and answers busy until the
+firmware writes its answer to `SST_CTL`. `core_bridge_cmd` holds a
+request until it is acknowledged and gives the host the status lines of
+that clock as the result, so the acknowledge comes one clock after the
+request, when the lines already describe it.
 
-**The stop waits for the audio to be quiet.** The engine asks for the
-stop only while every audio engine is idle with no sample due for 24
-clocks, which comes within about 30 us, and the gate closes within four
-clocks of the ask. No engine then holds work in flight: a pipeline
-register, a read in progress or a sample half made would each be state
-the blob does not hold, and between samples none of them is live.
+| Request | Result |
+|---|---|
+| A save | busy until the firmware has made the blob, then ok; err for a refused save or a word not served in time |
+| A load, the machine running | busy until the firmware has checked the blob, then ok, or err for a refused blob |
+| A load, the core in reset | ok at once, and ok from then on |
 
-A save runs in this order. The engine halts the soft CPU, spills its
-registers and stops the machine clock. It then checksums the whole blob
-in one pass before it signals completion, because the host may read
-words in any order and more than once. It serves each word as the host
-reads it, and a word that is not ready by the host's next read sets the
-save's error status. Serving the last word ends the save, because
-completion was signalled before the copy began and no host command
-marks the copy's end. The engine then restarts the machine clock and
-asserts the soft CPU's resume request, `dbg_req_resume`, since Hazard3
-stays halted when its halt request drops.
+**A wake's load can arrive while the Pocket holds the core in reset.**
+Such a load is answered ok at once and its request is kept, so the
+firmware finds it when it boots. If the firmware then refuses the blob
+the answer stays ok: the host has had it.
 
-### Restoring
+### Saving
 
-The engine checks the whole staged blob before it writes any of it,
-because a blob found bad partway through writing would leave the
-machine half overwritten. Then, with the machine still stopped, every
-array is written back through the engine's ports, the audio's among
-them, and the flop state (6502, VIA, the RW engine's pending write,
-resb, the 6502's clock rate and phase, the microsecond counter) is held
-in the engine until the steps below write it back. The RIA window's and
-the audio's flops are fetched from the staging store again in step 3.
-Once the arrays are back, the engine fetches the 6502's next byte into
-`pocket_sram`, so no PHI2 enable after the jam waits on it.
+`sleep_task` answers the requests. `main` calls it right after
+`sys_commit`, where the machine is settled as stopped or running and no
+driver is partway through a pass. A save waits there until no
+`pocket_file` command is in flight. A save while a file is open for
+writing is answered err, because a write in progress cannot be caught
+whole; `std_sst_refused` in `core/api/std.c` says so on every machine.
 
-Waking the machine takes these steps in order:
+Otherwise the firmware writes `MACH_HOLD`. The machine stops on the
+first clock its audio engines are quiet: the 6502, the VIA and the bus
+stand still, and so do the audio engines' sample counters, the RIA's
+vsync and mtime, so the hold costs the machine no time. The clock keeps
+running, so the firmware can read every register of the machine. It runs
+`sst_save` into `SST_BLOB`, the blob window in the staging store, past
+the cache, lets the machine go and answers ok, or err if the save
+failed. The host reads the window from the SDRAM at its own pace, with the
+machine already running again.
 
-1. The engine's reset hold, `hold_res`, rises while the machine is
-   still stopped. It drives the asynchronous resets of the 6502 and the
-   VIA, so it needs no clock.
-2. The machine clock returns with the 6502 already in reset, so the
-   6502 takes no cycle that could write over the restored memory. The
-   machine is parked: the audio engines' sample counters hold, no
-   sample starts, and the RIA's frame counter takes no vsync.
-3. The engine fetches the RIA window's flop words and the audio
-   region's flop words a second time and writes them with the clock
-   running, each word on one machine edge. The window is then as the
-   6502 left it, so what the soft CPU's wake does there stays: an API
-   call the save interrupted finishes with its own arguments, and the
-   console's bytes go out once. The 6502's write that the audio snoop
-   held at the save goes back with the audio's words and lands in the
-   engines before the wake goes on; until then the snoop is masked.
-4. The soft CPU's microsecond counter, mtime, its register for the
-   6502's clock rate and `resb` are written back on a separate level
-   held through the register injection in step 5, because the soft CPU
-   resumes before the jam in step 6, and a jam would undo what the wake
-   writes. mtime is in the blob's state page because every deadline the
-   firmware keeps is an absolute mtime reading in the TCM, which the
-   blob contains, so without it each deadline would be off by the
-   difference between the counter's value at the save and its value at
-   the restore.
-5. The soft CPU's registers are written back through the debug port,
-   and the core resumes at the instruction where the save halted it,
-   running the blob's firmware on the blob's stack. The firmware reads
-   `SST_RESTORED` set and puts back the state the blob does not
-   contain: it rebuilds the font store from the font asset and the code
-   page, rewrites the canvas, the vsync line and the terminal's window
-   from its own copies, marks every open file to be checked and, if
-   needed, reopened by its saved name, derives the wall clock again
-   from the host's RTC, resynchronizes the restage triggers so the slot
-   updates of the wake do not start a new program, and moves the
-   bell's deadlines and the program's `clock()` by how long the machine
-   has been parked, counted from the saved mtime it resumed at, which
-   it reads from `SST_SAVED_US`.
-6. The firmware clears `SST_RESTORED`, and two jam cycles follow, in
-   which the engine writes the rest of the held flop state into the
-   flops. The first drops `hold_res` and loads a PHI2 enable of 0, so
-   nothing steps in the second. In the second, every 6502 and VIA flop
-   takes its saved value with the asynchronous resets already released,
-   since an asynchronous reset takes priority over the jam, so a wake
-   that stopped the 6502 leaves it stopped. The RW engine's pending XRAM
-   write and the PHI2 accumulator and enable take theirs too, so the
-   6502 steps on the clocks it would have. The park drops at the
-   second, so the audio and the frame counter take their next clock on
-   the 6502's.
+### Loading
 
-The 6502 then continues from the cycle at which the save stopped it, and
-the audio from the sample it was in.
+A load stops a running machine first, so the stop closes its files as
+any stop does, and waits for the host's write queue to empty. Then the
+firmware checks the blob in `SST_BLOB` with `sst_check` and answers the
+request. It answers first because the rows reopen files, and the host
+serves no file command until the load is answered. Then it holds the
+machine and runs `sst_load`, and `apf_refresh` has the controllers sent
+again, because the load put back what was held at the save.
 
-### The console queue
+- `FAB_` puts back mtime and the frame count, the 6502's RAM and XRAM,
+  the scanline table and the RIA's registers, then RESB, and with `JAM`
+  loads the 6502, the VIA, the PHI2 count and the open bus on one clock.
+  mtime comes back because every deadline the firmware keeps is an
+  absolute mtime reading. The time of day is the RTC reading plus
+  `UPTIME`, a microsecond count that nothing stops or writes, so it
+  follows real time through the hold and the load.
+- `PROC` and `ASET` bring back the running program's name and its image.
+  On a wake the host has loaded slot 0 again, so `fs_rom_open` takes the
+  image there when Get File says the slot holds that file.
+- `STD_` reopens the program's files by name, through `fs_std_reopen`.
+- `AUD_` loads after `STD_`, because the reopen of PCM: empties the FIFO
+  it then puts back.
+- `VID_` writes the canvas and the vsync line again, builds the font
+  memories for the saved code page, since none of them can be read back,
+  and publishes mode 0's words for the canvas it puts back.
 
-The RIA holds up to sixteen bytes of console output that the 6502 has
-written and the soft CPU has not read yet. Reading word 16 of the regs
-window removes a byte from that queue, so `REGS_HOLE` leaves that word
-out of the blob, since a save that read it would drop a character every
-time a state was made.
+The firmware then lets the machine go and marks the host's slot updates
+as handled so they start no program.
 
-The queue is saved through words 20 to 24 of the regs window instead,
-which can be read without side effects: word 20 holds the read and
-write positions and the count, and words 21 to 24 hold the sixteen
-bytes. The bytes are an array on clk_sys and are written back through
-the window with the xstack, and the positions and the count are flops
-on clk_mach that the second pass restores.
+**A refused load stops there.** Nothing starts while a load is on its
+way, because the load replaces the machine. A load with no undo leaves a
+half loaded machine when a row refuses, and a fresh boot has nothing to
+undo to, so a refused load says `bad savestate` and stops the machine,
+which tears down whatever part of it was loaded. A launcher or an exec
+that came with that part is dropped, so the machine stays stopped, as it
+does after a program ends, until the user picks a ROM. A row that
+refuses does so after the host has been answered ok.
 
 ### What does not survive a sleep
 
-- The audio comes back sample for sample, but three things that drive it
-  are not exact. The video beam is not in the blob, so a write paced by
-  vsync can land up to a frame off. Firmware deadlines, such as the
-  bell's restrike, release and end, and the program's `clock()` are
-  moved by how long the machine was parked, so each is met on the first
-  main-loop pass after it, as in a run that never slept, which can be a
-  pass from where that run met it. Soft-CPU traffic that delays a PHI2
-  enable, and audio writes the soft CPU makes, are timed by the firmware
-  in every run, slept or not: a PCM write the save interrupted finishes
-  during the wake with the machine parked, so it takes the room the
-  buffer had then, a few bytes short of what a run that never slept
-  takes.
-- The blob does not contain the host's slot bindings or the staging
-  store, so `fs_restore` marks every open file stale and drops its
-  cached bytes. Analogue does not document whether a slot keeps a
-  binding made at runtime with Open File (`0x0192`) across a sleep, so
-  on the file's next use `fs_rebind` reads the slot's binding with Get
-  File (`0x0190`) and opens the file again by its saved name only when
-  the slot no longer holds it.
-
-### The picture across a freeze
-
-The scaler is in the Pocket's other FPGA and keeps running while the
-machine is stopped, so the reader in `pocket_video.sv` keeps its
-raster, its vs, its hs and its de running the whole way through, and
-only the pixels go black. The frames the scaler receives keep the same
-shape throughout.
-
-The lock between the two rasters does not survive a freeze. The
-rasters are phase-locked with the writer at least `X_DE0`, eight
-pixels, ahead, and a freeze stops the writer mid-frame and restarts it
-mid-frame while the reader keeps counting. The lock is taken again from
-a tag bit that the writer pushes into the queue with the frame's first
-pixel, so the tag arrives at the reader with its pixel and not after
-it. The reader discards pixels up to the tag and locks on it. Relocking
-restarts the reader's raster at its first pixel and pulses vs, which
-cuts short the frame the reader was in, so each resume produces one
-short frame.
+- The video beam is not in the blob, so a write paced by vsync can land
+  up to a frame off.
+- A program's clock is mtime, which stands still with the machine while
+  a save or a load is made. The time of day does not, so the two drift
+  apart by the hold. In simulation a save holds the machine for about
+  0.44 s, and a load for about 0.11 s after it puts mtime back.
+- The blob does not contain the staging store, so a reopened file starts
+  with nothing in its window.
 
 ## The Core Settings menu
 
@@ -330,26 +333,26 @@ Alt-F4 is passed to the program too.
 ## The host's filesystem
 
 `FS:` is the microSD card, and the drive is writable. The working
-directory is `/Assets/rp6502/common`, the folder that holds the core's
-files and the ROMs a user picks in the Pocket's menu, and no call moves
-it. getcwd returns `FS:/Assets/rp6502/common`, and a relative name
-resolves in that folder, so `foo.txt`, `FS:foo.txt` and
-`FS:/Assets/rp6502/common/foo.txt` name the same file. A name that
-starts with a separator is absolute, and `/` and `\` both separate.
+directory is `/Saves/rp6502/common`, the folder for the user's data, and
+no call moves it. getcwd returns `FS:/Saves/rp6502/common`, and a
+relative name resolves in that folder, so `foo.txt`, `FS:foo.txt`,
+`SAVE:foo.txt` and `FS:/Saves/rp6502/common/foo.txt` name the same file.
+The ROMs a user picks in the Pocket's menu are in `/Assets/rp6502/common`,
+and `exec` is the one call that takes a relative path under that folder
+and not under the working directory, so a program runs another ROM by
+its file name alone. A name that starts with a separator is absolute,
+and `/` and `\` both separate.
 
-`SAVE:` names a file in `/Saves/rp6502/common/`, so `SAVE:hopper.hiscore`
-is `/Saves/rp6502/common/hopper.hiscore` on the card. `fs_save_open`
-joins the name to that folder and opens it through the same code as a
-name on `FS:`, so every call after the open is the same for both. The
-folder is the same for every ROM, so `fs_save_start` is empty. Whether
-the Pocket accepts a write in Assets is not recorded, so a program saves
-through `SAVE:`.
+`SAVE:` names a file in `/Saves/rp6502/common/`. `fs_save_open` joins
+the name to that folder and opens it through the same code as a name on
+`FS:`. The folder is the same for every ROM, so `fs_save_start` is
+empty.
 
 **The host resolves no relative name and no `.` or `..`.** A name sent
 without a leading slash fails to open, so `fs_card_path` makes every
 name absolute before the firmware sends it and removes each `.` and `..`
 on the way. A `..` at the card root stays at the root. `fs_pool[].name`
-holds that absolute path, so the rebind after a restore and the resize
+holds that absolute path, so the reopen after a wake and the resize
 before a write past the end send the same path as the open. The bench's
 host model in `tests/host/pocket/test_pfile.cpp` returns 4, malformed
 path, for a relative name, so a firmware change that sends one fails a
@@ -372,9 +375,10 @@ SDRAM staging store, at `GETFILE_BRIDGE`, because the host cannot write
 to the window that Open File reads its parameters from. The firmware
 issues Get File once per staged image, in `proc_restage()`. An `exec`
 does not issue it, because the program that called `exec` has already
-set the arguments. `proc_exec_take` makes that argv[0] absolute against
-the working directory before the load, so argv[0] always holds the
-absolute path of the ROM with its drive. An `exec` whose absolute path
+set the arguments. `proc_exec_take` makes that argv[0] absolute before
+the load, taking a relative path under `/Assets/rp6502/common`, so
+argv[0] always holds the absolute path of the ROM with its drive. An
+`exec` whose absolute path
 is longer than 255 bytes, or whose arguments no longer fit the xstack
 once the path is absolute, is refused with a message on the console.
 
@@ -384,8 +388,9 @@ offset 0, which is where Open File's parameter struct holds its name.
 The list of target commands, the commands the core sends to the host,
 ends at Open File, so there is no delete, rename or mkdir. stat, unlink,
 rename, mkdir, opendir, readdir and the other calls on a directory
-descriptor, chmod, utime, chdir, getlabel, setlabel and getfree all
-return ENOSYS. The saves that exist are found by opening names in turn,
+descriptor, chmod, utime, getlabel, setlabel and getfree all return
+ENOSYS. So does chdir, unless its path is the one getcwd returns, which
+the load of a savestate passes. The saves that exist are found by opening names in turn,
 such as `SAVE:hopper.slot0` upward. An `O_RDONLY` open fails on a missing
 name without creating anything.
 
@@ -396,9 +401,9 @@ goes to the host, and what the host returns for one is not recorded.
 
 **The package ships both folders.** The host creates no directories, so
 `src/host/pocket/dist/` has `Saves/rp6502/common/` with a `.keep` file
-in it, which keeps the folder in the zip, and the build puts the core's
-files in `Assets/rp6502/common/`. The card has both folders once the
-core is installed.
+in it, which keeps the folder in the zip, and the build puts
+`firmware.bin` in `Assets/rp6502/common/`. The card has both folders
+once the core is installed.
 
 **Much of the host behaviour in this section was measured on
 hardware.** A Pocket firmware update can change it without notice. When
@@ -440,22 +445,15 @@ failures, 3 is not found and 4 is malformed path.
 
 **A completed Slot Write does not mean the card has the data.** Slot
 Write returns once the host has taken the bytes, which on a handheld
-that sleeps is not the same as the card having them. Flush, `0x0188`,
-would commit them, and the Pocket does not reply to it. The bridge
-override in `vendor/openfpga_rp6502` ends a data slot command after
-about 0.9 s without a reply, so a flush waits at most one deadline
-instead of the rest of the session. A flush is sent on every sync and
-every close of a file open for writing until one gets no reply. After
-that no flush is sent for the rest of the session, so a write is known
-to be stored only as far as the host's reply to the write shows. A sync
-of a file open only for reading sends no flush and returns at once.
+that sleeps is not the same as the card having them. Analogue documents
+Flush, `0x0188`, to commit them, but the Pocket does not reply to it,
+so the core never sends it. Sync and close finish at once. No other
+Pocket core uses Flush; the PlayStation core keeps its memory cards with
+plain Slot Write.
 
-Close polls its flush from the main loop as sync does, so the other
-tasks run during the deadline. `std_stop` calls close in a loop that
-runs no other task until the close finishes. Close therefore collects
-the result of a command that another descriptor left in flight, and it
-does not wait for `fs_restore`, because a Flush sent to a stale slot
-changes no data.
+**A sleep never lands in a command.** A save waits until no file
+command is in flight, and is refused while a file is open for writing.
+A wake opens each file again by name, at the position it had.
 
 **The bridge's deadline is the shorter of the two.** The bridge and
 `pocket_file` both time out a data slot command, the bridge after 2^26
@@ -509,7 +507,7 @@ in both cases and does not distinguish them.
 one register. `fs.c` issues each command under a worker id, one per
 descriptor and one for the firmware's own commands. While one worker's
 command is in flight, other work in the same main loop can use the
-drive, such as a rebind after a restore or another descriptor's write,
+drive, such as another descriptor's write,
 and a read that took another worker's status would copy a window that
 was not filled for it. `fs.c` records the worker whose command is in
 flight and keeps a finished command's status for that worker rather than
@@ -534,9 +532,10 @@ of a burst is left-justified and zero-filled. Each command is a round
 trip through the host, so the log lags, and bytes are dropped when the
 firmware logs faster than the host completes the commands.
 
-**Through the debug pin.** The same bytes are sent on `dbg_tx` at 115200
-baud, 8N1 and 1.8 V, to the USB UART on the 6515D breakout board, with
-no host command in the path.
+**Through the debug pin.** The same bytes are sent on `dbg_tx`, pin K21,
+at 115200 baud, 8N1 and 1.8 V, with no host command in the path.
+`dbg_rx` is pin K22. Analogue's template calls the pair "6515D breakout
+usb uart"; that is their board, and none is on this bench.
 
 ## What the card tree is made of
 
@@ -547,20 +546,15 @@ that the build makes:
   through `src/host/pocket/gen/rbf_r_gen.py` (byte-wise bit reversal).
   `core.json` names it; the conventional name is `bitstream.rbf_r` and
   the loader reads whichever file the manifest names.
-- `Assets/rp6502/common/fonts.bin` is the glyph image, `font_rom.bin`,
-  generated by `src/core/term/font.py` from `src/core/term/font.c`
-  into the build tree's `assets` directory. It holds every face and all
-  seventeen code pages. It loads near the top of the SDRAM, above the
-  file slots' windows — slot addresses rise with slot id, and the ROM,
-  slot 0, starts at address zero and can fill everything below its
-  `size_maximum` of 0x03F00000. The bitstream holds no glyphs, so the
-  firmware copies them from this image to the video device at every
-  boot.
-- `Assets/rp6502/common/oemcp.bin` and
-  `Assets/rp6502/common/keyboard.bin` are made the same way, as
-  `unicode_oem.bin` by `src/core/str/unicode.py` and as `layout_db.bin`
-  by `src/core/hid/layout.py`. They are the code page conversion tables
-  and the keyboard layouts.
+- `Assets/rp6502/common/firmware.bin` is the soft CPU's firmware,
+  `sw.bin` from the build tree's `assets` directory. It is the image of
+  the ROM block: the code, the constants and the data's first values.
+  The host loads it at 0x03E00000, which the soft CPU sees as address
+  zero, and it may be as large as the 256 KB there. It is the only file
+  the build puts in `Assets/rp6502/common/`. The fonts, the code page
+  tables and the keyboard layouts are constants in it. The bitstream
+  holds no glyphs, so the firmware builds the fonts on the video device
+  at every boot.
 - `Cores/Rumbledethumps.RP6502/icon.bin` and
   `Platforms/_images/rp6502.bin` are here already, made by
   `src/host/pocket/gen/image_gen.py`. Both use one format: two bytes a
@@ -573,21 +567,24 @@ that the build makes:
 
 ## First bring-up
 
-`core_top` takes two parameters. `TCM_INIT_FILE` names the soft CPU's
-firmware image, the four byte-lane files that the build writes with
-`src/host/pocket/gen/rv_tcm_gen.py`. Without an image the TCM holds
-zeros and the soft CPU fetches them. `CORE_TEST_PATTERN` replaces the
+The bitstream holds no firmware. The host writes `firmware.bin` into
+the SDRAM while the core is in reset, and the core leaves reset when
+the host says so and the last of those writes has left the bridge's
+queue. The soft CPU's first fetch then misses the
+cache and reads the firmware's first line from the SDRAM. Once the
+machine runs, the bridge drops any write the host makes to the soft
+CPU's memory.
+
+`core_top` takes one parameter. `CORE_TEST_PATTERN` replaces the
 picture with colour bars while leaving the machine built and still
 logging on both console paths, so one build separates "is the video
 path alive" from "is the machine alive".
 
 At the ERROR log level, the default, the firmware logs nothing at boot
-unless something fails, and these are among the failures it reports:
+unless something fails, and this is among the failures it reports:
 
 | log line | meaning |
 | --- | --- |
-| `ERROR oem: no tables` | the code page slot did not stage |
-| `ERROR keyboard: no layouts` | the layout slot did not stage; keys that type a character type nothing |
 | `ERROR rom: bad image` | the ROM staged but did not load |
 
 From this directory, `cmake --preset release` then
@@ -607,23 +604,16 @@ build runs differ greatly in cost and CMake reruns only the steps whose
 inputs an edit changed.
 
 Synthesis, placement and routing take about nine minutes and depend on
-the RTL, the constraints and the fitter assignments. Putting firmware
-into the bitstream takes about half a minute and depends on the
-firmware's sources. Copying the card tree is instant.
+the RTL, the constraints and the fitter assignments. Compiling the
+firmware takes seconds and depends on the firmware's sources. Copying
+the card tree is instant.
 
-The firmware is cheap because it is not logic. It is the initial
-contents of the TCM's four byte-wide arrays, so a new image places
-nothing, routes nothing and moves no timing arc, and the fit already on
-disk is still the fit that comes out. Quartus keeps a MIF of each array
-under `db/`, generated from `soc`'s `$readmemh` while mapping, and those
-are what `quartus_cdb --update_mif` reads back rather than the lane
-files they came from. `rv_mif_gen.py` rewrites the four,
-`--update_mif` takes them into the database, and the assembler makes a
-programming file out of the placement that was already there.
+The firmware is a file on the card, `firmware.bin`, and no part of the
+bitstream. A firmware change compiles, is copied into the package, and
+runs no Quartus tool. On a card that already has the core, replacing
+`Assets/rp6502/common/firmware.bin` is the whole update.
 
-The timing analyzer and the Design Assistant therefore run with the
-fitter and not when only the firmware changes, since rerunning them
-would re-measure a fit that has not changed.
+The timing analyzer and the Design Assistant run with the fitter.
 
 **The project file is not a dependency of the fit.** Quartus rewrites
 the `.qsf` during a compile, and the next configure writes the generated

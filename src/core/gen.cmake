@@ -23,7 +23,7 @@ include(${RP6502_GEN_ROOT}/submodules.cmake)
 
 # The C files, made at build time.
 set(RP6502_GEN ${CMAKE_BINARY_DIR}/gen)
-# The SystemVerilog packages and the images the Pocket loads.
+# The SystemVerilog packages.
 set(RP6502_ASSETS ${CMAKE_BINARY_DIR}/assets)
 
 # Sets ins to the files gen reads and outs to the names of the files of
@@ -81,7 +81,7 @@ function(rp6502_gen_c)
 endfunction()
 
 # Adds the target rp6502_gen_assets, which writes the SystemVerilog packages
-# and the images into RP6502_ASSETS.
+# into RP6502_ASSETS.
 #
 # verilate() runs Verilator over its sources when CMake configures, so a
 # missing output is generated at configure time as well as by the build rule.
@@ -98,19 +98,11 @@ function(rp6502_gen_assets)
     file(MAKE_DIRECTORY ${RP6502_ASSETS})
     set(all)
     foreach(gen IN LISTS RP6502_GENERATORS)
-        set(args)
-        set(outs)
-        set(names)
-        foreach(kind IN ITEMS sv bin)
-            rp6502_gen_list(${gen} ${kind} ins kind_names)
-            if(kind_names)
-                list(APPEND args --${kind} ${RP6502_ASSETS})
-                list(APPEND names ${kind_names})
-            endif()
-        endforeach()
+        rp6502_gen_list(${gen} sv ins names)
         if(NOT names)
             continue()
         endif()
+        set(args --sv ${RP6502_ASSETS})
         set(outs ${names})
         list(TRANSFORM outs PREPEND ${RP6502_ASSETS}/)
         set(absent FALSE)

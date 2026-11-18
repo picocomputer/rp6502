@@ -8,9 +8,8 @@ https://picocomputer.github.io/
 Install
 -------
 
-Copy everything into the same folder structure on a microSD card.
-The Cores, Platforms, Saves, and Assets folders merge with the ones
-already on the card; nothing here replaces another core's files.
+Copy everything to the root of a microSD card. The Cores, Platforms,
+Saves, and Assets folders merge with the ones already on the card.
 
 The Pocket needs firmware 2.3 or later. Open the core from the
 Pocket menu under openFPGA.
@@ -27,15 +26,15 @@ for ROMs, or on itch.io under the RP6502 tag:
     https://discord.gg/TC6X8kTr6d
     https://itch.io/games/tag-rp6502
 
-Assets/rp6502/common/ is also the working directory, so a program
-opens a file beside its ROM by its plain name. The working directory
-cannot be changed on the Pocket. The Pocket has no installed ROMs, so
-each ROM runs from its file.
+The Pocket has no installed ROMs, so each ROM runs from its file.
 
 
 Saves
 -----
 
 A program saves through SAVE:, and those files are stored in
-Saves/rp6502/common/. The Pocket does not create this folder, so the
-package has a .keep file in it, which keeps the folder in the zip file.
+Saves/rp6502/common/. That folder is also the working directory, so a
+file that a program opens by its plain name goes there too. The working
+directory cannot be changed on the Pocket. The Pocket does not create
+this folder, so the package has a .keep file in it, which keeps the
+folder in the zip file.

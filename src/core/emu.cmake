@@ -25,7 +25,9 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/mouse.c
     ${RP6502_SRC}/core/hid/gamepad.c
     ${RP6502_SRC}/core/hid/tablet.c
-    ${RP6502_SRC}/core/hid/vtkeys.c
+    ${RP6502_SRC}/core/hid/vtkey.c
+    ${RP6502_SRC}/core/hid/hostkey.c
+    ${RP6502_SRC}/core/hid/paste.c
     ${RP6502_SRC}/core/rom/alias.c
     ${RP6502_SRC}/core/rom/rom.c
     ${RP6502_SRC}/core/rom/asset.c
@@ -82,6 +84,8 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/term/color.c
     ${RP6502_SRC}/core/term/font.c
     ${RP6502_SRC}/core/term/term.c
+    ${RP6502_SRC}/core/term/grid.c
+    ${RP6502_SRC}/core/term/cells.c
 )
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")

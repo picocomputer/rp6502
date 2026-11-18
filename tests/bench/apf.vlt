@@ -1,0 +1,12 @@
+// Copyright (c) 2026 Rumbledethumps
+// SPDX-License-Identifier: BSD-3-Clause
+// Analogue's template code is not written for -Wall, and the bench that
+// holds it has the template's two small modules beside its own. The
+// Pocket's version package is shared with core_top and the firmware, and
+// a bench uses what it needs of it.
+`verilator_config
+lint_off -file "*vendor/openfpga_rp6502/core_bridge_cmd.v"
+lint_off -rule COMBDLY -file "*vendor/openfpga_rp6502/core_bridge_cmd.v"
+lint_off -rule INITIALDLY -file "*vendor/openfpga_rp6502/core_bridge_cmd.v"
+lint_off -rule DECLFILENAME -file "*tests/host/pocket/tb_psst.sv"
+lint_off -rule UNUSEDPARAM -file "*/pocket_version_pkg.sv"

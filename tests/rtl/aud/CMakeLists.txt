@@ -22,7 +22,6 @@ rp6502_add_module_test(rsmp_rtl
     SOURCES test_rsmp_rtl.cpp ${RP6502_SRC}/core/aud/rsmp.c
     INCLUDES ${RP6502_SRC} ${RP6502_GEN}
     DEPENDS rp6502_gen_assets rp6502_gen_c
-    ARGS -GSST_CLK=0
     TIMEOUT 300)
 
 rp6502_add_module_test(pcm_rtl
@@ -34,7 +33,6 @@ rp6502_add_module_test(pcm_rtl
         ${RP6502_SRC}/host/pocket
     DEFS PICO_PROGRAM_NAME="RP6502-EMU" RP6502_EXFAT=0 AUD_NATIVE_RATE=48000
     DEPENDS rp6502_gen_assets rp6502_gen_c
-    ARGS -GSST_CLK=0
     TIMEOUT 600)
 
 # YM3812-LLE, nukeykt's die model, is the oracle opl.sv is held to, as opl.c
@@ -51,8 +49,7 @@ if(RP6502_HAVE_LLE)
             ${_emu}/opl_script.c ${_emu}/opl_lle.c ${_lle}/fmopl2.c
         INCLUDES ${RP6502_GEN} ${_emu} ${_lle} ${RP6502_SRC}/host/pocket
         DEPENDS rp6502_gen_assets rp6502_gen_c
-        ARGS -GSST_CLK=0
-        TIMEOUT 600)
+            TIMEOUT 600)
     set_source_files_properties(${_lle}/fmopl2.c PROPERTIES
         COMPILE_OPTIONS "-O2;-w")
 else()

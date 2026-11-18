@@ -15,6 +15,7 @@
 #include "core/api/proc.h"
 #include "core/api/std.h"
 #include "core/api/tim.h"
+#include "core/api/xreg.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/com/tio.h"
@@ -26,15 +27,15 @@
 #include "core/hid/tablet.h"
 #include "core/com/rln.h"
 #include "core/str/str.h"
-#include "core/str/unicode.h"
-#include "core/term/term.h"
-#include "core/aud/mix.h"
+#include "core/sys/random.h"
+#include "core/term/cells.h"
 #include "sw/apf.h"
+#include "sw/aud.h"
 #include "core/wdc/resb.h"
 #include "core/wdc/phi2.h"
 #include "sw/proc.h"
-#include "sw/wake.h"
 #include "sw/cfg.h"
+#include "sw/fab.h"
 #include "sw/fs.h"
 #include "sw/log.h"
 #include "sw/ria.h"
@@ -45,33 +46,40 @@
 /* LOG_DRIVER is first, so what log_init connects to the debug port is there
  * before any other init runs.
  *
- * VID_DRIVER follows TERM_DRIVER because vid_init selects the console canvas
+ * VID_DRIVER follows CELLS_DRIVER because vid_init selects the console canvas
  * through vga_canvas_select, and vga_canvas_select then calls mode0_prog,
- * which calls term_set_height on the terminal state that term_init sets up.
+ * which calls cells_set_height on the terminals that cells_init sets up.
  *
- * FS_DRIVER follows STD_DRIVER because stop hooks run in reverse, and fs_stop
- * has to collect a command that a stopped program left in flight before
- * std_stop's closes send their Flush. AUD_DRIVER follows them so that
- * aud_stop empties PCM before std_stop closes it, which would otherwise wait
- * for the buffer to play.
+ * AUD_FABRIC_DRIVER follows STD_DRIVER because stop hooks run in reverse,
+ * so aud_stop empties PCM before std_stop closes it, which would otherwise
+ * wait for the buffer to play.
+ *
+ * A savestate walks the list in order. FAB_DRIVER comes first, so the
+ * mtime it saves is the one the other rows' times were kept by. ASSET_DRIVER
+ * follows PROC_DRIVER, because its load reopens the running program's
+ * image by the name PROC_DRIVER loads, and AUD_FABRIC_DRIVER follows
+ * STD_DRIVER, because its load puts back the PCM: buffer that the STD
+ * row's reopen of PCM: empties.
  */
 #define RP6502_MACH_DRIVERS                             \
-    LOG_DRIVER, CFG_DRIVER, PROC_DRIVER,                \
-    STR_DRIVER,                                         \
+    LOG_DRIVER, CFG_DRIVER, FAB_DRIVER,                 \
+    PROC_DRIVER, ASSET_DRIVER, XREG_DRIVER,             \
+    RANDOM_DRIVER, STR_DRIVER,                          \
     MANIFOLD_DRIVER, RIA_DRIVER, COM_DRIVER,            \
     STD_DRIVER, FS_DRIVER,                              \
-    AUD_DRIVER,                                         \
-    TIO_DRIVER, RLN_DRIVER, TERM_DRIVER,                \
-    UNICODE_DRIVER, LAYOUT_DRIVER, KEYBOARD_DRIVER,     \
+    AUD_FABRIC_DRIVER,                                  \
+    TIO_DRIVER, RLN_DRIVER, CELLS_DRIVER,               \
+    LAYOUT_DRIVER, KEYBOARD_DRIVER,                     \
     APF_DRIVER, KEYMAP_DRIVER,                          \
     MOUSE_DRIVER, GAMEPAD_DRIVER, TABLET_DRIVER,        \
     VID_DRIVER, TIM_DRIVER,                             \
-    DIR_DRIVER, API_DRIVER, WAKE_DRIVER,                \
+    DIR_DRIVER, API_DRIVER,                             \
     CLK_DRIVER, PHI2_DRIVER
 
 /* open() tries these rows in order, and the filesystem row accepts every
  * path, so it is last. */
-#define RP6502_STD_DRIVERS ROM_STD_DRIVER, PCM_STD_DRIVER, SAVE_STD_DRIVER, FS_STD_DRIVER
+#define RP6502_STD_DRIVERS ROM_STD_DRIVER, PCM_STD_DRIVER, \
+                           FS_POCKET_SAVE_DRIVER, FS_POCKET_STD_DRIVER
 
 /* No serial line feeds the UART row on this machine, but the row stays
  * because the terminal's replies to a program's queries arrive through it. */

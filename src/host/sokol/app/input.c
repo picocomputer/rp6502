@@ -11,7 +11,9 @@
 #include "host/sokol/app/entry.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
-#include "core/hid/vtkeys.h"
+#include "core/hid/vtkey.h"
+#include "core/hid/hostkey.h"
+#include "core/hid/paste.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/vga/vga_emu.h"
@@ -49,7 +51,7 @@ static void input_paste(const char *text)
         keys[n++] = text[i] == '\n' ? '\r' : text[i];
     }
     keys[n] = 0;
-    vtkeys_paste(keys);
+    paste_start(keys);
     free(keys);
 }
 
@@ -69,11 +71,11 @@ static uint8_t sokol_to_hid(int kc)
     {
     case SAPP_KEYCODE_KP_0: return 0x62;
     case SAPP_KEYCODE_KP_DECIMAL: return 0x63;
-    case SAPP_KEYCODE_KP_DIVIDE: return 0x54;
-    case SAPP_KEYCODE_KP_MULTIPLY: return 0x55;
-    case SAPP_KEYCODE_KP_SUBTRACT: return 0x56;
-    case SAPP_KEYCODE_KP_ADD: return 0x57;
-    case SAPP_KEYCODE_KP_EQUAL: return 0x67;
+    case SAPP_KEYCODE_KP_DIVIDE: return HID_KEY_KEYPAD_DIVIDE;
+    case SAPP_KEYCODE_KP_MULTIPLY: return HID_KEY_KEYPAD_MULTIPLY;
+    case SAPP_KEYCODE_KP_SUBTRACT: return HID_KEY_KEYPAD_SUBTRACT;
+    case SAPP_KEYCODE_KP_ADD: return HID_KEY_KEYPAD_ADD;
+    case SAPP_KEYCODE_KP_EQUAL: return HID_KEY_KEYPAD_EQUAL;
     case SAPP_KEYCODE_CAPS_LOCK: return 0x39;
     case SAPP_KEYCODE_SCROLL_LOCK: return 0x47;
     case SAPP_KEYCODE_NUM_LOCK: return 0x53;
@@ -120,43 +122,6 @@ static uint8_t sokol_to_hid(int kc)
     }
 }
 
-/* The US-ASCII character of a printable sokol keycode, honoring shift, else 0.
- * The CHAR case below drops Ctrl and Alt chords, except where Ctrl+Alt means
- * AltGr, so the character such a chord carries is reconstructed from the
- * keycode here. It is a US-layout approximation and not a match for the code
- * page in force. */
-static char ascii_from_key(int kc, bool shift)
-{
-    if (kc >= SAPP_KEYCODE_A && kc <= SAPP_KEYCODE_Z)
-        return (char)(shift ? 'A' + (kc - SAPP_KEYCODE_A) : 'a' + (kc - SAPP_KEYCODE_A));
-    if (kc >= SAPP_KEYCODE_0 && kc <= SAPP_KEYCODE_9)
-    {
-        static const char shifted[] = ")!@#$%^&*(";
-        return shift ? shifted[kc - SAPP_KEYCODE_0] : (char)('0' + (kc - SAPP_KEYCODE_0));
-    }
-    switch (kc)
-    {
-    case SAPP_KEYCODE_KP_DIVIDE: return '/';
-    case SAPP_KEYCODE_KP_MULTIPLY: return '*';
-    case SAPP_KEYCODE_KP_SUBTRACT: return '-';
-    case SAPP_KEYCODE_KP_ADD: return '+';
-    case SAPP_KEYCODE_KP_EQUAL: return '=';
-    case SAPP_KEYCODE_SPACE: return ' ';
-    case SAPP_KEYCODE_MINUS: return shift ? '_' : '-';
-    case SAPP_KEYCODE_EQUAL: return shift ? '+' : '=';
-    case SAPP_KEYCODE_LEFT_BRACKET: return shift ? '{' : '[';
-    case SAPP_KEYCODE_RIGHT_BRACKET: return shift ? '}' : ']';
-    case SAPP_KEYCODE_BACKSLASH: return shift ? '|' : '\\';
-    case SAPP_KEYCODE_SEMICOLON: return shift ? ':' : ';';
-    case SAPP_KEYCODE_APOSTROPHE: return shift ? '"' : '\'';
-    case SAPP_KEYCODE_GRAVE_ACCENT: return shift ? '~' : '`';
-    case SAPP_KEYCODE_COMMA: return shift ? '<' : ',';
-    case SAPP_KEYCODE_PERIOD: return shift ? '>' : '.';
-    case SAPP_KEYCODE_SLASH: return shift ? '?' : '/';
-    default: return 0;
-    }
-}
-
 /* AltGr arrives as Ctrl+Alt only where the host reports it that way, which is
  * Windows and a browser on a Windows host. On X11 AltGr is Mod5 and on macOS it
  * is Option, so there Ctrl+Alt can only be a held chord and never a composed
@@ -167,13 +132,22 @@ static char ascii_from_key(int kc, bool shift)
 #define ALTGR_IS_CTRL_ALT 0
 #endif
 
+void input_locks(void)
+{
+    keyboard_set_locks(host_locks());
+}
+
 static void input_key(const sapp_event *e)
 {
+    /* The host repeats a held key and its character; the terminal says
+     * whether they are typed (DECARM). */
+    if (e->key_repeat && !vtkey_repeats())
+        return;
     if (e->type == SAPP_EVENTTYPE_KEY_DOWN || e->type == SAPP_EVENTTYPE_KEY_UP)
     {
         uint8_t hid = sokol_to_hid(e->key_code);
         if (hid)
-            keyboard_hid_set(hid, e->type == SAPP_EVENTTYPE_KEY_DOWN);
+            keyboard_set_key(hid, e->type == SAPP_EVENTTYPE_KEY_DOWN);
     }
     switch (e->type)
     {
@@ -193,7 +167,7 @@ static void input_key(const sapp_event *e)
                   (ALTGR_IS_CTRL_ALT &&
                    (e->modifiers & SAPP_MODIFIER_CTRL) && (e->modifiers & SAPP_MODIFIER_ALT))))
         {
-            vtkeys_char(e->char_code);
+            hostkey_char(e->char_code);
         }
         break;
     case SAPP_EVENTTYPE_KEY_DOWN:
@@ -203,68 +177,47 @@ static void input_key(const sapp_event *e)
         bool alt = (e->modifiers & SAPP_MODIFIER_ALT) != 0;
         uint8_t hid = sokol_to_hid(e->key_code);
         suppress_char = false;
-        switch (e->key_code)
-        {
-        case SAPP_KEYCODE_NUM_LOCK: keyboard_toggle_lock(KEYBOARD_LED_NUMLOCK); break;
-        case SAPP_KEYCODE_CAPS_LOCK: keyboard_toggle_lock(KEYBOARD_LED_CAPSLOCK); break;
-        case SAPP_KEYCODE_SCROLL_LOCK: keyboard_toggle_lock(KEYBOARD_LED_SCROLLLOCK); break;
-        /* Sokol reports no NumLock modifier, so the keypad always navigates and
-         * always swallows the digit CHAR a host emits when NumLock is on. KP5
-         * navigates nowhere and only swallows. */
-        case SAPP_KEYCODE_KP_1:
-        case SAPP_KEYCODE_KP_2:
-        case SAPP_KEYCODE_KP_3:
-        case SAPP_KEYCODE_KP_4:
-        case SAPP_KEYCODE_KP_5:
-        case SAPP_KEYCODE_KP_6:
-        case SAPP_KEYCODE_KP_7:
-        case SAPP_KEYCODE_KP_8:
-        case SAPP_KEYCODE_KP_9:
-        case SAPP_KEYCODE_KP_0:
-        case SAPP_KEYCODE_KP_DECIMAL:
-            suppress_char = true;
-            vtkeys_key(keyboard_keypad_nav(hid), ctrl, shift, alt);
+        if (e->key_repeat && input_chord_held)
             break;
-        default:
+        /* The system gives no text for a Ctrl or Alt chord, so its
+         * character is guessed. Any other key's text arrives through the
+         * CHAR case above. */
+        bool guess = false;
+        if (ctrl && !alt)
         {
-            if (e->key_repeat && input_chord_held)
-                break;
-            vtkeys_result_t done = vtkeys_key(hid, ctrl, shift, alt);
-            if (done == VTKEYS_CHORD)
-                input_chord_held = true;
-            if (done)
-                break;
-            if (ctrl && !alt)
-            {
-                char ch = ascii_from_key(e->key_code, shift);
+            guess = true;
 #if defined(__EMSCRIPTEN__)
-                /* The browser, not sokol, decides when a paste fires, and any
-                 * Ctrl+V variant can land a JavaScript paste event, so every
-                 * Ctrl+V chord types the pasted text instead of 0x16. */
-                if (e->key_code == SAPP_KEYCODE_V &&
-                    sapp_query_desc().enable_clipboard)
-                    ch = 0;
+            /* The browser, not sokol, decides when a paste fires, and any
+             * Ctrl+V variant can land a JavaScript paste event, so every
+             * Ctrl+V chord types the pasted text instead of 0x16. */
+            if (e->key_code == SAPP_KEYCODE_V &&
+                sapp_query_desc().enable_clipboard)
+                guess = false;
 #elif !defined(__APPLE__)
-                /* Sokol sends CLIPBOARD_PASTED when the modifiers are exactly
-                 * Ctrl and the key is V, so that one chord types the pasted text
-                 * instead of 0x16. Shifted variants never paste and still inject
-                 * 0x16, and macOS pastes on Cmd+V, which leaves its Ctrl+V a
-                 * guest SYN. */
-                if (e->key_code == SAPP_KEYCODE_V &&
-                    e->modifiers == SAPP_MODIFIER_CTRL &&
-                    sapp_query_desc().enable_clipboard)
-                    ch = 0;
+            /* Sokol sends CLIPBOARD_PASTED when the modifiers are exactly
+             * Ctrl and the key is V, so that one chord types the pasted text
+             * instead of 0x16. Shifted variants never paste and still inject
+             * 0x16, and macOS pastes on Cmd+V, which leaves its Ctrl+V a
+             * guest SYN. */
+            if (e->key_code == SAPP_KEYCODE_V &&
+                e->modifiers == SAPP_MODIFIER_CTRL &&
+                sapp_query_desc().enable_clipboard)
+                guess = false;
 #endif
-                vtkeys_ctrl_letter(ch);
-            }
-            /* Alt and a printable key is the Meta form, ESC then the character.
-             * Ctrl+Alt is excluded only where it means AltGr, whose composed
-             * character arrives through the CHAR case above. */
-            else if (alt && !(ALTGR_IS_CTRL_ALT && ctrl))
-                vtkeys_alt_char(ascii_from_key(e->key_code, shift), ctrl);
-            break;
         }
-        }
+        /* Ctrl+Alt is excluded only where it means AltGr, whose composed
+         * character arrives through the CHAR case above. */
+        else if (alt && !(ALTGR_IS_CTRL_ALT && ctrl))
+            guess = true;
+        uint8_t flags = (uint8_t)((shift ? VTKEY_SHIFT : 0) | (alt ? VTKEY_ALT : 0) |
+                                  (ctrl ? VTKEY_CTRL : 0));
+        hostkey_result_t result = hostkey_press(hid, flags, guess);
+        if (result == HOSTKEY_CHORD)
+            input_chord_held = true;
+        /* A key that typed with no character from here must not type
+         * the system's character too. */
+        else if (result == HOSTKEY_TYPED && !guess)
+            suppress_char = true;
         break;
     }
     case SAPP_EVENTTYPE_KEY_UP:
@@ -425,6 +378,8 @@ void input_event(const sapp_event *e)
             sapp_lock_mouse(false);
             break;
         }
+        /* A key is typed by the locks the system has as it goes down. */
+        input_locks();
         input_key(e);
         break;
     case SAPP_EVENTTYPE_KEY_UP:

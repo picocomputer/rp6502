@@ -8,6 +8,7 @@
 #include "host/sokol/app/app.h"
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/prompt.h"
+#include "core/hid/usage.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "sokol/sokol_app.h"
@@ -127,6 +128,40 @@ EM_JS(int, js_canvas_locked, (void), {
 
 bool entry_canvas_locked(void) { return js_canvas_locked(); }
 
+/* Bit 0 is NumLock, bit 1 Caps Lock and bit 2 Scroll Lock, as the page last
+ * saw them in a key or pointer event. */
+EM_JS(int, js_locks, (void), {
+    return Module.rp6502.locks();
+});
+
+uint8_t host_locks(void)
+{
+    const int seen = js_locks();
+    uint8_t locks = 0;
+    if (seen & 1)
+        locks |= KEYBOARD_LED_NUMLOCK;
+    if (seen & 2)
+        locks |= KEYBOARD_LED_CAPSLOCK;
+    if (seen & 4)
+        locks |= KEYBOARD_LED_SCROLLLOCK;
+    return locks;
+}
+
+/* Whether a key down is left to the browser, which then makes the keypress
+ * that types its character. The keypad's digits are characters only with
+ * NumLock on and Shift up. */
+static bool entry_key_types(const sapp_event *e)
+{
+    if (e->key_code < SAPP_KEYCODE_WORLD_1)
+        return true;
+    if ((e->key_code >= SAPP_KEYCODE_KP_DIVIDE && e->key_code <= SAPP_KEYCODE_KP_ADD) ||
+        e->key_code == SAPP_KEYCODE_KP_EQUAL)
+        return true;
+    if (e->key_code >= SAPP_KEYCODE_KP_0 && e->key_code <= SAPP_KEYCODE_KP_DECIMAL)
+        return (host_locks() & KEYBOARD_LED_NUMLOCK) && !(e->modifiers & SAPP_MODIFIER_SHIFT);
+    return false;
+}
+
 /* sokol_app adds its key and paste listeners to window, once for each player
  * on the page. Only the player with the focus handles these events and cancels
  * their default action. A key up is always handled, so a key held while the
@@ -144,8 +179,7 @@ static void entry_input(const sapp_event *e)
             return;
         /* A cancelled keydown of a character key makes no keypress, so no
          * CHAR event. */
-        if (e->type == SAPP_EVENTTYPE_CHAR ||
-            (e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_code >= SAPP_KEYCODE_WORLD_1))
+        if (e->type == SAPP_EVENTTYPE_CHAR || !entry_key_types(e))
             sapp_consume_event();
         break;
     case SAPP_EVENTTYPE_KEY_UP:

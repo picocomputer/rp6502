@@ -6,11 +6,6 @@
  * OEM code page conversion, ours instead of FatFs's ffunicode.c. The tables
  * come out of src/core/str/unicode.py, which lifts them from that same
  * vendored file.
- *
- * Every table access goes through unicode_word, because five kilobytes is
- * more than the Pocket's TCM can spare: its tables ride in the staging store
- * beside the fonts and are read a word at a time through a window that cannot
- * fetch anything wider than a byte.
  */
 
 /* FatFs where there is one: a definition here has to use the same types ff.h
@@ -21,8 +16,9 @@
 #endif
 #endif
 #include "core/str/unicode.h"
-#include "core/sys/debug_log.h"
 #include "machine.h"
+
+#include "unicode_oem.h"
 
 #ifndef FF_DEFINED
 typedef uint16_t WCHAR;
@@ -30,54 +26,16 @@ typedef uint16_t WORD;
 typedef uint32_t DWORD;
 #endif
 
-/* The image's header, as unicode.py lays it out. */
-#define UNICODE_MAGIC 0x4F43u
-#define UNICODE_PAGE_WORDS 128
-
-static uint32_t unicode_pages;
-static uint32_t unicode_cp_at;
-static uint32_t unicode_page_at;
-static uint32_t unicode_cvt1_at;
-static uint32_t unicode_cvt2_at;
-
-bool HOST_IN_FLASH_FUNC unicode_init(void)
-{
-    uint32_t c1 = unicode_word(2);
-    unicode_pages = unicode_word(1);
-    unicode_cp_at = 4;
-    unicode_page_at = unicode_cp_at + unicode_pages;
-    unicode_cvt1_at = unicode_page_at + unicode_pages * UNICODE_PAGE_WORDS;
-    unicode_cvt2_at = unicode_cvt1_at + c1;
-    if (unicode_word(0) != UNICODE_MAGIC)
-    {
-        RP6502_LOG(oem, ERROR, "no tables");
-        return false;
-    }
-    return true;
-}
-
-/* unicode_page_at is zero until the header has been read, so a platform that
- * never calls unicode_init gets the header read on its first lookup. */
-static void HOST_IN_RAM_FUNC unicode_ready(void)
-{
-    if (!unicode_page_at)
-        unicode_init();
-}
-
-/* The image carries the page numbers in a run of their own, so a lookup is a
- * short scan; pointers would have to be relocated by a machine that reads the
- * image out of a file. */
 static int HOST_IN_RAM_FUNC unicode_page(uint16_t cp)
 {
-    for (uint32_t i = 0; i < unicode_pages; i++)
-        if (unicode_word(unicode_cp_at + i) == cp)
-            return (int)i;
+    for (int i = 0; i < UNICODE_OEM_PAGES; i++)
+        if (unicode_oem_cp[i] == cp)
+            return i;
     return -1;
 }
 
 bool unicode_has_page(uint16_t cp)
 {
-    unicode_ready();
     return unicode_page(cp) >= 0;
 }
 
@@ -86,12 +44,10 @@ WCHAR HOST_IN_RAM_FUNC ff_oem2uni(WCHAR oem, WORD cp)
 {
     if (oem < 0x80)
         return oem;
-    unicode_ready();
     int p = unicode_page(cp);
     if (p < 0)
         return 0;
-    return unicode_word(unicode_page_at + (uint32_t)p * UNICODE_PAGE_WORDS
-                    + (oem - 0x80u));
+    return unicode_oem_page[p][oem - 0x80u];
 }
 
 WCHAR HOST_IN_RAM_FUNC ff_uni2oem(DWORD uni, WORD cp)
@@ -100,13 +56,11 @@ WCHAR HOST_IN_RAM_FUNC ff_uni2oem(DWORD uni, WORD cp)
         return (uint16_t)uni;
     if (uni >= 0x10000)
         return 0; /* the tables cover the BMP only */
-    unicode_ready();
     int p = unicode_page(cp);
     if (p < 0)
         return 0;
-    uint32_t at = unicode_page_at + (uint32_t)p * UNICODE_PAGE_WORDS;
-    for (uint32_t i = 0; i < UNICODE_PAGE_WORDS; i++)
-        if (unicode_word(at + i) == uni)
+    for (uint32_t i = 0; i < 128; i++)
+        if (unicode_oem_page[p][i] == uni)
             return (uint16_t)(i + 0x80);
     return 0;
 }
@@ -120,15 +74,14 @@ DWORD HOST_IN_RAM_FUNC ff_wtoupper(DWORD uni)
 {
     if (uni >= 0x10000)
         return uni; /* the tables cover the BMP only */
-    unicode_ready();
     uint16_t uc = (uint16_t)uni;
-    uint32_t p = uc < 0x1000 ? unicode_cvt1_at : unicode_cvt2_at;
+    const uint16_t *p = uc < 0x1000 ? unicode_oem_cvt1 : unicode_oem_cvt2;
     for (;;)
     {
-        uint16_t base = unicode_word(p++);
+        uint16_t base = *p++;
         if (base == 0 || uc < base)
             break;
-        uint16_t nc = unicode_word(p++);
+        uint16_t nc = *p++;
         uint16_t cmd = nc >> 8;
         nc &= 0xFF;
         if (uc < base + nc)
@@ -136,7 +89,7 @@ DWORD HOST_IN_RAM_FUNC ff_wtoupper(DWORD uni)
             switch (cmd)
             {
             case 0:
-                uc = unicode_word(p + (uc - base));
+                uc = p[uc - base];
                 break;
             case 1:
                 uc -= (uc - base) & 1; /* the run is pairs of upper, lower */

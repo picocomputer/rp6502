@@ -823,6 +823,19 @@ jobs:
           cmake --build --preset release
         working-directory: src/host/pocket
 
+      # The fit's reports, kept whether the build passes or fails. A timing
+      # failure names its paths only in rp6502.paths.rpt and the .sta.rpt,
+      # never in the log.
+      - name: Keep the fit's reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pocket-fit-reports
+          path: |
+            build/pocket/bitstream/output_files/*.rpt
+            build/pocket/bitstream/output_files/*.summary
+          if-no-files-found: warn
+
       # Zipped here rather than downstream so the card's own root is the zip's
       # root, and so an empty package fails this job instead of quietly
       # shipping a release with no core in it.

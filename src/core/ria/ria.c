@@ -7,6 +7,7 @@
 
 #include "core/api/proc.h"
 #include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/wdc/cpu.h"
 #include "core/ria/regs.h"
 #include "core/sys/xram.h"
@@ -211,8 +212,7 @@ bool ria_sst_load(sst_cursor_t *c, unsigned flags)
     uint8_t cells[0x20];
     for (int i = 0; i < 0x20; i++)
         cells[i] = sst_get_u8(c);
-    static uint8_t stack[XSTACK_SIZE + 1];
-    sst_get(c, stack, sizeof stack);
+    const uint8_t *stack = sst_view(c, XSTACK_SIZE + 1);
     uint16_t ptr = sst_get_u16(c);
     if (!sst_ok(c))
         return false;
@@ -223,7 +223,7 @@ bool ria_sst_load(sst_cursor_t *c, unsigned flags)
     ria.irq_pending = pending;
     for (int i = 0; i < 0x20; i++)
         regs[i] = cells[i];
-    memcpy(xstack, stack, sizeof stack);
+    memcpy(xstack, stack, XSTACK_SIZE + 1);
     xstack_ptr = ptr;
     return true;
 }
@@ -264,7 +264,7 @@ void ria_reg_write(uint16_t addr, uint8_t data)
     switch (addr & 0x1F)
     {
     case 0x01: /* TX */
-        com_putchar_raw((char)data);
+        manifold_putchar_raw((char)data);
         regs[0x00] |= RIA_UART_TX_READY;
         return;
     case 0x04: /* RW0 */

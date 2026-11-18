@@ -1,0 +1,25 @@
+/* Overrides the SDK's section_uninitialized_data.incl for every Pico board.
+ *
+ * xram goes in the XRAM region of memory_ram.incl. On the VGA it must sit on a
+ * 64 KB boundary, because the PIX DMA chain in vga/sys/pix.c writes each XRAM
+ * address into the low half of a pointer to xram. It is NOLOAD, so nothing
+ * clears it at boot and it keeps its contents through a reboot.
+ *
+ * ld gives an input section to the first rule it matches, so the rule for xram
+ * comes ahead of the catch-alls for uninitialized data here and for .bss later.
+ * The link keeps xram in a .bss.xram of its own with -fdata-sections; see
+ * rp6502_pico_memory in pico/CMakeLists.txt. */
+SECTIONS
+{
+    .xram (NOLOAD) : {
+        *(.bss.xram)
+    } > XRAM
+    ASSERT(xram % 0x10000 == 0, "xram must sit on a 64 KB boundary")
+
+    INCLUDE "section_video_data.incl"
+
+    .uninitialized_data (NOLOAD): {
+        . = ALIGN(4);
+        *(.uninitialized_data*)
+    } > RAM
+}

@@ -24,6 +24,7 @@ target_compile_definitions(${RIA_TARGET} PRIVATE ${RP6502_PROJECT_DEFINITIONS})
 rp6502_log_definitions(${RIA_TARGET} PRIVATE)
 pico_add_extra_outputs(${RIA_TARGET})
 pico_set_binary_type(${RIA_TARGET} default)
+rp6502_pico_rtt(${RIA_TARGET})
 
 # Sources that run in an interrupt, on the main loop's hot path, or while the
 # RIA rewrites its own flash, whole: the SDK's, TinyUSB's, FatFs, the storage
@@ -176,6 +177,7 @@ file(WRITE ${_ria_ld}/default_rodata_excludes.incl
     "${_ria_flash_rodata}EXCLUDE_FILE(${_ria_ram_strings}) *(.rodata.str?.* .rodata.*.str?.*)\n*(EXCLUDE_FILE(${_ria_ram_files}) .rodata*)\n")
 pico_add_linker_script_override_path(${RIA_TARGET} ${_ria_ld}
     FILES default_text_excludes.incl default_rodata_excludes.incl)
+rp6502_pico_memory(${RIA_TARGET})
 
 set_target_properties(${RIA_TARGET} PROPERTIES
     INTERPROCEDURAL_OPTIMIZATION TRUE
@@ -257,6 +259,10 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/str/oem.c
     ${RIA_SRC}/api/proc.c
     ${RP6502_ROOT}/src/core/str/unicode.c
+    ${RP6502_ROOT}/src/core/term/term.c
+    ${RP6502_ROOT}/src/core/term/color.c
+    ${RP6502_ROOT}/src/core/term/grid.c
+    ${RIA_SRC}/term/cells.c
     ${RP6502_GEN}/unicode_oem.c
     ${RP6502_ROOT}/src/core/api/std.c
     ${RIA_SRC}/api/tim.c
@@ -269,6 +275,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/hid/keyboard.c
     ${RP6502_ROOT}/src/core/hid/layout.c
     ${RP6502_ROOT}/src/core/hid/keymap.c
+    ${RP6502_ROOT}/src/core/hid/vtkey.c
     ${RP6502_GEN}/layout_db.c
     ${RP6502_ROOT}/src/core/hid/mouse.c
     ${RP6502_ROOT}/src/core/hid/gamepad.c

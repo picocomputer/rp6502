@@ -2,18 +2,25 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * pocket_core as core_top wires it, with the Pocket's SDRAM as
+ * sdram_model.sv and the host as the test drives these ports. The ports
+ * are the signals of Analogue's template, core_bridge_cmd.v in
+ * vendor/openfpga, https://github.com/open-fpga/core-template, and the
+ * test that drives them says where its host's behaviour comes from.
  */
 
 module tb_pocket (
     input logic clk_74a,
     input logic clk_sys,
-    /* clk_rv runs at half the rate of clk_sys and rises with it, as the
-     * Pocket's PLL generates it. */
-    input logic clk_rv,
     input logic clk_a2,
     input logic clk_ph,
     input logic clk_vid,
+    /* The PLL's lock on clk_sys. The chip model takes it as its
+     * asynchronous reset. */
+    /* verilator lint_off SYNCASYNCNET */
     input logic rst_n,
+    /* verilator lint_on SYNCASYNCNET */
     input logic arst_n,
 
     input logic bridge_wr,
@@ -22,6 +29,8 @@ module tb_pocket (
     input logic [31:0] bridge_wr_data,
     input logic dataslot_allcomplete,
     input logic dataslot_update,
+    input logic dataslot_requestwrite,
+    input logic [15:0] dataslot_requestwrite_id,
     input logic reset_n,
     output logic [9:0] tb_pocket_dt_addr,
     input logic [31:0] datatable_q,
@@ -35,15 +44,12 @@ module tb_pocket (
     output logic tb_pocket_ds_write,
     output logic tb_pocket_ds_openfile,
     output logic tb_pocket_ds_getfile,
-    output logic tb_pocket_ds_flush,
     output logic [15:0] tb_pocket_ds_id,
     output logic [31:0] tb_pocket_ds_slotoffset,
     output logic [31:0] tb_pocket_ds_bridgeaddr,
     output logic [31:0] tb_pocket_ds_length,
     input logic target_dataslot_done,
     input logic [2:0] target_dataslot_err,
-
-    output logic tb_pocket_stop_req,
 
     input logic savestate_start,
     output logic tb_pocket_savestate_start_ack,
@@ -97,39 +103,9 @@ module tb_pocket (
     logic [31:0] refreshes;
     logic [31:0] sref_clocks;
 
-    /* On hardware this gate is an altclkctrl block, which registers its
-     * enable on the falling edge of clk_sys. en_sys follows the enable
-     * only while clk_sys is low, so no high phase of clk_mach is cut
-     * short. The request crosses into clk_74a through three flops first,
-     * as core_top's synch_3 does, so the gate moves as late after it as
-     * on hardware. */
-    logic [2:0] stop_s;
-    logic mach_clk_en;
-    initial begin
-        stop_s = '0;
-        mach_clk_en = 1'b1;
-    end
-    always_ff @(posedge clk_74a or negedge arst_n) begin
-        if (!arst_n) begin
-            stop_s <= '0;
-            mach_clk_en <= 1'b1;
-        end else begin
-            stop_s <= {stop_s[1:0], tb_pocket_stop_req};
-            mach_clk_en <= !stop_s[2];
-        end
-    end
-    logic en_sys;
-    always_latch if (!clk_sys) en_sys = mach_clk_en;
-    logic clk_mach;
-    always_comb clk_mach = clk_sys & en_sys;
-
     pocket_core core (
-        .mach_running(mach_clk_en),
-        .clk_mach(clk_mach),
-        .clk_rv(clk_rv),
         .clk_a2(clk_a2),
         .clk_ph(clk_ph),
-        .pocket_core_stop_req(tb_pocket_stop_req),
         .clk_74a(clk_74a),
         .clk_sys(clk_sys),
 
@@ -137,6 +113,8 @@ module tb_pocket (
         .rst_n(rst_n),
         .arst_n(arst_n),
         .dataslot_update(dataslot_update),
+        .dataslot_requestwrite(dataslot_requestwrite),
+        .dataslot_requestwrite_id(dataslot_requestwrite_id),
         .bridge_wr(bridge_wr),
         .bridge_addr(bridge_addr),
         .bridge_rd(bridge_rd),
@@ -154,7 +132,6 @@ module tb_pocket (
         .pocket_core_dataslot_write(tb_pocket_ds_write),
         .pocket_core_dataslot_openfile(tb_pocket_ds_openfile),
         .pocket_core_dataslot_getfile(tb_pocket_ds_getfile),
-        .pocket_core_dataslot_flush(tb_pocket_ds_flush),
         .pocket_core_dataslot_id(tb_pocket_ds_id),
         .pocket_core_dataslot_slotoffset(tb_pocket_ds_slotoffset),
         .pocket_core_dataslot_bridgeaddr(tb_pocket_ds_bridgeaddr),
@@ -192,14 +169,6 @@ module tb_pocket (
         .dram_dq_out(dq_c2m),
         .dram_dq_oe(dq_oe),
         .dram_dq_in(dq_m2c),
-        .sram_a(sram_a),
-        .sram_dq_out(sram_dq_out),
-        .sram_dq_oe(sram_dq_oe),
-        .sram_dq_in(sram_dq),
-        .sram_oe_n(sram_oe_n),
-        .sram_we_n(sram_we_n),
-        .sram_ub_n(sram_ub_n),
-        .sram_lb_n(sram_lb_n),
         .pocket_core_ready(tb_pocket_ready),
         .pocket_core_tx_data(tb_pocket_tx_data),
         .pocket_core_tx_valid(tb_pocket_tx_valid),
@@ -208,22 +177,8 @@ module tb_pocket (
         .pocket_core_rv_halted(tb_pocket_rv_halted)
     );
 
-    wire [15:0] sram_dq;
-    logic [16:0] sram_a;
-    logic [15:0] sram_dq_out;
-    logic sram_dq_oe, sram_oe_n, sram_we_n, sram_ub_n, sram_lb_n;
-    assign sram_dq = sram_dq_oe ? sram_dq_out : {16{1'bz}};
-    asram_model sram_chip (
-        .a(sram_a),
-        .dq(sram_dq),
-        .oe_n(sram_oe_n),
-        .we_n(sram_we_n),
-        .ub_n(sram_ub_n),
-        .lb_n(sram_lb_n)
-    );
-
     sdram_model chip (
-        .clk(clk_sys),
+        .clk(~clk_sys),
         .rst_n(rst_n),
         .cke(cke),
         .a(a),
@@ -231,6 +186,7 @@ module tb_pocket (
         .ras_n(ras_n),
         .cas_n(cas_n),
         .we_n(we_n),
+        .dqm(dqm),
         .dq_in(dq_c2m),
         .dq_oe(dq_oe),
         .dq_out(dq_m2c),
@@ -240,7 +196,7 @@ module tb_pocket (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_tb_pocket;
-    always_comb unused_tb_pocket = ^{dqm, refreshes, sref_clocks};
+    always_comb unused_tb_pocket = ^{refreshes, sref_clocks};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

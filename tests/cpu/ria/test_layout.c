@@ -5,6 +5,8 @@
  */
 
 #include "core/hid/layout.h"
+#include "core/hid/keymap.h"
+#include "core/str/str.h"
 #include "utest.h"
 
 #include <stdint.h>
@@ -115,15 +117,12 @@ static unsigned ref_dead3_count(int lay)
 UTEST(layout, every_layout_matches_its_def)
 {
     int failures = 0;
-    ASSERT_TRUE(layout_init());
     ASSERT_EQ(layout_count(), REF_COUNT);
 
     for (int lay = 0; lay < REF_COUNT; lay++)
     {
-        char name[LAYOUT_NAME_MAX];
-        char desc[LAYOUT_DESC_MAX];
-        layout_name(lay, name);
-        layout_description(lay, desc);
+        const char *name = layout_name(lay);
+        const char *desc = layout_description(lay);
         if (strcmp(name, ref_layouts[lay].name))
             FAIL("layout %d is %s, def says %s\n",
                  lay, name, ref_layouts[lay].name);
@@ -175,15 +174,115 @@ UTEST(layout, every_layout_matches_its_def)
 
 }
 
-UTEST(layout, a_layout_out_of_range_reads_empty)
-{
-    ASSERT_TRUE(layout_init());
+/* What layout.c's list reaches outside itself: the setting's storage, which
+ * checks, stores and applies as core/sys/config.c does, the keymap, and the
+ * two answers' formats. */
+static char list_store[LAYOUT_LIST_SIZE];
+static int used_layout;
 
-    char name[LAYOUT_NAME_MAX];
-    layout_name(REF_COUNT, name);
-    ASSERT_EQ(name[0], 0);
-    ASSERT_EQ(layout_code_point(REF_COUNT, 0x04, 0), 0);
-    ASSERT_EQ(layout_code_point(-1, 0x04, 0), 0);
+const char STR_SET_KB_RESPONSE[] = "%s (%s)";
+const char STR_SET_KB_LIST_RESPONSE[] = "%s";
+
+const char *layout_get_list(void)
+{
+    return list_store;
+}
+
+bool layout_set_list(const char *v)
+{
+    char checked[LAYOUT_LIST_SIZE];
+    if (!layout_check_list(v, checked))
+        return false;
+    strcpy(list_store, checked);
+    layout_apply_list(list_store, true);
+    return true;
+}
+
+void keymap_use_layout(int index)
+{
+    used_layout = index;
+}
+
+static int layout_named(const char *want)
+{
+    for (int i = 0; i < REF_COUNT; i++)
+        if (!strcmp(ref_layouts[i].name, want))
+            return i;
+    return -1;
+}
+
+UTEST(layout, a_machine_with_no_list_adopts_us)
+{
+    list_store[0] = 0;
+    used_layout = -1;
+    layout_list_init();
+    ASSERT_STREQ(layout_get_list(), "US");
+    ASSERT_EQ(used_layout, layout_named("US"));
+}
+
+UTEST(layout, a_list_is_stored_in_the_databases_spelling)
+{
+    char out[LAYOUT_LIST_SIZE];
+    ASSERT_TRUE(layout_check_list("  de   us-intl ", out));
+    ASSERT_STREQ(out, "DE US-INTL");
+    ASSERT_FALSE(layout_check_list("", out));
+    ASSERT_FALSE(layout_check_list("US XX", out));
+    ASSERT_FALSE(layout_check_list("US DE us", out));
+    /* Every layout fits in no list, and USA is not US. */
+    ASSERT_FALSE(layout_check_list("US DE DK FR PL SE US-INTL US DE DK FR PL", out));
+    ASSERT_FALSE(layout_check_list("USA", out));
+}
+
+UTEST(layout, the_list_cycles_and_goes_around)
+{
+    ASSERT_TRUE(layout_set_list("US DE FR"));
+    ASSERT_EQ(used_layout, layout_named("US"));
+    layout_list_cycle();
+    ASSERT_EQ(used_layout, layout_named("DE"));
+    layout_list_cycle();
+    ASSERT_EQ(used_layout, layout_named("FR"));
+    layout_list_cycle();
+    ASSERT_EQ(used_layout, layout_named("US"));
+
+    /* A list of one has nowhere to go. */
+    ASSERT_TRUE(layout_set_list("SE"));
+    used_layout = -1;
+    layout_list_cycle();
+    ASSERT_EQ(used_layout, -1);
+}
+
+UTEST(layout, a_new_list_keeps_the_layout_in_use_when_it_can)
+{
+    ASSERT_TRUE(layout_set_list("US DE FR"));
+    layout_list_cycle();
+    ASSERT_TRUE(layout_set_list("FR DE"));
+    ASSERT_EQ(used_layout, layout_named("DE"));
+    layout_list_cycle();
+    ASSERT_EQ(used_layout, layout_named("FR"));
+    ASSERT_TRUE(layout_set_list("US SE"));
+    ASSERT_EQ(used_layout, layout_named("US"));
+    /* A refused list changes nothing. */
+    ASSERT_FALSE(layout_set_list("US XX"));
+    ASSERT_STREQ(layout_get_list(), "US SE");
+}
+
+UTEST(layout, the_answer_names_one_layout_or_lists_several)
+{
+    char buf[80];
+    ASSERT_TRUE(layout_set_list("DE"));
+    ASSERT_EQ(layout_list_response(buf, sizeof buf, 0, 80), -1);
+    char want[80];
+    snprintf(want, sizeof want, "DE (%s)", ref_layouts[layout_named("DE")].desc);
+    ASSERT_STREQ(buf, want);
+    ASSERT_TRUE(layout_set_list("DE US"));
+    layout_list_response(buf, sizeof buf, 0, 80);
+    ASSERT_STREQ(buf, "DE US");
+
+    /* The help lists the database, a line per call. */
+    int state = 0, lines = 0;
+    while ((state = layout_help_response(buf, sizeof buf, state, 80)) >= 0)
+        lines++;
+    ASSERT_EQ(lines, REF_COUNT);
 }
 
 UTEST_MAIN();

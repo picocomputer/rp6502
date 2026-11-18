@@ -10,7 +10,7 @@ module pocket_dbglog #(
      * queued. */
     parameter int FLUSH_TICKS = 65536
 ) (
-    input logic clk_mach,
+    input logic clk_sys,
     input logic [7:0] rv_tx_data,
     input logic rv_tx_valid,
 
@@ -32,7 +32,7 @@ module pocket_dbglog #(
         .WIDTH(8),
         .DEPTH_LOG2(7)
     ) q (
-        .wclk(clk_mach),
+        .wclk(clk_sys),
         .w_stb(rv_tx_valid),
         .w_data(rv_tx_data),
         .pocket_fifo_full(fifo_full),

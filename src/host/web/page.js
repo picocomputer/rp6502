@@ -319,6 +319,21 @@ var AudioContext;
     for (const type of ['pointerdown', 'pointerup', 'touchend'])
         screen.addEventListener(type, engage, {capture: true, signal});
     addEventListener('keydown', () => focused() && engage(), {capture: true, signal});
+
+    // The browser tells the locks only inside an event, so they are kept from
+    // the last key or click. Until the first one NumLock is taken as on. An
+    // Apple keyboard has no NumLock or Scroll Lock: its keypad always types
+    // digits, so NumLock stays on and Scroll Lock off.
+    const apple = /Mac|iPhone|iPad/.test(navigator.platform);
+    let locks = 1;
+    const seeLocks = (e) => {
+        locks = (apple || e.getModifierState('NumLock') ? 1 : 0) |
+            (e.getModifierState('CapsLock') ? 2 : 0) |
+            (!apple && e.getModifierState('ScrollLock') ? 4 : 0);
+    };
+    for (const type of ['keydown', 'keyup', 'pointerdown'])
+        addEventListener(type, seeLocks, {capture: true, signal});
+    player.locks = () => locks;
     root.addEventListener('focusin', player.activate, {signal});
     canvas.addEventListener('pointerdown', () => canvas.focus({preventScroll: true}), {signal});
     const load = () => {

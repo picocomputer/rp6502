@@ -4,34 +4,29 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* Keys to characters: the layout, dead keys, Alt codes, the escape sequences a
- * terminal expects, and auto-repeat. Kept apart from keyboard.c because a
- * machine whose host has already done this work links neither this file nor
- * the layout database. */
+/* The keyboard driver of a machine with no system under it. Keys to
+ * characters: the layout lookup, dead keys, Alt codes and auto-repeat. And
+ * the locks, which are this file's: their keys, their LEDs and how they
+ * start. Kept apart from keyboard.c because a machine whose host has already
+ * done this work links neither this file nor the layout database. */
 
 #include "core/sys/timer.h"
 #include "machine.h"
 #include "core/sys/ria.h"
 #include "core/str/oem.h"
 #include "core/str/unicode.h"
+#include "core/api/proc.h"
 #include "core/hid/keyboard.h"
+#include "core/hid/vtkey.h"
 #include "core/hid/layout.h"
 #include "core/hid/keymap.h"
-#include "core/sys/debug_log.h"
 #include "core/sys/ring.h"
-#include "core/sys/config.h"
 #include "core/hid/usage.h"
-#include <stdio.h>
-#include <string.h>
-/* strcasecmp, which matches a layout name, is named by POSIX rather than by C.
- * A host whose compiler has no such header supplies one; see src/osal. */
-#include <strings.h>
 
 #define KEYMAP_REPEAT_DELAY 500000
 #define KEYMAP_REPEAT_RATE 30000
 
 static int keymap_layout_index;
-static const char *keymap_layout_pos;
 static timer_deadline_t keymap_repeat_timer;
 static uint8_t keymap_repeat_modifier;
 static uint8_t keymap_repeat_keycode;
@@ -54,11 +49,6 @@ static char const (*keymap_cached_dead3)[4];
 static uint16_t keymap_cache_code_page;
 static bool keymap_cache_valid;
 
-/* Copies of the active layout's name and description, because the settings
- * code returns a pointer and the database may not be addressable memory. */
-static char keymap_layout_name[LAYOUT_NAME_MAX];
-static char keymap_layout_description[LAYOUT_DESC_MAX];
-
 /* Everything reaches the queue through here. A run is queued whole or not at
  * all, and a Ctrl-C latches SIGINT before the space is checked, so a break is
  * seen even when the queue is too full to take the byte. */
@@ -76,42 +66,68 @@ static void HOST_IN_RAM_FUNC keymap_queue_char(char ch)
     keymap_queue(&ch, 1);
 }
 
-static void keymap_apply_active(void)
+void keymap_use_layout(int index)
 {
-    size_t len = 0;
-    while (keymap_layout_pos[len] && keymap_layout_pos[len] != ' ')
-        len++;
-    for (int i = 0; i < layout_count(); i++)
-    {
-        char name[LAYOUT_NAME_MAX];
-        layout_name(i, name);
-        if (strlen(name) == len && !strncmp(keymap_layout_pos, name, len))
-        {
-            keymap_layout_index = i;
-            break;
-        }
-    }
-    layout_name(keymap_layout_index, keymap_layout_name);
-    layout_description(keymap_layout_index, keymap_layout_description);
+    keymap_layout_index = index;
     keymap_cache_valid = false;
 }
 
-static void HOST_IN_FLASH_FUNC keymap_cycle_layout(void)
+static void keymap_rebuild_code_page_cache(void);
+
+/* This machine is the keyboard driver, so the locks are its own: they go to
+ * the keyboard's LEDs as they change. */
+static void HOST_IN_RAM_FUNC keymap_set_locks(uint8_t locks)
 {
-    const char *p = keymap_layout_pos;
-    while (*p && *p != ' ')
-        p++;
-    while (*p == ' ')
-        p++;
-    if (!*p)
-        p = keymap_get_layout_list();
-    if (p == keymap_layout_pos)
-        return;
-    keymap_layout_pos = p;
-    keymap_apply_active();
+    keyboard_set_locks(locks);
+    hid_set_leds(locks);
 }
 
-static void keymap_rebuild_code_page_cache(void);
+/* A press of NumLock, CapsLock or ScrollLock flips its lock. False for any
+ * other key. */
+static bool HOST_IN_RAM_FUNC keymap_lock_key(uint8_t keycode)
+{
+    uint8_t bit;
+    if (keycode == HID_KEY_NUM_LOCK)
+        bit = KEYBOARD_LED_NUMLOCK;
+    else if (keycode == HID_KEY_CAPS_LOCK)
+        bit = KEYBOARD_LED_CAPSLOCK;
+    else if (keycode == HID_KEY_SCROLL_LOCK)
+        bit = KEYBOARD_LED_SCROLLLOCK;
+    else
+        return false;
+    keymap_set_locks(keyboard_get_locks() ^ bit);
+    return true;
+}
+
+/* An RP6502 boots with NumLock on, the way an IBM AT and Windows do. */
+void HOST_IN_FLASH_FUNC keymap_init(void)
+{
+    keymap_set_locks(KEYBOARD_LED_NUMLOCK);
+}
+
+/* The Raspberry Pi Keyboard has no keypad and uses NumLock to lay one over
+ * its letter keys, because it was designed for Linux, which boots NumLock
+ * off. */
+static const struct
+{
+    uint16_t vid;
+    uint16_t pid;
+} keymap_numlock_off_at_boot[] = {
+    {0x04D9, 0x0006}, // Raspberry Pi Keyboard
+};
+
+void HOST_IN_FLASH_FUNC keyboard_on_mount(uint16_t vendor_id, uint16_t product_id)
+{
+    if (!hid_boot_enumerating())
+        return;
+    for (size_t k = 0; k < sizeof(keymap_numlock_off_at_boot) / sizeof(keymap_numlock_off_at_boot[0]); k++)
+        if (keymap_numlock_off_at_boot[k].vid == vendor_id &&
+            keymap_numlock_off_at_boot[k].pid == product_id)
+        {
+            keymap_set_locks(keyboard_get_locks() & (uint8_t)~KEYBOARD_LED_NUMLOCK);
+            break;
+        }
+}
 
 /* The cache holds OEM bytes, so it is only good for the page it was built
  * from. The page is checked here, on the way into a keystroke, rather than
@@ -123,9 +139,8 @@ static void HOST_IN_RAM_FUNC keymap_cache_ready(void)
         keymap_rebuild_code_page_cache();
 }
 
-/* The modifier byte and the lock lamps, decoded once. The keypad remap moves
- * the keycode and shift together, so they travel as one from here on. mod is
- * kept raw because AltGr is the right alt specifically, not either alt. */
+/* The modifier byte and the locks, decoded once. mod is kept raw because
+ * AltGr is the right alt specifically, not either alt. */
 typedef struct
 {
     uint8_t mod;
@@ -135,38 +150,36 @@ typedef struct
     bool ctrl;
     bool gui;
     bool capslock;
+    bool numlock;
 } keymap_press_t;
 
-static void HOST_IN_RAM_FUNC keymap_decode(uint8_t modifier, uint8_t keycode, bool initial_press,
-                                           keymap_press_t *k)
+/* Auto-repeat is armed with the key that is physically down, so that
+ * keymap_task can ask whether it is still held. */
+static void HOST_IN_RAM_FUNC keymap_arm_repeat(uint8_t modifier, uint8_t keycode, bool initial_press)
+{
+    keymap_repeat_modifier = modifier;
+    keymap_repeat_keycode = keycode;
+    keymap_repeat_timer = timer_in_us(initial_press ? KEYMAP_REPEAT_DELAY : KEYMAP_REPEAT_RATE);
+}
+
+static void HOST_IN_RAM_FUNC keymap_decode(uint8_t modifier, uint8_t keycode, keymap_press_t *k)
 {
     k->mod = modifier;
     k->shift = modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
     k->alt = modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT);
     k->ctrl = modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL);
     k->gui = modifier & (KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_RIGHTGUI);
-    k->capslock = keyboard_get_leds() & KEYBOARD_LED_CAPSLOCK;
-    bool is_numlock = keyboard_get_leds() & KEYBOARD_LED_NUMLOCK;
-    /* Auto-repeat is armed with the key that is physically down, before the
-     * remap below, so that keymap_task can ask whether it is still held. */
-    keymap_repeat_modifier = modifier;
-    keymap_repeat_keycode = keycode;
-    keymap_repeat_timer = timer_in_us(initial_press ? KEYMAP_REPEAT_DELAY : KEYMAP_REPEAT_RATE);
-    if (keycode >= HID_KEY_KEYPAD_1 &&
-        keycode <= HID_KEY_KEYPAD_DECIMAL &&
-        (!is_numlock || k->shift))
-    {
-        if (is_numlock)
-            k->shift = false;
-        keycode = keyboard_keypad_nav(keycode);
-    }
+    k->capslock = keyboard_get_locks() & KEYBOARD_LED_CAPSLOCK;
+    k->numlock = keyboard_get_locks() & KEYBOARD_LED_NUMLOCK;
     k->keycode = keycode;
 }
 
-// Alt held over the keypad types an OEM character code one digit at a time.
+/* Alt held over the keypad's digits types an OEM character code one digit at
+ * a time. They are digits while NumLock is on and Shift is up. */
 static bool HOST_IN_RAM_FUNC keymap_alt_code_key(const keymap_press_t *k)
 {
-    bool on_pad = k->keycode >= HID_KEY_KEYPAD_1 && k->keycode <= HID_KEY_KEYPAD_0;
+    bool on_pad = k->keycode >= HID_KEY_KEYPAD_1 && k->keycode <= HID_KEY_KEYPAD_0 &&
+                  k->numlock && !k->shift;
     if (!keymap_alt_mode && !(on_pad && k->alt))
         return false;
     if (!keymap_alt_mode)
@@ -191,34 +204,12 @@ static bool HOST_IN_RAM_FUNC keymap_shifted(const keymap_press_t *k)
 
 static char HOST_IN_RAM_FUNC keymap_layout_lookup(const keymap_press_t *k)
 {
-    if (k->keycode >= 128 || (k->mod & (KEYBOARD_MODIFIER_LEFTALT |
-                                        KEYBOARD_MODIFIER_LEFTGUI |
-                                        KEYBOARD_MODIFIER_RIGHTGUI)))
+    if (k->keycode >= 128 || (k->mod & KEYBOARD_MODIFIER_LEFTALT))
         return 0;
     unsigned col = ((k->mod & KEYBOARD_MODIFIER_RIGHTALT) ? LAYOUT_ALTGR : 0) |
                    (keymap_shifted(k) ? LAYOUT_SHIFT : 0);
     return ff_uni2oem(layout_code_point(keymap_layout_index, k->keycode, col),
                       oem_get_code_page_run());
-}
-
-/* An Alt chord on a key that AltGr does not answer sends the character from
- * the plain or shifted column prefixed with ESC, the way xterm sends Meta. */
-static bool HOST_IN_RAM_FUNC keymap_alt_escape(const keymap_press_t *k)
-{
-    char ch = ff_uni2oem(layout_code_point(keymap_layout_index, k->keycode,
-                                           keymap_shifted(k) ? LAYOUT_SHIFT : LAYOUT_PLAIN),
-                         oem_get_code_page_run());
-    int c = ch ? (unsigned char)ch : -1;
-    if (k->ctrl)
-    {
-        int promoted = keyboard_ctrl_promote(ch, k->keycode);
-        if (promoted >= 0)
-            c = promoted;
-    }
-    if (c < 0)
-        return false;
-    keymap_queue((char[]){'\33', (char)c}, 2);
-    return true;
 }
 
 void keymap_abandon(void)
@@ -329,156 +320,81 @@ static void HOST_IN_RAM_FUNC keymap_compose(char ch)
     keymap_queue_char(ch);
 }
 
-// Chords that do something other than type. True when one of them fired.
+/* Chords and lock keys, which do something other than type. True when one of
+ * them acted. */
 static bool HOST_IN_RAM_FUNC keymap_chord(const keymap_press_t *k)
 {
-    switch (k->keycode)
+    if (k->keycode == HID_KEY_SPACE && k->gui)
     {
-    case HID_KEY_SPACE:
-        if (k->gui)
-        {
-            keymap_repeat_keycode = 0; // one-shot; never auto-repeats while held
-            keymap_cycle_layout();
-            return true;
-        }
-        break;
-    default:
-        if (keyboard_chord(k->keycode, k->ctrl, k->alt))
-        {
-            keymap_repeat_keycode = 0;
-            return true;
-        }
-        break;
-    /* A lock key changes its lamp and then falls through to send nothing.
-     * ScrollLock needs the empty entry it has in the escape sequence table to
-     * do that, because its usage is inside the table's range. */
-    case HID_KEY_NUM_LOCK:
-        keyboard_toggle_lock(KEYBOARD_LED_NUMLOCK);
-        break;
-    case HID_KEY_CAPS_LOCK:
-        keyboard_toggle_lock(KEYBOARD_LED_CAPSLOCK);
-        break;
-    case HID_KEY_SCROLL_LOCK:
-        keyboard_toggle_lock(KEYBOARD_LED_SCROLLLOCK);
-        break;
+        layout_list_cycle();
+        return true;
     }
-    return false;
+    return proc_key_chord(k->keycode, k->ctrl, k->alt) ||
+           keymap_lock_key(k->keycode);
 }
 
-static void HOST_IN_RAM_FUNC keymap_emit_vt(const keymap_press_t *k)
+/* What the encoder made of a key. One byte goes through the composer, so DEL
+ * still cancels a dead key. A longer answer is queued whole, after any dead
+ * key it found waiting. */
+static void HOST_IN_RAM_FUNC keymap_type(const char *seq, int n)
 {
-    char seq[16];
-    if (keyboard_vt_seq(seq, sizeof(seq), k->keycode,
-                        keyboard_vt_mod(k->shift, k->alt, k->ctrl, k->gui)))
-        keymap_queue(seq, strlen(seq));
+    if (n == 1)
+    {
+        keymap_compose(seq[0]);
+        return;
+    }
+    if (keymap_dead_key0)
+        keymap_queue_char(keymap_dead_key0);
+    if (keymap_dead_key1)
+        keymap_queue_char(keymap_dead_key1);
+    keymap_dead_key0 = keymap_dead_key1 = 0;
+    keymap_queue(seq, (size_t)n);
 }
 
+/* A chord or a lock key acts once and never repeats. The encoder is asked
+ * next, so a key sends what it sends on every machine, in the terminal's
+ * modes, and the layout is left the keys that have characters. */
 static void HOST_IN_RAM_FUNC keymap_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
 {
     keymap_cache_ready();
+    keymap_arm_repeat(modifier, keycode, initial_press);
     keymap_press_t k;
-    keymap_decode(modifier, keycode, initial_press, &k);
+    keymap_decode(modifier, keycode, &k);
     if (keymap_alt_code_key(&k))
         return;
-    char ch = keymap_layout_lookup(&k);
-    if (k.alt && !ch && k.keycode < 128 && keymap_alt_escape(&k))
-        return;
-    /* Ctrl can make a 0, so whether there is a byte to type is kept apart
-     * from the byte. */
-    int c = ch ? (unsigned char)ch : -1;
-    if (k.ctrl)
-        c = keyboard_ctrl_promote(ch, k.keycode);
-    if (c >= 0)
-    {
-        keymap_compose((char)c);
-        return;
-    }
     if (initial_press && keymap_chord(&k))
+    {
+        keymap_repeat_keycode = 0;
         return;
-    keymap_emit_vt(&k);
-}
-
-static int keymap_sanitize_layout(const char *kb)
-{
-    int default_index = 0;
-    int found_index = -1;
-    for (int i = 0; i < layout_count(); i++)
-    {
-        char name[LAYOUT_NAME_MAX];
-        layout_name(i, name);
-        if (!strcasecmp(name, "US"))
-            default_index = i;
-        if (!strcasecmp(name, kb))
-            found_index = i;
     }
-    if (found_index < 0)
-        return default_index;
-    else
-        return found_index;
-}
-
-// Find name as a whole token in a space separated list.
-static const char *keymap_find_token(const char *list, const char *name)
-{
-    size_t name_len = strlen(name);
-    while (*list)
+    uint8_t flags = (uint8_t)((k.shift ? VTKEY_SHIFT : 0) | (k.alt ? VTKEY_ALT : 0) |
+                              (k.ctrl ? VTKEY_CTRL : 0));
+    char seq[VTKEY_MAX];
+    int n = vtkey_encode(seq, k.keycode, flags);
+    if (n == VTKEY_CHAR)
     {
-        while (*list == ' ')
-            list++;
-        if (!*list)
-            break;
-        size_t len = 0;
-        while (list[len] && list[len] != ' ')
-            len++;
-        if (len == name_len && !strncmp(list, name, len))
-            return list;
-        list += len;
+        /* An Alt chord on a key that AltGr does not answer is Meta on the
+         * plain or shifted character. Any other character is typed without
+         * Alt. */
+        char ch = keymap_layout_lookup(&k);
+        if (k.alt && !ch && k.keycode < 128)
+            ch = ff_uni2oem(layout_code_point(keymap_layout_index, k.keycode,
+                                              keymap_shifted(&k) ? LAYOUT_SHIFT : LAYOUT_PLAIN),
+                            oem_get_code_page_run());
+        else
+            flags &= (uint8_t)~VTKEY_ALT;
+        n = vtkey_char(seq, k.keycode, ch, flags);
     }
-    return NULL;
-}
-
-// Validate and canonicalize a space separated layout list into out.
-// Fails on an unknown or duplicate layout, an empty list, or overflow.
-static bool keymap_build_layout_list(const char *in, char *out, size_t size)
-{
-    size_t len = 0;
-    out[0] = 0;
-    while (*in)
-    {
-        while (*in == ' ')
-            in++;
-        if (!*in)
-            break;
-        size_t tok_len = 0;
-        while (in[tok_len] && in[tok_len] != ' ')
-            tok_len++;
-        char name[LAYOUT_NAME_MAX];
-        name[0] = 0;
-        for (int i = 0; i < layout_count(); i++)
-        {
-            layout_name(i, name);
-            if (strlen(name) == tok_len && !strncasecmp(in, name, tok_len))
-                break;
-            name[0] = 0;
-        }
-        if (!name[0] || keymap_find_token(out, name))
-            return false;
-        if (len + (len ? 1 : 0) + strlen(name) + 1 > size)
-            return false;
-        if (len)
-            out[len++] = ' ';
-        strcpy(out + len, name);
-        len += strlen(name);
-        in += tok_len;
-    }
-    return len != 0;
+    if (n)
+        keymap_type(seq, n);
 }
 
 void HOST_IN_RAM_FUNC keymap_task(void)
 {
     if (keymap_repeat_keycode && timer_passed(keymap_repeat_timer))
     {
-        if (keyboard_key_down(keymap_repeat_keycode) &&
+        if (vtkey_repeats() &&
+            keyboard_key_down(keymap_repeat_keycode) &&
             keyboard_get_modifier() == keymap_repeat_modifier)
         {
             keymap_queue_key(keyboard_get_modifier(), keymap_repeat_keycode, false);
@@ -490,31 +406,7 @@ void HOST_IN_RAM_FUNC keymap_task(void)
     }
 }
 
-/* The width the caller asks for is ignored, because the list is laid out from
- * the longest layout name it has. */
-int HOST_IN_FLASH_FUNC keymap_layouts_response(char *buf,
-                                                                          size_t buf_size,
-                                                                          int state, unsigned width)
-{
-    (void)width;
-    if (state < 0 || state >= layout_count())
-        return -1;
-    char name[LAYOUT_NAME_MAX];
-    char desc[LAYOUT_DESC_MAX];
-    int maxlen = 0;
-    for (int i = 0; i < layout_count(); i++)
-    {
-        layout_name(i, name);
-        int thislen = strlen(name);
-        if (thislen > maxlen)
-            maxlen = thislen;
-    }
-    layout_name(state, name);
-    layout_description(state, desc);
-    snprintf(buf, buf_size, "  %*s - \a%s\n", maxlen, name, desc);
-    return state + 1;
-}
-
+/* layout.py refuses a layout whose dead keys do not fit the cache. */
 static void HOST_IN_FLASH_FUNC keymap_rebuild_code_page_cache(void)
 {
     size_t cache_index = 0;
@@ -525,39 +417,16 @@ static void HOST_IN_FLASH_FUNC keymap_rebuild_code_page_cache(void)
     unsigned count3 = layout_dead3_count(keymap_layout_index);
     keymap_cached_dead2 = (void *)&keymap_deadkey_cache[cache_index];
     for (unsigned i = 0; i < count2; i++)
-    {
         for (unsigned j = 0; j < 3; j++)
-        {
-            keymap_deadkey_cache[cache_index] = ff_uni2oem(
+            keymap_deadkey_cache[cache_index++] = ff_uni2oem(
                 layout_dead2(keymap_layout_index, i, j), code_page);
-            if (++cache_index >= sizeof(keymap_deadkey_cache))
-                goto overflow_error;
-        }
-    }
-    keymap_deadkey_cache[cache_index] = 0;
-    if (++cache_index >= sizeof(keymap_deadkey_cache))
-        goto overflow_error;
+    keymap_deadkey_cache[cache_index++] = 0;
     keymap_cached_dead3 = (void *)&keymap_deadkey_cache[cache_index];
     for (unsigned i = 0; i < count3; i++)
-    {
         for (unsigned j = 0; j < 4; j++)
-        {
-            keymap_deadkey_cache[cache_index] = ff_uni2oem(
+            keymap_deadkey_cache[cache_index++] = ff_uni2oem(
                 layout_dead3(keymap_layout_index, i, j), code_page);
-            if (++cache_index >= sizeof(keymap_deadkey_cache))
-                goto overflow_error;
-        }
-    }
     keymap_deadkey_cache[cache_index] = 0;
-    return;
-overflow_error:
-    /* A database that layout.py built never gets here, because it refuses a
-     * layout whose dead keys do not fit. A machine staging a database it did
-     * not build loses the composing rather than the keyboard. */
-    keymap_cached_dead2 = (void *)&keymap_deadkey_cache[0];
-    keymap_cached_dead3 = (void *)&keymap_deadkey_cache[0];
-    keymap_deadkey_cache[0] = 0;
-    RP6502_LOG(keyboard, ERROR, "dead key cache overflow");
 }
 
 size_t HOST_IN_RAM_FUNC keymap_in_chars(char *buf, size_t length)
@@ -572,67 +441,9 @@ int HOST_IN_RAM_FUNC keymap_in_peek(size_t offset)
                : -1;
 }
 
-bool keymap_check_layout_list(const char *in, char *out)
-{
-    return keymap_build_layout_list(in, out, KEYMAP_LAYOUT_LIST_SIZE);
-}
-
-/* The active layout is kept if it survived the new list, and otherwise the
- * first is taken. The position points into config's own storage, which holds
- * these same bytes by the time this runs. */
-void keymap_apply_layout_list(const char *list, bool changed)
-{
-    (void)list;
-    (void)changed;
-    keymap_layout_pos = keymap_find_token(keymap_get_layout_list(), keymap_layout_name);
-    if (!keymap_layout_pos)
-        keymap_layout_pos = keymap_get_layout_list();
-    keymap_apply_active();
-}
-
-int HOST_IN_FLASH_FUNC keymap_layout_list_response(char *buf,
-                                                                                  size_t buf_size,
-                                                                                  int state,
-                                                                                  unsigned width)
-{
-    (void)state;
-    (void)width;
-    const char *list = keymap_get_layout_list();
-    if (strchr(list, ' '))
-        snprintf(buf, buf_size, STR_SET_KB_LIST_RESPONSE, list);
-    else
-        snprintf(buf, buf_size, STR_SET_KB_RESPONSE,
-                 keymap_get_layout(), keymap_get_layout_verbose());
-    return -1;
-}
-
-const char *keymap_get_layout(void)
-{
-    return keymap_layout_name;
-}
-
-const char *keymap_get_layout_verbose(void)
-{
-    return keymap_layout_description;
-}
-
-void HOST_IN_FLASH_FUNC keymap_init(void)
-{
-    /* A machine with no stored layout adopts the default and writes it back,
-     * so the config file completes itself once. */
-    if (!keymap_get_layout_list()[0])
-    {
-        char name[LAYOUT_NAME_MAX];
-        layout_name(keymap_sanitize_layout(""), name);
-        keymap_set_layout_list(name);
-    }
-    else
-        keymap_apply_layout_list(keymap_get_layout_list(), true);
-}
-
 /* Called once per report, so that an Alt code typed while Alt was held is
  * emitted when Alt is released. */
-void HOST_IN_RAM_FUNC keymap_on_modifiers(uint8_t modifier)
+void HOST_IN_RAM_FUNC keyboard_on_modifiers(uint8_t modifier)
 {
     if (keymap_alt_mode &&
         !(modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT)))
@@ -643,7 +454,7 @@ void HOST_IN_RAM_FUNC keymap_on_modifiers(uint8_t modifier)
     }
 }
 
-void HOST_IN_RAM_FUNC keymap_on_key(uint8_t modifier, uint8_t keycode)
+void HOST_IN_RAM_FUNC keyboard_on_press(uint8_t modifier, uint8_t keycode)
 {
     keymap_queue_key(modifier, keycode, true);
 }

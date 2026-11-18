@@ -5,11 +5,10 @@
  */
 
 module soc
-    import tcm_pkg::*;
+    import mem_pkg::*;
 #(
-    parameter int MTIME_ADD = 1,
-    parameter int MTIME_WRAP = 1,
-    parameter TCM_INIT_FILE = ""
+    /* clk's rate, a multiple of 100 kHz. */
+    parameter int CLK_KHZ = 50400
 ) (
     input logic clk,
     input logic rst_n,
@@ -29,38 +28,26 @@ module soc
 
     output logic [15:0] soc_phi2_khz,
 
-    input logic sst_dbg_halt,
-    input logic sst_dbg_halt_on_reset,
-    input logic sst_dbg_resume,
-    output logic soc_dbg_halted,
-    input logic [31:0] sst_dbg_data0,
-    output logic [31:0] soc_dbg_data0,
-    output logic soc_dbg_data0_wen,
-    input logic [31:0] sst_dbg_instr,
-    input logic sst_dbg_instr_vld,
-    output logic soc_dbg_instr_rdy,
-    output logic soc_dbg_ebreak,
-    output logic soc_dbg_fault,
+    /* mtime stands still while this is high: the platform holds the
+     * machine whose clock mtime is, and that machine loses no time. */
+    input logic mtime_hold,
 
-    input logic sst_phi2_we,
-    input logic [15:0] sst_phi2_wdata,
-    output logic [63:0] soc_mtime,
-    input logic sst_mtime_we,
-    input logic [63:0] sst_mtime_wdata,
-    input logic sst_tcm_sel,
-    input logic [TCM_AW-1:0] sst_tcm_addr,
-    input logic sst_tcm_we,
-    input logic [31:0] sst_tcm_wdata,
-    output logic [31:0] soc_tcm_rdata,
+    /* The memory is lines of four words behind this port, which the
+     * platform answers. cache.sv says how it is used. */
+    output logic soc_line_pend,
+    output logic soc_line_we,
+    output logic [MEM_AW-3:0] soc_line_addr,
+    output logic [127:0] soc_line_wdata,
+    input logic line_done,
+    input logic [127:0] line_rdata,
 
     output logic soc_halted,
     output logic [31:0] soc_exit_code,
 
-    /* wiring sets bus_taken on its own clock, on the first edge that
-     * finds the access pending and its target able to finish it, and
-     * holds it until soc_bus_pend drops. Nothing else about the access
-     * comes back: the data phase ends one clk cycle after the request is
-     * withdrawn, and by then the target has the word. */
+    /* bus_taken is high for one clock, the clock after the platform
+     * took the access. Nothing else about the access comes back: the
+     * data phase ends a clock after bus_taken, and by then the target
+     * has the word. */
     input logic bus_taken,
     output logic soc_bus_pend,
     output logic soc_bus_we,
@@ -80,29 +67,15 @@ module soc
     logic [31:0] hrdata /*verilator public_flat_rd*/;
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_bits;
-    always_comb unused_bits = ^{haddr[27:17], htrans[0], hsize[2]};
+    always_comb unused_bits = ^{haddr[27:MEM_AW+2], htrans[0], hsize[2]};
     /* verilator lint_on UNUSEDSIGNAL */
 
     /* verilator lint_off PINCONNECTEMPTY */
-    /* The core makes its data0 write from a register through its CSR
-     * path, and the falling edge that takes it in wiring is half a
-     * system clock on, so it is registered here first. */
-    logic [31:0] dbg_data0_w;
-    logic dbg_data0_wen_w;
-    initial begin
-        soc_dbg_data0 = '0;
-        soc_dbg_data0_wen = 1'b0;
-    end
-    always_ff @(posedge clk) begin
-        soc_dbg_data0 <= dbg_data0_w;
-        soc_dbg_data0_wen <= dbg_data0_wen_w;
-    end
-
     hazard3_cpu_1port #(
         .RESET_VECTOR(32'h0000_0000),
         .MTVEC_INIT(32'h0000_0000),
         .NUM_IRQS(1),
-        .DEBUG_SUPPORT(1)
+        .DEBUG_SUPPORT(0)
     ) cpu (
         .clk(clk),
         .clk_always_on(clk),
@@ -129,19 +102,19 @@ module soc
         .fence_i_vld(),
         .fence_d_vld(),
         .fence_rdy(1'b1),
-        .dbg_req_halt(sst_dbg_halt),
-        .dbg_req_halt_on_reset(sst_dbg_halt_on_reset),
-        .dbg_req_resume(sst_dbg_resume),
-        .dbg_halted(soc_dbg_halted),
+        .dbg_req_halt(1'b0),
+        .dbg_req_halt_on_reset(1'b0),
+        .dbg_req_resume(1'b0),
+        .dbg_halted(),
         .dbg_running(),
-        .dbg_data0_rdata(sst_dbg_data0),
-        .dbg_data0_wdata(dbg_data0_w),
-        .dbg_data0_wen(dbg_data0_wen_w),
-        .dbg_instr_data(sst_dbg_instr),
-        .dbg_instr_data_vld(sst_dbg_instr_vld),
-        .dbg_instr_data_rdy(soc_dbg_instr_rdy),
-        .dbg_instr_caught_exception(soc_dbg_fault),
-        .dbg_instr_caught_ebreak(soc_dbg_ebreak),
+        .dbg_data0_rdata(32'h0),
+        .dbg_data0_wdata(),
+        .dbg_data0_wen(),
+        .dbg_instr_data(32'h0),
+        .dbg_instr_data_vld(1'b0),
+        .dbg_instr_data_rdy(),
+        .dbg_instr_caught_exception(),
+        .dbg_instr_caught_ebreak(),
         .dbg_sbus_addr(32'h0),
         .dbg_sbus_write(1'b0),
         .dbg_sbus_size(2'h0),
@@ -163,12 +136,14 @@ module soc
     logic dph_mmio /*verilator public_flat_rd*/;
     logic dph_ext /*verilator public_flat_rd*/;
     logic dph_waited /*verilator public_flat_rd*/;
-    logic [TCM_AW-1:0] dph_word;
+    logic [MEM_AW-1:0] dph_word;
     logic [31:0] dph_addr;
     logic [3:0] dph_strb;
     logic [6:0] mmio_reg;
 
-    always_comb hready = !(dph_active && dph_ext && !dph_waited);
+    logic cache_ready;
+    always_comb hready = !(dph_active && dph_ext && !dph_waited)
+        && cache_ready;
 
     logic [3:0] strb;
     always_comb begin
@@ -179,56 +154,34 @@ module soc
         endcase
     end
 
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] tcm0[TCM_WORDS] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] tcm1[TCM_WORDS] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] tcm2[TCM_WORDS] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] tcm3[TCM_WORDS] /*verilator public_flat_rw*/;
-
-    generate
-        if (TCM_INIT_FILE != "") begin : tcm_init
-            initial begin
-                $readmemh({TCM_INIT_FILE, ".0"}, tcm0);
-                $readmemh({TCM_INIT_FILE, ".1"}, tcm1);
-                $readmemh({TCM_INIT_FILE, ".2"}, tcm2);
-                $readmemh({TCM_INIT_FILE, ".3"}, tcm3);
-            end
-        end
-    endgenerate
-
-    logic [31:0] tcm_rdata /*verilator public_flat_rd*/;
-    logic [TCM_AW-1:0] word_addr;
-    always_comb word_addr = sst_tcm_sel ? sst_tcm_addr : haddr[TCM_AW+1:2];
-    always_comb soc_tcm_rdata = tcm_rdata;
-
-    /* A store's data phase overlaps the address phase of the next
-     * access, so a read of the word being stored samples the arrays on
-     * the same edge that writes them and is not guaranteed to return
-     * the stored bytes. tcm_fwd marks the stored lanes so that tcm_q
-     * takes them from tcm_fwd_data instead. */
-    logic [3:0] tcm_fwd;
-    logic [31:0] tcm_fwd_data;
-    logic [31:0] tcm_q;
-    logic tcm_wr;
-    always_comb tcm_wr = dph_active && dph_write && !dph_mmio && !dph_ext;
-
-    /* sst_tcm_sel is high only while the core is halted, when it fetches
-     * nothing and executes only the CSR moves and ebreaks injected at
-     * its debug port, so the core and the savestate engine never use
-     * the TCM ports at the same time. */
-    logic tcm_wen;
-    logic [TCM_AW-1:0] tcm_wword;
-    logic [3:0] tcm_wstrb;
-    logic [31:0] tcm_wdata;
-    always_comb begin
-        tcm_wen = sst_tcm_sel ? sst_tcm_we : tcm_wr;
-        tcm_wword = sst_tcm_sel ? sst_tcm_addr : dph_word;
-        tcm_wstrb = sst_tcm_sel ? 4'b1111 : dph_strb;
-        tcm_wdata = sst_tcm_sel ? sst_tcm_wdata : hwdata;
-    end
+    /* The memory is the top nibble 0. The cache reads its memories at the
+     * address of the access after the one in its data phase, in every
+     * clock, so it answers a hit with no wait, and a load whose address
+     * phase overlaps a store's data phase returns the stored bytes. A
+     * miss holds hready low while the line comes through the line port.
+     *
+     * A store to the ROM block is dropped: the cache sees a load, so the
+     * access ends as any other and nothing changes. No line of the ROM
+     * block is ever dirty, and the cache never writes one out. */
+    logic [31:0] mem_rdata;
+    cache #(.MEM_WORDS(MEM_WORDS)) cache (
+        .clk(clk),
+        .rst_n(rst_n),
+        .req_word(haddr[MEM_AW+1:2]),
+        .dph(dph_active && !dph_mmio && !dph_ext),
+        .dph_write(dph_write && dph_word >= MEM_AW'(ROM_WORDS)),
+        .dph_word(dph_word),
+        .dph_strb(dph_strb),
+        .wdata(hwdata),
+        .cache_rdata(mem_rdata),
+        .cache_ready(cache_ready),
+        .cache_line_pend(soc_line_pend),
+        .cache_line_we(soc_line_we),
+        .cache_line_addr(soc_line_addr),
+        .cache_line_wdata(soc_line_wdata),
+        .line_done(line_done),
+        .line_rdata(line_rdata)
+    );
 
     initial begin
         dph_active = 1'b0;
@@ -247,7 +200,7 @@ module soc
             dph_write <= hwrite;
             dph_mmio <= haddr[31:28] == 4'hF;
             dph_ext <= haddr[31:28] != 4'h0 && haddr[31:28] != 4'hF;
-            dph_word <= haddr[TCM_AW+1:2];
+            dph_word <= haddr[MEM_AW+1:2];
             dph_addr <= haddr;
             dph_strb <= strb;
             mmio_reg <= haddr[6:0];
@@ -259,31 +212,10 @@ module soc
 
     always_comb soc_bus_pend = dph_active && dph_ext && !dph_waited;
     always_comb begin
-        /* soc_bus_we holds for the whole request, because when wiring is
-         * built with EXT_RAM set, pocket_sram captures the write enable
-         * when it starts a port B access, which is before the access is
-         * taken. */
         soc_bus_we = dph_write;
         soc_bus_addr = dph_addr;
         soc_bus_wdata = hwdata;
         soc_bus_wstrb = dph_strb;
-    end
-
-    always_ff @(posedge clk) begin
-        tcm_rdata <= {tcm3[word_addr], tcm2[word_addr],
-                      tcm1[word_addr], tcm0[word_addr]};
-        tcm_fwd <= (tcm_wr && dph_word == word_addr) ? dph_strb : 4'b0000;
-        tcm_fwd_data <= hwdata;
-        if (tcm_wen) begin
-            if (tcm_wstrb[0])
-                tcm0[tcm_wword] <= tcm_wdata[7:0];
-            if (tcm_wstrb[1])
-                tcm1[tcm_wword] <= tcm_wdata[15:8];
-            if (tcm_wstrb[2])
-                tcm2[tcm_wword] <= tcm_wdata[23:16];
-            if (tcm_wstrb[3])
-                tcm3[tcm_wword] <= tcm_wdata[31:24];
-        end
     end
 
     logic [7:0] mmio_kbd_data /*verilator public_flat_rw*/;
@@ -293,31 +225,63 @@ module soc
     always_comb soc_key_pending = mmio_key_valid;
     logic [31:0] mmio_slot_len /*verilator public_flat_rw*/;
 
+    /* An MMIO write, data phase and all, is done on the clock its data
+     * phase ends, and the side effect of a read is taken there too. */
+    logic mmio_we, mmio_re;
+    always_comb begin
+        mmio_we = dph_active && dph_write && dph_mmio && hready;
+        mmio_re = dph_active && !dph_write && dph_mmio && hready;
+    end
+
+    /* mtime is the machine's clock, which a savestate carries, so it
+     * counts only while mtime_hold is low. It is written as two halves,
+     * the low one first: a write of the low half is kept until the high
+     * half's write puts both in, so a savestate puts the count back
+     * whole.
+     *
+     * A microsecond is CLK_KHZ / 1000 clocks, which need not be whole, so
+     * the counters add 10 a clock and step at CLK_KHZ / 100, 504 at
+     * 50.4 MHz. */
+    localparam logic [15:0] US_ADD = 16'd10;
+    localparam logic [15:0] US_LAST = 16'(CLK_KHZ / 100) - US_ADD;
     logic [63:0] mtime_us /*verilator public_flat_rd*/;
     logic [15:0] mtime_acc;
+    logic [31:0] mtime_lo;
     initial begin
         mtime_us = 64'd0;
         mtime_acc = '0;
+        mtime_lo = '0;
     end
-    always_comb soc_mtime = mtime_us;
-    /* mtime_us does not count while the core is halted, because Hazard3
-     * hardwires dcsr.stoptime to 1, which means that timers local to the
-     * core do not count in debug mode. */
     always_ff @(posedge clk) begin
-        if (!soc_dbg_halted) begin
-            if ({16'd0, mtime_acc} + 32'(MTIME_ADD) >= 32'(MTIME_WRAP))
-            begin
-                mtime_acc <= 16'(32'(mtime_acc) + 32'(MTIME_ADD)
-                                 - 32'(MTIME_WRAP));
+        if (!mtime_hold) begin
+            if (mtime_acc >= US_LAST) begin
+                mtime_acc <= mtime_acc - US_LAST;
                 mtime_us <= mtime_us + 64'd1;
-            end else begin
-                mtime_acc <= mtime_acc + 16'(MTIME_ADD);
-            end
+            end else
+                mtime_acc <= mtime_acc + US_ADD;
         end
-        if (sst_mtime_we) begin
-            mtime_us <= sst_mtime_wdata;
+        if (mmio_we && mmio_reg == 7'h10)
+            mtime_lo <= hwdata;
+        if (mmio_we && mmio_reg == 7'h14) begin
+            mtime_us <= {hwdata, mtime_lo};
             mtime_acc <= '0;
         end
+    end
+
+    /* uptime counts microseconds from configuration, with nothing to stop
+     * or write it, so the wall clock follows real time through a hold. */
+    logic [63:0] uptime_us;
+    logic [15:0] uptime_acc;
+    initial begin
+        uptime_us = 64'd0;
+        uptime_acc = '0;
+    end
+    always_ff @(posedge clk) begin
+        if (uptime_acc >= US_LAST) begin
+            uptime_acc <= uptime_acc - US_LAST;
+            uptime_us <= uptime_us + 64'd1;
+        end else
+            uptime_acc <= uptime_acc + US_ADD;
     end
 
     always_comb begin
@@ -330,6 +294,8 @@ module soc
                 7'h10: hrdata = mtime_us[31:0];
                 7'h14: hrdata = mtime_us[63:32];
                 7'h18: hrdata = mmio_slot_len;
+                7'h20: hrdata = uptime_us[31:0];
+                7'h24: hrdata = uptime_us[63:32];
                 7'h4C: hrdata = {24'd0, upd_n};
                 7'h1C: hrdata = {22'd0, mmio_key_valid, mmio_key_data};
                 7'h50: hrdata = cont_key[0];
@@ -347,14 +313,7 @@ module soc
                 default: hrdata = 32'h0;
             endcase
         else
-            hrdata = tcm_q;
-    end
-
-    always_comb begin
-        tcm_q[7:0] = tcm_fwd[0] ? tcm_fwd_data[7:0] : tcm_rdata[7:0];
-        tcm_q[15:8] = tcm_fwd[1] ? tcm_fwd_data[15:8] : tcm_rdata[15:8];
-        tcm_q[23:16] = tcm_fwd[2] ? tcm_fwd_data[23:16] : tcm_rdata[23:16];
-        tcm_q[31:24] = tcm_fwd[3] ? tcm_fwd_data[31:24] : tcm_rdata[31:24];
+            hrdata = mem_rdata;
     end
 
     initial begin
@@ -371,9 +330,9 @@ module soc
     end
     always_ff @(posedge clk) begin
             soc_tx_valid <= 1'b0;
-            if (dph_active && !dph_write && dph_mmio && mmio_reg == 7'h08)
+            if (mmio_re && mmio_reg == 7'h08)
                 mmio_kbd_valid <= 1'b0;
-            if (dph_active && !dph_write && dph_mmio && mmio_reg == 7'h1C)
+            if (mmio_re && mmio_reg == 7'h1C)
                 mmio_key_valid <= 1'b0;
             if (slot_set)
                 mmio_slot_len <= slot_len;
@@ -381,7 +340,7 @@ module soc
                 mmio_key_data <= key_code;
                 mmio_key_valid <= 1'b1;
             end
-            if (dph_active && dph_write && dph_mmio) begin
+            if (mmio_we) begin
                 case (mmio_reg)
                     7'h00: begin
                         soc_tx_data <= hwdata[7:0];
@@ -396,10 +355,6 @@ module soc
                     default: ;
                 endcase
             end
-            /* sst_phi2_we is tested after the register writes so that
-             * sst_phi2_wdata takes priority over a core write to
-             * soc_phi2_khz on the same edge. */
-            if (sst_phi2_we) soc_phi2_khz <= sst_phi2_wdata;
     end
 
 endmodule

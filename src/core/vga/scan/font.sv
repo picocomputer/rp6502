@@ -3,22 +3,20 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The font store, four faces read a byte at a time. Nothing is built
- * into the bitstream: the store comes up blank and the firmware fills it
- * from the font asset, which is how the seventeen code pages in
- * core/term/font.c fit without seventeen code pages of program memory.
+ * The font store, two fonts read a byte at a time. Nothing is built into
+ * the bitstream: the store comes up blank and the firmware fills it from
+ * the tables core/term/font.c builds.
  *
- * Faces are row-major with the same stride the C uses, so the hardware
- * image is the C image. The read address carries the face in its top two
- * bits:
+ * Each font is core/term/font.h's: two tables of 256 glyphs, each
+ * row-major, so the hardware image is the C image. The first table is
+ * the code page's, which is all mode 1 draws. The second has the italics
+ * and DEC Special Graphics, which mode 0's glyphs reach. The read address
+ * carries the font in its top bit:
  *
- *   0  font16    {2'b00, row[3:0], code[7:0]}         4096 B
- *   1  font8     {2'b01, 1'b0, row[2:0], code[7:0]}   2048 B
- *   2  italic16  {2'b10, 1'b0, row[3:0], code[6:0]}   2048 B
- *   3  dec16     {2'b11, 3'b000, row[3:0], idx[4:0]}   512 B
- *      dec8      {2'b11, 3'b001, 1'b0, row[2:0], idx[4:0]} above it
+ *   font16  {1'b0, table, row[3:0], code[7:0]}         8192 B
+ *   font8   {2'b10, table, row[2:0], code[7:0]}        4096 B
  *
- * Each face is a word wide with byte lanes because that is the shape a
+ * Each font is a word wide with byte lanes because that is the shape a
  * block RAM holds cheaply.
  */
 
@@ -36,54 +34,37 @@ module font (
     input logic [31:0] w_data
 );
 
-    logic [31:0] f16[1024] /*verilator public_flat_rd*/;
-    logic [31:0] f8[512] /*verilator public_flat_rd*/;
-    logic [31:0] ital[512] /*verilator public_flat_rd*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [31:0] dec[256] /*verilator public_flat_rd*/;
-
-    logic [1:0] w_face;
-    always_comb w_face = w_addr[13:12];
+    logic [31:0] f16[2048] /*verilator public_flat_rd*/;
+    logic [31:0] f8[1024] /*verilator public_flat_rd*/;
 
     always_ff @(posedge clk) begin
-        if (w_stb && w_face == 2'd0)
-            f16[w_addr[11:2]] <= w_data;
-        if (w_stb && w_face == 2'd1)
-            f8[w_addr[10:2]] <= w_data;
-        if (w_stb && w_face == 2'd2)
-            ital[w_addr[10:2]] <= w_data;
-        if (w_stb && w_face == 2'd3)
-            dec[w_addr[9:2]] <= w_data;
+        if (w_stb && !w_addr[13])
+            f16[w_addr[12:2]] <= w_data;
+        if (w_stb && w_addr[13])
+            f8[w_addr[11:2]] <= w_data;
     end
 
-    logic [31:0] q16, q8, q_ital, q_dec;
-    logic [1:0] face_q;
+    logic [31:0] q16, q8;
+    logic face_q;
     logic [1:0] byte_q;
     always_ff @(posedge clk) begin
-        q16 <= f16[addr[11:2]];
-        q8 <= f8[addr[10:2]];
-        q_ital <= ital[addr[10:2]];
-        q_dec <= dec[addr[9:2]];
-        face_q <= addr[13:12];
+        q16 <= f16[addr[12:2]];
+        q8 <= f8[addr[11:2]];
+        face_q <= addr[13];
         byte_q <= addr[1:0];
     end
 
     logic [31:0] word_q;
     always_comb begin
-        case (face_q)
-            2'd1: word_q = q8;
-            2'd2: word_q = q_ital;
-            2'd3: word_q = q_dec;
-            default: word_q = q16;
-        endcase
+        word_q = face_q ? q8 : q16;
         font_bits = word_q[{byte_q, 3'b000}+:8];
     end
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_font;
     /* Writes are whole words, so the byte within the word selects
-     * nothing. */
-    always_comb unused_font = ^{w_addr[1:0]};
+     * nothing, and font8 is half of its half of the window. */
+    always_comb unused_font = ^{w_addr[1:0], w_addr[12], addr[12]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

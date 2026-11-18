@@ -76,7 +76,7 @@ static bool load_rom(const char *path)
     rom.clear();
     if (!tb_rom_read(path, rom))
         return false;
-    if (!tb_firmware(dut, SW_BIN))
+    if (!tb_firmware(SW_BIN))
         return false;
     tb_reset(dut);
     dut->rootp->wiring__DOT__soc__DOT__mmio_slot_len = (uint32_t)rom.size();
@@ -187,7 +187,7 @@ UTEST(aud, opl_overruns_count_the_writes_the_queue_could_not_take)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_OPL_OVERRUNS));
     auto *r = dut->rootp;
-    auto &ram = r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem;
+    auto &ram = r->wiring__DOT__sram__DOT__mem;
     const uint16_t got = 0x0210;
     ram[got + 7] = 0;
     /* Each clock's push, drop and pop land on the next edge; a pop frees a
@@ -224,7 +224,7 @@ UTEST(aud, opl_overruns_count_the_writes_the_queue_could_not_take)
 UTEST(aud, pcm_underruns_counts_the_buffer_running_dry)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_PCM_DRY));
-    auto &ram = dut->rootp->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem;
+    auto &ram = dut->rootp->wiring__DOT__sram__DOT__mem;
     const uint16_t got = 0x0210;
     ram[got + 7] = 0;
     for (int frames = 0; frames < 12 && !ram[got + 7]; frames++)
@@ -323,11 +323,15 @@ UTEST(aud, a_program_exit_goes_quiet)
 }
 
 /* aud.py's pcm ROM: 1050 Hz at 22050 Hz, 16-bit mono, peaking at 16000,
- * fed once a frame. Two frames start it, and the next ten, 8000 samples,
- * hold 175 cycles, 350 swings through the gate, the same on both sides. */
+ * fed once a frame. Two frames after the program starts the tone is
+ * steady, and the next ten, 8000 samples, hold 175 cycles, 350 swings
+ * through the gate, the same on both sides. */
 UTEST(aud, pcm_plays_the_tone_it_is_given)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_PCM));
+    for (long n = 0; n < 4000000L && !dut->rootp->wiring__DOT__resb; n++)
+        aud_clock();
+    ASSERT_NE((int)dut->rootp->wiring__DOT__resb, 0);
     run_frame();
     run_frame();
     g_valids = 0;
@@ -370,7 +374,7 @@ UTEST(aud, pcm_keeps_the_rules)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_PCM_RULES));
     auto *r = dut->rootp;
-    auto &ram = r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem;
+    auto &ram = r->wiring__DOT__sram__DOT__mem;
     ram[RULES_DONE] = 0;
     uint32_t step[2] = {0, 0};
     int fmt[2] = {0, 0}, level[2] = {-1, -1};
@@ -492,7 +496,7 @@ UTEST(aud, pcm_writes_land_in_order)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_PCM_ORDER));
     auto *r = dut->rootp;
-    auto &ram = r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem;
+    auto &ram = r->wiring__DOT__sram__DOT__mem;
     ram[ORDER_DONE] = 0;
     for (int i = 0; i < 40 && !ram[ORDER_DONE]; i++)
         run_frame();
@@ -521,7 +525,6 @@ int main(int argc, const char *const argv[])
     Verilated::commandArgs(argc, const_cast<char **>(argv));
     dut = new Vwiring;
     dut->clk_sys = 0;
-    dut->clk_rv = 0;
     dut->rst_n = 0;
     dut->eval();
     int rc = utest_main(argc, argv);

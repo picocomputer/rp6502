@@ -4,6 +4,7 @@ rp6502_add_test(apf
         ${RP6502_SRC}/core/hid/keyboard.c
         ${RP6502_SRC}/core/hid/layout.c
         ${RP6502_SRC}/core/hid/keymap.c
+        ${RP6502_SRC}/core/hid/vtkey.c
         ${RP6502_SRC}/core/sys/ring.c
         ${RP6502_SRC}/core/hid/mouse.c
         ${RP6502_SRC}/core/hid/gamepad.c
@@ -33,13 +34,11 @@ set(POCKET_STACK
     ${RP6502_POCKET_CORE}/pocket_video.sv
     ${RP6502_POCKET_CORE}/pocket_i2s.sv
     ${RP6502_POCKET_CORE}/pocket_sdram.sv
-    ${RP6502_POCKET_CORE}/pocket_sram.sv
     ${RP6502_POCKET_CORE}/pocket_bridge.sv
     ${RP6502_POCKET_CORE}/pocket_file.sv
     ${RP6502_POCKET_CORE}/pocket_sst.sv
     ${RP6502_POCKET_CORE}/pocket_core.sv
     ${POCKET_TB}/sdram_model.sv
-    ${POCKET_TB}/asram_model.sv
     ${POCKET_TB}/tb_pocket.sv)
 
 rp6502_add_module_test(fifo
@@ -48,10 +47,16 @@ rp6502_add_module_test(fifo
     TIMEOUT 120)
 
 rp6502_add_module_test(psst
-    TOP pocket_sst
-    RTL ${RP6502_POCKET_CORE}/pocket_fifo.sv
+    TOP tb_psst
+    RTL ${RP6502_ASSETS}/pocket_version_pkg.sv
         ${RP6502_POCKET_CORE}/pocket_sst.sv
-    TIMEOUT 120)
+        ${RP6502_POCKET_CORE}/pocket_sdram.sv
+        ${RP6502_VENDOR}/openfpga_rp6502/core_bridge_cmd.v
+        ${POCKET_TB}/sdram_model.sv ${POCKET_TB}/tb_psst.sv
+    INCLUDES ${RP6502_GEN}
+    ARGS ${RP6502_BENCH}/apf.vlt
+    DEPENDS rp6502_gen_assets rp6502_gen_c
+    TIMEOUT 300)
 
 rp6502_add_module_test(pdbglog
     TOP pocket_dbglog
@@ -86,25 +91,28 @@ rp6502_add_module_test(pbridge
         ${POCKET_TB}/sdram_model.sv ${POCKET_TB}/tb_pbridge.sv
     TIMEOUT 300)
 
+# The whole-core tests start from snapshots of a machine that has booted,
+# which they keep in snap/ under this folder's build folder. How the
+# snapshots work, and what a test must do to keep them right, is in
+# tests/bench/tb_snap.h.
 if(RP6502_SOFT_CPU)
-    rp6502_add_machine_test(pocket FIRMWARE SPLIT
+    rp6502_add_machine_test(pocket FIRMWARE SPLIT SAVABLE
         TOP tb_pocket
         RTL ${POCKET_STACK}
         DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
         TIMEOUT 1200)
 
-    rp6502_add_machine_test(psleep FIRMWARE SPLIT
+    rp6502_add_machine_test(psleep FIRMWARE SPLIT SAVABLE
         TOP tb_pocket
         RTL ${POCKET_STACK}
-        DEFS FILE_ROM="${FILE_ROM}" STREAM_ROM="${STREAM_ROM}"
-            OPL_ROM="${OPL_ROM}" PCM_ROM="${PCM_ROM}"
-            OPL_BEL_ROM="${OPL_BEL_ROM}" AUD_SST_ROM="${AUD_SST_ROM}"
-            AUD_SNOOP_ROM="${AUD_SNOOP_ROM}" WAKECLK_ROM="${WAKECLK_ROM}"
-            ROMS_DIR="${RP6502_TEST_CORPUS}"
-        DEPENDS file_roms stream_roms aud_roms wakeclk_roms
+        DEFS FILE_ROM="${FILE_ROM}" AUD_SST_ROM="${AUD_SST_ROM}"
+            AUD_SST_ODD_ROM="${AUD_SST_ODD_ROM}"
+            SLEEPFILE_ROM="${SLEEPFILE_ROM}"
+            SLEEPASSET_ROM="${SLEEPASSET_ROM}" WAKECLK_ROM="${WAKECLK_ROM}"
+        DEPENDS file_roms aud_roms sleepfile_roms sleepasset_roms wakeclk_roms
         TIMEOUT 1200)
 
-    rp6502_add_machine_test(pfile FIRMWARE SPLIT
+    rp6502_add_machine_test(pfile FIRMWARE SPLIT SAVABLE
         TOP tb_pocket
         RTL ${POCKET_STACK}
         DEFS FILE_ROM="${FILE_ROM}" FSTEST_ROM="${FSTEST_ROM}"
@@ -116,8 +124,7 @@ endif()
 set(POCKET_CORE_JSON ${RP6502_SRC}/host/pocket/dist/Cores/Rumbledethumps.RP6502)
 add_test(NAME layout_json
     COMMAND ${Python3_EXECUTABLE} ${RP6502_SRC}/core/hid/layout.py
-        --check-interact ${POCKET_CORE_JSON}/interact.json
-        --check-data ${POCKET_CORE_JSON}/data.json)
+        --check-interact ${POCKET_CORE_JSON}/interact.json)
 set_tests_properties(layout_json PROPERTIES LABELS "gate;host.pocket")
 add_test(NAME stage_map
     COMMAND ${CMAKE_COMMAND} -E env python3
@@ -125,10 +132,13 @@ add_test(NAME stage_map
         --data ${POCKET_CORE_JSON}/data.json
         --mmio ${RP6502_SRC}/host/pocket/sw/mmio.h
         --bench ${RP6502_ROOT}/tests/bench/tb_stage.h
-        --engine ${RP6502_POCKET_CORE}/sst_engine.sv
-        --tcm ${RP6502_SRC}/core/riscv/tcm_pkg.sv
+        --mem ${RP6502_SRC}/core/riscv/mem_pkg.sv
         --sst ${RP6502_POCKET_CORE}/pocket_sst.sv
-        --top ${RP6502_SRC}/host/pocket/core/core_top.sv)
+        --top ${RP6502_SRC}/host/pocket/core/core_top.sv
+        --core ${RP6502_POCKET_CORE}/pocket_core.sv
+        --bridge ${RP6502_POCKET_CORE}/pocket_bridge.sv
+        --link ${RP6502_SRC}/host/pocket/sw/link.ld
+        --version ${RP6502_SRC}/host/pocket/gen/version.py)
 set_tests_properties(stage_map PROPERTIES LABELS "gate;host.pocket")
 
 rp6502_submodule(vendor/openfpga SENTINEL src/fpga/ap_core.qsf

@@ -9,6 +9,7 @@
 #include "osal/os.h"
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
+#include "host/host.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_glue.h"
@@ -36,7 +37,6 @@
 #include "core/api/proc.h"
 #include "core/com/com.h"
 #include "core/str/oem.h"
-#include "core/hid/vtkeys.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/rom/rom.h"
@@ -162,6 +162,7 @@ void app_init(void)
     }
     gfx_setup();
     host_window_init();
+    input_locks();
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
         dbgui_init(sapp_dpi_scale());
@@ -196,6 +197,7 @@ void app_frame(void)
         }
     }
 #endif
+    input_locks();
 #ifdef RP6502_PAD_HOST
     /* Sokol has delivered this frame's key and pointer events before the frame
      * callback, so polling the gamepads here gives them the same age as every
@@ -410,8 +412,22 @@ bool app_boot_rom(const char *path)
     return true;
 }
 
+/* Sokol says when the window is minimized and when it is back. The web
+ * player's page has neither, and its machine stops while the page is
+ * hidden, so there it is never minimized. */
+static bool app_minimized;
+
+bool host_minimized(void)
+{
+    return app_minimized;
+}
+
 void app_input(const struct sapp_event *e)
 {
+    if (e->type == SAPP_EVENTTYPE_ICONIFIED)
+        app_minimized = true;
+    else if (e->type == SAPP_EVENTTYPE_RESTORED)
+        app_minimized = false;
     if (e->type == SAPP_EVENTTYPE_FILES_DROPPED)
     {
         host_window_files_dropped();

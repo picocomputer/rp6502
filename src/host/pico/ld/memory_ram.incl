@@ -1,0 +1,8 @@
+/* Overrides the SDK's memory_ram.incl for every Pico board. The last 64 KB
+ * of main RAM is XRAM, a region of its own on a 64 KB boundary. Main RAM ends
+ * where it starts, so the heap stops short of it. */
+MEMORY
+{
+    RAM(rwx) : ORIGIN = RAM_ORIGIN, LENGTH = RAM_LENGTH - 0x10000
+    XRAM(rw) : ORIGIN = RAM_ORIGIN + RAM_LENGTH - 0x10000, LENGTH = 0x10000
+}

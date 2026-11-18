@@ -95,28 +95,30 @@ module fill
     logic m2_a_req;
     logic [13:0] m2_a_addr;
     logic [2:0] m2_bpp;
-    logic m2_seg_imm;
+    logic m2_dbl;
+    logic m2_seg_imm, m2_seg_half;
     logic [22:0] m2_seg_bits;
 
     /* One row mapper for the three modes, which never run at once: each
      * names its window and follows the walk, and the one the plane is in
      * is heard. */
-    logic [4:0] m1_win_wf, m1_win_hf, m2_win_wf, m2_win_hf;
+    logic [4:0] m1_win_wf, m1_win_hf;
+    logic [7:0] m2_win_wf, m2_win_hf;
     logic [4:0] m3_win_wf, m3_win_hf;
     logic [19:0] m1_sizeof_row, m2_sizeof_row, m3_sizeof_row;
     logic m1_addr, m2_addr, m3_addr, m1_seg_on, m2_seg_on, m3_seg_on;
     logic [14:0] m1_data_row, m2_data_row, m3_data_row;
     logic m1_run_ready, m2_run_ready;
     logic [9:0] m1_run_max, m2_run_max;
-    logic [4:0] rm_win_wf, rm_win_hf;
+    logic [7:0] rm_win_wf, rm_win_hf;
     logic [19:0] rm_sizeof_row;
     logic rm_addr, rm_seg_on, rm_run_ready;
     logic [14:0] rm_data_row;
     logic [9:0] rm_run_max;
     always_comb begin
         if (mode == 3'd1) begin
-            rm_win_wf = m1_win_wf;
-            rm_win_hf = m1_win_hf;
+            rm_win_wf = {3'd0, m1_win_wf};
+            rm_win_hf = {3'd0, m1_win_hf};
             rm_sizeof_row = m1_sizeof_row;
             rm_addr = m1_addr;
             rm_data_row = m1_data_row;
@@ -134,8 +136,8 @@ module fill
             rm_run_max = m2_run_max;
         end else begin
             /* A bitmap's run is one segment, bounded by the line. */
-            rm_win_wf = m3_win_wf;
-            rm_win_hf = m3_win_hf;
+            rm_win_wf = {3'd0, m3_win_wf};
+            rm_win_hf = {3'd0, m3_win_hf};
             rm_sizeof_row = m3_sizeof_row;
             rm_addr = m3_addr;
             rm_data_row = m3_data_row;
@@ -279,7 +281,9 @@ module fill
         .a_gnt(a_gnt && m2_a_req),
         .a_rdata(a_rdata),
         .mode2_bpp(m2_bpp),
+        .mode2_dbl(m2_dbl),
         .mode2_seg_imm(m2_seg_imm),
+        .mode2_seg_half(m2_seg_half),
         .mode2_seg_bits(m2_seg_bits),
         .seg_take(tl_take)
     );
@@ -334,7 +338,7 @@ module fill
             tf_seg_pay = {m1_seg_ibits, m1_seg_fg, m1_seg_bg};
         end else if (mode == 3'd2) begin
             tf_seg_imm = m2_seg_imm;
-            tf_seg_pay = {17'd0, m2_seg_bits};
+            tf_seg_pay = {16'd0, m2_seg_half, m2_seg_bits};
         end else begin
             tf_seg_imm = m3_seg_imm;
             tf_seg_pay = {17'd0, m3_seg_bits};
@@ -349,6 +353,7 @@ module fill
         .pal_xram(tf_pal_xram),
         .bpp_log(tf_bpp),
         .reversed(tf_reversed),
+        .dbl(mode == 3'd2 && m2_dbl),
         .seg_valid(rm_seg_valid),
         .seg_imm(tf_seg_imm),
         .seg_pay(tf_seg_pay),

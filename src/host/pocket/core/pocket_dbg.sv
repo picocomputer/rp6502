@@ -8,7 +8,7 @@ module pocket_dbg #(
     /* 74.25 MHz divided by 644 is 115295 baud, 0.08% above 115200. */
     parameter int DIVISOR = 644
 ) (
-    input logic clk_mach,
+    input logic clk_sys,
     input logic rst_n,
     input logic [7:0] rv_tx_data,
     input logic rv_tx_valid,
@@ -25,7 +25,7 @@ module pocket_dbg #(
         .WIDTH(8),
         .DEPTH_LOG2(6)
     ) q (
-        .wclk(clk_mach),
+        .wclk(clk_sys),
         .w_stb(rv_tx_valid),
         .w_data(rv_tx_data),
         .pocket_fifo_full(fifo_full),

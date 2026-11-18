@@ -4,21 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "font.h"
-#include "mmio.h"
-
 #include "core/hid/hid.h"
-#include "core/hid/layout.h"
 #include "apf.h"
 #include "core/str/oem.h"
-
-/* A read of the staging window returns one byte, repeated on all four
- * lanes, so a layout word is built from two byte reads. */
-uint16_t layout_word(uint32_t index)
-{
-    uint32_t at = index * 2;
-    return (uint16_t)KBDLAY[at] | ((uint16_t)KBDLAY[at + 1] << 8);
-}
+#include "core/str/unicode.h"
+#include "core/term/font.h"
+#include "core/vga/vga.h"
 
 uint16_t oem_get_code_page_run(void)
 {
@@ -27,9 +18,9 @@ uint16_t oem_get_code_page_run(void)
 
 bool oem_set_code_page_run(uint16_t cp)
 {
-    if (!font_has_code_page(cp))
+    if (!unicode_has_page(cp))
         return false;
-    font_set_code_page(cp);
+    vga_set_code_page(cp);
     return true;
 }
 
