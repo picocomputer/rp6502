@@ -300,9 +300,8 @@ static void vga_render_scanline(void)
     const uint16_t width = vga_view_current->width;
     const uint32_t buffer_scanline_id = scanline_buffer->scanline_id;
     const int16_t scanline_id = scanvideo_scanline_number(buffer_scanline_id);
-    uint32_t *const data[SCANVIDEO_PLANE_COUNT] = {scanline_buffer->data0, scanline_buffer->data1, scanline_buffer->data2};
     bool filled[SCANVIDEO_PLANE_COUNT] = {false, false, false};
-    uint32_t *foreground = NULL;
+    uint16_t *foreground = NULL;
     vga_prog_t prog = *vga_prog_row(scanline_id);
     for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
     {
@@ -311,58 +310,28 @@ static void vga_render_scanline(void)
             filled[i] = prog.fill_fn[i](i,
                                         scanline_id,
                                         width,
-                                        (uint16_t *)(data[i] + 1),
+                                        scanline_buffer->pixels[i],
                                         prog.fill_config[i],
                                         &vga_fill_cache[get_core_num()][i]);
             if (filled[i])
-                foreground = data[i];
+                foreground = scanline_buffer->pixels[i];
         }
         if (prog.sprite_fn[i])
         {
             if (!foreground)
             {
-                foreground = data[i];
-                memset(foreground + 1, 0, width * 2);
+                foreground = scanline_buffer->pixels[i];
+                memset(foreground, 0, width * 2);
                 filled[i] = true;
             }
             prog.sprite_fn[i](scanline_id,
                               width,
-                              (uint16_t *)(foreground + 1),
+                              foreground,
                               prog.sprite_config[i],
                               prog.sprite_length[i]);
         }
     }
-    for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
-    {
-        uint16_t data_used;
-        if (filled[i])
-        {
-            data[i][0] = COMPOSABLE_RAW_RUN | (data[i][1] << 16);
-            data[i][1] = (width - 3) | (data[i][1] & 0xFFFF0000);
-            data[i][width / 2 + 1] = COMPOSABLE_RAW_1P | (0 << 16);
-            data[i][width / 2 + 2] = COMPOSABLE_EOL_SKIP_ALIGN;
-            data_used = width / 2 + 3;
-        }
-        else
-        {
-            data[i][0] = COMPOSABLE_RAW_1P | (0 << 16);
-            data[i][1] = COMPOSABLE_EOL_SKIP_ALIGN;
-            data_used = 2;
-        }
-        switch (i)
-        {
-        case 0:
-            scanline_buffer->data0_used = data_used;
-            break;
-        case 1:
-            scanline_buffer->data1_used = data_used;
-            break;
-        case 2:
-            scanline_buffer->data2_used = data_used;
-            break;
-        }
-    }
-    scanvideo_end_scanline_generation(scanline_buffer);
+    scanvideo_end_scanline_generation(scanline_buffer, filled);
     vga_scanline_complete(buffer_scanline_id);
     *rendering = false;
 }
