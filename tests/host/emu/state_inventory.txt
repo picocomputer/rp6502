@@ -32,6 +32,7 @@ core/aud/mix.c aud_anchored: not carried: the streaming sink's trim, the host's
 core/aud/mix.c aud_busy: not carried: a lock, free between frames
 core/aud/mix.c aud_carry: not carried: the streaming sink's, the host's
 core/aud/mix.c aud_carry_n: not carried: the streaming sink's, the host's
+core/aud/mix.c aud_dry: not carried: the streaming sink's trim, the host's
 core/aud/mix.c aud_ev: not carried: a state is saved with the sound taken, the ring empty
 core/aud/mix.c aud_last_l: not carried: the level the host's sink last took
 core/aud/mix.c aud_last_r: not carried: the level the host's sink last took
@@ -43,7 +44,6 @@ core/aud/mix.c aud_off: not carried: the streaming sink's trim, the host's; 0 on
 core/aud/mix.c aud_on: not carried: --mute is a session setting
 core/aud/mix.c aud_opl_at: not carried: rebuilt from the OPL chunk on load
 core/aud/mix.c aud_oq: the AUD chunk carries the drops; the rest is rebuilt from the OPL chunk's queue on load
-core/aud/mix.c aud_owed: not carried: the streaming sink's trim, the host's
 core/aud/mix.c aud_pcm: the AUD chunk
 core/aud/mix.c aud_pcm_due: not carried: the render steps on from the AUD chunk's samples made
 core/aud/mix.c aud_pcm_l: not carried: what the PCM: device's last step made, made again on the next
@@ -54,7 +54,10 @@ core/aud/mix.c aud_probe: not carried: a test's own device, never on the wire
 core/aud/mix.c aud_psg_at: not carried: rebuilt from the PSG chunk on load
 core/aud/mix.c aud_rs_l: the AUD chunk
 core/aud/mix.c aud_rs_r: the AUD chunk
+core/aud/mix.c aud_seen: not carried: the streaming sink's trim, the host's
+core/aud/mix.c aud_short: not carried: the streaming sink's trim, the host's
 core/aud/mix.c aud_sink_rate: not carried: what the host's device answered
+core/aud/mix.c aud_speed: not carried: the streaming sink's, set by the host each frame
 core/aud/mix.c aud_streaming: not carried: which sink the host has
 core/aud/mix.c aud_trim: not carried: the streaming sink's trim, the host's
 core/aud/mix.c aud_trim_i: not carried: the streaming sink's trim, the host's

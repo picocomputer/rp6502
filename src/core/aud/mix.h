@@ -117,6 +117,12 @@ void aud_set_sink_rate(uint32_t rate);
  * machine's thread. */
 void aud_set_streaming(bool on);
 
+/* How fast the machine runs against the wall clock, for a streaming sink:
+ * 1 on the wall clock, and the display's frames a second over the machine's
+ * where the host takes its frames from a display. The resampler's step
+ * follows it, which leaves the trim only what the crystals differ by. */
+void aud_set_speed(double speed);
+
 /* Fills the sink's buffer with this many frames at the sink's rate, made on
  * the spot. A streaming sink gets them all. A sink that pulls once a frame
  * gets the samples up to the machine's present and the count is returned,
