@@ -10,7 +10,7 @@
 #include "core/sys/driver.h"
 
 #include "core/api/api.h"
-#include "core/api/clk.h"
+#include "core/tim/clk.h"
 #include "core/api/dir.h"
 #include "osal/fs.h"
 #include "ria/api/proc.h"

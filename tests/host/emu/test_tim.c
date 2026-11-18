@@ -16,16 +16,6 @@
 #include <string.h>
 #include <time.h>
 
-static const struct
-{
-    const char *name, *tz;
-} zones[] = {
-#define X(suffix, name, tz) {name, tz},
-#include "host/pico/ria/api/tz.def"
-#undef X
-};
-#define ZONES (sizeof zones / sizeof zones[0])
-
 static tim_tm_t date(int year, int mon, int mday, int hour, int min, int sec)
 {
     tim_tm_t tm = {0};
@@ -136,8 +126,20 @@ UTEST(tim, a_tz_string_is_read)
     ASSERT_EQ(tz.std_offset, 0);
     ASSERT_FALSE(tim_tz_parse("PST8PDT,M13.1.0,M11.1.0", &tz));
     ASSERT_FALSE(tim_tz_parse("", &tz));
-    for (size_t i = 0; i < ZONES; i++)
-        ASSERT_TRUE(tim_tz_parse(zones[i].tz, &tz));
+    for (unsigned i = 0; i < tim_tz_count(); i++)
+        ASSERT_TRUE(tim_tz_parse(tim_tz_string(i), &tz));
+}
+
+UTEST(tim, a_zone_is_found_by_its_name)
+{
+    const int tokyo = tim_tz_find("Asia/Tokyo");
+    ASSERT_TRUE(tokyo >= 0);
+    ASSERT_EQ(tim_tz_find("tokyo"), tokyo);
+    ASSERT_EQ(tim_tz_find("ASIA/TOKYO"), tokyo);
+    ASSERT_STREQ(tim_tz_name((unsigned)tokyo), "Asia/Tokyo");
+    ASSERT_STREQ(tim_tz_string((unsigned)tokyo), "JST-9");
+    ASSERT_EQ(tim_tz_find("Asia"), -1);
+    ASSERT_EQ(tim_tz_find("JST-9"), -1);
 }
 
 UTEST(tim, summer_time_by_the_rules)
@@ -270,11 +272,12 @@ UTEST(tim, utc_as_glibc_has_it)
  * name at every time, for every zone SET TZ has. */
 UTEST(tim, every_zone_as_glibc_has_it)
 {
-    for (size_t i = 0; i < ZONES; i++)
+    for (unsigned i = 0; i < tim_tz_count(); i++)
     {
+        const char *string = tim_tz_string(i);
         tim_tz_t tz;
-        ASSERT_TRUE(tim_tz_parse(zones[i].tz, &tz));
-        use_tz(zones[i].tz);
+        ASSERT_TRUE(tim_tz_parse(string, &tz));
+        use_tz(string);
         /* From 1970: glibc has no summer time before it for a TZ string,
          * where the rules here are every year's, as POSIX has them. */
         for (int64_t t = 0; t < LAST_TIME; t = next_time(t))
@@ -287,7 +290,7 @@ UTEST(tim, every_zone_as_glibc_has_it)
             if (got.offset != want.tm_gmtoff || got.dst != (want.tm_isdst > 0) ||
                 strcmp(got.name, want.tm_zone))
             {
-                fprintf(stderr, "%s at %lld: %d %d %s, glibc %ld %d %s\n", zones[i].tz,
+                fprintf(stderr, "%s at %lld: %d %d %s, glibc %ld %d %s\n", string,
                         (long long)t, got.offset, got.dst, got.name,
                         want.tm_gmtoff, want.tm_isdst, want.tm_zone);
                 ASSERT_TRUE(false);

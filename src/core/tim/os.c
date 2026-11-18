@@ -4,9 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The time of day on a machine with a host under it: the host's clock, its
- * zone, and the words of its locale. */
-
+#include "core/tim/os.h"
 #include "core/tim/tim.h"
 #include "osal/os.h"
 #include <string.h>

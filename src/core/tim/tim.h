@@ -10,8 +10,11 @@
 /* The time of day: seconds to a date and back, in UTC and in the machine's
  * zone, and strftime. It is the same code on every machine and calls
  * nothing of the C library's. A machine gives it the clock, the zone, and
- * the words, which are the three groups of functions it declares below and
- * does not define. */
+ * the words, which are the functions it declares last and does not define.
+ *
+ * Beside it in this folder: clk.c is the 6502's calls for the time, tz.c is
+ * a zone from a TZ string, for a machine with no operating system, and os.c
+ * is the clock, zone, and words of a machine that has one. */
 
 #include <stddef.h>
 #include <stdint.h>
@@ -80,10 +83,9 @@ int32_t tim_days_from_civil(int32_t year, int month, int day);
 
 /* ---- What a machine gives ---- */
 
-/* The clock. tim_set_time is false on a machine whose clock a program may
- * not set. */
-void tim_init(void);
-void tim_stop(void);
+/* The clock: the time now, false when the machine does not know it; a new
+ * time for it, false on a machine whose clock a program may not set; and
+ * how fine it counts. */
 bool tim_get_time(tim_spec_t *ts);
 bool tim_set_time(const tim_spec_t *ts);
 void tim_get_time_res(tim_spec_t *ts);
@@ -120,7 +122,5 @@ const char *tim_word(tim_word_t word);
 /* The words of C's own locale, which are English, for a machine with no
  * language of its own to give them in. */
 const char *tim_c_word(tim_word_t word);
-
-#define TIM_DRIVER DRIVER(INIT(tim_init) STOP(tim_stop))
 
 #endif /* _CORE_TIM_TIM_H_ */

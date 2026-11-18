@@ -5,7 +5,9 @@
  */
 
 #include "core/tim/tz.h"
+#include "machine.h"
 #include <string.h>
+#include <strings.h>
 
 static bool tz_digit(char c)
 {
@@ -216,4 +218,55 @@ void tim_tz_zone(const tim_tz_t *tz, int64_t utc, tim_zone_t *zone)
         zone->dst = true;
         zone->name = tz->dst;
     }
+}
+
+/* ---- The zones that have a name ---- */
+
+/* Each zone's name and then its TZ string, every one ended by its 0, and
+ * the list by one more. */
+static const char HOST_IN_FLASH tz_named[] =
+#define X(name, tz) name "\0" tz "\0"
+#include "core/def/tz.def"
+#undef X
+    ;
+
+/* The n-th string of the list, or its end. */
+static const char *tz_nth(unsigned n)
+{
+    const char *s = tz_named;
+    while (n-- && *s)
+        s += strlen(s) + 1;
+    return s;
+}
+
+unsigned tim_tz_count(void)
+{
+    unsigned n = 0;
+    for (const char *s = tz_named; *s; s += strlen(s) + 1)
+        n++;
+    return n / 2;
+}
+
+const char *tim_tz_name(unsigned i)
+{
+    return tz_nth(2 * i);
+}
+
+const char *tim_tz_string(unsigned i)
+{
+    return tz_nth(2 * i + 1);
+}
+
+int tim_tz_find(const char *name)
+{
+    int i = 0;
+    for (const char *s = tz_named; *s; i++)
+    {
+        const char *slash = strchr(s, '/');
+        if (!strcasecmp(name, s) || (slash && !strcasecmp(name, slash + 1)))
+            return i;
+        s += strlen(s) + 1;
+        s += strlen(s) + 1;
+    }
+    return -1;
 }

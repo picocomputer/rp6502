@@ -19,7 +19,7 @@
 
 #include "mmio.h"
 
-#include "main.h"
+#include "tim.h"
 
 #include "core/tim/tim.h"
 
@@ -79,8 +79,6 @@ void tim_init(void)
     tim_base_us = tim_uptime_us();
     tim_apply_tz();
 }
-
-void tim_stop(void) {}
 
 /* A program cannot set the time, so recomputing tim_base_sec from
  * tim_local_boot when the offset changes discards nothing. */

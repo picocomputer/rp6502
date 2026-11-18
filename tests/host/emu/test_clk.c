@@ -5,7 +5,7 @@
  */
 
 #include "core/api/api.h"
-#include "core/api/clk.h"
+#include "core/tim/clk.h"
 #include "core/ria/regs.h"
 #include "utest.h"
 #include <string.h>

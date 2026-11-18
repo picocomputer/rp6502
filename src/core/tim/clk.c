@@ -5,7 +5,7 @@
  */
 
 #include "core/api/api.h"
-#include "core/api/clk.h"
+#include "core/tim/clk.h"
 #include "core/tim/tim.h"
 #include "host/host.h"
 #include "machine.h"

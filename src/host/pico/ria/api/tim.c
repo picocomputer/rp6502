@@ -18,33 +18,6 @@
 #include <pico/aon_timer.h>
 #include <stdio.h>
 #include <string.h>
-#include <strings.h>
-
-#define X(suffix, name, tz)                            \
-    static const char HOST_IN_FLASH \
-        TIM_TZINFO_NAME_##suffix[] = name;             \
-    static const char HOST_IN_FLASH \
-        TIM_TZINFO_TZ_##suffix[] = tz;
-#include "ria/api/tz.def"
-#undef X
-
-#define X(suffix, name, tz) \
-    TIM_TZINFO_NAME_##suffix,
-static const char *const HOST_IN_FLASH
-    tim_tzinfo_name[] = {
-#include "ria/api/tz.def"
-};
-#undef X
-
-#define X(suffix, name, tz) \
-    TIM_TZINFO_TZ_##suffix,
-static const char *const HOST_IN_FLASH
-    tim_tzinfo_tz[] = {
-#include "ria/api/tz.def"
-};
-#undef X
-
-#define TIM_TZINFO_COUNT (sizeof(tim_tzinfo_name) / sizeof(*tim_tzinfo_name))
 
 /* The zone of SET TZ, read from its TZ string when the setting changes. */
 static tim_tz_t tim_tz;
@@ -58,10 +31,6 @@ void HOST_IN_FLASH_FUNC tim_init(void)
     // cfg_init runs before tim_init, and loading the config file never calls
     // tim_apply_time_zone, so the stored zone is applied here.
     tim_apply_time_zone(tim_get_time_zone(), true);
-}
-
-void tim_stop(void)
-{
 }
 
 bool tim_get_time(tim_spec_t *ts)
@@ -123,9 +92,9 @@ int HOST_IN_FLASH_FUNC tim_tzdata_response(char *buf, size_t buf_size,
     if (state < 0)
         return state;
     size_t cell = 0;
-    for (unsigned i = 0; i < TIM_TZINFO_COUNT; i++)
+    for (unsigned i = 0; i < tim_tz_count(); i++)
     {
-        size_t len = strlen(tim_tzinfo_name[i]);
+        size_t len = strlen(tim_tz_name(i));
         if (len > cell)
             cell = len;
     }
@@ -135,7 +104,7 @@ int HOST_IN_FLASH_FUNC tim_tzdata_response(char *buf, size_t buf_size,
     unsigned cols = (w >= cell + 4) ? (w - 2) / (cell + 2) : 1;
     if (cols < 1)
         cols = 1;
-    unsigned rows = (TIM_TZINFO_COUNT + cols - 1) / cols;
+    unsigned rows = (tim_tz_count() + cols - 1) / cols;
     if ((unsigned)state >= rows)
         return -1;
     unsigned spread = (w - cols * cell) / (cols + 1);
@@ -146,10 +115,10 @@ int HOST_IN_FLASH_FUNC tim_tzdata_response(char *buf, size_t buf_size,
         buf_size -= n;
     }
     unsigned el = state;
-    for (unsigned i = 0; i < cols && el < TIM_TZINFO_COUNT; i++)
+    for (unsigned i = 0; i < cols && el < tim_tz_count(); i++)
     {
         n = snprintf(buf, buf_size, "%-*s%*s",
-                     (int)cell, tim_tzinfo_name[el], (int)spread, "");
+                     (int)cell, tim_tz_name(el), (int)spread, "");
         if (n > 0 && (size_t)n < buf_size)
         {
             buf += n;
@@ -163,39 +132,25 @@ int HOST_IN_FLASH_FUNC tim_tzdata_response(char *buf, size_t buf_size,
 
 /* The config setter and loader copy the input into out before calling this,
  * so a name that is not in the table is stored as typed and is used as a
- * POSIX TZ string. */
+ * POSIX TZ string. One that is, is stored as the table has it, so "tokyo"
+ * is "Asia/Tokyo". */
 bool tim_check_time_zone(const char *in, char *out)
 {
-    for (unsigned i = 0; i < TIM_TZINFO_COUNT; i++)
-    {
-        const char *name = tim_tzinfo_name[i];
-        const char *slash = strchr(name, '/');
-        if (!strcasecmp(in, name) || (slash && !strcasecmp(in, slash + 1)))
-        {
-            strcpy(out, name);
-            return true;
-        }
-    }
+    const int i = tim_tz_find(in);
+    if (i >= 0)
+        strcpy(out, tim_tz_name((unsigned)i));
     return true;
 }
 
 /* The stored name is read instead of tz because the config setter passes tz
- * as it was typed, and only the stored name has a short form such as "Tokyo"
- * expanded to "Asia/Tokyo". */
+ * as it was typed. A string that is not a TZ string leaves the zone UTC. */
 void tim_apply_time_zone(const char *tz, bool changed)
 {
     (void)tz;
     (void)changed;
     const char *stored = tim_get_time_zone();
-    const char *string = stored;
-    for (unsigned i = 0; i < TIM_TZINFO_COUNT; i++)
-        if (!strcasecmp(stored, tim_tzinfo_name[i]))
-        {
-            string = tim_tzinfo_tz[i];
-            break;
-        }
-    /* A string that is not a TZ string leaves the zone UTC. */
-    tim_tz_parse(string, &tim_tz);
+    const int i = tim_tz_find(stored);
+    tim_tz_parse(i >= 0 ? tim_tz_string((unsigned)i) : stored, &tim_tz);
 }
 
 int HOST_IN_FLASH_FUNC tim_time_zone_response(char *buf, size_t buf_size,

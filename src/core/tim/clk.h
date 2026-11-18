@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _CORE_API_CLK_H_
-#define _CORE_API_CLK_H_
+#ifndef _CORE_TIM_CLK_H_
+#define _CORE_TIM_CLK_H_
 
 #include <stddef.h>
 #include <stdint.h>
@@ -68,4 +68,4 @@ bool clk_sst_load(sst_cursor_t *c, unsigned flags);
     RUN(clk_run)                                            \
     SST(CLK_, 1, CLK_SST_SIZE, clk_sst_save, clk_sst_load))
 
-#endif /* _CORE_API_CLK_H_ */
+#endif /* _CORE_TIM_CLK_H_ */
