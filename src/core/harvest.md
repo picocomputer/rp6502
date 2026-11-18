@@ -10,39 +10,22 @@ memory, the architecture changes, and no section is a link-time trick.
 ## 1. The RTL tests on CI
 
 Not memory, but waiting on it holds up every branch. CI runs the RTL
-tests as two
-jobs, A and B, each on its own runner. Both build the whole simulation,
-and `ctest -I` gives A the odd tests and B the even ones. A can take
-far longer than B.
+tests as two jobs, A and B, each on its own runner, and `ctest -I` gives
+A the odd tests and B the even ones. On 2026-11-18 A took 36 minutes and
+B took 14. Two things were wrong, and both are changed and wait for CI
+to show it:
 
-The run of 2026-11-18 says it was the runner, mostly. A took 36 minutes
-and B took 14:
+- A's runner spent 18 minutes fetching packages from a mirror that
+  stalled. Every job that installs with apt now keeps the package files
+  in the Actions cache.
+- Both jobs spent 8 minutes building. Half of that was link-time
+  optimization, which compiled the simulation again for each of 79 test
+  programs. The simulation tree no longer uses it: a build is 90 seconds
+  on four cores, and the tests run 2.5% slower.
 
-| | A | B |
-|---|---|---|
-| Installing packages | 18 min 29 s | 22 s |
-| Building | 8 min 31 s | 7 min 38 s |
-| Testing | 9 min 19 s | 5 min 40 s |
-
-A's runner fetched the 232 MB of packages at 215 kB/s. It was also slow
-at the tests: they took 1.5 times the processor time they take on the
-bench, where B's took 1.1 times. The halves are uneven too, but by
-less: on the bench A's tests are 1,449 s of processor time and B's
-1,191 s, because A has the three longest (aud, opl.eg_wrap, and
-mode1.size_out_of_range_320x240).
-
-To do:
-
-- Keep what a job downloads in the Actions cache, as the Pico SDK and
-  picotool already are. For apt that is the folder of package files: on
-  a hit apt finds every file there and fetches nothing, and on a miss it
-  fetches as it does now and the files are saved. The key is the runner
-  image and the list of packages. Do it for every job that installs with
-  apt, with one key where jobs install the same packages, and for
-  anything else a job fetches: the Arm toolchain, Quartus, and whatever
-  the other platforms' jobs pull.
-- Split the tests by what they cost and not by every other one, so the
-  long ones are shared out.
+Left, if a run still shows it worth doing: A's half of the tests costs
+22% more than B's, because every other test gives A the three longest.
+Splitting them by what they cost is worth about a minute.
 
 ## 2. One scratch buffer, in core
 
