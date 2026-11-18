@@ -462,11 +462,16 @@ void __isr __not_in_flash_func(isr_pio0_0)()
     if (video_pio->irq & 1u)
     {
         video_pio->irq = 1;
+        // Only the vertical blank counts past the active lines, so only
+        // after it is this the first. A view set part way down a frame
+        // starts the count at the end of its content, and from there the
+        // count stops at the last active line: the rest of that frame is
+        // blank.
         int32_t line = display_scanline_pos;
-        if (line >= v_active)
+        if (line > v_active)
             line = 0;
         prepare_for_active_scanline_irqs_enabled(line);
-        display_scanline_pos = line + 1;
+        display_scanline_pos = line < v_active ? line + 1 : v_active;
     }
     if (video_pio->irq & 2u)
     {
