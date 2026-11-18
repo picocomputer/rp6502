@@ -147,9 +147,8 @@ extern mode0_colors_t mode0_colors[MODE0_CELLS];
  * take nothing smaller. They describe the terminal showing.
  *
  * row: a row's first cell in mode0_cells, and its TERM_LINE_ size.
- * cursor: x; y; the DECSCUSR style; whether its blink has it lit; whether
- *   it is shown at all; and whether a wrap is pending, which is drawn as
- *   a block whatever the style.
+ * cursor: x; y; the DECSCUSR style; whether its blink has it lit; and
+ *   whether it is shown at all.
  * cursor_color: OSC 12's color.
  * screen: the blink phase a cell's TERM_ATTR_ANY_BLINK bits are tested
  *   against, and DECSCNM. */
@@ -171,7 +170,6 @@ extern volatile mode0_regs_t mode0_regs;
 #define MODE0_ROW_CELL(w) ((uint16_t)(w))
 #define MODE0_ROW_SIZE(w) ((uint8_t)(((w) >> 16) & 3))
 
-#define MODE0_CURSOR_PENDING (1u << 26)
 #define MODE0_CURSOR_ENABLED (1u << 25)
 #define MODE0_CURSOR_LIT (1u << 24)
 #define MODE0_CURSOR(x, y, style) \

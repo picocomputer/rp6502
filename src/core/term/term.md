@@ -233,9 +233,9 @@ needs a palette memory (one M10K block) written from mode0_palette, looks
 up as many as three colors a cell in its 8 clocks, and needs a fit. The
 cells are two memories now, the glyphs and attributes in one and the
 colors in the other, the fonts have a second table each, and the
-underlines have their styles. A pending wrap is a bit of the cursor word
-(MODE0_CURSOR_PENDING), not a column past the last, and the attributes
-have three bits no renderer draws.
+underlines have their styles. A cursor with a wrap pending is drawn as
+any other, on the column it wrote, where it was once a block on a column
+past the last. The attributes have three bits no renderer draws.
 
 ## Not doing
 

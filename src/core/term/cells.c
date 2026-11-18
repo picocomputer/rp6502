@@ -58,10 +58,8 @@
 // ~3 Hz clears ECMA-48's 150/min (2.5 Hz) slow/rapid boundary.
 #define TERM_BLINK_TICK_FRAMES 10
 
-// Cursor blink half-period: normal cell vs a pending wrap, which blinks at 2x
-// rate so it's still noticeable.
+// Cursor blink half-period.
 #define CELLS_CURSOR_BLINK_FRAMES 30
-#define CELLS_CURSOR_BLINK_FAST_FRAMES 15
 
 // Whenever input changes the cursor's logical position or its
 // appearance (DECSCUSR style, DECTCEM visibility), the cursor is
@@ -1491,8 +1489,8 @@ void cells_publish(void)
             mode0_regs.row[y] = MODE0_ROW(cells_buf_row(buf, y) - mode0_cells, ls[y]);
     }
     const term_pos_t *pos = term_pos(&cells->grid);
+    // A cursor with a wrap pending is on the column it wrote, as on a VT100.
     mode0_regs.cursor = MODE0_CURSOR(pos->x, pos->y, cells_term.cursor_style) |
-                        (pos->wrap_pending ? MODE0_CURSOR_PENDING : 0) |
                         (cells_term.cursor_enabled ? MODE0_CURSOR_ENABLED : 0) |
                         (cells->cursor_lit ? MODE0_CURSOR_LIT : 0);
     mode0_regs.cursor_color = cells_cursor_color;
@@ -1569,9 +1567,8 @@ void cells_init(void)
     manifold_set_term_out(cells_out_chars);
 }
 
-// Cursor blink timing only — toggles cursor_lit on the configured cadence
-// (fast while a wrap is pending, normal otherwise) and forces unlit when
-// the cursor is disabled. Steady-vs-blink handling lives in the renderers,
+// Cursor blink timing only — toggles cursor_lit on its cadence and forces
+// unlit when the cursor is disabled. Steady-vs-blink handling lives in the renderers,
 // which ignore cursor_lit when cursor_style is steady; this keeps the
 // timing path style-agnostic.
 // True when cursor_lit changed.
@@ -1583,9 +1580,7 @@ static bool cells_blink_cursor(cells_t *cells)
     else if ((long)(vga_frame_count() - cells->cursor_frame) >= 0)
     {
         cells->cursor_lit = !cells->cursor_lit;
-        cells->cursor_frame = vga_frame_count() + (term_pos(&cells->grid)->wrap_pending
-                                                       ? CELLS_CURSOR_BLINK_FAST_FRAMES
-                                                       : CELLS_CURSOR_BLINK_FRAMES);
+        cells->cursor_frame = vga_frame_count() + CELLS_CURSOR_BLINK_FRAMES;
     }
     return cells->cursor_lit != was;
 }

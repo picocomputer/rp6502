@@ -44,7 +44,8 @@ static inline void tb_screen(tb_screen_t *v)
     v->cursor_style = MODE0_CURSOR_STYLE(cursor);
     v->cursor_enabled = (cursor & MODE0_CURSOR_ENABLED) != 0;
     v->cursor_lit = (cursor & MODE0_CURSOR_LIT) != 0;
-    v->cursor_pending = (cursor & MODE0_CURSOR_PENDING) != 0;
+    /* Nothing draws a pending wrap, so it is the grid's to say. */
+    v->cursor_pending = term_pos(g)->wrap_pending;
     v->cursor_color = (uint16_t)mode0_regs.cursor_color;
     v->blink_phase = MODE0_SCREEN_BLINK(screen);
     v->reverse = (screen & MODE0_SCREEN_REVERSE) != 0;

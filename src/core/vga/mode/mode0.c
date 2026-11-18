@@ -232,16 +232,14 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
          cursor_style == 6))
     {
         uint8_t cx = MODE0_CURSOR_X(cursor);
-        // A cursor with a wrap pending is drawn as a block (DECSCUSR style
-        // 1) whatever style is set. A column past the row's, from a row
-        // copied part way through a change, is the last.
-        const bool wrap_pending = cursor & MODE0_CURSOR_PENDING;
+        // A column past the row's, from a row copied part way through a
+        // change, is the last.
         if (cx >= cols)
             cx = (uint8_t)(cols - 1);
         uint16_t *crgb = rgb + (uint32_t)cx * (wide ? 16 : 8);
         const uint16_t cursor_color = (uint16_t)mode0_regs.cursor_color;
         MODE_TABLE(cpair, 4);
-        switch (wrap_pending ? 1u : cursor_style)
+        switch (cursor_style)
         {
         case 3:
         case 4: // underline

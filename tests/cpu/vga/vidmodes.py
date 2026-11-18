@@ -907,7 +907,7 @@ mode0text("mode0_dbl320", 1, MODE0_SIZES + "\33[2;2H\33[6 q")
 mode0text("mode0_rev640", 3, "\33[?5h" + MODE0_SIZES + "\33[3;4H\33[4 q")
 mode0text("mode0_rev320", 1, "\33[?5h" + MODE0_SIZES + "\33[1;3H\33[2 q")
 # A double-width row filled to its last column leaves a wrap pending, and
-# the cursor parks there as a block whatever its style.
+# the cursor stays on that column in its own style, as on a VT100.
 mode0text("mode0_wrap640", 3,
           "\33[0m\33[2J\33[H\33#6" + "0123456789" * 4 + "\33[6 q")
 mode0text("mode0_wrap320", 1,

@@ -602,12 +602,12 @@ UTEST(mode0, reverse_screen_320x240)
 
 UTEST(mode0, wrap_on_a_double_width_row_640x480)
 {
-    run_case(utest_result, "mode0_wrap640", 0x9D20938C, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_wrap640", 0x3A9DBBA2, MUT_BUDGET_NONE);
 }
 
 UTEST(mode0, wrap_on_a_double_width_row_320x240)
 {
-    run_case(utest_result, "mode0_wrap320", 0x38A5024E, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_wrap320", 0x119D062C, MUT_BUDGET_NONE);
 }
 
 UTEST(prog, bands_switch_modes_on_one_plane_320x240)
