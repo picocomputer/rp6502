@@ -822,9 +822,9 @@ static const struct
     {HID_KEY_KEYPAD_8, NUM | SH | VTKEY_CTRL, {"\33[1;5A", "\33[1;5A", "\33O5x", "\33[1;5A", "\33A", "\33?x"}},
     {HID_KEY_KEYPAD_0, NUM | SH, {"\33[2~", "\33[2~", "\33Op", "\33[2~", "\33[2~", "\33?p"}},
     {HID_KEY_KEYPAD_5, NUM | SH, {"\33[E", "\33OE", "\33Ou", "\33[E", "\33E", "\33?u"}},
-    {HID_KEY_KEYPAD_ADD, NUM | SH, {CHR, CHR, "\33Ol", CHR, CHR, "\33?l"}},
+    {HID_KEY_KEYPAD_ADD, NUM | SH, {CHR, CHR, "\33Ok", CHR, CHR, "\33?k"}},
     /* The keypad with NumLock off: the navigation keys, or a VT100's keypad
-     * when the program asked for it, where plus is the comma. A modifier
+     * when the program asked for it, with plus as xterm has it. A modifier
      * goes before the letter, and a VT52 has none. */
     {HID_KEY_KEYPAD_8, 0, {"\33[A", "\33OA", "\33Ox", "\33[A", "\33A", "\33?x"}},
     {HID_KEY_KEYPAD_8, SH, {"\33[1;2A", "\33[1;2A", "\33O2x", "\33[1;2A", "\33A", "\33?x"}},
@@ -838,8 +838,8 @@ static const struct
     {HID_KEY_KEYPAD_DIVIDE, 0, {CHR, CHR, "\33Oo", CHR, CHR, "\33?o"}},
     {HID_KEY_KEYPAD_MULTIPLY, 0, {CHR, CHR, "\33Oj", CHR, CHR, "\33?j"}},
     {HID_KEY_KEYPAD_SUBTRACT, 0, {CHR, CHR, "\33Om", CHR, CHR, "\33?m"}},
-    {HID_KEY_KEYPAD_ADD, 0, {CHR, CHR, "\33Ol", CHR, CHR, "\33?l"}},
-    {HID_KEY_KEYPAD_ADD, VTKEY_CTRL, {CHR, CHR, "\33O5l", CHR, CHR, "\33?l"}},
+    {HID_KEY_KEYPAD_ADD, 0, {CHR, CHR, "\33Ok", CHR, CHR, "\33?k"}},
+    {HID_KEY_KEYPAD_ADD, VTKEY_CTRL, {CHR, CHR, "\33O5k", CHR, CHR, "\33?k"}},
     {HID_KEY_KEYPAD_COMMA, 0, {",", ",", "\33Ol", ",", ",", "\33?l"}},
     {HID_KEY_KEYPAD_EQUAL, 0, {CHR, CHR, "\33OX", CHR, CHR, "\33?X"}},
     {HID_KEY_KEYPAD_ENTER, 0, {"\r", "\r", "\33OM", "\r\n", "\r", "\33?M"}},
@@ -942,7 +942,7 @@ UTEST(keyboard, hostkey_types_what_the_encoder_says)
     key_modes(0);
     ASSERT_EQ(t_press(HID_KEY_KEYPAD_ADD, 0, 0), HOSTKEY_NONE);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
-    ASSERT_EQ(0, memcmp(b, "\33Ol+", 4));
+    ASSERT_EQ(0, memcmp(b, "\33Ok+", 4));
 
     /* The modes reach a host's keys. */
     key_modes(M_CKM | M_LNM);

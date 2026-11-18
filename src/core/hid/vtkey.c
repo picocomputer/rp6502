@@ -19,10 +19,11 @@ static const uint8_t HOST_IN_RAM vtkey_keypad_nav_keys[] = {
     HID_KEY_INSERT, HID_KEY_DELETE};
 
 /* Keypad Divide to Keypad Decimal, in usage order: the final character of the
- * application keypad's sequence. A VT100 has a comma where a PC has its plus,
- * so plus is the comma; divide and multiply are xterm's. */
+ * application keypad's sequence, as xterm sends them. A VT100 has a comma
+ * where a PC has its plus: plus is xterm's k, and a keypad that has a comma
+ * key sends the VT100's l for it. */
 static const char HOST_IN_RAM vtkey_keypad_app_keys[] = {
-    'o', 'j', 'm', 'l', 'M',
+    'o', 'j', 'm', 'k', 'M',
     'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'p', 'n'};
 
 /* F1 to Up are one contiguous span of HID usages, so the table is indexed
