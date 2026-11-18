@@ -353,6 +353,7 @@ typedef struct
     double other;
     int busy;        // a program making this many OPL2 writes a frame, spread over it
     double drift;    // the device's crystal off the machine's by this much
+    double secs;     // how long it runs; three minutes if 0
 } mix_host_t;
 
 typedef struct
@@ -408,8 +409,9 @@ static void mix_busy_probe(int16_t *l, int16_t *r)
 /* The window app as its two threads run it, for three minutes: the display's
  * callbacks run frames by the app's pace (host/sokol/app/pace.h), the
  * device asks on its own clock, and register 40 is written once at the end
- * of each frame, or by a busy program many times through it. Counted from the twentieth second, when the trim has
- * settled. */
+ * of each frame, or by a busy program many times through it. Counted from
+ * the twentieth second, or the fifth of a short run, past where the render
+ * first finds its place. */
 static mix_hosted_t mix_hosted(const mix_host_t *o)
 {
     static float out[4096 * 2];
@@ -437,7 +439,8 @@ static mix_hosted_t mix_hosted(const mix_host_t *o)
         aud_setup_probe(mix_host_probe);
     }
     mix_off_seen = false;
-    const double secs = 180, pull = o->buf / (48000.0 * (1 + o->drift));
+    const double secs = o->secs ? o->secs : 180, pull = o->buf / (48000.0 * (1 + o->drift));
+    const double from = secs < 60 ? 5 : 20;
     const int64_t need = (int64_t)((double)o->buf * AUD_NATIVE_RATE / 48000 * 1.006) + 8;
     pace_t pace = {0};
     double t = 0, entered = -1, grid = 0, hold = -1;
@@ -451,7 +454,7 @@ static mix_hosted_t mix_hosted(const mix_host_t *o)
     while (t < secs)
     {
         const double at = p * pull;
-        if (!counting && at >= 20 && t >= 20)
+        if (!counting && at >= from && t >= from)
         {
             counting = true;
             mix_jumped = mix_late = skipped = 0;
@@ -530,9 +533,11 @@ static mix_hosted_t mix_hosted(const mix_host_t *o)
     return s;
 }
 
+/* A busy program is run a cycle at a time, which is slow, so it has one
+ * size and what it is for happens early. */
 static const int mix_sizes[] = {480, 512, 1024};
 #define MIX_EACH_SIZE(o) \
-    for (unsigned i = 0; i < sizeof mix_sizes / sizeof *mix_sizes && ((o).buf = mix_sizes[i]); i++)
+    for (unsigned i = 0; i < ((o).busy ? 1 : sizeof mix_sizes / sizeof *mix_sizes) && ((o).buf = mix_sizes[i]); i++)
 
 /* What a host may cost the sound over three minutes: sound made and thrown
  * away, machine time the render passed over, and how long a write waits to
@@ -692,20 +697,20 @@ UTEST(mix, a_device_deaf_for_500_ms_costs_what_it_missed)
 UTEST(mix, a_busy_program_keeps_its_writes_when_the_device_goes_deaf)
 {
     mix_host_costs(utest_result,
-                   (mix_host_t){.display = 1.0 / 60, .stall_at = 30, .deaf = 0.5, .busy = 150},
+                   (mix_host_t){.display = 1.0 / 60, .stall_at = 8, .deaf = 0.5, .busy = 150, .secs = 15},
                    560, 0, 0);
 }
 
 UTEST(mix, a_busy_program_keeps_its_writes_when_the_host_stalls)
 {
     mix_host_costs(utest_result,
-                   (mix_host_t){.display = 1.0 / 60, .stall_at = 30, .stall = 0.5, .both = true, .busy = 150},
+                   (mix_host_t){.display = 1.0 / 60, .stall_at = 8, .stall = 0.5, .both = true, .busy = 150, .secs = 15},
                    0, 0, 0);
 }
 
 UTEST(mix, a_busy_program_keeps_its_writes_when_callbacks_are_uneven)
 {
-    mix_host_costs(utest_result, (mix_host_t){.display = 1.0 / 60, .jitter = 0.004, .busy = 150},
+    mix_host_costs(utest_result, (mix_host_t){.display = 1.0 / 60, .jitter = 0.004, .busy = 150, .secs = 15},
                    0, 0, 0);
 }
 
