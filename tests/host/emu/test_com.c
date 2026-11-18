@@ -6,6 +6,7 @@
 
 #include "core/api/arg.h"
 #include "core/api/proc.h"
+#include "core/aud/bel.h"
 #include "core/com/manifold.h"
 #include "core/hid/paste.h"
 #include "core/ria/ria.h"
@@ -665,6 +666,48 @@ UTEST(com, a_write_to_the_screen_lands_between_the_output_around_it)
 }
 
 /* The console's terminal, which com_clean_line reads. */
+/* Whether the bell is sounding: its voice's gate is up. */
+static bool bell_rings(void)
+{
+    static uint8_t row[BEL_SST_SIZE], quiet[BEL_SST_SIZE];
+    sst_cursor_t c = {row, row + sizeof row, false};
+    bel_sst_save(&c, 0);
+    return memcmp(row, quiet, sizeof row) != 0;
+}
+
+static void say(const char *s)
+{
+    while (*s)
+        manifold_putchar(*s++);
+    manifold_flush();
+}
+
+/* A BEL that ends an OSC is the end of a string and no bell. */
+UTEST(com, a_bell_inside_an_escape_sequence_does_not_ring)
+{
+    com_set_bel(true);
+    bel_init();
+    ASSERT_FALSE(bell_rings());
+    say("\33]0;a title\a");
+    say("\33]4;1;rgb:ff/80/00\a\33]104\a");
+    ASSERT_FALSE(bell_rings());
+    say("text\r\n");
+    ASSERT_FALSE(bell_rings());
+    say("\a");
+    ASSERT_TRUE(bell_rings());
+    /* One inside a CSI is a bell all the same, as on a VT102. */
+    bel_init();
+    say("\33[1\a;1H");
+    ASSERT_TRUE(bell_rings());
+    /* And none rings with the bell turned off. */
+    bel_init();
+    com_set_bel(false);
+    say("\a");
+    ASSERT_FALSE(bell_rings());
+    com_set_bel(true);
+    bel_init();
+}
+
 UTEST_STATE();
 int main(int argc, const char *const argv[])
 {

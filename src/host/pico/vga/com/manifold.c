@@ -39,6 +39,11 @@ void manifold_reply(const char *s, size_t n)
     (void)n;
 }
 
+/* The bell is the RIA's too. */
+void manifold_bell(void)
+{
+}
+
 bool manifold_out_empty(void)
 {
     return !RING_LEN(&manifold_out);

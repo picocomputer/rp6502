@@ -7,7 +7,6 @@
 #include "core/api/proc.h"
 #include "core/com/com.h"
 #include "core/sys/ria.h"
-#include "core/aud/bel.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
 #include "ria/sys/vga.h"
@@ -159,8 +158,6 @@ static void HOST_IN_RAM_FUNC manifold_uart_drain_tx(void)
         /* A debug probe hears the UART's wire, at the wire's pace. */
         rtt_write(&ch, 1);
         manifold_term_feed(ch);
-        if (ch == '\a' && com_get_bel())
-            bel_add(&bel_teletype);
     }
 }
 

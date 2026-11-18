@@ -1183,13 +1183,17 @@ static void term_osc_byte(term_t *t, uint8_t ch)
 /* ---- the parser -------------------------------------------------------- */
 
 // The C0 controls that act: from the ground state, and from inside a
-// sequence for the ones in TERM_C0_IN_SEQ. NUL and BEL do nothing here; the
-// console's bell is the RIA's.
+// sequence for the ones in TERM_C0_IN_SEQ. NUL does nothing. A BEL that gets
+// here is a bell to ring. One that ends an OSC never does: term_osc_byte
+// takes it.
 static void term_execute(term_t *t, uint8_t ch)
 {
     t->rep_valid = false;
     switch (ch)
     {
+    case '\a': // BEL
+        cells_bell(t);
+        break;
     case '\b': // BS
     case '\t': // HT
     case '\n': // LF

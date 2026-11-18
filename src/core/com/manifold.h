@@ -57,6 +57,11 @@ void manifold_uart_clear(void);
  * that terminal is the console's, dropped where another chip answers. */
 void manifold_reply(const char *s, size_t n);
 
+/* The bell of the terminal in core/term/cells.c: rung where that terminal
+ * is the console's and the bell is on, and nothing where another chip
+ * rings it. */
+void manifold_bell(void);
+
 /* The terminal emulator's input: every byte the console sends to the UART or
  * to COM_TERM_SCREEN. */
 void manifold_set_term_out(void (*out_chars)(const char *buf, int len));

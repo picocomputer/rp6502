@@ -90,6 +90,10 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags);
 // An answer to a query.
 void cells_reply(const term_t *t, const char *s, size_t n);
 
+/* The terminal was sent a BEL that is a bell, and not the end of a string:
+ * the console's bell rings, on the machine that has it. */
+void cells_bell(const term_t *t);
+
 // The grid the cursor reports come from: the one showing.
 term_grid_t *cells_shown(const term_t *t);
 

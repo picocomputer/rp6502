@@ -1,25 +1,9 @@
-# Harvest memory: work still to do
+# The console: work still to do
 
-Memory that comes back on every machine, to be done on its own branch.
-No machine is short of memory now; the Pocket's soft CPU has its RAM in
-SDRAM. This work keeps every machine lean and its code plain.
+Each section is done properly: where the architecture is what is in the
+way, the architecture changes.
 
-Each section is done properly: where the architecture is what keeps the
-memory, the architecture changes, and no section is a link-time trick.
-
-## 1. A bell inside an escape sequence does not ring
-
-The bell rings for every BEL a program writes: the manifold looks for
-the byte as it sends what was written (core/com/manifold.c). A BEL also
-ends an OSC, and that one is not a bell: a program that sets the palette
-or the window's title rings once for each.
-
-The terminal knows which it is. Every machine runs the parser now, the
-RP6502-RIA included, so the bell is rung from where the parser acts on a
-BEL as a control, and one it takes as the end of a string is not rung.
-The manifold stops looking for the byte.
-
-## 2. A clear line after a program ends
+## 1. A clear line after a program ends
 
 When a program ends, the console is given a soft reset and then a line of
 its own: a CR LF if the cursor is not in the first column
@@ -46,7 +30,7 @@ blanked with spaces, or erased part of, still counts as in use, and the
 prompt is then lower than it had to be. That is the right way to be
 wrong: there is always a clear line.
 
-## 3. The resets at a cold boot
+## 2. The resets at a cold boot
 
 What the RP6502-RIA sends as it starts, today:
 
@@ -71,7 +55,7 @@ from one place (`manifold_screen_write`), and the DISPLAY, code page, and
 mode 0 registers are followed in ria/sys/vga.c. The hard reset that a
 build that logs leaves out is left out of both.
 
-## 4. The whole line editor in VT52 mode
+## 3. The whole line editor in VT52 mode
 
 A read that starts with the terminal in VT52 mode is laid out plainly:
 the line editor echoes, backs up with BS, erases with spaces, and leaves
@@ -98,7 +82,7 @@ A plain line stays for what asks for one by name: a script's read, and
 the command line emulator when its output is a pipe or a file and not a
 terminal (`rln_set_plain`), which no other machine sets.
 
-## 5. The line editor inside margins
+## 4. The line editor inside margins
 
 The line editor lays a line out for the whole width of the cursor's row,
 and goes to a column with a CR and a move right (core/com/rln.c). It does
