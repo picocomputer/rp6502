@@ -12,7 +12,10 @@ module tb_pbridge (
     input logic [31:0] bridge_wr_data,
     input logic dataslot_allcomplete,
     input logic dataslot_update,
+    input logic dataslot_requestwrite,
+    input logic [15:0] dataslot_requestwrite_id,
     output logic [7:0] tb_pbridge_upd_n,
+    output logic tb_pbridge_rom_coming,
     input logic reset_n,
     output logic [9:0] tb_pbridge_dt_addr,
     input logic [31:0] datatable_q,
@@ -32,6 +35,7 @@ module tb_pbridge (
     input logic clk_sys,
     input logic rst_n,
     output logic tb_pbridge_run,
+    output logic tb_pbridge_w_queued,
     output logic tb_pbridge_slot_set,
     output logic [31:0] tb_pbridge_slot_len,
     output logic [31:0] tb_pbridge_cont1_key,
@@ -49,9 +53,16 @@ module tb_pbridge (
     output logic tb_pbridge_ready,
 
     input logic rd_pend,
-    input logic [24:0] rd_addr,
-    output logic [15:0] tb_pbridge_rdata,
-    output logic tb_pbridge_rvalid
+    input logic [23:0] rd_addr,
+    output logic [31:0] tb_pbridge_rword,
+    output logic tb_pbridge_rvalid,
+
+    input logic line_pend,
+    input logic line_we,
+    input logic [21:0] line_addr,
+    input logic [127:0] line_wdata,
+    output logic [127:0] tb_pbridge_line_rdata,
+    output logic tb_pbridge_line_done
 );
 
     logic dt_busy;
@@ -81,7 +92,10 @@ module tb_pbridge (
         .bridge_wr_data(bridge_wr_data),
         .dataslot_allcomplete(dataslot_allcomplete),
         .dataslot_update(dataslot_update),
+        .dataslot_requestwrite(dataslot_requestwrite),
+        .dataslot_requestwrite_id(dataslot_requestwrite_id),
         .pocket_bridge_upd_n(tb_pbridge_upd_n),
+        .pocket_bridge_rom_coming(tb_pbridge_rom_coming),
         .reset_n(reset_n),
         .pocket_bridge_dt_addr(tb_pbridge_dt_addr),
         .pocket_bridge_dt_busy(dt_busy),
@@ -93,6 +107,7 @@ module tb_pbridge (
         .sdram_ready(tb_pbridge_ready),
         .w_take(w_take),
         .pocket_bridge_w_avail(w_avail),
+        .pocket_bridge_w_queued(tb_pbridge_w_queued),
         .pocket_bridge_w_addr(w_addr),
         .pocket_bridge_w_data(w_data),
         .pocket_bridge_run(tb_pbridge_run),
@@ -121,14 +136,22 @@ module tb_pbridge (
 
     pocket_sdram ctrl (
         .clk(clk_sys),
+        .pll_locked(1'b1),
         .rd_pend(rd_pend),
         .rd_addr(rd_addr),
-        .pocket_sdram_rdata(tb_pbridge_rdata),
+        .pocket_sdram_rword(tb_pbridge_rword),
         .pocket_sdram_rvalid(tb_pbridge_rvalid),
         .w_avail(w_avail),
         .w_addr(w_addr),
         .w_data(w_data),
+        .w_mask(2'b11),
         .pocket_sdram_wtake(w_take),
+        .line_pend(line_pend),
+        .line_we(line_we),
+        .line_addr(line_addr),
+        .line_wdata(line_wdata),
+        .pocket_sdram_line_rdata(tb_pbridge_line_rdata),
+        .pocket_sdram_line_done(tb_pbridge_line_done),
         .pocket_sdram_ready(tb_pbridge_ready),
         .dram_cke(cke),
         .dram_a(a),
@@ -145,7 +168,7 @@ module tb_pbridge (
     logic [31:0] refreshes;
     logic [31:0] sref_clocks;
     sdram_model chip (
-        .clk(clk_sys),
+        .clk(~clk_sys),
         .rst_n(rst_n),
         .cke(cke),
         .a(a),
@@ -153,6 +176,7 @@ module tb_pbridge (
         .ras_n(ras_n),
         .cas_n(cas_n),
         .we_n(we_n),
+        .dqm(dqm),
         .dq_in(dq_c2m),
         .dq_oe(dq_oe),
         .dq_out(dq_m2c),
@@ -162,7 +186,8 @@ module tb_pbridge (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_tb_pbridge;
-    always_comb unused_tb_pbridge = ^{dqm, refreshes, sref_clocks, dt_busy, set_tz, set_tz_min,
+    always_comb unused_tb_pbridge = ^{refreshes, sref_clocks,
+                                      dt_busy, set_tz, set_tz_min,
                                       set_tz_sign, set_kb,
                                       rtc_epoch_s, rtc_valid_s};
     /* verilator lint_on UNUSEDSIGNAL */

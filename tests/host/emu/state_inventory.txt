@@ -70,17 +70,17 @@ core/aud/psg.c psg_channel_state: the PSG chunk
 core/aud/psg.c psg_regs: the PSG chunk
 core/aud/psg.c psg_xaddr: the PSG chunk
 core/com/com.c com_bel_enabled: the COM chunk
-core/com/com.c com_line: the COM chunk
+core/com/com.c com_reply_at: the COM chunk
+core/com/com.c com_reply_buf: the COM chunk
+core/com/com.c com_reply_default: not carried: host wiring
+core/com/com.c com_reply_len: the COM chunk
+core/com/com.c com_reply_quiet: the COM chunk
 core/com/com.c com_rx_deadline: the COM chunk
 core/com/com.c com_rx_held: the COM chunk
 core/com/com.c com_rx_staged: the COM chunk
 core/com/com.c com_sources: the COM chunk
-core/com/manifold.c manifold_charge: not carried: host wiring
 core/com/manifold.c manifold_crlf_last: the MFLD chunk
 core/com/manifold.c manifold_keyboard_ring: the MFLD chunk
-core/com/manifold.c manifold_reply_buf: the MFLD chunk
-core/com/manifold.c manifold_reply_len: the MFLD chunk
-core/com/manifold.c manifold_reply_suppressed: not carried: host wiring
 core/com/manifold.c manifold_std_tap: not carried: host wiring; libretro installs no wire at all
 core/com/manifold.c manifold_stderr_sink: not carried: host wiring
 core/com/manifold.c manifold_term_out: not carried: host wiring
@@ -91,10 +91,6 @@ core/com/manifold.c manifold_wire_hold: not carried: host wiring
 core/com/manifold.c manifold_wire_rx: not carried: host wiring
 core/com/manifold.c manifold_wire_stream: not carried: host wiring
 core/com/manifold.c manifold_wire_tx: not carried: host wiring
-core/com/rln.c held: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
-core/com/rln.c history: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
-core/com/rln.c lastkey: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
-core/com/rln.c line: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/com/rln.c rln_action_taken: the RLN chunk
 core/com/rln.c rln_buf: the RLN chunk
 core/com/rln.c rln_buflen: the RLN chunk
@@ -102,9 +98,9 @@ core/com/rln.c rln_bufpos: the RLN chunk
 core/com/rln.c rln_callback: the RLN chunk
 core/com/rln.c rln_caps: the RLN chunk
 core/com/rln.c rln_cur_idx: the RLN chunk
-core/com/rln.c rln_editing: the RLN chunk
-core/com/rln.c rln_held: the RLN chunk
-core/com/rln.c rln_held_len: the RLN chunk
+core/com/rln.c rln_grid: the RLN chunk
+core/com/rln.c rln_grid_lines: the RLN chunk
+core/com/rln.c rln_grid_width: the RLN chunk
 core/com/rln.c rln_history: the RLN chunk
 core/com/rln.c rln_history_count: the RLN chunk
 core/com/rln.c rln_history_pos: the RLN chunk
@@ -118,29 +114,16 @@ core/com/rln.c rln_line_ends: the RLN chunk
 core/com/rln.c rln_line_src: not carried: read only inside the read's callback, which runs where it is set
 core/com/rln.c rln_max_length: the RLN chunk
 core/com/rln.c rln_overwrite: the RLN chunk
+core/com/rln.c rln_pinned_height: the RLN chunk
+core/com/rln.c rln_pinned_width: the RLN chunk
+core/com/rln.c rln_plain: not carried: host wiring
 core/com/rln.c rln_prompt_col: the RLN chunk
 core/com/rln.c rln_rendered_max_row: the RLN chunk
+core/com/rln.c rln_rows: the RLN chunk
 core/com/rln.c rln_skip_history: the RLN chunk
 core/com/rln.c rln_suppress_newline: the RLN chunk
 core/com/rln.c rln_width: the RLN chunk
-core/com/tio.c tio_answers: the TIO chunk
-core/com/tio.c tio_charge: the TIO chunk
-core/com/tio.c tio_deadline: the TIO chunk
-core/com/tio.c tio_greeted: the TIO chunk
-core/com/tio.c tio_height: the TIO chunk
-core/com/tio.c tio_marks: the TIO chunk
-core/com/tio.c tio_naws_height: the TIO chunk
-core/com/tio.c tio_naws_width: the TIO chunk
-core/com/tio.c tio_pcol: the TIO chunk
-core/com/tio.c tio_pinned_height: the TIO chunk
-core/com/tio.c tio_pinned_width: the TIO chunk
-core/com/tio.c tio_probe: the TIO chunk
-core/com/tio.c tio_quiet: the TIO chunk
-core/com/tio.c tio_shape: the TIO chunk
-core/com/tio.c tio_sized: the TIO chunk
 core/com/tio.c tio_sources: the TIO chunk
-core/com/tio.c tio_state: the TIO chunk
-core/com/tio.c tio_width: the TIO chunk
 core/dap/dbg.c dbg_watch_armed: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
 core/dap/dbg.c g_active: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
 core/dap/dbg.c g_bp: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
@@ -170,7 +153,7 @@ core/hid/gamepad.c gamepad_reports: the GPAD chunk
 core/hid/gamepad.c gamepad_xram: the GPAD chunk
 core/hid/hid.c hid_claims: not carried: no transport reaches the claim table on a software machine
 core/hid/keyboard.c keyboard_connections: not carried: nothing mounts on a software machine, so it is permanently zero
-core/hid/keyboard.c keyboard_hid_leds: the KEYB chunk
+core/hid/keyboard.c keyboard_locks: the KEYB chunk
 core/hid/keyboard.c keyboard_keys: the KEYB chunk
 core/hid/keyboard.c keyboard_xram: the KEYB chunk
 core/hid/mouse.c mouse_acc_x: the MOUS chunk
@@ -190,14 +173,13 @@ core/hid/tablet.c tablet_sub_y: the TBLT chunk
 core/hid/tablet.c tablet_x: the TBLT chunk
 core/hid/tablet.c tablet_xram: the TBLT chunk
 core/hid/tablet.c tablet_y: the TBLT chunk
-core/hid/vtkeys.c vtkeys_paste_buf: not carried: every load cancels the paste, so there is nothing left to carry
-core/hid/vtkeys.c vtkeys_paste_len: not carried: every load cancels the paste, so there is nothing left to carry
-core/hid/vtkeys.c vtkeys_paste_pos: not carried: every load cancels the paste, so there is nothing left to carry
+core/hid/paste.c paste_buf: not carried: every load cancels the paste, so there is nothing left to carry
+core/hid/paste.c paste_len: not carried: every load cancels the paste, so there is nothing left to carry
+core/hid/paste.c paste_pos: not carried: every load cancels the paste, so there is nothing left to carry
 core/ria/regs.c regs: the RIA chunk
 core/ria/regs.c xstack: the RIA chunk
 core/ria/regs.c xstack_ptr: the RIA chunk
 core/ria/ria.c ria: the RIA chunk
-core/ria/ria.c stack: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/rom/alias.c aliases: not carried: a session's, installed from the command line. A cross-session load whose argv[0] is a :name this session has not installed boots nothing, which is a late fail worth reporting
 core/rom/asset.c g_rom_generation: the ASET chunk
 core/rom/asset.c rom_assets_start: the ASET chunk
@@ -215,30 +197,23 @@ core/str/str.c str_tab_EN: the linked table image and a parse buffer dead at eve
 core/str/str.c str_tab_FR: the linked table image and a parse buffer dead at every frame boundary
 core/str/str.c str_tab_PL: the linked table image and a parse buffer dead at every frame boundary
 core/str/str.c str_tabs: the linked table image and a parse buffer dead at every frame boundary
-core/str/unicode.c unicode_cp_at: derived: a pure function of the linked table image, found lazily on first use
-core/str/unicode.c unicode_cvt1_at: derived: a pure function of the linked table image, found lazily on first use
-core/str/unicode.c unicode_cvt2_at: derived: a pure function of the linked table image, found lazily on first use
-core/str/unicode.c unicode_page_at: derived: a pure function of the linked table image, found lazily on first use
-core/str/unicode.c unicode_pages: derived: a pure function of the linked table image, found lazily on first use
 core/sys/config.c config_depth: not carried: host settings, not machine state
 core/sys/config.c config_dirty: not carried: host settings, not machine state
 core/sys/config.c config_oem_code_page: not carried: host settings, not machine state
 core/sys/config.c config_phi2_khz: not carried: host settings, not machine state
 core/sys/config.c config_str_locale: not carried: host settings, not machine state
-core/sys/proc.c argv: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/sys/proc.c boot_error: not carried: the message for the last failed boot, which the host reads right after the boot
-core/sys/proc.c launcher: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/sys/proc.c queued: the PROC chunk
-core/sys/proc.c running: load staging: the chunk is read whole before a byte of it is installed, and it is too big for the stack
 core/sys/random.c sys_random_seeded: the RAND chunk
 core/sys/random.c sys_random_state: the RAND chunk
-core/sys/sst.c sst_body: the savestate's own working memory: the blob being walked, the scratch a late fail rolls back to, and the manifest sum
-core/sys/sst.c sst_manifest_crc: the savestate's own working memory: the blob being walked, the scratch a late fail rolls back to, and the manifest sum
-core/sys/sst.c sst_manifest_done: the savestate's own working memory: the blob being walked, the scratch a late fail rolls back to, and the manifest sum
-core/sys/sst.c sst_offset: the savestate's own working memory: the blob being walked, the scratch a late fail rolls back to, and the manifest sum
-core/sys/sst.c sst_scratch: the savestate's own working memory: the blob being walked, the scratch a late fail rolls back to, and the manifest sum
-core/sys/sst.c sst_walk_bad: the savestate's own working memory: the blob being walked, the scratch a late fail rolls back to, and the manifest sum
-core/sys/sst.c sst_why: the savestate's own working memory: the blob being walked, the scratch a late fail rolls back to, and the manifest sum
+core/sys/sst.c sst_body: the savestate's own working memory: the blob being walked and the manifest sum
+core/sys/sst.c sst_manifest_crc: the savestate's own working memory: the blob being walked and the manifest sum
+core/sys/sst.c sst_manifest_done: the savestate's own working memory: the blob being walked and the manifest sum
+core/sys/sst.c sst_offset: the savestate's own working memory: the blob being walked and the manifest sum
+core/sys/sst.c sst_walk_bad: the savestate's own working memory: the blob being walked and the manifest sum
+core/sys/sst.c sst_why: the savestate's own working memory: the blob being walked and the manifest sum
+core/sys/sst.c sst_why_row: the savestate's own working memory: the blob being walked and the manifest sum
+core/sys/sst.c sst_refusal: the savestate's own working memory: the blob being walked and the manifest sum
 core/sys/sys.c sys_breaking: the blob's latch, which sst.c applies before the walk
 core/sys/sys.c sys_flashing: not carried: only the RIA sets it, and it then reboots or locks up
 core/sys/sys.c sys_state: the blob's latch, which sst.c applies before the walk
@@ -246,31 +221,33 @@ core/sys/xram.c xram: the XRAM chunk
 core/sys/xram.c xram_fill_random: not carried: a session's fill setting
 core/sys/xram.c xram_fill_seed: not carried: a session's fill setting
 core/sys/xram.c xram_fill_value: not carried: a session's fill setting
-core/term/color.c color_256_term: the TERM chunk
 core/term/font.c font16: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
 core/term/font.c font8: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
 core/term/font.c font_code_page: derived: the OEM chunk's load installs it through font_load_code_page
-core/term/font.c font_dec_16: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
-core/term/font.c font_dec_8: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
-core/term/font.c italic16: derived: font_load_code_page rebuilds the tables from the code page the OEM chunk carries
-core/term/term.c term40_alt_mem: the TERM chunk
-core/term/term.c term40_pri_mem: the TERM chunk
-core/term/term.c term80_alt_mem: the TERM chunk
-core/term/term.c term80_pri_mem: the TERM chunk
-core/term/term.c term_40: the TERM chunk
-core/term/term.c term_80: the TERM chunk
+core/term/cells.c cells_40: the CELL chunk
+core/term/cells.c cells_80: the CELL chunk
+core/term/cells.c cells_cursor_color: the CELL chunk
+core/term/cells.c cells_published: derived: the layout the row words were last written from; a load publishes again
+core/term/cells.c cells_stale: not carried: a load publishes everything, which clears it
+core/term/cells.c cells_term: the CELL chunk
 core/vga/canvas.c canvas_code: the VGA chunk
 core/vga/canvas.c canvas_h: the VGA chunk
 core/vga/canvas.c canvas_w: the VGA chunk
 core/vga/canvas.c console_h: the VGA chunk
 core/vga/canvas.c console_w: the VGA chunk
+core/vga/mode/mode0.c mode0_cells: the CELL chunk, through each screen's cells
+core/vga/mode/mode0.c mode0_colors: the CELL chunk
+core/vga/mode/mode0.c mode0_palette: the CELL chunk, its first half; the faint half follows from it
+core/vga/mode/mode0.c mode0_regs: derived: the CELL and VGA loads publish them again
 core/vga/mode/mode2.c mode2_options: the VGA chunk: each row's class rides as that row's attribute
+core/vga/mode/mode2.c mode2_tiles: a table of functions, fixed at build
 core/vga/mode/mode4.c sw_interp: per-scanline scratch, reloaded at the top of every sprite render
 core/vga/prog.c vga_highest_scanline: the VGA chunk
 core/vga/prog.c vga_prog: the VGA chunk
 core/vga/vga.c beam_n: the VGA chunk
 core/vga/vga.c frame_n: the VGA chunk
 core/vga/vga.c g_framebuffer: not carried: the app owns the pixels; no row touches them
+core/vga/vga.c vga_fill_cache: derived: every line checks its 4bpp pairs against the palette they were built from, and builds a row of text's pairs again
 core/vga/vga.c vga_needs_reset: the VGA chunk
 core/vga/vga.c vga_scanout: not carried: whether this host wants pixels at all
 core/vga/vga.c vsynced: the VGA chunk

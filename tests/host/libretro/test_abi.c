@@ -31,7 +31,7 @@ UTEST(abi, the_machine_is_not_exported)
         "sys_init", "sys_run", "sys_stop", "rom_load", "sys_task",
         "vga_set_framebuffer", "vga_canvas_size", "manifold_set_tx_tap", "manifold_set_std_tap", "sram_init",
         "xram_init", "aud_render", "vga_run_frame", "sram", "xram", "regs", "xstack",
-        "keyboard_hid_set", "gamepad_host_report", "fs_std_open", "fs_std_read", "com_printf",
+        "keyboard_set_key", "gamepad_host_report", "fs_std_open", "fs_std_read", "com_printf",
         "host_log",
     };
     for (size_t i = 0; i < sizeof inside / sizeof *inside; i++)

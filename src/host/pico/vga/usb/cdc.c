@@ -50,7 +50,7 @@ void cdc_task(void)
 
     // OUT is purged while the device is unmounted or suspended, while DTR is
     // clear, and when both the CDC TX FIFO and OUT are full, because the
-    // manifold's stdio driver calls cdc_task in a loop until OUT has room.
+    // manifold calls cdc_task in a loop until OUT has room.
     if (!tud_cdc_connected() ||
         (!tud_cdc_write_available() && manifold_out_full()))
     {

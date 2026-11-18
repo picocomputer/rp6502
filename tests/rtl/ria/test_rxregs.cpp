@@ -51,18 +51,15 @@ static seen step(const cycle &c)
     dut->b_wstrb = c.os_write ? 0xF : 0;
     dut->b_wdata = c.wdata;
     dut->clk = 0;
-    dut->clk_mem = 0;
     dut->eval();
     seen s = {dut->regs_data, dut->regs_b_rdata};
     dut->clk = 1;
-    dut->clk_mem = 1;
     dut->eval();
     dut->en = 0;
     dut->cs = 0;
     dut->b_re = 0;
     dut->b_we = 0;
     dut->clk = 0;
-    dut->clk_mem = 0;
     dut->eval();
     return s;
 }
@@ -109,7 +106,6 @@ static void power_on()
     delete dut;
     dut = new Vregs;
     dut->clk = 0;
-    dut->clk_mem = 0;
     dut->eval();
     for (int i = 0; i < 4; i++)
         step(cycle());

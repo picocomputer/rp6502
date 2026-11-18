@@ -15,16 +15,14 @@
 /* stage_map_gate.py checks these against the firmware's mmio.h and the
  * Pocket core's data.json. */
 #define TB_STAGE_ROM_BASE 0x00000000u
-#define TB_STAGE_WIN_BASE 0x03FA0000u
+/* The soft CPU's memory. Its ROM block is first, where the host loads
+ * the firmware, and its RAM block follows. */
+#define TB_STAGE_MEM_BASE 0x03E00000u
+#define TB_STAGE_MEM_SIZE 0x00080000u
+#define TB_STAGE_MEM_ROM_SIZE 0x00040000u
+#define TB_STAGE_MEM_RAM_SIZE 0x00010000u
+#define TB_STAGE_WIN_BASE 0x03E80000u
 #define TB_STAGE_WIN_SIZE 0x00008000u
-#define TB_STAGE_FONT_BASE 0x03FE0000u
-#define TB_STAGE_FONT_SIZE 0x0000F000u
-#define TB_STAGE_OEMCP_BASE 0x03FEF000u
-#define TB_STAGE_OEMCP_SIZE 0x00002000u
-/* The Get File scratch window at 0x03FF1000, which is not a data slot,
- * lies between the code pages and this base. */
-#define TB_STAGE_KBDLAY_BASE 0x03FF2000u
-#define TB_STAGE_KBDLAY_SIZE 0x00004000u
 
 static const std::vector<uint8_t> &tb_stage_load(const char *path,
                                                  std::vector<uint8_t> &v)
@@ -42,22 +40,38 @@ static const std::vector<uint8_t> &tb_stage_load(const char *path,
     return v;
 }
 
-static const std::vector<uint8_t> &tb_stage_fonts()
+/* Puts bytes straight into an SDRAM model's memory, which holds two bytes
+ * a word with the even byte low. Streaming them over the bridge costs
+ * about ten clk_74a cycles a byte. */
+template <typename Mem>
+static void tb_stage_poke(Mem &mem, uint32_t base,
+                          const std::vector<uint8_t> &v)
 {
-    static std::vector<uint8_t> v;
-    return tb_stage_load(FONTS_BIN, v);
+    for (size_t i = 0; i < v.size(); i += 2)
+    {
+        uint8_t hi = i + 1 < v.size() ? v[i + 1] : 0;
+        mem[(base + i) >> 1] = (uint16_t)(v[i] | (hi << 8));
+    }
 }
 
-static const std::vector<uint8_t> &tb_stage_oemcp()
+/* The firmware image, or nothing when the file is missing or is larger
+ * than the ROM block. */
+static std::vector<uint8_t> tb_stage_firmware(const char *path)
 {
-    static std::vector<uint8_t> v;
-    return tb_stage_load(OEMCP_BIN, v);
+    std::vector<uint8_t> v;
+    tb_stage_load(path, v);
+    if (v.size() > TB_STAGE_MEM_ROM_SIZE)
+        v.clear();
+    return v;
 }
 
-static const std::vector<uint8_t> &tb_stage_kbdlay()
+/* Loads the firmware where the host would, without the bridge. */
+template <typename Mem>
+static bool tb_stage_poke_firmware(Mem &mem, const char *path)
 {
-    static std::vector<uint8_t> v;
-    return tb_stage_load(KBDLAY_BIN, v);
+    std::vector<uint8_t> v = tb_stage_firmware(path);
+    tb_stage_poke(mem, TB_STAGE_MEM_BASE, v);
+    return !v.empty();
 }
 
 static std::map<uint32_t, uint8_t> &tb_stage_store()
@@ -78,13 +92,30 @@ static void tb_stage_clear()
 
 static uint8_t tb_stage(const std::vector<uint8_t> &rom, uint32_t addr);
 
-/* The machine takes the staging store a halfword at a time and picks the
- * byte itself. */
-static uint16_t tb_stage_half(const std::vector<uint8_t> &rom, uint32_t addr)
+/* The machine takes the staging store a word at a time, the lowest
+ * address in the low byte. */
+static uint32_t tb_stage_word(const std::vector<uint8_t> &rom, uint32_t addr)
 {
-    addr &= ~1u;
-    return (uint16_t)(tb_stage(rom, addr) | (tb_stage(rom, addr + 1) << 8));
+    addr &= ~3u;
+    uint32_t w = 0;
+    for (uint32_t i = 0; i < 4; i++)
+        w |= (uint32_t)tb_stage(rom, addr + i) << (8 * i);
+    return w;
 }
+
+/* A write of the machine's, the bytes strb names of the word at addr,
+ * the lowest address in the low byte. */
+static void tb_stage_write_word(uint32_t addr, uint32_t data, uint32_t strb)
+{
+    addr &= ~3u;
+    for (uint32_t i = 0; i < 4; i++)
+        if (strb & (1u << i))
+            tb_stage_write(addr + i, (uint8_t)(data >> (8 * i)));
+}
+
+/* What a platform shows while no access is pending, which the machine
+ * must not use. */
+#define TB_STAGE_IDLE 0xDEADBEEFu
 
 static uint8_t tb_stage(const std::vector<uint8_t> &rom, uint32_t addr)
 {
@@ -92,31 +123,23 @@ static uint8_t tb_stage(const std::vector<uint8_t> &rom, uint32_t addr)
     std::map<uint32_t, uint8_t>::const_iterator it = m.find(addr);
     if (it != m.end())
         return it->second;
-    if (addr >= TB_STAGE_FONT_BASE
-        && addr < TB_STAGE_FONT_BASE + TB_STAGE_FONT_SIZE)
-    {
-        const std::vector<uint8_t> &fonts = tb_stage_fonts();
-        uint32_t i = addr - TB_STAGE_FONT_BASE;
-        return i < fonts.size() ? fonts[i] : 0;
-    }
-    if (addr >= TB_STAGE_OEMCP_BASE
-        && addr < TB_STAGE_OEMCP_BASE + TB_STAGE_OEMCP_SIZE)
-    {
-        const std::vector<uint8_t> &t = tb_stage_oemcp();
-        uint32_t i = addr - TB_STAGE_OEMCP_BASE;
-        return i < t.size() ? t[i] : 0;
-    }
-    if (addr >= TB_STAGE_KBDLAY_BASE
-        && addr < TB_STAGE_KBDLAY_BASE + TB_STAGE_KBDLAY_SIZE)
-    {
-        const std::vector<uint8_t> &t = tb_stage_kbdlay();
-        uint32_t i = addr - TB_STAGE_KBDLAY_BASE;
-        return i < t.size() ? t[i] : 0;
-    }
     if (addr >= TB_STAGE_ROM_BASE
         && addr - TB_STAGE_ROM_BASE < rom.size())
         return rom[addr - TB_STAGE_ROM_BASE];
     return 0;
+}
+
+/* Called before every clock. It takes the machine's write, if one is
+ * pending, and shows the word a pending read wants. */
+template <typename Dut>
+static void tb_stage_tick(Dut *dut, const std::vector<uint8_t> &rom)
+{
+    uint32_t at = dut->wiring_stage_addr;
+    if (dut->wiring_stage_pend && dut->wiring_stage_we)
+        tb_stage_write_word(at, dut->wiring_stage_wdata,
+                            dut->wiring_stage_wstrb);
+    dut->stage_word = dut->wiring_stage_pend ? tb_stage_word(rom, at)
+                                             : TB_STAGE_IDLE;
 }
 
 #endif /* _TESTS_FPGA_TB_STAGE_H_ */

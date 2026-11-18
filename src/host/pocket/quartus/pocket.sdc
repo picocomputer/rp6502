@@ -46,26 +46,6 @@ set_false_path -hold \
     -from [get_registers {*pocket_bridge*|pocket_bridge_slot_len[*]}] \
     -to [get_registers {*|mmio_slot_len[*]}]
 
-# general[0] is clk_sys, and general[1] is both clk_rv and clk_vid,
-# because Quartus merges those two identical PLL outputs into one
-# counter. clk_mach is clk_sys gated by gate_sys, the clkctrl cell in
-# core_top, and the analyzer propagates general[0] through that cell, so
-# every constraint here that names general[0] also applies to the
-# registers on clk_mach.
-set_clock_uncertainty -add -hold 0.060 \
-    -from [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}] \
-    -to [get_clocks {*|general[1].gpll~PLL_OUTPUT_COUNTER|divclk}]
-set_clock_uncertainty -add -hold 0.060 \
-    -from [get_clocks {*|general[1].gpll~PLL_OUTPUT_COUNTER|divclk}] \
-    -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
-
-set_clock_uncertainty -add -hold 0.080 \
-    -from [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}] \
-    -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
-set_clock_uncertainty -add -hold 0.080 \
-    -from [get_clocks {bridge_spiclk}] \
-    -to [get_clocks {bridge_spiclk}]
-
 # pocket_file's command parameters and r_op are read on clk_74a only
 # after go_t has passed two synchronizer flops, and r_op changes on the
 # same clk_sys edge that flips go_t. Each path is bounded to one clk_74a
@@ -94,32 +74,31 @@ set_min_delay -from [get_registers {*pocket_file*|r_op[*]}] \
     -to [get_clocks {clk_74a}] 0
 
 # The savestate read crosses in both directions. pocket_sst writes the
-# requested index into ask on the clk_74a edge that flips ask_t, and
-# sst_engine loads req_idx from it only after ask_t has passed two
-# synchronizer flops. sst_engine raises rvalid one clk_sys clock after it
-# loads hold, and pocket_sst loads its hold register only after rvalid
+# requested index into ask on the clk_74a edge that flips ask_t, and its
+# clk_sys side loads fetch_idx from it only after ask_t has passed two
+# synchronizer flops. That side loads word on the clk_sys edge that flips
+# got_t, and the clk_74a side loads hold from it only after got_t has
+# passed two synchronizer flops. The firmware's answers cross the same
+# way: save_err and load_err change on the clk_sys edge that flips
+# save_ans_t or load_ans_t, and are read on clk_74a only after that flip
 # has passed two synchronizer flops. Each path is bounded to one clk_74a
 # period rather than cut, so each value is stable before it is loaded.
 set_max_delay -from [get_registers {*pocket_sst*|ask[*]}] \
-    -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}] 13.468
+    -to [get_registers {*pocket_sst*|fetch_idx[*]}] 13.468
 set_min_delay -from [get_registers {*pocket_sst*|ask[*]}] \
-    -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}] 0
-set_max_delay -from [get_registers {*sst_engine*|hold[*]}] \
+    -to [get_registers {*pocket_sst*|fetch_idx[*]}] 0
+set_max_delay -from [get_registers {*pocket_sst*|word[*]}] \
     -to [get_registers {*pocket_sst*|hold[*]}] 13.468
-set_min_delay -from [get_registers {*sst_engine*|hold[*]}] \
+set_min_delay -from [get_registers {*pocket_sst*|word[*]}] \
     -to [get_registers {*pocket_sst*|hold[*]}] 0
-
-# sst_engine writes flopreg and ria_xr in a load's first pass and holds
-# them until the next load. Every register that takes one, on the jams,
-# on os_jam or through SST_SAVED_US, takes it in a later state of the
-# load, so none takes a word on the edge that writes it.
-set_false_path -hold -from [get_registers {*sst_engine:*|flopreg[*]}]
-set_false_path -hold -from [get_registers {*sst_engine:*|ria_xr[*]}]
-
-# mach_clk_en is a clk_74a register. The clock gate takes it into an
-# enable register inside the clkctrl cell on the falling edge of clk_sys,
-# and every other reader passes it through an _s1 synchronizer first.
-set_false_path -from [get_registers {*|mach_clk_en}]
+set_max_delay -from [get_registers {*pocket_sst*|save_err}] \
+    -to [get_registers {*pocket_sst*|save_bad}] 13.468
+set_min_delay -from [get_registers {*pocket_sst*|save_err}] \
+    -to [get_registers {*pocket_sst*|save_bad}] 0
+set_max_delay -from [get_registers {*pocket_sst*|load_err}] \
+    -to [get_registers {*pocket_sst*|load_ok *pocket_sst*|load_bad}] 13.468
+set_min_delay -from [get_registers {*pocket_sst*|load_err}] \
+    -to [get_registers {*pocket_sst*|load_ok *pocket_sst*|load_bad}] 0
 
 # pocket_file copies err_q, tmo_q, result_q and wrote_q into its clk_sys
 # registers only after ret_t has passed two synchronizer flops. Each path

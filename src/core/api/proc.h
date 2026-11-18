@@ -7,6 +7,9 @@
 #ifndef _CORE_API_PROC_H_
 #define _CORE_API_PROC_H_
 
+#include "core/ria/regs.h"
+#include "core/sys/sst.h"
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -43,11 +46,16 @@ bool proc_is_launcher(void);
 int16_t proc_get_exit_code(void);
 void proc_set_exit_code(int16_t code);
 
-/* The two paths a savestate carries. A load puts them back here rather than
- * through proc_run, because proc_run takes argv[0] from the argument buffer
- * and the load has not restored that buffer yet. */
 const char *proc_launcher(void);
-void proc_restore_paths(const char *running, const char *launcher);
+
+/* What a savestate carries of the program and its chain, for every
+ * machine's PROC row: the exit code, the running program's path, the
+ * launcher's path and the whole argv buffer, 2 + 256 + 256 + XSTACK_SIZE.
+ * The load takes all of it or none. */
+#define PROC_PATH_SLOT 256
+#define PROC_CHAIN_SST_SIZE (2 + 2 * PROC_PATH_SLOT + XSTACK_SIZE)
+void proc_chain_sst_save(sst_cursor_t *c);
+bool proc_chain_sst_load(sst_cursor_t *c);
 
 /* Program EXIT, op 0xFF: record the code and stop. */
 void proc_exit(int16_t exit_code);
@@ -55,13 +63,10 @@ void proc_exit(int16_t exit_code);
 /* A break: the program and its launcher chain end. */
 void proc_break(void);
 
-/* Ctrl-Alt-Delete. False on a machine with no monitor, where the key types. */
-bool proc_break_to_monitor(void);
-
-/* Alt-F4: the program exits as exit(-1) does. False when nothing runs, from the
- * launcher itself, and with no launcher on a machine with no monitor, where the
- * key types. */
-bool proc_quit(void);
+/* The key chords that end a program: Alt-F4 quits it and Ctrl-Alt-Delete,
+ * with either Delete key, breaks to the monitor. True when the chord acted;
+ * false leaves the key to type. */
+bool proc_key_chord(uint8_t keycode, bool ctrl, bool alt);
 
 /* Each machine answers these three for itself.
  */

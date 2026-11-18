@@ -35,16 +35,15 @@ UTEST(pvideo, raster_and_pixels_exact)
         delete dut;
     }
     dut = new Vpocket_video;
-    dut->run = 1;
-    dut->clk_mach = 0;
+    dut->clk_sys = 0;
     dut->clk_vid = 0;
     dut->eval();
     for (int i = 0; i < 4; i++)
     {
-        dut->clk_mach = 1;
+        dut->clk_sys = 1;
         dut->clk_vid = 1;
         dut->eval();
-        dut->clk_mach = 0;
+        dut->clk_sys = 0;
         dut->clk_vid = 0;
         dut->eval();
     }
@@ -67,7 +66,7 @@ UTEST(pvideo, raster_and_pixels_exact)
                 dut->vid_de = de;
                 if (de)
                     dut->vid_pixel = pattern(f, c >> 1, line);
-                dut->clk_mach = 1;
+                dut->clk_sys = 1;
                 if ((c & 1) == 0)
                     dut->clk_vid = 1;
                 dut->eval();
@@ -115,7 +114,7 @@ UTEST(pvideo, raster_and_pixels_exact)
                     ASSERT_EQ(dut->pocket_video_skip, 0);
                 }
 
-                dut->clk_mach = 0;
+                dut->clk_sys = 0;
                 if ((c & 1) == 0)
                     dut->clk_vid = 0;
                 dut->eval();
@@ -144,16 +143,15 @@ static void canvas_native_de_skip_and_slot(int *utest_result, uint8_t code,
         delete dut;
     }
     dut = new Vpocket_video;
-    dut->run = 1;
-    dut->clk_mach = 0;
+    dut->clk_sys = 0;
     dut->clk_vid = 0;
     dut->eval();
     for (int i = 0; i < 4; i++)
     {
-        dut->clk_mach = 1;
+        dut->clk_sys = 1;
         dut->clk_vid = 1;
         dut->eval();
-        dut->clk_mach = 0;
+        dut->clk_sys = 0;
         dut->clk_vid = 0;
         dut->eval();
     }
@@ -178,7 +176,7 @@ static void canvas_native_de_skip_and_slot(int *utest_result, uint8_t code,
                 dut->vid_de = de;
                 if (de)
                     dut->vid_pixel = pattern(f, c >> 1, line / dbl);
-                dut->clk_mach = 1;
+                dut->clk_sys = 1;
                 if ((c & 1) == 0)
                     dut->clk_vid = 1;
                 dut->eval();
@@ -231,7 +229,7 @@ static void canvas_native_de_skip_and_slot(int *utest_result, uint8_t code,
                     }
                 }
 
-                dut->clk_mach = 0;
+                dut->clk_sys = 0;
                 if ((c & 1) == 0)
                     dut->clk_vid = 0;
                 dut->eval();

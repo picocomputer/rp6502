@@ -1,0 +1,2 @@
+/* Read inside the SECTIONS of section_uninitialized_data.incl. Only the VGA
+ * has video data to place; its own copy of this file, in vga/ld/, does it. */

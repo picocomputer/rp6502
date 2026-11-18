@@ -8,6 +8,7 @@
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
 #include "host/sokol/app/prompt.h"
+#include "core/hid/usage.h"
 #include "sokol/sokol_app.h"
 #include <math.h>
 #include <stdbool.h>
@@ -52,6 +53,16 @@ void host_window_set_aspect(int w, int h, bool refit)
         CGFloat width = [win contentRectForFrameRect:[win frame]].size.width;
         resize_content(NSMakeSize(width, round(width * h / w)));
     }
+}
+
+/* A Mac has no NumLock and its keypad always types digits, so NumLock reads
+ * on. It has no Scroll Lock either. */
+uint8_t host_locks(void)
+{
+    uint8_t locks = KEYBOARD_LED_NUMLOCK;
+    if ([NSEvent modifierFlags] & NSEventModifierFlagCapsLock)
+        locks |= KEYBOARD_LED_CAPSLOCK;
+    return locks;
 }
 
 static bool waiting_for_rom;

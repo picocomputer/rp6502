@@ -8,6 +8,8 @@ from rp6502_asm import (API_A, API_ERRNO, OP_LSEEK, OP_OPEN, OP_READ_XSTACK,
 from rp6502_rom import main
 
 ASSET = "song"
+# The letter that marks the asset's lines, which the program checks.
+LETTER = "A"
 
 MARK = 4
 CHUNK = 64
@@ -25,13 +27,13 @@ LO = 0x0203
 HI = 0x0204
 
 
-def payload(letter):
+def payload():
     return b"".join(
-        f"{letter * 4} asset line {i:02d} {letter * 4}\r\n".encode()
+        f"{LETTER * 4} asset line {i:02d} {LETTER * 4}\r\n".encode()
         for i in range(24))
 
 
-def prog(letter):
+def prog():
     """The messages are subroutines because say() emits five bytes per
     character, so a branch around an inline message longer than 25
     characters would exceed the 127-byte forward range of a 6502 branch."""
@@ -54,7 +56,7 @@ def prog(letter):
     message("say_changed", lambda: (
         p.say("\r\n*** ASSET NOW READS "),
         p.lda_abs(SEEN), p.putc_a(),
-        p.say(" (built " + letter + ") ***\r\n")))
+        p.say(" (built " + LETTER + ") ***\r\n")))
     message("say_ok", lambda: (
         p.say("\r\n"), p.lda_abs(SEEN), p.putc_a(), p.say(" ok\r\n")))
 
@@ -70,10 +72,10 @@ def prog(letter):
     p.stp()
 
     p.symbol("opened")
-    p.store(LAST, ord(letter))
+    p.store(LAST, ord(LETTER))
     p.store(LO, 0)
     p.store(HI, 0)
-    p.say("probe " + letter + " reading ROM:" + ASSET + "\r\n")
+    p.say("probe " + LETTER + " reading ROM:" + ASSET + "\r\n")
 
     p.symbol("pass")
     for _ in range(4):
@@ -157,12 +159,11 @@ def prog(letter):
     return p
 
 
-def sleepasset(letter):
-    p = prog(letter)
-    p.rom.add_asset(ASSET, payload(letter))
+def sleepasset():
+    p = prog()
+    p.rom.add_asset(ASSET, payload())
     return p
 
 
-ROMS = {"sleepasset-a": lambda: sleepasset("A"),
-        "sleepasset-b": lambda: sleepasset("B")}
+ROMS = {"sleepasset": sleepasset}
 main(globals())

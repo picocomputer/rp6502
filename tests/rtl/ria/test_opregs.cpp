@@ -27,10 +27,8 @@ static Vregs *dut;
 static void tick(void)
 {
     dut->clk = 0;
-    dut->clk_mem = 0;
     dut->eval();
     dut->clk = 1;
-    dut->clk_mem = 1;
     dut->eval();
     dut->en = 0;
     dut->cs = 0;
@@ -38,7 +36,6 @@ static void tick(void)
     dut->b_re = 0;
     dut->b_we = 0;
     dut->clk = 0;
-    dut->clk_mem = 0;
     dut->eval();
 }
 

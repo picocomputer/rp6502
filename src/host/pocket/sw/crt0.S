@@ -4,28 +4,55 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "pocket_version.h"
+
+    /* The reset vector is a jump of four bytes, and the word after it is
+     * the register layout version this firmware was built for. */
     .section .text.init
     .global _start
 _start:
+    .option push
+    .option norvc
+    j 0f
+    .option pop
+    .global ver_own
+ver_own:
+    .word POCKET_REG_VERSION
+0:
     la sp, __stack_top
+    /* Nothing else comes before this: it returns only under a bitstream
+     * of this firmware's version. */
+    call ver_check
+    la tp, __tls
     la t0, _trap_entry
     csrw mtvec, t0
 
-    la a0, __bss_start
-    la a1, __bss_end
+    /* .data's first values are in the ROM block, after the constants. */
+    la a0, __data_start
+    la a1, __data_end
+    la a2, __data_load
 1:  bgeu a0, a1, 2f
-    sw zero, 0(a0)
+    lw t0, 0(a2)
+    sw t0, 0(a0)
     addi a0, a0, 4
+    addi a2, a2, 4
     j 1b
 2:
+    la a0, __bss_start
+    la a1, __bss_end
+3:  bgeu a0, a1, 4f
+    sw zero, 0(a0)
+    addi a0, a0, 4
+    j 3b
+4:
     call main
 
     /* A write to 0xF0000004 sets soc_halted in core/riscv/soc.sv and stores
      * main's return value in soc_exit_code. */
     li t0, 0xF0000004
     sw a0, 0(t0)
-3:  wfi
-    j 3b
+5:  wfi
+    j 5b
 
     /* mtvec requires 4-byte alignment. */
     .align 2

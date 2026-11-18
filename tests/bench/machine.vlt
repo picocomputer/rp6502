@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Rumbledethumps
 // SPDX-License-Identifier: BSD-3-Clause
-// Combinational paths of the machine that Verilator reports as loops.
+// Combinational paths of the machine that Verilator reports as loops,
+// and the Pocket's version package, whose savestate size only core_top
+// uses, and core_top is never verilated.
 `verilator_config
 lint_off -rule UNOPTFLAT -file "*src/core/vga/scan/fill.sv"
-lint_off -rule UNOPTFLAT -file "*tests/host/pocket/asram_model.sv"
+lint_off -rule UNUSEDPARAM -file "*/pocket_version_pkg.sv"

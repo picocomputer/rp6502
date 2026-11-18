@@ -27,8 +27,8 @@ static bool boot(const char *name, size_t px)
     if (!tb_rom_read(path.c_str(), rom) || !tb_boot(dut, rom))
         return false;
     static uint32_t once[640 * 480];
-    tb_capture(dut, once, px);
-    tb_capture(dut, fb, px);
+    tb_capture(dut, rom, once, px);
+    tb_capture(dut, rom, fb, px);
     return memcmp(once, fb, px * sizeof(uint32_t)) == 0;
 }
 
@@ -78,6 +78,46 @@ UTEST(vidregs, custom_sprite_overrun_cuts_the_row)
 {
     ASSERT_TRUE(boot("mode5c_overrun", 320 * 240));
     ASSERT_EQ(host_crc32(0, fb, 320 * 240 * sizeof(uint32_t)), 0xDF872245u);
+}
+
+/* mode0.sv latches its words at the start of the line it draws the
+ * terminal's row 0 on. A 320 wide canvas draws row 0 on line 523, the first
+ * of its pair, so a screen word written during a frame reaches every line of
+ * the next one, the first included. mode0_win240's terminal begins at line 0.
+ * The firmware writes the screen word as its blinks tick, so the reverse
+ * screen is pinned before every clock rather than written once. */
+UTEST(vidregs, a_320_wide_terminal_takes_new_words_from_its_first_line)
+{
+    std::vector<uint8_t> rom;
+    ASSERT_TRUE(tb_rom_read(ROMS_DIR "/mode0_win240.rp6502", rom));
+    ASSERT_TRUE(tb_boot(dut, rom));
+    const size_t px = 320 * 240;
+    static uint32_t before[320 * 240], first[320 * 240], settled[320 * 240];
+    tb_capture(dut, rom, before, px);
+
+    auto ck = [&] {
+        dut->rootp->wiring__DOT__mode0__DOT__screen_shadow = 4;
+        tb_platform_clock(dut, rom, nullptr);
+    };
+    while (dut->wiring_scanline != 100)
+        tb_platform_clock(dut, rom, nullptr);
+    auto frame = [&](uint32_t *fb) {
+        while (dut->wiring_scanline != 524)
+            ck();
+        while (dut->wiring_scanline != 0)
+            ck();
+        size_t at = 0;
+        while (at < px)
+        {
+            ck();
+            if (dut->wiring_vid_de)
+                fb[at++] = tb_rgba8(dut->wiring_vid_pixel);
+        }
+    };
+    frame(first);
+    frame(settled);
+    ASSERT_NE(memcmp(before, settled, sizeof(settled)), 0);
+    ASSERT_EQ(memcmp(first, settled, sizeof(settled)), 0);
 }
 
 UTEST_STATE();

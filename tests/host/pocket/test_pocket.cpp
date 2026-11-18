@@ -9,11 +9,12 @@
 
 #include "corpus.h"
 #include "host/host.h"
+#include "pocket_version.h"
 
 #include "tb_asm.h"
 #include "tb_rom.h"
+#include "tb_snap.h"
 #include "tb_stage.h"
-#include "tb_tcm.h"
 #include "utest.h"
 
 #include <cstdio>
@@ -22,51 +23,72 @@
 #include <vector>
 
 static Vtb_pocket *dut;
-static uint32_t g_dt[64];
-static uint32_t dt_pipe[2];
-static std::vector<uint8_t> g_rom;
-static int g_rd_prev, g_rd_hold;
 
-static long a_next, s_next;
-static long g_t, g_sys;
-/* XRAM's port clock rises 124 and 289 units after each clk_sys edge, which
- * is 7.4 and 17.4 ns, and clk_ph is low across the first and high across
- * the second. */
-static long a2_next = 124;
-static int a2_ph;
+/* The bench's side of a run: its clocks, what the host has loaded, and the
+ * file commands it is answering. power_on starts from Bench{}, and a
+ * snapshot keeps the model and a copy of this, which io() lists field by
+ * field. */
+struct Bench
+{
+    long a_next = 224, s_next = 330;
+    long t = 0, sys = 0;
+    /* XRAM's port clock rises 124 and 289 units after each clk_sys edge,
+     * which is 7.4 and 17.4 ns, and clk_ph is low across the first and high
+     * across the second. */
+    long a2_next = 124;
+    int a2_ph = 0;
+    uint32_t dt[64] = {};
+    uint32_t dt_pipe[2] = {};
+    std::vector<uint8_t> rom;
+    int rd_prev = 0, rd_hold = 0;
+    int gf_prev = 0, gf_hold = 0;
 
-static int g_gf_prev, g_gf_hold;
+    template <typename S> void io(S &s)
+    {
+        tb_snap_io(s, a_next);
+        tb_snap_io(s, s_next);
+        tb_snap_io(s, t);
+        tb_snap_io(s, sys);
+        tb_snap_io(s, a2_next);
+        tb_snap_io(s, a2_ph);
+        tb_snap_io(s, dt);
+        tb_snap_io(s, dt_pipe);
+        tb_snap_io(s, rom);
+        tb_snap_io(s, rd_prev);
+        tb_snap_io(s, rd_hold);
+        tb_snap_io(s, gf_prev);
+        tb_snap_io(s, gf_hold);
+    }
+};
+static Bench tb;
 
 /* The periods 330 and 224 give clk_sys and clk_74a the ratio of
  * 50.4 MHz to 74.25 MHz. */
 static void tick()
 {
-    long next = a_next < s_next ? a_next : s_next;
-    if (a2_next < next)
-        next = a2_next;
-    g_t = next;
-    bool sedge = next == s_next;
-    bool aedge = next == a_next;
-    bool a2edge = next == a2_next;
+    long next = tb.a_next < tb.s_next ? tb.a_next : tb.s_next;
+    if (tb.a2_next < next)
+        next = tb.a2_next;
+    tb.t = next;
+    bool sedge = next == tb.s_next;
+    bool aedge = next == tb.a_next;
+    bool a2edge = next == tb.a2_next;
     if (a2edge)
     {
-        dut->clk_ph = a2_ph;
+        dut->clk_ph = tb.a2_ph;
         dut->clk_a2 = 1;
     }
     if (sedge)
     {
         dut->clk_sys = 1;
-        if ((g_sys & 1) == 0)
-        {
+        if ((tb.sys & 1) == 0)
             dut->clk_vid = 1;
-            dut->clk_rv = 1;
-        }
     }
     if (aedge)
     {
-        dut->datatable_q = dt_pipe[1];
-        dt_pipe[1] = dt_pipe[0];
-        dt_pipe[0] = g_dt[dut->tb_pocket_dt_addr & 63];
+        dut->datatable_q = tb.dt_pipe[1];
+        tb.dt_pipe[1] = tb.dt_pipe[0];
+        tb.dt_pipe[0] = tb.dt[dut->tb_pocket_dt_addr & 63];
         dut->clk_74a = 1;
     }
     dut->eval();
@@ -78,15 +100,15 @@ static void tick()
          * it. target_dataslot_done is dropped first because pocket_file
          * waits for it to fall before it waits for it to rise. */
         int g = dut->tb_pocket_ds_getfile;
-        if (g && !g_gf_prev)
+        if (g && !tb.gf_prev)
         {
             dut->target_dataslot_done = 0;
-            g_gf_hold = 4;
+            tb.gf_hold = 4;
         }
-        g_gf_prev = g;
+        tb.gf_prev = g;
 
         int r = dut->tb_pocket_ds_read;
-        if (r && !g_rd_prev)
+        if (r && !tb.rd_prev)
         {
             uint32_t off = dut->tb_pocket_ds_slotoffset;
             uint32_t br = dut->tb_pocket_ds_bridgeaddr;
@@ -96,59 +118,48 @@ static void tick()
                 for (uint32_t i = 0; i < len; i += 2)
                 {
                     size_t a = off + i;
-                    uint8_t lo = a < g_rom.size() ? g_rom[a] : 0;
-                    uint8_t hi = (i + 1 < len && a + 1 < g_rom.size())
-                                     ? g_rom[a + 1]
+                    uint8_t lo = a < tb.rom.size() ? tb.rom[a] : 0;
+                    uint8_t hi = (i + 1 < len && a + 1 < tb.rom.size())
+                                     ? tb.rom[a + 1]
                                      : 0;
                     chip[(br + i) >> 1] = (uint16_t)(lo | (hi << 8));
                 }
             dut->target_dataslot_done = 0;
-            g_rd_hold = 4;
+            tb.rd_hold = 4;
         }
-        g_rd_prev = r;
-        if (g_rd_hold && !--g_rd_hold)
+        tb.rd_prev = r;
+        if (tb.rd_hold && !--tb.rd_hold)
             dut->target_dataslot_done = 1;
 
-        if (g_gf_hold && !--g_gf_hold)
+        if (tb.gf_hold && !--tb.gf_hold)
             dut->target_dataslot_done = 1;
     }
     if (sedge)
     {
         dut->clk_sys = 0;
         dut->clk_vid = 0;
-        dut->clk_rv = 0;
-        s_next += 330;
-        g_sys++;
+        tb.s_next += 330;
+        tb.sys++;
     }
     if (aedge)
     {
         dut->clk_74a = 0;
-        a_next += 224;
+        tb.a_next += 224;
     }
     if (a2edge)
     {
         dut->clk_a2 = 0;
-        a2_next += 165;
-        a2_ph ^= 1;
+        tb.a2_next += 165;
+        tb.a2_ph ^= 1;
     }
     dut->eval();
 }
 
 static void a_edge()
 {
-    long t = a_next;
-    while (a_next == t)
+    long t = tb.a_next;
+    while (tb.a_next == t)
         tick();
-}
-
-static bool load_firmware(const char *path)
-{
-    auto *r = dut->rootp;
-    return tb_load_tcm(
-        r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm0,
-        r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm1,
-        r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm2,
-        r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm3, path);
 }
 
 static bool run_until_quiet(long *presses = nullptr)
@@ -166,9 +177,9 @@ static bool run_until_quiet(long *presses = nullptr)
     int prev = dut->tb_pocket_vs;
     while (frames < flimit && budget > 0)
     {
-        long sys_before = g_sys;
+        long sys_before = tb.sys;
         tick();
-        if (g_sys == sys_before)
+        if (tb.sys == sys_before)
             continue;
         budget--;
 
@@ -209,9 +220,9 @@ static size_t capture_frame(uint32_t *fb, size_t max_px, int *slot_out)
     int slot = -1;
     for (;;)
     {
-        long sys_before = g_sys;
+        long sys_before = tb.sys;
         tick();
-        bool vid_rise = g_sys != sys_before && ((sys_before & 1) == 0);
+        bool vid_rise = tb.sys != sys_before && ((sys_before & 1) == 0);
         if (!vid_rise)
             continue;
         if (dut->tb_pocket_vs)
@@ -281,11 +292,11 @@ static void host_stream(const std::vector<uint8_t> &data, uint32_t base)
 static void host_load(const std::vector<uint8_t> &rom)
 {
     dut->dataslot_allcomplete = 0;
-    g_rom = rom;
+    tb.rom = rom;
     host_stream(rom, TB_STAGE_ROM_BASE);
-    memset(g_dt, 0, sizeof g_dt);
-    g_dt[0] = 0;
-    g_dt[1] = (uint32_t)rom.size();
+    memset(tb.dt, 0, sizeof tb.dt);
+    tb.dt[0] = 0;
+    tb.dt[1] = (uint32_t)rom.size();
     /* pocket_bridge posts the slot size on a rising edge of
      * dataslot_allcomplete, so the low level has to be clocked in before
      * it rises. These edges do that even for an empty image, which
@@ -334,10 +345,13 @@ static void run_and_check(int *utest_result, const char *name,
     }
 }
 
-static void power_on(int *utest_result)
+/* The firmware is written straight into the SDRAM model unless the case
+ * streams it itself, because streaming it over the bridge costs about ten
+ * clk_74a cycles a byte and the ROM already goes over the bridge in every
+ * case. */
+static void power_on(int *utest_result, bool firmware = true)
 {
-    a_next = 224;
-    s_next = 330;
+    tb = Bench{};
     /* The DUT is rebuilt rather than reset because the timing and
      * pocket_video modules have no reset, so a reset pulse would leave
      * them mid-frame while the rest of the machine restarts. */
@@ -347,16 +361,12 @@ static void power_on(int *utest_result)
         delete dut;
     }
     dut = new Vtb_pocket;
-    ASSERT_TRUE(load_firmware(SW_BIN));
     dut->rst_n = 0;
     dut->arst_n = 0;
     dut->reset_n = 0;
     dut->cont1_key = 0;
     dut->dataslot_allcomplete = 0;
     dut->target_dataslot_done = 1;
-    g_gf_prev = g_gf_hold = 0;
-    g_rd_prev = g_rd_hold = 0;
-    dt_pipe[0] = dt_pipe[1] = 0;
     for (int i = 0; i < 32; i++)
         tick();
     dut->rst_n = 1;
@@ -365,30 +375,49 @@ static void power_on(int *utest_result)
     while (!dut->tb_pocket_ready && guard++ < 60000)
         tick();
     ASSERT_TRUE(dut->tb_pocket_ready);
-    /* The fonts are written straight into the SDRAM model because
-     * streaming their 60 KB over the bridge costs about 600,000 clk_74a
-     * cycles a case, and the ROM already goes over the bridge in every
-     * case. */
-    const std::vector<uint8_t> &fonts = tb_stage_fonts();
     auto &chip = dut->rootp->tb_pocket__DOT__chip__DOT__mem;
-    for (size_t i = 0; i + 1 < fonts.size(); i += 2)
-        chip[(TB_STAGE_FONT_BASE + i) >> 1] =
-            (uint16_t)(fonts[i] | (fonts[i + 1] << 8));
+    if (firmware)
+        ASSERT_TRUE(tb_stage_poke_firmware(chip, SW_BIN));
+}
 
-    const std::vector<uint8_t> &oemcp = tb_stage_oemcp();
-    for (size_t i = 0; i + 1 < oemcp.size(); i += 2)
-        chip[(TB_STAGE_OEMCP_BASE + i) >> 1] =
-            (uint16_t)(oemcp[i] | (oemcp[i + 1] << 8));
+/* Powers on with the firmware, loads rom and runs until the machine goes
+ * quiet, or starts from the snapshot of that, which the first run writes.
+ * Returns false when power_on failed or the machine never went quiet. */
+static bool boot_quiet(int *utest_result, const std::vector<uint8_t> &rom)
+{
+    tb_snap_key k;
+    tb_snap_io(k, rom);
+    tb_snap_io(k, tb_stage_firmware(SW_BIN));
+    k.flush();
+    std::string path = tb_snap_path(tb_snap_dir(TEST_SCRATCH, "pocket"), k.h);
+    std::vector<uint8_t> v;
+    if (tb_snap_read(path, v))
+    {
+        if (dut)
+        {
+            dut->final();
+            delete dut;
+        }
+        dut = tb_snap_make<Vtb_pocket>(v, tb);
+        return true;
+    }
+    power_on(utest_result);
+    if (*utest_result)
+        return false;
+    host_load(rom);
+    dut->reset_n = 1;
+    if (!run_until_quiet())
+        return false;
+    tb_snap_write(path, tb_snap_take(*dut, tb));
+    return true;
 }
 
 static void run_case(int *utest_result, const char *name, uint32_t expect)
 {
     std::vector<uint8_t> rom = read_rom(name);
     ASSERT_TRUE(rom.size() > 0);
-    power_on(utest_result);
-    host_load(rom);
-    dut->reset_n = 1;
-    run_and_check(utest_result, name, expect);
+    ASSERT_TRUE(boot_quiet(utest_result, rom));
+    run_and_check(utest_result, name, expect, false);
 }
 
 UTEST(pocket, canvas3_640x480)
@@ -448,10 +477,8 @@ UTEST(pocket, reload_with_a_button_held)
 {
     std::vector<uint8_t> first = read_rom("mode3_8bpp");
     ASSERT_TRUE(first.size() > 0);
-    power_on(utest_result);
-    host_load(first);
-    dut->reset_n = 1;
-    run_and_check(utest_result, "mode3_8bpp", 0x29DB5FC9);
+    ASSERT_TRUE(boot_quiet(utest_result, first));
+    run_and_check(utest_result, "mode3_8bpp", 0x29DB5FC9, false);
 
     dut->reset_n = 0;
     dut->cont1_key = 1u << 4; /* A */
@@ -475,17 +502,164 @@ UTEST(pocket, hot_reload_without_a_reset)
 {
     std::vector<uint8_t> first = read_rom("mode3_8bpp");
     ASSERT_TRUE(first.size() > 0);
-    power_on(utest_result);
-    host_load(first);
-    dut->reset_n = 1;
-    run_and_check(utest_result, "mode3_8bpp", 0x29DB5FC9);
+    ASSERT_TRUE(boot_quiet(utest_result, first));
+    run_and_check(utest_result, "mode3_8bpp", 0x29DB5FC9, false);
 
     std::vector<uint8_t> second = read_rom("mode3_1bpp");
     ASSERT_TRUE(second.size() > 0);
+    /* The host asks to write the ROM slot before it writes the image, and
+     * the running 6502 is in reset within a few clocks of the request,
+     * before any of the new image lands. */
+    ASSERT_TRUE((int)dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__resb);
+    dut->dataslot_requestwrite_id = 0;
+    dut->dataslot_requestwrite = 1;
+    a_edge();
+    a_edge();
+    dut->dataslot_requestwrite = 0;
+    for (int i = 0; i < 20; i++)
+        a_edge();
+    ASSERT_FALSE((int)dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__resb);
     host_load(second);
 
     ASSERT_TRUE(run_until_quiet(nullptr));
     run_and_check(utest_result, "mode3_1bpp", 0x41437F1B, false);
+}
+
+/* Whether the SDRAM holds the firmware's first bytes as the file has
+ * them. They are the ROM block, which nothing stores to. */
+static bool rom_holds(const std::vector<uint8_t> &fw, size_t n)
+{
+    auto &chip = dut->rootp->tb_pocket__DOT__chip__DOT__mem;
+    for (size_t i = 0; i + 1 < n && i + 1 < fw.size(); i += 2)
+        if (chip[(TB_STAGE_MEM_BASE + i) >> 1]
+            != (uint16_t)(fw[i] | (fw[i + 1] << 8)))
+            return false;
+    return true;
+}
+
+/* The firmware's code is longer than this. */
+#define FW_CODE 0x10000u
+
+/* The firmware arrives as the host sends it, a data slot streamed over
+ * the bridge into the SDRAM, and the soft CPU boots from there through
+ * its cache. */
+UTEST(pocket, the_firmware_boots_from_the_bridge)
+{
+    std::vector<uint8_t> fw = tb_stage_firmware(SW_BIN);
+    ASSERT_GT(fw.size(), (size_t)FW_CODE);
+    std::vector<uint8_t> rom = read_rom("mode3_1bpp");
+    ASSERT_TRUE(rom.size() > 0);
+    power_on(utest_result, false);
+    ASSERT_FALSE(rom_holds(fw, FW_CODE));
+    host_stream(fw, TB_STAGE_MEM_BASE);
+    host_load(rom);
+    dut->reset_n = 1;
+    run_and_check(utest_result, "mode3_1bpp", 0x41437F1B);
+    ASSERT_TRUE(rom_holds(fw, FW_CODE));
+}
+
+/* The host writes over the whole firmware while the machine runs. None
+ * of it reaches the SDRAM, and the machine goes on to load another ROM,
+ * fetching code its cache does not hold. */
+UTEST(pocket, a_host_write_into_the_memory_is_dropped_while_running)
+{
+    std::vector<uint8_t> fw = tb_stage_firmware(SW_BIN);
+    ASSERT_GT(fw.size(), (size_t)FW_CODE);
+    std::vector<uint8_t> first = read_rom("mode3_8bpp");
+    ASSERT_TRUE(first.size() > 0);
+    ASSERT_TRUE(boot_quiet(utest_result, first));
+    run_and_check(utest_result, "mode3_8bpp", 0x29DB5FC9, false);
+
+    std::vector<uint8_t> junk(fw.size(), 0xFF);
+    host_stream(junk, TB_STAGE_MEM_BASE);
+    ASSERT_TRUE(rom_holds(fw, FW_CODE));
+
+    std::vector<uint8_t> second = read_rom("mode3_1bpp");
+    ASSERT_TRUE(second.size() > 0);
+    host_load(second);
+    ASSERT_TRUE(run_until_quiet(nullptr));
+    run_and_check(utest_result, "mode3_1bpp", 0x41437F1B, false);
+    ASSERT_TRUE(rom_holds(fw, FW_CODE));
+}
+
+/* A reset with the soft CPU's memory left unfit to run, both blocks,
+ * then the firmware and a ROM loaded again over the bridge. The writes
+ * land because the machine is in reset, and the soft CPU boots from them
+ * with an empty cache and makes its RAM block again. */
+UTEST(pocket, a_reset_and_a_reload_boot_clean)
+{
+    std::vector<uint8_t> fw = tb_stage_firmware(SW_BIN);
+    ASSERT_GT(fw.size(), (size_t)FW_CODE);
+    std::vector<uint8_t> first = read_rom("mode3_8bpp");
+    ASSERT_TRUE(first.size() > 0);
+    ASSERT_TRUE(boot_quiet(utest_result, first));
+    run_and_check(utest_result, "mode3_8bpp", 0x29DB5FC9, false);
+
+    dut->reset_n = 0;
+    for (int i = 0; i < 40; i++)
+        a_edge();
+    ASSERT_EQ((int)dut->rootp->tb_pocket__DOT__core__DOT__run, 0);
+    tb_stage_poke(dut->rootp->tb_pocket__DOT__chip__DOT__mem,
+                  TB_STAGE_MEM_BASE,
+                  std::vector<uint8_t>(TB_STAGE_MEM_SIZE, 0xFF));
+    ASSERT_FALSE(rom_holds(fw, FW_CODE));
+
+    host_stream(fw, TB_STAGE_MEM_BASE);
+    std::vector<uint8_t> second = read_rom("mode3_1bpp");
+    ASSERT_TRUE(second.size() > 0);
+    host_load(second);
+    dut->reset_n = 1;
+    ASSERT_TRUE(run_until_quiet(nullptr));
+    run_and_check(utest_result, "mode3_1bpp", 0x41437F1B, false);
+    ASSERT_TRUE(rom_holds(fw, FW_CODE));
+}
+
+/* The image's register layout version, the word after its reset jump. */
+#define FW_REG_VERSION 4u
+
+static uint32_t fw_word(const std::vector<uint8_t> &fw, size_t at)
+{
+    return (uint32_t)fw[at] | ((uint32_t)fw[at + 1] << 8)
+           | ((uint32_t)fw[at + 2] << 16) | ((uint32_t)fw[at + 3] << 24);
+}
+
+/* A firmware built for another bitstream stops before it uses a register.
+ * The 6502 stays in reset, nothing is said on either console, and the
+ * screen stays black. A firmware that runs on logs within its first
+ * frames. */
+UTEST(pocket, a_firmware_of_another_register_layout_stops)
+{
+    std::vector<uint8_t> fw = tb_stage_firmware(SW_BIN);
+    ASSERT_GT(fw.size(), (size_t)FW_CODE);
+    ASSERT_EQ((uint32_t)POCKET_REG_VERSION, fw_word(fw, FW_REG_VERSION));
+    fw[FW_REG_VERSION] ^= 1;
+    std::vector<uint8_t> rom = read_rom("mode3_1bpp");
+    ASSERT_TRUE(rom.size() > 0);
+    power_on(utest_result, false);
+    tb_stage_poke(dut->rootp->tb_pocket__DOT__chip__DOT__mem,
+                  TB_STAGE_MEM_BASE, fw);
+    host_load(rom);
+    dut->reset_n = 1;
+
+    bool said = false, ran = false, lit = false;
+    int frames = 0;
+    bool was_vs = false;
+    while (frames < 4)
+    {
+        long sys_before = tb.sys;
+        tick();
+        if (tb.sys == sys_before)
+            continue;
+        said |= dut->tb_pocket_tx_valid || dut->tb_pocket_rv_tx_valid;
+        ran |= (bool)dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__resb;
+        lit |= dut->tb_pocket_de && !dut->tb_pocket_skip && dut->tb_pocket_rgb;
+        if (dut->tb_pocket_vs && !was_vs)
+            frames++;
+        was_vs = dut->tb_pocket_vs;
+    }
+    ASSERT_FALSE(said);
+    ASSERT_FALSE(ran);
+    ASSERT_FALSE(lit);
 }
 
 UTEST_STATE();

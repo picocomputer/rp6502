@@ -47,6 +47,16 @@ bool keyboard_umount(int slot);
 
 void keyboard_report(int slot, uint8_t const *data, size_t size);
 
+/* The machine's hooks. keyboard_mount calls the first for a keyboard it
+ * takes. keyboard_report calls the second on every new key press, with the
+ * modifier byte all keyboards hold between them, and the third after every
+ * report. A machine that is its own keyboard driver answers them in
+ * core/hid/keymap.c; one whose host already decoded the key answers with
+ * nothing. */
+void keyboard_on_mount(uint16_t vendor_id, uint16_t product_id);
+void keyboard_on_press(uint8_t modifier, uint8_t keycode);
+void keyboard_on_modifiers(uint8_t modifier);
+
 uint8_t keyboard_get_report_id(int slot);
 
 bool keyboard_xreg(uint16_t word);
@@ -55,14 +65,16 @@ bool keyboard_is_mapped(void);
 
 uint8_t keyboard_get_modifier(void);
 bool keyboard_key_down(uint8_t keycode);
-uint8_t keyboard_get_leds(void);
-void keyboard_toggle_lock(uint8_t bit);
 
-/* A host that receives the lock state from its platform passes it here, in
- * KEYBOARD_LED_ bits. */
-void keyboard_set_locks(uint8_t leds);
+/* NumLock, CapsLock and ScrollLock, in KEYBOARD_LED_ bits. This file only
+ * keeps them, for the program's bitmap and for what the keys type. Their
+ * owner sets them: core/hid/keymap.c on a machine that is its own keyboard
+ * driver, where a lock key flips its lock and its light, and otherwise the
+ * host, from the system that drives its keyboard. They start off. */
+uint8_t keyboard_get_locks(void);
+void keyboard_set_locks(uint8_t locks);
 
-void keyboard_hid_set(uint8_t keycode, bool down);
+void keyboard_set_key(uint8_t keycode, bool down);
 
 /* Releases every key and leaves the locks alone. A host that has just
  * restored a savestate calls this because the keys the blob remembers were
@@ -70,32 +82,6 @@ void keyboard_hid_set(uint8_t keycode, bool down);
  * coming to clear them. A key that is still physically down comes back on its
  * next report. */
 void keyboard_release_all(void);
-
-/* What a keypad key navigates to when NumLock is off. Zero for KP5 and for
- * any usage NumLock does not remap. */
-uint8_t keyboard_keypad_nav(uint8_t hid_usage);
-
-int keyboard_vt_mod(bool shift, bool alt, bool ctrl, bool gui);
-
-/* The escape sequence a key with no character of its own sends, written into
- * the caller's buffer. Zero for any other usage, including Enter, Tab, Escape
- * and Backspace, which have characters, and which character is the machine's
- * to say. The VT220 numbering that makes F5 15 and F6 17 is a table nobody can
- * check by eye, so it lives in one place. */
-size_t keyboard_vt_seq(char *out, size_t cap, uint8_t hid_usage, int ansi_mod);
-
-/* What Ctrl makes of a character, as xterm and the Linux console make it:
- * Ctrl-@ through Ctrl-_ and Ctrl-` through Ctrl-~ are 0x00 to 0x1F, Space and
- * 2 are 0x00, 3 to 7 are ESC to 0x1F, 8 is DEL and / is 0x1F. Backspace is BS
- * where DEL was, and a byte that is C0 already types itself. -1 when Ctrl has
- * nothing to say, which a ch of 0, meaning no character, always gets.
- * Backspace needs the keycode because DEL is outside every promotable range;
- * pass HID_KEY_NONE where there is a character but no key. */
-int keyboard_ctrl_promote(char ch, uint8_t keycode);
-
-/* Ctrl-Alt-Delete and Alt-F4. True when the chord acted; false leaves the key
- * to type. */
-bool keyboard_chord(uint8_t keycode, bool ctrl, bool alt);
 
 /* The blob carries where the program asked for its bitmap and what is in it.
  * The connection table is not saved, because it describes what is plugged in

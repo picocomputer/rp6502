@@ -6,8 +6,10 @@
  * pcm.sv's savestate port, the OPL2's resampler and PCM, as wiring.sv has
  * it. Session A plays and stops at a quiet point; session B has played
  * something else, takes A's image, and then both take one stream of input
- * and writes and must agree on every clock. B has random words written
- * over everything first, so an item the restore leaves out shows.
+ * and writes and must agree on every clock. Both clocks run while the
+ * image is taken and put back, with no tick and no input, as wiring.sv's
+ * hold has them. B has random words written over its memories first, so
+ * an item the restore leaves out shows.
  */
 
 #include "Vtb_aud_sst.h"
@@ -68,12 +70,10 @@ static bool skipped(int skip, int a)
     }
 }
 
-static void edge(Vtb_aud_sst *d, bool mach)
+static void edge(Vtb_aud_sst *d)
 {
-    d->clk_sys = 1;
-    d->clk = mach;
+    d->clk = 1;
     d->eval();
-    d->clk_sys = 0;
     d->clk = 0;
     d->eval();
     d->in_valid = 0;
@@ -86,14 +86,12 @@ static void edge(Vtb_aud_sst *d, bool mach)
     d->clear_we = 0;
     d->commit_we = 0;
     d->sst_we = 0;
-    d->sst_st_we = 0;
 }
 
 static Vtb_aud_sst *make(const char *name)
 {
     Vtb_aud_sst *d = new Vtb_aud_sst{name};
     d->clk = 0;
-    d->clk_sys = 0;
     d->eval();
     return d;
 }
@@ -153,10 +151,10 @@ static void open_pcm(Vtb_aud_sst *d, unsigned rate, unsigned ctrl)
 {
     d->step_we = 1;
     d->wdata = (uint32_t)(((uint64_t)rate << 32) / 48000 - 1);
-    edge(d, true);
+    edge(d);
     d->ctrl_we = 1;
     d->wdata = ctrl;
-    edge(d, true);
+    edge(d);
 }
 
 static void run(Vtb_aud_sst *d, Stream &s, long n, bool halted = false)
@@ -170,7 +168,7 @@ static void run(Vtb_aud_sst *d, Stream &s, long n, bool halted = false)
             s.staged = s.staged_was;
         }
         s.apply(d);
-        edge(d, true);
+        edge(d);
     }
 }
 
@@ -181,11 +179,11 @@ static std::vector<uint32_t> image(Vtb_aud_sst *d, const std::vector<int> &at)
     for (int a : at)
     {
         d->sst_addr = (uint16_t)a;
-        edge(d, false);
+        edge(d);
         img.push_back(d->rsmp_sst_rdata | d->pcm_sst_rdata);
     }
     d->sst_own = 0;
-    edge(d, false);
+    edge(d);
     return img;
 }
 
@@ -195,34 +193,22 @@ static void restore(Vtb_aud_sst *d, const std::vector<uint32_t> &img, int skip,
 {
     std::vector<int> arr = arrays(), fl = flops();
     d->sst_own = 1;
-    for (int pass = 0; pass < 2; pass++)
-        for (size_t i = 0; i < arr.size(); i++)
-        {
-            if (pass && skipped(skip, arr[i]))
-                continue;
-            d->sst_addr = (uint16_t)arr[i];
-            d->wdata = pass ? img[i] : (uint32_t)r();
-            d->sst_we = 1;
-            edge(d, false);
-        }
+    /* One pass in address order, as the firmware's AUD row writes them.
+     * A word left out takes a random word, so B does not keep a value
+     * that happens to be A's. */
+    for (size_t i = 0; i < arr.size() + fl.size(); i++)
+    {
+        int at = i < arr.size() ? arr[i] : fl[i - arr.size()];
+        d->sst_addr = (uint16_t)at;
+        d->wdata = skipped(skip, at)
+            ? (uint32_t)r()
+            : img[i] & ~(at == cut_at ? cut : 0u);
+        d->sst_we = 1;
+        edge(d);
+    }
     d->sst_own = 0;
-    edge(d, false);
-    for (int k = 0; k < 5; k++)
-        edge(d, true);
-    for (int pass = 0; pass < 2; pass++)
-        for (size_t i = 0; i < fl.size(); i++)
-        {
-            if (pass && skipped(skip, fl[i]))
-                continue;
-            d->sst_addr = (uint16_t)fl[i];
-            d->wdata = pass ? img[arr.size() + i]
-                                  & ~(fl[i] == cut_at ? cut : 0u)
-                            : (uint32_t)r();
-            d->sst_st_we = 1;
-            edge(d, true);
-        }
     for (int k = 0; k < 50; k++)
-        edge(d, true);
+        edge(d);
 }
 
 struct Case
@@ -257,10 +243,10 @@ static long run_case(const Case &c, bool check_image = true)
     {
         sa.next(a->pcm_level);
         sa.apply(a);
-        edge(a, true);
+        edge(a);
         sb.next(b->pcm_level);
         sb.apply(b);
-        edge(b, true);
+        edge(b);
     }
     while (sa.psg != 0)
         run(a, sa, 1);
@@ -269,14 +255,14 @@ static long run_case(const Case &c, bool check_image = true)
     {
         a->sst_addr = 0x795;
         a->wdata = c.under;
-        a->sst_st_we = 1;
-        edge(a, true);
+        a->sst_we = 1;
+        edge(a);
     }
     if (c.reopen)
     {
         a->ctrl_we = 1;
         a->wdata = 7;
-        edge(a, true);
+        edge(a);
         run(a, sa, (long)c.warm * TICKS);
     }
     /* From the request to the stop the soft CPU is halted. */
@@ -315,8 +301,8 @@ static long run_case(const Case &c, bool check_image = true)
         s.next(a->pcm_level);
         s.apply(a);
         s.apply(b);
-        edge(a, true);
-        edge(b, true);
+        edge(a);
+        edge(b);
         if (a->rsmp_out != b->rsmp_out || a->rsmp_valid != b->rsmp_valid
             || a->pcm_l != b->pcm_l || a->pcm_r != b->pcm_r
             || a->pcm_level != b->pcm_level || a->pcm_under != b->pcm_under)

@@ -32,10 +32,6 @@ void bel_init(void);
 void bel_task(void);
 void bel_add(const bel_sound_t *sound);
 
-/* Moves the deadlines by us microseconds, for a machine whose clock ran
- * on while the bell's did not. */
-void bel_wake(uint64_t us);
-
 /* aud_sst_save writes this inside the AUD chunk; the bell has no row of
  * its own.
  *

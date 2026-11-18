@@ -18,6 +18,27 @@ set(IPO_PRINTF_LINK_OPTIONS
     -Wl,-u,__wrap_vsnprintf
 )
 
+# Every Pico board keeps XRAM in the last 64 KB of main RAM, and the RIA keeps
+# its registers through a reboot; see ld/. xram.c is built outside LTO with
+# -fdata-sections, which keeps xram in a .bss.xram of its own for ld/ to place.
+# The flag stays off the rest of the link, where it would cost the section
+# anchors that the renderers' hot loops lean on.
+function(rp6502_pico_memory TARGET)
+    pico_add_linker_script_override_path(${TARGET} ${RP6502_ROOT}/src/host/pico/ld GLOB_FILES)
+    set_source_files_properties(${RP6502_ROOT}/src/core/sys/xram.c
+        TARGET_DIRECTORY ${TARGET}
+        PROPERTIES COMPILE_OPTIONS "-fno-lto;-fdata-sections")
+endfunction()
+
+# The console on a debug probe, for the bench; see rtt.h. A release has none.
+option(RP6502_RTT_DEBUG "Put the console on a debug probe, as SEGGER RTT" OFF)
+function(rp6502_pico_rtt TARGET)
+    if(RP6502_RTT_DEBUG)
+        target_sources(${TARGET} PRIVATE ${RP6502_ROOT}/src/host/pico/rtt.c)
+        target_compile_definitions(${TARGET} PRIVATE RP6502_RTT_DEBUG=1)
+    endif()
+endfunction()
+
 include(${RP6502_ROOT}/submodules.cmake)
 rp6502_submodule(vendor/littlefs SENTINEL lfs.c
     WANTS "the firmware's flash filesystem")

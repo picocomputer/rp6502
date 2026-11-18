@@ -13,7 +13,7 @@
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/com/com.h"
-#include "core/hid/vtkeys.h"
+#include "core/hid/paste.h"
 #include "core/str/str.h"
 #include "osal/dir.h"
 #include "osal/fs.h"
@@ -31,28 +31,16 @@ void proc_sst_save(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     sst_put_bool(c, queued);
-    sst_put_i16(c, proc_get_exit_code());
-    sst_put_str(c, proc_running(), PROC_PATH_SLOT);
-    sst_put_str(c, proc_launcher(), PROC_PATH_SLOT);
-    sst_put(c, arg_data(), arg_bytes());
+    proc_chain_sst_save(c);
 }
 
 bool proc_sst_load(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     bool pending = sst_get_bool(c);
-    int16_t code = sst_get_i16(c);
-    static char running[PROC_PATH_SLOT], launcher[PROC_PATH_SLOT];
-    sst_get_str(c, running, sizeof running);
-    sst_get_str(c, launcher, sizeof launcher);
-    static uint8_t argv[XSTACK_SIZE];
-    sst_get(c, argv, sizeof argv);
-    if (!sst_ok(c))
+    if (!sst_ok(c) || !proc_chain_sst_load(c))
         return false;
     queued = pending;
-    proc_set_exit_code(code);
-    proc_restore_paths(running, launcher);
-    arg_set_data(argv);
     return true;
 }
 
@@ -158,7 +146,7 @@ bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags)
     }
     queued = false;
     if (argc >= 0)
-        vtkeys_paste_cancel();
+        paste_cancel();
     boot_error = "";
     if (argc < 0 ? !argv0_absolute() : !proc_argv_fits(rom, argc, args))
         return proc_boot_failed(S(STR_ERR_ROM_ARGV_OVERFLOW), argc);

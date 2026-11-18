@@ -30,15 +30,21 @@ module phi2 #(
 
     input logic [15:0] phi2_khz,
 
-    /* A savestate's jam: the accumulator and the enable it was taken
-     * with, so the restored 6502 steps on the edges it would have. */
+    /* hold stops the count where it is: phi2_en stays low and the
+     * accumulator and the pending pulse keep their values, so the 6502
+     * steps on the same edges after the hold as it would have without
+     * it, each one later by the length of the hold. A savestate reads
+     * the two through phi2_acc and phi2_pulse, and puts them back with
+     * st_jam. */
+    input logic hold,
     input logic st_jam,
     input logic [15:0] st_jam_acc,
-    input logic st_jam_en,
+    input logic st_jam_pulse,
 
     output logic phi2_en,
     /* Always under SYS_KHZ, so sixteen bits hold it. */
-    output logic [15:0] phi2_acc
+    output logic [15:0] phi2_acc,
+    output logic phi2_pulse
 );
 
     localparam int ACC_W = $clog2(SYS_KHZ) + 1;
@@ -49,20 +55,22 @@ module phi2 #(
 
     initial begin
         acc = '0;
-        phi2_en = 1'b0;
+        phi2_pulse = 1'b0;
     end
     always_ff @(posedge clk) begin
-        if (next >= ACC_W'(SYS_KHZ)) begin
-            acc <= next - ACC_W'(SYS_KHZ);
-            phi2_en <= 1'b1;
-        end else begin
-            acc <= next;
-            phi2_en <= 1'b0;
-        end
         if (st_jam) begin
             acc <= ACC_W'(st_jam_acc);
-            phi2_en <= st_jam_en;
+            phi2_pulse <= st_jam_pulse;
+        end else if (!hold) begin
+            if (next >= ACC_W'(SYS_KHZ)) begin
+                acc <= next - ACC_W'(SYS_KHZ);
+                phi2_pulse <= 1'b1;
+            end else begin
+                acc <= next;
+                phi2_pulse <= 1'b0;
+            end
         end
     end
+    always_comb phi2_en = phi2_pulse && !hold;
 
 endmodule

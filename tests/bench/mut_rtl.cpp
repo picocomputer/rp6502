@@ -85,7 +85,7 @@ static void measure_frame(budget_t *b)
 
     uint16_t prev = dut->wiring_scanline;
     while (dut->wiring_scanline == prev)
-        tb_clock(dut);
+        tb_platform_clock(dut, mut_rom, nullptr);
 
     /* A line is held here until the next one says whether it is the second
      * half of the same row: sched.t is read at the end of a line, once
@@ -129,7 +129,7 @@ static void measure_frame(budget_t *b)
         long spst[4] = {0, 0, 0, 0};
         while (dut->wiring_scanline == prev)
         {
-            tb_clock(dut);
+            tb_platform_clock(dut, mut_rom, nullptr);
             clocks++;
             if (!render_idle())
                 busy_until = clocks;
@@ -271,7 +271,7 @@ void mut_xram(uint32_t addr, uint8_t *dst, size_t len)
 
 const uint32_t *mut_frame(int w, int h)
 {
-    tb_capture(dut, mut_fb, (size_t)w * (size_t)h);
+    tb_capture(dut, mut_rom, mut_fb, (size_t)w * (size_t)h);
     return mut_fb;
 }
 
@@ -307,5 +307,8 @@ mut_budget_t mut_measure(const char *name)
                 name, b.lines);
         return MUT_BUDGET_NONE;
     }
-    return b.worst < b.deadline_at_worst ? MUT_BUDGET_UNDER : MUT_BUDGET_OVER;
+    /* The terminal has a line of its own to finish in, whatever the canvas. */
+    return b.worst < b.deadline_at_worst && b.worst_term < LINE_DEADLINE
+               ? MUT_BUDGET_UNDER
+               : MUT_BUDGET_OVER;
 }
