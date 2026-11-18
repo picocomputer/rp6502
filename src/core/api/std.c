@@ -10,6 +10,7 @@
 #include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/ria/regs.h"
 #include "core/sys/xram.h"
 #include "core/sys/pix.h"
@@ -103,6 +104,19 @@ static void std_bind(std_fd_t *f, uint8_t row, int desc, uint8_t mode)
     f->driver = row;
 }
 
+bool std_sst_refused(void)
+{
+    size_t count;
+    const std_driver_t *drivers = std_drivers(&count);
+    for (int fd = STD_FD_FIRST_FREE; fd < STD_FD_MAX; fd++)
+    {
+        const std_fd_t *f = &std_fd_pool[fd];
+        if (f->is_open && f->write && !drivers[f->driver].resumes_writes)
+            return true;
+    }
+    return false;
+}
+
 #ifdef RP6502_SST
 
 /* Which of xstack and xram a transfer is landing in. A savestate has to
@@ -128,17 +142,16 @@ void std_sst_save(sst_cursor_t *c, unsigned flags)
 {
     size_t count;
     const std_driver_t *drivers = std_drivers(&count);
+    /* Before std_left_out, so a netplay state refuses a writer too rather
+     * than leaving it out. */
+    if (std_sst_refused())
+    {
+        sst_fail(c);
+        return;
+    }
     for (int fd = 0; fd < STD_FD_MAX; fd++)
     {
         std_fd_t *f = &std_fd_pool[fd];
-        /* Before std_left_out, so a netplay state refuses a writer too
-         * rather than leaving it out. */
-        if (f->is_open && fd >= STD_FD_FIRST_FREE && f->write &&
-            !drivers[f->driver].resumes_writes)
-        {
-            sst_fail(c);
-            return;
-        }
         bool carried = f->is_open && fd >= STD_FD_FIRST_FREE && !std_left_out(f, flags);
         sst_put_bool(c, carried);
         if (!carried)
@@ -313,7 +326,7 @@ static std_rw_result std_stdout_write(int desc, const char *buf, uint32_t count,
 {
     (void)desc;
     (void)err;
-    *bytes_written = (uint32_t)com_write(STDOUT_FILENO, buf, count);
+    *bytes_written = (uint32_t)manifold_write(STDOUT_FILENO, buf, count);
     return (*bytes_written < count) ? STD_PENDING : STD_OK;
 }
 
@@ -321,7 +334,7 @@ static std_rw_result std_stderr_write(int desc, const char *buf, uint32_t count,
 {
     (void)desc;
     (void)err;
-    *bytes_written = (uint32_t)com_write(STDERR_FILENO, buf, count);
+    *bytes_written = (uint32_t)manifold_write(STDERR_FILENO, buf, count);
     return (*bytes_written < count) ? STD_PENDING : STD_OK;
 }
 
@@ -351,8 +364,8 @@ static std_rw_result std_tty_write(int desc, const char *buf, uint32_t count, ui
     (void)desc;
     (void)err;
     uint32_t i = 0;
-    for (; i < count && com_cts(); i++)
-        com_putchar_raw(buf[i]);
+    for (; i < count && manifold_cts(); i++)
+        manifold_putchar_raw(buf[i]);
     *bytes_written = i;
     return STD_OK;
 }

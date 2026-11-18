@@ -14,16 +14,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* One 16-bit word of the table image, by index. Written per platform. */
-uint16_t unicode_word(uint32_t index);
-
-/* Read the image's header and cache what the lookups need. False when the
- * magic is wrong, which means the tables did not load.
- *
- * A platform that links the tables in need not call this; the lookups do it
- * themselves the first time they are asked. */
-bool unicode_init(void);
-
 bool unicode_has_page(uint16_t cp);
 
 /* Only where FatFs is not. ff.h declares these itself, in types it picks per
@@ -46,7 +36,5 @@ uint32_t ff_wtoupper(uint32_t uni);
 unsigned char unicode_from_codepoint(uint32_t cp, uint16_t page);
 unsigned char unicode_from_utf8_next(const char **p, uint16_t page);
 int unicode_to_utf8_char(unsigned char b, uint16_t page, char *dst);
-
-#define UNICODE_DRIVER DRIVER(INIT(unicode_init))
 
 #endif /* _CORE_STR_UNICODE_H_ */

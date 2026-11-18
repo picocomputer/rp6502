@@ -25,8 +25,8 @@ module rowmap (
     /* The window in pixels is the config's width and height times these,
      * in int16 like the oracle and taken at start; and the bytes in one
      * row of the plane's data. */
-    input logic [4:0] win_wf,
-    input logic [4:0] win_hf,
+    input logic [7:0] win_wf,
+    input logic [7:0] win_hf,
     input logic [19:0] sizeof_row,
 
     /* The fold ends on the clock rowmap_settle is high, with the row and
@@ -93,15 +93,15 @@ module rowmap (
     /* The oracle rejects a window whose count of cells, tiles or pixels is
      * under 1, or whose size in pixels does not fit an int16, before it
      * folds, so w_s and h_s below are always 1 to 32767 when the fold runs.
-     * A count of at most 32767 times a factor of at most 31 fits 20 bits. */
+     * A count of at most 32767 times a factor of at most 255 fits 23 bits. */
     logic signed [15:0] cf_hcount;
-    logic [19:0] w_px, h_px;
+    logic [22:0] w_px, h_px;
     logic oversize;
     always_comb begin
         cf_hcount = cfgw[79:64];
-        w_px = 20'(cfgw[62:48]) * 20'(win_wf);
-        h_px = 20'(cf_height) * 20'(win_hf);
-        oversize = w_px > 20'd32767 || h_px > 20'd32767;
+        w_px = 23'(cfgw[62:48]) * 23'(win_wf);
+        h_px = 23'(cf_height) * 23'(win_hf);
+        oversize = w_px > 23'd32767 || h_px > 23'd32767;
     end
 
     /* Iterative wraparound; sane configs settle in a step or two, and the
@@ -165,8 +165,8 @@ module rowmap (
         else if (start) begin
             row <= 17'($signed(row16));
             col <= 17'($signed(col16));
-            w_s <= 17'($signed(16'(cfgw[63:48] * {11'd0, win_wf})));
-            h_s <= 17'($signed(16'(cfgw[79:64] * {11'd0, win_hf})));
+            w_s <= 17'($signed(16'(cfgw[63:48] * {8'd0, win_wf})));
+            h_s <= 17'($signed(16'(cfgw[79:64] * {8'd0, win_hf})));
             blank <= 1'b0;
             fold <= 1'b1;
         end else if (fold) begin

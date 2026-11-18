@@ -15,10 +15,8 @@
 #define HOST_IN_RAM
 #define HOST_IN_RAM_FUNC
 #define HOST_ISR_FUNC
-#define HOST_UNINITIALIZED_RAM(name) name
 #define HOST_REGISTER_RAM(name) name
 
-#define XRAM_ALIGN 4
 #define HID_MAX_SLOTS 16
 
 #endif /* _TEST_PICO_MACHINE_H_ */

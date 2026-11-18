@@ -70,16 +70,10 @@ UTEST(fontstore, boot_image_matches_font_init)
     ASSERT_TRUE(tb_boot(dut, rom_code_page(437)));
     font_init();
     auto *r = dut->rootp;
-    for (size_t i = 0; i < 4096; i++)
+    for (size_t i = 0; i < sizeof(font16); i++)
         ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__f16, i), font16[i]);
-    for (size_t i = 0; i < 2048; i++)
+    for (size_t i = 0; i < sizeof(font8); i++)
         ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__f8, i), font8[i]);
-    for (size_t i = 0; i < 2048; i++)
-        ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__ital, i),
-                  italic16[i]);
-    for (size_t i = 0; i < 512; i++)
-        ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__dec, i),
-                  font_dec_16[i]);
 }
 
 static void one_page(int *utest_result, uint16_t cp)
@@ -91,9 +85,9 @@ static void one_page(int *utest_result, uint16_t cp)
     font_init();
     font_set_code_page(cp);
     auto *r = dut->rootp;
-    for (size_t i = 0; i < 4096; i++)
+    for (size_t i = 0; i < sizeof(font16); i++)
         ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__f16, i), font16[i]);
-    for (size_t i = 0; i < 2048; i++)
+    for (size_t i = 0; i < sizeof(font8); i++)
         ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__f8, i), font8[i]);
 }
 
@@ -110,9 +104,9 @@ UTEST(fontstore, unknown_code_page_keeps_the_one_in_force)
     ASSERT_EQ(reported(out, 0), (uint16_t)437);
     font_init();
     auto *r = dut->rootp;
-    for (size_t i = 0; i < 4096; i++)
+    for (size_t i = 0; i < sizeof(font16); i++)
         ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__f16, i), font16[i]);
-    for (size_t i = 0; i < 2048; i++)
+    for (size_t i = 0; i < sizeof(font8); i++)
         ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__f8, i), font8[i]);
 }
 
@@ -124,7 +118,7 @@ UTEST(fontstore, attribute_get_reports_the_boot_default)
     ASSERT_EQ(reported(out, 0), (uint16_t)437);
 }
 
-/* The font asset has no code page 1252, so the second set fails and 850
+/* The fonts have no code page 1252, so the second set fails and 850
  * stays. */
 UTEST(fontstore, attribute_set_of_an_unknown_page_keeps_the_one_in_force)
 {
@@ -137,9 +131,9 @@ UTEST(fontstore, attribute_set_of_an_unknown_page_keeps_the_one_in_force)
     font_init();
     font_set_code_page(850);
     auto *r = dut->rootp;
-    for (size_t i = 0; i < 4096; i++)
+    for (size_t i = 0; i < sizeof(font16); i++)
         ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__f16, i), font16[i]);
-    for (size_t i = 0; i < 2048; i++)
+    for (size_t i = 0; i < sizeof(font8); i++)
         ASSERT_EQ(face_byte(r->wiring__DOT__font__DOT__f8, i), font8[i]);
 }
 

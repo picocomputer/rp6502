@@ -12,10 +12,8 @@
 #define HOST_IN_RAM
 #define HOST_IN_RAM_FUNC
 #define HOST_ISR_FUNC
-#define HOST_UNINITIALIZED_RAM(name) name
 #define HOST_REGISTER_RAM(name) name
 
-#define XRAM_ALIGN 4
 #define HID_MAX_SLOTS 16
 /* A program that ends returns the machine to its monitor. */
 #define RP6502_HAS_MONITOR 0

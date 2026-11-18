@@ -66,9 +66,26 @@ wait "-"
 key 3+shift
 wait "#"
 key kp5
+wait "\x1B[E"
+lock num on
+key kp5
 wait "5"
+key kp5+shift
+wait "\x1B[E"
 key a+shift
 wait "A"
+lock caps on
+key a
+wait "A"
+key a+shift
+wait "a"
+key 3
+wait "3"
+key a+ctrl
+wait "\x01"
+lock caps off
+key a
+wait "a"
 type "console reads."
 wait "console reads."
 """

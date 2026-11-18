@@ -13,15 +13,6 @@
 #define TB_TERM_LANE(r, l, i) (r->wiring__DOT__mode0__DOT__cell##l[i])
 
 template <typename Root>
-static uint32_t term_cell(Root *r, size_t i)
-{
-    return (uint32_t)TB_TERM_LANE(r, 0, i)
-        | ((uint32_t)TB_TERM_LANE(r, 1, i) << 8)
-        | ((uint32_t)TB_TERM_LANE(r, 2, i) << 16)
-        | ((uint32_t)TB_TERM_LANE(r, 3, i) << 24);
-}
-
-template <typename Root>
 static void term_cell_set(Root *r, size_t i, uint32_t v)
 {
     TB_TERM_LANE(r, 0, i) = (uint8_t)v;

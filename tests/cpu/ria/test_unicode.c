@@ -19,21 +19,13 @@ uint16_t ref_oem2uni(uint16_t oem, uint16_t cp);
 uint16_t ref_uni2oem(uint32_t uni, uint16_t cp);
 uint32_t ref_wtoupper(uint32_t uni);
 
-static uint16_t page_at(unsigned i) { return unicode_word(4 + i); }
-
 UTEST_MAIN();
-
-UTEST(unicode, the_image_is_the_one_the_generator_wrote)
-{
-    ASSERT_TRUE(unicode_init());
-    ASSERT_EQ(unicode_word(1), UNICODE_OEM_PAGES);
-}
 
 UTEST(unicode, every_oem_byte_of_every_page_converts_the_same)
 {
     for (unsigned p = 0; p < UNICODE_OEM_PAGES; p++)
     {
-        uint16_t cp = page_at(p);
+        uint16_t cp = unicode_oem_cp[p];
         for (unsigned b = 0; b <= 0xFF; b++)
             ASSERT_EQ(ff_oem2uni((uint16_t)b, cp), ref_oem2uni((uint16_t)b, cp));
     }
@@ -43,7 +35,7 @@ UTEST(unicode, every_code_point_of_every_page_converts_back_the_same)
 {
     for (unsigned p = 0; p < UNICODE_OEM_PAGES; p++)
     {
-        uint16_t cp = page_at(p);
+        uint16_t cp = unicode_oem_cp[p];
         for (uint32_t u = 0; u <= 0xFFFF; u++)
             ASSERT_EQ(ff_uni2oem(u, cp), ref_uni2oem(u, cp));
     }

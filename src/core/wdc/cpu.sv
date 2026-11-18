@@ -32,10 +32,8 @@ module cpu
     output logic [15:0] cpu_addr,
     output logic [7:0] cpu_data,
     output logic cpu_we,
+    /* High while the core sits in STP, which only a reset ends. */
     output logic cpu_stp,
-    /* Beside stp because a freeze has to know about both: neither stall
-     * cycle fetches, so a gate that waits for sync alone never lets go
-     * of a core sitting in WAI. */
 
     /* Everything the core is, as five words, for stopping it in one
      * place and starting it again somewhere else. Reads are free; a
@@ -48,31 +46,18 @@ module cpu
      * takes the interrupt late or never; and the wait and stop flags,
      * because a core in WAI has to come back still in WAI.
      *
-     * ad, ir, tick, the brk causes and res_seen are dead at an
-     * instruction boundary, which is the only place a freeze lands.
-     * They travel anyway — they cost nothing in words already being
-     * carried, and the port then describes the core rather than one
-     * moment in it. */
+     * ad, ir, tick, the brk causes and res_seen are the instruction in
+     * flight. A savestate's hold lands on any cycle, so they travel too,
+     * and the port describes the core at any moment. */
     input logic [2:0] st_idx,
     output logic [31:0] cpu_st_rdata,
-    /* The whole of it at once, because a restore lands with the clock
-     * already back. */
+    /* st_jam writes all five words on one edge. */
     input logic st_jam,
-    input logic [31:0] st_jam_data[5],
-
-    /* What the bus will carry after this enable — the same values the
-     * registers take at the edge, published before it. A memory that
-     * cannot answer inside one clock has to launch on the enable rather
-     * than a clock later, or its byte arrives with nothing left of the
-     * period for the address cone to consume it. */
-    output logic [15:0] cpu_next_addr,
-    output logic [7:0] cpu_next_data,
-    output logic cpu_next_we
+    input logic [31:0] st_jam_data[5]
 );
 
-    /* Fetch cycle marker. Once an output for the freeze boundary; the
-     * clock-stop design needs no boundary, so it is internal state
-     * again -- the interrupt takes and the blob still ride on it. */
+    /* Fetch cycle marker. The interrupt takes and the savestate ride on
+     * it. */
     logic cpu_sync /*verilator public_flat_rd*/;
 
     // P flag bits
@@ -119,8 +104,8 @@ module cpu
 
 
     /* The five words. Packed so a byte register never straddles one:
-     * the engine writes them back verbatim and nothing has to agree
-     * about bit order twice. */
+     * a savestate writes them back as it read them and nothing has to
+     * agree about bit order twice. */
     always_comb begin
         case (st_idx)
             3'd0: cpu_st_rdata = {s, y, x, a};
@@ -598,20 +583,6 @@ module cpu
 
     logic [15:0] pip_mask;
     always_comb pip_mask = cpu_sync ? 16'h03FF : 16'hFFFF;
-
-    /* The bus one edge early. When the core is stalled the registers
-     * hold, so the answer is what they already carry. */
-    always_comb begin
-        if (stop_stall || wait_stall || rdy_stall) begin
-            cpu_next_addr = cpu_addr;
-            cpu_next_data = cpu_data;
-            cpu_next_we = cpu_we;
-        end else begin
-            cpu_next_addr = full_addr;
-            cpu_next_data = dout;
-            cpu_next_we = n_we;
-        end
-    end
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin

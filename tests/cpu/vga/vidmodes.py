@@ -120,10 +120,24 @@ def mode2_map(wt, ht):
     return bytes((i * 5 + 2) % MODE2_TILES for i in range(wt * ht))
 
 
+MODE2_CUSTOM = 0x1000
+MODE2_HDBL = 0x2000
+MODE2_VDBL = 0x4000
+
+
+def mode2_size(w, h):
+    return MODE2_CUSTOM | (w // 4 - 1) << 4 | (h // 4 - 1) << 8
+
+
 def mode2_tiles(attr):
     bpp = 1 << (attr & 3)
-    tile_size = 16 if attr & 8 else 8
-    mem_size = tile_size * bpp // 8 * tile_size
+    if attr & MODE2_CUSTOM:
+        w = ((attr >> 4 & 15) + 1) * 4
+        h = ((attr >> 8 & 15) + 1) * 4
+        mem_size = (w * bpp + 7) // 8 * h
+    else:
+        tile_size = 16 if attr & 8 else 8
+        mem_size = tile_size * bpp // 8 * tile_size
     return bytes((t // mem_size * 31 + t % mem_size * 7 + 3) & 0xFF
                  for t in range(MODE2_TILES * mem_size))
 
@@ -175,10 +189,13 @@ def mode5(name, canvas, attr, plane, sprites, n_pals=1,
         chunks.append((img_base + im * dsize,
                        bytes((im * 47 + t * 13 + 5) & 0xFF
                              for t in range(dsize))))
+    # A palette is followed by one more transparent entry, which a sprite
+    # whose palette starts a halfword in reads as its last color. XRAM
+    # holds whatever the last ROM left there, so it is written here.
     for pn in range(n_pals):
         chunks.append((pal_base + pn * 0x400,
                        le16(0, *((0x0020 | ((i * 2657 + pn * 97) & 0xFFFF))
-                                 for i in range(1, 1 << bpp)))))
+                                 for i in range(1, 1 << bpp)), 0)))
     chunks += list(extra_chunks)
     rom(name, canvas,
         list(extra_progs)
@@ -461,6 +478,31 @@ mode2("mode2_trimy", 2, 0x500, 24, 14, 6, 1, False, False, False)
 # A tile pointer high enough that the last tiles are addressed past the end of
 # XRAM. Those tiles are not drawn, in the renderer and in mode2.sv alike, and
 # the renderer never reads past the array.
+# Custom sizes. Rows that fill whole bytes take the byte walk; 20 pixels at
+# 1bpp and 4 at 1bpp end part way into a byte. The doubled ones start at odd
+# columns, so a doubled pixel is cut in half at the left edge.
+mode2("mode2_c24_1bpp", 1, mode2_size(24, 24) | 0, 16, 12, -5, -7,
+      False, False, True)
+mode2("mode2_c24_4bpp", 3, mode2_size(24, 24) | 2, 30, 22, 13, 9,
+      False, False, True)
+mode2("mode2_c20x12_1bpp", 1, mode2_size(20, 12) | 0, 18, 22, -3, 2,
+      False, False, False)
+mode2("mode2_c12x28_2bpp", 1, mode2_size(12, 28) | 1, 30, 10, 7, -11,
+      False, False, True)
+mode2("mode2_c4_8bpp", 2, mode2_size(4, 4) | 3, 7, 5, -2, 3,
+      True, True, True)
+mode2("mode2_c64_8bpp", 1, mode2_size(64, 64) | 3, 6, 5, -37, -21,
+      False, False, True)
+mode2("mode2_hdbl_4bpp8", 1, MODE2_HDBL | 0x002, 20, 12, -3, 4,
+      False, False, True)
+mode2("mode2_vdbl_2bpp16trim", 1, MODE2_VDBL | 0x309, 10, 8, 6, -5,
+      False, False, True)
+mode2("mode2_dbl_c24_1bpp", 3, MODE2_HDBL | MODE2_VDBL | mode2_size(24, 24),
+      7, 5, -27, -13, True, True, True)
+mode2("mode2_hdbl_trim8bpp", 1, MODE2_HDBL | 0x033, 12, 10, 11, 3,
+      False, False, True)
+mode2("mode2_hdbl_c4_1bpp", 2, MODE2_HDBL | mode2_size(4, 8), 30, 15, -1, 0,
+      False, True, False)
 mode2("mode2_tileoob", 1, 0x002, 20, 10, 5, 5, False, False, True,
       tile_ptr=0xFF80)
 
@@ -845,6 +887,49 @@ p.rom.add_binary_data(bytes((i * 13 + 7) & 0xFF for i in range(200 * 150)),
 note("mode0_return", 0)
 p.write(OUT / "mode0_return.rp6502")
 
+# Double-size lines and the reverse screen, with a steady cursor on them,
+# since a blinking one would make the frame depend on when it is captured.
+# Every attribute line is drawn on each size, so each follows the glyph row.
+MODE0_SIZES = ("\33[0m\33[2J\33[H"
+               "\33#6Wide \33[4mul\33[24m \33[9mst\33[29m "
+               "\33[53mov\33[55m \33[21mdu\33[24m\r\n"
+               "\33#3\33[1;31mTall\33[0m \33[7mrv\33[27m \33(0lqk\33(B\r\n"
+               "\33#4\33[1;31mTall\33[0m \33[7mrv\33[27m \33(0lqk\33(B\r\n"
+               "plain \33[3mitalic\33[23m \33[44;33mcolor\33[0m")
+
+
+def mode0text(name, canvas, text):
+    rom(name, canvas, [(0, 0, 0, 0)], [], speak=text)
+
+
+mode0text("mode0_dbl640", 3, MODE0_SIZES + "\33[1;3H\33[2 q")
+mode0text("mode0_dbl320", 1, MODE0_SIZES + "\33[2;2H\33[6 q")
+mode0text("mode0_rev640", 3, "\33[?5h" + MODE0_SIZES + "\33[3;4H\33[4 q")
+mode0text("mode0_rev320", 1, "\33[?5h" + MODE0_SIZES + "\33[1;3H\33[2 q")
+# A double-width row filled to its last column leaves a wrap pending, and
+# the cursor stays on that column in its own style, as on a VT100.
+mode0text("mode0_wrap640", 3,
+          "\33[0m\33[2J\33[H\33#6" + "0123456789" * 4 + "\33[6 q")
+mode0text("mode0_wrap320", 1,
+          "\33[0m\33[2J\33[H\33#6" + "0123456789" * 2 + "\33[6 q")
+# Every underline style in the foreground's color and in one of its own,
+# from the palette and as RGB, with a strike and an overline through one;
+# RGB and faint colors; a palette entry changed after cells were drawn in
+# it; and a cursor on an underlined cell.
+MODE0_LINES = ("\33[0m\33[2J\33[H"
+               "\33[31mentry\33[0m "
+               "\33[4:1mone\33[4:2mtwo\33[4:3mcurl\33[4:4mdots\33[4:5mdash"
+               "\33[0m\r\n"
+               "\33[58;5;9m\33[4:1mone\33[4:2mtwo\33[4:3mcurl\33[4:4mdots"
+               "\33[4:5mdash\33[0m\r\n"
+               "\33[58;2;0;255;128m\33[4:3;9;53mall\33[0m "
+               "\33[38;2;255;128;0;48;2;0;64;128mrgb\33[0m "
+               "\33[2;32mfaint\33[0m\r\n"
+               "\33#6\33[58;5;12;4:3mwide\33[4:5mjg\33[0m"
+               "\33]4;1;rgb:ff/80/00\33\\")
+mode0text("mode0_lines640", 3, MODE0_LINES + "\33[2;2H\33[2 q")
+mode0text("mode0_lines320", 1, MODE0_LINES + "\33[1;8H\33[4 q")
+
 cfg0 = bytearray((0, 0)) + le16(10, 20, 64, 64, 0x0800, 0x0200)
 cfg1 = bytearray((0, 0)) + le16(40, 30, 64, 64, 0x1800, 0x0600)
 rom("fill_heavy640", 3,
@@ -893,6 +978,18 @@ rom("text_three640", 3,
      (0x0400, le16(*(((i & 1) << 5 | (i * 1031 + 5)) for i in range(256)))),
      (0x0600, le16(*(((i >> 1 & 1) << 5 | (i * 733 + 9))
                      for i in range(256))))])
+
+# The console over two of those text planes, which wrap so they are on
+# every line: all three take glyphs from the one font store.
+cfg_a = bytearray((0, 1)) + le16(0, 0, 80, 4, 0x1000, 0x0200, 0xFFFF)
+cfg_b = bytearray((0, 1)) + le16(0, 0, 80, 4, 0x1400, 0x0400, 0xFFFF)
+rom("text_term640", 3,
+    [(1, 3, 0x0100, 0, 0, 0), (1, 3, 0x0140, 1, 0, 0), (0, 2, 0, 0)],
+    [(0x0100, cfg_a), (0x0140, cfg_b),
+     (0x1000, text_cells(80, 4, 0)), (0x1400, text_cells(80, 4, 7)),
+     (0x0200, le16(*((0x0020 | (i * 2657 + 5)) for i in range(256)))),
+     (0x0400, le16(*(((i & 1) << 5 | (i * 1031 + 5)) for i in range(256))))],
+    speak=MODE0_LINES + "\33[?25l\33[5;1H\33[4:3;58;5;10m" + "0123456789" * 8)
 
 # Sixteen-bit pixels at an odd byte, so every other pixel straddles a word,
 # and a wrap every 32 pixels, so each segment ends on a straddle and the

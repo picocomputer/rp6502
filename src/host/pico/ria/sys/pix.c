@@ -175,9 +175,8 @@ bool HOST_IN_FLASH_FUNC pix_api_xreg(void)
                 return api_return_errno(API_EINVAL);
             }
             pix_send(pix_device, pix_channel, pix_index + pix_send_count, data);
-            if (pix_device == PIX_DEVICE_VGA && pix_channel == 0 &&
-                pix_index + pix_send_count == 0)
-                vga_set_canvas(data);
+            if (pix_device == PIX_DEVICE_VGA && pix_channel == 0)
+                vga_xreg((uint8_t)(pix_index + pix_send_count), data);
             // VGA channel 0 regs 0 (canvas) and 1 (mode) require an ACK.
             if (pix_device == PIX_DEVICE_VGA && pix_channel == 0 &&
                 pix_index + pix_send_count <= 1)
@@ -240,7 +239,7 @@ bool HOST_IN_FLASH_FUNC pix_api_xreg(void)
         uint16_t canvas;
         memcpy(&canvas, &xstack[XSTACK_SIZE - 5], sizeof(canvas));
         pix_send_blocking(PIX_DEVICE_VGA, 0, 0, canvas);
-        vga_set_canvas(canvas);
+        vga_xreg(0, canvas);
         pix_index = 1;
         pix_send_count -= 1;
         pix_api_state = pix_api_waiting;

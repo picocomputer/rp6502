@@ -3,11 +3,12 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The shared firmware writes API_ERRNO as a halfword at $FFED, an odd offset
- * in the register window, and Hazard3 raises an exception on a misaligned
- * load or store instead of performing it. trap_dispatch then performs the
- * access one byte at a time, which gives the same result because the
- * register window takes byte reads and writes.
+ * Hazard3 raises an exception on a misaligned load or store instead of
+ * performing it. trap_dispatch then performs the access one byte at a
+ * time, which gives the same result in memory and in the byte-wide
+ * windows. The shared firmware's one odd halfword is API_ERRNO at $FFED in
+ * the register window, which this compiler writes as two bytes, so nothing
+ * comes here today.
  *
  * Hazard3 hardwires mtval to zero, so the faulting address is recomputed
  * from the instruction's base register and immediate.

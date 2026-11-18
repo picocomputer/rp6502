@@ -4,9 +4,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+/* The Pocket's file host behind the firmware's host registers, enough to
+ * boot a ROM. Where its behaviour comes from:
+ * - The commands and their results: Analogue's docs,
+ *   https://www.analogue.co/developer/docs/openfpga/host-target-commands
+ * - Get File writing the whole response struct, and an empty name for an
+ *   unbound slot: measured on a Pocket.
+ * - Write failing: our choice, since no boot here writes.
+ * - Flush, 0x0188: no reply, measured on the owner's Pocket; the core never
+ *   sends it. */
+
 #ifndef _TESTS_FPGA_TB_HOST_H_
 #define _TESTS_FPGA_TB_HOST_H_
 
+#include "pocket_version.h"
 #include "tb_stage.h"
 
 #include <cstdint>
@@ -14,10 +25,8 @@
 #include <string>
 #include <vector>
 
-/* The slot ids are declared in data.json. */
+/* The slot id is declared in data.json. */
 #define TB_HOST_SLOT_ROM 0u
-#define TB_HOST_SLOT_FONTS 9u
-#define TB_HOST_SLOT_OEMCP 10u
 
 #define TB_HOST_GETFILE_STRUCT 256u
 
@@ -25,6 +34,13 @@
  * at 0x1000: a 256-byte path, then the flags and size words. */
 #define TB_HOST_FILE_WIN 0x1000u
 #define TB_HOST_OPEN_NAME 256u
+
+/* The savestate's control register, which this host never asks for a
+ * save or a load through and whose bridge has no writes queued, and the
+ * register layout the firmware reads before anything else. */
+#define TB_HOST_SST_CTL 0x20000u
+#define TB_HOST_SST_WQ_EMPTY 0x08u
+#define TB_HOST_VER_REG 0x30000u
 
 class tb_host
 {
@@ -55,13 +71,7 @@ private:
 
     uint32_t slot_size(uint32_t slot) const
     {
-        if (slot == TB_HOST_SLOT_ROM)
-            return (uint32_t)size_;
-        if (slot == TB_HOST_SLOT_FONTS)
-            return (uint32_t)tb_stage_fonts().size();
-        if (slot == TB_HOST_SLOT_OEMCP)
-            return (uint32_t)tb_stage_oemcp().size();
-        return 0;
+        return slot == TB_HOST_SLOT_ROM ? (uint32_t)size_ : 0;
     }
 
     const uint8_t *slot_data(uint32_t slot, uint32_t *size) const
@@ -70,16 +80,6 @@ private:
         {
             *size = (uint32_t)size_;
             return data_;
-        }
-        if (slot == TB_HOST_SLOT_FONTS)
-        {
-            *size = (uint32_t)tb_stage_fonts().size();
-            return tb_stage_fonts().data();
-        }
-        if (slot == TB_HOST_SLOT_OEMCP)
-        {
-            *size = (uint32_t)tb_stage_oemcp().size();
-            return tb_stage_oemcp().data();
         }
         *size = 0;
         return nullptr;
@@ -119,6 +119,10 @@ private:
             return err_ << 1; /* the busy and drain bits are never set */
         if (addr == 0x14)
             return result_;
+        if (addr == TB_HOST_SST_CTL)
+            return TB_HOST_SST_WQ_EMPTY;
+        if (addr == TB_HOST_VER_REG)
+            return POCKET_REG_VERSION;
         return 0;
     }
 
@@ -164,7 +168,7 @@ private:
         case 3: /* OPEN */
             err_ = (id_ == TB_HOST_SLOT_ROM && open_name() == name_) ? 0 : 3;
             break;
-        default: /* WRITE, FLUSH */
+        default: /* WRITE */
             err_ = 5;
             break;
         }

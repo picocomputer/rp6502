@@ -12,12 +12,9 @@
  * one render reader, which fits a block RAM; kept whole it becomes a
  * quarter of a million registers.
  *
- * The render reads on the machine's clock, so a savestate's stop leaves
- * an answer in flight where it was. The soft CPU writes, and the
- * savestate engine reads and writes, through each array's other port,
- * which keeps its clock while the machine is stopped. At this depth a
- * block with two such ports costs no more blocks than one with a single
- * reader.
+ * The render reads through one port of each array, and the soft CPU
+ * writes and reads through the other. At this depth a block with two
+ * such ports costs no more blocks than one with a single reader.
  *
  * The canvas and the vsync line are shadows: the canvas latches where
  * the render takes the frame's first row, the vsync line at the beam's
@@ -35,8 +32,6 @@ module prog
     import canvas_pkg::*;
 (
     input logic clk,
-    /* The table runs on the clock that does not stop. */
-    input logic clk_mem,
     input logic frame_start,
 
     input logic [9:0] v,
@@ -56,21 +51,17 @@ module prog
     input logic [12:0] s_idx,
     output logic [31:0] prog_s_data,
 
-    /* The savestate serializer, with the machine stopped. Word 0 and 1
-     * are the fill slot, 2 and 3 the sprite slot. */
-    input logic sst_own,
-    input logic [10:0] sst_addr,
-    input logic [1:0] sst_word,
-    input logic sst_we,
-    input logic [31:0] sst_wdata,
-    output logic [31:0] prog_sst_rdata,
-
     /* The soft CPU: words 0-8191 the table at line*16 + plane*4 + word,
-     * then bit 15 the registers — 0 canvas, 1 vsync line. */
+     * then bit 15 the registers — 0 canvas, 1 vsync line. Word 0 and 1
+     * of a slot pair are the fill slot, 2 and 3 the sprite slot. A read
+     * of the table returns the word as it was written, less the bits the
+     * table does not keep, on prog_b_rdata from the clock after the
+     * strobe, which is how a savestate takes it. */
     input logic b_stb,
     input logic b_we,
     input logic [15:0] b_addr,
-    input logic [31:0] b_wdata
+    input logic [31:0] b_wdata,
+    output logic [31:0] prog_b_rdata
 );
 
     /* Indexed by {line, plane}; the word within the pair picks the
@@ -96,51 +87,55 @@ module prog
     logic [9:0] vsync_shadow /*verilator public_flat_rw*/;
     logic [9:0] vsync_q;
 
-    /* One write port per array, whoever is writing: a block RAM has
-     * one, and a second conditional write -- even one that can never
-     * fire at the same time -- is a second port, which un-infers the
-     * RAM and builds the table out of registers. Two hundred kilobits
-     * of registers is eight of these chips. */
-    logic [10:0] w_a;
+    /* One write port per array: a block RAM has one, and a second
+     * conditional write -- even one that can never fire at the same
+     * time -- is a second port, which un-infers the RAM and builds the
+     * table out of registers. Two hundred kilobits of registers is
+     * eight of these chips. */
     logic [1:0] w_word;
-    logic [31:0] w_d;
     logic w_go;
     always_comb begin
-        w_a = sst_own ? sst_addr : b_idx;
-        w_word = sst_own ? sst_word : b_addr[3:2];
-        w_d = sst_own ? sst_wdata : b_wdata;
-        w_go = sst_own ? sst_we : (b_stb && !b_addr[15] && b_we);
+        w_word = b_addr[3:2];
+        w_go = b_stb && !b_addr[15] && b_we;
     end
     logic [31:0] fe_b, sc_b;
     logic [15:0] fc_b;
     logic [19:0] se_b;
-    always_ff @(posedge clk_mem) begin
-        if (w_go && w_word == 2'd0) fill_e[w_a] <= w_d;
-        fe_b <= fill_e[w_a];
+    always_ff @(posedge clk) begin
+        if (w_go && w_word == 2'd0) fill_e[b_idx] <= b_wdata;
+        fe_b <= fill_e[b_idx];
     end
-    always_ff @(posedge clk_mem) begin
-        if (w_go && w_word == 2'd1) fill_c[w_a] <= w_d[15:0];
-        fc_b <= fill_c[w_a];
+    always_ff @(posedge clk) begin
+        if (w_go && w_word == 2'd1) fill_c[b_idx] <= b_wdata[15:0];
+        fc_b <= fill_c[b_idx];
     end
-    always_ff @(posedge clk_mem) begin
-        if (w_go && w_word == 2'd2) spr_e[w_a] <= {w_d[31], w_d[18:0]};
-        se_b <= spr_e[w_a];
+    always_ff @(posedge clk) begin
+        if (w_go && w_word == 2'd2)
+            spr_e[b_idx] <= {b_wdata[31], b_wdata[18:0]};
+        se_b <= spr_e[b_idx];
     end
-    always_ff @(posedge clk_mem) begin
-        if (w_go && w_word == 2'd3) spr_c[w_a] <= w_d;
-        sc_b <= spr_c[w_a];
+    always_ff @(posedge clk) begin
+        if (w_go && w_word == 2'd3) spr_c[b_idx] <= b_wdata;
+        sc_b <= spr_c[b_idx];
     end
 
     logic [19:0] s_e_q;
     logic [31:0] s_c_q;
     logic s_half_q;
 
+    /* The arrays read at the strobe's address on its edge, and the
+     * word is picked by the one taken there. */
+    logic [1:0] r_word;
+    initial r_word = '0;
+    always_ff @(posedge clk)
+        if (b_stb)
+            r_word <= w_word;
     always_comb begin
-        case (sst_word)
-            2'd0: prog_sst_rdata = fe_b;
-            2'd1: prog_sst_rdata = {16'd0, fc_b};
-            2'd2: prog_sst_rdata = {se_b[19], 12'd0, se_b[18:0]};
-            default: prog_sst_rdata = sc_b;
+        case (r_word)
+            2'd0: prog_b_rdata = fe_b;
+            2'd1: prog_b_rdata = {16'd0, fc_b};
+            2'd2: prog_b_rdata = {se_b[19], 12'd0, se_b[18:0]};
+            default: prog_b_rdata = sc_b;
         endcase
     end
 

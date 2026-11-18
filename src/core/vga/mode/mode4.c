@@ -49,13 +49,6 @@ typedef struct
 // sprite's own box samples the texture at u = a00 * x + a01 * y + b0,
 // v = a10 * x + a11 * y + b1.
 typedef int32_t affine_transform_t[6];
-static const int32_t AF_ONE = 1 << 16;
-
-static inline int32_t mul_fp1616(int32_t x, int32_t y)
-{
-    int64_t result = (int64_t)x * y;
-    return result >> 16;
-}
 
 typedef struct
 {
@@ -207,6 +200,19 @@ static inline void sprite_blit16_alpha(uint16_t *dst, const uint16_t *src, unsig
     } while (dst > dst_start);
 }
 
+/* A whole row of a plain sprite, n a constant, unrolled whole. */
+static inline __attribute__((always_inline)) void
+sprite_row16_alpha(uint16_t *dst, const uint16_t *src, unsigned n)
+{
+#pragma GCC unroll 64
+    for (unsigned i = 0; i < n; i++)
+    {
+        const uint16_t px = src[i];
+        if (px & (1 << 5))
+            dst[i] = px;
+    }
+}
+
 static inline void sprite_scanline16(
     uint16_t *scanbuf, const mode4_sprite_t *sp, const void *sp_img, unsigned raster_y, unsigned raster_w)
 {
@@ -235,28 +241,53 @@ static inline void sprite_scanline16(
 static void mode4_render_sprite(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
 {
     const mode4_sprite_t *sprites = (const void *)&xram[config_ptr];
-    for (uint16_t i = 0; i < length; i++)
+    for (const mode4_sprite_t *s = sprites, *end = sprites + length; s < end; s++)
     {
-        /* The descriptor is copied out of XRAM once, checked, and drawn from
-         * the copy, so a write part way through the line cannot slip in
-         * behind the checks. The copy lives in registers. */
-        const mode4_sprite_t sp = sprites[i];
-        /* No square above 7 fits XRAM, and the arithmetic below leaves
+        /* Each field is read out of XRAM once, checked, and drawn from that
+         * copy, so a write part way through the line cannot slip in behind
+         * the checks. Most sprites miss the line, so the two fields that
+         * place it down the canvas are read and tested first.
+         *
+         * No square above 7 fits XRAM, and the arithmetic below leaves
          * what C defines: 32 and up is an undefined shift, and 16..31
          * wraps byte_size to zero, past both guards and off the end. */
-        if (sp.log_size > 7)
+        const unsigned log_size = s->log_size;
+        const int16_t y_pos_px = s->y_pos_px;
+        if (log_size > 7 || ((unsigned)(scanline - y_pos_px) >> log_size))
             continue;
+        const mode4_sprite_t sp = {
+            .x_pos_px = s->x_pos_px,
+            .y_pos_px = y_pos_px,
+            .xram_sprite_ptr = s->xram_sprite_ptr,
+            .log_size = (uint8_t)log_size,
+            .has_opacity_metadata = s->has_opacity_metadata,
+        };
         const unsigned px_size = 1u << sp.log_size;
         unsigned byte_size = px_size * px_size * sizeof(uint16_t);
         if (sp.has_opacity_metadata)
             byte_size += px_size * sizeof(uint32_t);
         if (byte_size > 0x10000)
             continue;
-        if (sp.xram_sprite_ptr <= 0x10000 - byte_size)
+        if (sp.xram_sprite_ptr > 0x10000 - byte_size)
+            continue;
+        const void *img = (void *)&xram[sp.xram_sprite_ptr];
+        /* A sprite of 8 to 64 without metadata, wholly on the line, gets a
+         * row unrolled for its size. */
+        if (!sp.has_opacity_metadata && log_size >= 3 && log_size <= 6 &&
+            sp.x_pos_px >= 0 && sp.x_pos_px <= width - (int)px_size)
         {
-            const void *img = (void *)&xram[sp.xram_sprite_ptr];
-            sprite_scanline16(rgb, &sp, img, scanline, width);
+            uint16_t *dst = rgb + sp.x_pos_px;
+            const uint16_t *src = (const uint16_t *)img + (scanline - y_pos_px) * px_size;
+            switch (log_size)
+            {
+            case 3: sprite_row16_alpha(dst, src, 8); break;
+            case 4: sprite_row16_alpha(dst, src, 16); break;
+            case 5: sprite_row16_alpha(dst, src, 32); break;
+            default: sprite_row16_alpha(dst, src, 64); break;
+            }
+            continue;
         }
+        sprite_scanline16(rgb, &sp, img, scanline, width);
     }
 }
 
@@ -296,19 +327,17 @@ static inline void setup_interp_affine(
     intersect_t isct,
     const affine_transform_t atrans)
 {
-    int32_t x0 =
-        mul_fp1616(atrans[0], (isct.tex_offs_x + isct.size_x - 1) * AF_ONE) +
-        mul_fp1616(atrans[1], isct.tex_offs_y * AF_ONE) +
-        atrans[2];
-    int32_t y0 =
-        mul_fp1616(atrans[3], (isct.tex_offs_x + isct.size_x - 1) * AF_ONE) +
-        mul_fp1616(atrans[4], isct.tex_offs_y * AF_ONE) +
-        atrans[5];
+    // Texel coordinates are whole, so a 16.16 product is a plain multiply,
+    // which wraps the same.
+    const uint32_t tx = (uint32_t)(isct.tex_offs_x + isct.size_x - 1);
+    const uint32_t ty = (uint32_t)isct.tex_offs_y;
+    int32_t x0 = (int32_t)((uint32_t)atrans[0] * tx + (uint32_t)atrans[1] * ty + (uint32_t)atrans[2]);
+    int32_t y0 = (int32_t)((uint32_t)atrans[3] * tx + (uint32_t)atrans[4] * ty + (uint32_t)atrans[5]);
 #if PICO_ON_DEVICE
-    interp0->accum[0] = x0;
-    interp0->accum[1] = y0;
-    interp0->base[0] = -atrans[0];
-    interp0->base[1] = -atrans[3];
+    interp0->accum[0] = interp1->accum[0] = x0;
+    interp0->accum[1] = interp1->accum[1] = y0;
+    interp0->base[0] = interp1->base[0] = -atrans[0];
+    interp0->base[1] = interp1->base[1] = -atrans[3];
 #else
     sw_interp.accum[0] = (uint32_t)x0;
     sw_interp.accum[1] = (uint32_t)y0;
@@ -342,6 +371,17 @@ static inline void setup_interp_pix_coordgen(
     interp_set_config(interp0, 1, &c1);
 
     interp_set_base(interp0, 2, (uint32_t)sp_img);
+
+    // interp1 steps in step with interp0, and its POP_FULL is the bits of u
+    // and v past the sprite's edge, so it is nonzero for a texel outside.
+    // The shift of 1 keeps bit 31 in the sum, which can then never wrap to 0.
+    interp_config c2 = interp_default_config();
+    interp_config_set_add_raw(&c2, true);
+    interp_config_set_shift(&c2, 1);
+    interp_config_set_mask(&c2, 15 + sp->log_size, 30);
+    interp_set_config(interp1, 0, &c2);
+    interp_set_config(interp1, 1, &c2);
+    interp_set_base(interp1, 2, 0);
 #else
     sw_interp.shift[0] = 16 - pixel_shift;
     sw_interp.mask[0] = sw_interp_mask(pixel_shift, pixel_shift + sp->log_size - 1);
@@ -354,7 +394,8 @@ static inline void setup_interp_pix_coordgen(
 static inline void sprite_ablit16_alpha_loop_body(uint16_t *dst, unsigned mask)
 {
 #if PICO_ON_DEVICE
-    uint32_t overflow = (interp0->accum[0] | interp0->accum[1]) & mask;
+    (void)mask;
+    uint32_t overflow = interp1->pop[2];
     uint16_t *src_addr = (uint16_t *)interp0->pop[2];
 #else
     uint32_t overflow = (sw_interp.accum[0] | sw_interp.accum[1]) & mask;
@@ -435,17 +476,18 @@ static void mode4_render_asprite(
     uint16_t config_ptr, uint16_t length)
 {
     const mode4_asprite_t *sprites = (const void *)&xram[config_ptr];
-    for (uint16_t i = 0; i < length; i++)
+    for (const mode4_asprite_t *s = sprites, *end = sprites + length; s < end; s++)
     {
-        /* The descriptor is copied out of XRAM once, checked, and drawn from
-         * the copy, so a write part way through the line cannot slip in
-         * behind the checks. The copy lives in registers. */
-        const mode4_asprite_t sp = sprites[i];
-        /* No square above 7 fits XRAM, and the arithmetic below leaves
-         * what C defines: 32 and up is an undefined shift, and 16..31
-         * wraps byte_size to zero, past both guards and off the end. */
-        if (sp.log_size > 7)
+        /* As in mode4_render_sprite, the fields that place the sprite down
+         * the canvas are read once and tested first, and the rest only for a
+         * sprite on the line. */
+        const unsigned log_size = s->log_size;
+        const int16_t y_pos_px = s->y_pos_px;
+        if (log_size > 7 || ((unsigned)(scanline - y_pos_px) >> log_size))
             continue;
+        mode4_asprite_t sp = *s;
+        sp.log_size = (uint8_t)log_size;
+        sp.y_pos_px = y_pos_px;
         const unsigned px_size = 1u << sp.log_size;
         unsigned byte_size = px_size * px_size * sizeof(uint16_t);
         if (sp.has_opacity_metadata)

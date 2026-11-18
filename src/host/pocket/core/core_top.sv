@@ -7,8 +7,7 @@
 `default_nettype none
 
 module core_top #(
-    parameter bit CORE_TEST_PATTERN = 1'b0,
-    parameter TCM_INIT_FILE = "sw"
+    parameter bit CORE_TEST_PATTERN = 1'b0
 ) (
 
 input   wire            clk_74a,
@@ -193,9 +192,12 @@ wire [15:0] dram_dq_out;
 wire        dram_dq_oe;
 assign dram_dq = dram_dq_oe ? dram_dq_out : {16{1'bZ}};
 
-wire [15:0] sram_dq_out;
-wire        sram_dq_oe;
-assign sram_dq = sram_dq_oe ? sram_dq_out : {16{1'bZ}};
+assign sram_a = 'h0;
+assign sram_dq = {16{1'bZ}};
+assign sram_oe_n  = 1;
+assign sram_we_n  = 1;
+assign sram_ub_n  = 1;
+assign sram_lb_n  = 1;
 
 wire dbg_tx_w;
 assign dbg_tx = dbg_tx_w;
@@ -204,16 +206,16 @@ assign aux_scl = 1'bZ;
 assign vpll_feed = 1'bZ;
 
 
-// 0x03Fxxxxx is the megabyte that starts at savestate_addr. Its first
-// savestate_maxloadsize bytes are the blob window, and for reads inside
-// that window pocket_core returns pocket_sst's data on
+// The first pattern is the top 2 MB of the SDRAM, where the blob window,
+// savestate_maxloadsize bytes at savestate_addr, runs to the end. For reads
+// inside the window pocket_core returns pocket_sst's data on
 // file_bridge_rd_data.
 always @(*) begin
     casex(bridge_addr)
     default: begin
         bridge_rd_data <= 0;
     end
-    32'h03Fxxxxx: begin
+    32'b0000_0011_111x_xxxx_xxxx_xxxx_xxxx_xxxx: begin
         bridge_rd_data <= file_bridge_rd_data;
     end
     32'h20xxxxxx: begin
@@ -253,21 +255,18 @@ end
     wire     [31:0] rtc_time_bcd;
     wire            rtc_valid;
 
-    // savestate_size is sst_engine's word count times four. pocket_sst
-    // has the same word count because it drops its save request when the
-    // last word of the blob arrives from sst_engine, and sst_engine
-    // resumes the machine once that request drops. savestate_maxloadsize
-    // is the whole blob window rather than the blob's size, because the
-    // host writes back the file it saved, which has the Pocket OS's header
-    // in front of the blob and a thumbnail behind it, and sst_engine scans
-    // that file for the blob's magic. One saved file had a 596-byte
-    // header and a 52764-byte thumbnail. stage_map_gate.py checks the size
-    // against sst_engine and pocket_sst, and the address and the load size
-    // against mmio.h.
+    // savestate_size is gen/version.py's SST_BYTES, which the firmware's
+    // savestate fits in. savestate_maxloadsize is the whole blob window,
+    // from savestate_addr to the end of the SDRAM, rather than the
+    // savestate's size. A load writes the savestate at savestate_addr with
+    // nothing in front (measured on a Pocket). The Memories file on the
+    // card has a header and a thumbnail around it, which do not come to
+    // the core. stage_map_gate.py checks the address and the load size
+    // against mmio.h, and that the size fits in the window.
     wire            savestate_supported = 1'b1;
-    wire    [31:0]  savestate_addr = 32'h03F0_0000;
-    wire    [31:0]  savestate_size = 32'd333136;
-    wire    [31:0]  savestate_maxloadsize = 32'd655360;
+    wire    [31:0]  savestate_addr = 32'h03EC_1000;
+    wire    [31:0]  savestate_size = pocket_version_pkg::SST_BYTES;
+    wire    [31:0]  savestate_maxloadsize = 32'd1306624;
 
     wire            savestate_start;
     wire            savestate_start_ack;
@@ -286,7 +285,6 @@ end
     wire            target_dataslot_read;
     wire            target_dataslot_write;
     wire            target_dataslot_getfile;
-    wire            target_dataslot_flush;
     wire            target_dataslot_openfile;
 
     wire            target_dataslot_ack;
@@ -368,7 +366,6 @@ core_bridge_cmd icb (
     .target_dataslot_read       ( target_dataslot_read ),
     .target_dataslot_write      ( target_dataslot_write ),
     .target_dataslot_getfile    ( target_dataslot_getfile ),
-    .target_dataslot_flush      ( target_dataslot_flush ),
     .target_dataslot_openfile   ( target_dataslot_openfile ),
     
     .target_dataslot_ack        ( target_dataslot_ack ),
@@ -394,7 +391,6 @@ wire clk_sys;      // 50.4 MHz
 wire clk_vid;      // 25.2 MHz
 wire clk_dram;     // 50.4 MHz, 180 degrees behind clk_sys
 wire clk_vid_90;   // 25.2 MHz, 90 degrees behind clk_vid
-wire clk_rv;       // 25.2 MHz, rising with clk_sys
 wire clk_a2;       // 100.8 MHz, three quarters of its period behind clk_sys
 wire clk_ph;       // 50.4 MHz, 12.4 ns behind clk_sys, XRAM's phase reference
 wire pll_locked;
@@ -408,7 +404,6 @@ pocket_pll pll (
     .clk_vid  ( clk_vid ),
     .clk_dram ( clk_dram ),
     .clk_vid_90 ( clk_vid_90 ),
-    .clk_rv   ( clk_rv ),
     .clk_a2   ( clk_a2 ),
     .clk_ph   ( clk_ph ),
     .locked   ( pll_locked )
@@ -416,9 +411,9 @@ pocket_pll pll (
 
 // dram_clk leaves from a DDR output register in the I/O cell, which
 // drives it high on the rising edge of clk_dram and low on the falling
-// edge. Every other SDRAM pin except dram_dqm, which is tied low, also
-// leaves from an I/O cell register, so the clock and the signals the
-// SDRAM samples on it take the same kind of path to the pads, and the
+// edge. Every other SDRAM pin also leaves from an I/O cell register,
+// so the clock and the signals the SDRAM samples on it take the same
+// kind of path to the pads, and the
 // 180-degree shift set in pocket_pll is preserved at the chip. A clock
 // driven onto the pin by an assign would take a fabric route chosen by
 // the fitter, which adds an unknown delay to that shift.
@@ -438,36 +433,9 @@ wire core_rst_n_74 = pll_locked_s;
 wire core_rst_n_sys;
 synch_3 s_rst_sys (core_rst_n_74, core_rst_n_sys, clk_sys);
 
-// The clock control block below stops clk_mach for a savestate, so every
-// register on clk_mach misses the same edge and resumes on the same edge,
-// and no register needs a clock enable for the stop. The soft CPU runs on
-// clk_rv, which is not gated, and sst_engine halts it through the soft
-// CPU's debug port instead.
-wire core_stop_req, core_stop_req_74;
-synch_3 s_stopreq (core_stop_req, core_stop_req_74, clk_74a);
-reg mach_clk_en = 1'b1;
-always @(posedge clk_74a)
-    mach_clk_en <= !core_stop_req_74;
-// altclkctrl registers ena on the falling edge of clk_sys, so clk_mach
-// stops or restarts only while clk_sys is low and no high phase of
-// clk_mach is ever cut short.
-wire clk_mach;
-altclkctrl #(
-    .clock_type("AUTO"),
-    .ena_register_mode("falling edge"),
-    .number_of_clocks(1),
-    .use_glitch_free_switch_over_implementation("OFF"),
-    .width_clkselect(1)
-) gate_sys ( .inclk(clk_sys), .ena(mach_clk_en), .clkselect(1'b0),
-             .outclk(clk_mach) );
-
-pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
-    .mach_running ( mach_clk_en ),
-    .clk_mach     ( clk_mach ),
-    .pocket_core_stop_req    ( core_stop_req ),
+pocket_core core (
     .clk_74a  ( clk_74a ),
     .clk_sys  ( clk_sys ),
-    .clk_rv   ( clk_rv ),
     .clk_a2   ( clk_a2 ),
     .clk_ph   ( clk_ph ),
     .clk_vid  ( clk_vid ),
@@ -480,6 +448,8 @@ pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
     .bridge_wr_data       ( bridge_wr_data ),
     .dataslot_allcomplete ( dataslot_allcomplete ),
     .dataslot_update      ( dataslot_update ),
+    .dataslot_requestwrite    ( dataslot_requestwrite ),
+    .dataslot_requestwrite_id ( dataslot_requestwrite_id ),
     .reset_n              ( reset_n ),
     .pocket_core_dt_addr  ( datatable_addr ),
     .datatable_q          ( datatable_q ),
@@ -494,7 +464,6 @@ pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
     .pocket_core_dataslot_write      ( target_dataslot_write ),
     .pocket_core_dataslot_openfile   ( target_dataslot_openfile ),
     .pocket_core_dataslot_getfile    ( target_dataslot_getfile ),
-    .pocket_core_dataslot_flush      ( target_dataslot_flush ),
     .pocket_core_dataslot_id         ( target_dataslot_id ),
     .pocket_core_dataslot_slotoffset ( target_dataslot_slotoffset ),
     .pocket_core_dataslot_bridgeaddr ( target_dataslot_bridgeaddr ),
@@ -536,15 +505,6 @@ pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
     .dram_we_n   ( dram_we_n ),
     .dram_dq_out ( dram_dq_out ),
     .dram_dq_oe  ( dram_dq_oe ),
-
-    .sram_a      ( sram_a ),
-    .sram_dq_out ( sram_dq_out ),
-    .sram_dq_oe  ( sram_dq_oe ),
-    .sram_dq_in  ( sram_dq ),
-    .sram_oe_n   ( sram_oe_n ),
-    .sram_we_n   ( sram_we_n ),
-    .sram_ub_n   ( sram_ub_n ),
-    .sram_lb_n   ( sram_lb_n ),
     .dram_dq_in  ( dram_dq ),
 
     .pocket_core_ready     ( ),
@@ -562,7 +522,7 @@ wire dbglog_event, dbglog_done;
 wire [31:0] dbglog_id;
 
 pocket_dbglog dbglog (
-    .clk_mach    ( clk_mach ),
+    .clk_sys     ( clk_sys ),
     .rv_tx_data  ( con_rv_data ),
     .rv_tx_valid ( con_rv_valid ),
     .clk_74a     ( clk_74a ),
@@ -577,7 +537,7 @@ pocket_dbglog dbglog (
 );
 
 pocket_dbg dbg (
-    .clk_mach    ( clk_mach ),
+    .clk_sys     ( clk_sys ),
     .rst_n       ( core_rst_n_sys ),
     .rv_tx_data  ( con_rv_data ),
     .rv_tx_valid ( con_rv_valid ),

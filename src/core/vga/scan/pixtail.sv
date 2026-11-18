@@ -34,6 +34,10 @@ module pixtail
     input logic pal_xram,
     input logic [2:0] bpp_log,
     input logic reversed,
+    /* Doubled across, as mode 2 asks for: every pixel of an xram segment
+     * lands twice. The segment's count is still in canvas pixels, and its
+     * payload's bit 23 starts it on the right half of its first pixel. */
+    input logic dbl,
 
     /* Segment counts must sum to cw exactly. */
     input logic seg_valid,
@@ -106,6 +110,12 @@ module pixtail
     } seg_t;
     seg_t cur, deck;
     logic cur_v, deck_v;
+    /* The emission owes a lone right half before it may pair. */
+    logic half;
+    /* The source pixels a doubled segment reads. */
+    function automatic logic [9:0] src_px(input logic [9:0] n, input logic h);
+        src_px = 10'((11'(n) + 11'(h) + 11'd1) >> 1);
+    endfunction
     /* No take on a promote clock: a segment offered exactly as cur
      * finishes, with the deck empty, would be written into the deck while
      * the promote below writes the deck's old emptiness over it. It would
@@ -213,10 +223,11 @@ module pixtail
         /* The second goes too when the segment has one and, for an xram
          * segment, the fifo holds every bit of it. */
         emit_pair = emit_now && cur_left != 10'd1
-            && (emit_imm || bit_end <= 6'd32 || fifo_v[1]);
+            && (emit_imm || (dbl ? !half : bit_end <= 6'd32 || fifo_v[1]));
     end
+    /* Doubled, a pair is one pixel twice, so the bits move on by one. */
     logic [5:0] bit_after;
-    always_comb bit_after = emit_pair ? bit_end : bit_next;
+    always_comb bit_after = emit_pair && !dbl ? bit_end : bit_next;
     logic [9:0] px_after;
     always_comb px_after = px + 10'd1 + {9'd0, emit_pair};
 
@@ -231,8 +242,8 @@ module pixtail
             pixtail_px_data = {imm_on1 ? cur.pay[31:16] : cur.pay[15:0],
                                imm_on ? cur.pay[31:16] : cur.pay[15:0]};
         else if (emit_xram)
-            pixtail_px_data = bpp_log == 3'd4 ? {pix16_1, pix16}
-                                              : {pal_q1, pal_q};
+            pixtail_px_data = dbl ? {pal_q, pal_q}
+                : bpp_log == 3'd4 ? {pix16_1, pix16} : {pal_q1, pal_q};
     end
 
     always_comb begin
@@ -272,6 +283,7 @@ module pixtail
         imm_bit = '0;
         px = '0;
         cur_left = '0;
+        half = 1'b0;
         pixtail_done = 1'b0;
         for (int i = 0; i < 3; i++) begin
             fifo[i] = '0;
@@ -326,6 +338,7 @@ module pixtail
                             cur_left <= seg_px;
                             cur_fetched <= seg_imm;
                             imm_bit <= '0;
+                            half <= dbl && !seg_imm && seg_pay[23];
                         end else begin
                             deck.imm <= seg_imm;
                             deck.pay <= seg_pay;
@@ -342,7 +355,8 @@ module pixtail
                         fetch_bit0_next <= cur.pay[4:0];
                         fetch_phase <= cur.pay[4:0]
                             & 5'((5'd1 << bpp_log) - 5'd1);
-                        fetch_px_left <= cur_left;
+                        fetch_px_left <= dbl
+                            ? src_px(cur_left, cur.pay[23]) : cur_left;
                         fetch_seg1 <= 1'b0;
                         cur_fetched <= 1'b1;
                     end else if (aim_deck_now) begin
@@ -350,7 +364,8 @@ module pixtail
                         fetch_bit0_next <= deck.pay[4:0];
                         fetch_phase <= deck.pay[4:0]
                             & 5'((5'd1 << bpp_log) - 5'd1);
-                        fetch_px_left <= deck.px;
+                        fetch_px_left <= dbl
+                            ? src_px(deck.px, deck.pay[23]) : deck.px;
                         fetch_seg1 <= 1'b1;
                         deck_fetched <= 1'b1;
                     end
@@ -403,6 +418,8 @@ module pixtail
                             imm_bit <= imm_bit + 3'd1 + {2'd0, emit_pair};
                         else if (!word_shift)
                             bit_in_word <= bit_after[4:0];
+                        if (emit_xram)
+                            half <= 1'b0;
                         if (cur_done) begin
                             /* The deck's words are already arriving
                              * behind cur's, so every word marked as the
@@ -415,6 +432,7 @@ module pixtail
                             deck_v <= 1'b0;
                             deck_fetched <= 1'b0;
                             imm_bit <= '0;
+                            half <= dbl && !deck.imm && deck.pay[23];
                             for (int i = 0; i < 3; i++)
                                 fifo_seg1[i] <= 1'b0;
                             for (int i = 0; i < 2; i++)

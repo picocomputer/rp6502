@@ -27,8 +27,8 @@ void cfg_save_boot(const char *str);
 const char *cfg_load_boot(void);
 
 /* CFG_DRIVER must come before every row whose init checks whether the config
- * file set a value, such as keymap_init, which adopts a default layout when
- * none was loaded. */
+ * file set a value, such as layout_list_init, which adopts a default layout
+ * when none was loaded. */
 #define CFG_DRIVER DRIVER(INIT(cfg_init) CONFIG_SAVE(cfg_file_save))
 
 #endif /* _RIA_SYS_CFG_H_ */

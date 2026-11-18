@@ -46,6 +46,11 @@ uint32_t HOST_IN_RAM_FUNC host_seed(void)
     return seed;
 }
 
+bool host_minimized(void)
+{
+    return false;
+}
+
 uint32_t host_crc32(uint32_t crc, const void *buf, size_t len)
 {
     return ~lfs_crc(~crc, buf, len);

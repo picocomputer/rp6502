@@ -18,3 +18,8 @@ const char *host_save_dir(void)
 {
     return NULL;
 }
+
+bool host_minimized(void)
+{
+    return false;
+}

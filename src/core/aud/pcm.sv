@@ -48,7 +48,6 @@ module pcm
     parameter int STEP_DEN = 1014
 ) (
     input logic clk,
-    input logic clk_sys,
     input logic tick,
 
     /* Bit 0 open, bit 1 16-bit, bit 2 stereo. Opening empties the FIFO
@@ -85,7 +84,6 @@ module pcm
     input logic sst_own,
     input logic [10:0] sst_addr,
     input logic sst_we,
-    input logic sst_st_we,
     output logic [31:0] pcm_sst_rdata,
     output logic pcm_quiet
 );
@@ -153,9 +151,8 @@ module pcm
         end
     end
 
-    /* The FIFO's four banks, 1024 bytes each in M10K. Port A on clk_sys
-     * writes and reads back at w_row, port B on clk is the player's
-     * read. In a generate loop, Quartus builds each bank as two RAMs, one
+    /* The FIFO's four banks, 1024 bytes each in M10K. Port A writes and
+     * reads back at w_row, port B is the player's read. In a generate loop, Quartus builds each bank as two RAMs, one
      * for each read port. */
     (* ramstyle = "M10K, no_rw_check" *)
     logic [7:0] bank0[1024];
@@ -167,7 +164,7 @@ module pcm
     logic [7:0] bank3[1024];
     logic [31:0] fa_q;
     logic [7:0] fq[4];
-    always_ff @(posedge clk_sys) begin
+    always_ff @(posedge clk) begin
         if (w_en[0]) bank0[w_row] <= wdata[7:0];
         if (w_en[1]) bank1[w_row] <= wdata[15:8];
         if (w_en[2]) bank2[w_row] <= wdata[23:16];
@@ -207,7 +204,7 @@ module pcm
             dec = {~d_lo[7], d_lo[6:0], 8'd0};
     end
 
-    /* The histories, one M10K on clk_sys. The OPL's write wins a clock;
+    /* The histories, one M10K. The OPL's write wins a clock;
      * a push waits it out. */
     (* ramstyle = "M10K" *)
     logic signed [15:0] hist[128];
@@ -222,7 +219,7 @@ module pcm
         h_wa = sst_own ? s_ha : in_valid ? {2'b00, wptr} : {1'b1, ch, at};
         h_wd = sst_own ? wdata[15:0] : in_valid ? in_sample : dec;
     end
-    always_ff @(posedge clk_sys)
+    always_ff @(posedge clk)
         if (h_we)
             hist[h_wa] <= h_wd;
 
@@ -238,7 +235,7 @@ module pcm
         h_ra = sst_own ? s_ha : e_ra;
     end
     logic signed [15:0] hist_q;
-    always_ff @(posedge clk_sys) hist_q <= hist[h_ra];
+    always_ff @(posedge clk) hist_q <= hist[h_ra];
 
     /* The coefficients, one port. */
     localparam int AW = $clog2(RSMP_HALF_N);
@@ -369,7 +366,7 @@ module pcm
             stage <= '0;
             pcm_under <= '0;
         end
-        if (sst_st_we && sel_st)
+        if (sst_we && sel_st)
             case (sst_addr[2:0])
                 3'd0: step_m1 <= wdata;
                 3'd2: {rst_pend, wr, rd, st, b16, open} <= wdata[29:0];
@@ -485,7 +482,7 @@ module pcm
             default: state <= S_IDLE;
         endcase
 
-        if (sst_st_we && sel_st)
+        if (sst_we && sel_st)
             case (sst_addr[2:0])
                 3'd1: phase[31:0] <= wdata;
                 3'd2: phase[32] <= wdata[30];
@@ -493,7 +490,7 @@ module pcm
                 3'd4: pcm_r <= wdata[RSMP_OUT_W-1:0];
                 default: ;
             endcase
-        if (sst_st_we && sel_so)
+        if (sst_we && sel_so)
             case (sst_addr[2:0])
                 3'd0: o_phase[31:0] <= wdata;
                 3'd1: {o_phase[33:32], wptr, rptr, primed, full, rsmp_out}

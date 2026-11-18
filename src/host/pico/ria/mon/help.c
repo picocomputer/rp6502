@@ -6,7 +6,7 @@
 
 #include "core/api/tim.h"
 #include "ria/api/tim.h"
-#include "core/hid/keymap.h"
+#include "core/hid/layout.h"
 #include "ria/mon/help.h"
 #include "core/sys/config.h"
 #include "ria/mon/mon.h"
