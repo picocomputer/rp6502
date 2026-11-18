@@ -900,6 +900,73 @@ UTEST(rln, a_read_in_vt52_mode_sends_no_csi)
     com_printf("\33<");
 }
 
+/* Between left and right margins a row is the columns between them: the
+ * line breaks at the right margin, a CR lands on the left one, and nothing
+ * either side of the margins is touched. */
+UTEST(rln, a_line_between_left_and_right_margins_stays_between_them)
+{
+    fresh();
+    /* Margins at columns 11 and 30, a mark either side of them on two rows,
+     * and a prompt at the left margin of row 3. */
+    com_printf("\33[2J\33[3;5HX\33[3;40HY\33[4;5HX\33[4;40HY");
+    com_printf("\33[?69h\33[11;30s\33[3;11H> ");
+    reading();
+    const uint8_t top = pos()->y;
+    ASSERT_EQ(top, 2);
+    ASSERT_EQ(pos()->x, 12);
+    /* 18 fit after the prompt, and the next 7 start at the left margin. */
+    type_n(25, 'a');
+    ASSERT_EQ(pos()->y, top + 1);
+    ASSERT_EQ(pos()->x, 17);
+    ASSERT_EQ(tb_screen_row(top)[12].glyph, 'a');
+    ASSERT_EQ(tb_screen_row(top)[29].glyph, 'a');
+    ASSERT_EQ(tb_screen_row(top)[30].glyph, ' ');
+    ASSERT_EQ(tb_screen_row(top + 1)[10].glyph, 'a');
+    ASSERT_EQ(tb_screen_row(top + 1)[16].glyph, 'a');
+    ASSERT_EQ(tb_screen_row(top + 1)[17].glyph, ' ');
+    ASSERT_EQ(tb_screen_row(top + 1)[9].glyph, ' ');
+    /* Home and End find the ends of it. */
+    wire("\33[H");
+    ASSERT_EQ(pos()->y, top);
+    ASSERT_EQ(pos()->x, 12);
+    wire("b");
+    ASSERT_EQ(tb_screen_row(top)[12].glyph, 'b');
+    ASSERT_EQ(tb_screen_row(top + 1)[10].glyph, 'a');
+    ASSERT_EQ(tb_screen_row(top + 1)[17].glyph, 'a');
+    wire("\33[F");
+    ASSERT_EQ(pos()->y, top + 1);
+    ASSERT_EQ(pos()->x, 18);
+    /* A line that shrinks back onto one row erases what it had below. */
+    for (int i = 0; i < 12; i++)
+        wire("\b");
+    ASSERT_EQ(pos()->y, top);
+    ASSERT_EQ(tb_screen_row(top + 1)[10].glyph, ' ');
+    for (uint8_t y = top; y <= top + 1; y++)
+    {
+        ASSERT_EQ(tb_screen_row(y)[4].glyph, 'X');
+        ASSERT_EQ(tb_screen_row(y)[39].glyph, 'Y');
+    }
+    wire("\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_EQ(strlen(last), (size_t)14);
+    ASSERT_EQ(last[0], 'b');
+    com_printf("\33[?69l");
+}
+
+/* A line has no more rows than the scroll region its cursor is in. */
+UTEST(rln, a_line_has_no_more_rows_than_its_scroll_region)
+{
+    fresh();
+    com_printf("\33[2J\33[5;6r\33[5;1H> ");
+    reading();
+    type_n(250, 'a');
+    wire("\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_TRUE(strlen(last) <= 2 * 80 - 2);
+    ASSERT_TRUE(strlen(last) >= 2 * 80 - 4);
+    com_printf("\33[r");
+}
+
 /* A VT52's arrows, Home and End work in every mode. */
 UTEST(rln, vt52_arrows_home_and_end_edit_the_line)
 {

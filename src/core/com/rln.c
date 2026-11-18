@@ -32,6 +32,8 @@
 **     starts the line over on a clean row.
 **   - Moves are relative: CUU and CUD between rows, CR and CUF along one.
 **     No absolute Y; no writes past rln_max_length.
+**   - Inside left and right margins a row is the columns between them: a
+**     CR lands on the left margin, and the row breaks at the right one.
 **   - rln owns only rln_max_length cells from the start of input, so no EL
 **     unless the input can take more than its row.
 **   - A plain line (rln_set_plain, or a script read) lays nothing out and
@@ -88,8 +90,8 @@ static bool rln_suppress_newline;
 // Display state. The line is laid out at the prompt column and the width
 // the console's terminal had when the read started or last changed size.
 static bool rln_plain;                 // lay no line out: rln_set_plain
-static uint16_t rln_prompt_col;        // 1-based, 0 = no prompt column, no wrapping
-static uint16_t rln_width;             // the columns of the prompt's row
+static uint16_t rln_prompt_col;        // 1-based from where a CR lands, 0 = no prompt column, no wrapping
+static uint16_t rln_width;             // the columns of the prompt's row, between the margins it is in
 static uint8_t rln_grid_width;         // the shown grid's width, watched for a change
 static uint8_t rln_rows;               // the most rows the line may take
 static uint8_t rln_cur_idx;            // buffer index whose screen position the cursor is at
@@ -276,11 +278,6 @@ static void rln_emit_move(char way, unsigned n)
         }
 }
 
-static void rln_emit_erase(void)
-{
-    com_printf(cells_term.vt52 ? "\33K" : "\33[K");
-}
-
 // Move to column col of the cursor's row: CR, then right. VT100 and VT102
 // have no CHA. CR goes to the real cell from a pending wrap at the margin,
 // and clears it.
@@ -288,6 +285,24 @@ static void rln_emit_col(uint16_t col)
 {
     manifold_putchar('\r');
     rln_emit_move('C', col - 1u);
+}
+
+// Erase the line's row from the cursor, which is at column col and stays
+// there. The terminal's erase goes to the end of the row whatever the right
+// margin is, so a line that ends at a margin erases with spaces, and comes
+// back.
+static void rln_emit_erase(uint16_t col)
+{
+    manifold_flush();
+    const term_grid_t *g = term_shown(&cells_term);
+    if (term_right_stop(g) == term_cols(g, term_pos(g)->y) - 1)
+    {
+        com_printf(cells_term.vt52 ? "\33K" : "\33[K");
+        return;
+    }
+    for (uint16_t c = col; c <= rln_width; c++)
+        manifold_putchar(' ');
+    rln_emit_col(col);
 }
 
 // Move the visible cursor so that it sits at the screen position
@@ -439,7 +454,7 @@ static void rln_clear_rows_below(uint8_t rows, uint16_t col)
     for (uint8_t k = 0; k < rows; k++)
     {
         com_printf(cells_term.vt52 ? "\33B\r" : "\33[B\r");
-        rln_emit_erase();
+        rln_emit_erase(1);
     }
     rln_emit_move('A', rows);
     if (rows)
@@ -474,11 +489,11 @@ static void rln_render_from(uint8_t start)
             rln_put(i, rln_buf[i], end);
         // The cursor is past the line, or on its last cell when a full line
         // ends on the last column, where EL would erase that cell.
-        if (rln_cur_idx == rln_buflen && rln_last_render_buflen > rln_buflen)
-            rln_emit_erase();
         uint8_t er;
         uint16_t ec;
         rln_buf_to_screen(rln_cur_idx, &er, &ec);
+        if (rln_cur_idx == rln_buflen && rln_last_render_buflen > rln_buflen)
+            rln_emit_erase(ec);
         // Clear rows a previous (longer) render owned below the new end,
         // then return to the new end so cur_idx tracks the screen.
         if (rln_rendered_max_row > er)
@@ -1092,7 +1107,8 @@ static void rln_item(com_source_t src, const char *item, size_t len)
 /* ----- Following the terminal ----- */
 
 // The line starts where the console's terminal has its cursor, and is laid
-// out at that row's columns, half the width on a double-size row. Everything
+// out at that row's columns, half the width on a double-size row, and those
+// between the left and right margins for a cursor between them. Everything
 // already printed reaches the terminals and cells_term first, then the modes
 // go to every terminal. A cursor in a pending wrap gets a CR LF, so the line
 // starts in column 1 of the next row. A terminal in VT52 mode has no insert
@@ -1109,12 +1125,21 @@ static void rln_lay_out(void)
         manifold_putchar('\n');
         manifold_flush();
     }
+    /* The line has the columns the terminal gives the cursor: from where a
+     * CR lands to where a row of text ends, which are the left and right
+     * margins for a cursor between them. Its columns are counted from the
+     * first of those. It has no more rows than the scroll region the
+     * cursor is in, where its row breaks scroll. */
     const term_grid_t *g = term_shown(&cells_term);
     const term_pos_t *p = term_pos(g);
-    rln_prompt_col = plain ? 0 : p->x + 1;
-    rln_width = term_cols(g, p->y);
+    const unsigned first = term_left_stop(g);
+    rln_prompt_col = plain ? 0 : (uint16_t)(p->x - first + 1);
+    rln_width = (uint16_t)(term_right_stop(g) - first + 1);
     rln_grid_width = g->width;
-    rln_rows = g->height < RLN_MAX_ROWS ? g->height : RLN_MAX_ROWS;
+    unsigned rows = g->height;
+    if (p->y >= g->margin_top && p->y <= g->margin_bot)
+        rows = g->margin_bot - g->margin_top + 1u;
+    rln_rows = (uint8_t)(rows < RLN_MAX_ROWS ? rows : RLN_MAX_ROWS);
     rln_emit_mode_cursor();
 }
 
