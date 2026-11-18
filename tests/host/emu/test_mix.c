@@ -604,9 +604,8 @@ UTEST(mix, a_59_6_hz_display_keeps_every_sample)
     mix_host_costs(utest_result, (mix_host_t){.display = 1 / 59.6, .jitter = 0.0003}, 0, 20, 51);
 }
 
-/* The two crystals a slipping machine and its device run from are off by
- * hundredths of a percent, which the slower loop takes up, passing over a
- * frame once on its way if the device is the slow one. */
+/* The two crystals a machine on the wall clock and its device run from are
+ * off by hundredths of a percent, which the trim takes up. */
 UTEST(mix, an_800x600_display_and_a_fast_device_keep_every_sample)
 {
     mix_host_costs(utest_result,
@@ -679,6 +678,23 @@ UTEST(mix, a_window_moved_for_a_minute_keeps_every_sample)
     mix_host_costs(utest_result,
                    (mix_host_t){.display = 1.0 / 60, .jitter = 0.003, .from = 30, .to = 90, .other = 0.015625},
                    0, 40, 51);
+}
+
+/* A 1366x768 panel's 59.79 Hz is the machine's rate until a window is moved
+ * and after it, and the wall clock between: the machine's speed changes by
+ * a third of a percent each way, and the pitch follows it at the rate the
+ * trim moves, the two together a twentieth of a percent a half second. */
+UTEST(mix, a_window_moved_on_a_1366x768_panel_bends_no_pitch)
+{
+    mix_host_t o = {.display = 1 / 59.79, .jitter = 0.001, .from = 30, .to = 40, .other = 0.015625};
+    MIX_EACH_SIZE(o)
+    {
+        const mix_hosted_t s = mix_hosted(&o);
+        ASSERT_EQ(0, s.skipped_ms);
+        ASSERT_LE(s.jumped_ms, 20);
+        ASSERT_LE(s.bend, 0.0006);
+        ASSERT_LE(s.late_ms, 67);
+    }
 }
 
 /* A device that stops asking has its sound made and thrown away by the

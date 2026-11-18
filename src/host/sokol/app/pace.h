@@ -21,9 +21,8 @@
  * takes in the rates the display timings call 60 Hz, each with room for a
  * crystal at the edge of what it may be: 59.79 Hz, 1366x768; 59.81 Hz,
  * 1280x800; 59.94 Hz, NTSC's and most televisions'; 60.00 Hz; 60.02 Hz,
- * 1280x1024. The slow end is as slow as the sound can follow, whose trim
- * takes up half a percent and needs some of it for its own device's crystal
- * (core/aud/mix.c). A display at two, three or four times a rate in the
+ * 1280x1024. Past the slow end a 6502 program would run more than four
+ * parts in a thousand slow. A display at two, three or four times a rate in the
  * range is the same with a frame every second, third or fourth callback:
  * 120, 180 and 240 Hz.
  *
@@ -136,10 +135,13 @@ static inline void pace_add(pace_t *p, uint64_t dt_ns, bool paced)
         const int64_t mean = p->span_ns * each / p->periods;
         const int64_t stay = p->near ? PACE_STAY_NS : 0;
         const int8_t out = mean > PACE_SLOW_NS + stay ? -1 : mean < PACE_FAST_NS - stay ? 1 : 0;
+        const bool was = p->near;
         if (out == p->out || !p->measured)
             p->near = !out;
+        /* Smoothed while the display stays in the range; a display that
+         * has just come into it is what this measure found. */
         if (!out)
-            p->frame_ns = p->near && p->frame_ns ? p->frame_ns + (mean - p->frame_ns) / 8 : mean;
+            p->frame_ns = was && p->near ? p->frame_ns + (mean - p->frame_ns) / 8 : mean;
         p->out = out;
         p->measured = true;
         p->span_ns = 0;

@@ -34,6 +34,7 @@ core/aud/mix.c aud_carry: not carried: the streaming sink's, the host's
 core/aud/mix.c aud_carry_n: not carried: the streaming sink's, the host's
 core/aud/mix.c aud_dry: not carried: the streaming sink's trim, the host's
 core/aud/mix.c aud_ev: not carried: a state is saved with the sound taken, the ring empty
+core/aud/mix.c aud_hint: not carried: the streaming sink's trim, the host's
 core/aud/mix.c aud_last_l: not carried: the level the host's sink last took
 core/aud/mix.c aud_last_r: not carried: the level the host's sink last took
 core/aud/mix.c aud_low: not carried: the streaming sink's trim, the host's

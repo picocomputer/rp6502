@@ -203,8 +203,11 @@ void app_frame(void)
     const uint64_t now = os_mono_ns();
     /* Once the display has been seen to pace the callbacks it keeps that
      * standing while frames are still coming, because a callback whose own work
-     * fills the display period leaves the present nothing left to wait for. */
-    paced = !returned_ns || now - returned_ns >= PRESENT_WAIT_NS || (paced && ran_frame);
+     * fills the display period leaves the present nothing left to wait for;
+     * and while the pace follows the display, whose callbacks at 240 Hz are
+     * so close that one late leaves the next present little to wait for. A
+     * display that stops pacing is seen by the pace first. */
+    paced = !returned_ns || now - returned_ns >= PRESENT_WAIT_NS || (paced && (ran_frame || pace.follows));
     const uint64_t dt = entered_ns ? now - entered_ns : VGA_FRAME_NS;
     pace_add(&pace, dt, paced);
     aud_set_speed(pace_speed(&pace));

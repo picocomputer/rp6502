@@ -237,7 +237,7 @@ static _Atomic int32_t aud_speed; // the machine's, off the wall clock's, in par
 static bool aud_anchored;
 static int64_t aud_low, aud_short, aud_lows[AUD_LOWS];
 static uint32_t aud_window;
-static double aud_trim_i, aud_trim;
+static double aud_trim_i, aud_trim, aud_hint;
 
 /* A machine that stopped is not a frame come late: a window being moved,
  * or the host busy for a while, takes time the machine never makes up. So
@@ -251,7 +251,7 @@ static int64_t aud_dry;
 /* A streaming sink this far behind has stopped asking, or the machine is
  * running faster than sound plays, and the machine's thread brings the
  * render along: eight frames, which is past what a sink's request, the
- * frame it waits on, the headroom owed and a burst of frames after a stall
+ * frame it waits on, what late frames have it hold and a burst after a stall
  * come to. The render then starts over where the machine is. */
 #define AUD_STALL ((int64_t)AUD_NATIVE_RATE * 8 / VGA_HZ)
 
@@ -727,8 +727,19 @@ static void aud_forget(void)
 static int aud_stream(float *dst, int samples)
 {
     const uint32_t rate = atomic_load(&aud_sink_rate);
+    /* The machine's speed is followed no faster than the trim moves, so a
+     * machine that leaves its display for the wall clock, as it does while
+     * a window is moved, bends the pitch no more than the trim does. The
+     * headroom takes what that is behind by. A render that starts over
+     * starts at the speed told. */
+    const double speed = atomic_load(&aud_speed) / 1e9;
+    const double bend = AUD_BEND * samples / (rate / 2.0);
+    if (!aud_anchored)
+        aud_hint = speed;
+    else
+        aud_hint += speed - aud_hint > bend ? bend : speed - aud_hint < -bend ? -bend : speed - aud_hint;
     uint64_t step = aud_ratio();
-    step += (uint64_t)(int64_t)((double)step * (aud_trim + atomic_load(&aud_speed) / 1e9));
+    step += (uint64_t)(int64_t)((double)step * (aud_trim + aud_hint));
     const int64_t need = (int64_t)(((uint64_t)samples * step) >> 32);
     const uint64_t now = atomic_load(&aud_now);
     const int64_t h = (int64_t)now + aud_off - (int64_t)aud_made - need;
