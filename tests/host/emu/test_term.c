@@ -2261,6 +2261,84 @@ UTEST(term, line_feeds_between_margins_add_up)
     ASSERT_STREQ(row(0), "aaaaaaaaaa");
 }
 
+/* ---- xterm's key options, and columns -------------------------------------- */
+
+/* A program sets modifyOtherKeys and formatOtherKeys and reads them back.
+ * No level, or no option, is the reset one, and a reset turns them off. */
+UTEST(term, xterm_key_options_set_and_report)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33[?4m\33[?4g"), "\33[>4;0m\33[>4;0f");
+    ASSERT_STREQ(ask("\33[>4;2m\33[?4m"), "\33[>4;2m");
+    ASSERT_STREQ(ask("\33[>4;3m\33[?4m"), "\33[>4;3m");
+    ASSERT_STREQ(ask("\33[>4;9m\33[?4m"), "\33[>4;3m");
+    ASSERT_STREQ(ask("\33[>4m\33[?4m"), "\33[>4;0m");
+    ASSERT_STREQ(ask("\33[>4;1m\33[>4;1f\33[?4m\33[?4g"), "\33[>4;1m\33[>4;1f");
+    ASSERT_STREQ(ask("\33[>1;2m\33[>2;0f\33[?4m\33[?4g"), "\33[>4;1m\33[>4;1f");
+    ASSERT_STREQ(ask("\33[>4n\33[?4m"), "\33[>4;0m");
+    ASSERT_STREQ(ask("\33[>4;2m\33[>m\33[>f\33[?4m\33[?4g"), "\33[>4;0m\33[>4;0f");
+    ASSERT_STREQ(ask("\33[>4;2m\33[>4;1f\33c\33[?4m\33[?4g"), "\33[>4;0m\33[>4;0f");
+    /* The options of the other keys are not the console's to set or tell. */
+    ASSERT_STREQ(ask("\33[?1m\33[?2g"), "");
+    /* The secondary device attributes are still asked with the same marker. */
+    ASSERT_STREQ(ask("\33[>c"), "\33[>0;1;0c");
+    /* The end of a program turns them off. */
+    feed("\33[>4;2m\33[>4;1f");
+    feed(STR_TERM_SOFT_RESET);
+    ASSERT_STREQ(ask("\33[?4m\33[?4g"), "\33[>4;0m\33[>4;0f");
+}
+
+/* DECIC and DECDC insert and delete columns at the cursor, on every line of
+ * the scroll region, up to the right margin. */
+UTEST(term, decic_and_decdc_insert_and_delete_columns)
+{
+    fresh();
+    feed("0123456789\r\n0123456789\r\n0123456789\33[1;2r\33[1;4H\33[2'}");
+    ASSERT_STREQ(row(0), "012  3456789");
+    ASSERT_STREQ(row(1), "012  3456789");
+    ASSERT_STREQ(row(2), "0123456789"); /* outside the region */
+    ASSERT_EQ(cx(), 3);
+    feed("\33['~");
+    ASSERT_STREQ(row(0), "012 3456789");
+    feed("\33[3;1H\33['}");
+    ASSERT_STREQ(row(2), "0123456789"); /* the cursor is outside the region */
+    feed("\33[r\33[?69h\33[4;7s\33[1;5H\33['}");
+    ASSERT_STREQ(row(0), "012  346789");
+    ASSERT_STREQ(row(2), "0123 45789");
+    feed("\33[2'~");
+    ASSERT_STREQ(row(2), "01235  789");
+    feed("\33[1;2H\33[5'}");
+    ASSERT_STREQ(row(2), "01235  789"); /* the cursor is outside the margins */
+}
+
+/* DECBI and DECFI move the cursor a column, and at a margin move the columns
+ * between the margins the other way instead. */
+UTEST(term, decbi_and_decfi_index_columns)
+{
+    fresh();
+    feed("0123456789\r\n0123456789\33[1;5H\0336");
+    ASSERT_EQ(cx(), 3);
+    feed("\0339\0339");
+    ASSERT_EQ(cx(), 5);
+    ASSERT_STREQ(row(0), "0123456789");
+    feed("\33[1;1H\0336");
+    ASSERT_STREQ(row(0), " 0123456789");
+    ASSERT_STREQ(row(1), " 0123456789");
+    ASSERT_EQ(cx(), 0);
+    feed("\33[1;80H\0339");
+    ASSERT_STREQ(row(0), "0123456789");
+    ASSERT_EQ(cx(), 79);
+    feed("\33[?69h\33[4;7s\33[1;4H\0336");
+    ASSERT_STREQ(row(0), "012 345789");
+    feed("\33[1;7H\0339");
+    ASSERT_STREQ(row(0), "012345 789");
+    ASSERT_EQ(cx(), 6);
+    /* Outside the margins the cursor only moves. */
+    feed("\33[1;1H\0336\33[1;9H\0339");
+    ASSERT_STREQ(row(0), "012345 789");
+    ASSERT_EQ(cx(), 9);
+}
+
 /* ---- what a program asks ------------------------------------------------- */
 
 /* DECRQSS for SGR answers with the pen: a 0, the attributes, then the

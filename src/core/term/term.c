@@ -106,6 +106,8 @@ static void term_reset_core(term_t *t)
     t->autorepeat = true;
     t->ice_colors = false;
     t->bracketed_paste = false;
+    t->modify_other_keys = 0;
+    t->format_other_keys = false;
     t->lr_margins = false;
     t->rect_attrs = false;
     t->protect_mode = TERM_PROTECT_OFF;
@@ -776,6 +778,31 @@ static void term_out_DECRQSS(term_t *t, const char *pt, unsigned len)
     cells_reply(t, buf, (size_t)n);
 }
 
+// xterm's key modifier options, of which the console has the one for the
+// keys with no sequence of their own. The keyboard reads them (vtkey.c).
+//   CSI > 4 ; n m   XTMODKEYS: modifyOtherKeys level n, 0 to 3
+//   CSI > 4 ; n f   XTFMTKEYS: formatOtherKeys, 0 or 1
+//   CSI > 4 n       XTUNMODKEYS: modifyOtherKeys off
+// With no level the option is as a reset leaves it, and with no option at
+// all every option is.
+static void term_out_XTMODKEYS(term_t *t, uint8_t ch)
+{
+    const uint16_t option = t->csi_param[0];
+    const bool given = t->csi_param_count > 1;
+    const uint16_t value = given ? t->csi_param[1] : 0;
+    if (option != 4 && (option || given || ch == 'n'))
+        return;
+    if (ch == 'f')
+    {
+        if (value <= 1)
+            t->format_other_keys = value;
+    }
+    else if (ch == 'n')
+        t->modify_other_keys = 0;
+    else if (value <= 3)
+        t->modify_other_keys = (uint8_t)value;
+}
+
 /* ---- modes ------------------------------------------------------------- */
 
 // ?12 turns the cursor's blink on or off, as xterm does. It shares the
@@ -1365,6 +1392,8 @@ static void term_esc_byte(term_t *t, uint8_t ch)
     case 'E': // NEL - Next Line (CR + IND)
     case 'H': // HTS - Horizontal Tab Set at current column
     case 'M': // RI
+    case '6': // DECBI - Back Index
+    case '9': // DECFI - Forward Index
         term_grids(t, GRID_ESC, ch);
         break;
     case '7': // DECSC
@@ -1464,6 +1493,8 @@ static void term_csi_final(term_t *t, uint8_t ch)
             term_out_DECSCUSR(t);
         else if (inter == ' ' && (ch == '@' || ch == 'A'))
             term_grids(t, GRID_SHIFT, ch);
+        else if (inter == '\'' && (ch == '}' || ch == '~')) // DECIC, DECDC
+            term_grids(t, GRID_COLUMNS, ch);
         else if (inter == '!' && ch == 'p')
             term_out_DECSTR(t);
         else if (inter == '"' && ch == 'q')
@@ -1485,11 +1516,19 @@ static void term_csi_final(term_t *t, uint8_t ch)
             term_grids(t, GRID_SELECTIVE, ch);
         else if (inter == '$' && ch == 'p')
             term_out_DECRQM(t, true);
+        else if (!inter && t->csi_param[0] == 4 && ch == 'm') // XTQMODKEYS
+            term_replyf(t, "\33[>4;%um", t->modify_other_keys, 0, 0);
+        else if (!inter && t->csi_param[0] == 4 && ch == 'g') // XTQFMTKEYS
+            term_replyf(t, "\33[>4;%uf", t->format_other_keys, 0, 0);
         break;
     case '>':
-        if (inter || t->csi_param[0])
+        if (inter)
             break;
-        if (ch == 'c') // Secondary DA: type 0, firmware 1, ROM 0
+        if (ch == 'm' || ch == 'f' || ch == 'n')
+            term_out_XTMODKEYS(t, ch);
+        else if (t->csi_param[0])
+            break;
+        else if (ch == 'c') // Secondary DA: type 0, firmware 1, ROM 0
             TERM_REPLY(t, "\33[>0;1;0c");
         else if (ch == 'q')
             term_out_XTVERSION(t);
@@ -1770,6 +1809,8 @@ void term_sst_put(sst_cursor_t *c, const term_t *t)
     sst_put_bool(c, t->autorepeat);
     sst_put_bool(c, t->ice_colors);
     sst_put_bool(c, t->bracketed_paste);
+    sst_put_u8(c, t->modify_other_keys);
+    sst_put_bool(c, t->format_other_keys);
     sst_put_bool(c, t->lr_margins);
     sst_put_bool(c, t->rect_attrs);
     sst_put_u8(c, t->protect_mode);
@@ -1828,6 +1869,8 @@ bool term_sst_get(sst_cursor_t *c, term_t *t)
     t->autorepeat = sst_get_bool(c);
     t->ice_colors = sst_get_bool(c);
     t->bracketed_paste = sst_get_bool(c);
+    t->modify_other_keys = sst_get_u8(c);
+    t->format_other_keys = sst_get_bool(c);
     t->lr_margins = sst_get_bool(c);
     t->rect_attrs = sst_get_bool(c);
     t->protect_mode = sst_get_u8(c);
@@ -1863,7 +1906,7 @@ bool term_sst_get(sst_cursor_t *c, term_t *t)
     }
     if (!sst_ok(c) || (alt && !TERM_ALT_SCREEN))
         return false;
-    if (state >= ansi_state_count || t->protect_mode > TERM_PROTECT_ISO ||
+    if (state >= ansi_state_count || t->protect_mode > TERM_PROTECT_ISO || t->modify_other_keys > 3 ||
         t->csi_param_count > TERM_CSI_PARAM_MAX_LEN || t->osc_len > TERM_OSC_SPEC_MAX + 1 ||
         t->osc_asks > TERM_OSC_ASK_MAX)
         return false;

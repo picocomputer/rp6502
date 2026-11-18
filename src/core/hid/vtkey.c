@@ -48,9 +48,17 @@ HOST_IN_RAM static const struct
 /* Enter to Tab, in usage order. Ctrl makes Backspace a BS. */
 static const char HOST_IN_RAM vtkey_c0_keys[] = {'\r', '\33', 0x7F, '\t'};
 
-// Writes a number below 100 in decimal and returns where it ended.
+// Writes a number below 256 in decimal and returns where it ended.
 static char *HOST_IN_RAM_FUNC vtkey_number(char *out, unsigned n)
 {
+    if (n >= 100)
+    {
+        *out++ = (char)('0' + n / 100);
+        n %= 100;
+        *out++ = (char)('0' + n / 10);
+        *out++ = (char)('0' + n % 10);
+        return out;
+    }
     char tens = '0';
     for (; n >= 10; n -= 10)
         tens++;
@@ -83,6 +91,71 @@ static char HOST_IN_RAM_FUNC vtkey_ctrl(char ch)
     return ch;
 }
 
+/* xterm's modifyOtherKeys: a key that has no sequence of its own is sent
+ * as one, ESC [ 27 ; mod ; code ~, or ESC [ code ; mod u with
+ * formatOtherKeys. The code is the character the key types. */
+static int HOST_IN_RAM_FUNC vtkey_other(char *out, unsigned code, unsigned mods)
+{
+    char *p = out;
+    *p++ = '\33';
+    *p++ = '[';
+    if (cells_term.format_other_keys)
+    {
+        p = vtkey_number(p, code);
+        *p++ = ';';
+        p = vtkey_number(p, 1 + mods);
+        *p++ = 'u';
+    }
+    else
+    {
+        *p++ = '2';
+        *p++ = '7';
+        *p++ = ';';
+        p = vtkey_number(p, 1 + mods);
+        *p++ = ';';
+        p = vtkey_number(p, code);
+        *p++ = '~';
+    }
+    return (int)(p - out);
+}
+
+/* Whether modifyOtherKeys sends a key's character as a sequence, at the
+ * level a program set, as xterm decides it. mods is left with the modifiers
+ * the sequence gives.
+ *
+ * 1: only what has no byte of its own: Ctrl with Shift on a letter or one of
+ * @ [ \ ] ^ _ ` { | } ~, Ctrl on a character it makes no control byte of,
+ * and Ctrl with Shift on one it does. Alt stays the ESC in front.
+ * 2: every modifier counts. A letter or one of those characters with any
+ * modifier, Shift included; any other character with Ctrl or Alt; and Space
+ * with Shift.
+ * 3: every key. */
+static bool HOST_IN_RAM_FUNC vtkey_other_char(unsigned level, unsigned char c, unsigned *mods)
+{
+    unsigned m = *mods;
+    const bool letter = c >= 0x40 && c <= 0x7F;
+    switch (level)
+    {
+    case 1:
+        m &= ~(unsigned)VTKEY_ALT;
+        *mods = m;
+        if (letter)
+            return m == (VTKEY_CTRL | VTKEY_SHIFT);
+        if ((m & VTKEY_CTRL) && (unsigned char)vtkey_ctrl((char)c) != c)
+            return m & VTKEY_SHIFT;
+        return m & VTKEY_CTRL;
+    case 2:
+        if (letter)
+            return m != 0;
+        if (m == VTKEY_SHIFT)
+            return c == ' ';
+        return m != 0;
+    case 3:
+        return true;
+    }
+    return false;
+}
+
 int HOST_IN_RAM_FUNC vtkey_char(char out[VTKEY_MAX], uint8_t usage, char ch, uint8_t flags)
 {
     char *p = out;
@@ -90,6 +163,15 @@ int HOST_IN_RAM_FUNC vtkey_char(char out[VTKEY_MAX], uint8_t usage, char ch, uin
         return 0;
     if (!vtkey_is_keypad(usage))
     {
+        const unsigned level = cells_term.vt52 ? 0 : cells_term.modify_other_keys;
+        unsigned mods = flags & VTKEY_MODIFIERS;
+        if (level && vtkey_other_char(level, (unsigned char)ch, &mods))
+        {
+            // At level 1 Alt is still the ESC in front.
+            if (level == 1 && (flags & VTKEY_ALT))
+                *p++ = '\33';
+            return (int)(p - out) + vtkey_other(p, (unsigned char)ch, mods);
+        }
         if (flags & VTKEY_CTRL)
             ch = vtkey_ctrl(ch);
         if (flags & VTKEY_ALT)
@@ -103,7 +185,8 @@ int HOST_IN_RAM_FUNC vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t fl
 {
     const term_t *t = &cells_term;
     char *p = out;
-    if (vtkey_is_keypad(usage))
+    const bool keypad = vtkey_is_keypad(usage);
+    if (keypad)
     {
         /* Shift is spent on undoing NumLock, so it is not a modifier of
          * what the key then sends. */
@@ -145,6 +228,32 @@ int HOST_IN_RAM_FUNC vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t fl
     }
     if (usage >= HID_KEY_ENTER && usage <= HID_KEY_TAB)
     {
+        /* modifyOtherKeys, for the keys that send a control byte. At level
+         * 1, Enter and Tab with Shift or Ctrl, but Shift-Tab stays ESC [ Z.
+         * At level 2, all four with any modifier; Ctrl on Backspace is what
+         * makes it BS, so it is not one. At level 3, always. A keypad's
+         * Enter is not one of these keys. */
+        const unsigned level = keypad || t->vt52 ? 0 : t->modify_other_keys;
+        unsigned mods = flags & VTKEY_MODIFIERS;
+        unsigned code = (unsigned char)vtkey_c0_keys[usage - HID_KEY_ENTER];
+        bool other = level == 3;
+        if (usage == HID_KEY_BACKSPACE && (mods & VTKEY_CTRL))
+        {
+            code = '\b';
+            mods &= ~(unsigned)VTKEY_CTRL;
+        }
+        if (level == 2)
+            other = mods != 0;
+        else if (level == 1)
+        {
+            mods &= ~(unsigned)VTKEY_ALT;
+            other = (usage == HID_KEY_ENTER || usage == HID_KEY_TAB) && mods &&
+                    !(usage == HID_KEY_TAB && mods == VTKEY_SHIFT);
+            if (other && (flags & VTKEY_ALT))
+                *p++ = '\33';
+        }
+        if (other)
+            return (int)(p - out) + vtkey_other(p, code, mods);
         if (usage == HID_KEY_TAB && (flags & VTKEY_SHIFT))
         {
             *p++ = '\33';

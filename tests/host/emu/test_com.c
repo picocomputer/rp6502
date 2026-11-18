@@ -481,7 +481,7 @@ UTEST(com, a_stream_never_signals_and_never_loses_a_byte)
     unwire();
 }
 
-static char sent[64];
+static char sent[128];
 static size_t sent_len;
 
 static void sent_tap(const char *buf, int len)
@@ -598,7 +598,7 @@ UTEST(com, a_write_to_one_terminal_lands_between_the_output_around_it)
     untap();
 }
 
-static char screen[64];
+static char screen[128];
 static size_t screen_len;
 
 static void screen_out(const char *buf, int len)
@@ -607,7 +607,7 @@ static void screen_out(const char *buf, int len)
     screen_len += (size_t)len;
 }
 
-static char wired[64];
+static char wired[128];
 static size_t wired_len;
 
 static void wired_tx(const char *buf, int len)

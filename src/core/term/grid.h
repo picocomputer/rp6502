@@ -22,9 +22,10 @@ typedef enum
     GRID_REP,     // REP, the last glyph again
     GRID_SELECTIVE, // ch, J or K: DECSED or DECSEL
     GRID_SHIFT,   // ch, the final byte of SL (CSI SP @) or SR (CSI SP A)
+    GRID_COLUMNS, // ch, the final byte of DECIC (CSI ' }) or DECDC (CSI ' ~)
     GRID_RECT,    // ch, the final byte of a rectangle sequence, CSI ... $ x z { v r t
     GRID_LRMM,    // ch, DECLRMM set or reset
-    GRID_ESC,     // ch, the final byte of ESC D, E, H or M
+    GRID_ESC,     // ch, the final byte of ESC D, E, H, M, 6 or 9
     GRID_LINE,    // ch, the final byte of ESC # 3 to 6 and 8
     GRID_VT52,    // ch, the letter of a VT52 cursor or erase sequence
     GRID_VT52_Y,  // ch, the column of VT52's ESC Y; the row is csi_param[0]

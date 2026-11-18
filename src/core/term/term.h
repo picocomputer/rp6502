@@ -210,6 +210,8 @@ typedef struct
     bool autorepeat;      // DECARM, ?8
     bool ice_colors;      // ?33: SGR 5/6 means bright bg (the IBM VGA hack), not blink
     bool bracketed_paste; // ?2004: a paste comes between ESC [ 200 ~ and ESC [ 201 ~
+    uint8_t modify_other_keys; // xterm's modifyOtherKeys, 0 to 3: CSI > 4 ; n m
+    bool format_other_keys;    // xterm's formatOtherKeys: CSI > 4 ; 1 f
     bool lr_margins;      // DECLRMM, ?69: CSI s sets the left and right margins
     bool rect_attrs;      // DECSACE 2: DECCARA and DECRARA change a rectangle, not a stream
     uint8_t protect_mode; // TERM_PROTECT_
@@ -324,7 +326,7 @@ static inline unsigned term_cell_height(const term_grid_t *g)
 }
 
 #define TERM_PEN_SST_SIZE 32
-#define TERM_SST_SIZE (4 * TERM_PEN_SST_SIZE + 106 + 4 * TERM_OSC_ASK_MAX)
+#define TERM_SST_SIZE (4 * TERM_PEN_SST_SIZE + 108 + 4 * TERM_OSC_ASK_MAX)
 void term_sst_put(sst_cursor_t *c, const term_t *t);
 bool term_sst_get(sst_cursor_t *c, term_t *t);
 #define TERM_GRID_SST_SIZE(rows) (19 + TERM_TAB_BITMAP_BYTES + 2 * (rows))

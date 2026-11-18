@@ -917,6 +917,107 @@ UTEST(keyboard, the_modes_do_not_cross)
             }
 }
 
+/* xterm's modifyOtherKeys: what a key sends at levels 0 to 3. A key with a
+ * character goes through vtkey_char, the others through vtkey_encode. In a
+ * wanted string "\200" stands for a NUL. */
+static const struct
+{
+    uint8_t usage;
+    char ch;
+    uint8_t flags;
+    const char *want[4];
+} other_table[] = {
+    {0x04, 'a', 0, {"a", "a", "a", "\33[27;1;97~"}},
+    {0x04, 'A', SH, {"A", "A", "\33[27;2;65~", "\33[27;2;65~"}},
+    {0x04, 'a', VTKEY_CTRL, {"\1", "\1", "\33[27;5;97~", "\33[27;5;97~"}},
+    {0x04, 'A', VTKEY_CTRL | SH, {"\1", "\33[27;6;65~", "\33[27;6;65~", "\33[27;6;65~"}},
+    {0x04, 'a', VTKEY_ALT, {"\33a", "\33a", "\33[27;3;97~", "\33[27;3;97~"}},
+    {0x04, 'a', VTKEY_ALT | VTKEY_CTRL, {"\33\1", "\33\1", "\33[27;7;97~", "\33[27;7;97~"}},
+    {0x04, 'A', 7, {"\33\1", "\33\33[27;6;65~", "\33[27;8;65~", "\33[27;8;65~"}},
+    {0x1E, '1', 0, {"1", "1", "1", "\33[27;1;49~"}},
+    {0x1E, '!', SH, {"!", "!", "!", "\33[27;2;33~"}},
+    {0x1E, '1', VTKEY_CTRL, {"1", "\33[27;5;49~", "\33[27;5;49~", "\33[27;5;49~"}},
+    {0x1E, '1', VTKEY_ALT, {"\0331", "\0331", "\33[27;3;49~", "\33[27;3;49~"}},
+    {0x1F, '2', VTKEY_CTRL, {"\200", "\200", "\33[27;5;50~", "\33[27;5;50~"}},
+    {0x1F, '@', VTKEY_CTRL | SH, {"\200", "\33[27;6;64~", "\33[27;6;64~", "\33[27;6;64~"}},
+    {HID_KEY_SPACE, ' ', SH, {" ", " ", "\33[27;2;32~", "\33[27;2;32~"}},
+    {HID_KEY_SPACE, ' ', VTKEY_CTRL, {"\200", "\200", "\33[27;5;32~", "\33[27;5;32~"}},
+    {0x38, '/', VTKEY_CTRL, {"\37", "\37", "\33[27;5;47~", "\33[27;5;47~"}},
+    {0x38, '?', VTKEY_CTRL | SH, {"\177", "\33[27;6;63~", "\33[27;6;63~", "\33[27;6;63~"}},
+    {0x04, '\351', 0, {"\351", "\351", "\351", "\33[27;1;233~"}},
+    {HID_KEY_ENTER, 0, 0, {"\r", "\r", "\r", "\33[27;1;13~"}},
+    {HID_KEY_ENTER, 0, SH, {"\r", "\33[27;2;13~", "\33[27;2;13~", "\33[27;2;13~"}},
+    {HID_KEY_ENTER, 0, VTKEY_CTRL, {"\r", "\33[27;5;13~", "\33[27;5;13~", "\33[27;5;13~"}},
+    {HID_KEY_ENTER, 0, VTKEY_ALT, {"\33\r", "\33\r", "\33[27;3;13~", "\33[27;3;13~"}},
+    {HID_KEY_ENTER, 0, VTKEY_ALT | SH, {"\33\r", "\33\33[27;2;13~", "\33[27;4;13~", "\33[27;4;13~"}},
+    {HID_KEY_TAB, 0, 0, {"\t", "\t", "\t", "\33[27;1;9~"}},
+    {HID_KEY_TAB, 0, SH, {"\33[Z", "\33[Z", "\33[27;2;9~", "\33[27;2;9~"}},
+    {HID_KEY_TAB, 0, VTKEY_CTRL, {"\t", "\33[27;5;9~", "\33[27;5;9~", "\33[27;5;9~"}},
+    {HID_KEY_TAB, 0, VTKEY_CTRL | SH, {"\33[Z", "\33[27;6;9~", "\33[27;6;9~", "\33[27;6;9~"}},
+    {HID_KEY_ESCAPE, 0, 0, {"\33", "\33", "\33", "\33[27;1;27~"}},
+    {HID_KEY_ESCAPE, 0, SH, {"\33", "\33", "\33[27;2;27~", "\33[27;2;27~"}},
+    {HID_KEY_BACKSPACE, 0, 0, {"\177", "\177", "\177", "\33[27;1;127~"}},
+    {HID_KEY_BACKSPACE, 0, SH, {"\177", "\177", "\33[27;2;127~", "\33[27;2;127~"}},
+    {HID_KEY_BACKSPACE, 0, VTKEY_CTRL, {"\b", "\b", "\b", "\33[27;1;8~"}},
+    /* The keys with sequences of their own, and the keypad, are as ever. */
+    {HID_KEY_ARROW_UP, 0, VTKEY_CTRL, {"\33[1;5A", "\33[1;5A", "\33[1;5A", "\33[1;5A"}},
+    {HID_KEY_F5, 0, SH, {"\33[15;2~", "\33[15;2~", "\33[15;2~", "\33[15;2~"}},
+    {HID_KEY_DELETE, 0, 0, {"\33[3~", "\33[3~", "\33[3~", "\33[3~"}},
+    {HID_KEY_KEYPAD_ENTER, 0, SH, {"\r", "\r", "\r", "\r"}},
+    {HID_KEY_KEYPAD_ADD, '+', NUM | VTKEY_CTRL, {"+", "+", "+", "+"}},
+};
+
+static int other_send(char *out, size_t i)
+{
+    int n = t_encode(out, other_table[i].usage, other_table[i].flags);
+    if (n == VTKEY_CHAR)
+        n = vtkey_char(out, other_table[i].usage, other_table[i].ch,
+                       other_table[i].flags & VTKEY_MODIFIERS);
+    return n;
+}
+
+UTEST(keyboard, modify_other_keys_at_every_level)
+{
+    for (size_t i = 0; i < sizeof other_table / sizeof other_table[0]; i++)
+        for (unsigned level = 0; level < 4; level++)
+        {
+            char out[VTKEY_MAX + 1], want[VTKEY_MAX + 1];
+            strcpy(want, other_table[i].want[level]);
+            const int want_n = (int)strlen(want);
+            for (int k = 0; k < want_n; k++)
+                if (want[k] == '\200')
+                    want[k] = 0;
+            cells_term.modify_other_keys = (uint8_t)level;
+            const int n = other_send(out, i);
+            cells_term.modify_other_keys = 0;
+            if (n != want_n || memcmp(out, want, (size_t)n))
+            {
+                printf("other_table[%d] level %u\n", (int)i, level);
+                ASSERT_TRUE(false);
+            }
+        }
+}
+
+/* formatOtherKeys writes the same keys the shorter way, and VT52 mode has
+ * neither. */
+UTEST(keyboard, format_other_keys_and_vt52)
+{
+    char out[VTKEY_MAX];
+    cells_term.modify_other_keys = 2;
+    cells_term.format_other_keys = true;
+    ASSERT_EQ(vtkey_char(out, 0x04, 'a', VTKEY_CTRL), 7);
+    ASSERT_EQ(0, memcmp(out, "\33[97;5u", 7));
+    ASSERT_EQ(t_encode(out, HID_KEY_ENTER, SH), 7);
+    ASSERT_EQ(0, memcmp(out, "\33[13;2u", 7));
+    cells_term.format_other_keys = false;
+    cells_term.vt52 = true;
+    ASSERT_EQ(vtkey_char(out, 0x04, 'a', VTKEY_CTRL), 1);
+    ASSERT_EQ(out[0], 1);
+    ASSERT_EQ(t_encode(out, HID_KEY_ENTER, SH), 1);
+    cells_term.vt52 = false;
+    cells_term.modify_other_keys = 0;
+}
+
 UTEST(keyboard, hostkey_types_what_the_encoder_says)
 {
     char b[16];

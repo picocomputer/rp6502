@@ -1233,6 +1233,14 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
             cells_shift(t, g, g->margin_top, g->margin_bot, g->margin_left,
                         (unsigned)g->margin_right + 1, grid_param(t, 0, 1), ch == '@');
         break;
+    case GRID_COLUMNS:
+        // DECIC and DECDC, CSI Pn ' } and CSI Pn ' ~: Pn columns inserted
+        // or deleted at the cursor's column, on every line of the scroll
+        // region, up to the right margin. For a cursor inside the margins.
+        if (grid_cursor_in_margins(g))
+            cells_shift(t, g, g->margin_top, g->margin_bot, pos->x,
+                        (unsigned)g->margin_right + 1, grid_param(t, 0, 1), ch == '~');
+        break;
     case GRID_RECT:
         grid_rect(t, g, ch);
         break;
@@ -1254,6 +1262,23 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
         }
         else if (ch == 'H') // HTS, a tab stop at the cursor
             g->tab_stops[pos->x >> 3] |= (uint8_t)(1u << (pos->x & 7));
+        else if (ch == '6' || ch == '9')
+        {
+            // DECBI and DECFI: a column left or right, and at the left or
+            // right margin the columns between the margins move the other
+            // way instead, on every line of the scroll region, as xterm.
+            const bool back = ch == '6';
+            if (grid_in_columns(g, pos->x) && pos->x == (back ? g->margin_left : g->margin_right))
+            {
+                if (grid_cursor_in_margins(g))
+                    cells_shift(t, g, g->margin_top, g->margin_bot, g->margin_left,
+                                (unsigned)g->margin_right + 1, 1, !back);
+            }
+            else if (back)
+                grid_cursor_back(t, g, 1);
+            else
+                grid_cursor_forward(t, g, 1);
+        }
         else // RI
             grid_reverse_index(t, g);
         break;

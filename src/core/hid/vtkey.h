@@ -21,8 +21,8 @@
 #define VTKEY_CTRL 4
 #define VTKEY_MODIFIERS 7
 
-/* The longest sequence, ESC [ 2 4 ; 8 ~. */
-#define VTKEY_MAX 8
+/* The longest sequence, ESC ESC [ 2 7 ; 8 ; 2 5 5 ~. */
+#define VTKEY_MAX 13
 
 /* vtkey_encode's answer for a key that has a character, which the machine's
  * layout or host knows. */
@@ -51,7 +51,16 @@
  * xterm's letters. Otherwise the digits are their navigation keys, where
  * Keypad 5 is xterm's Begin, ESC [ E, the operators type their characters
  * and Keypad Comma types a comma. Keypad Enter is Enter, without Alt, except
- * on the application keypad. */
+ * on the application keypad.
+ *
+ * xterm's modifyOtherKeys (CSI > 4 ; level m) sends a key with no sequence
+ * of its own as ESC [ 27 ; mod ; code ~, where code is the character it
+ * types, or as ESC [ code ; mod u with formatOtherKeys (CSI > 4 ; 1 f).
+ * Level 1 does so only for what has no byte of its own, such as Ctrl-Shift
+ * with a letter, Ctrl with a digit, and Ctrl or Shift with Enter. Level 2
+ * does so for every modified key, Shift with a letter included. Level 3
+ * does so for every key. The cursor, function, editing and keypad keys send
+ * what they always do, and VT52 mode has none of this. */
 int vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t flags);
 
 /* What a key's character sends, written with no NUL; returns the length, 0
