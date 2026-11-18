@@ -35,6 +35,7 @@
 // A plane's state machine and its DMA channel have the plane's number.
 #define SCANVIDEO_TIMING_SM 3u
 #define SCANVIDEO_SCANLINE_SM_MASK 0x7u
+#define SCANVIDEO_ALL_SM_MASK 0xfu
 #define SCANVIDEO_SCANLINE_DMA_CHANNELS_MASK 0x7u
 #define SCANVIDEO_TIMING_DMA_CHANNEL 3u
 #define SCANVIDEO_TIMING_CB_DMA_CHANNEL 4u
@@ -155,7 +156,6 @@ static inline bool is_scanline_after(uint32_t scanline_id1, uint32_t scanline_id
 
 // -- MISC stuff
 static scanvideo_view_t video_mode;
-static bool video_timing_enabled = false;
 // The display line the line interrupt has reached: the active lines from 0,
 // then the lines of the vertical blank.
 static volatile int32_t display_scanline_pos;
@@ -483,20 +483,6 @@ void __isr __not_in_flash_func(isr_pio0_0)()
     }
 }
 
-static void composable_adapt_for_mode(const scanvideo_view_t *mode,
-                                      uint16_t *modifiable_instructions)
-{
-    int delay0 = 2 * mode->x_scale - 2;
-    int delay1 = delay0 + 1;
-
-    modifiable_instructions[PIO_OFFSET(delay_a_1)] |= (unsigned)delay1 << 8u;
-    modifiable_instructions[PIO_OFFSET(delay_b_1)] |= (unsigned)delay1 << 8u;
-    modifiable_instructions[PIO_OFFSET(delay_c_0)] |= (unsigned)delay0 << 8u;
-    modifiable_instructions[PIO_OFFSET(delay_d_0)] |= (unsigned)delay0 << 8u;
-    modifiable_instructions[PIO_OFFSET(delay_e_0)] |= (unsigned)delay0 << 8u;
-    modifiable_instructions[PIO_OFFSET(delay_h_0)] |= (unsigned)delay0 << 8u;
-}
-
 // A state machine set up and left paused: a plane's, or the timing one's.
 // The pixel clock is the system clock divided by a whole even number, and a
 // state machine takes two of its clocks for a pixel.
@@ -603,51 +589,14 @@ void __not_in_flash_func(scanvideo_end_scanline_generation)(
     spin_unlock(SCANVIDEO_LOCK, save);
 }
 
-// The composable program with the delays of the view's pixel width.
-static void composable_for_view(const scanvideo_view_t *mode, uint16_t *instructions)
-{
-    __builtin_memcpy(instructions, composable_program.instructions,
-                     composable_program.length * sizeof(uint16_t));
-    composable_adapt_for_mode(mode, instructions);
-}
+// A mode set is in three parts: what is done once, the view, and the timing.
+// A view is a canvas on a display. Views of one timing change with the sync
+// carrying on, so the monitor does not lose it.
 
-static void init_shared_state(void)
+// Once: the pins, the two programs, and the claims.
+static void scanvideo_once(void)
 {
-    memset(&shared_state, 0, sizeof(shared_state));
-    memset(&scanline_dma, 0, sizeof(scanline_dma));
-    // Must be next_scanline_id - 1 so is_scanline_after() succeeds on first generation
-    shared_state.last_scanline_id = shared_state.next_scanline_id - 1;
-}
-
-static void init_scanline_buffers(void)
-{
-    // The pixels are left as they are: a line is written before it is shown.
-    for (int i = 0; i < SCANVIDEO_SCANLINE_BUFFER_COUNT; i++)
-    {
-        for (int plane = 0; plane < SCANVIDEO_PLANE_COUNT; plane++)
-            scanline_buffers[i].core.pixels[plane] = (uint16_t *)(scanline_data[plane][i] + 1);
-        scanline_buffers[i].next = i != SCANVIDEO_SCANLINE_BUFFER_COUNT - 1 ? &scanline_buffers[i + 1] : NULL;
-    }
-    shared_state.free_list = &scanline_buffers[0];
-    __mem_fence_release();
-}
-
-static void scanvideo_setup(const scanvideo_view_t *mode)
-{
-    const scanvideo_timing_t *timing = mode->default_timing;
-
-    video_mode = *mode;
     spin_lock_init(2);
-    init_shared_state();
-
-    display_scanline_pos = 0;
-
-    v_content_start = mode->y_offset;
-    v_content_end = mode->y_offset +
-                    (uint32_t)mode->height * mode->y_scale;
-
-    ((uint16_t *)(missing_scanline_data))[2] = mode->width / 2 - 3;
-    init_scanline_buffers();
 
     uint pin_mask = 3u << SCANVIDEO_SYNC_PIN_BASE;
     bi_decl_if_func_used(bi_2pins_with_names(SCANVIDEO_SYNC_PIN_BASE, "HSync",
@@ -672,23 +621,13 @@ static void scanvideo_setup(const scanvideo_view_t *mode)
             gpio_set_function(i, GPIO_FUNC_PIO0);
     }
 
-    uint16_t instructions[32];
-    composable_for_view(mode, instructions);
-    pio_program_t modified_program = composable_program;
-    modified_program.instructions = instructions;
-    pio_add_program(video_pio, &modified_program);
-
-    for (uint i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
-        setup_sm(i);
-
+    // The composable program is first, so it is at 0. A view writes it again
+    // with its own delays.
+    pio_add_program(video_pio, &composable_program);
     video_htiming_load_offset = pio_add_program(video_pio, &video_htiming_program);
-
-    setup_sm(SCANVIDEO_TIMING_SM);
-
-    irq_set_priority(PIO0_IRQ_0, 0);
+    pio_claim_sm_mask(video_pio, SCANVIDEO_ALL_SM_MASK);
 
     dma_claim_mask(SCANVIDEO_SCANLINE_DMA_CHANNELS_MASK | SCANVIDEO_TIMING_DMA_CHANNELS_MASK);
-
     for (uint i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
     {
         dma_channel_config channel_config = dma_channel_get_default_config(i);
@@ -701,9 +640,70 @@ static void scanvideo_setup(const scanvideo_view_t *mode)
                               false);
     }
 
-    // clear scanline irq
-    pio_sm_exec(video_pio, SCANVIDEO_TIMING_SM, video_htiming_states_program.instructions[CLEAR_IRQ_SCANLINE]);
+    irq_set_priority(PIO0_IRQ_0, 0);
+    pio_set_irq0_source_mask_enabled(video_pio, (1u << pis_interrupt0) | (1u << pis_interrupt1), true);
+}
 
+// The view: where its lines are on the display, the composable program with
+// the delays of its pixel width, and every buffer free for the frame after
+// the one that was being drawn. The caller has the line interrupt off and
+// the cores held. The planes' state machines are left ready and paused.
+static void scanvideo_view(const scanvideo_view_t *mode, bool same_timing)
+{
+    for (uint i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
+        dma_channel_abort(i);
+    pio_set_sm_mask_enabled(video_pio, SCANVIDEO_SCANLINE_SM_MASK, false);
+
+    const uint32_t next_frame = (scanvideo_frame_number(shared_state.next_scanline_id) + 1u) << 16u;
+    video_mode = *mode;
+    v_content_start = mode->y_offset;
+    v_content_end = mode->y_offset +
+                    (uint32_t)mode->height * mode->y_scale;
+    ((uint16_t *)(missing_scanline_data))[2] = mode->width / 2 - 3;
+
+    const unsigned delay0 = 2u * mode->x_scale - 2, delay1 = delay0 + 1;
+    for (uint i = 0; i < composable_program.length; i++)
+    {
+        uint16_t instruction = composable_program.instructions[i];
+        if (i == PIO_OFFSET(delay_a_1) || i == PIO_OFFSET(delay_b_1))
+            instruction |= delay1 << 8u;
+        else if (i == PIO_OFFSET(delay_c_0) || i == PIO_OFFSET(delay_d_0) ||
+                 i == PIO_OFFSET(delay_e_0) || i == PIO_OFFSET(delay_h_0))
+            instruction |= delay0 << 8u;
+        video_pio->instr_mem[i] = instruction;
+    }
+
+    memset(&shared_state, 0, sizeof(shared_state));
+    memset(&scanline_dma, 0, sizeof(scanline_dma));
+    shared_state.next_scanline_id = next_frame;
+    // One before, so the first line handed out is the next.
+    shared_state.last_scanline_id = next_frame - 1;
+    // The pixels are left as they are: a line is written before it is shown.
+    for (int i = 0; i < SCANVIDEO_SCANLINE_BUFFER_COUNT; i++)
+    {
+        for (int plane = 0; plane < SCANVIDEO_PLANE_COUNT; plane++)
+            scanline_buffers[i].core.pixels[plane] = (uint16_t *)(scanline_data[plane][i] + 1);
+        scanline_buffers[i].next = i != SCANVIDEO_SCANLINE_BUFFER_COUNT - 1 ? &scanline_buffers[i + 1] : NULL;
+    }
+    shared_state.free_list = &scanline_buffers[0];
+    __mem_fence_release();
+
+    // With the timing going on, the rest of this frame is blank from the line
+    // after the content, and the next frame can be drawn at once. A new
+    // timing starts in the vertical blank.
+    display_scanline_pos = same_timing ? v_content_end : 0;
+    generation_allowed = same_timing;
+
+    for (uint i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
+    {
+        setup_sm(i);
+        pio_sm_exec(video_pio, i, pio_encode_jmp(PIO_OFFSET(entry_point)));
+    }
+}
+
+// The words the timing state machine is fed, for each part of the frame.
+static void scanvideo_timing_words(const scanvideo_timing_t *timing)
+{
 #define HTIMING_MIN 8
 
 #define TIMING_CYCLE 3u
@@ -779,127 +779,80 @@ static void scanvideo_setup(const scanvideo_view_t *mode)
     };
 }
 
-static void scanvideo_timing_enable(bool enable)
+// Stops the line interrupt, the four state machines and the timing DMA. Sync
+// is lost until scanvideo_timing_start.
+static void scanvideo_timing_stop(void)
 {
-    if (enable != video_timing_enabled)
-    {
-        pio_set_irq0_source_mask_enabled(video_pio, (1u << pis_interrupt0) | (1u << pis_interrupt1), true);
-        irq_set_enabled(PIO0_IRQ_0, enable);
-        const uint32_t sm_mask = 1u << SCANVIDEO_TIMING_SM | SCANVIDEO_SCANLINE_SM_MASK;
-        pio_set_sm_mask_enabled(video_pio, sm_mask, false);
-        pio_clkdiv_restart_sm_mask(video_pio, sm_mask);
-        if (!enable)
-        {
-            // The control channel stops first, and its writes in flight land
-            // before the timing channel it writes is stopped. RP2350-E5: a
-            // channel must be disabled before an abort, as must the channel
-            // it chains to, or the abort can trigger it again.
-            hw_clear_bits(&dma_hw->ch[SCANVIDEO_TIMING_CB_DMA_CHANNEL].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-            dma_hw->abort = 1u << SCANVIDEO_TIMING_CB_DMA_CHANNEL;
-            while (dma_hw->abort)
-                tight_loop_contents();
-            hw_clear_bits(&dma_hw->ch[SCANVIDEO_TIMING_DMA_CHANNEL].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
-            dma_hw->abort = 1u << SCANVIDEO_TIMING_DMA_CHANNEL;
-            while (dma_hw->abort)
-                tight_loop_contents();
-        }
-
-        if (enable)
-        {
-            pio_claim_sm_mask(video_pio, sm_mask);
-            for (uint i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
-                pio_sm_exec(video_pio, i, pio_encode_jmp(PIO_OFFSET(entry_point)));
-            pio_sm_exec(video_pio, SCANVIDEO_TIMING_SM,
-                        pio_encode_jmp(video_htiming_load_offset + video_htiming_offset_entry_point));
-            // The control channel loads the first part of the frame, and the
-            // timing state machine starts once that has filled its FIFO.
-            dma_channel_config cfg = dma_channel_get_default_config(SCANVIDEO_TIMING_CB_DMA_CHANNEL);
-            channel_config_set_write_increment(&cfg, true);
-            channel_config_set_ring(&cfg, true, 4);
-            channel_config_set_irq_quiet(&cfg, true);
-            dma_channel_configure(SCANVIDEO_TIMING_CB_DMA_CHANNEL, &cfg,
-                                  &dma_hw->ch[SCANVIDEO_TIMING_DMA_CHANNEL].al3_ctrl,
-                                  timing_blocks, 4, true);
-            while (!pio_sm_is_tx_fifo_full(video_pio, SCANVIDEO_TIMING_SM))
-                tight_loop_contents();
-            pio_set_sm_mask_enabled(video_pio, sm_mask, true);
-        }
-        video_timing_enabled = enable;
-    }
+    irq_set_enabled(PIO0_IRQ_0, false);
+    pio_set_sm_mask_enabled(video_pio, SCANVIDEO_ALL_SM_MASK, false);
+    // The control channel stops first, and its writes in flight land
+    // before the timing channel it writes is stopped. RP2350-E5: a
+    // channel must be disabled before an abort, as must the channel
+    // it chains to, or the abort can trigger it again.
+    hw_clear_bits(&dma_hw->ch[SCANVIDEO_TIMING_CB_DMA_CHANNEL].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+    dma_hw->abort = 1u << SCANVIDEO_TIMING_CB_DMA_CHANNEL;
+    while (dma_hw->abort)
+        tight_loop_contents();
+    hw_clear_bits(&dma_hw->ch[SCANVIDEO_TIMING_DMA_CHANNEL].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+    dma_hw->abort = 1u << SCANVIDEO_TIMING_DMA_CHANNEL;
+    while (dma_hw->abort)
+        tight_loop_contents();
 }
 
-static void scanvideo_teardown(void)
+// Starts the timing of the view from the top of a frame, and the line
+// interrupt. The four state machines start on one clock, so the pixels keep
+// their place against the sync.
+static void scanvideo_timing_start(void)
 {
-    // scanvideo_timing_enable(false) runs first because the line interrupt
-    // starts scanline DMA transfers and the state machines execute the program
-    // that pio_clear_instruction_memory erases.
-    scanvideo_timing_enable(false);
-
-    for (uint i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
-        dma_channel_abort(i);
-    dma_unclaim_mask(SCANVIDEO_SCANLINE_DMA_CHANNELS_MASK | SCANVIDEO_TIMING_DMA_CHANNELS_MASK);
-
-    pio_clear_instruction_memory(video_pio);
-
-    for (int sm = 0; sm < 4; sm++)
-        if (pio_sm_is_claimed(video_pio, sm))
-            pio_sm_unclaim(video_pio, sm);
+    // Set up again, which empties its FIFO of the last timing's words.
+    setup_sm(SCANVIDEO_TIMING_SM);
+    pio_sm_exec(video_pio, SCANVIDEO_TIMING_SM, video_htiming_states_program.instructions[CLEAR_IRQ_SCANLINE]);
+    pio_sm_exec(video_pio, SCANVIDEO_TIMING_SM,
+                pio_encode_jmp(video_htiming_load_offset + video_htiming_offset_entry_point));
+    // A line interrupt raised as the last timing stopped is not this one's.
+    video_pio->irq = 3;
+    irq_set_enabled(PIO0_IRQ_0, true);
+    pio_clkdiv_restart_sm_mask(video_pio, SCANVIDEO_ALL_SM_MASK);
+    // The control channel loads the first part of the frame, and the
+    // timing state machine starts once that has filled its FIFO.
+    dma_channel_config cfg = dma_channel_get_default_config(SCANVIDEO_TIMING_CB_DMA_CHANNEL);
+    channel_config_set_write_increment(&cfg, true);
+    channel_config_set_ring(&cfg, true, 4);
+    channel_config_set_irq_quiet(&cfg, true);
+    dma_channel_configure(SCANVIDEO_TIMING_CB_DMA_CHANNEL, &cfg,
+                          &dma_hw->ch[SCANVIDEO_TIMING_DMA_CHANNEL].al3_ctrl,
+                          timing_blocks, 4, true);
+    while (!pio_sm_is_tx_fifo_full(video_pio, SCANVIDEO_TIMING_SM))
+        tight_loop_contents();
+    pio_set_sm_mask_enabled(video_pio, SCANVIDEO_ALL_SM_MASK, true);
 }
 
+// The caller holds both cores off the scanline buffers.
 void scanvideo_set_mode(const scanvideo_view_t *mode)
 {
-    bool first_call = !video_timing_enabled;
-    bool timing_changed = first_call || mode->default_timing != video_mode.default_timing;
+    const scanvideo_timing_t *const was = video_mode.default_timing; // NULL the first time
+    const bool same_timing = mode->default_timing == was;
 
-    if (timing_changed)
+    if (!was)
+        scanvideo_once();
+    else if (same_timing)
+        irq_set_enabled(PIO0_IRQ_0, false);
+    else
+        scanvideo_timing_stop();
+
+    scanvideo_view(mode, same_timing);
+
+    if (same_timing)
     {
-        if (!first_call)
-            scanvideo_teardown();
-        scanvideo_setup(mode);
-        scanvideo_timing_enable(true);
-        return;
+        pio_clkdiv_restart_sm_mask(video_pio, SCANVIDEO_SCANLINE_SM_MASK);
+        pio_set_sm_mask_enabled(video_pio, SCANVIDEO_SCANLINE_SM_MASK, true);
+        irq_set_enabled(PIO0_IRQ_0, true);
     }
-
-    // With the same timing, the timing state machine and its DMA keep running
-    // so the sync signals continue and the monitor does not lose sync.
-    irq_set_enabled(PIO0_IRQ_0, false);
-
-    for (uint i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
-        dma_channel_abort(i);
-    pio_set_sm_mask_enabled(video_pio, SCANVIDEO_SCANLINE_SM_MASK, false);
-
-    video_mode = *mode;
-    v_content_start = mode->y_offset;
-    v_content_end = mode->y_offset +
-                    (uint32_t)mode->height * mode->y_scale;
-
-    ((uint16_t *)(missing_scanline_data))[2] = mode->width / 2 - 3;
-
-    uint16_t instructions[32];
-    composable_for_view(mode, instructions);
-    for (uint i = 0; i < composable_program.length; i++)
-        video_pio->instr_mem[i] = instructions[i];
-
-    uint32_t next_frame = (scanvideo_frame_number(shared_state.next_scanline_id) + 1u) << 16u;
-    init_shared_state();
-    shared_state.next_scanline_id = next_frame;
-    shared_state.last_scanline_id = next_frame - 1;
-
-    init_scanline_buffers();
-
-    // From the line after the content the rest of this frame is blank, until
-    // the vertical blank starts the next.
-    display_scanline_pos = v_content_end;
-    generation_allowed = true;
-
-    for (uint i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
-        setup_sm(i);
-    pio_clkdiv_restart_sm_mask(video_pio, SCANVIDEO_SCANLINE_SM_MASK);
-    for (uint i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
-        pio_sm_exec(video_pio, i, pio_encode_jmp(PIO_OFFSET(entry_point)));
-    pio_set_sm_mask_enabled(video_pio, SCANVIDEO_SCANLINE_SM_MASK, true);
-
-    irq_set_enabled(PIO0_IRQ_0, true);
+    else
+    {
+        scanvideo_timing_words(mode->default_timing);
+        scanvideo_timing_start();
+    }
 }
 
 #pragma GCC pop_options
