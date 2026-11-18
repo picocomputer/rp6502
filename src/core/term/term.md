@@ -20,7 +20,7 @@ core/vga/mode/mode0.h defines.
 | | Cells | Beside the cells | Free |
 |---|---|---|---|
 | RP6502-PICO | 30.7 KB in VIDEO | 46.1 KB of colors, 12 KB of fonts, and 1 KB of palette in VIDEO | about 59 KB of lower RAM, before the stacks and heap |
-| RP6502-FPGA | 57.6 KB in VIDCELLS | not built since the cells changed; see step 3 | |
+| RP6502-FPGA | 57.6 KB in VIDCELLS | not built since the cells changed; see step 2 | |
 
 A cell is 10 bytes in two tables. One has its glyph and 16 bits of
 attributes, in one word, which is all a scanline reads. The other has its
@@ -178,87 +178,26 @@ s. The renderer would draw the scroll region at a pixel offset, which the
 row table could carry. Build a demo ROM for the emulator and the
 RP6502-PICO, look at it, then decide.
 
-## 1. The manual
+## 1. scanvideo.c: what is left
 
-- Open the Terminal section of term.rst with what the console is: a
-  VT102 minus 132 columns, the xterm subset, ANSI-BBS, and kitty's
-  underlines. It does not list what a VT102's hardware did that this
-  machine cannot.
-- term.rst lists fast blink (SGR 6) and overline (SGR 53, 55) as features
-  from other terminals. Both are ECMA-48's. The list loses them and gains
-  xterm's, aixterm's, and SCO's.
-- Remove `SGR 38:1` and `48:1`, which the console no longer has, and
-  explain transparency by palette entry 0 and the default background.
-- Remove SGR 10 and 11 and the Linux console's palette sequences
-  (`ESC ] P` and `ESC ] R`), which the console no longer has. CRM
-  (`CSI 3 h`) draws the controls.
-- A palette change shows on text already drawn, and an underline's color
-  follows the palette.
-- XTVERSION: `CSI > q` is answered `DCS > | RP6502(version) ST`, the
-  version being the firmware's as the status shows it. On the
-  RP6502-PICO it is the RIA's.
-- `CSI 11 t` answers that the window is minimized while the emulator's
-  is. The RP6502-PICO, the RP6502-FPGA, and the web player always answer
-  that it is not.
-- DECLRMM (`?69`) and DECSLRM (`CSI Pl ; Pr s`), as xterm has them: what
-  stops at the margins, that a scroll or an edit needs the cursor between
-  them, that every line is single size while they are allowed, and that
-  `CSI s` saves the cursor only while they are not. A program's end
-  resets them.
-- SL and SR do nothing with the cursor outside the scroll region, as on
-  xterm.
-- The rectangles: DECFRA, DECERA, DECSERA, DECCRA, DECCARA, DECRARA, and
-  DECSACE. DECCARA and DECRARA take 1, 4, 5, and 7 (and 22, 24, 25, 27,
-  and 0); bold is the bright color, as the pen draws it.
-- DECRQSS, `DCS $ q Pt ST`, for SGR, DECSTBM, DECSLRM, DECSCUSR, DECSCA,
-  and DECSACE, and that it is how a program finds the underline styles.
-- A `?` for the color in OSC 4, 10, 11, and 12 is answered with the
-  color, to the five bits of a channel the console shows.
-- Document each item above when it lands.
+It was read through and changed in place: the clear of the scanline
+buffers on a mode set is gone, the line interrupt's state is its own,
+there is one lock where there were two, what held a constant is the
+constant, and vga.c draws pixels and no longer writes PIO tokens. The
+line interrupt starts the DMA 160 cycles after it is entered, 179 at
+most, at 1280x1024, where it has 720.
 
-## 2. scanvideo.c: change it in place
-
-Read through, not built or measured. It should be changed in place, not
-rewritten: the timing that keeps sync without either core, the stop
-order for RP2350-E5, and the switch between canvases of one timing are
-right. What is left over from the library is two locks and three lists
-for a job that needs one lock and one pointer, fields that hold
-constants, two copies of the view setup, and vga.c writing PIO tokens.
-None of it buys render time: all of it is about 30 to 40 cycles a line.
-About 200 lines and 200 bytes of RAM go. In the order to do them:
-
-1. **The clear of every scanline buffer on a mode set**, 38,760 bytes
-   with the line interrupt off, an estimated 10,000 to 20,000 cycles in
-   which core 0 reads no console byte. No word of it is read before it
-   is written. One line.
-2. **The line interrupt's own state out from under the lock**, and the
-   fields and wake-ups nothing uses. One lock pair goes from each
-   letterbox line.
-3. **One lock.** Taking a buffer takes two locks and handing it back
-   one. Only one of the three can go, about 20 cycles a scanline, not
-   the 50 to 100 once estimated. It is worth doing because it closes a
-   race: a core can be handed the first line of the next frame while
-   the other takes the last line of this one, so that line is drawn
-   before the 6502 has done its vertical blank work. The in-use list
-   becomes one pointer. This is in the interrupt's path before the DMA
-   starts, whose budget is 1,152 cycles at 640x480, 720 at 1280x1024,
-   and 520 at 720p; a start after that drops the line. Bench every
-   canvas.
-4. **Fields and setup that hold a constant or do nothing.** About 100
-   lines and 90 bytes.
-5. **Planes as arrays, and the PIO tokens out of vga.c**, with the
-   unused end of the PIO program. About 104 bytes.
-6. **One mode-set path**: what is done once, the timing, and the view.
-   This is where a lost sync comes from, so bench every pair of canvas
-   and display both ways.
-7. **Measure how many scanline buffers are needed.** Each is 3,908
-   bytes, the only large figure here.
+1. **One mode-set path**: what is done once, the timing, and the view,
+   in place of two copies of the view setup. This is where a lost sync
+   comes from, so bench every pair of canvas and display both ways.
+2. **Measure how many scanline buffers are needed.** Each is 3,908
+   bytes. There are ten.
 
 Core 0 takes about 1.5 times its own cycles in wall time, and this
-module does not explain it: the line interrupt is an estimated 200 to
-300 cycles of a 3,375-cycle line. Not found yet.
+module does not explain it: the line interrupt is 160 cycles of a
+3,375-cycle line. Not found yet.
 
-## 3. RP6502-FPGA: palette entries in cells
+## 2. RP6502-FPGA: palette entries in cells
 
 The cells now hold palette entries and the RP6502-FPGA still draws them
 as pixels, so its console's colors are wrong until this is done. mode0.sv
