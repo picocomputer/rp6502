@@ -216,14 +216,47 @@ RP6502-PICO, look at it, then decide.
   color, to the five bits of a channel the console shows.
 - Document each item above when it lands.
 
-## 2. scanvideo.c: decide at the end
+## 2. scanvideo.c: change it in place
 
-What is found in scanvideo.c along the way is listed here. At the end,
-decide whether to change it, rewrite it, or leave it.
+Read through, not built or measured. It should be changed in place, not
+rewritten: the timing that keeps sync without either core, the stop
+order for RP2350-E5, and the switch between canvases of one timing are
+right. What is left over from the library is two locks and three lists
+for a job that needs one lock and one pointer, fields that hold
+constants, two copies of the view setup, and vga.c writing PIO tokens.
+None of it buys render time: all of it is about 30 to 40 cycles a line.
+About 200 lines and 200 bytes of RAM go. In the order to do them:
 
-- Taking a scanline buffer takes two locks and handing it back takes
-  one. One lock for each would save an estimated 50 to 100 cycles a
-  scanline. Not tried.
+1. **The clear of every scanline buffer on a mode set**, 38,760 bytes
+   with the line interrupt off, an estimated 10,000 to 20,000 cycles in
+   which core 0 reads no console byte. No word of it is read before it
+   is written. One line.
+2. **The line interrupt's own state out from under the lock**, and the
+   fields and wake-ups nothing uses. One lock pair goes from each
+   letterbox line.
+3. **One lock.** Taking a buffer takes two locks and handing it back
+   one. Only one of the three can go, about 20 cycles a scanline, not
+   the 50 to 100 once estimated. It is worth doing because it closes a
+   race: a core can be handed the first line of the next frame while
+   the other takes the last line of this one, so that line is drawn
+   before the 6502 has done its vertical blank work. The in-use list
+   becomes one pointer. This is in the interrupt's path before the DMA
+   starts, whose budget is 1,152 cycles at 640x480, 720 at 1280x1024,
+   and 520 at 720p; a start after that drops the line. Bench every
+   canvas.
+4. **Fields and setup that hold a constant or do nothing.** About 100
+   lines and 90 bytes.
+5. **Planes as arrays, and the PIO tokens out of vga.c**, with the
+   unused end of the PIO program. About 104 bytes.
+6. **One mode-set path**: what is done once, the timing, and the view.
+   This is where a lost sync comes from, so bench every pair of canvas
+   and display both ways.
+7. **Measure how many scanline buffers are needed.** Each is 3,908
+   bytes, the only large figure here.
+
+Core 0 takes about 1.5 times its own cycles in wall time, and this
+module does not explain it: the line interrupt is an estimated 200 to
+300 cycles of a 3,375-cycle line. Not found yet.
 
 ## 3. RP6502-FPGA: palette entries in cells
 
