@@ -83,35 +83,28 @@ void os_sleep_ns(uint64_t ns)
     WaitForSingleObject(timer, INFINITE);
 }
 
-/* A FILETIME counts 100 ns from 1601, and this is 1970 in it. */
-#define WIN_EPOCH_100NS 116444736000000000ll
-
-/* Windows has the zone as two offsets and the rules for changing between
- * them, a year at a time, and its names are whole ones such as "Pacific
- * Standard Time": it has no short names. */
+/* The C runtime's zone: the TZ environment variable where it is set, as on
+ * the other hosts, and Windows's own zone where it is not. Its names are
+ * then whole ones such as "Pacific Standard Time", because Windows has no
+ * short names. The runtime has no time before 1970, and the zone's standard
+ * time answers for one. */
 void os_zone(int64_t utc, int32_t *offset, bool *dst, char *name, size_t name_size)
 {
+    __time64_t t = (__time64_t)utc;
+    struct tm local;
+    long west = 0;
+    size_t length = 0;
     *offset = 0, *dst = false, name[0] = 0;
-    if (utc < -WIN_EPOCH_100NS / 10000000)
-        return;
-    ULARGE_INTEGER at, local;
-    at.QuadPart = (ULONGLONG)(utc * 10000000ll + WIN_EPOCH_100NS);
-    FILETIME ft = {at.LowPart, at.HighPart}, local_ft;
-    SYSTEMTIME st, local_st;
-    DYNAMIC_TIME_ZONE_INFORMATION zone;
-    TIME_ZONE_INFORMATION year;
-    if (!FileTimeToSystemTime(&ft, &st) ||
-        GetDynamicTimeZoneInformation(&zone) == TIME_ZONE_ID_INVALID ||
-        !GetTimeZoneInformationForYear(st.wYear, &zone, &year) ||
-        !SystemTimeToTzSpecificLocalTime(&year, &st, &local_st) ||
-        !SystemTimeToFileTime(&local_st, &local_ft))
-        return;
-    local.LowPart = local_ft.dwLowDateTime;
-    local.HighPart = local_ft.dwHighDateTime;
-    *offset = (int32_t)(((int64_t)local.QuadPart - (int64_t)at.QuadPart) / 10000000);
-    *dst = *offset != -(year.Bias + year.StandardBias) * 60;
-    if (!WideCharToMultiByte(CP_UTF8, 0, *dst ? year.DaylightName : year.StandardName, -1,
-                             name, (int)name_size, NULL, NULL))
+    _tzset();
+    if (utc >= 0 && _localtime64_s(&local, &t) == 0)
+    {
+        /* The local date read as UTC is that many seconds ahead of the time. */
+        *dst = local.tm_isdst > 0;
+        *offset = (int32_t)(_mkgmtime64(&local) - t);
+    }
+    else if (_get_timezone(&west) == 0)
+        *offset = (int32_t)-west;
+    if (_get_tzname(&length, name, name_size, *dst ? 1 : 0) != 0)
         name[0] = 0;
 }
 
