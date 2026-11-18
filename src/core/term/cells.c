@@ -1517,6 +1517,24 @@ term_grid_t *cells_shown(const term_t *term)
     return &cells_visible()->grid;
 }
 
+bool cells_row_used(term_t *term, term_grid_t *g, uint8_t y)
+{
+    (void)term;
+    cells_t *cells = cells_settled(g);
+    if (!cells)
+        return false;
+    cells_clean_line(cells, y);
+    const mode0_cell_t *row = cells_row_ptr(cells, y);
+    const mode0_colors_t *colors = cells_colors(row);
+    const uint16_t blank = MODE0_ENTRY(MODE0_DEFAULT_BG, false);
+    for (unsigned x = 0; x < g->width; x++)
+        if (mode0_glyph_code(row[x].glyph) != ' ' ||
+            (row[x].attributes & MODE0_ATTR_LINES) ||
+            colors[x].bg_color != blank)
+            return true;
+    return false;
+}
+
 // Every byte goes to the terminal, which follows it at both sizes. A cursor's
 // blink starts again when a byte moves it or changes how it looks: its
 // style, or it coming back on.

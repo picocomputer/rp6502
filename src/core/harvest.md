@@ -3,34 +3,7 @@
 Each section is done properly: where the architecture is what is in the
 way, the architecture changes.
 
-## 1. A clear line after a program ends
-
-When a program ends, the console is given a soft reset and then a line of
-its own: a CR LF if the cursor is not in the first column
-(`com_end_reset`). That is not always a clear line. A program that drew
-below its cursor leaves the monitor's prompt on top of what it drew.
-
-After the soft reset, the cursor's row and every row below it must be
-clear. If they are not, the cursor goes to the row after the last one in
-use: a CR, and an LF for each row down. Line feeds mean the same on a
-terminal of any size, and scroll at the bottom, which is what makes a
-clear row when the last one is in use. The cursor never moves up.
-
-A row is in use when it has a character other than a space, or a cell
-whose background is not the default. The cell layer answers for a row:
-
-- A machine with the cells looks at them.
-- The RP6502-RIA has no cells. Its stub keeps a flag for each row,
-  about 60 bytes a screen, in the calls it is already given: set by a
-  character or a background, cleared when the whole row is erased or
-  scrolls in, and moved with the rows.
-
-The RP6502-RIA's flags are a comfort and not exact. A row that a program
-blanked with spaces, or erased part of, still counts as in use, and the
-prompt is then lower than it had to be. That is the right way to be
-wrong: there is always a clear line.
-
-## 2. The resets at a cold boot
+## 1. The resets at a cold boot
 
 What the RP6502-RIA sends as it starts, today:
 
@@ -55,7 +28,7 @@ from one place (`manifold_screen_write`), and the DISPLAY, code page, and
 mode 0 registers are followed in ria/sys/vga.c. The hard reset that a
 build that logs leaves out is left out of both.
 
-## 3. The whole line editor in VT52 mode
+## 2. The whole line editor in VT52 mode
 
 A read that starts with the terminal in VT52 mode is laid out plainly:
 the line editor echoes, backs up with BS, erases with spaces, and leaves
@@ -82,7 +55,7 @@ A plain line stays for what asks for one by name: a script's read, and
 the command line emulator when its output is a pipe or a file and not a
 terminal (`rln_set_plain`), which no other machine sets.
 
-## 4. The line editor inside margins
+## 3. The line editor inside margins
 
 The line editor lays a line out for the whole width of the cursor's row,
 and goes to a column with a CR and a move right (core/com/rln.c). It does

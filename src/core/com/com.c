@@ -292,10 +292,35 @@ void com_clean_line(void)
     }
 }
 
+/* The cursor goes to a row with nothing on it or below it: the row after
+ * the last one in use, from the cursor's down. A CR LF for each row takes
+ * it there on a terminal of any size, and scrolls at the bottom, which is
+ * what makes the row when the last one is in use. It stays where it is
+ * when its own row and all below are clear, but for the first column. */
+static void com_clear_line(void)
+{
+    manifold_flush();
+    term_grid_t *g = term_shown(&cells_term);
+    const uint8_t y = term_pos(g)->y;
+    uint8_t last = g->height;
+    while (last > y && !cells_row_used(&cells_term, g, last - 1))
+        last--;
+    if (last <= y)
+    {
+        com_clean_line();
+        return;
+    }
+    for (uint8_t row = y; row < last; row++)
+    {
+        manifold_putchar('\r');
+        manifold_putchar('\n');
+    }
+}
+
 /* The soft reset starts with CAN, which ends any escape sequence left half
- * sent, and leaves the alternate screen, so the cursor read after it is the
- * one the CR LF lands on. The default cursor shape goes to the screen alone,
- * because a terminal on the UART or telnet may print it. */
+ * sent, and leaves the alternate screen and the margins, so the cursor read
+ * after it is the one the line feeds move. The default cursor shape goes to
+ * the screen alone, because a terminal on the UART or telnet may print it. */
 void com_end_reset(void)
 {
     static const char shape[] = "\33[0 q";
@@ -303,7 +328,7 @@ void com_end_reset(void)
     for (const char *s = STR_TERM_SOFT_RESET; *s; s++)
         manifold_putchar((unsigned char)*s);
     manifold_write_to(COM_TERM_SCREEN, shape, sizeof shape - 1);
-    com_clean_line();
+    com_clear_line();
 }
 
 void com_sst_save(sst_cursor_t *c, unsigned flags)

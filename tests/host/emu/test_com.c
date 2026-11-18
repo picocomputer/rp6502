@@ -12,6 +12,7 @@
 #include "core/ria/ria.h"
 #include "core/com/com.h"
 #include "core/com/tio.h"
+#include "core/str/str.h"
 #include "core/sys/proc.h"
 #include "core/sys/ria.h"
 #include "core/sys/sys.h"
@@ -20,6 +21,7 @@
 #include "core/vga/vga_emu.h"
 #include "machine.h"
 #include "utest.h"
+#include <stdio.h>
 #include <string.h>
 
 /* The machine clock counts scanlines, so a wait on it has to advance the beam
@@ -552,7 +554,8 @@ UTEST(com, a_clean_line_counts_a_write_to_the_screen_alone)
  * it, so where the alternate screen left it decides. */
 static bool end_reset_breaks(const char *primary, const char *alternate)
 {
-    com_clean_line();
+    for (const char *p = "\33[2J\33[H"; *p; p++)
+        manifold_putchar(*p);
     for (const char *p = primary; *p; p++)
         manifold_putchar(*p);
     for (const char *p = "\33[?47h"; *p; p++)
@@ -568,7 +571,74 @@ static bool end_reset_breaks(const char *primary, const char *alternate)
 UTEST(com, the_end_reset_reads_the_cursor_after_leaving_the_alternate_screen)
 {
     ASSERT_TRUE(end_reset_breaks("", "xy"));
-    ASSERT_FALSE(end_reset_breaks("xy", "\r"));
+    ASSERT_FALSE(end_reset_breaks("", "xy\r"));
+    /* What the alternate screen had on its rows does not count. */
+    ASSERT_FALSE(end_reset_breaks("", "\r\n\n\nlower\33[H"));
+    /* The cursor's own row has something on it, wherever the cursor is. */
+    ASSERT_TRUE(end_reset_breaks("xy", "\r"));
+}
+
+/* Where the cursor is after the reset, and what the reset sent after the
+ * soft reset's own bytes. */
+static const char *end_reset_after(const char *drawn, int *row)
+{
+    static char tail[80];
+    for (const char *p = "\33[2J\33[H"; *p; p++)
+        manifold_putchar(*p);
+    for (const char *p = drawn; *p; p++)
+        manifold_putchar(*p);
+    tap();
+    com_end_reset();
+    untap();
+    manifold_flush();
+    const size_t reset = strlen(STR_TERM_SOFT_RESET);
+    const size_t n = sent_len > reset ? sent_len - reset : 0;
+    memcpy(tail, sent + reset, n < sizeof tail - 1 ? n : sizeof tail - 1);
+    tail[n < sizeof tail - 1 ? n : sizeof tail - 1] = 0;
+    /* A cursor not in the first column is a row past any there is. */
+    *row = term_pos(term_shown(&cells_term))->x ? 99 : term_pos(term_shown(&cells_term))->y;
+    return tail;
+}
+
+/* A program that drew below its cursor leaves the prompt a row of its own:
+ * the first with nothing on it or below it. */
+UTEST(com, the_end_reset_leaves_a_clear_line)
+{
+    int row;
+    /* Nothing drawn: it stays, and sends nothing. */
+    ASSERT_STREQ(end_reset_after("", &row), "");
+    ASSERT_EQ(row, 0);
+    /* Text on the cursor's row alone, as before: a CR LF. */
+    ASSERT_STREQ(end_reset_after("text", &row), "\r\n");
+    ASSERT_EQ(row, 1);
+    /* Rows 2 to 5 drawn, and the cursor back on row 1, in column 4. */
+    ASSERT_STREQ(end_reset_after("\33[3;1Ha\33[6;9Hb\33[2;5H", &row), "\r\n\r\n\r\n\r\n\r\n");
+    ASSERT_EQ(row, 6);
+    /* The cursor below everything drawn stays. */
+    ASSERT_STREQ(end_reset_after("\33[3;1Ha\33[9;1H", &row), "");
+    ASSERT_EQ(row, 8);
+    /* A row erased to a color is not a clear one. */
+    ASSERT_STREQ(end_reset_after("\33[4;1H\33[44m\33[K\33[0m\33[2;1H", &row), "\r\n\r\n\r\n");
+    ASSERT_EQ(row, 4);
+    /* Nor one with an underlined space on it. */
+    ASSERT_STREQ(end_reset_after("\33[3;1H\33[4m \33[0m\33[H", &row), "\r\n\r\n\r\n");
+    ASSERT_EQ(row, 3);
+    /* A row drawn and erased again is clear. */
+    ASSERT_STREQ(end_reset_after("\33[3;1Hgone\33[2K\33[H", &row), "");
+    ASSERT_EQ(row, 0);
+}
+
+/* The last row in use is the bottom one, so the line feeds scroll. */
+UTEST(com, the_end_reset_scrolls_for_a_clear_line)
+{
+    int row;
+    const int bottom = term_shown(&cells_term)->height - 1;
+    char drawn[32];
+    snprintf(drawn, sizeof drawn, "\33[%d;1Hlast\33[%d;1H", bottom + 1, bottom);
+    ASSERT_STREQ(end_reset_after(drawn, &row), "\r\n\r\n");
+    ASSERT_EQ(row, bottom);
+    ASSERT_FALSE(cells_row_used(&cells_term, term_shown(&cells_term), (uint8_t)bottom));
+    ASSERT_TRUE(cells_row_used(&cells_term, term_shown(&cells_term), (uint8_t)(bottom - 1)));
 }
 
 /* A program that ends with a left margin set leaves the prompt on the
