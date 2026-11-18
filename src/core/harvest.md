@@ -3,32 +3,7 @@
 Each section is done properly: where the architecture is what is in the
 way, the architecture changes.
 
-## 1. The resets at a cold boot
-
-What the RP6502-RIA sends as it starts, today:
-
-- A hard reset, RIS, to the screen's terminal alone, when the VGA
-  connects (ria/sys/vga.c). It goes over PIX, so the VGA's USB port, a
-  terminal on the UART, and telnet do not get it and keep what they show.
-- Then the monitor's banner, which starts with the soft reset, to every
-  terminal (ria/mon/mon.c).
-
-That is what is wanted, in either order, but for one thing: a build that
-logs. Its log is on the screen's terminal, and the hard reset clears it.
-
-A build that logs is one with any log level above NONE: a Debug build,
-whose level is ERROR, or any build given one with `RP6502_LOG_LEVEL` or
-`RP6502_LOG_LEVELS`. In such a build the screen's terminal gets no hard
-reset, only the soft one every terminal gets. A build that logs nothing
-always gives it the hard reset.
-
-Whatever the VGA's terminal is sent or not sent, the RP6502-RIA's copy of
-it gets the same, as it does now: a byte for the screen alone goes to both
-from one place (`manifold_screen_write`), and the DISPLAY, code page, and
-mode 0 registers are followed in ria/sys/vga.c. The hard reset that a
-build that logs leaves out is left out of both.
-
-## 2. The whole line editor in VT52 mode
+## 1. The whole line editor in VT52 mode
 
 A read that starts with the terminal in VT52 mode is laid out plainly:
 the line editor echoes, backs up with BS, erases with spaces, and leaves
@@ -55,7 +30,7 @@ A plain line stays for what asks for one by name: a script's read, and
 the command line emulator when its output is a pipe or a file and not a
 terminal (`rln_set_plain`), which no other machine sets.
 
-## 3. The line editor inside margins
+## 2. The line editor inside margins
 
 The line editor lays a line out for the whole width of the cursor's row,
 and goes to a column with a CR and a move right (core/com/rln.c). It does

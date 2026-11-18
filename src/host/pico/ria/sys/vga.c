@@ -5,6 +5,7 @@
  */
 
 #include "ria/mon/mon.h"
+#include "core/sys/debug_log.h"
 #include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/com/com.h"
@@ -345,12 +346,16 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
 
     /* The VGA may have kept its state while the RIA restarted, or started
      * fresh while the RIA ran. DISPLAY and the code page are sent again, and
-     * a hard reset follows them to both terminals, so the two start alike. */
+     * a hard reset follows them to both terminals, so the two start alike.
+     * A build that logs has its log on that screen, which the hard reset
+     * would erase, so there the screen has only the soft reset the banner
+     * starts with, as every other terminal has. */
     vga_needs_reset = true;
     vga_code_page_sent = VGA_CODE_PAGE_UNKNOWN;
     if (oem_get_code_page_run()) /* at boot oem_init sends it */
         vga_set_code_page(oem_get_code_page_run());
-    manifold_write_to(COM_TERM_SCREEN, STR_TERM_HARD_RESET, STR_TERM_HARD_RESET_LEN);
+    if (!RP6502_LOG_ANY)
+        manifold_write_to(COM_TERM_SCREEN, STR_TERM_HARD_RESET, STR_TERM_HARD_RESET_LEN);
     com_set_reply_default(false);
     /* A VGA of the firmware before the RIA answered the queries still has
      * its own answers on; this turns them off, so an update of either chip
