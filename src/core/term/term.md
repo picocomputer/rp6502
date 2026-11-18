@@ -20,7 +20,7 @@ core/vga/mode/mode0.h defines.
 | | Cells | Beside the cells | Free |
 |---|---|---|---|
 | RP6502-PICO | 30.7 KB in VIDEO | 46.1 KB of colors, 12 KB of fonts, and 1 KB of palette in VIDEO | about 59 KB of lower RAM, before the stacks and heap |
-| RP6502-FPGA | 57.6 KB in VIDCELLS | not built since the cells changed; see step 1 | |
+| RP6502-FPGA | 57.6 KB in VIDCELLS | not built since the cells changed; see step 0 | |
 
 A cell is 10 bytes in two tables. One has its glyph and 16 bits of
 attributes, in one word, which is all a scanline reads. The other has its
@@ -177,17 +177,7 @@ explain it. Not found yet.
 Every feature below is measured against the target, and kept or taken
 out.
 
-## 0. Smooth scroll, DECSCLM (?4), as an experiment
-
-A VT100 scrolled smoothly at 6 lines a second, and told the computer
-sending it text to wait (XOFF) when it fell behind. Nothing here can tell
-a program to wait, so the text it writes during a scroll has to be held
-somewhere, and at 115200 baud a full canvas of text arrives in about 0.2
-s. The renderer would draw the scroll region at a pixel offset, which the
-row table could carry. Build a demo ROM for the emulator and the
-RP6502-PICO, look at it, then decide.
-
-## 1. RP6502-FPGA: palette entries in cells
+## 0. RP6502-FPGA: palette entries in cells
 
 The cells now hold palette entries and the RP6502-FPGA still draws them
 as pixels, so its console's colors are wrong until this is done. mode0.sv
@@ -212,6 +202,13 @@ past the last. The attributes have three bits no renderer draws.
 - **Kitty's other protocols**: notifications, color control by name (OSC
   21, which overlaps OSC 4, 10, and 11), and text in larger sizes. Few
   programs use them.
+- **Smooth scroll, DECSCLM (?4).** Tried on the RP6502-PICO: the picture
+  lagged the terminal by up to four spare rows of cells and eased up to
+  it, and jumped when it could not keep up. It could not keep up with
+  much. At 115200 baud 192 bytes arrive in a frame, so full 80-column
+  lines scroll 2.3 rows a frame, and one row a frame would take lines of
+  190 characters. A VT100 held the computer off with XOFF, and nothing
+  here can.
 - **Synchronized output (?2026).** There is only one copy of the cells,
   so text written over text already showing cannot be held back. Holding
   back only the row table and the cursor would mislead a program that
