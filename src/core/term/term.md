@@ -20,7 +20,7 @@ core/vga/mode/mode0.h defines.
 | | Cells | Beside the cells | Free |
 |---|---|---|---|
 | RP6502-PICO | 30.7 KB in VIDEO | 46.1 KB of colors, 12 KB of fonts, and 1 KB of palette in VIDEO | about 59 KB of lower RAM, before the stacks and heap |
-| RP6502-FPGA | 57.6 KB in VIDCELLS | not built since the cells changed; see step 7 | |
+| RP6502-FPGA | 57.6 KB in VIDCELLS | not built since the cells changed; see step 5 | |
 
 A cell is 10 bytes in two tables. One has its glyph and 16 bits of
 attributes, in one word, which is all a scanline reads. The other has its
@@ -35,11 +35,14 @@ The glyph is 16 bits: where the font has it. Each font has two tables of
 Graphics, so a scanline draws any cell with one lookup and tests nothing.
 
 The attributes: the two blinks, three bits of underline style, the
-strike, the overline, whether the underline has a color of its own, and
-whether DECSCA or SPA guards the cell from the selective erases. Seven
-bits are free. Only the underlines, the strike, and the overline change what a
-scanline draws, and only on their own rows of the glyph: five of 16 rows.
-On the other rows a scanline does not read the attributes.
+strike, the overline, whether the underline has a color of its own,
+whether DECSCA or SPA guards the cell from the selective erases, whether
+bold brightened the cell's ink (two bits), and whether its colors are
+swapped. Four bits are free. Only the underlines, the strike, and the
+overline change what a scanline draws, and only on their own rows of the
+glyph: five of 16 rows. On the other rows a scanline does not read the
+attributes. The guard, the bolds, and the swap are for DECCARA and
+DECRARA, which change the attributes of cells already written.
 
 The underlines are kitty's: SGR 4:0 to 4:5 for none, single, double,
 curly, dotted, and dashed, with SGR 58 and 59 for the color. Each style's
@@ -65,17 +68,47 @@ Measured on a full 80x30 screen:
 | A character | 940 | 0.05 | 5% |
 | A byte inside a sequence | 500 | 0.03 | 3% |
 
-Everything else is under 0.4 byte-times.
+Everything else of a VT102 is under 0.4 byte-times.
+
+Between left and right margins a scroll moves cells, and the rectangle
+sequences change many cells at once:
+
+| | Cycles for the slowest byte | Byte-times | Sent back to back |
+|---|---|---|---|
+| REP 65535 between margins | 73,500 | 4.2 | 52% |
+| SL and SR by 1 between margins | 59,200 | 3.4 | 68% |
+| DECSERA, 78 columns of every row | 58,700 | 3.4 | 26% |
+| DECCRA, the screen a column right | 50,900 | 2.9 | 14% |
+| DECFRA, 78 columns of every row | 43,700 | 2.5 | 16% |
+| DECERA, 78 columns of every row | 36,100 | 2.1 | 16% |
+| DECFRA, the whole screen | 20,900 | 1.2 | 20% |
+| DECCARA or DECRARA, the whole screen | 19,800 | 1.1 | 5% |
+| A character that wraps and scrolls between margins | 6,700 | 0.4 | 38% |
+| LF, RI, IL, DL, SU, or SD between margins | 3,300 | 0.2 | 19% |
 
 A row is owed one thing at a time: a fill, the cell every cell of it
-becomes, or a shift, the columns that survive, where they go, and the
-blank color for each side. An erase, DECALN, and the whole rows of a REP
-are fills. SL and SR are shifts, and a second shift of a row changes its
-record. What a row is owed is kept with the row's memory, so a scroll
-moves none. The task loop pays one row a pass, and a row is paid when it
-is written to. One 80-column row costs 610 to 700 cycles to move a cell
-sideways and 360 to fill. A move by an even count of cells is faster, 244
-cycles for 40 cells, because the colors stay on a word.
+becomes; a shift, the columns that survive, where they go, and the blank
+color for each side; or a change of attributes, DECCARA's and DECRARA's.
+An erase, DECALN, the whole rows of a REP, and the whole rows of DECFRA,
+DECERA, and DECSERA are fills. SL and SR are shifts, and a second shift
+of a row changes its record. What a row is owed is kept with the row's
+memory, so a scroll moves none. The task loop pays one row a pass, and a
+row is paid when it is written to. One 80-column row costs 610 to 700
+cycles to move a cell sideways and 360 to fill. A move by an even count
+of cells is faster, 244 cycles for 40 cells, because the colors stay on
+a word.
+
+A scroll between left and right margins cannot move a row of memory,
+because the cells either side of the margins stay. The screen is owed
+the scroll instead: the columns, the rows, how far, and the blank that
+comes in. Another scroll of the same columns the same way adds to it, so
+a run of line feeds moves the cells once, and anything else that changes
+a cell does the scroll first. The task loop does it on its next pass,
+4,600 to 9,900 cycles for a scroll by one row and 31,900 by 30. It
+copies whichever is fewer: the cells between the margins up or down, or,
+after moving the rows of memory, the cells either side back to their
+rows. A REP between margins counts the scrolls under it first and does
+them as one.
 
 The row words are rewritten only when the layout they come from differs
 from the one last written. On the Pico VGA the manifold sends each byte
@@ -88,7 +121,10 @@ Working out the pen is 60 cycles of that, and keeping it between rows
 measured no faster.
 
 The HIL term test sends SL 1 and SR 1 200 times back to back, and REP
-65535 twenty times, and loses no byte.
+65535 twenty times, and loses no byte. Between margins it sends 200 line
+feeds with no pause, 100 lines of one and of two characters, REP 65535
+ten times, and SL 1 and SR 1 50 times, and then the rectangles over the
+whole screen, and loses no byte.
 
 On the Pico VGA, PIX's FIFO is read after every task of the main loop. It
 goes unread for 5,800 cycles at most, the scanline core 0 renders, and
@@ -120,20 +156,7 @@ reaches the console through a debug probe; see tests/hil/pico/README.md.
 Every feature below is measured against the target, and kept or taken
 out.
 
-## 0. Rectangle sequences (VT420)
-
-DECFRA (fill), DECERA (erase), DECSERA (selective erase), DECCRA (copy),
-DECCARA and DECRARA (change and reverse attributes), and DECSACE, which
-chooses stream or rectangle. xterm has them, and DECSERA completes the
-protected areas.
-
-## 1. Left and right margins (DECSLRM)
-
-Scrolling and editing limited to a column range, allowed by mode ?69
-(DECLRMM). tmux and some editors use it when it is there. Every insert,
-delete, and scroll has to respect the margins.
-
-## 2. Smooth scroll, DECSCLM (?4), as an experiment
+## 0. Smooth scroll, DECSCLM (?4), as an experiment
 
 A VT100 scrolled smoothly at 6 lines a second, and told the computer
 sending it text to wait (XOFF) when it fell behind. Nothing here can tell
@@ -143,7 +166,7 @@ s. The renderer would draw the scroll region at a pixel offset, which the
 row table could carry. Build a demo ROM for the emulator and the
 RP6502-PICO, look at it, then decide.
 
-## 3. Kitty's keyboard protocol
+## 1. Kitty's keyboard protocol
 
 **What it is.** A program reading stdin can tell every key apart without
 the RIA's keyboard registers. Neovim, Helix, and fish use it.
@@ -165,11 +188,11 @@ Releases need a path from the keyboard that does not exist today. A few
 bytes of flags and a table of about a hundred key codes. About a week
 with tests.
 
-## 4. The manual
+## 2. The manual
 
 - Open the Terminal section of term.rst with what the console is: a
   VT102 minus 132 columns, the xterm subset, ANSI-BBS, kitty's
-  underlines, and kitty's keyboard protocol if step 3 lands. It does not
+  underlines, and kitty's keyboard protocol if step 1 lands. It does not
   list what a VT102's hardware did that this machine cannot.
 - term.rst lists fast blink (SGR 6) and overline (SGR 53, 55) as features
   from other terminals. Both are ECMA-48's. The list loses them and gains
@@ -187,9 +210,19 @@ with tests.
 - `CSI 11 t` answers that the window is minimized while the emulator's
   is. The RP6502-PICO, the RP6502-FPGA, and the web player always answer
   that it is not.
+- DECLRMM (`?69`) and DECSLRM (`CSI Pl ; Pr s`), as xterm has them: what
+  stops at the margins, that a scroll or an edit needs the cursor between
+  them, that every line is single size while they are allowed, and that
+  `CSI s` saves the cursor only while they are not. A program's end
+  resets them.
+- SL and SR do nothing with the cursor outside the scroll region, as on
+  xterm.
+- The rectangles: DECFRA, DECERA, DECSERA, DECCRA, DECCARA, DECRARA, and
+  DECSACE. DECCARA and DECRARA take 1, 4, 5, and 7 (and 22, 24, 25, 27,
+  and 0); bold is the bright color, as the pen draws it.
 - Document each item above when it lands.
 
-## 5. Use less memory
+## 3. Use less memory
 
 Do these together, after the steps above.
 
@@ -204,7 +237,7 @@ Do these together, after the steps above.
   cells, if what the rebuild loses is acceptable.
 - src/core/harvest.md lists memory to win back elsewhere.
 
-## 6. scanvideo.c: decide at the end
+## 4. scanvideo.c: decide at the end
 
 What is found in scanvideo.c along the way is listed here. At the end,
 decide whether to change it, rewrite it, or leave it.
@@ -213,7 +246,7 @@ decide whether to change it, rewrite it, or leave it.
   one. One lock for each would save an estimated 50 to 100 cycles a
   scanline. Not tried.
 
-## 7. RP6502-FPGA: palette entries in cells
+## 5. RP6502-FPGA: palette entries in cells
 
 The cells now hold palette entries and the RP6502-FPGA still draws them
 as pixels, so its console's colors are wrong until this is done. mode0.sv
@@ -221,7 +254,9 @@ needs a palette memory (one M10K block) written from mode0_palette, looks
 up as many as three colors a cell in its 8 clocks, and needs a fit. The
 cells are two memories now, the glyphs and attributes in one and the
 colors in the other, the fonts have a second table each, and the
-underlines have their styles.
+underlines have their styles. A pending wrap is a bit of the cursor word
+(MODE0_CURSOR_PENDING), not a column past the last, and the attributes
+have three bits no renderer draws.
 
 ## Not doing
 

@@ -170,13 +170,15 @@ typedef struct
 // The terminal at one size. Each screen, primary and alternate, has its own
 // cursor position, saved position and line sizes; the margins and the tab
 // stops belong to the grid. The cursor's column never reaches the width:
-// writing the last column sets wrap_pending instead, as on a VT102.
+// writing the last column sets wrap_pending instead, as on a VT102. The
+// left and right margins are the whole width until DECSLRM sets them.
 typedef struct
 {
     uint8_t width;
     uint8_t height;
     uint8_t rows; // the most rows: lines holds this many for each screen
     uint8_t margin_top, margin_bot;
+    uint8_t margin_left, margin_right;
     term_pos_t pos[2];   // the cursor on each screen
     term_pos_t saved[2]; // DECSC's position on each screen
     uint8_t *lines;      // TERM_LINE_ for each row: rows for the primary, then the alternate
@@ -202,6 +204,8 @@ typedef struct
     bool autorepeat;      // DECARM, ?8
     bool ice_colors;      // ?33: SGR 5/6 means bright bg (the IBM VGA hack), not blink
     bool bracketed_paste; // ?2004: a paste comes between ESC [ 200 ~ and ESC [ 201 ~
+    bool lr_margins;      // DECLRMM, ?69: CSI s sets the left and right margins
+    bool rect_attrs;      // DECSACE 2: DECCARA and DECRARA change a rectangle, not a stream
     uint8_t protect_mode; // TERM_PROTECT_
     bool erase_all;       // ERM, CSI 6 h: ED, EL and ECH erase the protected cells too
     bool reverse_screen;  // DECSCNM, ?5: every cell's colors swapped
@@ -307,10 +311,10 @@ static inline unsigned term_cell_height(const term_grid_t *g)
 }
 
 #define TERM_PEN_SST_SIZE 23
-#define TERM_SST_SIZE (4 * TERM_PEN_SST_SIZE + 102)
+#define TERM_SST_SIZE (4 * TERM_PEN_SST_SIZE + 104)
 void term_sst_put(sst_cursor_t *c, const term_t *t);
 bool term_sst_get(sst_cursor_t *c, term_t *t);
-#define TERM_GRID_SST_SIZE(rows) (17 + TERM_TAB_BITMAP_BYTES + 2 * (rows))
+#define TERM_GRID_SST_SIZE(rows) (19 + TERM_TAB_BITMAP_BYTES + 2 * (rows))
 void term_grid_sst_put(sst_cursor_t *c, const term_grid_t *g);
 bool term_grid_sst_get(sst_cursor_t *c, term_grid_t *g);
 

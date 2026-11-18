@@ -19,12 +19,14 @@ X(STR_UF2_PROG_NAME_VGA, "RP6502-VGA")
 // in ANSI mode), the primary screen, SGR 0, ASCII in G0 and G0 shifted in,
 // insert mode off, autowrap on, the cursor shown, and the cursor keys,
 // keypad and key repeat back to normal, so a terminal on the UART types as the
-// line editor expects once a program ends.
+// line editor expects once a program ends. The left and right margins go
+// last (DECLRMM reset), so the CR that follows reaches the first column of
+// the screen and not a margin the program left.
 // The screen's terminal gets the rest of a reset out of band, with the console
 // reset. The hard reset, RIS, goes to the screen alone: a terminal on the UART
 // keeps what it shows.
 X(STR_TERM_HARD_RESET, "\30\33<\33c")
-X(STR_TERM_SOFT_RESET, "\30\33<\33[?47l\33[0m\33(B\17\33[4l\33[?7h\33[?25h\33[?1l\33>\33[?8h")
+X(STR_TERM_SOFT_RESET, "\30\33<\33[?47l\33[0m\33(B\17\33[4l\33[?7h\33[?25h\33[?1l\33>\33[?8h\33[?69l")
 
 // https://www.ntppool.org/
 X(STR_NTP_SERVER, "pool.ntp.org")

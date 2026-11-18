@@ -570,6 +570,23 @@ UTEST(com, the_end_reset_reads_the_cursor_after_leaving_the_alternate_screen)
     ASSERT_FALSE(end_reset_breaks("xy", "\r"));
 }
 
+/* A program that ends with a left margin set leaves the prompt on the
+ * first column of the screen, not on the margin. */
+UTEST(com, the_end_reset_takes_the_left_and_right_margins_away)
+{
+    com_clean_line();
+    for (const char *p = "\33[?69h\33[11;20s\33[5;15Htext"; *p; p++)
+        manifold_putchar(*p);
+    com_end_reset();
+    manifold_flush();
+    ASSERT_EQ(term_pos(term_shown(&cells_term))->x, 0);
+    for (const char *p = "\33[?69h\33[11;20s\33[5;11H"; *p; p++)
+        manifold_putchar(*p);
+    com_end_reset();
+    manifold_flush();
+    ASSERT_EQ(term_pos(term_shown(&cells_term))->x, 0);
+}
+
 UTEST(com, a_write_to_one_terminal_lands_between_the_output_around_it)
 {
     tap();

@@ -40,7 +40,18 @@
  * with the glyph and reads no color.
  *
  * MODE0_ATTR_GUARD: DECSCA or SPA guards the cell from the selective
- * erases. It is the console's own, and no renderer draws it.
+ * erases.
+ *
+ * MODE0_ATTR_BOLD: bold made the cell's ink the bright entry of its
+ * palette color, 8 above it, and with MODE0_ATTR_BOLD_DEFAULT the ink was
+ * the default foreground and is entry 15.
+ *
+ * MODE0_ATTR_REVERSE: the colors are swapped, so the ink is the
+ * background.
+ *
+ * The guard, the bolds and the reverse are the console's own, for the
+ * sequences that change the attributes of cells already written (DECCARA
+ * and DECRARA). No renderer draws them: the colors already show them.
  *
  * Only the underlines, the strike and the overline change what a scanline
  * draws, and only on their own rows of the glyph. On every other row a
@@ -55,6 +66,11 @@ typedef struct
 #define MODE0_GLYPH_DEC(rows, code) ((uint16_t)(MODE0_GLYPH_OTHER(rows) + 0x80u + (code)))
 #define MODE0_ATTR_UL_COLOR (1u << 8)
 #define MODE0_ATTR_GUARD (1u << 9)
+#define MODE0_ATTR_BOLD (1u << 10)
+#define MODE0_ATTR_BOLD_DEFAULT (1u << 11)
+#define MODE0_ATTR_REVERSE (1u << 12)
+/* The attributes that put a line through a cell. */
+#define MODE0_ATTR_LINES (TERM_ATTR_UL_MASK | TERM_ATTR_STRIKE | TERM_ATTR_OVERLINE)
 
 /* Whether a glyph is in a font of this many rows: the code page's 256, the
  * italics of ASCII, or DEC Special Graphics's 0x5F to 0x7E. */
@@ -131,9 +147,9 @@ extern mode0_colors_t mode0_colors[MODE0_CELLS];
  * take nothing smaller. They describe the terminal showing.
  *
  * row: a row's first cell in mode0_cells, and its TERM_LINE_ size.
- * cursor: x, which is one past the last column when a wrap is pending; y;
- *   the DECSCUSR style; whether its blink has it lit; and whether it is
- *   shown at all.
+ * cursor: x; y; the DECSCUSR style; whether its blink has it lit; whether
+ *   it is shown at all; and whether a wrap is pending, which is drawn as
+ *   a block whatever the style.
  * cursor_color: OSC 12's color.
  * screen: the blink phase a cell's TERM_ATTR_ANY_BLINK bits are tested
  *   against, and DECSCNM. */
@@ -155,6 +171,7 @@ extern volatile mode0_regs_t mode0_regs;
 #define MODE0_ROW_CELL(w) ((uint16_t)(w))
 #define MODE0_ROW_SIZE(w) ((uint8_t)(((w) >> 16) & 3))
 
+#define MODE0_CURSOR_PENDING (1u << 26)
 #define MODE0_CURSOR_ENABLED (1u << 25)
 #define MODE0_CURSOR_LIT (1u << 24)
 #define MODE0_CURSOR(x, y, style) \

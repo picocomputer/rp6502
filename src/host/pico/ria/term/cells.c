@@ -87,19 +87,38 @@ void cells_erase(term_t *t, term_grid_t *g, uint8_t y, unsigned from, unsigned t
     (void)t, (void)g, (void)y, (void)from, (void)to, (void)selective;
 }
 
-void cells_insert(term_t *t, term_grid_t *g, uint8_t y, uint8_t x, unsigned n)
+void cells_insert(term_t *t, term_grid_t *g, uint8_t y, uint8_t x, unsigned end, unsigned n)
 {
-    (void)t, (void)g, (void)y, (void)x, (void)n;
+    (void)t, (void)g, (void)y, (void)x, (void)end, (void)n;
 }
 
-void cells_delete(term_t *t, term_grid_t *g, uint8_t y, uint8_t x, unsigned n)
+void cells_delete(term_t *t, term_grid_t *g, uint8_t y, uint8_t x, unsigned end, unsigned n)
 {
-    (void)t, (void)g, (void)y, (void)x, (void)n;
+    (void)t, (void)g, (void)y, (void)x, (void)end, (void)n;
 }
 
-void cells_shift(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, unsigned n, bool left)
+void cells_shift(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, unsigned from,
+                 unsigned end, unsigned n, bool left)
 {
-    (void)t, (void)g, (void)top, (void)bot, (void)n, (void)left;
+    (void)t, (void)g, (void)top, (void)bot, (void)from, (void)end, (void)n, (void)left;
+}
+
+void cells_scroll_cols(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, unsigned from,
+                       unsigned end, uint8_t n, bool up)
+{
+    (void)t, (void)g, (void)top, (void)bot, (void)from, (void)end, (void)n, (void)up;
+}
+
+void cells_copy(term_t *t, term_grid_t *g, uint8_t sy, unsigned sx, uint8_t dy, unsigned dx,
+                unsigned n)
+{
+    (void)t, (void)g, (void)sy, (void)sx, (void)dy, (void)dx, (void)n;
+}
+
+void cells_attrs(term_t *t, term_grid_t *g, uint8_t y, unsigned from, unsigned to,
+                 unsigned set, unsigned clear, unsigned toggle)
+{
+    (void)t, (void)g, (void)y, (void)from, (void)to, (void)set, (void)clear, (void)toggle;
 }
 
 void cells_erase_rows(term_t *t, term_grid_t *g, uint8_t from, uint8_t to,

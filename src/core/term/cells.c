@@ -207,13 +207,38 @@ cells_words_move(mode_word_t *d, const mode_word_t *f, unsigned w)
 // last on the way up. A move by an odd count of cells has its words off a
 // word boundary at one end, 699 cycles for a row of 80 moved a cell down
 // and 610 up, against 244 for 40 cells moved by 40. Peeling a halfword so
-// every read sits on a word measured no better.
+// every read sits on a word measured no better there. A move by an even
+// count from an odd cell, as from a column of one row to the same column
+// of another, has both ends off a word together, and there a halfword
+// peeled from each end puts every word on one.
 static CELLS_RUN void cells_run_move(mode0_cell_t *dst, const mode0_cell_t *src, unsigned n)
 {
     cells_words_move((mode_word_t *)dst, (const mode_word_t *)src, n);
     uint16_t *cd = (uint16_t *)cells_colors(dst);
     const uint16_t *cf = (const uint16_t *)cells_colors(src);
-    const unsigned halves = 3 * n;
+    unsigned halves = 3 * n;
+    if (halves && (cells_at(dst) & cells_at(src) & 1))
+    {
+        if (dst < src)
+        {
+            *cd++ = *cf++;
+            halves--;
+        }
+        else
+        {
+            // The last halfword of the run, then the first, which is off
+            // a word, after the words between them.
+            halves--;
+            if (halves & 1)
+            {
+                cd[halves] = cf[halves];
+                halves--;
+            }
+            cells_words_move((mode_word_t *)(cd + 1), (const mode_word_t *)(cf + 1), halves / 2);
+            cd[0] = cf[0];
+            return;
+        }
+    }
     if ((halves & 1) && dst > src)
         cd[halves - 1] = cf[halves - 1];
     cells_words_move((mode_word_t *)cd, (const mode_word_t *)cf, halves / 2);
@@ -251,19 +276,46 @@ typedef struct
     uint16_t right_bg;
 } cells_shift_t;
 
-// What a row is owed: nothing, a fill, or a shift.
+// A change of attributes owed to a row, DECCARA's and DECRARA's: the
+// columns [from, to), and the CELLS_MARK_ attributes to set, to clear, and
+// then to reverse.
+typedef struct
+{
+    _Alignas(4) uint8_t from;
+    uint8_t to;
+    uint8_t set;
+    uint8_t clear;
+    uint8_t toggle;
+} cells_marks_t;
+
+// What a row is owed: nothing, a fill, a shift, or a change of attributes.
 enum
 {
     CELLS_OWED_NONE,
     CELLS_OWED_FILL,
     CELLS_OWED_SHIFT,
+    CELLS_OWED_MARKS,
 };
 
 typedef union
 {
     cells_fill_t fill;
     cells_shift_t shift;
+    cells_marks_t marks;
 } cells_owed_t;
+
+// A scroll between left and right margins owed to a screen: columns
+// [from, end) of rows [top, bot] move n rows up or down, and this blank
+// comes in. n is 0 when no scroll is owed. Another scroll of the same
+// columns the same way only adds to n, so a run of line feeds moves the
+// cells once.
+typedef struct
+{
+    uint8_t top, bot, from, end;
+    uint8_t n;
+    bool up;
+    cells_fill_t in;
+} cells_later_t;
 
 // The cells of a screen and how its rows are laid out: the scroll remap and
 // what the rows are still owed. A row of the screen is in a row of memory,
@@ -276,6 +328,7 @@ typedef struct
     uint8_t row_idx[TERM_MAX_HEIGHT];
     uint8_t owed[TERM_MAX_HEIGHT];
     cells_owed_t what[TERM_MAX_HEIGHT];
+    cells_later_t later;
     uint8_t y_offset;
     /* The rows scrolled off the top that are still in the cell store, the
      * newest first. A taller view shows them again; ED 3 forgets them. */
@@ -286,7 +339,6 @@ typedef struct
 // The terminal at one size and its screens' cells.
 typedef struct
 {
-    /* First, so the cells find their own from the grid they are handed. */
     term_grid_t grid;
     uint8_t lines[2 * TERM_MAX_HEIGHT];
     screen_buf_t bufs[2]; /* [0] = primary, [1] = alt, as the terminal's screens */
@@ -308,15 +360,25 @@ static uint16_t cells_cursor_color; // OSC 12
  * (term_add_grid), which the screen does not draw. */
 static inline cells_t *cells_of(term_grid_t *g)
 {
-    if (g == &cells_40.grid || g == &cells_80.grid)
-        return (cells_t *)g;
-    return NULL;
+    return g == &cells_80.grid ? &cells_80 : g == &cells_40.grid ? &cells_40 : NULL;
 }
 
 // The screen showing, which the terminal chooses.
 static inline screen_buf_t *cells_buf(cells_t *cells)
 {
     return &cells->bufs[cells_term.alt_active ? 1 : 0];
+}
+
+static void cells_settle(screen_buf_t *buf);
+
+// The cells of a grid, with the scroll its screen is owed done: for
+// everything that changes a cell.
+static inline cells_t *cells_settled(term_grid_t *g)
+{
+    cells_t *cells = cells_of(g);
+    if (cells && cells_buf(cells)->later.n)
+        cells_settle(cells_buf(cells));
+    return cells;
 }
 
 // Add `row` to `y_offset` and wrap into [0, TERM_MAX_HEIGHT). Used to
@@ -468,6 +530,93 @@ static void cells_fill_erased(term_t *term, mode0_cell_t *row, unsigned start, u
     fill_glyph(row, start, end, &e);
 }
 
+// Bold on or off for a cell's ink, which is a palette entry it can be told
+// of: on, entries 0 to 7 and the default foreground become their bright
+// entries, as the pen draws them; off, an ink that bold brightened goes
+// back. An RGB ink, or one that was bright without bold, stays as it is.
+// Returns the cell's attributes.
+static uint16_t cells_ink_bold(uint16_t *ink, uint16_t attributes, bool on)
+{
+    if (*ink & SCANVIDEO_ALPHA_MASK)
+        return attributes;
+    unsigned entry = *ink >> MODE0_ENTRY_SHIFT;
+    const bool faint = entry >= MODE0_ENTRIES;
+    if (faint)
+        entry -= MODE0_ENTRIES;
+    if (on && !(attributes & MODE0_ATTR_BOLD))
+    {
+        if (entry < 8)
+        {
+            entry += 8;
+            attributes |= MODE0_ATTR_BOLD;
+        }
+        else if (entry == MODE0_DEFAULT_FG)
+        {
+            entry = 15;
+            attributes |= MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT;
+        }
+    }
+    else if (!on && (attributes & MODE0_ATTR_BOLD))
+    {
+        if (attributes & MODE0_ATTR_BOLD_DEFAULT)
+            entry = MODE0_DEFAULT_FG;
+        else if (entry >= 8 && entry < 16)
+            entry -= 8;
+        attributes &= (uint16_t)~(MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT);
+    }
+    *ink = MODE0_ENTRY(entry, faint);
+    return attributes;
+}
+
+// Change the attributes of columns [from, to) of a row: set, clear, then
+// reverse. Each cell's are worked out from what it has, so a cell that
+// already has what is asked is left alone. A cell whose two colors are the
+// same, a concealed one for one, is not made bold, which would show it. An
+// underline set here is a single one in the foreground's color.
+static void cells_row_marks(mode0_cell_t *row, unsigned from, unsigned to,
+                            unsigned set, unsigned clear, unsigned toggle)
+{
+    mode0_colors_t *colors = cells_colors(row);
+    for (unsigned i = from; i < to; i++)
+    {
+        uint16_t a = row[i].attributes;
+        mode0_colors_t *c = &colors[i];
+        const unsigned has = ((a & MODE0_ATTR_BOLD) ? CELLS_MARK_BOLD : 0) |
+                             ((a & TERM_ATTR_UL_MASK) ? CELLS_MARK_UNDERLINE : 0) |
+                             ((a & TERM_ATTR_ANY_BLINK) ? CELLS_MARK_BLINK : 0) |
+                             ((a & MODE0_ATTR_REVERSE) ? CELLS_MARK_REVERSE : 0);
+        const unsigned want = ((has | set) & ~clear) ^ toggle;
+        const unsigned change = has ^ want;
+        if (!change)
+            continue;
+        if (change & CELLS_MARK_REVERSE)
+        {
+            const uint16_t fg = c->fg_color;
+            c->fg_color = c->bg_color;
+            c->bg_color = fg;
+            a ^= MODE0_ATTR_REVERSE;
+        }
+        if ((change & CELLS_MARK_BOLD) && c->fg_color != c->bg_color)
+            a = cells_ink_bold((a & MODE0_ATTR_REVERSE) ? &c->bg_color : &c->fg_color, a,
+                               want & CELLS_MARK_BOLD);
+        if (change & CELLS_MARK_UNDERLINE)
+        {
+            a &= (uint16_t)~(TERM_ATTR_UL_MASK | MODE0_ATTR_UL_COLOR);
+            if (want & CELLS_MARK_UNDERLINE)
+                a |= TERM_ATTR_UL(TERM_UL_SINGLE);
+        }
+        if (change & CELLS_MARK_BLINK)
+        {
+            a &= (uint16_t)~TERM_ATTR_ANY_BLINK;
+            if (want & CELLS_MARK_BLINK)
+                a |= TERM_ATTR_BLINK;
+        }
+        if (!(a & MODE0_ATTR_UL_COLOR))
+            c->ul_color = c->fg_color;
+        row[i].attributes = a;
+    }
+}
+
 // Pay row m of memory what it is owed. A shift moves the survivors, then
 // blanks the columns either side of where they landed.
 static void cells_pay(screen_buf_t *buf, uint8_t m)
@@ -477,6 +626,11 @@ static void cells_pay(screen_buf_t *buf, uint8_t m)
     buf->owed[m] = CELLS_OWED_NONE;
     if (owed == CELLS_OWED_FILL)
         fill_glyph(row, 0, buf->width, &buf->what[m].fill);
+    else if (owed == CELLS_OWED_MARKS)
+    {
+        const cells_marks_t *k = &buf->what[m].marks;
+        cells_row_marks(row, k->from, k->to, k->set, k->clear, k->toggle);
+    }
     else if (owed == CELLS_OWED_SHIFT)
     {
         const cells_shift_t *s = &buf->what[m].shift;
@@ -544,13 +698,20 @@ static bool cells_clean_one_dirty(screen_buf_t *buf, uint8_t height)
     return false;
 }
 
-// Clean at most one row per tick: prefer the active buffer; only touch
-// the inactive one if the active is already clean. Invariant: the cursor's
+// Do a scroll a screen is owed, or else clean at most one row per tick:
+// prefer the active buffer; only touch the inactive one if the active is
+// already clean. Invariant: the cursor's
 // row is never dirty on the active buffer (the terminal touches every row it
 // puts the cursor on), so the cursor cell is never affected by this task and
 // it never has to call cells_cursor_restart_blink.
 static void cells_clean_task(cells_t *cells)
 {
+    for (int b = 0; b < 2; b++)
+        if (cells->bufs[b].later.n)
+        {
+            cells_settle(&cells->bufs[b]);
+            return;
+        }
     if (cells_clean_one_dirty(cells_buf(cells), cells->grid.height))
         return;
     screen_buf_t *other = &cells->bufs[cells_term.alt_active ? 0 : 1];
@@ -561,7 +722,8 @@ static void cells_clean_task(cells_t *cells)
 // Rows [from, to) of the screen are owed this fill, in place of whatever
 // they were owed. A row owed a whole fill has every cell guarded or none,
 // so a selective erase of it spares all of that fill or lands whole. A row
-// owed a shift is paid before a selective erase, which goes by its guards.
+// owed a shift or a change of attributes is paid before a selective erase,
+// which goes by its guards.
 static void cells_mark_rows_with(screen_buf_t *s, uint8_t from, uint8_t to,
                                  const cells_fill_t *e)
 {
@@ -569,7 +731,7 @@ static void cells_mark_rows_with(screen_buf_t *s, uint8_t from, uint8_t to,
     {
         const uint8_t m = cells_buf_mem(s, i);
         cells_fill_t *fill = &s->what[m].fill;
-        if (e->selective && s->owed[m] == CELLS_OWED_SHIFT)
+        if (e->selective && s->owed[m] >= CELLS_OWED_SHIFT)
             cells_pay(s, m);
         else if (e->selective && s->owed[m] == CELLS_OWED_FILL && !fill->selective)
         {
@@ -602,7 +764,8 @@ static void cells_mark_rows_erase(term_t *term, cells_t *cells, uint8_t from, ui
 }
 
 // Lazy clear of the given screen buffer: resets y_offset / row_idx to
-// identity and marks every visible row dirty with the given erase.
+// identity and marks every visible row dirty with the given erase. A scroll
+// the screen was owed is forgotten with the cells it would have moved.
 // No cell memory is touched here -- cells_clean_task drains dirty rows in
 // the background (one row per tick, on both buffers), and the active
 // buffer's cursor row is also cleaned synchronously when the terminal
@@ -611,6 +774,7 @@ static void cells_mark_buf_erased(screen_buf_t *buf, uint8_t height, const cells
 {
     buf->y_offset = 0;
     buf->hidden = 0;
+    buf->later.n = 0;
     for (uint8_t y = 0; y < TERM_MAX_HEIGHT; y++)
     {
         buf->row_idx[y] = y;
@@ -637,7 +801,9 @@ void cells_touch(term_t *term, term_grid_t *g, uint8_t y)
 // iCE colors mode (?33) the blink bits are left off the cell: the bright
 // background is the blink. An underline SGR 58 colored is flagged, so the
 // renderer reads its color; any other holds the foreground's color. A cell
-// written while DECSCA or SPA protects is guarded.
+// written while DECSCA or SPA protects is guarded. The cell says when bold
+// brightened its ink and when its colors are swapped, so DECCARA and
+// DECRARA can undo either; a concealed cell has no ink to say it of.
 static cells_fill_t cells_glyph_cell(term_t *term, const term_grid_t *g, uint8_t byte)
 {
     const term_pen_t *pen = term_pen(term);
@@ -663,6 +829,15 @@ static cells_fill_t cells_glyph_cell(term_t *term, const term_grid_t *g, uint8_t
         attributes |= MODE0_ATTR_UL_COLOR;
     if (term_protecting(term))
         attributes |= MODE0_ATTR_GUARD;
+    if (pen->reverse)
+        attributes |= MODE0_ATTR_REVERSE;
+    if (pen->bold && !pen->conceal)
+    {
+        if (pen->fg.kind == TERM_COLOR_INDEX && pen->fg.index < 8)
+            attributes |= MODE0_ATTR_BOLD;
+        else if (pen->fg.kind == TERM_COLOR_DEFAULT)
+            attributes |= MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT;
+    }
     uint16_t glyph = byte;
     uint8_t set = pen->gl_is_g1 ? pen->g1_charset : pen->g0_charset;
     if (set == TERM_CS_DEC && byte >= 0x5F && byte <= 0x7E)
@@ -680,7 +855,7 @@ static cells_fill_t cells_glyph_cell(term_t *term, const term_grid_t *g, uint8_t
 
 void cells_glyphs(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, uint8_t byte, unsigned n)
 {
-    if (!cells_of(g))
+    if (!cells_settled(g))
         return;
     const cells_fill_t e = cells_glyph_cell(term, g, byte);
     mode0_cell_t *at = cells_row_ptr(cells_of(g), y) + x;
@@ -696,7 +871,7 @@ void cells_glyphs(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, uint8_t by
 
 void cells_fill_row(term_t *term, term_grid_t *g, uint8_t y, uint8_t byte)
 {
-    if (!cells_of(g))
+    if (!cells_settled(g))
         return;
     const cells_fill_t e = cells_glyph_cell(term, g, byte);
     cells_mark_rows_with(cells_buf(cells_of(g)), y, (uint8_t)(y + 1), &e);
@@ -705,30 +880,78 @@ void cells_fill_row(term_t *term, term_grid_t *g, uint8_t y, uint8_t byte)
 void cells_erase(term_t *term, term_grid_t *g, uint8_t y, unsigned from, unsigned to,
                  bool selective)
 {
-    if (!cells_of(g))
+    if (!cells_settled(g))
         return;
     cells_fill_erased(term, cells_row_ptr(cells_of(g), y), from, to, selective);
 }
 
-void cells_insert(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, unsigned n)
+// Columns [x, end) of a row move n right, erased cells coming in at x; or n
+// left, erased cells coming in before end.
+static void cells_row_insert(term_t *term, mode0_cell_t *row, unsigned x, unsigned end,
+                             unsigned n)
 {
-    if (!cells_of(g))
-        return;
-    unsigned avail = term_cols(g, y) - x;
-    mode0_cell_t *row = cells_row_ptr(cells_of(g), y);
-    cells_run_move(&row[x + n], &row[x], avail - n);
+    cells_run_move(&row[x + n], &row[x], end - x - n);
     cells_fill_erased(term, row, x, x + n, false);
 }
 
-void cells_delete(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, unsigned n)
+static void cells_row_delete(term_t *term, mode0_cell_t *row, unsigned x, unsigned end,
+                             unsigned n)
 {
-    if (!cells_of(g))
+    cells_run_move(&row[x], &row[x + n], end - x - n);
+    cells_fill_erased(term, row, end - n, end, false);
+}
+
+void cells_insert(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, unsigned end, unsigned n)
+{
+    if (!cells_settled(g))
         return;
-    unsigned cols = term_cols(g, y);
-    unsigned avail = cols - x;
-    mode0_cell_t *row = cells_row_ptr(cells_of(g), y);
-    cells_run_move(&row[x], &row[x + n], avail - n);
-    cells_fill_erased(term, row, cols - n, cols, false);
+    cells_row_insert(term, cells_row_ptr(cells_of(g), y), x, end, n);
+}
+
+void cells_delete(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, unsigned end, unsigned n)
+{
+    if (!cells_settled(g))
+        return;
+    cells_row_delete(term, cells_row_ptr(cells_of(g), y), x, end, n);
+}
+
+void cells_copy(term_t *term, term_grid_t *g, uint8_t sy, unsigned sx, uint8_t dy, unsigned dx,
+                unsigned n)
+{
+    if (!cells_settled(g))
+        return;
+    (void)term;
+    cells_t *cells = cells_of(g);
+    cells_clean_line(cells, sy);
+    cells_clean_line(cells, dy);
+    cells_run_move(cells_row_ptr(cells, dy) + dx, cells_row_ptr(cells, sy) + sx, n);
+}
+
+// The row is only owed the change, after whatever it was owed before: no
+// cell changes until the row is paid. The cursor's row is never left owing.
+// In iCE colors mode (?33) no cell blinks, so none is made to.
+void cells_attrs(term_t *term, term_grid_t *g, uint8_t y, unsigned from, unsigned to,
+                 unsigned set, unsigned clear, unsigned toggle)
+{
+    if (!cells_settled(g))
+        return;
+    cells_t *cells = cells_of(g);
+    screen_buf_t *buf = cells_buf(cells);
+    const uint8_t m = cells_buf_mem(buf, y);
+    if (term->ice_colors)
+    {
+        set &= ~CELLS_MARK_BLINK;
+        toggle &= ~CELLS_MARK_BLINK;
+    }
+    if (buf->owed[m])
+        cells_pay(buf, m);
+    const cells_marks_t marks = {(uint8_t)from, (uint8_t)to, (uint8_t)set, (uint8_t)clear,
+                                 (uint8_t)toggle};
+    buf->what[m].marks = marks;
+    buf->owed[m] = CELLS_OWED_MARKS;
+    buf->all_clean = false;
+    if (y == term_pos(g)->y)
+        cells_pay(buf, m);
 }
 
 // One more shift of n columns, with blanks in these colors, added to the
@@ -765,15 +988,35 @@ static inline void cells_shift_add(cells_shift_t *s, uint8_t cols, uint8_t n, bo
 // added to its record. It is paid first only when this shift's blanks
 // would sit beside blanks of another color on the same side. A row owed a
 // whole fill of the very cells the shift brings in is left to it: shifted,
-// it is the same row. Any other fill is paid first. The cursor's row is
+// it is the same row. Any other fill, and a change of attributes, is paid
+// first. The cursor's row is
 // never left owing. A row of the full width that owes nothing, which is
-// most rows, takes a record made once for them all.
-void cells_shift(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigned count, bool left)
+// most rows, takes a record made once for them all. Between left and right
+// margins a row is owed nothing new: the cells between them move now.
+void cells_shift(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigned from,
+                 unsigned end, unsigned count, bool left)
 {
-    if (!cells_of(g))
+    if (!cells_settled(g))
         return;
     cells_t *cells = cells_of(g);
     screen_buf_t *buf = cells_buf(cells);
+    if (from || end != buf->width)
+    {
+        for (uint8_t y = top; y <= bot; y++)
+        {
+            const unsigned cols = term_cols(g, y);
+            const unsigned e = end < cols ? end : cols;
+            if (from >= e)
+                continue;
+            const unsigned n = count < e - from ? count : e - from;
+            cells_clean_line(cells, y);
+            if (left)
+                cells_row_delete(term, cells_row_ptr(cells, y), from, e, n);
+            else
+                cells_row_insert(term, cells_row_ptr(cells, y), from, e, n);
+        }
+        return;
+    }
     const cells_fill_t in = cells_pen_erase(term, false);
     const uint16_t fg = in.colors.fg_color, bg = in.colors.bg_color;
     const uint8_t width = buf->width;
@@ -809,6 +1052,8 @@ void cells_shift(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigne
             else
                 r = *s;
         }
+        else if (owed == CELLS_OWED_MARKS)
+            cells_pay(buf, m);
         cells_shift_add(&r, cols, n, left, fg, bg);
         buf->owed[m] = CELLS_OWED_SHIFT;
         *s = r;
@@ -820,14 +1065,14 @@ void cells_shift(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigne
 void cells_erase_rows(term_t *term, term_grid_t *g, uint8_t from, uint8_t to,
                       bool selective)
 {
-    if (!cells_of(g))
+    if (!cells_settled(g))
         return;
     cells_mark_rows_erase(term, cells_of(g), from, to, selective);
 }
 
 void cells_align(term_t *term, term_grid_t *g)
 {
-    if (!cells_of(g))
+    if (!cells_settled(g))
         return;
     (void)term;
     const cells_fill_t e = cells_blank('E', MODE0_ENTRY(MODE0_DEFAULT_FG, false),
@@ -835,15 +1080,11 @@ void cells_align(term_t *term, term_grid_t *g)
     cells_mark_rows_with(cells_buf(cells_of(g)), 0, g->height, &e);
 }
 
-// Rotate row_idx within the region by n. Each row's owed fill is its row of
-// memory's, so it goes with it. The n rows coming in are lazy-erased in the
-// pen's colors.
-void cells_scroll(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, uint8_t n, bool up)
+// Rotate row_idx within rows [top, bot] by n: each row takes the row of
+// memory n rows below it, or above it, and the n at the end go round. What
+// a row is owed is its row of memory's, so it goes with it.
+static void cells_rows_rotate(screen_buf_t *s, uint8_t top, uint8_t bot, uint8_t n, bool up)
 {
-    if (!cells_of(g))
-        return;
-    cells_t *cells = cells_of(g);
-    screen_buf_t *s = cells_buf(cells);
     uint8_t y_off = s->y_offset;
     uint8_t saved[TERM_MAX_HEIGHT];
     if (up)
@@ -854,7 +1095,6 @@ void cells_scroll(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, uint8_
             s->row_idx[cells_buf_slot(y_off, i)] = s->row_idx[cells_buf_slot(y_off, (uint8_t)(i + n))];
         for (uint8_t i = 0; i < n; i++)
             s->row_idx[cells_buf_slot(y_off, (uint8_t)(bot - n + 1 + i))] = saved[i];
-        cells_mark_rows_erase(term, cells, (uint8_t)(bot - n + 1), (uint8_t)(bot + 1), false);
     }
     else
     {
@@ -864,14 +1104,178 @@ void cells_scroll(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, uint8_
             s->row_idx[cells_buf_slot(y_off, (uint8_t)i)] = s->row_idx[cells_buf_slot(y_off, (uint8_t)(i - n))];
         for (uint8_t i = 0; i < n; i++)
             s->row_idx[cells_buf_slot(y_off, (uint8_t)(top + i))] = saved[i];
-        cells_mark_rows_erase(term, cells, top, (uint8_t)(top + n), false);
     }
+}
+
+// The rows move, and the n rows coming in are lazy-erased in the pen's
+// colors.
+void cells_scroll(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, uint8_t n, bool up)
+{
+    if (!cells_settled(g))
+        return;
+    cells_t *cells = cells_of(g);
+    cells_rows_rotate(cells_buf(cells), top, bot, n, up);
+    if (up)
+        cells_mark_rows_erase(term, cells, (uint8_t)(bot - n + 1), (uint8_t)(bot + 1), false);
+    else
+        cells_mark_rows_erase(term, cells, top, (uint8_t)(top + n), false);
+}
+
+// The cells of a row either side of columns [from, end), kept while the
+// rows move round. No more than this many are ever kept: with more either
+// side than between, the cells between are the ones copied.
+#define CELLS_STRIP_MAX 40
+typedef struct
+{
+    mode0_cell_t cell[CELLS_STRIP_MAX];
+    mode0_colors_t colors[CELLS_STRIP_MAX];
+} cells_strip_t;
+
+static CELLS_RUN void cells_strip_keep(cells_strip_t *strip, const mode0_cell_t *row,
+                                       unsigned from, unsigned end, unsigned width)
+{
+    const mode0_colors_t *colors = cells_colors(row);
+    unsigned k = 0;
+    for (unsigned i = 0; i < from; i++, k++)
+    {
+        strip->cell[k] = row[i];
+        strip->colors[k] = colors[i];
+    }
+    for (unsigned i = end; i < width; i++, k++)
+    {
+        strip->cell[k] = row[i];
+        strip->colors[k] = colors[i];
+    }
+}
+
+static CELLS_RUN void cells_strip_put(const cells_strip_t *strip, mode0_cell_t *row,
+                                      unsigned from, unsigned end, unsigned width)
+{
+    mode0_colors_t *colors = cells_colors(row);
+    unsigned k = 0;
+    for (unsigned i = 0; i < from; i++, k++)
+    {
+        row[i] = strip->cell[k];
+        colors[i] = strip->colors[k];
+    }
+    for (unsigned i = end; i < width; i++, k++)
+    {
+        row[i] = strip->cell[k];
+        colors[i] = strip->colors[k];
+    }
+}
+
+static CELLS_RUN void cells_strip_move(mode0_cell_t *to, const mode0_cell_t *row,
+                                       unsigned from, unsigned end, unsigned width)
+{
+    mode0_colors_t *tc = cells_colors(to);
+    const mode0_colors_t *rc = cells_colors(row);
+    if (from > 4)
+        cells_run_move(to, row, from);
+    else
+        for (unsigned i = 0; i < from; i++)
+        {
+            to[i] = row[i];
+            tc[i] = rc[i];
+        }
+    if (width - end > 4)
+        cells_run_move(to + end, row + end, width - end);
+    else
+        for (unsigned i = end; i < width; i++)
+        {
+            to[i] = row[i];
+            tc[i] = rc[i];
+        }
+}
+
+// Do the scroll a screen is owed. A row cannot move, as it does in a scroll
+// of whole rows, without taking the cells either side of the columns with
+// it. So the cells between the columns are copied up or down a row at a
+// time; or, when there are fewer cells either side, the rows move and the
+// cells either side go back to the rows they were on, each row's to the
+// next round the region. No row of the region is owed anything: they were
+// paid when the scroll came to be owed, and everything that changes a cell
+// does the scroll first.
+static void cells_settle(screen_buf_t *buf)
+{
+    const cells_later_t l = buf->later;
+    if (!l.n)
+        return;
+    buf->later.n = 0;
+    cells_stale = true;
+    const unsigned top = l.top, bot = l.bot, from = l.from, end = l.end, n = l.n;
+    const unsigned h = bot - top + 1;
+    const unsigned width = buf->width, inside = end - from, outside = width - inside;
+    if (n < h && (outside > CELLS_STRIP_MAX || inside * (h - n) <= outside * h))
+    {
+        for (unsigned i = 0; i < h - n; i++)
+        {
+            const unsigned to = l.up ? top + i : bot - i;
+            cells_run_move(cells_buf_row(buf, (uint8_t)to) + from,
+                           cells_buf_row(buf, (uint8_t)(l.up ? to + n : to - n)) + from, inside);
+        }
+    }
+    else if (n < h)
+    {
+        cells_rows_rotate(buf, (uint8_t)top, (uint8_t)bot, (uint8_t)n, l.up);
+        // Row j of the region now has the cells either side that belong
+        // on row j + step, counted round the region.
+        const unsigned step = l.up ? n : h - n;
+        cells_strip_t strip;
+        for (unsigned first = 0, moved = 0; moved < h; first++)
+        {
+            mode0_cell_t *row = cells_buf_row(buf, (uint8_t)(top + first));
+            cells_strip_keep(&strip, row, from, end, width);
+            for (unsigned j = first;;)
+            {
+                unsigned src = j >= step ? j - step : j + h - step;
+                moved++;
+                if (src == first)
+                {
+                    cells_strip_put(&strip, row, from, end, width);
+                    break;
+                }
+                mode0_cell_t *other = cells_buf_row(buf, (uint8_t)(top + src));
+                cells_strip_move(row, other, from, end, width);
+                row = other;
+                j = src;
+            }
+        }
+    }
+    for (unsigned i = 0; i < n; i++)
+        fill_glyph(cells_buf_row(buf, (uint8_t)(l.up ? bot - i : top + i)), from, end, &l.in);
+}
+
+// The screen is only owed the scroll. One of the same columns the same way
+// that it already owes is added to; any other is done first. Every row of
+// the region is paid what it is owed, which is owed to a whole row.
+void cells_scroll_cols(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigned from,
+                       unsigned end, uint8_t n, bool up)
+{
+    if (!cells_of(g))
+        return;
+    cells_t *cells = cells_of(g);
+    screen_buf_t *buf = cells_buf(cells);
+    cells_later_t *l = &buf->later;
+    const cells_fill_t in = cells_pen_erase(term, false);
+    const unsigned h = (unsigned)bot - top + 1;
+    if (l->n && l->top == top && l->bot == bot && l->from == from && l->end == end &&
+        l->up == up && cells_fill_same(&l->in, &in))
+    {
+        l->n = (uint8_t)(l->n + n < h ? l->n + n : h);
+        return;
+    }
+    cells_settle(buf);
+    for (unsigned y = top; y <= bot; y++)
+        cells_clean_line(cells, (uint8_t)y);
+    const cells_later_t later = {top, bot, (uint8_t)from, (uint8_t)end, n, up, in};
+    *l = later;
 }
 
 // The fast scroll: the viewport rotates through y_offset.
 void cells_index(term_t *term, term_grid_t *g, bool up)
 {
-    if (!cells_of(g))
+    if (!cells_settled(g))
         return;
     cells_t *cells = cells_of(g);
     screen_buf_t *s = cells_buf(cells);
@@ -911,7 +1315,7 @@ void cells_clear(term_t *term, term_grid_t *g)
 
 void cells_height(term_grid_t *g, bool grow, bool top)
 {
-    if (!cells_of(g))
+    if (!cells_settled(g))
         return;
     cells_t *cells = cells_of(g);
     screen_buf_t *s = cells_buf(cells);
@@ -1077,10 +1481,8 @@ void cells_publish(void)
             mode0_regs.row[y] = MODE0_ROW(cells_buf_row(buf, y) - mode0_cells, ls[y]);
     }
     const term_pos_t *pos = term_pos(&cells->grid);
-    // A pending wrap is shown as the column past the last, which is how the
-    // renderer knows to draw it.
-    mode0_regs.cursor = MODE0_CURSOR(pos->x + (pos->wrap_pending ? 1 : 0),
-                                     pos->y, cells_term.cursor_style) |
+    mode0_regs.cursor = MODE0_CURSOR(pos->x, pos->y, cells_term.cursor_style) |
+                        (pos->wrap_pending ? MODE0_CURSOR_PENDING : 0) |
                         (cells_term.cursor_enabled ? MODE0_CURSOR_ENABLED : 0) |
                         (cells->cursor_lit ? MODE0_CURSOR_LIT : 0);
     mode0_regs.cursor_color = cells_cursor_color;
@@ -1252,6 +1654,17 @@ static void cells_put_buf(sst_cursor_t *c, const screen_buf_t *b)
             sst_put_u16(c, s->right_fg);
             sst_put_u16(c, s->right_bg);
         }
+        else if (b->owed[i] == CELLS_OWED_MARKS)
+        {
+            const cells_marks_t *k = &b->what[i].marks;
+            sst_put_u8(c, k->from);
+            sst_put_u8(c, k->to);
+            sst_put_u8(c, k->set);
+            sst_put_u8(c, k->clear);
+            sst_put_u8(c, k->toggle);
+            for (int n = 5; n < 12; n++)
+                sst_put_u8(c, 0);
+        }
         else if (b->owed[i] == CELLS_OWED_FILL)
         {
             const cells_fill_t *e = &b->what[i].fill;
@@ -1298,6 +1711,19 @@ static bool cells_get_buf(sst_cursor_t *c, screen_buf_t *b)
                   cells_color_ok(s->left_fg) && cells_color_ok(s->left_bg) &&
                   cells_color_ok(s->right_fg) && cells_color_ok(s->right_bg);
         }
+        else if (b->owed[i] == CELLS_OWED_MARKS)
+        {
+            cells_marks_t *k = &b->what[i].marks;
+            k->from = sst_get_u8(c);
+            k->to = sst_get_u8(c);
+            k->set = sst_get_u8(c);
+            k->clear = sst_get_u8(c);
+            k->toggle = sst_get_u8(c);
+            for (int n = 5; n < 12; n++)
+                sst_get_u8(c);
+            /* The record indexes the row's cells. */
+            ok &= k->from <= k->to && k->to <= b->width;
+        }
         else if (b->owed[i] == CELLS_OWED_FILL)
         {
             cells_fill_t *e = &b->what[i].fill;
@@ -1322,6 +1748,7 @@ static bool cells_get_buf(sst_cursor_t *c, screen_buf_t *b)
     b->y_offset = sst_get_u8(c);
     b->hidden = sst_get_u8(c);
     b->all_clean = sst_get_bool(c);
+    b->later.n = 0;
     /* Everything here indexes the cell array. row_idx is the scroll remap and
      * y_offset is added to it before the lookup, so both are bounded. */
     if (!ok || !sst_ok(c) || b->y_offset >= TERM_MAX_HEIGHT || b->hidden >= TERM_MAX_HEIGHT)
@@ -1359,6 +1786,12 @@ static bool cells_get_one(sst_cursor_t *c, cells_t *cells)
 void cells_sst_save(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
+    /* A scroll a screen is owed is done, so the cells saved are the cells. */
+    for (int b = 0; b < 2; b++)
+    {
+        cells_settle(&cells_40.bufs[b]);
+        cells_settle(&cells_80.bufs[b]);
+    }
     sst_put_u8(c, TERM_MAX_HEIGHT);
     sst_put_bool(c, TERM_ALT_SCREEN ? true : false);
     sst_put_u8(c, 2); /* how many sizes this machine has */

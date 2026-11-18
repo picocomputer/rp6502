@@ -87,8 +87,8 @@ mode0_row_pairs(uint32_t *pair, const mode0_cell_t *cell, const mode0_colors_t *
  * `lines` says this scanline is a row of the glyph where an underline, a
  * strike or an overline can be. On any other row every cell is its glyph
  * through its pairs, and its attributes are not read. On such a row a cell
- * with no attributes, the common one, is still only that. For any other,
- * `underline` is this row of the underlines, by style, and `line_mask` has
+ * with no line through it, the common one, is still only that. For any
+ * other, `underline` is this row of the underlines, by style, and `line_mask` has
  * the strike and the overline when this row is theirs. A line in the
  * foreground's color is more pixels of the glyph. An underline in a color
  * of its own is drawn over the glyph, a pixel at a time. */
@@ -111,13 +111,12 @@ mode0_draw(uint16_t *rgb, const mode0_cell_t *cell, const uint32_t *pair, int co
     }
     for (int i = 0; i < cols; i++, cell++, pair += 4, rgb += wide ? 16 : 8)
     {
-        /* The glyph and the attributes in one load: with no attributes
-         * the value is the glyph. */
+        /* The glyph and the attributes in one load. */
         uint32_t ca;
         memcpy(&ca, cell, sizeof(ca));
         uint8_t bits;
-        if (MODE_LIKELY(ca < 0x10000))
-            bits = font_line[ca];
+        if (MODE_LIKELY(!(ca & ((uint32_t)MODE0_ATTR_LINES << 16))))
+            bits = font_line[(uint16_t)ca];
         else
         {
             const uint16_t attr = (uint16_t)(ca >> 16);
@@ -233,11 +232,11 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
          cursor_style == 6))
     {
         uint8_t cx = MODE0_CURSOR_X(cursor);
-        // A deferred wrap parks the cursor one column past the last, so cx can
-        // be the row's width. It is drawn on the last column instead, as a
-        // block (DECSCUSR style 1) whatever style is set.
-        bool wrap_pending = (cx >= cols);
-        if (wrap_pending)
+        // A cursor with a wrap pending is drawn as a block (DECSCUSR style
+        // 1) whatever style is set. A column past the row's, from a row
+        // copied part way through a change, is the last.
+        const bool wrap_pending = cursor & MODE0_CURSOR_PENDING;
+        if (cx >= cols)
             cx = (uint8_t)(cols - 1);
         uint16_t *crgb = rgb + (uint32_t)cx * (wide ? 16 : 8);
         const uint16_t cursor_color = (uint16_t)mode0_regs.cursor_color;

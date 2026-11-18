@@ -26,7 +26,7 @@ typedef struct
     uint8_t width;
     uint8_t height;
     uint8_t cursor_x, cursor_y, cursor_style;
-    bool cursor_enabled, cursor_lit;
+    bool cursor_enabled, cursor_lit, cursor_pending;
     uint16_t cursor_color;
     uint8_t blink_phase;
     bool reverse;
@@ -44,6 +44,7 @@ static inline void tb_screen(tb_screen_t *v)
     v->cursor_style = MODE0_CURSOR_STYLE(cursor);
     v->cursor_enabled = (cursor & MODE0_CURSOR_ENABLED) != 0;
     v->cursor_lit = (cursor & MODE0_CURSOR_LIT) != 0;
+    v->cursor_pending = (cursor & MODE0_CURSOR_PENDING) != 0;
     v->cursor_color = (uint16_t)mode0_regs.cursor_color;
     v->blink_phase = MODE0_SCREEN_BLINK(screen);
     v->reverse = (screen & MODE0_SCREEN_REVERSE) != 0;

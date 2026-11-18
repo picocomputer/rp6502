@@ -15,8 +15,8 @@
 #include <string.h>
 
 // A VT102 with most of what xterm adds: 256 colors and truecolor, the
-// alternate screen, the dynamic colors of OSC 4/10/11/12 and bracketed
-// paste. The parser follows the DEC/xterm state machine (vt100.net), so
+// alternate screen, the dynamic colors of OSC 4/10/11/12, bracketed paste,
+// and the VT420's left and right margins and rectangles. The parser follows the DEC/xterm state machine (vt100.net), so
 // unknown sequences and strings are taken apart the way xterm does. Inside a sequence BS-SI and BEL act and the sequence
 // goes on, as in xterm; any other control ends it silently, as in Linux. DEC
 // Special Graphics is a character set (ESC ( 0 / SO / SI) the cells draw
@@ -103,6 +103,8 @@ static void term_reset_core(term_t *t)
     t->autorepeat = true;
     t->ice_colors = false;
     t->bracketed_paste = false;
+    t->lr_margins = false;
+    t->rect_attrs = false;
     t->protect_mode = TERM_PROTECT_OFF;
     t->erase_all = false;
     t->reverse_screen = false;
@@ -135,13 +137,15 @@ void term_RIS_no_clear(term_t *t)
 // DECSTR, CSI ! p: the soft reset a program sends. It resets the modes on
 // DEC's list -- IRM, DECOM, DECAWM (to our default, on), DECTCEM, DECCKM,
 // the keypad mode, the character sets, SGR, the margins and the saved cursor
-// -- and ends a pending wrap, but leaves the cursor where it is. The pen's
+// -- and ends a pending wrap, but leaves the cursor where it is. DECLRMM
+// resets with the margins, as on xterm. The pen's
 // protection goes with SGR, and no erase spares a protected cell until a
 // DECSCA or SPA again, as on xterm. The cursor style, iCE colors,
 // autorepeat, the palette, the tab stops and the screen are left alone.
 static void term_out_DECSTR(term_t *t)
 {
     t->protect_mode = TERM_PROTECT_OFF;
+    t->lr_margins = false;
     t->insert_mode = false;
     t->app_cursor = false;
     t->app_keypad = false;
@@ -194,7 +198,7 @@ void term_init(term_t *t, term_grid_t *const *grids, uint8_t count)
 
 /* ---- saved cursor and screens ------------------------------------------ */
 
-// DECSC (ESC 7, CSI s, ?1048 h): save the cursor, its pen, the pending wrap
+// DECSC (ESC 7, CSI s without DECLRMM, ?1048 h): save the cursor, its pen, the pending wrap
 // and the character sets in the showing screen's slot. Each screen has its
 // own.
 static void term_save_cursor(term_t *t)
@@ -508,12 +512,15 @@ static void term_out_DSR(term_t *t)
     {
         const term_grid_t *g = term_shown(t);
         const term_pos_t *pos = &g->pos[t->alt_active];
-        unsigned y = pos->y;
-        // Region-relative under DECOM, guarded so a cursor above the region
-        // reports row 1 rather than underflowing.
+        unsigned y = pos->y, x = pos->x;
+        // Relative to the margins under DECOM, guarded so a cursor outside
+        // them reports 1 rather than underflowing.
         if (term_pen(t)->origin_mode)
+        {
             y = (y >= g->margin_top) ? (y - g->margin_top) : 0;
-        term_replyf(t, "\33[%u;%uR", y + 1, pos->x + 1u, 0);
+            x = (x >= g->margin_left) ? (x - g->margin_left) : 0;
+        }
+        term_replyf(t, "\33[%u;%uR", y + 1, x + 1, 0);
         break;
     }
     }
@@ -608,6 +615,9 @@ static void term_out_DECRQM(term_t *t, bool private)
             break;
         case 66: // DECNKM
             pm = t->app_keypad ? 1 : 2;
+            break;
+        case 69: // DECLRMM
+            pm = t->lr_margins ? 1 : 2;
             break;
         case 2004: // bracketed paste
             pm = t->bracketed_paste ? 1 : 2;
@@ -765,6 +775,10 @@ static void term_out_DECSET(term_t *t, bool set)
             break;
         case 66: // DECNKM: the keypad mode, as ESC = and ESC >
             t->app_keypad = set;
+            break;
+        case 69: // DECLRMM: CSI s sets the left and right margins
+            t->lr_margins = set;
+            term_grids(t, GRID_LRMM, set);
             break;
         case 2004: // bracketed paste
             t->bracketed_paste = set;
@@ -1102,8 +1116,10 @@ static void term_designate(uint8_t *g, uint8_t final)
 }
 
 // The final byte of ESC I... F, a sequence with intermediates: the character
-// set designations, and ESC # for the line sizes and DECALN. ESC % (UTF-8),
-// ESC SP (7/8-bit controls), G2 and G3 are taken and ignored.
+// set designations, and ESC # for the line sizes and DECALN. With left and
+// right margins allowed (DECLRMM) every line is single size, as on a VT420
+// and xterm. ESC % (UTF-8), ESC SP (7/8-bit controls), G2 and G3 are taken
+// and ignored.
 static void term_esc_int_final(term_t *t, uint8_t ch)
 {
     t->ansi_state = ansi_state_ground;
@@ -1112,7 +1128,8 @@ static void term_esc_int_final(term_t *t, uint8_t ch)
         term_designate(&term_pen(t)->g0_charset, ch);
     else if (t->csi_intermediate == ')')
         term_designate(&term_pen(t)->g1_charset, ch);
-    else if (t->csi_intermediate == '#' && ch >= '3' && ch <= '8' && ch != '7')
+    else if (t->csi_intermediate == '#' && ch >= '3' && ch <= '8' && ch != '7' &&
+             (ch == '8' || !t->lr_margins))
         term_grids(t, GRID_LINE, ch);
 }
 
@@ -1242,8 +1259,11 @@ static void term_csi_dispatch(term_t *t, uint8_t ch)
     case 'n':
         term_out_DSR(t);
         break;
-    case 's': // DECSC (xterm's SCOSC, the same without left and right margins)
-        term_save_cursor(t);
+    case 's': // DECSLRM with DECLRMM set; without, xterm's SCOSC, which is DECSC
+        if (t->lr_margins)
+            term_grids(t, GRID_CSI, ch);
+        else if (t->csi_param_count == 1 && !t->csi_param[0])
+            term_save_cursor(t);
         break;
     case 't':
         term_out_window(t);
@@ -1289,6 +1309,13 @@ static void term_csi_final(term_t *t, uint8_t ch)
             term_out_DECSCA(t);
         else if (inter == '$' && ch == 'p')
             term_out_DECRQM(t, false);
+        else if (inter == '$' && (ch == 'x' || ch == 'z' || ch == '{' || ch == 'v' ||
+                                  ch == 'r' || ch == 't'))
+            term_grids(t, GRID_RECT, ch);
+        else if (inter == '*' && ch == 'x' && t->csi_param[0] <= 2)
+            // DECSACE: DECCARA and DECRARA change a rectangle (2) or the
+            // stream of cells from its first corner to its last (0, 1).
+            t->rect_attrs = t->csi_param[0] == 2;
         break;
     case '?':
         if (!inter && (ch == 'h' || ch == 'l'))
@@ -1571,6 +1598,8 @@ void term_sst_put(sst_cursor_t *c, const term_t *t)
     sst_put_bool(c, t->autorepeat);
     sst_put_bool(c, t->ice_colors);
     sst_put_bool(c, t->bracketed_paste);
+    sst_put_bool(c, t->lr_margins);
+    sst_put_bool(c, t->rect_attrs);
     sst_put_u8(c, t->protect_mode);
     sst_put_bool(c, t->erase_all);
     sst_put_bool(c, t->reverse_screen);
@@ -1620,6 +1649,8 @@ bool term_sst_get(sst_cursor_t *c, term_t *t)
     t->autorepeat = sst_get_bool(c);
     t->ice_colors = sst_get_bool(c);
     t->bracketed_paste = sst_get_bool(c);
+    t->lr_margins = sst_get_bool(c);
+    t->rect_attrs = sst_get_bool(c);
     t->protect_mode = sst_get_u8(c);
     t->erase_all = sst_get_bool(c);
     t->reverse_screen = sst_get_bool(c);

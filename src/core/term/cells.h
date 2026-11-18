@@ -72,7 +72,7 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags);
 #define CELLS_DRIVER DRIVER(                                    \
     INIT(cells_init)                                            \
     TASK_FATFS(cells_task)                                      \
-    SST(CELL, 10, CELLS_SST_SIZE, cells_sst_save, cells_sst_load))
+    SST(CELL, 11, CELLS_SST_SIZE, cells_sst_save, cells_sst_load))
 
 /* ---- what the terminal asks of the screen ------------------------------
  *
@@ -98,7 +98,8 @@ term_grid_t *cells_shown(const term_t *t);
 void cells_touch(term_t *t, term_grid_t *g, uint8_t y);
 
 // n copies of the glyph at row y from column x, in the pen and the active
-// character set. n never runs past the row's columns.
+// character set. n never runs past the row's columns, and the row is the
+// cursor's or one the caller has touched.
 void cells_glyphs(term_t *t, term_grid_t *g, uint8_t y, uint8_t x, uint8_t byte, unsigned n);
 
 // Every cell of row y becomes the glyph, in the pen and the active character
@@ -106,20 +107,37 @@ void cells_glyphs(term_t *t, term_grid_t *g, uint8_t y, uint8_t x, uint8_t byte,
 // row is never left owing one.
 void cells_fill_row(term_t *t, term_grid_t *g, uint8_t y, uint8_t byte);
 
-// Erase columns [from, to) of row y. A selective erase leaves the protected
-// cells.
+// Erase columns [from, to) of row y, which is the cursor's or one the
+// caller has touched. A selective erase leaves the protected cells.
 void cells_erase(term_t *t, term_grid_t *g, uint8_t y, unsigned from, unsigned to,
                  bool selective);
 
-// Insert n erased cells at column x of row y, the rest of the row moving
-// right and off the end; or delete n there, the rest moving left and erased
-// cells coming in at the end.
-void cells_insert(term_t *t, term_grid_t *g, uint8_t y, uint8_t x, unsigned n);
-void cells_delete(term_t *t, term_grid_t *g, uint8_t y, uint8_t x, unsigned n);
+// Insert n erased cells at column x of row y, the cells up to column end
+// moving right and off it; or delete n there, the cells up to end moving
+// left and erased cells coming in before it. n is at most end - x.
+void cells_insert(term_t *t, term_grid_t *g, uint8_t y, uint8_t x, unsigned end, unsigned n);
+void cells_delete(term_t *t, term_grid_t *g, uint8_t y, uint8_t x, unsigned end, unsigned n);
 
-// SL and SR: rows [top, bot] move n columns left or right, erased cells
-// coming in at the other side.
-void cells_shift(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, unsigned n, bool left);
+// SL and SR: columns [from, end) of rows [top, bot] move n columns left or
+// right, erased cells coming in at the other side.
+void cells_shift(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, unsigned from,
+                 unsigned end, unsigned n, bool left);
+
+// n cells of row sy from column sx are copied to row dy from column dx,
+// colors, attributes and all. The two runs may overlap.
+void cells_copy(term_t *t, term_grid_t *g, uint8_t sy, unsigned sx, uint8_t dy, unsigned dx,
+                unsigned n);
+
+// DECCARA and DECRARA: columns [from, to) of row y have these attributes
+// set, cleared, then reversed, whatever else the cells hold, when the row
+// is next touched or the task reaches it.
+#define CELLS_MARK_BOLD 1u
+#define CELLS_MARK_UNDERLINE 2u
+#define CELLS_MARK_BLINK 4u
+#define CELLS_MARK_REVERSE 8u
+#define CELLS_MARK_ALL 15u
+void cells_attrs(term_t *t, term_grid_t *g, uint8_t y, unsigned from, unsigned to,
+                 unsigned set, unsigned clear, unsigned toggle);
 
 // Lazy-erase rows [from, to), selectively or not.
 void cells_erase_rows(term_t *t, term_grid_t *g, uint8_t from, uint8_t to,
@@ -130,6 +148,11 @@ void cells_align(term_t *t, term_grid_t *g);
 
 // Rows [top, bot] move n rows up or down, erased rows coming in.
 void cells_scroll(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, uint8_t n, bool up);
+
+// The same for only columns [from, end) of those rows, which are not the
+// whole width: a scroll between left and right margins.
+void cells_scroll_cols(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, unsigned from,
+                       unsigned end, uint8_t n, bool up);
 
 // The whole screen moves a row up, the top row joining the scrollback, or a
 // row down, the newest row of the scrollback lost.

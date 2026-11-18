@@ -126,7 +126,7 @@ const char *rln_line(void);
  *
  * A pinned size comes last: the pins (4), whether the third grid is attached
  * (1), and that grid. */
-#define RLN_SST_SIZE 2938
+#define RLN_SST_SIZE 2940
 void rln_sst_save(sst_cursor_t *c, unsigned flags);
 bool rln_sst_load(sst_cursor_t *c, unsigned flags);
 
@@ -136,6 +136,6 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags);
     RUN(rln_run)                                            \
     STOP(rln_stop)                                          \
     BREAK(rln_stop)                                         \
-    SST(RLN_, 6, RLN_SST_SIZE, rln_sst_save, rln_sst_load))
+    SST(RLN_, 7, RLN_SST_SIZE, rln_sst_save, rln_sst_load))
 
 #endif /* _CORE_COM_RLN_H_ */

@@ -106,6 +106,14 @@ static int cx(void)
     return v.cursor_x;
 }
 
+/* Whether the cursor has a wrap pending. */
+static bool pending(void)
+{
+    tb_screen_t v;
+    tb_screen(&v);
+    return v.cursor_pending;
+}
+
 static int cy(void)
 {
     tb_screen_t v;
@@ -274,14 +282,17 @@ UTEST(term, the_last_column_leaves_a_wrap_pending)
     fresh();
     for (int i = 0; i < 80; i++)
         feed("x");
-    ASSERT_EQ(cx(), 80);
+    ASSERT_EQ(cx(), 79);
+    ASSERT_TRUE(pending());
     ASSERT_EQ(cy(), 0);
     feed("\b");
     ASSERT_EQ(cx(), 78);
     feed("\33[999C");
     ASSERT_EQ(cx(), 79);
+    ASSERT_FALSE(pending());
     feed("Y");
-    ASSERT_EQ(cx(), 80);
+    ASSERT_EQ(cx(), 79);
+    ASSERT_TRUE(pending());
     feed("Z");
     ASSERT_EQ(cy(), 1);
     ASSERT_EQ(ch(0, 1), 'Z');
@@ -316,7 +327,8 @@ UTEST(term, decsc_keeps_the_wrap_and_not_autowrap)
     for (int i = 0; i < 80; i++)
         feed("x");
     feed("\0337\r\33[?7l\0338");
-    ASSERT_EQ(cx(), 80);
+    ASSERT_EQ(cx(), 79);
+    ASSERT_TRUE(pending());
     feed("A");
     ASSERT_EQ(ch(79, 0), 'A'); /* autowrap stayed off */
     ASSERT_EQ(cy(), 0);
@@ -813,7 +825,8 @@ UTEST(term, underline_styles)
     ASSERT_EQ(cell(0, 0)->attributes, TERM_ATTR_UL(TERM_UL_CURLY));
     ASSERT_EQ(cell(1, 0)->attributes, TERM_ATTR_UL(TERM_UL_DOUBLE));
     ASSERT_EQ(cell(2, 0)->attributes, 0);
-    ASSERT_EQ(cell(3, 0)->attributes, 0); /* 1:5 is bold, not blink */
+    /* 1:5 is bold, not blink */
+    ASSERT_EQ(cell(3, 0)->attributes, MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT);
     ASSERT_EQ(mode0_color(ink(3, 0)->fg_color), color_256[15]);
     /* Every style, the last one set standing; a style past the last is
      * none; SGR 21 is the double one and SGR 24 ends them all. */
@@ -919,7 +932,8 @@ UTEST(term, a_double_width_line_has_forty_columns)
     ASSERT_EQ(cx(), 39);
     feed("\33[1;70Hz");
     ASSERT_EQ(ch(39, 0), 'z');
-    ASSERT_EQ(cx(), 40); /* a wrap is pending at the row's own edge */
+    ASSERT_EQ(cx(), 39);
+    ASSERT_TRUE(pending()); /* a wrap is pending at the row's own edge */
     feed("y");
     ASSERT_EQ(ch(0, 1), 'y');
     feed("\33#5\33[1;1H\33#5");
@@ -1006,6 +1020,8 @@ UTEST(term, scroll_left_and_right)
 {
     fresh();
     feed("abcdef\r\n123456\33[2;30r\33[2 @");
+    ASSERT_STREQ(row(1), "123456"); /* the cursor is outside the region, as on xterm */
+    feed("\33[2;1H\33[2 @");
     ASSERT_STREQ(row(0), "abcdef"); /* outside the region */
     ASSERT_STREQ(row(1), "3456");
     feed("\33[3 A");
@@ -1562,6 +1578,687 @@ UTEST(term, decsc_saves_the_protection)
     fresh();
     feed("\33[1\"q\0337\33[0\"qAA\0338\33[2CB\33[?2K");
     ASSERT_STREQ(row(0), "  B");
+}
+
+/* ---- left and right margins (DECSLRM) ------------------------------------ */
+
+/* Rows 0 to n - 1 hold ten of a, b, c and on. */
+static void lettered(int n)
+{
+    feed("\33[H");
+    for (int y = 0; y < n; y++)
+    {
+        char line[16];
+        snprintf(line, sizeof line, "%s", "..........\r\n");
+        for (int x = 0; x < 10; x++)
+            line[x] = (char)('a' + y);
+        feed(line);
+    }
+}
+
+/* CSI s saves the cursor until DECLRMM makes it DECSLRM, which sends the
+ * cursor home. DECRQM reports the mode, and resetting it resets the margins. */
+UTEST(term, declrmm_makes_csi_s_set_the_margins)
+{
+    fresh();
+    feed("\33[5;5H\33[s\33[H\33[u");
+    ASSERT_EQ(cx(), 4);
+    ASSERT_STREQ(ask("\33[?69$p"), "\33[?69;2$y");
+    feed("\33[?69h\33[5;10s");
+    ASSERT_STREQ(ask("\33[?69$p"), "\33[?69;1$y");
+    ASSERT_EQ(cx(), 0); /* home, and DECOM is off */
+    ASSERT_EQ(cy(), 0);
+    feed("\33[1;5Habcdefgh");
+    ASSERT_STREQ(row(0), "    abcdef");
+    ASSERT_STREQ(row(1), "    gh");
+    feed("\33[?69l\33[1;5Habcdefgh");
+    ASSERT_STREQ(row(0), "    abcdefgh");
+    /* A right margin not past the left one is not taken. */
+    feed("\33[?69h\33[10;10s\33[1;75Habcdefgh");
+    ASSERT_STREQ(row(1), "gh  gh");
+}
+
+/* A wrap is pending at the right margin, on the margin's own column. */
+UTEST(term, a_wrap_is_pending_at_the_right_margin)
+{
+    fresh();
+    feed("\33[?69h\33[5;10s\33[1;5Habcdef");
+    ASSERT_EQ(cx(), 9);
+    ASSERT_TRUE(pending());
+    feed("\33[?7lxyz");
+    ASSERT_STREQ(row(0), "    abcdez"); /* DECAWM off: the margin is written over */
+}
+
+/* A cursor between the margins stops at them; one outside them stops at the
+ * edges of the screen. */
+UTEST(term, the_cursor_stops_at_the_left_and_right_margins)
+{
+    fresh();
+    feed("\33[?69h\33[11;20s\33[1;15H");
+    feed("\33[99D");
+    ASSERT_EQ(cx(), 10);
+    feed("\33[99C");
+    ASSERT_EQ(cx(), 19);
+    feed("\b\b\b\b\b\b\b\b\b\b\b\b");
+    ASSERT_EQ(cx(), 10);
+    feed("\t\t\t");
+    ASSERT_EQ(cx(), 19);
+    feed("\r");
+    ASSERT_EQ(cx(), 10);
+    feed("\33[1;5H\33[99D");
+    ASSERT_EQ(cx(), 0);
+    feed("\33[1;5H\r");
+    ASSERT_EQ(cx(), 0); /* left of the margin, the first column */
+    feed("\33[1;30H\33[99C");
+    ASSERT_EQ(cx(), 79);
+    feed("\r");
+    ASSERT_EQ(cx(), 10);
+    feed("\33[1;5H\33[99C");
+    ASSERT_EQ(cx(), 19); /* left of the margins, a move right stops at the right one */
+}
+
+/* Under DECOM a column counts from the left margin and the report does too. */
+UTEST(term, decom_counts_columns_from_the_left_margin)
+{
+    fresh();
+    feed("\33[?69h\33[11;20s\33[5;9r\33[?6h");
+    ASSERT_EQ(cx(), 10);
+    ASSERT_EQ(cy(), 4);
+    feed("\33[2;3H");
+    ASSERT_EQ(cx(), 12);
+    ASSERT_EQ(cy(), 5);
+    ASSERT_STREQ(ask("\33[6n"), "\33[2;3R");
+    feed("\33[99;99H");
+    ASSERT_EQ(cx(), 19);
+    ASSERT_EQ(cy(), 8);
+    feed("\33[4G");
+    ASSERT_EQ(cx(), 13);
+}
+
+/* A scroll moves only the columns between the margins, and only for a cursor
+ * between them. */
+UTEST(term, a_scroll_moves_only_the_columns_between_the_margins)
+{
+    fresh();
+    lettered(5);
+    feed("\33[?69h\33[2;4r\33[4;7s\33[4;5H\n");
+    ASSERT_STREQ(row(0), "aaaaaaaaaa");
+    ASSERT_STREQ(row(1), "bbbccccbbb");
+    ASSERT_STREQ(row(2), "cccddddccc");
+    ASSERT_STREQ(row(3), "ddd    ddd");
+    ASSERT_STREQ(row(4), "eeeeeeeeee");
+    ASSERT_EQ(cy(), 3);
+    feed("\33[2;5H\33M");
+    ASSERT_STREQ(row(1), "bbb    bbb");
+    ASSERT_STREQ(row(2), "ccccccc" "ccc");
+    ASSERT_STREQ(row(3), "ddddddd" "ddd");
+    /* Outside the columns the cursor stays on the margin and nothing moves. */
+    feed("\33[4;1H\n");
+    ASSERT_EQ(cy(), 3);
+    ASSERT_STREQ(row(3), "dddddddddd");
+    feed("\33[2;9H\33M");
+    ASSERT_EQ(cy(), 1);
+    ASSERT_STREQ(row(1), "bbb    bbb");
+    /* SU and SD. */
+    feed("\33[2S");
+    ASSERT_STREQ(row(1), "bbbddddbbb");
+    ASSERT_STREQ(row(2), "ccc    ccc");
+    ASSERT_STREQ(row(3), "ddd    ddd");
+    feed("\33[T");
+    ASSERT_STREQ(row(1), "bbb    bbb");
+    ASSERT_STREQ(row(2), "cccddddccc");
+}
+
+/* The rows that come in take the pen's background, between the margins. */
+UTEST(term, a_scroll_between_margins_erases_in_the_pens_colors)
+{
+    fresh();
+    lettered(5);
+    feed("\33[?69h\33[2;4r\33[4;7s\33[4;5H\33[44m\n");
+    ASSERT_EQ(mode0_color(ink(3, 3)->bg_color), color_256[4]);
+    ASSERT_EQ(mode0_color(ink(6, 3)->bg_color), color_256[4]);
+    ASSERT_EQ(mode0_color(ink(2, 3)->bg_color), color_256[0]);
+    ASSERT_EQ(mode0_color(ink(7, 3)->bg_color), color_256[0]);
+}
+
+/* IL and DL move the columns between the margins from the cursor's row, and
+ * leave the cursor on the left margin. Outside the margins they do nothing. */
+UTEST(term, il_and_dl_keep_between_the_margins)
+{
+    fresh();
+    lettered(5);
+    feed("\33[?69h\33[4;7s\33[2;6H\33[L");
+    ASSERT_STREQ(row(1), "bbb    bbb");
+    ASSERT_STREQ(row(2), "cccbbbbccc");
+    ASSERT_STREQ(row(4), "eeeddddeee");
+    ASSERT_EQ(cx(), 3);
+    feed("\33[2M");
+    ASSERT_STREQ(row(1), "bbbccccbbb");
+    ASSERT_STREQ(row(2), "cccddddccc");
+    feed("\33[2;1H\33[L\33[2;9H\33[M");
+    ASSERT_STREQ(row(1), "bbbccccbbb");
+}
+
+/* ICH, DCH and insert mode stop at the right margin; SL and SR move the
+ * columns between the margins. */
+UTEST(term, editing_stops_at_the_right_margin)
+{
+    fresh();
+    feed("0123456789\r\n0123456789\33[?69h\33[4;7s\33[1;4H\33[2@");
+    ASSERT_STREQ(row(0), "012  34789");
+    feed("\33[P");
+    ASSERT_STREQ(row(0), "012 34 789");
+    feed("\33[4hZ\33[4l");
+    ASSERT_STREQ(row(0), "012Z 34789");
+    feed("\33[1;2H\33[5@\33[5P");
+    ASSERT_STREQ(row(0), "012Z 34789"); /* outside the margins */
+    feed("\33[1;5H\33[2 @");
+    ASSERT_STREQ(row(0), "01234  789");
+    ASSERT_STREQ(row(1), "01256  789");
+    feed("\33[ A");
+    ASSERT_STREQ(row(0), "012 34 789");
+    ASSERT_STREQ(row(1), "012 56 789");
+    feed("\33[1;1H\33[3 @");
+    ASSERT_STREQ(row(0), "012 34 789"); /* the cursor is outside the margins */
+}
+
+/* REP wraps between the margins, however long. */
+UTEST(term, rep_wraps_between_the_margins)
+{
+    fresh();
+    feed("\33[?69h\33[3;6sa\33[9b");
+    ASSERT_STREQ(row(0), "aaaaaa");
+    ASSERT_STREQ(row(1), "  aaaa");
+    ASSERT_EQ(cx(), 5);
+    ASSERT_TRUE(pending());
+    feed("\33[2J\33[1;3Hb\33[65535b");
+    for (int y = 0; y < 30; y++)
+        ASSERT_STREQ(row(y), "  bbbb");
+    /* 65536 glyphs from the left margin, four a row: the last fills a row. */
+    ASSERT_EQ(cx(), 5);
+    ASSERT_TRUE(pending());
+}
+
+/* With the margins allowed every line is single size, and stays so. DECSTR
+ * and DECALN reset the margins, and DECSTR the mode with them. */
+UTEST(term, declrmm_has_no_double_size_lines)
+{
+    fresh();
+    feed("\33#6");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_WIDE);
+    feed("\33[?69h");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
+    feed("\33#6\33#3");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
+    feed("\33[5;10s\33#8\33[1;9Hxyz");
+    ASSERT_STREQ(ask("\33[?69$p"), "\33[?69;1$y");
+    ASSERT_EQ(ch(10, 0), 'z'); /* DECALN reset the margins */
+    feed("\33[5;10s\33[!p");
+    ASSERT_STREQ(ask("\33[?69$p"), "\33[?69;2$y");
+    feed("\33[2J\33[1;9Hxyz");
+    ASSERT_EQ(ch(10, 0), 'z');
+}
+
+/* The margins are part of a savestate. */
+UTEST(term, the_left_and_right_margins_come_back)
+{
+    static uint8_t blob[1 << 20], undo[1 << 20];
+    fresh();
+    feed("\33[?69h\33[5;10s");
+    ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
+    feed("\33c");
+    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
+    feed("\33[1;5Habcdefgh");
+    ASSERT_STREQ(row(0), "    abcdef");
+    ASSERT_STREQ(row(1), "    gh");
+}
+
+/* ---- rectangles ---------------------------------------------------------- */
+
+/* DECFRA fills with a character as the pen writes it. A whole row is owed
+ * its fill, and the cursor's row is filled at once. */
+UTEST(term, decfra_fills_a_rectangle_in_the_pen)
+{
+    fresh();
+    feed("\33[31;4m\33[88;2;3;4;6$x\33[0m");
+    ASSERT_STREQ(row(0), "");
+    ASSERT_STREQ(row(1), "  XXXX");
+    ASSERT_STREQ(row(3), "  XXXX");
+    ASSERT_STREQ(row(4), "");
+    ASSERT_EQ(mode0_color(ink(2, 1)->fg_color), color_256[1]);
+    ASSERT_EQ(cell(5, 3)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(cx(), 0);
+    ASSERT_EQ(cy(), 0);
+    feed("\33[45;1;1;3;80$x");
+    for (int y = 0; y < 3; y++)
+    {
+        ASSERT_EQ(ch(0, y), '-');
+        ASSERT_EQ(ch(79, y), '-');
+    }
+    ASSERT_STREQ(row(3), "  XXXX");
+    /* Left out, the sides are the screen's and the character a space. */
+    feed("\33[;29$x");
+    ASSERT_STREQ(row(27), "");
+    feed("\33(0\33[113;30$x\33(B");
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(40, 29)->glyph));
+    /* A control is no character to fill with. */
+    feed("\33[7;1;1;2;2$x\33[127;1;1;2;2$x\33[256;1;1;2;2$x");
+    ASSERT_EQ(ch(0, 0), '-');
+}
+
+/* A rectangle on a row that is still owed an erase lands on the erased row. */
+UTEST(term, a_rectangle_lands_on_a_row_as_it_is_owed)
+{
+    fresh();
+    feed("old\33[5;1Hold\33[1;1H\33[44m\33[2J\33[0m\33[88;5;5;5;6$x");
+    ASSERT_STREQ(row(4), "    XX");
+    ASSERT_EQ(mode0_color(ink(0, 4)->bg_color), color_256[4]);
+    ASSERT_EQ(mode0_color(ink(4, 4)->bg_color), color_256[0]);
+}
+
+/* DECERA erases protected cells too; DECSERA leaves them. */
+UTEST(term, decera_erases_and_decsera_spares_the_protected)
+{
+    fresh();
+    feed("\33#8\33[2;2H\33[1\"qP\33[0\"q\33[44m\33[2;2;3;4$z\33[0m");
+    ASSERT_STREQ(row(0), "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE");
+    ASSERT_EQ(ch(0, 1), 'E');
+    ASSERT_EQ(ch(1, 1), ' ');
+    ASSERT_EQ(ch(3, 2), ' ');
+    ASSERT_EQ(ch(4, 2), 'E');
+    ASSERT_EQ(ch(1, 3), 'E');
+    ASSERT_EQ(mode0_color(ink(1, 1)->bg_color), color_256[4]);
+    feed("\33[5;5H\33[1\"qPQ\33[0\"q\33[5;1;6;80${");
+    ASSERT_STREQ(row(4), "    PQ");
+    ASSERT_STREQ(row(5), "");
+    feed("\33[5;1;5;80$z");
+    ASSERT_STREQ(row(4), "");
+}
+
+/* DECCRA copies cells, colors and attributes, onto itself too, and loses
+ * what would land past the edge. */
+UTEST(term, deccra_copies_a_rectangle)
+{
+    fresh();
+    feed("\33[31;4mabc\33[0mde\r\nfghij");
+    feed("\33[1;1;1;3;1;3;10;1$v");
+    ASSERT_STREQ(row(2), "         abc");
+    ASSERT_EQ(mode0_color(ink(9, 2)->fg_color), color_256[1]);
+    ASSERT_EQ(cell(11, 2)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_STREQ(row(0), "abcde");
+    /* Onto itself, a column right and then a row down. */
+    feed("\33[1;1;1;5;1;1;2;1$v");
+    ASSERT_STREQ(row(0), "aabcde");
+    ASSERT_EQ(mode0_color(ink(1, 0)->fg_color), color_256[1]);
+    feed("\33[1;1;2;6;1;2;1;1$v");
+    ASSERT_STREQ(row(0), "aabcde");
+    ASSERT_STREQ(row(1), "aabcde");
+    ASSERT_STREQ(row(2), "fghij    abc");
+    /* A column left and a row up. */
+    feed("\33[2;2;3;12;1;1;1;1$v");
+    ASSERT_STREQ(row(0), "abcde");
+    ASSERT_STREQ(row(1), "ghij    abc");
+    /* Past the edges. */
+    feed("\33[1;1;2;5;1;30;79;1$v");
+    ASSERT_EQ(ch(78, 29), 'a');
+    ASSERT_EQ(ch(79, 29), 'b');
+    ASSERT_STREQ(row(0), "abcde");
+}
+
+/* DECCARA sets and clears bold, underline, blink and reverse on cells
+ * already written, and leaves them as the pen would have written them. */
+UTEST(term, deccara_changes_the_attributes_of_cells)
+{
+    fresh();
+    const uint16_t fg = MODE0_ENTRY(MODE0_DEFAULT_FG, false);
+    const uint16_t bg = MODE0_ENTRY(MODE0_DEFAULT_BG, false);
+    feed("\33[2*xhello\33[1;1;1;4;1;4;5;7$r");
+    ASSERT_EQ(cell(0, 0)->attributes,
+              TERM_ATTR_UL(TERM_UL_SINGLE) | TERM_ATTR_BLINK | MODE0_ATTR_BOLD |
+                  MODE0_ATTR_BOLD_DEFAULT | MODE0_ATTR_REVERSE);
+    ASSERT_EQ(ink(0, 0)->fg_color, bg);
+    ASSERT_EQ(ink(0, 0)->bg_color, MODE0_ENTRY(15, false));
+    ASSERT_EQ(ink(0, 0)->ul_color, bg);
+    ASSERT_EQ(cell(4, 0)->attributes, 0);
+    /* The same cells as the pen writes them. */
+    feed("\33[2;1H\33[1;4;5;7mhell\33[0m");
+    ASSERT_EQ(cell(0, 1)->attributes, cell(0, 0)->attributes);
+    ASSERT_EQ(ink(0, 1)->fg_color, ink(0, 0)->fg_color);
+    ASSERT_EQ(ink(0, 1)->bg_color, ink(0, 0)->bg_color);
+    /* One at a time off, on either row. */
+    feed("\33[1;1;2;4;27$r");
+    ASSERT_EQ(ink(1, 1)->fg_color, MODE0_ENTRY(15, false));
+    ASSERT_EQ(ink(1, 1)->bg_color, bg);
+    feed("\33[1;1;2;4;22;24$r");
+    ASSERT_EQ(ink(1, 1)->fg_color, fg);
+    ASSERT_EQ(cell(1, 1)->attributes, TERM_ATTR_BLINK);
+    feed("\33[1;1;2;4;25$r");
+    ASSERT_EQ(cell(1, 0)->attributes, 0);
+    ASSERT_EQ(cell(1, 1)->attributes, 0);
+    /* 0 clears the four, and no parameter is 0. */
+    feed("\33[1;1;1;4;1;7$r\33[1;1;1;2;0$r\33[1;3;1;4$r");
+    for (int x = 0; x < 4; x++)
+    {
+        ASSERT_EQ(cell(x, 0)->attributes, 0);
+        ASSERT_EQ(ink(x, 0)->fg_color, fg);
+        ASSERT_EQ(ink(x, 0)->bg_color, bg);
+    }
+}
+
+/* Bold brightens the ink a palette color has a bright one for, and taking
+ * bold off leaves a color that was bright without it. */
+UTEST(term, deccara_bold_is_the_pens_bold)
+{
+    fresh();
+    feed("\33[2*x\33[31mA\33[91mB\33[38;5;100mC\33[38;2;1;2;3mD\33[31;2mE\33[0;8;34mF\33[0m");
+    feed("\33[1;1;1;6;1$r");
+    ASSERT_EQ(ink(0, 0)->fg_color, MODE0_ENTRY(9, false));
+    ASSERT_EQ(ink(1, 0)->fg_color, MODE0_ENTRY(9, false));
+    ASSERT_EQ(ink(2, 0)->fg_color, MODE0_ENTRY(100, false));
+    ASSERT_EQ(mode0_color(ink(3, 0)->fg_color), rgb(1, 2, 3));
+    ASSERT_EQ(ink(4, 0)->fg_color, MODE0_ENTRY(9, true));
+    ASSERT_EQ(ink(5, 0)->fg_color, ink(5, 0)->bg_color); /* concealed still */
+    feed("\33[1;1;1;6;22$r");
+    ASSERT_EQ(ink(0, 0)->fg_color, MODE0_ENTRY(1, false));
+    ASSERT_EQ(ink(1, 0)->fg_color, MODE0_ENTRY(9, false));
+    ASSERT_EQ(ink(4, 0)->fg_color, MODE0_ENTRY(1, true));
+    /* The ink of a reversed cell is its background. */
+    feed("\33[2;1H\33[7;32mG\33[0m\33[2;1;2;1;1$r");
+    ASSERT_EQ(ink(0, 1)->bg_color, MODE0_ENTRY(10, false));
+    feed("\33[2;1;2;1;0$r");
+    ASSERT_EQ(ink(0, 1)->fg_color, MODE0_ENTRY(2, false));
+    ASSERT_EQ(cell(0, 1)->attributes, 0);
+}
+
+/* An underline DECCARA takes off takes its color with it, and blink is not
+ * set in iCE colors mode, where no cell blinks. */
+UTEST(term, deccara_underline_and_blink)
+{
+    fresh();
+    feed("\33[2*x\33[4:3;58;5;2mA\33[0mB\33[1;1;1;2;24$r\33[1;1;1;2;4$r");
+    ASSERT_EQ(cell(0, 0)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(cell(1, 0)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(ink(0, 0)->ul_color, ink(0, 0)->fg_color);
+    feed("\33[1;1;1;2;4$r");
+    ASSERT_EQ(cell(0, 0)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
+    feed("\33[?33h\33[1;1;1;2;5$r");
+    ASSERT_EQ(cell(0, 0)->attributes & TERM_ATTR_ANY_BLINK, 0);
+}
+
+/* DECRARA reverses the attributes, and twice is as it was. */
+UTEST(term, decrara_reverses_the_attributes)
+{
+    fresh();
+    feed("\33[2*x\33[1mA\33[0mB\33[1;1;1;2;1;7$t");
+    ASSERT_EQ(cell(0, 0)->attributes, MODE0_ATTR_REVERSE);
+    ASSERT_EQ(ink(0, 0)->bg_color, MODE0_ENTRY(MODE0_DEFAULT_FG, false));
+    ASSERT_EQ(cell(1, 0)->attributes,
+              MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT | MODE0_ATTR_REVERSE);
+    ASSERT_EQ(ink(1, 0)->bg_color, MODE0_ENTRY(15, false));
+    feed("\33[1;1;1;2;1;7$t");
+    ASSERT_EQ(cell(0, 0)->attributes, MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT);
+    ASSERT_EQ(cell(1, 0)->attributes, 0);
+    ASSERT_EQ(ink(1, 0)->fg_color, MODE0_ENTRY(MODE0_DEFAULT_FG, false));
+    /* 0 is all four. */
+    feed("\33[1;2;1;2;0$t");
+    ASSERT_EQ(cell(1, 0)->attributes,
+              TERM_ATTR_UL(TERM_UL_SINGLE) | TERM_ATTR_BLINK | MODE0_ATTR_BOLD |
+                  MODE0_ATTR_BOLD_DEFAULT | MODE0_ATTR_REVERSE);
+    feed("\33[1;2;1;2$t");
+    ASSERT_EQ(cell(1, 0)->attributes, 0);
+}
+
+/* Without DECSACE 2 the attributes change in the stream of cells from the
+ * first corner to the last. A reset goes back to that. */
+UTEST(term, decsace_chooses_the_stream_or_the_rectangle)
+{
+    fresh();
+    feed("\33[1;3;3;5;4$r");
+    ASSERT_EQ(cell(1, 0)->attributes, 0);
+    ASSERT_NE(cell(2, 0)->attributes, 0);
+    ASSERT_NE(cell(79, 0)->attributes, 0);
+    ASSERT_NE(cell(0, 1)->attributes, 0);
+    ASSERT_NE(cell(79, 1)->attributes, 0);
+    ASSERT_NE(cell(4, 2)->attributes, 0);
+    ASSERT_EQ(cell(5, 2)->attributes, 0);
+    feed("\33[2*x\33[5;3;7;5;4$r");
+    ASSERT_EQ(cell(1, 5)->attributes, 0);
+    ASSERT_NE(cell(2, 5)->attributes, 0);
+    ASSERT_NE(cell(4, 5)->attributes, 0);
+    ASSERT_EQ(cell(5, 5)->attributes, 0);
+    feed("\33c\33[1;3;2;5;4$r");
+    ASSERT_NE(cell(79, 0)->attributes, 0);
+}
+
+/* Under DECOM a rectangle counts from the margins and stays inside them. */
+UTEST(term, a_rectangle_counts_from_the_margins_under_decom)
+{
+    fresh();
+    feed("\33[?69h\33[11;20s\33[5;9r\33[?6h\33[88;1;1;99;99$x");
+    ASSERT_EQ(ch(9, 4), ' ');
+    ASSERT_EQ(ch(10, 4), 'X');
+    ASSERT_EQ(ch(19, 8), 'X');
+    ASSERT_EQ(ch(20, 8), ' ');
+    ASSERT_EQ(ch(10, 3), ' ');
+    ASSERT_EQ(ch(10, 9), ' ');
+    feed("\33[2;2;2;3$z");
+    ASSERT_EQ(ch(10, 5), 'X');
+    ASSERT_EQ(ch(11, 5), ' ');
+    ASSERT_EQ(ch(12, 5), ' ');
+    ASSERT_EQ(ch(13, 5), 'X');
+}
+
+/* A double-size line has only its own columns of a rectangle. */
+UTEST(term, a_rectangle_keeps_to_a_double_size_lines_columns)
+{
+    fresh();
+    feed("\33[2;1H\33#6\33[88;1;1;3;80$x\33[2;1H\33#5");
+    ASSERT_EQ(ch(79, 0), 'X');
+    ASSERT_EQ(ch(39, 1), 'X');
+    ASSERT_EQ(ch(40, 1), ' ');
+    ASSERT_EQ(ch(79, 2), 'X');
+}
+
+/* A copy inside a row, to the left and to the right, from odd and even
+ * columns and of odd and even counts, moves every cell with its colors. */
+UTEST(term, deccra_moves_cells_and_colors_inside_a_row)
+{
+    static const struct
+    {
+        int from, to, n;
+    } moves[] = {{1, 3, 8}, {3, 1, 8}, {1, 3, 7}, {3, 1, 7}, {2, 3, 8}, {3, 2, 9},
+                 {0, 1, 20}, {1, 0, 21}, {5, 11, 12}, {11, 5, 13}, {1, 41, 30}, {41, 1, 31}};
+    fresh();
+    char want[80];
+    uint8_t color[80];
+    for (int x = 0; x < 80; x++)
+    {
+        char cell_seq[32];
+        want[x] = (char)('A' + x % 26);
+        color[x] = (uint8_t)(16 + x);
+        snprintf(cell_seq, sizeof cell_seq, "\33[38;5;%d;48;5;%dm%c", color[x], color[x] + 100,
+                 want[x]);
+        feed(cell_seq);
+    }
+    for (size_t m = 0; m < sizeof moves / sizeof moves[0]; m++)
+    {
+        char seq[48];
+        snprintf(seq, sizeof seq, "\33[1;%d;1;%d;1;1;%d;1$v", moves[m].from + 1,
+                 moves[m].from + moves[m].n, moves[m].to + 1);
+        feed(seq);
+        memmove(want + moves[m].to, want + moves[m].from, (size_t)moves[m].n);
+        memmove(color + moves[m].to, color + moves[m].from, (size_t)moves[m].n);
+        for (int x = 0; x < 80; x++)
+        {
+            ASSERT_EQ(ch(x, 0), want[x]);
+            ASSERT_EQ(ink(x, 0)->fg_color, MODE0_ENTRY(color[x], false));
+            ASSERT_EQ(ink(x, 0)->bg_color, MODE0_ENTRY(color[x] + 100, false));
+        }
+    }
+}
+
+/* A scroll between margins is the same scroll whether the cells between
+ * them are copied or the rows move and the cells either side are put back:
+ * every width of margins, both ways, by every count. */
+UTEST(term, a_scroll_between_margins_is_right_at_every_width)
+{
+    static const int margins[][2] = {{2, 79}, {1, 79}, {2, 80}, {21, 60}, {30, 80}, {1, 40},
+                                     {10, 12}, {5, 76}, {40, 41}};
+    static char want[30][80];
+    for (size_t m = 0; m < sizeof margins / sizeof margins[0]; m++)
+        for (int n = 1; n <= 9; n += n < 3 ? 1 : 3)
+            for (int way = 0; way < 4; way++)
+            {
+                /* All at once, or a row at a time, which adds up. */
+                const int up = way & 1, single = way & 2;
+                const int left = margins[m][0] - 1, right = margins[m][1] - 1;
+                const int top = 2, bot = 11, h = bot - top + 1;
+                fresh();
+                for (int y = 0; y < 14; y++)
+                {
+                    char line[100];
+                    for (int x = 0; x < 80; x++)
+                        want[y][x] = line[x] = (char)(33 + (y * 17 + x * 5) % 90);
+                    snprintf(line + 80, sizeof line - 80, "%s", y < 13 ? "\33[?7l\r\n" : "");
+                    feed("\33[?7h");
+                    feedn(line, 80);
+                    feed(line + 80);
+                }
+                char seq[64];
+                snprintf(seq, sizeof seq, "\33[?69h\33[%d;%dr\33[%d;%ds\33[%d;%dH", top + 1,
+                         bot + 1, left + 1, right + 1, top + 1, left + 1);
+                feed(seq);
+                snprintf(seq, sizeof seq, "\33[%d%c", single ? 1 : n, up ? 'S' : 'T');
+                for (int i = 0; i < (single ? n : 1); i++)
+                    feed(seq);
+                const int k = n < h ? n : h;
+                for (int x = left; x <= right; x++)
+                {
+                    char col[30];
+                    for (int y = top; y <= bot; y++)
+                        col[y] = want[y][x];
+                    for (int y = top; y <= bot; y++)
+                    {
+                        const int from = up ? y + k : y - k;
+                        want[y][x] = from >= top && from <= bot ? col[from] : ' ';
+                    }
+                }
+                for (int y = 0; y < 14; y++)
+                    for (int x = 0; x < 80; x++)
+                        ASSERT_EQ(ch(x, y), want[y][x]);
+            }
+}
+
+/* A change of attributes a row is owed is saved with the row. */
+UTEST(term, attributes_still_owed_come_back)
+{
+    static uint8_t blob[1 << 20], undo[1 << 20];
+    fresh();
+    feed("\33[3;1HABCDEF\33[10;1H\33[2*x\33[3;2;3;4;4;7$r");
+    ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
+    feed("\33c");
+    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
+    ASSERT_EQ(cell(0, 2)->attributes, 0);
+    ASSERT_EQ(cell(1, 2)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE) | MODE0_ATTR_REVERSE);
+    ASSERT_EQ(cell(3, 2)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE) | MODE0_ATTR_REVERSE);
+    ASSERT_EQ(cell(4, 2)->attributes, 0);
+}
+
+/* What a row is owed is paid in order: a change of attributes, then a
+ * shift, a selective erase or an erase over it. */
+UTEST(term, attributes_owed_are_paid_before_what_comes_after)
+{
+    fresh();
+    feed("\33[3;1HABCDEF\33[4;1H\33[1\"qGH\33[0\"qIJ\33[5;1HKLMN\33[10;1H\33[2*x");
+    feed("\33[3;1;5;6;7$r\33[2 A\33[4;1;4;80${\33[5;1;5;80$z\33[5;1;5;2;4$r");
+    ASSERT_STREQ(row(2), "  ABCDEF");
+    ASSERT_EQ(cell(1, 2)->attributes, 0);
+    ASSERT_EQ(cell(2, 2)->attributes, MODE0_ATTR_REVERSE);
+    ASSERT_STREQ(row(3), "  GH");
+    ASSERT_EQ(cell(2, 3)->attributes, MODE0_ATTR_REVERSE | MODE0_ATTR_GUARD);
+    ASSERT_STREQ(row(4), "");
+    ASSERT_EQ(cell(0, 4)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(cell(2, 4)->attributes, 0);
+}
+
+/* REP between margins draws what printing draws, wherever the cursor starts
+ * and however far the region scrolls under it. */
+UTEST(term, rep_between_margins_draws_what_printing_draws)
+{
+    static const char *const cases[] = {
+        "\33[?69h\33[21;60s\33[1;21H",
+        "\33[?69h\33[21;60s\33[30;21H",
+        "\33[?69h\33[2;79s\33[5;25r\33[20;30H",
+        "\33[?69h\33[21;60s\33[5;25r\33[3;30H",
+        "\33[?69h\33[21;60s\33[5;25r\33[28;30H",
+        "\33[?69h\33[21;60s\33[5;25r\33[20;5H",
+        "\33[?69h\33[21;60s\33[5;25r\33[25;70H",
+        "\33[?69h\33[21;60s\33[?7l\33[10;30H",
+        "\33[?69h\33[30;31s\33[29;30H",
+        "\33[?69h\33[1;79s\33[44;4m\33[30;1H",
+    };
+    static const int counts[] = {1, 2, 39, 40, 41, 79, 80, 81, 200, 1199, 1200, 1201, 2400, 5000};
+    static uint8_t a[30 * 80 * 10], b[30 * 80 * 10];
+    static char before[30 * 90 + 80];
+    for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++)
+    {
+        int at = 0;
+        for (int y = 0; y < 30; y++)
+        {
+            at += snprintf(before + at, sizeof before - (size_t)at, "\33[%d;1H", y + 1);
+            for (int x = 0; x < 79; x++)
+                before[at++] = (char)(33 + (y * 13 + x * 3) % 90);
+        }
+        snprintf(before + at, sizeof before - (size_t)at, "%s", cases[i]);
+        for (unsigned k = 0; k < sizeof counts / sizeof counts[0]; k++)
+        {
+            int ax, ay, bx, by;
+            rep_screen(before, counts[k], true, a, &ax, &ay);
+            rep_screen(before, counts[k], false, b, &bx, &by);
+            if (memcmp(a, b, sizeof a) || ax != bx || ay != by)
+                printf("REP %d after case %u differs\n", counts[k], i);
+            ASSERT_EQ(0, memcmp(a, b, sizeof a));
+            ASSERT_EQ(ax, bx);
+            ASSERT_EQ(ay, by);
+        }
+    }
+}
+
+/* Line feeds between margins add up to one scroll, and whatever comes
+ * between them is done in its turn: another pen, the other screen, a
+ * savestate. */
+UTEST(term, line_feeds_between_margins_add_up)
+{
+    static uint8_t blob[1 << 20], undo[1 << 20];
+    fresh();
+    lettered(6);
+    feed("\33[?69h\33[2;5r\33[4;7s\33[5;5H\n\n");
+    ASSERT_STREQ(row(1), "bbbddddbbb");
+    ASSERT_STREQ(row(2), "ccceeeeccc");
+    ASSERT_STREQ(row(3), "ddd    ddd");
+    ASSERT_STREQ(row(4), "eee    eee");
+    feed("\33[44m\n\33[45m\n\33[0m");
+    ASSERT_STREQ(row(1), "bbb    bbb");
+    ASSERT_EQ(mode0_color(ink(3, 2)->bg_color), color_256[0]);
+    ASSERT_EQ(mode0_color(ink(3, 3)->bg_color), color_256[4]);
+    ASSERT_EQ(mode0_color(ink(3, 4)->bg_color), color_256[5]);
+    ASSERT_EQ(mode0_color(ink(2, 4)->bg_color), color_256[0]);
+    /* A glyph lands on the row the scroll brought in. */
+    feed("\33[2;5Hxy\33[5;5H\nz");
+    ASSERT_STREQ(row(1), "bbb    bbb");
+    ASSERT_STREQ(row(4), "eee z  eee");
+    /* The other screen, with a scroll still owed to this one. */
+    feed("\33[2;4Hpq\33[5;5H\n\33[?47h\33[?69h\33[2;5r\33[4;7s\33[5;5H\nalt\33[?47l");
+    ASSERT_STREQ(row(1), "bbb    bbb");
+    ASSERT_STREQ(row(3), "ddd z  ddd");
+    /* A savestate with a scroll owed. */
+    feed("\33[2;4Hrs\33[5;5H\n");
+    ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
+    feed("\33c");
+    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
+    ASSERT_STREQ(row(1), "bbb    bbb");
+    ASSERT_STREQ(row(2), "ccc z  ccc");
+    ASSERT_STREQ(row(0), "aaaaaaaaaa");
 }
 
 UTEST_MAIN();
