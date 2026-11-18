@@ -132,12 +132,8 @@ static struct
     struct
     {
         spin_lock_t *lock;
-        full_scanline_buffer_t *current_scanline_buffer;
         uint32_t last_scanline_id;
         uint32_t next_scanline_id;
-        uint16_t y_repeat_index;
-        uint16_t y_repeat_target;
-        bool in_vblank;
         full_scanline_buffer_t *generated_ascending_scanline_id_list;
         full_scanline_buffer_t *generated_ascending_scanline_id_list_tail;
     } scanline;
@@ -151,9 +147,12 @@ static struct
     int scanline_program_wait_index;
 } shared_state;
 
-// The scanline DMA, which only the line interrupt touches.
+// What only the line interrupt touches: the scanline DMA, the buffer being
+// shown, and how many display lines it has been shown on.
 static struct
 {
+    full_scanline_buffer_t *current;
+    uint8_t y_repeat_index;
     uint8_t buffers_to_release;
     bool in_progress;
 } scanline_dma;
@@ -305,7 +304,6 @@ inline static void free_local_free_list_irqs_enabled(full_scanline_buffer_t *loc
         spin_lock_unsafe_blocking(shared_state.free_list.lock);
         list_prepend_all(&shared_state.free_list.free_list, local_free_list);
         spin_unlock_unsafe(shared_state.free_list.lock);
-        __sev();
     }
 }
 
@@ -313,7 +311,7 @@ inline static void free_local_free_list_irqs_enabled(full_scanline_buffer_t *loc
 inline static full_scanline_buffer_t *scanline_locked_try_latch_fsb_if_null_irqs_disabled(
     full_scanline_buffer_t **local_free_list)
 {
-    full_scanline_buffer_t *fsb = shared_state.scanline.current_scanline_buffer;
+    full_scanline_buffer_t *fsb = scanline_dma.current;
 
     if (!fsb)
     {
@@ -328,7 +326,7 @@ inline static full_scanline_buffer_t *scanline_locked_try_latch_fsb_if_null_irqs
                         &shared_state.scanline.generated_ascending_scanline_id_list_tail);
                     list_insert_ascending(&shared_state.in_use.in_use_ascending_scanline_id_list,
                                           &shared_state.in_use.in_use_ascending_scanline_id_list_tail, fsb);
-                    shared_state.scanline.current_scanline_buffer = fsb;
+                    scanline_dma.current = fsb;
                 }
                 else
                 {
@@ -388,12 +386,6 @@ static inline void __not_in_flash_func(finish_scanline_dma)(int *scanline_buffer
     dma_hw->intr = SCANVIDEO_SCANLINE_DMA_CHANNELS_MASK;
 }
 
-static void set_next_scanline_id(uint32_t scanline_id)
-{
-    shared_state.scanline.next_scanline_id = scanline_id;
-    shared_state.scanline.y_repeat_target = video_mode.y_scale;
-}
-
 static inline void __not_in_flash_func(recover_scanline_sms)(void)
 {
     for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
@@ -445,9 +437,6 @@ static void __not_in_flash_func(prepare_for_active_scanline_irqs_enabled)(void)
         recover_pio_sms_and_dma_blank(&buffers_to_free_count);
 
         scanline_dma.in_progress = true;
-        spin_lock_unsafe_blocking(shared_state.scanline.lock);
-        shared_state.scanline.in_vblank = false;
-        spin_unlock_unsafe(shared_state.scanline.lock);
 
         full_scanline_buffer_t *local_free_list = NULL;
         release_scanline_irqs_enabled(buffers_to_free_count, &local_free_list);
@@ -459,25 +448,20 @@ static void __not_in_flash_func(prepare_for_active_scanline_irqs_enabled)(void)
     full_scanline_buffer_t *local_free_list = NULL;
     int buffers_to_free_count = 0;
     spin_lock_unsafe_blocking(shared_state.scanline.lock);
+    // The buffer latched is the next line's, or there is none and the
+    // missing line is shown in its place.
     full_scanline_buffer_t *fsb = scanline_locked_try_latch_fsb_if_null_irqs_disabled(&local_free_list);
-    if (!fsb || fsb->core.scanline_id != shared_state.scanline.next_scanline_id)
-        fsb = &_missing_scanline_buffer;
-    shared_state.scanline.in_vblank = false;
-    const bool was_correct_scanline = (fsb != &_missing_scanline_buffer);
     bool free_scanline = false;
-    shared_state.scanline.y_repeat_index++;
-    if (shared_state.scanline.y_repeat_index >= shared_state.scanline.y_repeat_target)
+    if (++scanline_dma.y_repeat_index >= video_mode.y_scale)
     {
-        free_scanline = was_correct_scanline;
-        shared_state.scanline.y_repeat_index -= shared_state.scanline.y_repeat_target;
-        set_next_scanline_id(scanline_id_after(shared_state.scanline.next_scanline_id));
-        shared_state.scanline.current_scanline_buffer = NULL;
-    }
-    else if (!was_correct_scanline)
-    {
-        shared_state.scanline.current_scanline_buffer = NULL;
+        free_scanline = fsb != NULL;
+        scanline_dma.y_repeat_index = 0;
+        shared_state.scanline.next_scanline_id = scanline_id_after(shared_state.scanline.next_scanline_id);
+        scanline_dma.current = NULL;
     }
     spin_unlock_unsafe(shared_state.scanline.lock);
+    if (!fsb)
+        fsb = &_missing_scanline_buffer;
 
     finish_scanline_dma(&buffers_to_free_count);
     recover_scanline_sms();
@@ -494,34 +478,31 @@ static void __not_in_flash_func(prepare_for_active_scanline_irqs_enabled)(void)
 
 static void __not_in_flash_func(prepare_for_vblank_scanline_irqs_enabled)(void)
 {
-    bool signal = false;
-
     int buffers_to_free_count = 0;
     finish_scanline_dma(&buffers_to_free_count);
 
     spin_lock_unsafe_blocking(shared_state.scanline.lock);
     full_scanline_buffer_t *local_free_list = NULL;
 
-    if (!shared_state.scanline.in_vblank)
+    // The first line of the vertical blank: the next line shown is the
+    // first of a frame.
+    if (!vblank_scanline_number)
     {
-        shared_state.scanline.in_vblank = true;
-        shared_state.scanline.y_repeat_index = 0;
-
+        scanline_dma.y_repeat_index = 0;
         if (scanvideo_scanline_number(shared_state.scanline.next_scanline_id) != 0)
-        {
-            set_next_scanline_id((scanvideo_frame_number(shared_state.scanline.next_scanline_id) + 1u) << 16u);
-        }
-
-        signal = true;
+            shared_state.scanline.next_scanline_id =
+                (scanvideo_frame_number(shared_state.scanline.next_scanline_id) + 1u) << 16u;
     }
 
-    if (!shared_state.scanline.current_scanline_buffer || is_scanline_after(shared_state.scanline.next_scanline_id,
-                                                                            shared_state.scanline.current_scanline_buffer->core.scanline_id))
+    // A buffer still current from a line gone by, after a line interrupt was
+    // lost, is let go.
+    if (!scanline_dma.current || is_scanline_after(shared_state.scanline.next_scanline_id,
+                                                   scanline_dma.current->core.scanline_id))
     {
-        if (shared_state.scanline.current_scanline_buffer)
+        if (scanline_dma.current)
         {
             buffers_to_free_count++;
-            shared_state.scanline.current_scanline_buffer = NULL;
+            scanline_dma.current = NULL;
         }
         scanline_locked_try_latch_fsb_if_null_irqs_disabled(&local_free_list);
     }
@@ -530,9 +511,6 @@ static void __not_in_flash_func(prepare_for_vblank_scanline_irqs_enabled)(void)
 
     release_scanline_irqs_enabled(buffers_to_free_count, &local_free_list);
     free_local_free_list_irqs_enabled(local_free_list);
-
-    if (signal)
-        __sev();
 }
 
 void __isr __not_in_flash_func(isr_pio0_0)()
@@ -683,12 +661,11 @@ static void init_shared_state(void)
     shared_state.free_list.lock = spin_lock_init(SPINLOCK_ID_VIDEO_FREE_LIST_LOCK);
     // Must be next_scanline_id - 1 so is_scanline_after() succeeds on first generation
     shared_state.scanline.last_scanline_id = shared_state.scanline.next_scanline_id - 1;
-    shared_state.scanline.y_repeat_target = video_mode.y_scale;
 }
 
 static void init_scanline_buffers(void)
 {
-    memset(scanline_data, 0, sizeof(scanline_data));
+    // The pixels are left as they are: a line is written before it is shown.
     for (int i = 0; i < SCANVIDEO_SCANLINE_BUFFER_COUNT; i++)
     {
         scanline_buffers[i].core.data0 = scanline_data[0][i];
