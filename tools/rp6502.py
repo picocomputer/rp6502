@@ -206,19 +206,20 @@ class SerialDevice:
             ):
                 raise OSError("kernel32.WriteFile failed")
 
-    def read(self, size: int = 1) -> bytes:
-        """Read up to size bytes from the serial port."""
+    def read(self, size: int = 1, timeout: float = RESPONSE_TIMEOUT) -> bytes:
+        """Read up to size bytes; gives up after `timeout` of silence. On
+        Windows the port's own timeout, a millisecond, is the only one."""
         if self._is_posix:
-            return self._read_posix(size)
+            return self._read_posix(size, timeout)
         else:
             return self._read_windows(size)
 
-    def _read_posix(self, size: int) -> bytes:
+    def _read_posix(self, size: int, timeout: float) -> bytes:
         """Read with timeout on POSIX systems."""
         start = time.monotonic()
         data = b""
         while len(data) < size:
-            if time.monotonic() - start > RESPONSE_TIMEOUT:
+            if time.monotonic() - start > timeout:
                 break
             try:
                 chunk = os.read(self._fd, size - len(data))
@@ -497,9 +498,9 @@ class TelnetDevice:
         """Write data, escaping IAC (0xFF) per telnet spec."""
         self._send_raw(data.replace(b"\xff", b"\xff\xff"))
 
-    def read(self, size: int = 1) -> bytes:
-        """Read up to `size` bytes; times out after RESPONSE_TIMEOUT of silence."""
-        deadline = time.monotonic() + RESPONSE_TIMEOUT
+    def read(self, size: int = 1, timeout: float = RESPONSE_TIMEOUT) -> bytes:
+        """Read up to `size` bytes; gives up after `timeout` of silence."""
+        deadline = time.monotonic() + timeout
         while len(self._read_buf) < size:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -511,7 +512,7 @@ class TelnetDevice:
                 if not chunk:
                     break  # peer closed
                 self._read_buf += self._strip_iac(chunk)
-                deadline = time.monotonic() + RESPONSE_TIMEOUT
+                deadline = time.monotonic() + timeout
             except BlockingIOError:
                 ready, _, _ = select.select([self._sock], [], [], remaining)
                 if not ready:
@@ -670,7 +671,7 @@ class Console:
         ctrl_a_pressed = False
         while True:
             try:
-                data = self.serial.read(1)
+                data = self.serial.read(1, timeout=0.001)
                 if len(data) > 0:
                     try:
                         sys.stdout.write(data.decode(cp))
