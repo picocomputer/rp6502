@@ -13,18 +13,8 @@
 // It has been heavily modified for RP6502.
 
 #include "pico/types.h"
-#include "scanvideo.pio.h"
 
 #include "core/vga/pixel_format.h"
-
-// == COMPOSABLE SCANLINE ==
-#define COMPOSABLE_COLOR_RUN ((unsigned)composable_offset_color_run)
-#define COMPOSABLE_EOL_ALIGN ((unsigned)composable_offset_end_of_scanline_ALIGN)
-#define COMPOSABLE_EOL_SKIP_ALIGN ((unsigned)composable_offset_end_of_scanline_skip_ALIGN)
-#define COMPOSABLE_RAW_RUN ((unsigned)composable_offset_raw_run)
-#define COMPOSABLE_RAW_1P ((unsigned)composable_offset_raw_1p)
-#define COMPOSABLE_RAW_2P ((unsigned)composable_offset_raw_2p)
-#define COMPOSABLE_RAW_1P_SKIP_ALIGN ((unsigned)composable_offset_raw_1p_skip_ALIGN)
 
 // == TYPES =============
 
@@ -44,8 +34,6 @@ typedef struct scanvideo_timing
     uint16_t v_pulse;
     uint16_t v_total;
     uint8_t v_sync_polarity;
-
-    uint8_t clock_polarity;
 } scanvideo_timing_t;
 
 typedef struct scanvideo_view
@@ -55,32 +43,27 @@ typedef struct scanvideo_view
     uint16_t width;
     uint16_t height;
     uint8_t x_scale;
-    uint16_t y_scale;
+    uint8_t y_scale;
     uint16_t y_offset;
 } scanvideo_view_t;
 
+// A line to draw: which line of which frame, and for each plane the pixels
+// of the line, the view's width of them.
 typedef struct scanvideo_scanline_buffer
 {
     uint32_t scanline_id;
-    uint32_t *data0;
-    uint16_t data0_used;
-    uint16_t data0_max;
-    uint32_t *data1;
-    uint16_t data1_used;
-    uint16_t data1_max;
-    uint32_t *data2;
-    uint16_t data2_used;
-    uint16_t data2_max;
-    void *user_data;
-    uint8_t status;
+    uint16_t *pixels[SCANVIDEO_PLANE_COUNT];
 } scanvideo_scanline_buffer_t;
 
 // == API ===============
 
 void scanvideo_set_mode(const scanvideo_view_t *mode);
 
+// A line to draw, or NULL when there is none to draw yet. It is handed back
+// with which planes had pixels written; a plane that had none is transparent.
 scanvideo_scanline_buffer_t *scanvideo_begin_scanline_generation(void);
-void scanvideo_end_scanline_generation(scanvideo_scanline_buffer_t *scanline_buffer);
+void scanvideo_end_scanline_generation(scanvideo_scanline_buffer_t *scanline_buffer,
+                                       const bool filled[SCANVIDEO_PLANE_COUNT]);
 
 static inline uint16_t scanvideo_scanline_number(uint32_t scanline_id)
 {

@@ -13,7 +13,7 @@ from rp6502_asm import (API_A, API_ERRNO, API_OP, API_X, OP_ATTR_GET,
                         OP_ATTR_SET, OP_CLOSE, OP_ERRNO_OPT, OP_EXIT, OP_LSEEK,
                         OP_OPEN, OP_SYNCFS, OP_WRITE_XRAM, OP_WRITE_XSTACK,
                         O_WRONLY, RIA_TX, RW0_ADDR, RW0_DATA, RW0_STEP,
-                        RW1_ADDR, RW1_DATA, RW1_STEP, SEEK_CUR, SEEK_END, SEEK_SET, VIA_ACR, VIA_IFR,
+                        SEEK_CUR, SEEK_END, SEEK_SET, VIA_ACR, VIA_IFR,
                         VIA_T1_HI, VIA_T1_LO, VIA_T1L_HI, VIA_T1L_LO, XSTACK,
                         Asm)
 from rp6502_rom import main, rom
@@ -437,14 +437,17 @@ SST_T1 = 0x0800
 SST_OPL = 0xF000
 
 
-def aud_sst_prog():
+def aud_sst_prog(odd=False):
     """Every engine at once, for a savestate taken mid-note: a PSG tone and
     a noise voice, the OPL in rhythm mode with feedback, vibrato and
     tremolo, and the bell, rung well before PCM 22050 Hz 16-bit stereo is
     opened and filled three quarters full. Then W on the console, and a
     loop that makes no API call: each VIA T1 period it writes one entry of
     a table through RW0, PSG gates and frequencies and OPL keys and drums,
-    and every sixteenth period a burst of 24 into the OPL's queue."""
+    and every sixteenth period a burst of 24 into the OPL's queue. With odd,
+    the PCM goes in as a write one byte short and a write of two, so the
+    save is made with the FIFO's staging pointer partway into a word, which
+    a byte count that did not wrap at 4 put past 3."""
     p = Prog()
     frames = []
     for i in range(SST_PCM_LEN // 4):
@@ -502,11 +505,14 @@ def aud_sst_prog():
     p.push_str("PCM:22050,16,2")
     p.call_a(OP_OPEN, O_WRONLY)
     p.sta_zp(fd)
-    p.pushw(SST_PCM_TABLE)
-    p.pushw(SST_PCM_LEN)
-    p.lda_zp(fd)
-    p.sta_abs(API_A)
-    p.call(OP_WRITE_XRAM)
+    writes = ([(SST_PCM_TABLE, SST_PCM_LEN - 1), (SST_PCM_TABLE, 2)] if odd
+              else [(SST_PCM_TABLE, SST_PCM_LEN)])
+    for at, n in writes:
+        p.pushw(at)
+        p.pushw(n)
+        p.lda_zp(fd)
+        p.sta_abs(API_A)
+        p.call(OP_WRITE_XRAM)
 
     p.lda_imm(ord("W"))
     p.putc_a()
@@ -543,41 +549,6 @@ def aud_sst_prog():
     for k in range(24):
         p.store(RW0_DATA, 0x60 + k)
     p.jmp_abs("period")
-    return p
-
-
-def aud_snoop_prog():
-    """The PSG and the OPL playing, then W on the console and RW0 and RW1
-    writing them back to back, so a stop often finds a 6502 write in
-    flight: RW0 into voice 0's frequency once in eight, RW1 into the OPL's
-    queue, which overflows, the rest."""
-    p = Prog()
-    p.xreg(0, 1, 0, PSG)
-    for at, val in ((0, 0x28), (1, 0x05), (2, 0x80), (3, 0x00), (4, 0x00),
-                    (5, 0x30), (6, 0x01)):
-        p.poke(PSG + at, val)
-    p.xreg(0, 1, 1, SST_OPL)
-    for reg, val in (
-        (0x20, 0x21), (0x23, 0x01), (0x40, 0x10), (0x43, 0x00), (0x60, 0xF4),
-        (0x63, 0xF4), (0x80, 0x57), (0x83, 0x57), (0xC0, 0x0A), (0xA0, 0x98),
-        (0xB0, 0x31),
-    ):
-        p.poke(SST_OPL + reg, val)
-    p.store(RW0_STEP, 0x00)
-    p.store(RW0_ADDR, PSG & 0xFF)
-    p.store(RW0_ADDR + 1, PSG >> 8)
-    p.store(RW1_STEP, 0x00)
-    p.store(RW1_ADDR, 0xA0)
-    p.store(RW1_ADDR + 1, SST_OPL >> 8)
-    p.lda_imm(ord("W"))
-    p.putc_a()
-    p.ldx_imm(0)
-    p.symbol("flood")
-    p.stx_abs(RW0_DATA)
-    for _ in range(7):
-        p.stx_abs(RW1_DATA)
-    p.inx()
-    p.jmp_abs("flood")
     return p
 
 
@@ -943,7 +914,9 @@ def check_pcm_rules(w):
 
 
 def test_pcm_rules():
-    with rp6502.Emu(rom("pcm_rules")) as e:
+    # The fill sets RULES_DONE to $55, so the wait passes only after the
+    # program sets it.
+    with rp6502.Emu("--memfill", "$55", rom("pcm_rules")) as e:
         e.cmd("wait RULES_DONE 1 60")
         got = bytes.fromhex(e.cmd(f"dump RULES {RULES_DONE - RULES}"))
         e.cmd("wait exit 2")
@@ -958,7 +931,7 @@ ROMS = {"psg": psg_prog, "psg_pre": psg_pre_prog, "opl": opl_prog,
         "bel": bel_prog, "bel_off": bel_off_prog, "opl_bel": opl_bel_prog,
         "pcm": pcm_prog, "pcm_rules": pcm_rules_prog,
         "pcm_order": pcm_order_prog, "aud_sst": aud_sst_prog,
-        "aud_snoop": aud_snoop_prog}
+        "aud_sst_odd": lambda: aud_sst_prog(odd=True)}
 TESTS = {"psg": test_psg, "psg_pre": test_psg_pre, "opl": test_opl,
          "opl_exit": test_opl_exit, "opl_init": test_opl_init,
          "bel": test_bel, "bel_off": test_bel_off, "opl_bel": test_opl_bel,

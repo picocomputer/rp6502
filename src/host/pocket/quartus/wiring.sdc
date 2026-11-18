@@ -4,21 +4,21 @@
 #
 # The 6502 and the VIA change state only on the PHI2 enable, except in
 # reset and on st_jam, which loads their registers during a savestate
-# restore. The firmware limits PHI2 to PHI2_MAX_KHZ, 8000 kHz, which
+# restore. wiring.sv holds st_jam for four clocks with the enable held
+# low, and loads the same words on each. The firmware limits PHI2 to
+# PHI2_MAX_KHZ, 8000 kHz, which
 # against the 50400 kHz clk_sys puts consecutive enables at least six
 # clk_sys clocks apart, so a path that one enable launches and the next
 # one captures has at least six clocks, and the multicycles on cpu and via
 # grant four.
 
-# clk_sys and clk_rv are ports only when wiring is the top level, as it
-# is in the machine-only project, where every port is a virtual pin.
-# Under core_top the PLL drives both clocks, and all_inputs and
-# all_outputs would name the device's pads.
+# The clocks are ports only when wiring is the top level, as it is in
+# the machine-only project, where every port is a virtual pin. Under
+# core_top the PLL drives them, and all_inputs and all_outputs would
+# name the device's pads.
 if {[get_collection_size [get_ports -nowarn clk_sys]] > 0} {
 
     create_clock -name clk_sys -period 19.841 [get_ports clk_sys]
-    create_clock -name clk_rv -period 39.682 -waveform {0.000 19.841} \
-        [get_ports clk_rv]
     # XRAM's port clock and its phase reference, as pocket_pll.v shifts them.
     create_clock -name clk_a2 -period 9.921 -waveform {8.990 13.951} \
         [get_ports clk_a2]
@@ -51,23 +51,8 @@ set_multicycle_path -hold  -from [get_registers {*via:*}] 3
 set_multicycle_path -setup -to [get_registers {*via:*}] 4
 set_multicycle_path -hold  -to [get_registers {*via:*}] 3
 
-# When a PHI2 enable launches a port A access, pocket_sram captures the
-# 6502's byte on the fourth clock after that enable, and the 6502 reads it
-# on the next enable, at least six clocks after that launch, so the path
-# from that capture into the 6502 has two clocks. This rule names both
-# ends, so it takes precedence over the one-ended rule above.
-set_multicycle_path -setup -from [get_registers {*pocket_sram*}] \
-    -to [get_registers {*cpu:*}] 2
-set_multicycle_path -hold  -from [get_registers {*pocket_sram*}] \
-    -to [get_registers {*cpu:*}] 1
-
 set_multicycle_path -setup -from [get_registers {*regs:*}] 4
 set_multicycle_path -hold  -from [get_registers {*regs:*}] 3
-
-set_multicycle_path -setup -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 4
-set_multicycle_path -hold  -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 3
-set_multicycle_path -setup -to [get_registers {*pocket_sram*pocket_sram_dq_out[*]}] 4
-set_multicycle_path -hold  -to [get_registers {*pocket_sram*pocket_sram_dq_out[*]}] 3
 
 # dram_clk is clk_dram forwarded through a DDR output cell, and clk_dram
 # runs half a clk_sys period behind clk_sys. The SDRAM samples its inputs
@@ -85,48 +70,20 @@ if {[get_collection_size [get_ports -nowarn {dram_clk}]] > 0} {
     set_input_delay  -clock dram_clk_pin -max  6.0 [get_ports {dram_dq[*]}]
     set_input_delay  -clock dram_clk_pin -min  2.5 [get_ports {dram_dq[*]}]
 
-    # S_READ sets rd_pipe[0], and pocket_sdram_rdata loads only when
-    # rd_pipe[3] is set, on the fourth clk_sys edge after the one that
-    # issues the READ. rd_pipe is an enable, so without this rule the
-    # analyzer times the data against the first clk_sys edge after the
-    # dram_clk_pin edge that launches it, 9.92 ns after launch, which
-    # leaves 3.92 ns after the 6.0 ns input delay. A multicycle of two
-    # leaves 23.76 ns.
+    # pocket_sdram's dq_cap takes dram_dq on every falling edge of
+    # clk_sys, and nothing else is fed by the pins. The falling edge of
+    # clk_sys is the rising edge of dram_clk, so a word that one
+    # dram_clk_pin edge launches is latched on the next, a full period
+    # later: 19.84 ns, less the 6.0 ns input delay and the time dram_clk
+    # takes to reach its pad. The PLL's shift is 9920 ps where half a
+    # period is 9920.6, so on paper a falling edge of clk_sys comes
+    # 1 ps after the launch and the analyzer would time the capture
+    # against that one. The setup multicycle of two names the edge a
+    # period later. No hold multicycle goes with it: the hold check is
+    # then the edge before the capture, which is the 1 ps edge, so the
+    # word must not change until 1 ps after its own launch. The chip
+    # holds it 2.5 ns, the minimum input delay.
     set_multicycle_path -setup -from [get_ports {dram_dq[*]}] \
-        -to [get_registers {*pocket_sdram*pocket_sdram_rdata*}] 2
-    set_multicycle_path -hold  -from [get_ports {dram_dq[*]}] \
-        -to [get_registers {*pocket_sdram*pocket_sdram_rdata*}] 1
+        -to [get_registers {*pocket_sdram*dq_cap*}] 2
 }
 
-# pocket_sram loads pocket_sram_a and pocket_sram_dq_out for the soft
-# CPU on the first clk_sys edge after soc_bus_pend rises when pocket_sram
-# is idle, so the path from soc into them is one clock. These rules name
-# both ends, so they take precedence over the one-ended multicycles of
-# four above.
-set_multicycle_path -setup -from [get_registers {*soc*}] \
-    -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 1
-set_multicycle_path -hold  -from [get_registers {*soc*}] \
-    -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 0
-set_multicycle_path -setup -from [get_registers {*soc*}] \
-    -to [get_registers {*pocket_sram*pocket_sram_dq_out[*]}] 1
-set_multicycle_path -hold  -from [get_registers {*soc*}] \
-    -to [get_registers {*pocket_sram*pocket_sram_dq_out[*]}] 0
-
-# The board's SRAM, an AS6C2016-55BIN, has no clock, so there are no I/O
-# delays to declare, and the interface is bounded by its round trip:
-#
-#   4 clk_sys                     79.365 ns
-#   tAA, address to data valid   -55.000 ns
-#                                 ------
-#   left for both pad crossings    24.365 ns
-#
-# Eleven nanoseconds each way spends 22 ns of that and leaves 2.365 ns for
-# clock uncertainty and the board.
-if {[get_collection_size [get_ports -nowarn {sram_a[0]}]] > 0} {
-    set sram_pads [get_ports {sram_a[*] sram_dq[*] sram_oe_n sram_we_n \
-        sram_ub_n sram_lb_n}]
-    set_max_delay -to $sram_pads 11.0
-    set_min_delay -to $sram_pads 0.0
-    set_max_delay -from [get_ports {sram_dq[*]}] 11.0
-    set_min_delay -from [get_ports {sram_dq[*]}] 0.0
-}

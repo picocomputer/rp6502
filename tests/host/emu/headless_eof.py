@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """A pipe that ends without a newline, read with no window. The program copies
 each line to stdout and writes "eof" at end of file, so the unfinished line
-still arrives. A pipe is no terminal, so the line editor asks nothing."""
+still arrives. A pipe is no terminal, so the line editor types plainly."""
 
 import subprocess
 

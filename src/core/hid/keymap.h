@@ -11,16 +11,12 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* keyboard.c calls these on every new key press and after every report. This
- * file answers them with a layout, dead keys and a code page. A machine whose
- * host resolved the characters before the keystroke arrived links
- * core/hid/vtkeys.c instead, which answers with nothing. */
-void keymap_on_key(uint8_t modifier, uint8_t keycode);
-void keymap_on_modifiers(uint8_t modifier);
-
+/* The keyboard driver of a machine that has no system under it: it types
+ * through a layout and owns the locks, which start with NumLock on. */
 void keymap_init(void);
 
-// Auto-repeat. The held key is read back from keyboard.c, so a release ends it.
+// Auto-repeat. The held key is read back from keyboard.c, so a release ends
+// it, and so does the terminal turning repeat off (DECARM).
 void keymap_task(void);
 
 /* The queue of typed bytes, which holds KEYMAP_KEY_QUEUE_SIZE of them. */
@@ -38,21 +34,12 @@ void keymap_abandon(void);
 #define KEYMAP_COM_SOURCE {.read = keymap_in_chars, .peek = keymap_in_peek, \
     .clear = keymap_abandon, .size = KEYMAP_KEY_QUEUE_SIZE}
 
-int keymap_layouts_response(char *buf, size_t buf_size, int state, unsigned width);
+/* Type through this layout of the database from the next key on. */
+void keymap_use_layout(int index);
 
-#define KEYMAP_LAYOUT_LIST_SIZE 40
-bool keymap_check_layout_list(const char *in, char *out);
-void keymap_apply_layout_list(const char *list, bool changed);
-int keymap_layout_list_response(char *buf, size_t buf_size, int state, unsigned width);
-const char *keymap_get_layout(void);
-const char *keymap_get_layout_verbose(void);
-
-#define KEYMAP_CONFIG_LAYOUT_LIST CONFIG_RAW(L, keymap, layout_list, \
-    KEYMAP_LAYOUT_LIST_SIZE, "", keymap_check_layout_list, keymap_apply_layout_list, \
-    STR_KB, keymap_layout_list_response, STR_HELP_SET_KB, keymap_layouts_response)
-#define KEYMAP_DRIVER DRIVER(  \
-    INIT(keymap_init)          \
-    TASK_PUMPED(keymap_task)   \
-    KEYMAP_CONFIG_LAYOUT_LIST)
+/* After KEYBOARD_DRIVER, whose start clears the locks. */
+#define KEYMAP_DRIVER DRIVER(     \
+    INIT(keymap_init)             \
+    TASK_PUMPED(keymap_task))
 
 #endif /* _CORE_HID_KEYMAP_H_ */

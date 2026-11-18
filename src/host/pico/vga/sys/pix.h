@@ -27,6 +27,7 @@
 void pix_init(void);
 void pix_task(void);
 
-#define PIX_DRIVER DRIVER(INIT(pix_init) TASK_PUMPED(pix_task))
+/* pix_task is not in the row: main.c runs it after every driver. */
+#define PIX_DRIVER DRIVER(INIT(pix_init))
 
 #endif /* _VGA_SYS_PIX_H_ */

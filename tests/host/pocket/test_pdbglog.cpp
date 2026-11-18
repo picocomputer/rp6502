@@ -13,7 +13,7 @@
 #include <vector>
 
 /* The 3:2 ratio of these periods is close to the ratio of clk_74a at
- * 74.25 MHz to clk_mach at 50.4 MHz. */
+ * 74.25 MHz to clk_sys at 50.4 MHz. */
 #define CON_PERIOD 3
 #define BRG_PERIOD 2
 
@@ -46,7 +46,7 @@ static void reset(int endian_little)
     done_delay = 3;
     prev_event = 0;
 
-    dut->clk_mach = 0;
+    dut->clk_sys = 0;
     dut->clk_74a = 0;
     dut->arst_n = 0;
     dut->rv_tx_data = 0;
@@ -59,10 +59,10 @@ static void reset(int endian_little)
     dut->eval();
     for (int i = 0; i < 8; i++)
     {
-        dut->clk_mach = 1;
+        dut->clk_sys = 1;
         dut->clk_74a = 1;
         dut->eval();
-        dut->clk_mach = 0;
+        dut->clk_sys = 0;
         dut->clk_74a = 0;
         dut->eval();
     }
@@ -86,9 +86,9 @@ static void tick(void)
             console.pop_front();
         }
         dut->eval();
-        dut->clk_mach = 1;
+        dut->clk_sys = 1;
         dut->eval();
-        dut->clk_mach = 0;
+        dut->clk_sys = 0;
         dut->eval();
     }
 

@@ -78,7 +78,7 @@ EINVAL = 22
 ENOSYS = 38
 
 # The Pocket keeps its working directory in one fixed folder.
-POCKET_CWD = "FS:/Assets/rp6502/common"
+POCKET_CWD = "FS:/Saves/rp6502/common"
 
 # The first XRAM read of NAME3 and the first of the asset each request one
 # chunk more than the data holds, so a read that returns the requested length

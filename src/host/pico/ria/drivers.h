@@ -21,6 +21,7 @@
 #include "core/hid/gamepad.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
+#include "core/hid/layout.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/str/oem.h"
@@ -41,6 +42,7 @@
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
 #include "ria/sys/vga.h"
+#include "ria/term/cells.h"
 #include "core/aud/mix.h"
 #include "osal/pico/lfs.h"
 #include "ria/sys/cfg.h"
@@ -58,7 +60,7 @@
  * before VGA because vga_init sends a PIX message, and LFS comes before CFG
  * because cfg_init reads its file from the volume that lfs_init mounts. USB
  * comes near the end because usb_init starts the boot enumeration window that
- * keyboard_mount checks, and every init after usb_init runs before usb_task
+ * keymap.c checks, and every init after usb_init runs before usb_task
  * can mount a keyboard, so a slow init can use up the window first. PHI2
  * comes after RIA and PIX because phi2_init sets the clock dividers of state
  * machines that ria_init and pix_init configure.
@@ -69,12 +71,14 @@
 #define RP6502_MACH_DRIVERS                          \
     RP2350_DRIVER,                                   \
     MANIFOLD_UART_DRIVER, COM_DRIVER, MON_DRIVER,    \
-    RIA_DRIVER, PIX_DRIVER, VGA_DRIVER,              \
+    RIA_DRIVER, PIX_DRIVER, CELLS_RIA_DRIVER,        \
+    VGA_DRIVER,                                      \
     LFS_DRIVER, CFG_DRIVER,                          \
     PROC_DRIVER, STR_DRIVER, STD_DRIVER,             \
     OEM_DRIVER, LED_DRIVER,                          \
     AUD_DRIVER, MID_DRIVER, KEYBOARD_DRIVER,         \
-    KEYMAP_DRIVER, MOUSE_DRIVER, GAMEPAD_DRIVER,     \
+    LAYOUT_DRIVER, KEYMAP_DRIVER,                    \
+    MOUSE_DRIVER, GAMEPAD_DRIVER,                    \
     TABLET_DRIVER,                                   \
     MBUF_DRIVER, TIO_DRIVER, RLN_DRIVER, FIL_DRIVER,  \
     ROM_DRIVER, UF2_DRIVER, TIM_DRIVER,              \

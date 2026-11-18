@@ -54,7 +54,7 @@ const void *usb_string_fetch_serial(uint8_t daddr);
 bool usb_device_id_hash(uint8_t daddr, char *buf, size_t buf_size);
 
 /* USB_DRIVER comes late in the driver list because usb_init starts the 355 ms
- * boot enumeration window, and keyboard_mount applies the NumLock quirk of the
+ * boot enumeration window, and keymap.c applies the NumLock quirk of the
  * Raspberry Pi Keyboard only inside that window. A slow init after usb_init
  * can use up the window before the keyboard mounts. */
 #define USB_DRIVER DRIVER(           \

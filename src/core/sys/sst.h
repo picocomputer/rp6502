@@ -16,7 +16,7 @@
  * The sst_put_uN helpers below write big-endian a field at a time, so a row
  * built from them carries no padding, no ABI and no pointer. A row that hands
  * sst_put a struct instead writes host byte order and that struct's layout,
- * which core/term/term.c does with its term_data_t cells and its uint16_t
+ * which core/term/cells.c does with its mode0_cell_t cells and its uint16_t
  * palette, so those bytes only read back under a build that lays them out the
  * same way.
  */
@@ -46,32 +46,52 @@ static inline bool sst_ok(const sst_cursor_t *c)
     return !c->fail;
 }
 
+/* A row's load refuses with a reason, which the load's answer names with
+ * the row. Returns false, for the row to return. */
+bool sst_refuse(sst_cursor_t *c, const char *why);
+
 static inline void sst_fail(sst_cursor_t *c)
 {
     c->fail = true;
 }
 
-static inline void sst_put(sst_cursor_t *c, const void *src, size_t n)
+/* The next n bytes where they lie in the blob, for a save that writes them
+ * in place rather than copying them in. NULL and a failed cursor when they
+ * would cross the row's end. */
+static inline uint8_t *sst_room(sst_cursor_t *c, size_t n)
 {
     if (c->fail || (size_t)(c->end - c->at) < n)
     {
         c->fail = true;
-        return;
+        return NULL;
     }
-    memcpy(c->at, src, n);
+    uint8_t *p = c->at;
     c->at += n;
+    return p;
+}
+
+/* The next n bytes where they lie in the blob, for a load that takes them
+ * as they are rather than copying them aside first. NULL and a failed
+ * cursor when they would cross the row's end. */
+static inline const uint8_t *sst_view(sst_cursor_t *c, size_t n)
+{
+    return sst_room(c, n);
+}
+
+static inline void sst_put(sst_cursor_t *c, const void *src, size_t n)
+{
+    uint8_t *p = sst_room(c, n);
+    if (p)
+        memcpy(p, src, n);
 }
 
 static inline void sst_get(sst_cursor_t *c, void *dst, size_t n)
 {
-    if (c->fail || (size_t)(c->end - c->at) < n)
-    {
-        c->fail = true;
+    const uint8_t *p = sst_view(c, n);
+    if (p)
+        memcpy(dst, p, n);
+    else
         memset(dst, 0, n);
-        return;
-    }
-    memcpy(dst, c->at, n);
-    c->at += n;
 }
 
 static inline void sst_put_u8(sst_cursor_t *c, uint8_t v)
@@ -112,18 +132,53 @@ static inline uint16_t sst_get_u16(sst_cursor_t *c)
     return (uint16_t)(((uint16_t)b[0] << 8) | b[1]);
 }
 
+/* A word of the blob as the machine reads it, its first byte the low one,
+ * which core/sys/sst.c asserts. */
+typedef uint32_t sst_word_t __attribute__((may_alias));
+
+static inline __attribute__((always_inline)) uint32_t
+sst_swap32(uint32_t v)
+{
+    return v >> 24 | (v >> 8 & 0xFF00u) | (v << 8 & 0xFF0000u) | v << 24;
+}
+
+/* The big-endian word at p. One on a word boundary is one access, which a
+ * machine whose blob is in slow memory needs: the Pocket's is past its
+ * cache. */
+static inline __attribute__((always_inline)) uint32_t
+sst_be32_read(const uint8_t *p)
+{
+    if (((uintptr_t)p & 3u) == 0)
+        return sst_swap32(*(const sst_word_t *)p);
+    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+           ((uint32_t)p[2] << 8) | p[3];
+}
+
+static inline __attribute__((always_inline)) void
+sst_be32_write(uint8_t *p, uint32_t v)
+{
+    if (((uintptr_t)p & 3u) == 0)
+    {
+        *(sst_word_t *)p = sst_swap32(v);
+        return;
+    }
+    p[0] = (uint8_t)(v >> 24);
+    p[1] = (uint8_t)(v >> 16);
+    p[2] = (uint8_t)(v >> 8);
+    p[3] = (uint8_t)v;
+}
+
 static inline void sst_put_u32(sst_cursor_t *c, uint32_t v)
 {
-    uint8_t b[4] = {(uint8_t)(v >> 24), (uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v};
-    sst_put(c, b, sizeof b);
+    uint8_t *p = sst_room(c, 4);
+    if (p)
+        sst_be32_write(p, v);
 }
 
 static inline uint32_t sst_get_u32(sst_cursor_t *c)
 {
-    uint8_t b[4];
-    sst_get(c, b, sizeof b);
-    return ((uint32_t)b[0] << 24) | ((uint32_t)b[1] << 16) |
-           ((uint32_t)b[2] << 8) | b[3];
+    const uint8_t *p = sst_view(c, 4);
+    return p ? sst_be32_read(p) : 0;
 }
 
 static inline void sst_put_u64(sst_cursor_t *c, uint64_t v)
@@ -156,14 +211,12 @@ static inline void sst_put_str(sst_cursor_t *c, const char *s, size_t slot)
         c->fail = true;
         return;
     }
-    if (c->fail || (size_t)(c->end - c->at) < slot)
+    uint8_t *p = sst_room(c, slot);
+    if (p)
     {
-        c->fail = true;
-        return;
+        memcpy(p, s, n);
+        memset(p + n, 0, slot - n);
     }
-    memcpy(c->at, s, n);
-    memset(c->at + n, 0, slot - n);
-    c->at += slot;
 }
 
 static inline void sst_get_str(sst_cursor_t *c, char *s, size_t slot)
@@ -174,10 +227,23 @@ static inline void sst_get_str(sst_cursor_t *c, char *s, size_t slot)
     s[slot - 1] = 0;
 }
 
+/* A slot sst_put_str wrote, as the string where it lies in the blob. A slot
+ * whose last byte is not NUL fails the cursor and reads as "", as one that
+ * would cross the row's end does. */
+static inline const char *sst_view_str(sst_cursor_t *c, size_t slot)
+{
+    const uint8_t *p = sst_view(c, slot);
+    if (!p || p[slot - 1] != 0)
+    {
+        c->fail = true;
+        return "";
+    }
+    return (const char *)p;
+}
+
 /* TRUSTED  the caller made this blob and loads it right back, so the load
- *          skips the scratch copy of the machine that would let a failed load
- *          be undone. The blob is known to be good, and the copy costs a save
- *          on every load.
+ *          skips the payload sum. The blob is known to be good, and the sum
+ *          costs a pass over it on every load.
  * SHARED   the blob is sent to another machine for netplay. core/api/dir.c
  *          writes its path slots empty, and a load leaves the open
  *          directories and the working directory as they are, because a path
@@ -185,10 +251,10 @@ static inline void sst_get_str(sst_cursor_t *c, char *s, size_t slot)
  *          player's machine, and the two machines would fall out of sync. For
  *          the same reason, core/api/std.c does not record files opened by
  *          path, and a load closes them; a SAVE: file is recorded by its
- *          name.
+ *          name. A SHARED load skips the payload sum too.
  *
- * Neither flag means a plain load from a file, which takes the scratch and
- * checks the payload sum. */
+ * Neither flag means a plain load from a file, which checks the payload
+ * sum. */
 
 #define SST_TRUSTED 0x01
 #define SST_SHARED 0x02
@@ -199,10 +265,23 @@ static inline void sst_get_str(sst_cursor_t *c, char *s, size_t slot)
 size_t sst_size(void);
 
 /* NULL on success, else a static reason. A save refuses a machine that is
- * mid-fan-out. A load that a row refuses partway through puts back what it had
- * already written over, but only when the scratch copy was taken, so a
- * SST_TRUSTED load that a row refuses leaves the machine half loaded. */
+ * mid-fan-out.
+ *
+ * A load overwrites the machine one row at a time, so a row that refuses
+ * partway through leaves the rows before it already loaded. undo, sst_size()
+ * bytes of the caller's, is where the load first saves the machine as it
+ * stands, and a refused load puts it back from there. A caller with no undo
+ * passes NULL and is left with a half loaded machine when a row refuses. */
 const char *sst_save(void *buf, size_t len, unsigned flags);
-const char *sst_load(const void *buf, size_t len, unsigned flags);
+const char *sst_load(const void *buf, size_t len, void *undo, unsigned flags);
+
+/* sst_load without the checks, for a caller that has just had sst_check pass
+ * the same bytes with the same flags and has work to do in between. */
+const char *sst_load_checked(const void *buf, void *undo, unsigned flags);
+
+/* NULL when the len bytes at buf are a savestate this build can load, else
+ * a static reason. It checks what sst_load checks before it changes
+ * anything, so a frontend can answer for a blob before it loads it. */
+const char *sst_check(const void *buf, size_t len, unsigned flags);
 
 #endif /* _CORE_SYS_SST_H_ */

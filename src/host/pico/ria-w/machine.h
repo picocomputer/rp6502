@@ -18,11 +18,11 @@
 #define HOST_IN_RAM_FUNC __not_in_flash("code")
 /* An interrupt handler runs from RAM with everything it calls inlined. */
 #define HOST_ISR_FUNC __attribute__((flatten, optimize("O3"))) __not_in_flash("code")
-#define HOST_UNINITIALIZED_RAM(name) __uninitialized_ram(name)
-/* The RIA registers, in core 1's stack bank outside the striped SRAM. */
-#define HOST_REGISTER_RAM(name) __scratch_x(#name) name
+/* The RIA registers, in core 1's stack bank outside the striped SRAM. The
+ * section is NOLOAD, so they keep their values through a reboot; see
+ * pico/ld/section_extra_post_scratch.incl. */
+#define HOST_REGISTER_RAM(name) __attribute__((section(".scratch_x_noload." #name))) name
 
-#define XRAM_ALIGN 4
 #define HID_MAX_SLOTS 16
 /* A program that ends returns the machine to its monitor. */
 #define RP6502_HAS_MONITOR 1
@@ -31,5 +31,8 @@
 #define COM_LIBC_STDOUT 1
 /* The size of the UART's input ring. */
 #define MANIFOLD_RING_SIZE 32
+
+/* The console's terminal follows the VGA's, which is this tall. */
+#define TERM_MAX_HEIGHT 32
 
 #endif /* _HOST_MACHINE_H_ */

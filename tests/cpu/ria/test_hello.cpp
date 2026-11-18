@@ -26,7 +26,6 @@ static void machine_reset()
     }
     dut = new Vwiring;
     dut->clk_sys = 0;
-    dut->clk_rv = 0;
     dut->rst_n = 0;
     dut->eval();
     tb_clock(dut);
@@ -40,9 +39,9 @@ static void load(uint16_t org, const uint8_t *bytes, size_t n, uint16_t entry)
 {
     auto *r = dut->rootp;
     for (size_t i = 0; i < 0x10000; i++)
-        r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[i] = 0;
+        r->wiring__DOT__sram__DOT__mem[i] = 0;
     for (size_t i = 0; i < n; i++)
-        r->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[org + i] = bytes[i];
+        r->wiring__DOT__sram__DOT__mem[org + i] = bytes[i];
     r->wiring__DOT__ria__DOT__regs[0x1C] = entry & 0xFF;
     r->wiring__DOT__ria__DOT__regs[0x1D] = entry >> 8;
 }
@@ -139,7 +138,7 @@ UTEST(hello, ready_never_claims_more_than_it_can_do)
     std::string out = run(100000);
     ASSERT_TRUE(dut->rootp->wiring__DOT__cpu__DOT__stop_flag);
 
-    uint8_t flags = dut->rootp->wiring__DOT__g_ram_bram__DOT__sram__DOT__mem[0];
+    uint8_t flags = dut->rootp->wiring__DOT__sram__DOT__mem[0];
     if (flags & 0x80)
         ASSERT_TRUE(out.find('Z') != std::string::npos);
 }
@@ -152,12 +151,11 @@ int main(int argc, const char *const argv[])
     dut = new Vwiring;
     /* Verilator seeds its edge detectors from the first eval, so a clock that
      * is already high at the first eval has no rising edge. machine_reset
-     * builds each case's model with the same first eval, and clk_rv rises
-     * once in the two cycles that machine_reset holds rst_n low. Without that
+     * builds each case's model with the same first eval, and clk_sys rises
+     * in the cycles that machine_reset holds rst_n low. Without that
      * edge the soft CPU's asynchronous reset is never applied, because rst_n
      * is already low at the first eval and so has no falling edge. */
     dut->clk_sys = 0;
-    dut->clk_rv = 0;
     dut->rst_n = 0;
     dut->eval();
     int rc = utest_main(argc, argv);

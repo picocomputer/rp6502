@@ -7,6 +7,7 @@
 #include "ria.h"
 #include "mmio.h"
 #include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/sys/ria.h"
 
 #include <stdint.h>
@@ -45,7 +46,7 @@ void ria_task(void)
 {
     uint32_t v;
     while ((v = UART_POP) & 0x100)
-        com_putchar_raw((char)v);
+        manifold_putchar_raw((char)v);
 
     /* A 6502 read of the UART that finds no byte sets a request, and a byte
      * is staged only then, so a console byte goes to the fabric only after

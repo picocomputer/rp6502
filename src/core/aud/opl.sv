@@ -14,24 +14,18 @@
  *
  * A savestate reads and writes the whole chip through the sst port at
  * savestate offsets: the queue at 0x400, the register file at 0x500, the
- * slots at 0x680, the channels at 0x6C0 and the flops at 0x780. The
- * arrays' write ports run on clk_sys, and so do the slot and channel
- * reads, the flops on clk. Between frames
- * every other flop and every registered read is dead, so only that state
- * is kept.
+ * slots at 0x680, the channels at 0x6C0 and the flops at 0x780. Between
+ * frames every other flop and every registered read is dead, so only that
+ * state is kept.
  */
 
 module opl
     import opl_rom_pkg::*;
 #(
     /* 50.4 MHz / 1014 is 49,704 samples a second. */
-    parameter int TICKS_PER_SAMPLE = 1014,
-    /* Clear for a bench with no clk_sys: the arrays' ports then run on
-     * clk. */
-    parameter bit SST_CLK = 1'b1
+    parameter int TICKS_PER_SAMPLE = 1014
 ) (
     input logic clk,
-    input logic clk_sys,
 
     /* Where the 256 bytes start, or 0xFFFF. */
     input logic xaddr_we,
@@ -52,22 +46,19 @@ module opl
     /* Writes that found the queue full, saturating at 0x7FFFFFFF. */
     output logic [30:0] opl_drops,
 
-    /* sst_own gives the arrays' ports to sst_addr, written on sst_we.
-     * sst_st_we writes the flop word at sst_addr on clk. sst_park holds
-     * the sample counter, so no frame starts. */
+    /* sst_own gives the arrays' ports to sst_addr. sst_we writes the
+     * word at sst_addr, an array's while sst_own is set and a flop word
+     * at any time. sst_park holds the sample counter, so no frame
+     * starts. */
     input logic sst_own,
     input logic [10:0] sst_addr,
     input logic sst_we,
-    input logic sst_st_we,
     input logic [31:0] sst_wdata,
     input logic sst_park,
     output logic [31:0] opl_sst_rdata,
     /* Idle, with no frame due for QUIET_LEAD clocks. */
     output logic opl_quiet
 );
-
-    logic clk_a;
-    assign clk_a = SST_CLK ? clk_sys : clk;
 
     logic sel_q, sel_r, sel_s, sel_c, sel_st;
     logic [2:0] st_k;
@@ -80,8 +71,8 @@ module opl
         st_k = sst_addr[2:0];
     end
 
-    /* A stop lands within a few clocks of opl_quiet, and no frame may
-     * start before it does. */
+    /* A savestate's hold parks the counter a clock after opl_quiet, and
+     * no frame may start before it does. */
     localparam int QUIET_LEAD = 24;
 
     localparam logic [1:0] EG_ATT = 2'd0;
@@ -146,7 +137,7 @@ module opl
     logic [7:0] qa_a;
     logic [15:0] q_entry, qa_q;
     always_comb qa_a = sst_own ? sst_addr[7:0] : q_wr[7:0];
-    always_ff @(posedge clk_a) begin
+    always_ff @(posedge clk) begin
         if (sst_own ? sst_we && sel_q : q_push)
             queue[qa_a] <= sst_own ? sst_wdata[15:0] : {q_val, q_off[7:0]};
         qa_q <= queue[qa_a];
@@ -180,7 +171,7 @@ module opl
             else if (q_drop && !drops_inc[31])
                 opl_drops <= drops_inc[30:0];
         end
-        if (sst_st_we && sel_st)
+        if (sst_we && sel_st)
             case (st_k)
                 3'd0: {enabled, q_wr, q_rd, xaddr[15:8]} <= sst_wdata[26:0];
                 3'd1: opl_drops <= sst_wdata[30:0];
@@ -201,7 +192,7 @@ module opl
     logic [7:0] rr_a, rw_a, rw_d, regs_q, ra_a, ra_q;
     logic rw_we;
     always_comb ra_a = sst_own ? sst_addr[7:0] : rw_a;
-    always_ff @(posedge clk_a) begin
+    always_ff @(posedge clk) begin
         if (sst_own ? sst_we && sel_r : rw_we)
             regs[ra_a] <= sst_own ? sst_wdata[7:0] : rw_d;
         ra_q <= regs[ra_a];
@@ -221,10 +212,10 @@ module opl
         sl_a = sst_own ? sst_addr[4:0] : sl_ra;
         sl_w = sst_own ? sst_addr[4:0] : sl_wa;
     end
-    always_ff @(posedge clk_a)
+    always_ff @(posedge clk)
         if (sst_own ? sst_we && sel_s : sl_we)
             slot_mem[sl_w] <= sst_own ? sst_wdata[29:0] : sl_wd;
-    always_ff @(posedge clk_a)
+    always_ff @(posedge clk)
         sl_q <= slot_mem[sl_a];
 
     /* A modulator's last two outputs, {h2, h1}, by {slot / 6, slot % 3}. */
@@ -237,10 +228,10 @@ module opl
         cm_a = sst_own ? sst_addr[3:0] : ch_ra;
         cm_w = sst_own ? sst_addr[3:0] : ch_wa;
     end
-    always_ff @(posedge clk_a)
+    always_ff @(posedge clk)
         if (sst_own ? sst_we && sel_c : ch_we)
             chan_mem[cm_w] <= sst_own ? sst_wdata[25:0] : ch_wd;
-    always_ff @(posedge clk_a)
+    always_ff @(posedge clk)
         ch_q <= chan_mem[cm_a];
 
     /* log-sin at 0, (exp | 1024) << 1 at 256 (opl.md 4.1). */
@@ -1019,7 +1010,7 @@ module opl
         if (xaddr_we && fstate != F_CLEAR && !(fstate == F_POP && rst_pend))
             rst_pend <= 1'b1;
 
-        if (sst_st_we && sel_st)
+        if (sst_we && sel_st)
             case (st_k)
                 3'd0: {rst_pend, credit} <= sst_wdata[31:27];
                 3'd2: {tdir, tof, tstep, creg, drums, rhy, dvb, dam, nts,
@@ -1064,7 +1055,7 @@ module opl
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_opl;
-    always_comb unused_opl = ^{clk_sys, e2_ph[1:0], e2_fbp[21:18],
+    always_comb unused_opl = ^{e2_ph[1:0], e2_fbp[21:18],
                                e2_fbp[7:0], e2_lvs[12:11], e2_lvs[1:0],
                                e5_p[23], e5_p[10:0], e1_kt[7:6]};
     /* verilator lint_on UNUSEDSIGNAL */

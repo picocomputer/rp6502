@@ -1,0 +1,41 @@
+# keyboard.rp6502 maps the keyboard bitmap at xram:$FF10. Bit 0 says no key
+# is down and bits 1 to 3 are NumLock, Caps Lock and Scroll Lock.
+run 20
+expect lock num off
+expect lock caps off
+expect lock scroll off
+peek xram:$FF10 $01
+
+lock num on
+lock caps on
+lock scroll on
+expect lock num on
+expect lock caps on
+expect lock scroll on
+expect-not lock num off
+peek xram:$FF10 $0F
+
+lock num on
+expect lock num on
+lock caps off
+lock caps off
+expect lock caps off
+expect-not lock caps on
+peek xram:$FF10 $0B
+
+lock num
+expect lock num off
+lock caps
+expect lock caps on
+lock scroll
+expect lock scroll off
+peek xram:$FF10 $05
+
+# A saved machine loads back with its locks.
+state save "locks.sst"
+lock caps off
+lock num on
+state load "locks.sst"
+expect lock caps on
+expect lock num off
+peek xram:$FF10 $05

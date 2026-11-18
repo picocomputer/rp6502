@@ -4,13 +4,33 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * This module is a behavioral model of the Pocket's SDRAM, an
- * AS4C32M16MSA-6BIN, which is a 512 Mbit x16 SDR part. The timing limits
- * are that datasheet's figures at 50.4 MHz, where a clock is 19.841 ns:
+ * AS4C32M16MSA-6BIN, which is a 512 Mbit x16 SDR part. The part is from
+ * Analogue's docs,
+ * https://www.analogue.co/developer/docs/openfpga/external-hardware, and
+ * its behaviour from Alliance's datasheet,
+ * https://www.alliancememory.com/datasheets/as4c32m16msa/. The timing
+ * limits are that datasheet's figures at 50.4 MHz, where a clock is
+ * 19.841 ns:
  *
  *   tRCD  18 ns    1 clk      tRAS min  48 ns     3 clk
  *   tRP   18 ns    1 clk      tRAS max 100 us  5040 clk
  *   tRC   60 ns    4 clk      tRFC      80 ns     5 clk
  *   tDPL   2 tCK   2 clk      tXSR      80 ns     5 clk
+ *
+ * clk is the chip's own clock. On the Pocket it is the controller's
+ * clock inverted, so a bench gives the model its clock inverted, and
+ * every command is sampled half a clock after the controller issues it.
+ *
+ * A READ or a WRITE is taken on any clock, so they can run back to back,
+ * one word a command. With CL2 and a burst length of one, the chip
+ * turns its outputs on after the first edge that follows the READ,
+ * the data is good at the second edge, and the outputs turn off after
+ * it (tHZ, 6 ns at most). The model is fatal when DQ is driven at
+ * either of those two edges, which are the edges where rd_v0 or rd_v1
+ * is set: the first overlaps the turn-on and the second is contention
+ * with the data. A WRITE sampled at the third edge after a READ is
+ * legal, since what drives it starts half a clock after the second
+ * edge, 9.9 ns, and the chip is off the bus by then.
  */
 
 module sdram_model (
@@ -22,6 +42,9 @@ module sdram_model (
     input logic ras_n,
     input logic cas_n,
     input logic we_n,
+    /* A WRITE leaves the bytes it masks as they were. The controller
+     * never masks a read. */
+    input logic [1:0] dqm,
     input logic [15:0] dq_in,
     input logic dq_oe,
     output logic [15:0] dq_out,
@@ -60,18 +83,18 @@ module sdram_model (
     logic [2:0] cmd;
     always_comb cmd = {ras_n, cas_n, we_n};
 
-    /* Read data is valid at the third edge after the READ is sampled,
-     * one edge later than CL2 alone, and that is the edge pocket_sdram
-     * captures on. It is valid at that edge only, since the burst length
-     * is one.
+    /* Read data is good at the second edge after the READ is sampled,
+     * which is CL2, and at that edge only, since the burst length is
+     * one. The model puts it on DQ at the first edge and takes it off
+     * at the second, so only a capture on the second edge sees it.
      *
      * dq_float changes on every clock rather than being 'x, because
      * Verilator is two-state and turns 'x into a constant that a capture
      * on the wrong edge would match whenever the true data equalled it. */
-    logic [15:0] rd_p0, rd_p1, rd_p2;
-    logic rd_v0, rd_v1, rd_v2;
+    logic [15:0] rd_p0, rd_p1;
+    logic rd_v0, rd_v1;
     logic [15:0] dq_float;
-    always_comb dq_out = rd_v2 ? rd_p2 : dq_float;
+    always_comb dq_out = rd_v1 ? rd_p1 : dq_float;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -96,19 +119,15 @@ module sdram_model (
             in_sref <= 1'b0;
             rd_p0 <= '0;
             rd_p1 <= '0;
-            rd_p2 <= '0;
             rd_v0 <= 1'b0;
             rd_v1 <= 1'b0;
-            rd_v2 <= 1'b0;
             dq_float <= 16'hFACE;
             sdram_model_refreshes <= '0;
             sdram_model_sref_clocks <= '0;
         end else begin
             rd_p1 <= rd_p0;
-            rd_p2 <= rd_p1;
             rd_v0 <= 1'b0;
             rd_v1 <= rd_v0;
-            rd_v2 <= rd_v1;
             dq_float <= dq_float + 16'h9E37;
             for (int b = 0; b < 4; b++) begin
                 since_act[b] <= since_act[b] + 1;
@@ -121,6 +140,9 @@ module sdram_model (
             since_any <= since_any + 1;
             since_srex <= since_srex + 1;
             since_sren <= since_sren + 1;
+
+            if (dq_oe && (rd_v0 || rd_v1))
+                $fatal(1, "sdram_model: DQ driven against read data");
 
             if (in_sref) begin
                 sdram_model_sref_clocks <= sdram_model_sref_clocks + 32'd1;
@@ -139,6 +161,11 @@ module sdram_model (
                 for (int b = 0; b < 4; b++)
                     if (row_open[b])
                         $fatal(1, "sdram_model: self refresh with an open row");
+                for (int b = 0; b < 4; b++)
+                    if (since_pre[b] < 1)
+                        $fatal(1, "sdram_model: tRP violated before self refresh");
+                if (rd_v0 || rd_v1)
+                    $fatal(1, "sdram_model: self refresh with read data on its way");
                 for (int b = 0; b < 4; b++)
                     if (!(pasr == 3'b000                       /* all */
                           || (pasr == 3'b001 && b[1] == 1'b0)  /* half */
@@ -178,6 +205,9 @@ module sdram_model (
                             $fatal(1, "sdram_model: refresh with open row");
                     if (since_ref < 5)
                         $fatal(1, "sdram_model: tRFC violated");
+                    for (int b = 0; b < 4; b++)
+                        if (since_pre[b] < 1)
+                            $fatal(1, "sdram_model: tRP violated before refresh");
                     since_ref <= 0;
                     if (saw_ref != 2'd3)
                         saw_ref <= saw_ref + 2'd1;
@@ -226,6 +256,8 @@ module sdram_model (
                         $fatal(1, "sdram_model: READ on closed bank");
                     if (since_act[ba] < 1)
                         $fatal(1, "sdram_model: tRCD violated on read");
+                    if (dqm != 2'b00)
+                        $fatal(1, "sdram_model: a masked read");
                     rd_p0 <= mem[{ba, row[ba], a[9:0]}];
                     rd_v0 <= 1'b1;
                     if (a[10]) begin
@@ -240,7 +272,10 @@ module sdram_model (
                         $fatal(1, "sdram_model: tRCD violated on write");
                     if (!dq_oe)
                         $fatal(1, "sdram_model: write with dq released");
-                    mem[{ba, row[ba], a[9:0]}] <= dq_in;
+                    if (!dqm[0])
+                        mem[{ba, row[ba], a[9:0]}][7:0] <= dq_in[7:0];
+                    if (!dqm[1])
+                        mem[{ba, row[ba], a[9:0]}][15:8] <= dq_in[15:8];
                     since_wr[ba] <= 0;
                     if (a[10]) begin
                         row_open[ba] <= 1'b0;

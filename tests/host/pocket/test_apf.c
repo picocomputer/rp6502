@@ -11,6 +11,9 @@
 #include "core/str/oem.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
+#include "core/term/cells.h"
+#include "core/hid/layout.h"
+#include "core/hid/usage.h"
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
@@ -61,12 +64,11 @@ static void reset_all(void)
         apf_umount(slot);
     apf_refresh();
     keyboard_init();
+    keymap_init();
     mouse_init();
     gamepad_init();
     tablet_init();
-    char drain[64];
-    while (keymap_in_chars(drain, sizeof drain))
-        ;
+    keymap_abandon();
     memset((uint8_t *)xram, 0, 0x10000);
     keyboard_xreg(AT_KEYBOARD);
     mouse_xreg(AT_MOUSE);
@@ -234,7 +236,7 @@ UTEST(apf, a_keyboard_sets_the_bitmap)
 UTEST(apf, a_keyboard_types_through_its_layout)
 {
     reset_all();
-    keymap_set_layout_list("US");
+    layout_set_list("US");
     apf_mount(2, APF_TYPE_KEYBOARD);
 
     char buf[8];
@@ -249,7 +251,7 @@ UTEST(apf, a_keyboard_types_through_its_layout)
 
     /* HID usage 0x1C is the Y key of a US keyboard, and the German
      * layout maps it to z. */
-    keymap_set_layout_list("DE");
+    layout_set_list("DE");
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0, 0, false);
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0x1C000000u, 0x0000, false);
     ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
@@ -261,7 +263,7 @@ UTEST(apf, a_keyboard_types_through_its_layout)
 UTEST(apf, ctrl_types_what_xterm_types)
 {
     reset_all();
-    keymap_set_layout_list("US");
+    layout_set_list("US");
     apf_mount(2, APF_TYPE_KEYBOARD);
 
     char buf[8];
@@ -277,7 +279,7 @@ UTEST(apf, ctrl_types_what_xterm_types)
 UTEST(apf, a_keymap_peek_at_an_offset_takes_nothing)
 {
     reset_all();
-    keymap_set_layout_list("US");
+    layout_set_list("US");
     apf_mount(2, APF_TYPE_KEYBOARD);
 
     feed(2, APF_TYPE_KEYBOARD, 0x40000100u, 0x20000000u, 0x0000, false); /* Ctrl+3 */
@@ -296,7 +298,7 @@ UTEST(apf, dead_keys_follow_a_code_page_change)
 {
     reset_all();
     oem_set_code_page_run(437);
-    keymap_set_layout_list("US-INTL");
+    layout_set_list("US-INTL");
     apf_mount(2, APF_TYPE_KEYBOARD);
 
     char buf[8];
@@ -401,6 +403,327 @@ UTEST(apf, a_slot_holds_what_its_type_says)
          false);
     ASSERT_EQ(gamepad_rec(0)[GAMEPAD_DPAD] & 0x80, 0x80);
     ASSERT_EQ(gamepad_rec(0)[GAMEPAD_BUTTON0], 1u << 0);
+}
+
+extern uint64_t apf_host_ns;
+extern int apf_host_chords;
+
+#define LCTRL KEYBOARD_MODIFIER_LEFTCTRL
+#define LSHIFT KEYBOARD_MODIFIER_LEFTSHIFT
+#define LALT KEYBOARD_MODIFIER_LEFTALT
+#define LGUI KEYBOARD_MODIFIER_LEFTGUI
+
+// A keyboard report: the modifiers held and the one key down, or 0 for none.
+static void keys(uint8_t mod, uint8_t usage)
+{
+    feed(2, APF_TYPE_KEYBOARD, 0x40000000u | ((uint32_t)mod << 8),
+         (uint32_t)usage << 24, 0, false);
+}
+
+static void keyboard_start(const char *layouts)
+{
+    reset_all();
+    apf_host_ns = 0;
+    apf_host_chords = 0;
+    layout_set_list(layouts);
+    apf_mount(2, APF_TYPE_KEYBOARD);
+}
+
+/* Press a key with its modifiers already down, let it go, and check what it
+ * typed. */
+#define ASSERT_TYPES(mod, usage, want)                               \
+    do                                                               \
+    {                                                                \
+        char typed_[KEYMAP_KEY_QUEUE_SIZE];                          \
+        keys(mod, 0);                                                \
+        keys(mod, usage);                                            \
+        keys(mod, 0);                                                \
+        size_t n_ = keymap_in_chars(typed_, sizeof typed_);          \
+        ASSERT_EQ(n_, sizeof(want) - 1);                             \
+        ASSERT_EQ(memcmp(typed_, want, n_), 0);                      \
+    } while (0)
+
+UTEST(apf, enter_tab_escape_and_backspace_ask_no_layout)
+{
+    keyboard_start("US DE");
+    for (int layout = 0; layout < 2; layout++)
+    {
+        ASSERT_TYPES(0, HID_KEY_ENTER, "\r");
+        ASSERT_TYPES(0, HID_KEY_KEYPAD_ENTER, "\r");
+        ASSERT_TYPES(0, HID_KEY_TAB, "\t");
+        ASSERT_TYPES(0, HID_KEY_ESCAPE, "\x1B");
+        ASSERT_TYPES(0, HID_KEY_BACKSPACE, "\x7F");
+        ASSERT_TYPES(LSHIFT, HID_KEY_TAB, "\x1B[Z");
+        /* The GUI key changes nothing but its own chord. */
+        ASSERT_TYPES(LGUI, HID_KEY_ENTER, "\r");
+        ASSERT_TYPES(LGUI, HID_KEY_ARROW_UP, "\x1B[A");
+        ASSERT_TYPES(LGUI, 0x10, "m");
+        ASSERT_TYPES(LGUI | LCTRL, 0x10, "\r");
+        /* Ctrl types a character it has no control byte for. */
+        ASSERT_TYPES(LCTRL, 0x1E, "1");
+        ASSERT_TYPES(LCTRL, HID_KEY_ENTER, "\r");
+        ASSERT_TYPES(LCTRL, HID_KEY_BACKSPACE, "\b");
+        ASSERT_TYPES(LALT, HID_KEY_ENTER, "\x1B\r");
+        ASSERT_TYPES(KEYBOARD_MODIFIER_RIGHTALT, HID_KEY_TAB, "\x1B\t");
+        ASSERT_TYPES(LALT, HID_KEY_BACKSPACE, "\x1B\x7F");
+        ASSERT_TYPES(LCTRL | LALT, HID_KEY_BACKSPACE, "\x1B\b");
+        ASSERT_TYPES(LGUI, HID_KEY_SPACE, "");
+    }
+}
+
+UTEST(apf, function_and_navigation_keys_send_their_sequences)
+{
+    keyboard_start("US");
+    ASSERT_TYPES(0, HID_KEY_ARROW_UP, "\x1B[A");
+    ASSERT_TYPES(LSHIFT, HID_KEY_ARROW_UP, "\x1B[1;2A");
+    ASSERT_TYPES(0, HID_KEY_F1, "\x1BOP");
+    ASSERT_TYPES(LCTRL | LALT, HID_KEY_F12, "\x1B[24;7~");
+    ASSERT_TYPES(0, HID_KEY_DELETE, "\x1B[3~");
+    ASSERT_TYPES(0, HID_KEY_SCROLL_LOCK, "");
+}
+
+UTEST(apf, the_keypad_follows_num_lock)
+{
+    keyboard_start("US");
+    /* NumLock starts on: digits from the layout, and Shift navigates with
+     * the Shift used up. */
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_8, "8");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_DECIMAL, ".");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_ADD, "+");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_COMMA, ",");
+    ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_8, "\x1B[A");
+    ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_5, "\x1B[E");
+    /* A keypad key's character is typed whatever Ctrl says. */
+    ASSERT_TYPES(LCTRL, HID_KEY_KEYPAD_DIVIDE, "/");
+    ASSERT_TYPES(LCTRL, HID_KEY_KEYPAD_8, "8");
+
+    ASSERT_TYPES(0, HID_KEY_NUM_LOCK, "");
+    ASSERT_EQ(xram[AT_KEYBOARD] & 2, 0);
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_8, "\x1B[A");
+    ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_8, "\x1B[1;2A");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_1, "\x1B[F");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_0, "\x1B[2~");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_DECIMAL, "\x1B[3~");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_5, "\x1B[E");
+    ASSERT_TYPES(LALT, HID_KEY_KEYPAD_ADD, "+");
+    ASSERT_TYPES(LALT, HID_KEY_KEYPAD_ENTER, "\r");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_ADD, "+");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_COMMA, ",");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_ENTER, "\r");
+}
+
+/* The terminal's key modes reach the layout machines' keys through the
+ * encoder. NumLock starts on. */
+UTEST(apf, the_keys_follow_the_terminal_modes)
+{
+    keyboard_start("US");
+    cells_term.app_cursor = true;
+    ASSERT_TYPES(0, HID_KEY_ARROW_UP, "\x1BOA");
+    ASSERT_TYPES(LSHIFT, HID_KEY_ARROW_UP, "\x1B[1;2A");
+    ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_8, "\x1BOA");
+    cells_term.app_cursor = false;
+
+    cells_term.newline_mode = true;
+    ASSERT_TYPES(0, HID_KEY_ENTER, "\r\n");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_ENTER, "\r\n");
+    ASSERT_TYPES(LALT, HID_KEY_ENTER, "\x1B\r\n");
+    /* Ctrl-M is a character, not the Return key. */
+    ASSERT_TYPES(LCTRL, 0x10, "\r");
+    cells_term.newline_mode = false;
+
+    /* The application keypad waits for NumLock to go off, or for Shift,
+     * which is then used up. */
+    cells_term.app_keypad = true;
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_8, "8");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_ADD, "+");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_ENTER, "\r");
+    ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_8, "\x1BOx");
+    ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_ADD, "\x1BOk");
+    ASSERT_TYPES(0, HID_KEY_NUM_LOCK, "");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_8, "\x1BOx");
+    ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_5, "\x1BO2u");
+    /* Plus is xterm's, and a keypad that has a comma sends a VT100's. */
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_ADD, "\x1BOk");
+    ASSERT_TYPES(LCTRL, HID_KEY_KEYPAD_ADD, "\x1BO5k");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_COMMA, "\x1BOl");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_SUBTRACT, "\x1BOm");
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_ENTER, "\x1BOM");
+    /* VT52 mode changes only a VT52's keys. */
+    cells_term.vt52 = true;
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_8, "\x1B?x");
+    ASSERT_TYPES(LCTRL, HID_KEY_KEYPAD_ADD, "\x1B?k");
+    ASSERT_TYPES(0, HID_KEY_ARROW_UP, "\x1B" "A");
+    ASSERT_TYPES(LCTRL, HID_KEY_ARROW_UP, "\x1B" "A");
+    ASSERT_TYPES(0, HID_KEY_F1, "\x1BP");
+    ASSERT_TYPES(LCTRL, HID_KEY_DELETE, "\x1B[3~");
+    ASSERT_TYPES(LALT, 0x04, "\x1B" "a");
+    ASSERT_TYPES(LSHIFT, HID_KEY_TAB, "\x1B[Z");
+    cells_term.vt52 = false;
+    cells_term.app_keypad = false;
+}
+
+/* Ctrl-Alt-Delete takes either Delete key, wherever NumLock is. */
+UTEST(apf, the_keypad_delete_breaks_too)
+{
+    keyboard_start("US");
+    ASSERT_TYPES(LCTRL | LALT, HID_KEY_KEYPAD_DECIMAL, "");
+    ASSERT_EQ(apf_host_chords, 1);
+    ASSERT_TYPES(0, HID_KEY_NUM_LOCK, "");
+    ASSERT_TYPES(LCTRL | LALT, HID_KEY_KEYPAD_DECIMAL, "");
+    ASSERT_EQ(apf_host_chords, 2);
+}
+
+UTEST(apf, alt_over_the_keypad_types_a_character_code)
+{
+    keyboard_start("US");
+    char buf[8];
+    keys(LALT, 0);
+    keys(LALT, HID_KEY_KEYPAD_6);
+    keys(LALT, 0);
+    keys(LALT, HID_KEY_KEYPAD_5);
+    keys(LALT, 0);
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
+    keys(0, 0);
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(buf[0], 'A');
+
+    /* Enter while a code is being typed belongs to the code and sends
+     * nothing. */
+    keys(LALT, HID_KEY_KEYPAD_6);
+    keys(LALT, HID_KEY_ENTER);
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
+    keys(0, 0);
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(buf[0], 6);
+}
+
+/* The apostrophe is a dead key on the US-INTL layout. */
+UTEST(apf, a_dead_key_ends_at_a_key_the_layout_does_not_type)
+{
+    keyboard_start("US-INTL");
+    ASSERT_TYPES(0, 0x34, "");
+    ASSERT_TYPES(0, 0x08, "\x82"); /* e acute in CP437 */
+
+    /* Backspace cancels it. */
+    ASSERT_TYPES(0, 0x34, "");
+    ASSERT_TYPES(0, HID_KEY_BACKSPACE, "");
+    ASSERT_TYPES(0, 0x08, "e");
+
+    /* Anything else types it first. */
+    ASSERT_TYPES(0, 0x34, "");
+    ASSERT_TYPES(0, HID_KEY_ENTER, "'\r");
+    ASSERT_TYPES(0, 0x34, "");
+    ASSERT_TYPES(0, HID_KEY_TAB, "'\t");
+    ASSERT_TYPES(0, 0x34, "");
+    ASSERT_TYPES(LALT, HID_KEY_ENTER, "'\x1B\r");
+    ASSERT_TYPES(0, 0x34, "");
+    ASSERT_TYPES(LALT, HID_KEY_BACKSPACE, "'\x1B\x7F");
+    ASSERT_TYPES(0, 0x34, "");
+    ASSERT_TYPES(0, HID_KEY_ARROW_LEFT, "'\x1B[D");
+    ASSERT_TYPES(0, 0x34, "");
+    cells_term.newline_mode = true;
+    ASSERT_TYPES(0, HID_KEY_ENTER, "'\r\n");
+    cells_term.newline_mode = false;
+    ASSERT_TYPES(0, 0x08, "e");
+}
+
+UTEST(apf, a_held_key_repeats_until_it_is_let_go)
+{
+    keyboard_start("US");
+    char buf[8];
+    keys(0, 0x04); /* a */
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
+    apf_host_ns += 499 * 1000000ull;
+    keymap_task();
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
+    apf_host_ns += 1000000ull;
+    keymap_task();
+    keymap_task();
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(buf[0], 'a');
+    apf_host_ns += 30 * 1000000ull;
+    keymap_task();
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
+
+    /* Shift going down ends the repeat, because the key that was repeating
+     * is no longer the key held. */
+    keys(LSHIFT, 0x04);
+    apf_host_ns += 1000 * 1000000ull;
+    keymap_task();
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
+
+    keys(0, HID_KEY_ARROW_UP);
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)3);
+    apf_host_ns += 500 * 1000000ull;
+    keymap_task();
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)3);
+    ASSERT_EQ(memcmp(buf, "\x1B[A", 3), 0);
+    keys(0, 0);
+    apf_host_ns += 1000 * 1000000ull;
+    keymap_task();
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
+}
+
+/* DECARM off: the first press is typed and nothing follows it. Turning it
+ * back on does not start a key already held. */
+UTEST(apf, nothing_repeats_with_autorepeat_off)
+{
+    keyboard_start("US");
+    char buf[8];
+    cells_term.autorepeat = false;
+    keys(0, 0x04); /* a */
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
+    apf_host_ns += 1000 * 1000000ull;
+    keymap_task();
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
+    cells_term.autorepeat = true;
+    apf_host_ns += 1000 * 1000000ull;
+    keymap_task();
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
+
+    /* Turned off while a key repeats, the repeat ends. */
+    keys(0, 0);
+    keys(0, HID_KEY_ARROW_UP);
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)3);
+    apf_host_ns += 500 * 1000000ull;
+    keymap_task();
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)3);
+    cells_term.autorepeat = false;
+    apf_host_ns += 30 * 1000000ull;
+    keymap_task();
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
+    cells_term.autorepeat = true;
+    keys(0, 0);
+}
+
+UTEST(apf, lock_keys_and_chords_act_once)
+{
+    keyboard_start("US DE");
+    char buf[8];
+
+    keys(0, HID_KEY_CAPS_LOCK);
+    apf_host_ns += 1000 * 1000000ull;
+    keymap_task();
+    ASSERT_EQ(xram[AT_KEYBOARD] & 4, 4);
+    ASSERT_TYPES(0, 0x04, "A");
+
+    /* GUI-Space goes to the next layout of the list, where HID usage 0x1C
+     * types z. */
+    keys(LGUI, 0);
+    keys(LGUI, HID_KEY_SPACE);
+    apf_host_ns += 1000 * 1000000ull;
+    keymap_task();
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
+    ASSERT_TYPES(0, 0x1C, "Z");
+    ASSERT_TYPES(LGUI, HID_KEY_SPACE, "");
+    ASSERT_TYPES(0, 0x1C, "Y");
+
+    keys(LCTRL | LALT, 0);
+    keys(LCTRL | LALT, HID_KEY_DELETE);
+    apf_host_ns += 1000 * 1000000ull;
+    keymap_task();
+    ASSERT_EQ(apf_host_chords, 1);
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
 }
 
 UTEST_MAIN();

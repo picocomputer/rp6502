@@ -5,6 +5,7 @@
  */
 
 #include "tb_core.h"
+#include "tb_ram.h"
 
 #include "Vwiring.h"
 #include "Vwiring___024root.h"
@@ -19,19 +20,11 @@ static uint64_t tb_core_time;
 
 double sc_time_stamp() { return (double)tb_core_time; }
 
-/* clk_rv is half the rate of clk_sys and rises in the same eval, as the PLL
- * in pocket_pll.v makes it. A clk_rv registered off clk_sys would rise after
- * the clk_sys registers had changed, so the soft CPU would capture their new
- * values instead of the ones they held before the edge. */
-static int tb_core_rv_phase;
-
 static void tb_core_edge(int level)
 {
     if (level)
-        tb_core_rv_phase = !tb_core_rv_phase;
+        tb_ram_tick(tb_core_dut);
     tb_core_dut->clk_sys = level;
-    tb_core_dut->clk_mach = level;
-    tb_core_dut->clk_rv = level && tb_core_rv_phase;
     tb_core_dut->clk_a2 = 0;
     tb_core_dut->eval();
     if (tb_core_trace)
@@ -71,14 +64,10 @@ void tb_core_init()
         tb_core_trace->open(path);
     }
 
-    tb_core_rv_phase = 0;
     tb_core_dut->clk_sys = 0;
-    tb_core_dut->clk_mach = 0;
-    tb_core_dut->clk_rv = 0;
     tb_core_dut->clk_a2 = 0;
     tb_core_dut->clk_ph = 0;
     tb_core_dut->rst_n = 0;
-    tb_core_dut->mach_running = 1;
     tb_core_dut->eval();
 }
 

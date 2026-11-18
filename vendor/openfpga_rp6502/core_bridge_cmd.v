@@ -2,6 +2,14 @@
 // bridge host/target command handler
 // 2022 Analogue
 //
+// rp6502: Analogue's template, vendor/openfpga's core_bridge_cmd.v from
+// https://github.com/open-fpga/core-template, with the changes marked
+// rp6502. The commands are Analogue's,
+// https://www.analogue.co/developer/docs/openfpga/host-target-commands,
+// where Debug Event Log (0x0152) is documented but the template does not
+// have it. The deadlines are ours: nothing documents what the host does
+// with a command it does not answer.
+//
 // rp6502: when a data slot command or target command 0x0152 is dispatched,
 // all of target_0 is written in TARG_ST_IDLE, with 0x0000 in the upper
 // half, and "cm" (0x636D) is written there one cycle later. Since the host
@@ -87,7 +95,6 @@ input   wire            target_dataslot_read,       // rising edge triggered
 input   wire            target_dataslot_write,
 input   wire            target_dataslot_getfile,
 input   wire            target_dataslot_openfile,
-input   wire            target_dataslot_flush,
 
 output  reg             target_dataslot_ack,        // asserted upon command start until completion
 output  reg             target_dataslot_done,       // asserted upon command finish until next command is issued    
@@ -205,15 +212,13 @@ localparam  [3:0]   TARG_ST_WAITRESULT_DSO  = 'd15;
     reg             target_dataslot_write_1, target_dataslot_write_queue;
     reg             target_dataslot_getfile_1, target_dataslot_getfile_queue;
     reg             target_dataslot_openfile_1, target_dataslot_openfile_queue;
-    reg             target_dataslot_flush_1, target_dataslot_flush_queue;
     reg             target_debug_event_1, target_debug_event_queue;
     // A 0x0152 command that the host does not finish times out, because
     // this state machine also dispatches the data slot commands, and they
     // wait in their queues until it returns to TARG_ST_IDLE.
     reg     [23:0]  target_debug_timeout;
     // A data slot command that the host does not finish times out after
-    // 2^26 clocks, about 0.9 s at 74.25 MHz, with result 7. The Pocket does
-    // not reply to Flush, 0x0188, so every flush ends in this timeout.
+    // 2^26 clocks, about 0.9 s at 74.25 MHz, with result 7.
     // 2^26 clocks is half of the 2^27-clock deadline in pocket_file, and
     // this module has to time out first, because pocket_file waits for
     // target_dataslot_done to fall before it waits for the rise. If
@@ -241,7 +246,6 @@ initial begin
     target_dataslot_write_queue <= 0;
     target_dataslot_getfile_queue <= 0;
     target_dataslot_openfile_queue <= 0;
-    target_dataslot_flush_queue <= 0;
     target_debug_event_queue <= 0;
     target_debug_done <= 0;
     target_debug_timeout <= 0;
@@ -260,7 +264,6 @@ always @(posedge clk) begin
     target_dataslot_write_1 <= target_dataslot_write;
     target_dataslot_getfile_1 <= target_dataslot_getfile;
     target_dataslot_openfile_1 <= target_dataslot_openfile;
-    target_dataslot_flush_1 <= target_dataslot_flush;
     target_debug_event_1 <= target_debug_event;
     
     if(status_setup_done & ~status_setup_done_1) begin
@@ -277,9 +280,6 @@ always @(posedge clk) begin
     end
     if(target_dataslot_openfile & ~target_dataslot_openfile_1) begin
         target_dataslot_openfile_queue <= 1;
-    end
-    if(target_dataslot_flush & ~target_dataslot_flush_1) begin
-        target_dataslot_flush_queue <= 1;
     end
     if(target_debug_event & ~target_debug_event_1) begin
         target_debug_event_queue <= 1;
@@ -573,14 +573,6 @@ always @(posedge clk) begin
                                                     // which must contain the desired filename and flag/size before command execution
             tstate <= TARG_ST_DATASLOTOP;
             
-        end else if(target_dataslot_flush_queue) begin
-            target_dataslot_flush_queue <= 0;
-            target_0 <= {16'h0000, 16'h0188};
-
-            target_20 <= target_dataslot_id;
-
-            tstate <= TARG_ST_DATASLOTOP;
-
         end else if(target_debug_event_queue) begin
             target_debug_event_queue <= 0;
             target_0 <= {16'h0000, 16'h0152};

@@ -6,15 +6,6 @@
 # two they name are counted once, and a number here can be lower than
 # the structure count in the report.
 #
-# R101  wiring.sv's resb_eff is the AND of resb and the inverse of the
-#       savestate engine's hold_res, and it drives the asynchronous
-#       resets of the 6502 and the 6522, which run on clk_mach. resb is a
-#       flop on clk_mach, and hold_res is a flop on clk_sys. clk_mach is
-#       clk_sys through a clock gate, so each reset changes just after a
-#       rising edge of clk_sys, and its release is timed against the
-#       registers it resets as recovery and removal.
-R101 1
-#
 # D101  Every finding is a crossing between clk_74a and clk_sys, in one
 #       direction or the other:
 #
@@ -26,25 +17,21 @@ R101 1
 #                                 _bridgeaddr and _length; r_op;
 #                                 result_q, err_q, tmo_q and wrote_q
 #          32  core_bridge_cmd    rtc_epoch_seconds
-#          32  sst_engine         hold
-#          20  pocket_sst         ask, ask_t, start_hold
-#           1  core_top           mach_clk_en
+#          58  pocket_sst         ask, ask_t, save_t, load_t,
+#                                 blob_seen; word, got_t, save_ans_t,
+#                                 load_ans_t, save_err, load_err
 #
 #       cont1 to cont4, utz_74, utzm_74, utzs_74, kb_74 and
 #       rtc_epoch_seconds are levels. Each lands on a two-flop
 #       synchronizer in pocket_bridge and is taken only when two
 #       consecutive samples agree. slot_size, the command parameters,
-#       r_op, result_q, err_q, tmo_q, wrote_q and ask cross beside a
-#       toggle, and each is read in the receiving clock domain only after
-#       that toggle has passed through its synchronizer: settle_t, go_t,
-#       ret_t or ask_t. When sst_engine is not in reset, it changes hold
-#       only while its rvalid is low, and pocket_sst copies hold into its
-#       register of the same name only once rvalid_s2, its synchronized
-#       copy of rvalid, has been low and then high again since ask was
-#       last written. ask_t, start_hold and mach_clk_en are single bits
-#       that land on the first flop of a synchronizer: idx_t1, save_s1
-#       and running_s1.
-D101 717
+#       r_op, result_q, err_q, tmo_q, wrote_q, ask, word, save_err and
+#       load_err cross beside a toggle, and each is read in the receiving
+#       clock domain only after that toggle has passed through its
+#       synchronizer: settle_t, go_t, ret_t, ask_t, got_t, save_ans_t or
+#       load_ans_t. The toggles and blob_seen are single bits that land on
+#       the first flop of a synchronizer, a flop whose name ends in _s1.
+D101 722
 #
 # D102  Each finding is a multi-bit crossing that is synchronized but
 #       may land misaligned:
@@ -66,7 +53,7 @@ D102 28
 #
 # D103  The three findings are the bits of r_op, pocket_file's command
 #       opcode, which is decoded on clk_74a into the read, write,
-#       openfile, getfile and flush strobes. r_op is written on the
+#       openfile and getfile strobes. r_op is written on the
 #       clk_sys edge that toggles go_t, and the clk_74a side decodes it
 #       only once go_t2 differs from go_t3.
 D103 3
@@ -89,12 +76,7 @@ S104 1
 #       the bridge_spiclk registers in Analogue's io_bridge_peripheral.
 R102 1
 #
-# C106  clk_sys clocks soc_stb_n in wiring.sv on its falling edge.
-#       soc_stb_raw, the soft CPU's bus strobe, is the AND of
-#       soc_bus_pend and bus_rdy, which are driven by registers on
-#       clk_rv, clk_sys and clk_mach. clk_rv and clk_mach rise only on
-#       rising edges of clk_sys, so soc_stb_raw changes just after a
-#       rising edge of clk_sys. It is therefore sampled half a clk_sys
-#       period later, 9.9 ns nominal, and the path into soc_stb_n depends
-#       on the duty cycle of clk_sys.
+# C106  clk_sys clocks dq_cap in pocket_sdram.sv on its falling edge,
+#       which is the rising edge of the SDRAM's clock; pocket_sdram.sv
+#       says why the read data is good there.
 C106 1

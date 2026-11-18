@@ -26,10 +26,8 @@ static Vpsg *dut;
 static void clock_cycle()
 {
     dut->clk = 0;
-    dut->clk_sys = 0;
     dut->eval();
     dut->clk = 1;
-    dut->clk_sys = 1;
     dut->eval();
 }
 

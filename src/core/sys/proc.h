@@ -58,10 +58,8 @@ void proc_exec_task(void);
  * or launcher relaunch queued. */
 bool proc_exited(void);
 
-/* The savestate slot holds the queued flag, the exit code, the two paths of the
- * chain and the whole argv buffer: 1 + 2 + 256 + 256 + XSTACK_SIZE. */
-#define PROC_SST_SIZE (515 + XSTACK_SIZE)
-#define PROC_PATH_SLOT 256
+/* The savestate slot holds the queued flag, then core/api/proc.h's chain. */
+#define PROC_SST_SIZE (1 + PROC_CHAIN_SST_SIZE)
 void proc_sst_save(sst_cursor_t *c, unsigned flags);
 bool proc_sst_load(sst_cursor_t *c, unsigned flags);
 

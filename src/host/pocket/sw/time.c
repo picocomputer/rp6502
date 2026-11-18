@@ -3,14 +3,18 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * MTIME is the soft CPU's microsecond counter. host_clock_us reads the high
- * word, the low word and the high word again, so a carry between the reads
- * never produces a torn value.
+ * MTIME is the machine's microsecond counter, which stands still while
+ * the machine is held and which a savestate carries. UPTIME counts real
+ * microseconds and nothing stops it. Each is read as the high word, the
+ * low word and the high word again, so a carry between the reads never
+ * produces a torn value.
  *
- * Wall time comes from command 0x0090, which the host sends once at core
- * boot with the local time in seconds since 1970 and which sets RTC_VALID.
- * The command has no time zone field, so the UTC offset from the interact
- * menu converts that local reading to the UTC the API returns.
+ * Wall time is the RTC reading plus UPTIME since boot, so it follows real
+ * time through a save's hold and a load. The RTC reading comes from
+ * command 0x0090, which the host sends once at core boot with the local
+ * time in seconds since 1970 and which sets RTC_VALID. The command has no
+ * time zone field, so the UTC offset from the interact menu converts that
+ * local reading to the UTC the API returns.
  */
 
 #include "mmio.h"
@@ -26,15 +30,26 @@
 #include <stdlib.h>
 #include <time.h>
 
-uint64_t host_clock_us(void)
+static uint64_t tim_read(volatile const uint32_t *lo_reg,
+                         volatile const uint32_t *hi_reg)
 {
     uint32_t hi, lo;
     do
     {
-        hi = MTIME_HI;
-        lo = MTIME_LO;
-    } while (hi != MTIME_HI);
+        hi = *hi_reg;
+        lo = *lo_reg;
+    } while (hi != *hi_reg);
     return ((uint64_t)hi << 32) | lo;
+}
+
+uint64_t host_clock_us(void)
+{
+    return tim_read(&MTIME_LO, &MTIME_HI);
+}
+
+static uint64_t tim_uptime_us(void)
+{
+    return tim_read(&UPTIME_LO, &UPTIME_HI);
 }
 
 #define TIM_DEFAULT_EPOCH 43200
@@ -64,7 +79,7 @@ void tim_init(void)
     tim_local_boot = RTC_VALID ? (int64_t)RTC_EPOCH : TIM_DEFAULT_EPOCH;
     tim_tz_min = set_tz_minutes();
     tim_base_sec = tim_local_boot - (int64_t)tim_tz_min * 60;
-    tim_base_us = host_clock_us();
+    tim_base_us = tim_uptime_us();
     tim_apply_tz();
 }
 
@@ -83,7 +98,7 @@ void tim_set_tz_minutes(int32_t min)
 
 bool tim_get_time(struct timespec *ts)
 {
-    uint64_t us = host_clock_us() - tim_base_us;
+    uint64_t us = tim_uptime_us() - tim_base_us;
     ts->tv_sec = tim_base_sec + (int64_t)(us / 1000000u);
     ts->tv_nsec = (long)(us % 1000000u) * 1000;
     return true;
@@ -117,9 +132,14 @@ size_t tim_strftime(char *dst, size_t max, const char *format,
     return strftime(dst, max, format, tm);
 }
 
-/* MTIME stops only while the soft CPU is halted at its debug port for a
- * savestate, when no firmware runs, and a restore writes back the value it
- * had when the blob was made. */
+/* A savestate's load puts mtime back where it stood at the save. The wall
+ * time is this session's and does not move with it. */
+void tim_clock_set(uint64_t us)
+{
+    MTIME_LO = (uint32_t)us;
+    MTIME_HI = (uint32_t)(us >> 32);
+}
+
 uint64_t os_mono_ns(void)
 {
     return host_clock_us() * 1000;
@@ -128,6 +148,11 @@ uint64_t os_mono_ns(void)
 uint32_t os_random(void)
 {
     return RTC_VALID ? (uint32_t)RTC_EPOCH : 0;
+}
+
+bool host_minimized(void)
+{
+    return false;
 }
 
 static uint32_t seed;

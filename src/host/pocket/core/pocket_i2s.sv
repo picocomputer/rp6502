@@ -12,7 +12,7 @@
  */
 
 module pocket_i2s (
-    input logic clk_mach,
+    input logic clk_sys,
     input logic signed [15:0] aud_l,
     input logic signed [15:0] aud_r,
     input logic aud_valid,
@@ -37,7 +37,7 @@ module pocket_i2s (
         .WIDTH(32),
         .DEPTH_LOG2(2)
     ) fifo (
-        .wclk(clk_mach),
+        .wclk(clk_sys),
         .w_stb(aud_valid && !fifo_full),
         .w_data({s_r, s_l}),
         .pocket_fifo_full(fifo_full),
