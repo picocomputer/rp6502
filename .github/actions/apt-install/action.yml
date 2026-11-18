@@ -34,7 +34,8 @@ runs:
         echo "key=apt-${ImageOS:-linux}-$(dpkg --print-architecture)-$sum" >> "$GITHUB_OUTPUT"
 
     - name: The package files
-      uses: actions/cache@v6
+      id: files
+      uses: actions/cache/restore@v6
       with:
         path: ${{ steps.plan.outputs.dir }}
         key: ${{ steps.plan.outputs.key }}
@@ -50,3 +51,12 @@ runs:
           -o Dir::Cache::archives="$DIR" $PACKAGES
         # apt wrote as root, and the cache is saved as the runner.
         sudo chown -R "$(id -u):$(id -g)" "$DIR"
+
+    # Saved here and not as the job ends, so a long job that is cancelled
+    # has still saved them.
+    - name: Keep the package files
+      if: steps.files.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ steps.plan.outputs.dir }}
+        key: ${{ steps.plan.outputs.key }}
