@@ -24,6 +24,7 @@ core/api/std.c std_xram_end: the STD chunk, as its distance from std_xram_addr
 core/api/std.c std_xram_err: not carried: a machine that saves streams nothing, so a failed read returns at once; none on load
 core/api/std.c std_xram_hi: the STD chunk, rebuilt from the buffer offset and size of a read into xram
 core/api/std.c std_xram_lo: the STD chunk, rebuilt from the buffer offset of a read into xram
+core/api/tim.c tim_zone_name: not carried: the host's names for its zone, asked for again at every use
 core/api/xreg1.c xregs: the XREG chunk
 core/aud/bel.c bel_end_at: the AUD chunk; the bell rides it because aud_init starts it
 core/aud/bel.c bel_queue: the AUD chunk; the bell rides it because aud_init starts it

@@ -16,6 +16,8 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/hid_null.c
     ${RP6502_SRC}/core/sys/proc.c
     ${RP6502_SRC}/core/api/tim.c
+    ${RP6502_SRC}/core/tim/tim.c
+    ${RP6502_SRC}/core/tim/tz.c
     ${RP6502_SRC}/core/aud/mix.c
     ${RP6502_SRC}/core/aud/pcm.c
     ${RP6502_SRC}/core/aud/rsmp.c

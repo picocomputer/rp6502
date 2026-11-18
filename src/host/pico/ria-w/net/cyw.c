@@ -6,6 +6,12 @@
 
 #include "ria-w/ble/ble.h"
 #include "ria/mon/mon.h"
+#include "ria/mon/drive.h"
+#include "ria/mon/fil.h"
+#include "ria/mon/ram.h"
+#include "ria/mon/rom.h"
+#include "ria/mon/uf2.h"
+#include "core/sys/buf1k.h"
 #include "ria-w/net/cyw.h"
 #include "core/sys/config.h"
 #include "ria-w/net/wifi.h"
@@ -113,6 +119,28 @@ static int HOST_IN_FLASH_FUNC cyw_lookup_country(const char *cc)
     return -1;
 }
 
+/* What the driver allocates, from buf1k: the two buffers the Bluetooth
+ * firmware is loaded through, 600 and 332 bytes, which it frees together
+ * when the load is done. The load is one call, from cyw_init, which runs
+ * none of our tasks, so nothing else has buf1k while it does. */
+static size_t cyw_buf1k_used;
+
+void *cyw_malloc(size_t size)
+{
+    size = (size + 3) & ~(size_t)3;
+    if (size > BUF1K_SIZE - cyw_buf1k_used)
+        return NULL;
+    void *ptr = &buf1k[cyw_buf1k_used];
+    cyw_buf1k_used += size;
+    return ptr;
+}
+
+void cyw_free(void *ptr)
+{
+    (void)ptr;
+    cyw_buf1k_used = 0;
+}
+
 /* A reset turns BLE and Wi-Fi off at once, and cyw_reset_task takes the
  * radio down and up once BLE is off. */
 static void cyw_reset_radio(void)
@@ -122,10 +150,15 @@ static void cyw_reset_radio(void)
     wifi_shutdown();
 }
 
-/* A TASK_PUMPED: the radio's start-up is in flash. */
+/* From the main loop only, and not while a command of the monitor's is at
+ * work: the radio's start-up loads the Bluetooth firmware through buf1k,
+ * which a command keeps its data in from one pass to the next, and while it
+ * waits on a drive. */
 void cyw_reset_task(void)
 {
     if (!cyw_is_resetting || !ble_is_off())
+        return;
+    if (ram_active() || rom_active() || fil_active() || uf2_active() || drive_active())
         return;
     cyw43_arch_deinit();
     cyw_is_started = false;

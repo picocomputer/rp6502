@@ -14,7 +14,7 @@
 #include "core/api/dir.h"
 #include "core/api/proc.h"
 #include "core/api/std.h"
-#include "core/api/tim.h"
+#include "core/tim/tim.h"
 #include "core/api/xreg.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"

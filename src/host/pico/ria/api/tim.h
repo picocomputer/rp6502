@@ -24,7 +24,7 @@ bool tim_check_time_zone(const char *in, char *out);
 void tim_apply_time_zone(const char *tz, bool changed);
 int tim_time_zone_response(char *buf, size_t buf_size, int state, unsigned width);
 
-#include "core/api/tim.h"
+#include "core/tim/tim.h"
 #undef TIM_DRIVER
 #define TIM_CONFIG_TZ CONFIG_STR(T, tim, time_zone, TIM_TZ_MAX_SIZE, "UTC0", \
     tim_check_time_zone, tim_apply_time_zone, STR_TZ, tim_time_zone_response, \

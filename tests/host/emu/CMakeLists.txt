@@ -183,6 +183,8 @@ rp6502_add_test(tio SOURCES test_tio.c ${RP6502_SRC}/core/com/tio.c
 
 rp6502_add_test(clk LIBS emu_core)
 
+rp6502_add_test(tim LIBS emu_core)
+
 rp6502_add_test(attr LIBS emu_core)
 
 rp6502_add_test(pcm_mix LIBS emu_core ROM ${ADVENTURE_ROM})

@@ -225,6 +225,7 @@ X(STR_HELP_SET,
   "HELP SET attr      - \aShow information about a setting.\n"
   "SET PHI2 (kHz)     - \aQuery or set PHI2 speed. This is the 6502 clock.\n"
   "SET BOOT (rom|-)   - \aSelect ROM to boot from cold start. \"-\" for none.\n"
+  "SET LOC (loc)      - \aQuery or set display language.\n"
   "SET TZ (tz)        - \aQuery or set time zone.\n"
   "SET KB (layouts)   - \aQuery or set keyboard layouts.\n"
   "SET CP (cp)        - \aQuery or set code page.\n"

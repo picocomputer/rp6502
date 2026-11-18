@@ -10,9 +10,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "core/sys/sst.h"
+#include "core/tim/tim.h"
 #include <stdbool.h>
 #include <string.h>
-#include <time.h>
 
 void clk_run(void);
 
@@ -28,14 +28,14 @@ struct clk_wire_tm
 };
 _Static_assert(18 == sizeof(struct clk_wire_tm), "wire struct tm");
 
-static inline void clk_tm_to_wire(const struct tm *tm, struct clk_wire_tm *w)
+static inline void clk_tm_to_wire(const tim_tm_t *tm, struct clk_wire_tm *w)
 {
     w->tm_sec = tm->tm_sec, w->tm_min = tm->tm_min, w->tm_hour = tm->tm_hour;
     w->tm_mday = tm->tm_mday, w->tm_mon = tm->tm_mon, w->tm_year = tm->tm_year;
     w->tm_wday = tm->tm_wday, w->tm_yday = tm->tm_yday, w->tm_isdst = tm->tm_isdst;
 }
 
-static inline void clk_wire_to_tm(const struct clk_wire_tm *w, struct tm *tm)
+static inline void clk_wire_to_tm(const struct clk_wire_tm *w, tim_tm_t *tm)
 {
     memset(tm, 0, sizeof(*tm));
     tm->tm_sec = w->tm_sec, tm->tm_min = w->tm_min, tm->tm_hour = w->tm_hour;

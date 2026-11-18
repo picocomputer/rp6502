@@ -17,7 +17,7 @@
 #include "core/api/proc.h"
 #include "core/sys/proc.h"
 #include "core/api/std.h"
-#include "core/api/tim.h"
+#include "core/tim/tim.h"
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"

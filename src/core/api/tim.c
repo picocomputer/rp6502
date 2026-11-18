@@ -2,18 +2,19 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
  */
 
+/* The time of day on a machine with a host under it: the host's clock, its
+ * zone, and the words of its locale. */
+
+#include "core/tim/tim.h"
 #include "osal/os.h"
-#include "core/str/oem.h"
-#include "core/ria/regs.h"
-#include "core/api/tim.h"
+#include <string.h>
+#include <time.h>
 
 void tim_init(void)
 {
     os_locale_reset();
-    tzset(); /* populate tzname for strftime %Z from the host timezone */
 }
 
 void tim_stop(void)
@@ -21,69 +22,49 @@ void tim_stop(void)
     os_locale_free();
 }
 
-bool tim_get_time(struct timespec *ts)
+bool tim_get_time(tim_spec_t *ts)
 {
-    ts->tv_sec = time(NULL);
-    ts->tv_nsec = 0;
+    ts->sec = time(NULL);
+    ts->nsec = 0;
     return true;
 }
 
 /* The time is read from the host's clock, so a program that asks to move it
  * is refused rather than given an offset only this machine would apply. */
-bool tim_set_time(const struct timespec *ts)
+bool tim_set_time(const tim_spec_t *ts)
 {
     (void)ts;
     return false;
 }
 
-void tim_get_time_res(struct timespec *ts)
+void tim_get_time_res(tim_spec_t *ts)
 {
-    ts->tv_sec = 1;
-    ts->tv_nsec = 0;
+    ts->sec = 1;
+    ts->nsec = 0;
 }
 
-bool tim_localtime(time_t t, struct tm *out)
+/* A date keeps the name of its zone, so the names are kept here: one for
+ * standard time and one for summer time, as the host last gave them. */
+#define TIM_ZONE_NAME_SIZE 48
+static char tim_zone_name[2][TIM_ZONE_NAME_SIZE];
+
+void tim_zone(int64_t utc, tim_zone_t *zone)
 {
-    return os_localtime(t, out);
+    char name[TIM_ZONE_NAME_SIZE];
+    os_zone(utc, &zone->offset, &zone->dst, name, sizeof name);
+    char *kept = tim_zone_name[zone->dst];
+    if (strcmp(kept, name))
+        strcpy(kept, name);
+    zone->name = kept;
 }
 
-bool tim_gmtime(time_t t, struct tm *out)
+/* The host's word, or the C locale's where the host has none. A host with no AM and PM has them empty, and those stay
+ * empty. A format that is empty is one the locale does not have, as %r is
+ * where the clock has 24 hours. */
+const char *tim_word(tim_word_t word)
 {
-    return os_gmtime(t, out);
-}
-
-size_t tim_strftime(char *dst, size_t max, const char *format,
-                    const struct tm *tm)
-{
-    /* A throwaway mktime fills tm_gmtoff and tm_zone from the host timezone,
-     * where the host's struct tm has them, so %z and %Z match the firmware's
-     * newlib, which derives them from the timezone plus tm_isdst. It runs on
-     * its own copy because mktime also recomputes tm_wday and tm_yday, and %a
-     * and %A must come from the values the 6502 pushed. */
-    struct tm zoned = *tm, probe = *tm;
-    if (mktime(&probe) != (time_t)-1)
-        os_tm_apply_zone(&zoned, &probe);
-    /* The format is code page text and the host strftime reads UTF-8. A code
-     * page byte is at most 3 UTF-8 bytes, so any format fits, and a character
-     * the host renders is at most 4, so a render that fits max fits here. */
-    char fmt8[3 * XSTACK_SIZE];
-    oem_to_utf8(format, fmt8, sizeof fmt8);
-    char utf8[4 * XSTACK_SIZE];
-    size_t un = os_strftime_local(utf8, sizeof utf8, fmt8, &zoned);
-    /* strftime returns 0 on overflow and leaves the buffer unspecified, so a
-     * terminator is forced before the UTF-8 conversion below reads it. */
-    utf8[un < sizeof utf8 ? un : sizeof utf8 - 1] = 0;
-    size_t pos = 0;
-    const char *p = utf8;
-    unsigned char ch;
-    while ((ch = oem_from_utf8_next(&p)))
-    {
-        /* The render stops one byte short of max, and an overflow discards
-         * the whole render, both to match host/pico/ria/api/tim.c; the byte it
-         * spends on a terminator is left unwritten here. */
-        if (pos + 1 >= max)
-            return 0;
-        dst[pos++] = ch;
-    }
-    return pos;
+    const char *s = os_time_word(word);
+    if (!s || (word >= TIM_WORD_D_T_FMT && !*s))
+        s = tim_c_word(word);
+    return s;
 }

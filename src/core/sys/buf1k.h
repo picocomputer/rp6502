@@ -34,6 +34,9 @@
  * - ria/mon/uf2.c and uf2_write.c: a UF2 block and the flash page built
  *   from it.
  * - ria-w/net/wifi.c: the access points of a scan.
+ * - ria-w/net/cyw.c: the two buffers the radio's driver loads the
+ *   Bluetooth firmware through, at boot and after a reset of the radio,
+ *   which waits for every command above to be done.
  *
  * It is not the place for anything kept, or for work in a task that runs
  * beside the monitor or a running program. */

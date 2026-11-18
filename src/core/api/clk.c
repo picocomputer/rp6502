@@ -6,11 +6,10 @@
 
 #include "core/api/api.h"
 #include "core/api/clk.h"
-#include "core/api/tim.h"
+#include "core/tim/tim.h"
 #include "host/host.h"
 #include "machine.h"
 #include <string.h>
-#include <time.h>
 
 #define CLK_ID_REALTIME 0
 
@@ -46,10 +45,10 @@ bool HOST_IN_FLASH_FUNC clk_api_time_get(void)
 {
     if (xstack_ptr != XSTACK_SIZE)
         return api_return_errno(API_EINVAL);
-    struct timespec ts;
+    tim_spec_t ts;
     if (!tim_get_time(&ts))
         return api_return_errno(API_EIO);
-    int64_t sec = ts.tv_sec;
+    int64_t sec = ts.sec;
     api_push_n(&sec, sizeof(sec));
     return api_return_ax(0);
 }
@@ -59,7 +58,7 @@ bool HOST_IN_FLASH_FUNC clk_api_time_set(void)
     int64_t sec;
     if (!api_pop_int64_end(&sec))
         return api_return_errno(API_EINVAL);
-    struct timespec ts = {.tv_sec = sec, .tv_nsec = 0};
+    tim_spec_t ts = {.sec = sec, .nsec = 0};
     /* The errno is EACCES rather than ERANGE because a machine without a
      * time-of-day clock of its own is refusing to move the clock, not failing
      * to represent the value. */
@@ -73,9 +72,8 @@ static bool clk_api_to_tm(bool local)
     int64_t sec;
     if (!api_pop_int64_end(&sec))
         return api_return_errno(API_EINVAL);
-    time_t t = sec;
-    struct tm tm;
-    if (!(local ? tim_localtime(t, &tm) : tim_gmtime(t, &tm)) ||
+    tim_tm_t tm;
+    if (!(local ? tim_localtime(sec, &tm) : tim_gmtime(sec, &tm)) ||
         tm.tm_year < INT16_MIN || tm.tm_year > INT16_MAX)
         return api_return_errno(API_ERANGE);
     struct clk_wire_tm w;
@@ -99,20 +97,11 @@ bool HOST_IN_FLASH_FUNC clk_api_mktime(void)
     struct clk_wire_tm w;
     if (!api_pop_n(&w, sizeof(w)) || xstack_ptr != XSTACK_SIZE)
         return api_return_errno(API_EINVAL);
-    struct tm tm;
+    tim_tm_t tm;
     clk_wire_to_tm(&w, &tm);
-    time_t t = mktime(&tm);
-    /* -1 is also a valid time, the second before the epoch, and the second
-     * after that time is 0. The struct cannot be checked instead, because the
-     * C libraries differ in what a failed mktime writes to it. */
-    if (t == (time_t)-1)
-    {
-        struct tm next;
-        clk_wire_to_tm(&w, &next);
-        next.tm_sec++;
-        if (mktime(&next) != 0)
-            return api_return_errno(API_ERANGE);
-    }
+    int64_t t;
+    if (!tim_mktime(&tm, &t))
+        return api_return_errno(API_ERANGE);
     int64_t sec = t;
     api_push_n(&sec, sizeof(sec));
     return api_return_ax(0);
@@ -131,8 +120,11 @@ bool HOST_IN_FLASH_FUNC clk_api_strftime(void)
         w.tm_mon < 0 || w.tm_mon > 11 || w.tm_wday < 0 || w.tm_wday > 6 ||
         w.tm_yday < 0 || w.tm_yday > 365)
         return api_return_errno(API_EINVAL);
-    struct tm tm;
+    /* A 6502 program's struct tm has no offset and no zone, so %z and %Z
+     * are the machine's zone at that date, by its tm_isdst. */
+    tim_tm_t tm;
     clk_wire_to_tm(&w, &tm);
+    tim_tm_zone(&tm);
     size_t n = tim_strftime((char *)xstack, max, format, &tm);
     // The 6502 pops from the top of the xstack, so the result moves there.
     xstack_ptr = XSTACK_SIZE - n;
@@ -151,10 +143,10 @@ bool HOST_IN_FLASH_FUNC clk_api_get_res(void)
 {
     if (xstack_ptr != XSTACK_SIZE || API_A != CLK_ID_REALTIME)
         return api_return_errno(API_EINVAL);
-    struct timespec ts;
+    tim_spec_t ts;
     tim_get_time_res(&ts);
-    int32_t nsec = ts.tv_nsec;
-    uint32_t sec = ts.tv_sec;
+    int32_t nsec = (int32_t)ts.nsec;
+    uint32_t sec = (uint32_t)ts.sec;
     api_push_int32(&nsec);
     api_push_uint32(&sec);
     return api_return_ax(0);
@@ -164,11 +156,11 @@ bool HOST_IN_FLASH_FUNC clk_api_get_time(void)
 {
     if (xstack_ptr != XSTACK_SIZE || API_A != CLK_ID_REALTIME)
         return api_return_errno(API_EINVAL);
-    struct timespec ts;
+    tim_spec_t ts;
     if (!tim_get_time(&ts))
         return api_return_errno(API_EIO);
-    int32_t nsec = ts.tv_nsec;
-    uint32_t sec = ts.tv_sec;
+    int32_t nsec = (int32_t)ts.nsec;
+    uint32_t sec = (uint32_t)ts.sec;
     api_push_int32(&nsec);
     api_push_uint32(&sec);
     return api_return_ax(0);
@@ -185,9 +177,7 @@ bool HOST_IN_FLASH_FUNC clk_api_set_time(void)
         return api_return_errno(API_EINVAL);
     if (rawtime_nsec < 0 || rawtime_nsec > 999999999)
         return api_return_errno(API_EINVAL);
-    struct timespec ts;
-    ts.tv_sec = rawtime_sec;
-    ts.tv_nsec = rawtime_nsec;
+    tim_spec_t ts = {.sec = rawtime_sec, .nsec = (uint32_t)rawtime_nsec};
     if (!tim_set_time(&ts))
         return api_return_errno(API_EACCES);
     return api_return_ax(0);

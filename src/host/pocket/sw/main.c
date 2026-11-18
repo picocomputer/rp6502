@@ -24,7 +24,7 @@
 #include "core/api/proc.h"
 #include "osal/dir.h"
 #include "core/api/std.h"
-#include "core/api/tim.h"
+#include "core/tim/tim.h"
 #include "core/com/manifold.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"

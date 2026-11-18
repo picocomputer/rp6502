@@ -225,6 +225,7 @@ X(STR_HELP_SET,
   "HELP SET attr       - \aAfficher les informations d'un réglage.\n"
   "SET PHI2 (kHz)      - \aLire ou régler la vitesse PHI2 (horloge 6502).\n"
   "SET BOOT (rom|-)    - \aChoisir la ROM de démarrage. \"-\" pour aucune.\n"
+  "SET LOC (loc)       - \aLire ou régler la langue d'affichage.\n"
   "SET TZ (tz)         - \aLire ou régler le fuseau horaire.\n"
   "SET KB (layouts)    - \aLire ou régler les dispositions clavier.\n"
   "SET CP (cp)         - \aLire ou régler la page de code.\n"

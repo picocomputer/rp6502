@@ -202,12 +202,7 @@ add_custom_command(TARGET ${RIA_TARGET} POST_BUILD
 target_compile_options(${RIA_TARGET} PRIVATE -fno-ipa-icf)
 target_link_options(${RIA_TARGET} PRIVATE -fno-ipa-icf)
 
-target_link_options(${RIA_TARGET} PRIVATE ${IPO_PRINTF_LINK_OPTIONS}
-    -Wl,--wrap=iswspace
-    -Wl,-u,__wrap_iswspace
-    -Wl,--wrap=sniprintf
-    -Wl,-u,__wrap_sniprintf
-)
+target_link_options(${RIA_TARGET} PRIVATE ${IPO_PRINTF_LINK_OPTIONS})
 
 target_compile_options(${RIA_TARGET} PRIVATE
     -Wall -Wextra -Wsign-compare
@@ -255,6 +250,8 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/rom/alias.c
     ${RP6502_ROOT}/src/core/rom/asset.c
     ${RP6502_ROOT}/src/core/rom/pump.c
+    ${RP6502_ROOT}/src/core/tim/tim.c
+    ${RP6502_ROOT}/src/core/tim/tz.c
     ${RP6502_ROOT}/src/core/sys/buf1k.c
     ${RP6502_ROOT}/src/core/str/path.c
     ${RP6502_ROOT}/src/core/str/oem.c
@@ -349,6 +346,14 @@ target_link_libraries(${RIA_TARGET} PRIVATE
 
 pico_generate_pio_header(${RIA_TARGET}
     ${RIA_SRC}/ria.pio
+)
+
+# Nothing here allocates: the time of day is core/tim's, and the radio's
+# driver is lent buf1k. The SDK's wrappers of malloc would keep the C
+# library's allocator in the link all the same, so they are not compiled.
+set_source_files_properties(
+    ${PICO_SDK_PATH}/src/rp2_common/pico_malloc/malloc.c
+    PROPERTIES HEADER_FILE_ONLY ON
 )
 
 # Override various lib files with custom code.

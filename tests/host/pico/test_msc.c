@@ -17,7 +17,7 @@
 #include "fatfs/diskio.h"
 #include "ria/usb/msc.h"
 #include "ria/usb/usb.h"
-#include "pico/aon_timer.h"
+#include "core/tim/tim.h"
 #include "pico/time.h"
 #include "utest.h"
 #include <ctype.h>
@@ -38,9 +38,16 @@ static uint64_t now_us;
 
 absolute_time_t get_absolute_time(void) { return now_us; }
 uint32_t tusb_time_millis_api(void) { return (uint32_t)(now_us / 1000); }
-bool aon_timer_get_time(struct timespec *ts)
+/* No clock, so a file is stamped with the first day FAT has. */
+bool tim_get_time(tim_spec_t *ts)
 {
     (void)ts;
+    return false;
+}
+
+bool tim_localtime(int64_t t, tim_tm_t *out)
+{
+    (void)t, (void)out;
     return false;
 }
 

@@ -50,6 +50,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/api/proc.c
         ${RP6502_SRC}/core/api/save.c
         ${RP6502_SRC}/core/api/clk.c
+        ${RP6502_SRC}/core/tim/tim.c
         ${RP6502_SRC}/core/api/std.c
         ${RP6502_SRC}/core/api/dir.c
         ${RP6502_SRC}/core/api/ops.c
