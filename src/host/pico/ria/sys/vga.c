@@ -33,6 +33,15 @@
 
 // How long to wait for ACK to backchannel enable request
 #define VGA_BACKCHANNEL_ACK_MS 3
+/* At power on the VGA starts with the RIA and is ready later: it runs from
+ * RAM, so it first copies itself there, and it builds its fonts and starts
+ * its display before it listens to PIX. A request sent before then is lost,
+ * since PIX has no handshake. On the bench the VGA first answers about 50 ms
+ * after both resets, so the RIA keeps asking until it has been up this long.
+ * A machine with no VGA waits all of it at every start. */
+#define VGA_BOOT_MS 250
+// The UART with nothing arriving for this long is idle: a byte takes 87 us.
+#define VGA_UART_IDLE_MS 1
 // How long to wait before aborting version string
 #define VGA_VERSION_WATCHDOG_MS 3
 // Abandon backchannel after two missed vsync messages
@@ -272,21 +281,52 @@ static void vga_rln_callback(bool timeout)
         vga_state = VGA_NOT_FOUND;
 }
 
-/* Only the UART, the VGA's own link, is cleared and read, so a reconnect at
- * the run after a lost link keeps the keyboard and telnet type-ahead. */
-static void HOST_IN_FLASH_FUNC vga_connect(void)
+// The line is idle when a read of one byte times out.
+static bool vga_uart_idle;
+static void vga_idle_callback(bool timeout)
 {
-    vga_backchannel_irq_disable();
-    com_rx_clear_source(COM_SOURCE_UART);
+    vga_uart_idle = timeout;
+    vga_state = VGA_NOT_FOUND;
+}
 
-    // Test if VGA connected
-    mbuf_read(COM_SOURCE_UART, VGA_BACKCHANNEL_ACK_MS, vga_rln_callback, 4);
-    vga_pix_backchannel_request();
+// Until the read in progress calls back.
+static void HOST_IN_FLASH_FUNC vga_mbuf_wait(void)
+{
     vga_state = VGA_TESTING;
     while (vga_state == VGA_TESTING)
     {
         manifold_uart_drain_rx();
         mbuf_task();
+    }
+}
+
+/* Only the UART, the VGA's own link, is cleared and read, so a reconnect at
+ * the run after a lost link keeps the keyboard and telnet type-ahead. */
+static void HOST_IN_FLASH_FUNC vga_connect(void)
+{
+    vga_backchannel_irq_disable();
+
+    /* Test if VGA connected. The request repeats while a VGA that started
+     * with the RIA may still be on its way up; a reconnect long after that
+     * asks once. */
+    while (true)
+    {
+        com_rx_clear_source(COM_SOURCE_UART);
+        mbuf_read(COM_SOURCE_UART, VGA_BACKCHANNEL_ACK_MS, vga_rln_callback, 4);
+        vga_pix_backchannel_request();
+        vga_mbuf_wait();
+        if (vga_state == VGA_FOUND || time_us_64() >= VGA_BOOT_MS * 1000)
+            break;
+        /* An answer that began as the wait ended, or came behind a stray
+         * byte, is still arriving. Asked again now, the VGA would answer
+         * straight after it and every read would be as far out of step, so
+         * the line goes idle first, or the time runs out on a line that
+         * never does. */
+        do
+        {
+            mbuf_read(COM_SOURCE_UART, VGA_UART_IDLE_MS, vga_idle_callback, 1);
+            vga_mbuf_wait();
+        } while (!vga_uart_idle && time_us_64() < VGA_BOOT_MS * 1000);
     }
     if (vga_state == VGA_NOT_FOUND)
     {
@@ -339,6 +379,11 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
             break;
         }
     }
+
+    /* A VGA that answered a request late answers the next one too, and the
+     * second answer is not something typed. It is on the wire before the
+     * version is, so it has all arrived by now. */
+    com_rx_clear_source(COM_SOURCE_UART);
 
     // Enable backchannel IRQ now that version string phase is complete
     vga_backchannel_irq_enable();
