@@ -18,8 +18,12 @@ bool mode2_prog(uint16_t *xregs);
  * programmed with is kept in mode2.c per scanline and plane rather than in the
  * function pointer, and the reverse lookup a savestate needs has to name a row
  * instead of a renderer. */
-vga_fill_fn_t mode2_fill_fn(uint16_t attributes);
-bool mode2_fill_attr(int16_t scanline, int16_t plane, uint16_t *attributes);
-void mode2_set_options(int16_t scanline, int16_t plane, uint16_t options);
+bool mode2_fill_valid(uint16_t options);
+
+/* The renderer, which is handed the options, or NULL for options that are
+ * not valid. A fabric build has no renderers. */
+#ifndef RP6502_VGA_FABRIC
+vga_fill_fn_t mode2_fill_fn(uint16_t options);
+#endif
 
 #endif /* _CORE_VGA_MODE2_H_ */

@@ -239,7 +239,6 @@ core/vga/mode/mode0.c mode0_cells: the CELL chunk, through each screen's cells
 core/vga/mode/mode0.c mode0_colors: the CELL chunk
 core/vga/mode/mode0.c mode0_palette: the CELL chunk, its first half; the faint half follows from it
 core/vga/mode/mode0.c mode0_regs: derived: the CELL and VGA loads publish them again
-core/vga/mode/mode2.c mode2_options: the VGA chunk: each row's class rides as that row's attribute
 core/vga/mode/mode2.c mode2_tiles: a table of functions, fixed at build
 core/vga/mode/mode4.c sw_interp: per-scanline scratch, reloaded at the top of every sprite render
 core/vga/prog.c vga_highest_scanline: the VGA chunk
@@ -247,7 +246,7 @@ core/vga/prog.c vga_prog: the VGA chunk
 core/vga/vga.c beam_n: the VGA chunk
 core/vga/vga.c frame_n: the VGA chunk
 core/vga/vga.c g_framebuffer: not carried: the app owns the pixels; no row touches them
-core/vga/vga.c vga_fill_cache: derived: every line checks its 4bpp pairs against the palette they were built from, and builds a row of text's pairs again
+core/vga/vga.c vga_fill_cache: derived: every line checks the cache's key against what it would build from, and builds a row of text's pairs again
 core/vga/vga.c vga_needs_reset: the VGA chunk
 core/vga/vga.c vga_scanout: not carried: whether this host wants pixels at all
 core/vga/vga.c vsynced: the VGA chunk

@@ -78,10 +78,6 @@ bool vga_frame_crc(uint32_t *crc);
 #define VGA_SST_SIZE (16 + VGA_SST_ROWS * SCANVIDEO_PLANE_COUNT * 12)
 
 #define VGA_MODE_NONE 0xFF
-vga_fill_fn_t vga_mode_fill_fn(uint8_t mode, uint16_t attributes);
-bool vga_mode_fill_id(vga_fill_fn_t fn, int16_t scanline, int16_t plane,
-                      uint8_t *mode, uint16_t *attributes);
-vga_sprite_fn_t vga_mode_sprite_fn(uint8_t mode, uint16_t attributes);
 bool vga_mode_sprite_id(vga_sprite_fn_t fn, uint8_t *mode, uint16_t *attributes);
 
 void vga_sst_save(sst_cursor_t *c, unsigned flags);

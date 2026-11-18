@@ -226,11 +226,10 @@ static inline bool mode0_place(int16_t w, int16_t h, const uint16_t *xregs,
            *begin >= 0 && *end <= h && *end - *begin >= 1;
 }
 
-/* mode0_fill_fn returns NULL in a fabric build, and mode0_fill_attr is not
- * compiled there, as with the other modes. */
-vga_fill_fn_t mode0_fill_fn(uint16_t attributes);
+/* The renderer, for options of 0, which is all mode 0 has. A fabric build
+ * has no renderers. */
 #ifndef RP6502_VGA_FABRIC
-bool mode0_fill_attr(vga_fill_fn_t fn, uint16_t *attributes);
+vga_fill_fn_t mode0_fill_fn(uint16_t options);
 #endif
 
 #endif /* _CORE_VGA_MODE0_H_ */

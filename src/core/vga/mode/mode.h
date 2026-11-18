@@ -197,17 +197,20 @@ mode_run_8bpp(uint16_t *dst, const uint8_t *src, unsigned n, const uint16_t *pal
 }
 
 /* The 4bpp pairs of a plane's fill cache. Every line compares the palette
- * and bit order with those the pairs were built from, and builds them again
- * only when they differ: a build costs about a line's worth of pixels. */
+ * and bit order with those the cache was built from, and builds the pairs
+ * again only when they differ, or when the cache holds a row of text: a
+ * build costs about a line's worth of pixels. */
 static inline __attribute__((always_inline)) const uint32_t *
 mode_4bpp_pairs(vga_fill_cache_t *c, const uint16_t *pal, bool reverse)
 {
+    uint32_t key[9];
     uint16_t now[16];
     memcpy(now, pal, sizeof(now));
-    if (c->reverse_4bpp == reverse && !memcmp(c->palette_4bpp, now, sizeof(now)))
+    key[0] = reverse ? VGA_FILL_4BPP_REVERSE : VGA_FILL_4BPP;
+    memcpy(&key[1], now, sizeof(now));
+    if (!memcmp(c->key, key, sizeof(key)))
         return c->pairs_4bpp;
-    memcpy(c->palette_4bpp, now, sizeof(now));
-    c->reverse_4bpp = reverse;
+    memcpy(c->key, key, sizeof(key));
     for (int i = 0; i < 16; i++)
     {
         const uint32_t h = reverse ? (uint32_t)now[i] << 16 : now[i];

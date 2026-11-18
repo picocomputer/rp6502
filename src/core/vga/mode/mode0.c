@@ -40,10 +40,6 @@ const uint8_t mode0_underline8[4][8] = {
 #pragma GCC push_options
 #pragma GCC optimize("O3")
 
-/* The first word of the key of a row of the terminal in a plane's fill
- * cache; see vga_fill_cache_t. Mode 1's are 2 and up. */
-#define MODE0_ROW_KEY 1
-
 _Static_assert(VGA_FILL_ROW_CELLS >= 80, "a pair table for every cell of a row");
 _Static_assert(MODE0_GLYPH_OTHER(8) == FONT_OTHER(8) && MODE0_GLYPH_OTHER(16) == FONT_OTHER(16),
                "a glyph past the code page's is in the font's second table");
@@ -205,11 +201,12 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
     /* The row's pairs are built for the first of its scanlines a thread
      * draws in a frame, and again when the row or the screen's look, which
      * holds the blink phase and DECSCNM, changes part way down it. */
-    const uint32_t key[4] = {MODE0_ROW_KEY, row_word, screen, (uint32_t)vga_frame_count()};
-    if (memcmp(cache->row_key, key, sizeof(key)))
+    /* The rest of the key is zero, as it is for a row built here. */
+    const uint32_t key[9] = {VGA_FILL_MODE0_ROW, row_word, screen, (uint32_t)vga_frame_count()};
+    if (memcmp(cache->key, key, sizeof(key)))
     {
         mode0_row_pairs(cache->row_pair[0], cell, colors, cols, blink_mask, reverse);
-        memcpy(cache->row_key, key, sizeof(key));
+        memcpy(cache->key, key, sizeof(key));
     }
     const uint32_t *pair = cache->row_pair[0];
     if (wide && lines)
@@ -284,10 +281,10 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
  * copies the row whole, and a begin kept apart from the rows could pair an
  * old row with a new begin, or a new row with an old one. */
 static bool
-mode0_render(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr,
+mode0_render(uint16_t options, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr,
              vga_fill_cache_t *cache)
 {
-    (void)plane_id;
+    (void)options;
     if (width == 320)
         return mode0_render_term(scanline_id, (int16_t)config_ptr, rgb, 8, 40, font8, cache);
     else
@@ -295,25 +292,9 @@ mode0_render(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb
 }
 #pragma GCC pop_options
 
-vga_fill_fn_t mode0_fill_fn(uint16_t attributes)
+vga_fill_fn_t mode0_fill_fn(uint16_t options)
 {
-    return attributes ? NULL : mode0_render;
-}
-
-bool mode0_fill_attr(vga_fill_fn_t fn, uint16_t *attributes)
-{
-    if (fn != mode0_render)
-        return false;
-    *attributes = 0;
-    return true;
-}
-
-#else
-
-vga_fill_fn_t mode0_fill_fn(uint16_t attributes)
-{
-    (void)attributes;
-    return NULL;
+    return options ? NULL : mode0_render;
 }
 
 #endif
@@ -328,7 +309,7 @@ bool mode0_prog(uint16_t *xregs)
         return false;
 
     if (vga_prog_exclusive(plane, scanline_begin, scanline_end,
-                           (uint16_t)scanline_begin, mode0_fill_fn(0)))
+                           (uint16_t)scanline_begin, 0, 0))
     {
         cells_set_height(cols, rows);
         return true;

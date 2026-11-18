@@ -24,9 +24,7 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Mode 2 is left out because all of its attributes share one renderer, so
- * vga_mode_fill_id reads a mode 2 attribute from the row and plane rather
- * than from the renderer. */
+/* Mode 2 is apart because every one of its options has the one renderer. */
 static const struct
 {
     uint8_t mode;
@@ -57,18 +55,23 @@ static const struct
 #define FILL_COUNT (sizeof fills / sizeof fills[0])
 #define SPRITE_COUNT (sizeof sprites / sizeof sprites[0])
 
-UTEST(progmap, every_fill_attribute_comes_back)
+/* A row keeps the mode and options it was booked with beside the renderer
+ * they name, which is what a savestate carries. */
+UTEST(progmap, a_row_keeps_what_its_fill_was_booked_with)
 {
     for (size_t i = 0; i < FILL_COUNT; i++)
     {
-        vga_fill_fn_t fn = vga_mode_fill_fn(fills[i].mode, fills[i].attr);
-        ASSERT_TRUE(fn != NULL);
-        uint8_t mode = VGA_MODE_NONE;
-        uint16_t attr = 0xFFFF;
-        ASSERT_TRUE(vga_mode_fill_id(fn, 0, 0, &mode, &attr));
-        ASSERT_EQ((int)mode, (int)fills[i].mode);
-        ASSERT_EQ((int)attr, (int)fills[i].attr);
+        vga_prog_t row = {0};
+        ASSERT_TRUE(vga_prog_row_fill(&row, 1, fills[i].mode, fills[i].attr, 0x1234));
+        ASSERT_TRUE(row.fill_fn[1] == vga_mode_fill_fn(fills[i].mode, fills[i].attr));
+        ASSERT_EQ((int)row.fill_mode[1], (int)fills[i].mode);
+        ASSERT_EQ((int)row.fill_options[1], (int)fills[i].attr);
+        ASSERT_EQ((int)row.fill_config[1], 0x1234);
+        ASSERT_TRUE(row.fill_fn[0] == NULL);
     }
+    vga_prog_t row = {0};
+    ASSERT_FALSE(vga_prog_row_fill(&row, 0, 1, 5, 0));
+    ASSERT_TRUE(row.fill_fn[0] == NULL);
 }
 
 UTEST(progmap, every_sprite_attribute_comes_back)
@@ -85,22 +88,22 @@ UTEST(progmap, every_sprite_attribute_comes_back)
     }
 }
 
-UTEST(progmap, mode_two_classes_come_back_by_row)
+UTEST(progmap, mode_two_options_are_in_the_row)
 {
-    static const uint16_t options[] = {0, 1, 2, 3, 8, 9, 10, 11};
+    static const uint16_t options[] = {0, 1, 2, 3, 8, 9, 10, 11, 0x0128, 0x4553};
     vga_fill_fn_t fn = vga_mode_fill_fn(2, 0);
     ASSERT_TRUE(fn != NULL);
-    for (unsigned i = 0; i < 8; i++)
+    for (unsigned i = 0; i < sizeof options / sizeof options[0]; i++)
     {
-        mode2_set_options((int16_t)i, 0, options[i]);
-        uint8_t mode = VGA_MODE_NONE;
-        uint16_t attr = 0xFFFF;
-        ASSERT_TRUE(vga_mode_fill_id(fn, (int16_t)i, 0, &mode, &attr));
-        ASSERT_EQ((int)mode, 2);
-        ASSERT_EQ((int)attr, (int)options[i]);
+        vga_prog_t row = {0};
+        ASSERT_TRUE(vga_prog_row_fill(&row, 2, 2, options[i], 0));
+        ASSERT_TRUE(row.fill_fn[2] == fn);
+        ASSERT_EQ((int)row.fill_mode[2], 2);
+        ASSERT_EQ((int)row.fill_options[2], (int)options[i]);
     }
-    for (unsigned i = 0; i < 8; i++)
-        mode2_set_options((int16_t)i, 0, 0);
+    /* A depth past 8bpp, and a trim that leaves none of an 8 pixel tile. */
+    ASSERT_TRUE(vga_mode_fill_fn(2, 4) == NULL);
+    ASSERT_TRUE(vga_mode_fill_fn(2, 0x0080) == NULL);
 }
 
 UTEST(progmap, every_custom_attribute_is_the_canonical_one)
@@ -122,9 +125,6 @@ UTEST(progmap, an_empty_row_is_a_mode)
 {
     uint8_t mode = 0;
     uint16_t attr = 0xFFFF;
-    ASSERT_TRUE(vga_mode_fill_id(NULL, 0, 0, &mode, &attr));
-    ASSERT_EQ((int)mode, VGA_MODE_NONE);
-    ASSERT_EQ((int)attr, 0);
     ASSERT_TRUE(vga_mode_sprite_id(NULL, &mode, &attr));
     ASSERT_EQ((int)mode, VGA_MODE_NONE);
     ASSERT_EQ((int)attr, 0);

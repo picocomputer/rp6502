@@ -21,11 +21,10 @@ bool mode4_sprite_valid(uint16_t attributes);
 /* mode4_sprite_fn returns the renderer an attribute names, and
  * mode4_sprite_attr finds the attribute that names a renderer. A savestate
  * stores the attribute rather than the function address, because the function
- * can be at a different address in the build that loads it. mode4_sprite_fn
- * returns NULL in a fabric build, and mode4_sprite_attr is not compiled
- * there. */
-vga_sprite_fn_t mode4_sprite_fn(uint16_t attributes);
+ * can be at a different address in the build that loads it. A fabric build
+ * has no renderers. */
 #ifndef RP6502_VGA_FABRIC
+vga_sprite_fn_t mode4_sprite_fn(uint16_t attributes);
 bool mode4_sprite_attr(vga_sprite_fn_t fn, uint16_t *attributes);
 #endif
 
