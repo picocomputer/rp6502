@@ -56,23 +56,20 @@ UTEST(blink, off_phase_blanks_the_glyph)
     ASSERT_TRUE(session_rom(rom));
     ASSERT_TRUE(tb_boot(dut, rom));
 
-    /* 0x0200 is TERM_ATTR_BLINK in the attribute byte, bits 15:8 of a
-     * cell's first word. */
+    /* A cell is a word of the cell memory: its glyph, and above it its
+     * attributes, where 0x0002 is TERM_ATTR_BLINK. Its colors are the
+     * erased screen's. */
     auto *r = dut->rootp;
     /* A row's latest word is in the slot it was written to since the last
      * latch, else in the slot the render reads. Its first cell is in bits
-     * 12:0, and a cell is two words of the cell memory. */
+     * 12:0. */
     auto row_word = [r](int i) {
         uint32_t slot = ((r->wiring__DOT__mode0__DOT__row_front
                           ^ r->wiring__DOT__mode0__DOT__row_pend) >> i) & 1;
-        return 2 * ((uint32_t)r->wiring__DOT__mode0__DOT__row_mem[2 * i + slot]
-                    & 0x1FFFu);
+        return (uint32_t)r->wiring__DOT__mode0__DOT__row_mem[2 * i + slot]
+               & 0x1FFFu;
     };
-    uint32_t base = row_word(25);
-    uint32_t seed = term_cell(r, row_word(0));
-    uint32_t bgw = term_cell(r, row_word(0) + 1);
-    term_cell_set(r, base, (seed & 0xFFFF0000u) | 0x0200u | 'B');
-    term_cell_set(r, base + 1, bgw);
+    term_cell_set(r, row_word(25), (0x0002u << 16) | 'B');
 
     static uint32_t on[640 * 480], off[640 * 480];
     pinned_blink = 0;

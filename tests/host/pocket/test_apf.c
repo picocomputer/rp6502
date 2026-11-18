@@ -538,20 +538,20 @@ UTEST(apf, the_keys_follow_the_terminal_modes)
     ASSERT_TYPES(0, HID_KEY_KEYPAD_ADD, "+");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_ENTER, "\r");
     ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_8, "\x1BOx");
-    ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_ADD, "\x1BOl");
+    ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_ADD, "\x1BOk");
     ASSERT_TYPES(0, HID_KEY_NUM_LOCK, "");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_8, "\x1BOx");
     ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_5, "\x1BO2u");
-    /* Plus is a VT100's comma, and so is a keypad that has a comma. */
-    ASSERT_TYPES(0, HID_KEY_KEYPAD_ADD, "\x1BOl");
-    ASSERT_TYPES(LCTRL, HID_KEY_KEYPAD_ADD, "\x1BO5l");
+    /* Plus is xterm's, and a keypad that has a comma sends a VT100's. */
+    ASSERT_TYPES(0, HID_KEY_KEYPAD_ADD, "\x1BOk");
+    ASSERT_TYPES(LCTRL, HID_KEY_KEYPAD_ADD, "\x1BO5k");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_COMMA, "\x1BOl");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_SUBTRACT, "\x1BOm");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_ENTER, "\x1BOM");
     /* VT52 mode changes only a VT52's keys. */
     cells_term.vt52 = true;
     ASSERT_TYPES(0, HID_KEY_KEYPAD_8, "\x1B?x");
-    ASSERT_TYPES(LCTRL, HID_KEY_KEYPAD_ADD, "\x1B?l");
+    ASSERT_TYPES(LCTRL, HID_KEY_KEYPAD_ADD, "\x1B?k");
     ASSERT_TYPES(0, HID_KEY_ARROW_UP, "\x1B" "A");
     ASSERT_TYPES(LCTRL, HID_KEY_ARROW_UP, "\x1B" "A");
     ASSERT_TYPES(0, HID_KEY_F1, "\x1BP");

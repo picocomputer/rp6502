@@ -307,5 +307,8 @@ mut_budget_t mut_measure(const char *name)
                 name, b.lines);
         return MUT_BUDGET_NONE;
     }
-    return b.worst < b.deadline_at_worst ? MUT_BUDGET_UNDER : MUT_BUDGET_OVER;
+    /* The terminal has a line of its own to finish in, whatever the canvas. */
+    return b.worst < b.deadline_at_worst && b.worst_term < LINE_DEADLINE
+               ? MUT_BUDGET_UNDER
+               : MUT_BUDGET_OVER;
 }

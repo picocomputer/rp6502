@@ -85,57 +85,47 @@ def build_tables(text):
     drawn16 = parse_array(text, "FONT16_DEC_DRAWN")
     drawn8 = parse_array(text, "FONT8_DEC_DRAWN")
 
-    # font16 and font8 have a 256-byte stride and blank high halves, which
-    # matches the tables font_init in core/term/font.c has built just before
-    # it calls font_set_code_page(437).
-    font16 = [0] * 4096
+    # Each font is two tables of 256 glyphs with a 256-byte stride: the
+    # code page's, its high half blank here, and then the italics of ASCII
+    # (ASCII itself in the 8-row font) with DEC Special Graphics at 0xDF
+    # to 0xFE, as font_build in core/term/font.c builds them.
+    font16 = [0] * 8192
     for row in range(16):
         for code in range(128):
             font16[row * 256 + code] = ascii16[row * 128 + code]
-    font8 = [0] * 2048
+            font16[4096 + row * 256 + code] = italic_src[row * 128 + code]
+    font8 = [0] * 4096
     for row in range(8):
         for code in range(128):
             font8[row * 256 + code] = ascii8[row * 128 + code]
+            font8[2048 + row * 256 + code] = ascii8[row * 128 + code]
 
     # font.c builds the DEC graphics from the CP437 glyphs whatever code
     # page is loaded, so this does the same.
-    dec16 = [0] * 512
-    for row in range(16):
-        for idx in range(0x20):
-            m = dec_map[idx]
-            if m == DEC_MAP_BLANK:
-                continue
+    for idx in range(0x20):
+        m = dec_map[idx]
+        if m == DEC_MAP_BLANK:
+            continue
+        for row in range(16):
             if m & DEC_MAP_DRAWN:
-                dec16[row * 32 + idx] = drawn16[(m & 0xFF) * 16 + row]
+                v16 = drawn16[(m & 0xFF) * 16 + row]
+                v8 = drawn8[(m & 0xFF) * 8 + row] if row < 8 else 0
             elif m & DEC_MAP_ASCII:
-                dec16[row * 32 + idx] = ascii16[row * 128 + (m & 0xFF)]
+                v16 = ascii16[row * 128 + (m & 0xFF)]
+                v8 = ascii8[row * 128 + (m & 0xFF)] if row < 8 else 0
             else:
-                dec16[row * 32 + idx] = cp437_16[row * 128 + ((m & 0xFF) - 0x80)]
-
-    dec8 = [0] * 256
-    for row in range(8):
-        for idx in range(0x20):
-            m = dec_map[idx]
-            if m == DEC_MAP_BLANK:
-                continue
-            if m & DEC_MAP_DRAWN:
-                dec8[row * 32 + idx] = drawn8[(m & 0xFF) * 8 + row]
-            elif m & DEC_MAP_ASCII:
-                dec8[row * 32 + idx] = ascii8[row * 128 + (m & 0xFF)]
-            else:
-                dec8[row * 32 + idx] = cp437_8[row * 128 + ((m & 0xFF) - 0x80)]
-
-    italic16 = [0] * 2048
-    for row in range(16):
-        for code in range(128):
-            italic16[row * 128 + code] = italic_src[row * 128 + code]
+                v16 = cp437_16[row * 128 + ((m & 0xFF) - 0x80)]
+                v8 = cp437_8[row * 128 + ((m & 0xFF) - 0x80)] if row < 8 else 0
+            font16[4096 + row * 256 + 0xDF + idx] = v16
+            if row < 8:
+                font8[2048 + row * 256 + 0xDF + idx] = v8
 
     pages = code_pages(text)
     highs = []
     for cp in pages:
         highs.append((parse_array(text, f"FONT16_CP{cp}"),
                       parse_array(text, f"FONT8_CP{cp}")))
-    return font16, dec16, dec8, italic16, font8, pages, highs
+    return font16, font8, pages, highs
 
 
 def c_array(name, data):
@@ -158,7 +148,7 @@ HEADER = """\
 """
 
 
-def emit_tables_h(path, font16, dec16, dec8, italic16, font8, pages, highs):
+def emit_tables_h(path, font16, font8, pages, highs):
     # font_init ends by applying code page 437, so the tables that
     # tests/rtl/vga/test_font.cpp compares against font_init's carry the
     # 437 image.
@@ -173,9 +163,6 @@ def emit_tables_h(path, font16, dec16, dec8, italic16, font8, pages, highs):
            "#ifndef _FONT_TABLES_H_", "#define _FONT_TABLES_H_",
            "", "#include <stdint.h>", "",
            c_array("FONT16", f16), "",
-           c_array("FONT_DEC_16", dec16), "",
-           c_array("FONT_DEC_8", dec8), "",
-           c_array("ITALIC16", italic16), "",
            c_array("FONT8", f8), "",
            "#endif /* _FONT_TABLES_H_ */", ""]
     Path(path).write_text("\n".join(out))
@@ -283,11 +270,11 @@ def emit_charts(out, text):
 
 def main():
     text = (gen.ROOT / FONT_C).read_text(encoding="utf-8")
-    font16, dec16, dec8, italic16, font8, pages, highs = build_tables(text)
+    font16, font8, pages, highs = build_tables(text)
     a = gen.main(
         inputs=[FONT_C],
         c={"font_tables.h": lambda p: emit_tables_h(
-            p, font16, dec16, dec8, italic16, font8, pages, highs)},
+            p, font16, font8, pages, highs)},
         extra=lambda ap: ap.add_argument("--png", metavar="DIR"))
     if a.png:
         emit_charts(a.png, text)

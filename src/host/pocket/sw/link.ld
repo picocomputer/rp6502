@@ -12,16 +12,16 @@
  * which crt0.S copies to RAM. stage_map_gate.py checks both regions
  * against mmio.h.
  *
- * VIDCELLS is the cell memory of mode0.sv and VIDREGS its registers.
- * core/vga/mode/mode0.c's cells and words go there, so cells.c writes
- * them where they are drawn from. The VIDCELLS length must match the
- * 15360-word cell memory in mode0.sv, which holds 8-byte cells for up to
- * 32 rows of the 40- and 80-column terminals, each with a primary and an
- * alternate screen. The registers take whole words only.
+ * VIDCELLS, VIDCOLORS and VIDPALETTE are the memories of mode0.sv and
+ * VIDREGS its registers. core/vga/mode/mode0.c's cells, colors, palette
+ * and words go there, so cells.c writes them where they are drawn from.
+ * The lengths are the memories' in mode0.sv, which hold 30 rows of the
+ * 40- and 80-column terminals, each with a primary and an alternate
+ * screen. The registers take whole words only.
  *
  * VIDFONT is the font memories of font.sv, which the fabric draws from.
- * core/term/font.c's tables go there, one at each face's address, so
- * font.c builds them where they are drawn from. The faces take whole
+ * core/term/font.c's tables go there, each font at its address, so
+ * font.c builds them where they are drawn from. The fonts take whole
  * words and cannot be read back, and font.c writes them that way.
  * -fdata-sections gives each table a section named after it.
  */
@@ -30,9 +30,11 @@ MEMORY
 {
     ROM (rx) : ORIGIN = 0x00000000, LENGTH = 256K
     RAM (rw) : ORIGIN = 0x00040000, LENGTH = 64K
-    VIDCELLS (rw) : ORIGIN = 0x50000000, LENGTH = 61440
+    VIDCELLS (rw) : ORIGIN = 0x50000000, LENGTH = 28800
     VIDREGS (rw) : ORIGIN = 0x50010000, LENGTH = 140
     VIDFONT (rw) : ORIGIN = 0x50040000, LENGTH = 16K
+    VIDCOLORS (rw) : ORIGIN = 0x50080000, LENGTH = 43200
+    VIDPALETTE (rw) : ORIGIN = 0x50100000, LENGTH = 1032
 }
 
 ENTRY(_start)
@@ -64,33 +66,30 @@ SECTIONS
     .vidcells (NOLOAD) : {
         *(.bss.mode0_cells .bss.mode0_cells.*)
     } > VIDCELLS
+    .vidcolors (NOLOAD) : {
+        *(.bss.mode0_colors .bss.mode0_colors.*)
+    } > VIDCOLORS
+    .vidpalette (NOLOAD) : {
+        *(.bss.mode0_palette .bss.mode0_palette.*)
+    } > VIDPALETTE
     .vidregs (NOLOAD) : {
         *(.bss.mode0_regs .bss.mode0_regs.*)
     } > VIDREGS
+    ASSERT(SIZEOF(.vidcells) == 28800, "mode0_cells is not mode0.sv's cells")
+    ASSERT(SIZEOF(.vidcolors) == 43200, "mode0_colors is not mode0.sv's colors")
+    ASSERT(SIZEOF(.vidpalette) == 1032, "mode0_palette is not mode0.sv's palette")
     ASSERT(SIZEOF(.vidregs) == 140, "mode0_regs is not on mode0.sv's registers")
 
     /* These come before .bss for the same reason. The sizes are the
-     * faces' sizes in font.sv. */
+     * fonts' sizes in font.sv. */
     .font16 0x50040000 (NOLOAD) : {
         *(.bss.font16 .bss.font16.*)
     } > VIDFONT
-    .font8 0x50041000 (NOLOAD) : {
+    .font8 0x50042000 (NOLOAD) : {
         *(.bss.font8 .bss.font8.*)
     } > VIDFONT
-    .italic16 0x50042000 (NOLOAD) : {
-        *(.bss.italic16 .bss.italic16.*)
-    } > VIDFONT
-    .font_dec_16 0x50043000 (NOLOAD) : {
-        *(.bss.font_dec_16 .bss.font_dec_16.*)
-    } > VIDFONT
-    .font_dec_8 0x50043200 (NOLOAD) : {
-        *(.bss.font_dec_8 .bss.font_dec_8.*)
-    } > VIDFONT
-    ASSERT(SIZEOF(.font16) == 4096, "font16 is not on its face")
-    ASSERT(SIZEOF(.font8) == 2048, "font8 is not on its face")
-    ASSERT(SIZEOF(.italic16) == 2048, "italic16 is not on its face")
-    ASSERT(SIZEOF(.font_dec_16) == 512, "font_dec_16 is not on its face")
-    ASSERT(SIZEOF(.font_dec_8) == 256, "font_dec_8 is not on its face")
+    ASSERT(SIZEOF(.font16) == 8192, "font16 is not on its memory")
+    ASSERT(SIZEOF(.font8) == 4096, "font8 is not on its memory")
 
     /* The thread-local variables, which are picolibc's errno. A
      * thread-local section takes no room of its own, so .bss leaves room

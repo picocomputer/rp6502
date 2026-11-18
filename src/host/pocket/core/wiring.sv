@@ -346,7 +346,7 @@ module wiring
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_bus;
-    always_comb unused_bus = ^{soc_addr[27:16]};
+    always_comb unused_bus = ^{soc_addr[27:21]};
     /* verilator lint_on UNUSEDSIGNAL */
     logic [7:0] soc_wbyte;
     always_comb begin
@@ -743,7 +743,9 @@ module wiring
         .b_stb(soc_stb && soc_sel_vid && !soc_addr[18]
                && !soc_addr[17]),
         .b_we(soc_we),
-        .b_addr(soc_addr[16:0]),
+        .b_sel(soc_addr[20] ? 2'd3 : soc_addr[19] ? 2'd2
+               : soc_addr[16] ? 2'd1 : 2'd0),
+        .b_addr(soc_addr[15:0]),
         .b_wstrb(soc_wstrb),
         .b_wdata(soc_wdata),
         .mode0_b_rdata(mode0_b_rdata)

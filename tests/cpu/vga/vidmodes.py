@@ -912,6 +912,23 @@ mode0text("mode0_wrap640", 3,
           "\33[0m\33[2J\33[H\33#6" + "0123456789" * 4 + "\33[6 q")
 mode0text("mode0_wrap320", 1,
           "\33[0m\33[2J\33[H\33#6" + "0123456789" * 2 + "\33[6 q")
+# Every underline style in the foreground's color and in one of its own,
+# from the palette and as RGB, with a strike and an overline through one;
+# RGB and faint colors; a palette entry changed after cells were drawn in
+# it; and a cursor on an underlined cell.
+MODE0_LINES = ("\33[0m\33[2J\33[H"
+               "\33[31mentry\33[0m "
+               "\33[4:1mone\33[4:2mtwo\33[4:3mcurl\33[4:4mdots\33[4:5mdash"
+               "\33[0m\r\n"
+               "\33[58;5;9m\33[4:1mone\33[4:2mtwo\33[4:3mcurl\33[4:4mdots"
+               "\33[4:5mdash\33[0m\r\n"
+               "\33[58;2;0;255;128m\33[4:3;9;53mall\33[0m "
+               "\33[38;2;255;128;0;48;2;0;64;128mrgb\33[0m "
+               "\33[2;32mfaint\33[0m\r\n"
+               "\33#6\33[58;5;12;4:3mwide\33[4:5mjg\33[0m"
+               "\33]4;1;rgb:ff/80/00\33\\")
+mode0text("mode0_lines640", 3, MODE0_LINES + "\33[2;2H\33[2 q")
+mode0text("mode0_lines320", 1, MODE0_LINES + "\33[1;8H\33[4 q")
 
 cfg0 = bytearray((0, 0)) + le16(10, 20, 64, 64, 0x0800, 0x0200)
 cfg1 = bytearray((0, 0)) + le16(40, 30, 64, 64, 0x1800, 0x0600)
@@ -961,6 +978,18 @@ rom("text_three640", 3,
      (0x0400, le16(*(((i & 1) << 5 | (i * 1031 + 5)) for i in range(256)))),
      (0x0600, le16(*(((i >> 1 & 1) << 5 | (i * 733 + 9))
                      for i in range(256))))])
+
+# The console over two of those text planes, which wrap so they are on
+# every line: all three take glyphs from the one font store.
+cfg_a = bytearray((0, 1)) + le16(0, 0, 80, 4, 0x1000, 0x0200, 0xFFFF)
+cfg_b = bytearray((0, 1)) + le16(0, 0, 80, 4, 0x1400, 0x0400, 0xFFFF)
+rom("text_term640", 3,
+    [(1, 3, 0x0100, 0, 0, 0), (1, 3, 0x0140, 1, 0, 0), (0, 2, 0, 0)],
+    [(0x0100, cfg_a), (0x0140, cfg_b),
+     (0x1000, text_cells(80, 4, 0)), (0x1400, text_cells(80, 4, 7)),
+     (0x0200, le16(*((0x0020 | (i * 2657 + 5)) for i in range(256)))),
+     (0x0400, le16(*(((i & 1) << 5 | (i * 1031 + 5)) for i in range(256))))],
+    speak=MODE0_LINES + "\33[?25l\33[5;1H\33[4:3;58;5;10m" + "0123456789" * 8)
 
 # Sixteen-bit pixels at an odd byte, so every other pixel straddles a word,
 # and a wrap every 32 pixels, so each segment ends on a straddle and the

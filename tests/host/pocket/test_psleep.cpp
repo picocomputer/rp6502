@@ -954,11 +954,11 @@ UTEST(psleep, a_save_with_a_file_open_for_writing_answers_err)
 }
 
 /* The characters of the terminal's cell memory, where the firmware prints:
- * a cell is two words, and its font code the first word's low byte. */
+ * a cell is a word, and a character of the code page is its low byte. */
 static std::string screen()
 {
     std::string s;
-    for (size_t i = 0; i < 15360; i += 2)
+    for (size_t i = 0; i < 7200; i++)
         s += (char)MEM(mode0__DOT__cell0)[i];
     return s;
 }

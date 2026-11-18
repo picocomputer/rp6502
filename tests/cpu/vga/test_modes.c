@@ -297,6 +297,11 @@ UTEST(mode1, three_bpp8_8x8_text_planes_640x480)
     run_case(utest_result, "text_three640", 0x982FCF90, MUT_BUDGET_UNDER);
 }
 
+UTEST(mode0, console_over_two_text_planes_640x480)
+{
+    run_case(utest_result, "text_term640", 0x5BC1F518, MUT_BUDGET_UNDER);
+}
+
 UTEST(mode3, three_bpp16_fills_serial_640x480)
 {
     run_case(utest_result, "fill_three640_16bpp", 0xCECCF650, MUT_BUDGET_UNDER);
@@ -547,32 +552,32 @@ UTEST(mode4, long_list_one_on_the_row_320x240)
 
 UTEST(mode0, overlay_windowed_640x480)
 {
-    run_case(utest_result, "mode0_overlay", 0x3AE0CA64, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_overlay", 0x3AE0CA64, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, defaults_640x360)
 {
-    run_case(utest_result, "mode0_win360", 0x51B1630D, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_win360", 0x51B1630D, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, forty_column_320x240)
 {
-    run_case(utest_result, "mode0_win240", 0x0B292E81, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_win240", 0x0B292E81, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, forty_column_320x180)
 {
-    run_case(utest_result, "mode0_win180", 0x33775BC1, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_win180", 0x33775BC1, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, forty_column_320x200)
 {
-    run_case(utest_result, "mode0_win200", 0x8BBE101A, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_win200", 0x8BBE101A, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, defaults_640x400)
 {
-    run_case(utest_result, "mode0_win400", 0x267E530C, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_win400", 0x267E530C, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, console_return_restores_vsync_line)
@@ -582,32 +587,42 @@ UTEST(mode0, console_return_restores_vsync_line)
 
 UTEST(mode0, double_size_lines_640x480)
 {
-    run_case(utest_result, "mode0_dbl640", 0xFC26F94F, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_dbl640", 0xFC26F94F, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, double_size_lines_320x240)
 {
-    run_case(utest_result, "mode0_dbl320", 0x755D87BF, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_dbl320", 0x755D87BF, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, reverse_screen_640x480)
 {
-    run_case(utest_result, "mode0_rev640", 0xEFBC7BF6, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_rev640", 0xEFBC7BF6, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, reverse_screen_320x240)
 {
-    run_case(utest_result, "mode0_rev320", 0x109371F8, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_rev320", 0x109371F8, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, wrap_on_a_double_width_row_640x480)
 {
-    run_case(utest_result, "mode0_wrap640", 0x3A9DBBA2, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_wrap640", 0x3A9DBBA2, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, wrap_on_a_double_width_row_320x240)
 {
-    run_case(utest_result, "mode0_wrap320", 0x119D062C, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_wrap320", 0x119D062C, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode0, underlines_and_colors_640x480)
+{
+    run_case(utest_result, "mode0_lines640", 0xC67D21CE, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode0, underlines_and_colors_320x240)
+{
+    run_case(utest_result, "mode0_lines320", 0xD86E55AB, MUT_BUDGET_UNDER);
 }
 
 UTEST(prog, bands_switch_modes_on_one_plane_320x240)

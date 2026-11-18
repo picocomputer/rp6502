@@ -20,7 +20,7 @@ core/vga/mode/mode0.h defines.
 | | Cells | Beside the cells | Free |
 |---|---|---|---|
 | RP6502-PICO | 30.7 KB in VIDEO | 46.1 KB of colors, 12 KB of fonts, and 1 KB of palette in VIDEO | about 59 KB of lower RAM, before the stacks and heap |
-| RP6502-FPGA | 57.6 KB in VIDCELLS | not built since the cells changed; see step 0 | |
+| RP6502-FPGA | 28.8 KB in block memory | 43.2 KB of colors, 12 KB of fonts, and 1 KB of palette in block memory | about 47 KB of the firmware's 64 KB, before the stack and heap |
 
 A cell is 10 bytes in two tables. One has its glyph and 16 bits of
 attributes, in one word, which is all a scanline reads. The other has its
@@ -47,7 +47,8 @@ DECRARA, which change the attributes of cells already written.
 The underlines are kitty's: SGR 4:0 to 4:5 for none, single, double,
 curly, dotted, and dashed, with SGR 58 and 59 for the color. Each style's
 pixels are in one table for each size of glyph, mode0_underline16 and
-mode0_underline8, for mode0.c and mode0.sv both.
+mode0_underline8. mode0.sv has the same pixels, and a test draws every
+style on both renderers and compares the frames.
 
 A program finds the underlines by asking. Neovim sets `CSI 4:3 m` and
 sends DECRQSS for SGR, `DCS $ q m ST`; the console answers with the pen,
@@ -174,20 +175,29 @@ entered, 179 at most, at 1280x1024, where it has 720. Core 0 takes about
 1.5 times its own cycles in wall time, and the line interrupt does not
 explain it. Not found yet.
 
-Every feature below is measured against the target, and kept or taken
-out.
+## The RP6502-FPGA
 
-## 0. RP6502-FPGA: palette entries in cells
+mode0.sv draws the console from the same cells, colors, palette, and
+fonts, which the linker places on block memories, so cells.c and font.c
+write them where they are drawn from. The colors are in memory as the
+firmware has them, three halfwords a cell, and the scanout reads the two
+words a cell's colors are in.
 
-The cells now hold palette entries and the RP6502-FPGA still draws them
-as pixels, so its console's colors are wrong until this is done. mode0.sv
-needs a palette memory (one M10K block) written from mode0_palette, looks
-up as many as three colors a cell in its 8 clocks, and needs a fit. The
-cells are two memories now, the glyphs and attributes in one and the
-colors in the other, the fonts have a second table each, and the
-underlines have their styles. A cursor with a wrap pending is drawn as
-any other, on the column it wrote, where it was once a block on a column
-past the last. The attributes have three bits no renderer draws.
+There is one console, so it has an engine of its own beside the fill
+engine, and a line to finish in. A cell is 8 clocks. Its word, its
+colors, a row of its glyph, and a palette entry for each of its three
+colors are fetched in the 8 clocks of the cell before it, one read a
+clock. An 80-column line takes 655 clocks of 1,600 and a 40-column row
+335 of 3,200.
+
+Modes 1, 2, and 3 can be on every plane, and share the fill engine, so
+each must finish a 640-pixel line in a third of it, 532 clocks. The
+slowest measured takes 478, and three of them finish at 1,424 of the
+1,598 a line has. The console over two 8 bpp text planes, all three
+reading the one font store, finishes at 979.
+
+It fits in 305 of the 308 memory blocks, with 0.8 ns of setup slack: 32
+blocks of cells, 48 of colors, 11 of fonts, and 4 of palette.
 
 ## Not doing
 
