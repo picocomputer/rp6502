@@ -233,6 +233,7 @@ typedef struct
     bool erase_all;       // ERM, CSI 6 h: ED, EL and ECH erase the protected cells too
     bool reverse_screen;  // DECSCNM, ?5: every cell's colors swapped
     bool smooth_scroll;   // DECSCLM, ?4: a line feed or a reverse index moves the rows a scanline a frame
+    bool smooth_released; // term_release_smooth: nothing waits for a smooth scroll until DECSCLM is set again
     bool cursor_enabled;  // DECTCEM, ?25
     uint8_t cursor_style; // DECSCUSR Ps: 0/1/2 block, 3/4 underline, 5/6 bar
     uint8_t last_glyph;   // for REP
@@ -281,6 +282,12 @@ void term_write(term_t *t, uint8_t ch);
 // after it, and writes it once this is false. Other bytes go on into the
 // rows while they move.
 bool term_holds(const term_t *t, uint8_t ch);
+
+// The end of a chain: from here nothing waits for a smooth scroll, so what
+// was held goes out at once, and a scroll that reaches one still moving
+// snaps it into place. It lasts until DECSCLM is set or reset again, which
+// the soft reset at the end of a chain does.
+void term_release_smooth(term_t *t);
 
 // RIS, and the system's soft reset: RIS leaving the screen and the cursor.
 void term_RIS(term_t *t);
@@ -366,7 +373,7 @@ static inline unsigned term_cell_height(const term_grid_t *g)
 }
 
 #define TERM_PEN_SST_SIZE 32
-#define TERM_SST_SIZE (4 * TERM_PEN_SST_SIZE + 109 + 4 * TERM_OSC_ASK_MAX)
+#define TERM_SST_SIZE (4 * TERM_PEN_SST_SIZE + 110 + 4 * TERM_OSC_ASK_MAX)
 void term_sst_put(sst_cursor_t *c, const term_t *t);
 bool term_sst_get(sst_cursor_t *c, term_t *t);
 #define TERM_GRID_SST_SIZE(rows) (19 + TERM_TAB_BITMAP_BYTES + 2 * (rows))

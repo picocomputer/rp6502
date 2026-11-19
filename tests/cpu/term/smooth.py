@@ -11,8 +11,10 @@ all the pacing a stream needs: it is written as fast as the 6502 goes.
 """
 
 import random
+import re
+from pathlib import Path
 
-from rp6502_asm import Asm, putc
+from rp6502_asm import OP_EXIT, OP_SYNCFS, Asm, putc
 from rp6502_rom import main, rom, script
 
 PTR = 0x00
@@ -34,10 +36,10 @@ def region(top, bot):
     return f"{CSI}{top};{bot}r"
 
 
-def player(stream, canvas=None, loop=True):
+def player(stream, canvas=None, loop=True, sync=False):
     """A ROM that writes stream to the console, then again from the start,
-    or stops after once. It is assembled twice: the first time finds where
-    the stream begins, after the code."""
+    or once and exits, after a sync of stdout with sync. It is assembled
+    twice: the first time finds where the stream begins, after the code."""
     data = stream.encode("latin-1")
     if 0 in data:
         raise ValueError("a stream ends at its first NUL")
@@ -61,7 +63,9 @@ def player(stream, canvas=None, loop=True):
         p.inc_zp(PTR + 1)
         p.jmp_abs("next")
         p.symbol("done")
-        p.jmp_abs("done")
+        if sync:
+            p.call_a(OP_SYNCFS, 1)
+        p.call_a(OP_EXIT, 0)
         begin = p.here()
     p.data(data + b"\0")
     return p
@@ -168,6 +172,139 @@ def forty():
     return s
 
 
+# ---- The VT102 demo -------------------------------------------------------
+
+def sgr(*codes):
+    return CSI + ";".join(str(c) for c in codes) + "m"
+
+
+C_KEYWORDS = {"if", "else", "for", "while", "do", "return", "break",
+              "continue", "switch", "case", "default", "goto", "sizeof",
+              "static", "const", "volatile", "inline", "extern", "struct",
+              "union", "enum", "typedef"}
+C_TYPES = {"void", "bool", "char", "int", "unsigned", "long", "short",
+           "uint8_t", "uint16_t", "uint32_t", "int32_t", "size_t",
+           "term_t", "term_grid_t", "term_pos_t", "cells_t", "screen_buf_t",
+           "cells_smooth_t", "ansi_state_t", "mode0_cell_t"}
+C_TOKEN = re.compile(r"""
+    (?P<comment>//.*|/\*.*?(\*/|$))
+  | (?P<string>"(\\.|[^"\\])*"|'(\\.|[^'\\])*')
+  | (?P<number>\b0[xX][0-9A-Fa-f]+[uUlL]*\b|\b\d+[uUlL]*\b)
+  | (?P<word>[A-Za-z_]\w*)
+  | (?P<space>\s+)
+  | (?P<other>.)
+""", re.VERBOSE)
+INK = {"keyword": sgr(38, 5, 75), "type": sgr(38, 5, 79),
+       "pre": sgr(38, 5, 176), "string": sgr(38, 5, 180),
+       "comment": sgr(3, 38, 5, 108), "number": sgr(38, 5, 151),
+       "call": sgr(38, 5, 222), "macro": sgr(38, 5, 209),
+       "plain": sgr(38, 5, 252), "punct": sgr(38, 5, 248)}
+
+
+def c_colors(line, typo=None):
+    """One line of C with its syntax in color. typo, a word of the line,
+    gets a red curly underline, as an editor marks an error."""
+    if line.lstrip().startswith("#"):
+        return INK["pre"] + line + sgr(0)
+    out = ""
+    for m in C_TOKEN.finditer(line):
+        kind, text = m.lastgroup, m.group()
+        if kind == "word":
+            after = line[m.end():].lstrip()[:1]
+            if text in C_KEYWORDS:
+                kind = "keyword"
+            elif text in C_TYPES:
+                kind = "type"
+            elif text.isupper() and len(text) > 1:
+                kind = "macro"
+            elif after == "(":
+                kind = "call"
+            else:
+                kind = "plain"
+        elif kind == "other":
+            kind = "punct"
+        elif kind == "space":
+            out += text
+            continue
+        if typo and text == typo:
+            out += sgr(0) + INK[kind] + sgr("4:3", 58, 5, 196) + text + sgr(24, 59)
+            continue
+        out += sgr(0) + INK[kind] + text
+    return out + sgr(0)
+
+
+def listing():
+    """The project's own smooth scroll code, cut to fit a screen."""
+    root = Path(__file__).resolve().parents[3] / "src" / "core"
+    picks = [("term/term.c", "static bool HOST_IN_RAM_FUNC term_byte_scrolls", "^}"),
+             ("term/term.c", "bool HOST_IN_RAM_FUNC term_holds", "^}"),
+             ("term/cells.c", "void cells_smooth(term_t", "^}"),
+             ("vga/mode/mode0.h", "static inline unsigned mode0_smooth_moved", "^}")]
+    lines = []
+    for name, first, last in picks:
+        text = (root / name).read_text().splitlines()
+        start = next(i for i, l in enumerate(text) if l.startswith(first))
+        # The comment above the function comes with it.
+        while start > 0 and text[start - 1].startswith(("//", "/*", " *")):
+            start -= 1
+        end = next(i for i in range(start + 1, len(text)) if re.match(last, text[i]))
+        lines.append(f"/* {name} */")
+        lines += text[start:end + 1]
+        lines.append("")
+    return [l.replace("\t", "    ")[:72] for l in lines]
+
+
+def vt102demo():
+    """A title, then the code that makes it scroll, scrolling."""
+    title, sub = "Picocomputer 6502", "VT102 Terminal Demonstration"
+    top, bot = 6, 24
+    s = RESET + HIDE + sgr(0) + CSI + "2J"
+    s += at(1, 1 + (40 - len(title)) // 2) + ESC + "#3" + sgr(1, 3, 38, 5, 213) + title
+    s += at(2, 1 + (40 - len(title)) // 2) + ESC + "#4" + sgr(1, 3, 38, 5, 213) + title
+    s += sgr(0) + at(3, 1 + (40 - len(sub)) // 2) + ESC + "#6" + sgr(4, 38, 5, 228) + sub
+    s += sgr(0) + sgr(38, 5, 240) + DEC + at(top - 1) + "q" * 80 + at(bot + 1) + "q" * 80 + ASCII
+    info = [
+        sgr(38, 5, 117) + "Smooth scroll (DECSCLM, CSI ? 4 h) moves only the rows between the",
+        sgr(38, 5, 117) + "margins, one scanline every frame, the way a DEC VT102 did in 1983.",
+        sgr(38, 5, 252) + "Written by Claude, an AI model made by Anthropic, for the Picocomputer.",
+        sgr(1, 38, 5, 213) + "Hi Mom!" + sgr(0, 38, 5, 245) + "  (Hello, Anthropic. I made something scroll.)",
+    ]
+    for i, text in enumerate(info):
+        s += at(bot + 2 + i, 3) + text + sgr(0)
+    s += region(top, bot) + SMOOTH + at(bot)
+    code = listing()
+    typo_line = next(i for i, l in enumerate(code) if "smooth_released" in l)
+    for n, line in enumerate(code):
+        typo = None
+        if n == typo_line:
+            line = line.replace("smooth_released", "smooth_relesaed")
+            typo = "smooth_relesaed"
+        s += "\n\r" + sgr(38, 5, 239) + f"{n + 1:4} " + c_colors(line, typo)
+        if typo:
+            col = 5 + line.index(typo)
+            s += ("\n\r" + sgr(1, 38, 5, 196) + " " * col + "^" + "~" * (len(typo) - 1)
+                  + " error: no member named '" + typo + "'" + sgr(0))
+    s += "\n\r" * (bot - top + 1)
+    return s
+
+
+def rom_vt102demo():
+    return player(vt102demo())
+
+
+def ending():
+    """Lines that scroll the whole screen, then the end of the program."""
+    return RESET + SMOOTH + "".join(f"line {n}\r\n" for n in range(40))
+
+
+def rom_ending():
+    return player(ending(), loop=False)
+
+
+def rom_ending_sync():
+    return player(ending(), loop=False, sync=True)
+
+
 def rom_full():
     return player(full_screen())
 
@@ -204,6 +341,7 @@ def test_paced():
 
 ROMS = {"smooth_full": rom_full, "smooth_box": rom_box,
         "smooth_snow": rom_snow, "smooth_split": rom_split,
-        "smooth_forty": rom_forty}
+        "smooth_forty": rom_forty, "vt102demo": rom_vt102demo,
+        "smooth_ending": rom_ending, "smooth_ending_sync": rom_ending_sync}
 TESTS = {"smooth_paced": test_paced}
 main(globals())

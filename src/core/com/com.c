@@ -326,6 +326,10 @@ static void com_clear_line(void)
 void com_end_reset(void)
 {
     static const char shape[] = "\33[0 q";
+    /* A smooth scroll still moving snaps into place, the same on every
+     * machine, rather than the end waiting for it. A program that wants its
+     * last lines to finish syncs the console before it exits. */
+    term_release_smooth(&cells_term);
     manifold_flush();
     for (const char *s = STR_TERM_SOFT_RESET; *s; s++)
         manifold_putchar((unsigned char)*s);

@@ -303,7 +303,7 @@ UTEST(rln, a_pending_wrap_gives_a_cr_lf_then_column_1)
     capture();
     reading();
     manifold_set_tx_tap(NULL);
-    ASSERT_STREQ(shown, "\33[4l\r\n");
+    ASSERT_STREQ(shown, "\r\n\33[4l");
     const term_pos_t *p = term_pos(term_shown(&cells_term));
     ASSERT_EQ(p->x, 0);
     ASSERT_EQ(p->y, 1);

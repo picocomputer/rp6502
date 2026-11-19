@@ -115,6 +115,7 @@ static void term_reset_core(term_t *t)
     t->erase_all = false;
     t->reverse_screen = false;
     t->smooth_scroll = false;
+    t->smooth_released = false;
     t->cursor_enabled = true;
     t->cursor_style = 0;
     term_reset_parser(t);
@@ -877,6 +878,7 @@ static void term_out_DECSET(term_t *t, bool set)
             break;
         case 4: // DECSCLM: smooth scroll
             t->smooth_scroll = set;
+            t->smooth_released = false;
             break;
         case 5: // DECSCNM: the whole screen in reverse video
             t->reverse_screen = set;
@@ -1776,8 +1778,15 @@ static bool HOST_IN_RAM_FUNC term_byte_scrolls(const term_t *t, const term_grid_
     }
 }
 
+void term_release_smooth(term_t *t)
+{
+    t->smooth_released = true;
+}
+
 bool HOST_IN_RAM_FUNC term_holds(const term_t *t, uint8_t ch)
 {
+    if (t->smooth_released)
+        return false;
     for (uint8_t i = 0; i < t->grid_count; i++)
         if (cells_smooth_busy(t->grids[i]) && term_byte_scrolls(t, t->grids[i], ch))
             return true;
@@ -1874,6 +1883,7 @@ void term_sst_put(sst_cursor_t *c, const term_t *t)
     sst_put_bool(c, t->erase_all);
     sst_put_bool(c, t->reverse_screen);
     sst_put_bool(c, t->smooth_scroll);
+    sst_put_bool(c, t->smooth_released);
     sst_put_bool(c, t->cursor_enabled);
     sst_put_u8(c, t->cursor_style);
     sst_put_u8(c, t->last_glyph);
@@ -1935,6 +1945,7 @@ bool term_sst_get(sst_cursor_t *c, term_t *t)
     t->erase_all = sst_get_bool(c);
     t->reverse_screen = sst_get_bool(c);
     t->smooth_scroll = sst_get_bool(c);
+    t->smooth_released = sst_get_bool(c);
     t->cursor_enabled = sst_get_bool(c);
     t->cursor_style = sst_get_u8(c);
     t->last_glyph = sst_get_u8(c);

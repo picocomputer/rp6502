@@ -10,6 +10,7 @@
 #include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/com/rln.h"
+#include "core/com/console.h"
 #include "core/str/str.h"
 #include "core/sys/sst.h"
 #include "core/sys/sys.h"
@@ -2546,6 +2547,70 @@ UTEST(term, a_smooth_scroll_holds_the_next_line_feed)
         frames++;
     }
     ASSERT_EQ(frames, TERM_SMOOTH_FRAMES);
+}
+
+/* A line feed that has to wait, behind one that is scrolling: what the
+ * console's output holds while a smooth scroll moves. */
+static bool held_line_feed(void)
+{
+    fresh();
+    feed("\33[?4h\33[30;1H\n\n");
+    return !manifold_drained();
+}
+
+/* A sync of the console returns once both lines have arrived. */
+UTEST(term, a_console_sync_waits_for_the_scroll)
+{
+    ASSERT_TRUE(held_line_feed());
+    api_errno err;
+    ASSERT_EQ(console_std_sync(1, &err), STD_PENDING);
+    int frames = 0;
+    while (console_std_sync(1, &err) == STD_PENDING && frames < 100)
+    {
+        vga_run_frame();
+        frames++;
+    }
+    ASSERT_TRUE(frames > TERM_SMOOTH_FRAMES);
+    ASSERT_TRUE(frames <= 2 * TERM_SMOOTH_FRAMES);
+    ASSERT_TRUE(manifold_drained());
+}
+
+/* The end of a chain waits for no scroll: what was held goes out at once. */
+UTEST(term, the_end_of_a_chain_releases_a_held_line)
+{
+    ASSERT_TRUE(held_line_feed());
+    term_release_smooth(&cells_term);
+    manifold_task();
+    ASSERT_TRUE(manifold_drained());
+    /* DECSCLM set again holds again. */
+    feed("\33[?4h\n\n");
+    ASSERT_TRUE(!manifold_drained());
+}
+
+static char rln_got[8];
+static void rln_cb(bool timeout, const char *buf)
+{
+    (void)timeout;
+    snprintf(rln_got, sizeof rln_got, "%s", buf);
+}
+
+/* A read started while a line is held is laid out once it has arrived, and
+ * the keys typed wait for it. */
+UTEST(term, a_read_waits_for_the_held_line)
+{
+    ASSERT_TRUE(held_line_feed());
+    rln_read_line(rln_cb, NULL);
+    manifold_uart_push("hi\r", 3);
+    rln_got[0] = 0;
+    int frames = 0;
+    while (!rln_got[0] && frames < 100)
+    {
+        vga_run_frame();
+        frames++;
+    }
+    ASSERT_STREQ(rln_got, "hi");
+    ASSERT_TRUE(frames > TERM_SMOOTH_FRAMES);
+    ASSERT_EQ(cy(), 29);
 }
 
 UTEST_MAIN();
