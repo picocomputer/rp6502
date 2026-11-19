@@ -53,7 +53,9 @@ bool tty_sst_load(sst_cursor_t *c, unsigned flags);
         .close = tty_std_close,                               \
         .read = tty_std_read,                                 \
         .write = tty_std_write,                               \
-        STD_SST_COLS(tty_std_ident, tty_std_reopen, true)     \
+        .ident = tty_std_ident,                               \
+        .reopen = tty_std_reopen,                             \
+        .resumes_writes = true,                               \
     }
 
 #endif /* _CORE_COM_TTY_H_ */

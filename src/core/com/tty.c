@@ -63,8 +63,6 @@ void HOST_IN_FLASH_FUNC tty_stop(void)
     tty_was_asked = false;
 }
 
-#ifdef RP6502_SST
-
 bool tty_std_ident(int desc, sst_cursor_t *c)
 {
     (void)desc;
@@ -95,5 +93,3 @@ bool tty_sst_load(sst_cursor_t *c, unsigned flags)
     tty_was_asked = asked;
     return true;
 }
-
-#endif /* RP6502_SST */

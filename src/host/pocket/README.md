@@ -152,7 +152,7 @@ wake's load was still unanswered while the firmware ran, so that 0x00A4
 came after Reset Exit.
 
 The savestate is core's, made by `core/sys/sst.c` as on the emulators.
-The firmware builds it with `RP6502_SST`, and its driver list carries
+The firmware builds it, and its driver list carries
 the rows. Two rows are this machine's own: `FAB_`, in `sw/fab.c`, holds
 what only the bitstream keeps, and `AUD_`, in `sw/aud.c`, holds the
 audio engines. The blob is about 230 KB. The size the host is given is

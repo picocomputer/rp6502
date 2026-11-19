@@ -81,7 +81,6 @@ typedef struct
     // sets this. A write in progress, such as a game saving its progress,
     // cannot be caught whole, but sound can always resume.
     bool resumes_writes;
-#ifdef RP6502_SST
     // The savestate's two, optional like the rest. ident writes down what an
     // open descriptor is and reopen makes that descriptor again, with the
     // open mode that the core carries.
@@ -90,16 +89,7 @@ typedef struct
     // machine with one of those open refuses to be saved.
     bool (*ident)(int desc, sst_cursor_t *);
     int (*reopen)(sst_cursor_t *, uint8_t mode, api_errno *);
-#endif
 } std_driver_t;
-
-/* A row's ident, reopen and resumes_writes. The first two exist only on a
- * machine that builds core/sys/sst.c, which defines RP6502_SST. */
-#ifdef RP6502_SST
-#define STD_SST_COLS(id, re, rw) .ident = id, .reopen = re, .resumes_writes = rw,
-#else
-#define STD_SST_COLS(id, re, rw) .resumes_writes = rw,
-#endif
 
 const std_driver_t *std_drivers(size_t *count);
 

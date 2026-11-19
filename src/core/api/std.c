@@ -167,8 +167,6 @@ bool std_sst_refused(void)
     return false;
 }
 
-#ifdef RP6502_SST
-
 /* Which of xstack and xram a transfer is landing in. A savestate has to
  * record where the buffer started, because it cannot be worked back out: a
  * read into xram advances std_xram_addr as std_task drains it, and a write
@@ -360,7 +358,6 @@ fail:
     return false;
 }
 
-#endif /* RP6502_SST */
 
 /* This machine's stdio driver table: the console's two, which every machine
  * has, then those its drivers.h lists. The row order is the order open()

@@ -66,7 +66,9 @@ bool fs_card_path(const char *path, const char *root, char *out, size_t cap);
         .lseek = fs_std_lseek,                            \
         .file = true,                                     \
         .refuses_exec = refuses,                          \
-        STD_SST_COLS(fs_std_ident, fs_std_reopen, false)  \
+        .ident = fs_std_ident,                            \
+        .reopen = fs_std_reopen,                          \
+        .resumes_writes = false,                          \
     }
 #define FS_POCKET_SAVE_DRIVER FS_POCKET_ROW(save_std_handles, save_std_open, true)
 #define FS_POCKET_STD_DRIVER FS_POCKET_ROW(fs_std_handles, fs_std_open, false)

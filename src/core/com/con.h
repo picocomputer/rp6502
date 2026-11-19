@@ -72,7 +72,9 @@ bool con_sst_load(sst_cursor_t *c, unsigned flags);
         .close = con_std_close,                               \
         .read = con_std_read,                                 \
         .write = con_std_write,                               \
-        STD_SST_COLS(con_std_ident, con_std_reopen, true)     \
+        .ident = con_std_ident,                               \
+        .reopen = con_std_reopen,                             \
+        .resumes_writes = true,                               \
     }
 
 #endif /* _CORE_COM_CON_H_ */

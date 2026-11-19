@@ -150,8 +150,6 @@ void HOST_IN_FLASH_FUNC con_end(void)
     con_closed = false;
 }
 
-#ifdef RP6502_SST
-
 bool con_std_ident(int desc, sst_cursor_t *c)
 {
     sst_put_u8(c, (uint8_t)desc);
@@ -200,5 +198,3 @@ bool con_sst_load(sst_cursor_t *c, unsigned flags)
     con_rln_buf = rln_line();
     return true;
 }
-
-#endif /* RP6502_SST */

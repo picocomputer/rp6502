@@ -87,8 +87,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/sys/version.c)
     rp6502_log_flags(SW_LOG_FLAGS)
     # AUD_NATIVE_RATE is the 48 kHz the fabric mixes at, which pcm_step
-    # divides by. RP6502_SST builds the savestate's columns of the stdio
-    # rows, as on the emulators.
+    # divides by.
     # The firmware's version, for XTVERSION, is stamped as it is built.
     add_custom_command(OUTPUT ${SW_BIN}
         COMMAND ${CMAKE_COMMAND}
@@ -113,7 +112,6 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             -DRP6502_LOCALE=EN
             -DRP6502_VGA_FABRIC
             -DAUD_NATIVE_RATE=48000
-            -DRP6502_SST
             ${SW_LOG_FLAGS}
             -T ${SW_SRC}/link.ld
             -o ${RP6502_ASSETS}/sw.elf

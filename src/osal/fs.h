@@ -87,7 +87,9 @@ void fs_save_free(void);
         .lseek = fs_std_lseek,       \
         .file = true,                \
         .refuses_exec = true,        \
-        STD_SST_COLS(fs_std_ident, fs_std_reopen, false) \
+        .ident = fs_std_ident,       \
+        .reopen = fs_std_reopen,     \
+        .resumes_writes = false,     \
     }
 
 #define FS_STD_DRIVER           \
@@ -100,7 +102,9 @@ void fs_save_free(void);
         .sync = fs_std_sync,       \
         .lseek = fs_std_lseek,     \
         .file = true,              \
-        STD_SST_COLS(fs_std_ident, fs_std_reopen, false) \
+        .ident = fs_std_ident,     \
+        .reopen = fs_std_reopen,   \
+        .resumes_writes = false,   \
     }
 
 #endif /* _OSAL_FS_H_ */

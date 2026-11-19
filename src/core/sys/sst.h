@@ -78,14 +78,14 @@ static inline const uint8_t *sst_view(sst_cursor_t *c, size_t n)
     return sst_room(c, n);
 }
 
-static inline void sst_put(sst_cursor_t *c, const void *src, size_t n)
+static inline __attribute__((always_inline)) void sst_put(sst_cursor_t *c, const void *src, size_t n)
 {
     uint8_t *p = sst_room(c, n);
     if (p)
         memcpy(p, src, n);
 }
 
-static inline void sst_get(sst_cursor_t *c, void *dst, size_t n)
+static inline __attribute__((always_inline)) void sst_get(sst_cursor_t *c, void *dst, size_t n)
 {
     const uint8_t *p = sst_view(c, n);
     if (p)
