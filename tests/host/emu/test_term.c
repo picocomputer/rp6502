@@ -19,6 +19,7 @@
 #include "tb_screen.h"
 #include "core/vga/vga.h"
 #include "core/vga/vga_emu.h"
+#include "core/vga/mode/mode0.h"
 #include "utest.h"
 #include <stdio.h>
 #include <string.h>
@@ -2482,6 +2483,69 @@ UTEST(term, what_neovim_asks_as_it_starts_is_all_answered)
     ASSERT_STREQ(ask("\33P$qm\33\\"), "\33P1$r0m\33\\");
     /* And as it leaves. */
     ASSERT_STREQ(ask("\33[>4;0m\33[c"), "\33[?6c");
+}
+
+/* ---- smooth scroll ---- */
+
+/* The row a smooth scroll is moving out, as text, trailing spaces dropped. */
+static const char *ghost(void)
+{
+    static char text[96];
+    const mode0_cell_t *c = &mode0_cells[MODE0_ROW_CELL(mode0_smooth.ghost)];
+    int last = 0;
+    for (int x = 0; x < 80; x++)
+    {
+        text[x] = (char)mode0_glyph_code(c[x].glyph);
+        if (text[x] != ' ')
+            last = x + 1;
+    }
+    text[last] = 0;
+    return text;
+}
+
+UTEST(term, decsclm_is_reported)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33[?4$p"), "\33[?4;2$y");
+    ASSERT_STREQ(ask("\33[?4h\33[?4$p"), "\33[?4;1$y");
+}
+
+/* The row going out still shows while it goes, so an erase it was owed is
+ * paid first: a whole-screen scroll after ED 2 moves out a blank row. */
+UTEST(term, a_smooth_scroll_moves_out_the_row_as_it_is)
+{
+    fresh();
+    feed("\33[HXXXX\33[?4h\33[2J\33[30;1H\n");
+    ASSERT_TRUE(mode0_smooth.region & MODE0_SMOOTH_ON);
+    ASSERT_STREQ(ghost(), "");
+}
+
+/* The same for a reverse index in a region, whose bottom row goes out. */
+UTEST(term, a_smooth_reverse_index_moves_out_the_bottom_row_as_it_is)
+{
+    fresh();
+    feed("\33[10;1HYYYY\33[?4h\33[5;10r\33[5;1H\33[J\33M");
+    ASSERT_FALSE(mode0_smooth.region & MODE0_SMOOTH_UP);
+    ASSERT_STREQ(ghost(), "");
+    feed("\33[r");
+}
+
+/* A line feed that would scroll the moving rows again waits for them to
+ * land, which takes TERM_SMOOTH_FRAMES frames. Text goes on into the row
+ * coming in. */
+UTEST(term, a_smooth_scroll_holds_the_next_line_feed)
+{
+    fresh();
+    feed("\33[?4h\33[30;1H\n");
+    ASSERT_TRUE(term_holds(&cells_term, '\n'));
+    ASSERT_FALSE(term_holds(&cells_term, 'A'));
+    int frames = 0;
+    while (term_holds(&cells_term, '\n') && frames < 100)
+    {
+        vga_run_frame();
+        frames++;
+    }
+    ASSERT_EQ(frames, TERM_SMOOTH_FRAMES);
 }
 
 UTEST_MAIN();

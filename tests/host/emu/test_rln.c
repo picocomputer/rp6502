@@ -717,12 +717,14 @@ UTEST(rln, deleting_at_the_end_of_the_line_erases_the_tail)
 static char screen[256];
 
 /* What is sent to term.c is kept, and term.c still follows it. */
-static void screen_out(const char *buf, int len)
+static int screen_out(const char *buf, int len, bool force)
 {
+    (void)force;
     strncat(screen, buf, (size_t)len);
     for (int i = 0; i < len; i++)
         term_write(&cells_term, (uint8_t)buf[i]);
     cells_publish();
+    return len;
 }
 
 static void screen_reading(void)

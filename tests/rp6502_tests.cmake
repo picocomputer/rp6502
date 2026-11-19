@@ -104,6 +104,8 @@ rp6502_test_roms(sigint_roms cpu/ria/sigint.py sigint)
 rp6502_test_roms(stdio_roms cpu/ria/stdio.py stdio)
 rp6502_test_roms(strftime_roms cpu/ria/strftime.py strftime)
 rp6502_test_roms(tty_keys_roms cpu/ria/tty_keys.py tty_keys)
+rp6502_test_roms(smooth_roms cpu/term/smooth.py
+    smooth_full smooth_box smooth_snow smooth_split smooth_forty)
 rp6502_test_roms(tty_pipe_roms cpu/ria/tty_pipe.py tty_pipe)
 rp6502_test_roms(zeroread_roms cpu/ria/zeroread.py zeroread)
 rp6502_test_roms(vsync_roms cpu/vga/vsync.py vsync)

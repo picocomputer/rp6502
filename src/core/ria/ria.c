@@ -150,7 +150,12 @@ uint8_t ria_reg_read(uint16_t addr)
     {
         if (!(regs[0x00] & RIA_UART_RX_READY))
             com_rx_stage();
-        regs[0x00] |= RIA_UART_TX_READY;
+        /* TX takes a byte while the console's output has room, which it
+         * lacks only while a byte waits for a smooth scroll. */
+        if (manifold_cts())
+            regs[0x00] |= RIA_UART_TX_READY;
+        else
+            regs[0x00] &= ~RIA_UART_TX_READY;
         return regs[0x00];
     }
     case 0x02: /* RX */
@@ -265,7 +270,8 @@ void ria_reg_write(uint16_t addr, uint8_t data)
     {
     case 0x01: /* TX */
         manifold_putchar_raw((char)data);
-        regs[0x00] |= RIA_UART_TX_READY;
+        if (!manifold_cts())
+            regs[0x00] &= ~RIA_UART_TX_READY;
         return;
     case 0x04: /* RW0 */
         rw_write(0, data);

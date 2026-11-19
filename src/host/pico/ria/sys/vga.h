@@ -56,6 +56,9 @@ void vga_break(void);
 // Fully connected with backchannel.
 bool vga_connected(void);
 
+// The VGA's frames since boot, counted from its VSYNCs.
+uint32_t vga_frames(void);
+
 // Responders for status.
 int vga_boot_response(char *buf, size_t buf_size, int state, unsigned width);
 int vga_status_response(char *buf, size_t buf_size, int state, unsigned width);

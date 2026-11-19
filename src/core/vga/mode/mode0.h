@@ -139,7 +139,7 @@ _Static_assert(sizeof(mode0_colors_t) == 6, "a cell's colors are three halfwords
 /* The cells of every screen: the 40-column terminal's primary and
  * alternate, then the 80-column terminal's. */
 #define MODE0_SCREENS (TERM_ALT_SCREEN ? 2 : 1)
-#define MODE0_CELLS ((40 + 80) * TERM_MAX_HEIGHT * MODE0_SCREENS)
+#define MODE0_CELLS ((40 + 80) * TERM_MEM_ROWS * MODE0_SCREENS)
 extern mode0_cell_t mode0_cells[MODE0_CELLS];
 extern mode0_colors_t mode0_colors[MODE0_CELLS];
 
@@ -165,6 +165,44 @@ _Static_assert(TERM_MAX_HEIGHT <= MODE0_ROWS, "a row word for every row");
 _Static_assert(MODE0_CELLS <= 0x10000, "a row word holds a 16-bit cell");
 
 extern volatile mode0_regs_t mode0_regs;
+
+/* A smooth scroll (DECSCLM) moving, which mode 0 draws over the row words.
+ * The rows already have their new places; the scroll shows them coming
+ * there. Kept apart from mode0_regs, whose words are a fabric's registers.
+ *
+ * region: the rows top to bot, which way they move, and whether one is
+ *   moving. Zero when none is.
+ * frame: the first frame that shows the rows a scanline on their way.
+ * ghost: the row word of the row moving out, which is in none of the row
+ *   words any more. */
+typedef struct
+{
+    uint32_t region;
+    uint32_t frame;
+    uint32_t ghost;
+} mode0_smooth_t;
+
+extern volatile mode0_smooth_t mode0_smooth;
+
+#define MODE0_SMOOTH_ON (1u << 17)
+#define MODE0_SMOOTH_UP (1u << 16)
+#define MODE0_SMOOTH(top, bot, up) \
+    ((uint32_t)(top) | ((uint32_t)(bot) << 8) | ((up) ? MODE0_SMOOTH_UP : 0) | MODE0_SMOOTH_ON)
+#define MODE0_SMOOTH_TOP(w) ((uint8_t)(w))
+#define MODE0_SMOOTH_BOT(w) ((uint8_t)((w) >> 8))
+
+/* How many scanlines a smooth scroll that started showing at frame `start`
+ * has moved by frame `now`, on rows `ch` scanlines tall: one a frame on 16,
+ * one every second frame on 8, so a row takes TERM_SMOOTH_FRAMES either
+ * way, and `ch` once it is over. */
+static inline unsigned mode0_smooth_moved(uint32_t start, uint32_t now, unsigned ch)
+{
+    int32_t frames = (int32_t)(now - start);
+    if (frames < 0)
+        return 0;
+    unsigned moved = (unsigned)frames / (TERM_SMOOTH_FRAMES / ch) + 1;
+    return moved < ch ? moved : ch;
+}
 
 #define MODE0_ROW(cell, size) ((uint32_t)(cell) | ((uint32_t)(size) << 16))
 #define MODE0_ROW_CELL(w) ((uint16_t)(w))

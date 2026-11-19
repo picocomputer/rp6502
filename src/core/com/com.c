@@ -318,8 +318,10 @@ static void com_clear_line(void)
 }
 
 /* The soft reset starts with CAN, which ends any escape sequence left half
- * sent, and leaves the alternate screen and the margins, so the cursor read
- * after it is the one the line feeds move. The default cursor shape goes to
+ * sent, and leaves the alternate screen, smooth scroll and the margins, the
+ * top and bottom ones with the cursor kept where it is, so the line feeds
+ * after it move the cursor down the whole screen, at once, and the cursor
+ * read after it is the one they move. The default cursor shape goes to
  * the screen alone, because a terminal on the UART or telnet may print it. */
 void com_end_reset(void)
 {

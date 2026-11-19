@@ -45,6 +45,21 @@
 #define TERM_ALT_SCREEN 1
 #endif
 
+/* TERM_SPARE_ROWS: the row of memory each screen keeps beyond its
+ * TERM_MAX_HEIGHT for DECSCLM, which holds the row a smooth scroll moves
+ * out while it moves. A machine whose cell store is fixed elsewhere, as
+ * in an FPGA, can leave it out with 0, and the terminal there scrolls
+ * whole rows even in smooth scroll mode. */
+#ifndef TERM_SPARE_ROWS
+#define TERM_SPARE_ROWS 1
+#endif
+#define TERM_MEM_ROWS (TERM_MAX_HEIGHT + TERM_SPARE_ROWS)
+
+/* A smooth scroll moves a row in this many frames: one scanline a frame on
+ * the 16-scanline rows, one every second frame on the 8-scanline rows of
+ * the 40-column terminal, so both move a line in the same time. */
+#define TERM_SMOOTH_FRAMES 16
+
 /* The widest grid there can be. A screen's is 40 or 80; a program can make
  * the terminal wider than its screen. A grid's height is up to its rows. */
 #define TERM_MAX_WIDTH 255
@@ -217,6 +232,7 @@ typedef struct
     uint8_t protect_mode; // TERM_PROTECT_
     bool erase_all;       // ERM, CSI 6 h: ED, EL and ECH erase the protected cells too
     bool reverse_screen;  // DECSCNM, ?5: every cell's colors swapped
+    bool smooth_scroll;   // DECSCLM, ?4: a line feed or a reverse index moves the rows a scanline a frame
     bool cursor_enabled;  // DECTCEM, ?25
     uint8_t cursor_style; // DECSCUSR Ps: 0/1/2 block, 3/4 underline, 5/6 bar
     uint8_t last_glyph;   // for REP
@@ -258,6 +274,13 @@ void term_init(term_t *t, term_grid_t *const *grids, uint8_t count);
 
 // One byte of the stream.
 void term_write(term_t *t, uint8_t ch);
+
+// True when ch must wait for a smooth scroll still moving: it would scroll
+// that region again, or set the margins (DECSTBM), as on a VT100. The
+// byte is not taken; whoever feeds the terminal holds it and the bytes
+// after it, and writes it once this is false. Other bytes go on into the
+// rows while they move.
+bool term_holds(const term_t *t, uint8_t ch);
 
 // RIS, and the system's soft reset: RIS leaving the screen and the cursor.
 void term_RIS(term_t *t);
@@ -343,7 +366,7 @@ static inline unsigned term_cell_height(const term_grid_t *g)
 }
 
 #define TERM_PEN_SST_SIZE 32
-#define TERM_SST_SIZE (4 * TERM_PEN_SST_SIZE + 108 + 4 * TERM_OSC_ASK_MAX)
+#define TERM_SST_SIZE (4 * TERM_PEN_SST_SIZE + 109 + 4 * TERM_OSC_ASK_MAX)
 void term_sst_put(sst_cursor_t *c, const term_t *t);
 bool term_sst_get(sst_cursor_t *c, term_t *t);
 #define TERM_GRID_SST_SIZE(rows) (19 + TERM_TAB_BITMAP_BYTES + 2 * (rows))
