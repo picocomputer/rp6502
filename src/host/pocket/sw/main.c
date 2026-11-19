@@ -123,9 +123,13 @@ int main(void)
         sys_commit();
         if (sleep_task())
         {
+            /* The wake's ROM is handled here, before the load is answered,
+             * and not after it is made: a load that fails can print for
+             * long enough that the host has loaded the next ROM by then. */
             main_upd_seen = (uint8_t)MMIO_UPD_N;
             MMIO_SLOT = 0;
             main_restaging = false;
+            sleep_load();
             continue;
         }
         /* The start comes after sys_commit rather than from a stop hook,
