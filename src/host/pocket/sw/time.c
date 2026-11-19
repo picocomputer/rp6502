@@ -17,18 +17,16 @@
  * local reading to the UTC the API returns.
  */
 
+#include "core/sys/div64.h"
 #include "mmio.h"
 
-#include "main.h"
+#include "tim.h"
 
-#include "core/api/tim.h"
+#include "core/tim/tim.h"
 
 #include "host/host.h"
 #include "osal/os.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
 
 static uint64_t tim_read(volatile const uint32_t *lo_reg,
                          volatile const uint32_t *hi_reg)
@@ -59,19 +57,19 @@ static int64_t tim_local_boot;
 static int64_t tim_base_sec;
 static uint64_t tim_base_us;
 
-/* Only an offset is set for the zone, so the zone's name in the TZ string is
- * the offset in angle brackets, "<-0700>+7:00" for UTC-7. The name is written
- * east positive. The offset after it is west positive, because a POSIX offset
- * is the amount added to local time to get UTC, as in PST8 for UTC-8. */
+/* Only an offset is set for the zone, so the zone's name is the offset,
+ * east positive: "-0700" for UTC-7. */
+static char tim_zone_name[6];
+
 static void tim_apply_tz(void)
 {
-    char tz[24];
-    int32_t west = -tim_tz_min;
-    snprintf(tz, sizeof tz, "<%+03ld%02ld>%+ld:%02ld",
-             (long)(tim_tz_min / 60), labs((long)(tim_tz_min % 60)),
-             (long)(west / 60), labs((long)(west % 60)));
-    setenv("TZ", tz, 1);
-    tzset();
+    const int32_t min = tim_tz_min < 0 ? -tim_tz_min : tim_tz_min;
+    tim_zone_name[0] = tim_tz_min < 0 ? '-' : '+';
+    tim_zone_name[1] = (char)('0' + min / 600 % 10);
+    tim_zone_name[2] = (char)('0' + min / 60 % 10);
+    tim_zone_name[3] = (char)('0' + min % 60 / 10);
+    tim_zone_name[4] = (char)('0' + min % 10);
+    tim_zone_name[5] = 0;
 }
 
 void tim_init(void)
@@ -82,8 +80,6 @@ void tim_init(void)
     tim_base_us = tim_uptime_us();
     tim_apply_tz();
 }
-
-void tim_stop(void) {}
 
 /* A program cannot set the time, so recomputing tim_base_sec from
  * tim_local_boot when the offset changes discards nothing. */
@@ -96,40 +92,36 @@ void tim_set_tz_minutes(int32_t min)
     tim_apply_tz();
 }
 
-bool tim_get_time(struct timespec *ts)
+bool tim_get_time(tim_spec_t *ts)
 {
     uint64_t us = tim_uptime_us() - tim_base_us;
-    ts->tv_sec = tim_base_sec + (int64_t)(us / 1000000u);
-    ts->tv_nsec = (long)(us % 1000000u) * 1000;
+    uint32_t into;
+    ts->sec = tim_base_sec + (int64_t)div64(us, 1000000, &into);
+    ts->nsec = into * 1000;
     return true;
 }
 
-bool tim_set_time(const struct timespec *ts)
+bool tim_set_time(const tim_spec_t *ts)
 {
     (void)ts;
     return false;
 }
 
-void tim_get_time_res(struct timespec *ts)
+/* The Pocket's zone is one offset, the year round. */
+void tim_zone(int64_t utc, tim_zone_t *zone)
 {
-    ts->tv_sec = 0;
-    ts->tv_nsec = 1000;
+    (void)utc;
+    zone->offset = tim_tz_min * 60;
+    zone->dst = false;
+    zone->name = tim_zone_name;
 }
 
-bool tim_gmtime(time_t t, struct tm *out)
+/* The words of the C locale. The Pocket has no setting for its language,
+ * and the strings of core/str would bring every one of them, in every
+ * language, into its firmware. */
+const char *tim_word(tim_word_t word)
 {
-    return gmtime_r(&t, out) != NULL;
-}
-
-bool tim_localtime(time_t t, struct tm *out)
-{
-    return localtime_r(&t, out) != NULL;
-}
-
-size_t tim_strftime(char *dst, size_t max, const char *format,
-                    const struct tm *tm)
-{
-    return strftime(dst, max, format, tm);
+    return tim_c_word(word);
 }
 
 /* A savestate's load puts mtime back where it stood at the save. The wall

@@ -82,6 +82,10 @@ bool ria_sst_load(sst_cursor_t *c, unsigned flags);
 #define RIA_DRIVER DRIVER(                                  \
     RUN(ria_run)                                            \
     BREAK(ria_break)                                        \
-    SST(RIA_, 2, RIA_SST_SIZE, ria_sst_save, ria_sst_load))
+    SST(.id = "RIA_",                                       \
+        .version = 2,                                       \
+        .size = RIA_SST_SIZE,                               \
+        .save = ria_sst_save,                               \
+        .load = ria_sst_load))
 
 #endif /* _CORE_RIA_RIA_H_ */

@@ -7,7 +7,7 @@
 #include "core/sys/timer.h"
 #include "machine.h"
 #include "core/api/api.h"
-#include "core/api/std.h"
+#include "core/com/console.h"
 #include "core/com/rln.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
@@ -32,17 +32,20 @@
 **     starts the line over on a clean row.
 **   - Moves are relative: CUU and CUD between rows, CR and CUF along one.
 **     No absolute Y; no writes past rln_max_length.
+**   - Inside left and right margins a row is the columns between them: a
+**     CR lands on the left margin, and the row breaks at the right one.
 **   - rln owns only rln_max_length cells from the start of input, so no EL
 **     unless the input can take more than its row.
-**   - A plain line (rln_set_plain, a script read, or a read that starts in
-**     VT52 mode) lays nothing out and sends no escape sequence: it echoes,
-**     moves left with BS and right by printing what is there, erases with
-**     spaces, and the terminal wraps it.
+**   - A plain line (rln_set_plain, or a script read) lays nothing out and
+**     sends no escape sequence: it echoes, moves left with BS and right by
+**     printing what is there, erases with spaces, and the terminal wraps it.
+**   - A terminal in VT52 mode is sent a VT52's commands: ESC A, B and C to
+**     move, each once for each row or column, and ESC K to erase. It has no
+**     insert mode and is sent no cursor shape.
 */
 
 #define RLN_BUF_SIZE 256
 _Static_assert(RLN_BUF_SIZE == RLN_LINE_MAX, "rln.h publishes this bound");
-#define RLN_HISTORY_SIZE 8
 #define RLN_LASTKEY_MAX 32
 _Static_assert(RLN_LASTKEY_MAX >= TIO_ITEM_MAX, "every key fits the last key");
 
@@ -61,13 +64,8 @@ _Static_assert(RLN_LASTKEY_MAX >= TIO_ITEM_MAX, "every key fits the last key");
 #define RLN_POKE COM_SOURCE_ANY
 #define RLN_SOURCE_COUNT (RLN_POKE + 1)
 
-// History storage. The live edit buffer is rln_buf; history[0] is a
-// scratch slot used to stash the user's unsubmitted line while they
-// navigate older entries. history[1..RLN_HISTORY_SIZE-1] hold previous
-// entries, newest at [1].
-static char rln_history[RLN_HISTORY_SIZE][RLN_BUF_SIZE];
-static uint8_t rln_history_count;
-static uint8_t rln_history_pos;
+// The history of the read in progress, its caller's, or NULL for none.
+static rln_history_t *rln_history;
 
 // Input state
 static char rln_buf[RLN_BUF_SIZE];
@@ -81,7 +79,6 @@ static com_source_t rln_line_src;
 static timer_mach_t rln_idle_deadline;
 static uint8_t rln_buflen;
 static uint8_t rln_bufpos;
-static bool rln_skip_history;
 static uint8_t rln_max_length;
 static uint32_t rln_idle_timeout_ms;
 static uint8_t rln_caps;
@@ -93,8 +90,8 @@ static bool rln_suppress_newline;
 // Display state. The line is laid out at the prompt column and the width
 // the console's terminal had when the read started or last changed size.
 static bool rln_plain;                 // lay no line out: rln_set_plain
-static uint16_t rln_prompt_col;        // 1-based, 0 = no prompt column, no wrapping
-static uint16_t rln_width;             // the columns of the prompt's row
+static uint16_t rln_prompt_col;        // 1-based from where a CR lands, 0 = no prompt column, no wrapping
+static uint16_t rln_width;             // the columns of the prompt's row, between the margins it is in
 static uint8_t rln_grid_width;         // the shown grid's width, watched for a change
 static uint8_t rln_rows;               // the most rows the line may take
 static uint8_t rln_cur_idx;            // buffer index whose screen position the cursor is at
@@ -108,7 +105,7 @@ static uint16_t rln_pinned_width;
 static uint16_t rln_pinned_height;
 static term_grid_t rln_grid;
 static uint8_t rln_grid_lines[2 * RLN_GRID_ROWS];
-_Static_assert(RLN_SST_SIZE == 2379 + TERM_GRID_SST_SIZE(RLN_GRID_ROWS),
+_Static_assert(RLN_SST_SIZE == 328 + TERM_GRID_SST_SIZE(RLN_GRID_ROWS),
                "the pinned size's grid is part of the chunk");
 
 // The CR or LF each source, the poke stream included, last ended a line
@@ -133,25 +130,20 @@ static bool rln_has_grid(void)
 void rln_sst_save(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    for (int i = 0; i < RLN_HISTORY_SIZE; i++)
-        sst_put(c, rln_history[i], RLN_BUF_SIZE);
-    sst_put_u8(c, rln_history_count);
-    sst_put_u8(c, rln_history_pos);
     sst_put(c, rln_buf, RLN_BUF_SIZE);
     /* A callback is a function pointer, which cannot be written to a blob, so
-     * it is saved as a token. std.c's reader is the only one this file can
+     * it is saved as a token. console.c's reader is the only one this file can
      * name, and any other callback fails the save rather than being restored
-     * as the wrong reader. */
+     * as the wrong reader. Its reads have no history, so none is carried. */
     if (!rln_callback)
         sst_put_u8(c, 0);
-    else if (rln_callback == std_rln_reader())
+    else if (rln_callback == console_rln_reader())
         sst_put_u8(c, 1);
     else
         sst_fail(c);
     sst_put_u64(c, rln_idle_deadline);
     sst_put_u8(c, rln_buflen);
     sst_put_u8(c, rln_bufpos);
-    sst_put_bool(c, rln_skip_history);
     sst_put_u8(c, rln_max_length);
     sst_put_u32(c, rln_idle_timeout_ms);
     sst_put_u8(c, rln_caps);
@@ -178,13 +170,10 @@ void rln_sst_save(sst_cursor_t *c, unsigned flags)
 bool rln_sst_load(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    const uint8_t *history = sst_view(c, sizeof rln_history);
-    uint8_t hcount = sst_get_u8(c), hpos = sst_get_u8(c);
     const uint8_t *line = sst_view(c, sizeof rln_buf);
     uint8_t reader = sst_get_u8(c);
     uint64_t idle = sst_get_u64(c);
     uint8_t buflen = sst_get_u8(c), bufpos = sst_get_u8(c);
-    bool skip = sst_get_bool(c);
     uint8_t maxlen = sst_get_u8(c);
     uint32_t idle_ms = sst_get_u32(c);
     uint8_t caps = sst_get_u8(c);
@@ -207,8 +196,7 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
      * they index. */
     _Static_assert(RLN_BUF_SIZE > UINT8_MAX, "a byte length must not escape rln_buf");
     if (!sst_ok(c) || reader > 1 || bufpos > buflen ||
-        cur > buflen || lastkey_len > RLN_LASTKEY_MAX ||
-        hcount > RLN_HISTORY_SIZE || hpos > RLN_HISTORY_SIZE)
+        cur > buflen || lastkey_len > RLN_LASTKEY_MAX)
         return false;
     if (grid && !rln_has_grid())
         term_add_grid(&cells_term, &rln_grid, cells_shown(&cells_term),
@@ -218,15 +206,12 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     if (!term_grid_sst_get(c, &rln_grid) || !sst_ok(c))
         return false;
 
-    memcpy(rln_history, history, sizeof rln_history);
-    rln_history_count = hcount;
-    rln_history_pos = hpos;
+    rln_history = NULL;
     memcpy(rln_buf, line, sizeof rln_buf);
-    rln_callback = reader ? std_rln_reader() : NULL;
+    rln_callback = reader ? console_rln_reader() : NULL;
     rln_idle_deadline = idle;
     rln_buflen = buflen;
     rln_bufpos = bufpos;
-    rln_skip_history = skip;
     rln_max_length = maxlen;
     rln_idle_timeout_ms = idle_ms;
     rln_caps = caps;
@@ -275,14 +260,49 @@ static void rln_buf_to_screen(uint8_t i, uint8_t *row, uint16_t *col)
     *col = (uint16_t)(logical % w) + 1;
 }
 
-// Move to column col of the cursor's row: CR, then CUF. VT100 and VT102 have
-// no CHA. CR goes to the real cell from a pending wrap at the margin, and
-// clears it.
+// A move of the cursor up, down or right by n ('A', 'B' or 'C'), and an
+// erase to the end of the line, each as the console's terminal takes it now.
+// A VT52 has them as ESC and the letter, with no count, so a move by n is
+// the command n times.
+static void rln_emit_move(char way, unsigned n)
+{
+    if (!n)
+        return;
+    if (!cells_term.vt52)
+        com_printf("\33[%u%c", n, way);
+    else
+        for (; n; n--)
+        {
+            manifold_putchar('\33');
+            manifold_putchar(way);
+        }
+}
+
+// Move to column col of the cursor's row: CR, then right. VT100 and VT102
+// have no CHA. CR goes to the real cell from a pending wrap at the margin,
+// and clears it.
 static void rln_emit_col(uint16_t col)
 {
     manifold_putchar('\r');
-    if (col > 1)
-        com_printf("\33[%uC", col - 1);
+    rln_emit_move('C', col - 1u);
+}
+
+// Erase the line's row from the cursor, which is at column col and stays
+// there. The terminal's erase goes to the end of the row whatever the right
+// margin is, so a line that ends at a margin erases with spaces, and comes
+// back.
+static void rln_emit_erase(uint16_t col)
+{
+    manifold_flush();
+    const term_grid_t *g = term_shown(&cells_term);
+    if (term_right_stop(g) == term_cols(g, term_pos(g)->y) - 1)
+    {
+        com_printf(cells_term.vt52 ? "\33K" : "\33[K");
+        return;
+    }
+    for (uint16_t c = col; c <= rln_width; c++)
+        manifold_putchar(' ');
+    rln_emit_col(col);
 }
 
 // Move the visible cursor so that it sits at the screen position
@@ -311,9 +331,9 @@ static void rln_sync_cursor_to(uint8_t target)
         rln_buf_to_screen(rln_cur_idx, &fr, &fc);
         rln_buf_to_screen(target, &tr, &tc);
         if (tr > fr)
-            com_printf("\33[%uB", tr - fr);
+            rln_emit_move('B', (unsigned)(tr - fr));
         else if (tr < fr)
-            com_printf("\33[%uA", fr - tr);
+            rln_emit_move('A', (unsigned)(fr - tr));
         if (tr != fr || tc != fc || rln_input_no_wrap())
             rln_emit_col(tc);
     }
@@ -432,13 +452,13 @@ static void rln_emit_trailing_spaces(uint8_t count)
 static void rln_clear_rows_below(uint8_t rows, uint16_t col)
 {
     for (uint8_t k = 0; k < rows; k++)
-        com_printf("\33[B\r\33[K");
-    if (rows)
     {
-        com_printf("\33[%uA", rows);
-        if (col > 1)
-            com_printf("\33[%uC", col - 1);
+        com_printf(cells_term.vt52 ? "\33B\r" : "\33[B\r");
+        rln_emit_erase(1);
     }
+    rln_emit_move('A', rows);
+    if (rows)
+        rln_emit_move('C', col - 1u);
 }
 
 // Redraw the buffer, then place the cursor at rln_bufpos. Two paths:
@@ -469,11 +489,11 @@ static void rln_render_from(uint8_t start)
             rln_put(i, rln_buf[i], end);
         // The cursor is past the line, or on its last cell when a full line
         // ends on the last column, where EL would erase that cell.
-        if (rln_cur_idx == rln_buflen && rln_last_render_buflen > rln_buflen)
-            com_printf("\33[K");
         uint8_t er;
         uint16_t ec;
         rln_buf_to_screen(rln_cur_idx, &er, &ec);
+        if (rln_cur_idx == rln_buflen && rln_last_render_buflen > rln_buflen)
+            rln_emit_erase(ec);
         // Clear rows a previous (longer) render owned below the new end,
         // then return to the new end so cur_idx tracks the screen.
         if (rln_rendered_max_row > er)
@@ -522,43 +542,46 @@ static void rln_replace_buf_from_history(void)
 // dir > 0 walks toward older entries (up arrow), dir < 0 toward newer.
 static void rln_history_step(int dir)
 {
-    if (rln_idle_timeout_ms || rln_skip_history)
+    rln_history_t *h = rln_history;
+    if (!h)
         return;
-    if (dir > 0 && rln_history_pos >= rln_history_count)
+    if (dir > 0 && h->pos >= h->count)
         return;
-    if (dir < 0 && !rln_history_pos)
+    if (dir < 0 && !h->pos)
         return;
     rln_buf[rln_buflen] = 0;
-    memcpy(rln_history[rln_history_pos], rln_buf, rln_buflen + 1);
-    rln_history_pos += dir;
-    memcpy(rln_buf, rln_history[rln_history_pos], RLN_BUF_SIZE);
+    memcpy(h->line[h->pos], rln_buf, rln_buflen + 1);
+    h->pos += dir;
+    memcpy(rln_buf, h->line[h->pos], RLN_BUF_SIZE);
     rln_action_taken = true;
     rln_replace_buf_from_history();
 }
 
+// The line entered becomes the newest, unless it is empty or the newest
+// again, and the oldest is dropped from a history that is full.
 static void rln_history_add(void)
 {
-    if (rln_idle_timeout_ms || rln_skip_history)
-        return;
-    if (rln_buflen == 0)
+    rln_history_t *h = rln_history;
+    if (!h || h->lines < 2 || rln_buflen == 0)
         return;
     rln_buf[rln_buflen] = 0;
-    if (rln_history_count > 0 && strcmp(rln_history[1], rln_buf) == 0)
+    if (h->count > 0 && strcmp(h->line[1], rln_buf) == 0)
         return;
-    memmove(rln_history[2], rln_history[1], (size_t)(RLN_HISTORY_SIZE - 2) * RLN_BUF_SIZE);
-    memcpy(rln_history[1], rln_buf, rln_buflen + 1);
-    rln_history[0][0] = 0;
-    if (rln_history_count < RLN_HISTORY_SIZE - 1)
-        rln_history_count++;
+    memmove(h->line[2], h->line[1], (size_t)(h->lines - 2) * RLN_BUF_SIZE);
+    memcpy(h->line[1], rln_buf, rln_buflen + 1);
+    h->line[0][0] = 0;
+    if (h->count < h->lines - 1)
+        h->count++;
 }
 
 // The cursor shape as DECSCUSR's Ps: 1 a block for overwrite, 5 a bar for
 // insert, 0 the default. A terminal on the UART or telnet may print it, as
 // minicom prints its 'q', so it goes to the screen alone and the mode shows
-// nowhere else. Plain lines get none.
+// nowhere else. Plain lines get none, and a terminal in VT52 mode takes no
+// CSI.
 static void rln_cursor_shape(uint8_t ps)
 {
-    if (!rln_prompt_col)
+    if (!rln_prompt_col || cells_term.vt52)
         return;
     char seq[] = "\33[0 q";
     seq[2] = (char)('0' + ps);
@@ -1084,16 +1107,17 @@ static void rln_item(com_source_t src, const char *item, size_t len)
 /* ----- Following the terminal ----- */
 
 // The line starts where the console's terminal has its cursor, and is laid
-// out at that row's columns, half the width on a double-size row. Everything
+// out at that row's columns, half the width on a double-size row, and those
+// between the left and right margins for a cursor between them. Everything
 // already printed reaches the terminals and cells_term first, then the modes
 // go to every terminal. A cursor in a pending wrap gets a CR LF, so the line
-// starts in column 1 of the next row. A terminal in VT52 mode takes no CSI,
-// so its line is plain, and so it gets no modes either.
+// starts in column 1 of the next row. A terminal in VT52 mode has no insert
+// mode to turn off, and is sent a VT52's form of every move and erase.
 static void rln_lay_out(void)
 {
     manifold_flush();
-    bool plain = rln_plain || cells_term.vt52;
-    if (!plain)
+    bool plain = rln_plain;
+    if (!plain && !cells_term.vt52)
         manifold_write_to(COM_TERM_ALL, RLN_MODES, sizeof RLN_MODES - 1);
     if (term_pos(term_shown(&cells_term))->wrap_pending)
     {
@@ -1101,12 +1125,21 @@ static void rln_lay_out(void)
         manifold_putchar('\n');
         manifold_flush();
     }
+    /* The line has the columns the terminal gives the cursor: from where a
+     * CR lands to where a row of text ends, which are the left and right
+     * margins for a cursor between them. Its columns are counted from the
+     * first of those. It has no more rows than the scroll region the
+     * cursor is in, where its row breaks scroll. */
     const term_grid_t *g = term_shown(&cells_term);
     const term_pos_t *p = term_pos(g);
-    rln_prompt_col = plain ? 0 : p->x + 1;
-    rln_width = term_cols(g, p->y);
+    const unsigned first = term_left_stop(g);
+    rln_prompt_col = plain ? 0 : (uint16_t)(p->x - first + 1);
+    rln_width = (uint16_t)(term_right_stop(g) - first + 1);
     rln_grid_width = g->width;
-    rln_rows = g->height < RLN_MAX_ROWS ? g->height : RLN_MAX_ROWS;
+    unsigned rows = g->height;
+    if (p->y >= g->margin_top && p->y <= g->margin_bot)
+        rows = g->margin_bot - g->margin_top + 1u;
+    rln_rows = (uint8_t)(rows < RLN_MAX_ROWS ? rows : RLN_MAX_ROWS);
     rln_emit_mode_cursor();
 }
 
@@ -1131,14 +1164,15 @@ static void rln_follow(void)
 
 /* ----- Top-level task / driver hooks ----- */
 
-static void rln_start(rln_read_callback_t callback)
+static void rln_start(rln_read_callback_t callback, rln_history_t *history)
 {
     rln_idle_timeout_ms = 0;
-    rln_skip_history = false;
     rln_buflen = 0;
     rln_bufpos = 0;
     rln_callback = callback;
-    rln_history_pos = 0;
+    rln_history = history;
+    if (history)
+        history->pos = 0;
     rln_buf[0] = 0;
     rln_lastkey_len = 0;
     rln_action_taken = false;
@@ -1151,24 +1185,18 @@ static void rln_start(rln_read_callback_t callback)
     rln_line_src = COM_SOURCE_ANY;
 }
 
-void rln_read_line(rln_read_callback_t callback)
+void rln_read_line(rln_read_callback_t callback, rln_history_t *history)
 {
-    rln_start(callback);
+    rln_start(callback, history);
     rln_lay_out();
 }
 
 void rln_read_line_script(rln_read_callback_t callback, uint32_t timeout_ms)
 {
     assert(timeout_ms);
-    rln_start(callback);
+    rln_start(callback, NULL);
     rln_idle_timeout_ms = timeout_ms;
     rln_idle_deadline = timer_mach_in_ms(rln_idle_timeout_ms);
-}
-
-void rln_read_line_no_history(rln_read_callback_t callback)
-{
-    rln_read_line(callback);
-    rln_skip_history = true;
 }
 
 com_source_t rln_line_source(void)

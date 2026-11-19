@@ -1,0 +1,88 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+/* ADD A TIME ZONE - no C knowledge needed, and you never touch a .c/.h file.
+ *
+ * Add a line: X("the zone's name", "its POSIX TZ string").
+ *
+ *   - The name is what users type in SET TZ, such as "America/New_York".
+ *     The part after the slash also works alone: SET TZ NEW_YORK.
+ *   - The TZ string says how far the zone is from UTC and when its summer
+ *     time starts and ends: "EST5EDT,M3.2.0/2,M11.1.0/2" is EST, 5 hours
+ *     west of UTC, with EDT an hour ahead of it from 2:00 on the second
+ *     Sunday of March to 2:00 on the first Sunday of November. A zone east
+ *     of UTC has a minus: "JST-9".
+ *   - HELP SET TZ shows the zones in the order they are here.
+ *
+ * Build and test with SET TZ <name> and STATUS.
+ */
+
+X("Etc/UTC", "UTC0")
+X("Africa/Accra", "GMT0")
+X("Africa/Algiers", "CET-1")
+X("Africa/Cairo", "EET-2")
+X("Africa/Casablanca", "WET-1")
+X("Africa/Johannesburg", "SAST-2")
+X("Africa/Lagos", "WAT-1")
+X("Africa/Nairobi", "EAT-3")
+X("America/Anchorage", "AKST9AKDT,M3.2.0/2,M11.1.0/2")
+X("America/Bogota", "COT5")
+X("America/Buenos_Aires", "ART3")
+X("America/Caracas", "VET4")
+X("America/Chicago", "CST6CDT,M3.2.0/2,M11.1.0/2")
+X("America/Denver", "MST7MDT,M3.2.0/2,M11.1.0/2")
+X("America/Edmonton", "MST7MDT,M3.2.0/2,M11.1.0/2")
+X("America/Halifax", "AST4ADT,M3.2.0/2,M11.1.0/2")
+X("America/Lima", "PET5")
+X("America/Los_Angeles", "PST8PDT,M3.2.0/2,M11.1.0/2")
+X("America/Mexico_City", "CST6")
+X("America/Montevideo", "UYT3")
+X("America/Noronha", "FNT2")
+X("America/New_York", "EST5EDT,M3.2.0/2,M11.1.0/2")
+X("America/Panama", "EST5")
+X("America/Phoenix", "MST7")
+X("America/Sao_Paulo", "BRT3")
+X("America/St_Johns", "NST3:30NDT,M3.2.0/2,M11.1.0/2")
+X("America/Toronto", "EST5EDT,M3.2.0/2,M11.1.0/2")
+X("America/Vancouver", "PST8PDT,M3.2.0/2,M11.1.0/2")
+X("America/Winnipeg", "CST6CDT,M3.2.0/2,M11.1.0/2")
+X("Asia/Bangkok", "ICT-7")
+X("Asia/Dhaka", "BDT-6")
+X("Asia/Dubai", "GST-4")
+X("Asia/Hong_Kong", "HKT-8")
+X("Asia/Jakarta", "WIB-7")
+X("Asia/Jerusalem", "IST-2IDT,M3.5.0/2,M10.5.0/2")
+X("Asia/Kabul", "AFT-4:30")
+X("Asia/Karachi", "PKT-5")
+X("Asia/Kathmandu", "NPT-5:45")
+X("Asia/Kolkata", "IST-5:30")
+X("Asia/Manila", "PHT-8")
+X("Asia/Riyadh", "AST-3")
+X("Asia/Shanghai", "CST-8")
+X("Asia/Seoul", "KST-9")
+X("Asia/Singapore", "SGT-8")
+X("Asia/Tehran", "IRST-3:30")
+X("Asia/Tokyo", "JST-9")
+X("Asia/Yangon", "MMT-6:30")
+X("Australia/Adelaide", "ACST-9:30ACDT,M10.1.0/2,M4.1.0/3")
+X("Australia/Brisbane", "AEST-10")
+X("Australia/Darwin", "ACST-9:30")
+X("Australia/Perth", "AWST-8")
+X("Australia/Sydney", "AEST-10AEDT,M10.1.0/2,M4.1.0/3")
+X("Europe/Berlin", "CET-1CEST,M3.5.0/2,M10.5.0/3")
+X("Europe/Helsinki", "EET-2EEST,M3.5.0/3,M10.5.0/4")
+X("Europe/Istanbul", "TRT-3")
+X("Europe/Lisbon", "WET0WEST,M3.5.0/1,M10.5.0/2")
+X("Europe/London", "GMT0BST,M3.5.0/1,M10.5.0/2")
+X("Europe/Moscow", "MSK-3")
+X("Europe/Paris", "CET-1CEST,M3.5.0/2,M10.5.0/3")
+X("Pacific/Auckland", "NZST-12NZDT,M9.5.0/2,M4.1.0/3")
+X("Pacific/Apia", "WST-13")
+X("Pacific/Guam", "ChST-10")
+X("Pacific/Honolulu", "HST10")
+X("Pacific/Kiritimati", "LINT-14")
+X("Pacific/Noumea", "NCT-11")
+X("Pacific/Pago_Pago", "SST11")

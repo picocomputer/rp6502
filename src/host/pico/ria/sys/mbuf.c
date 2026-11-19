@@ -10,9 +10,7 @@
 #include <pico.h>
 #include <pico/time.h>
 #include <assert.h>
-#include <stdalign.h>
 
-alignas(4) uint8_t mbuf[MBUF_SIZE];
 size_t mbuf_len;
 
 static mbuf_read_callback_t mbuf_callback;
@@ -30,7 +28,7 @@ void HOST_IN_RAM_FUNC mbuf_task(void)
         if (c < 0)
             break;
         mbuf_deadline = make_timeout_time_ms(mbuf_timeout_ms);
-        mbuf[mbuf_len] = (uint8_t)c;
+        buf1k[mbuf_len] = (uint8_t)c;
         if (++mbuf_len == mbuf_read_size)
         {
             mbuf_read_callback_t callback = mbuf_callback;
@@ -57,7 +55,7 @@ void mbuf_read(com_source_t src, uint32_t timeout_ms, mbuf_read_callback_t callb
 {
     assert(!mbuf_callback);
     assert(timeout_ms);
-    assert(size > 0 && size <= MBUF_SIZE);
+    assert(size > 0 && size <= BUF1K_SIZE);
     mbuf_src = src;
     mbuf_read_size = size;
     mbuf_len = 0;

@@ -318,6 +318,23 @@ static inline unsigned term_cols(const term_grid_t *g, uint8_t y)
     return term_lines(g)[y] ? g->width / 2u : g->width;
 }
 
+// The last column a glyph or a move to the right reaches from the cursor:
+// the right margin for a cursor at or left of it, otherwise the last column
+// of its row.
+static inline unsigned term_right_stop(const term_grid_t *g)
+{
+    const term_pos_t *pos = term_pos(g);
+    unsigned last = term_cols(g, pos->y) - 1;
+    return pos->x <= g->margin_right && g->margin_right < last ? g->margin_right : last;
+}
+
+// The first column a CR or a move to the left reaches: the left margin for
+// a cursor at or right of it, otherwise the first column.
+static inline unsigned term_left_stop(const term_grid_t *g)
+{
+    return term_pos(g)->x >= g->margin_left ? g->margin_left : 0;
+}
+
 // The pixel height of one character cell: 8x8 on the 320-wide canvases, where
 // the 40-column terminal is drawn, 8x16 on the others.
 static inline unsigned term_cell_height(const term_grid_t *g)

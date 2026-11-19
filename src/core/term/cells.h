@@ -72,7 +72,11 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags);
 #define CELLS_DRIVER DRIVER(                                    \
     INIT(cells_init)                                            \
     TASK_FATFS(cells_task)                                      \
-    SST(CELL, 13, CELLS_SST_SIZE, cells_sst_save, cells_sst_load))
+    SST(.id = "CELL",                                           \
+        .version = 13,                                          \
+        .size = CELLS_SST_SIZE,                                 \
+        .save = cells_sst_save,                                 \
+        .load = cells_sst_load))
 
 /* ---- what the terminal asks of the screen ------------------------------
  *
@@ -90,8 +94,19 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags);
 // An answer to a query.
 void cells_reply(const term_t *t, const char *s, size_t n);
 
+/* The terminal was sent a BEL that is a bell, and not the end of a string:
+ * the console's bell rings, on the machine that has it. */
+void cells_bell(const term_t *t);
+
 // The grid the cursor reports come from: the one showing.
 term_grid_t *cells_shown(const term_t *t);
+
+// Whether row y of a grid's screen has anything on it: a character other
+// than a space, a background that is not the default one, or a line through
+// a cell. A machine with no cells answers from what it was told as the row
+// was written, and yes where that does not say. No for a grid with no
+// cells.
+bool cells_row_used(term_t *t, term_grid_t *g, uint8_t y);
 
 // Row y is about to be written or have the cursor on it: a lazy erase still
 // owed to it is done now.

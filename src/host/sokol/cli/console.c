@@ -19,7 +19,7 @@
 
 #include "host/sokol/cli/console.h"
 #include "host/sokol/cli/streams.h"
-#include "core/api/std.h"
+#include "core/com/console.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/com/rln.h"
@@ -29,7 +29,6 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-static bool stdin_closed;
 /* Written since the last flush. A program that draws with escapes and never
  * prints a newline would otherwise sit in the buffer unseen. */
 static bool tx_pending;
@@ -48,14 +47,13 @@ static size_t stdin_rx(char *buf, size_t max)
     if (n || !os_console_ended())
         return n;
     /* End of file is reported only while a read is outstanding and no whole
-     * item is waiting, because std_stdin_eof gives that read up and items
+     * item is waiting, because console_eof gives that read up and items
      * still queued would never reach it. A sequence the input ended inside,
-     * such as a lone ESC, is no item and is left where it is. */
-    if (!stdin_closed && std_stdin_waiting() && tio_idle())
-    {
-        stdin_closed = true;
-        std_stdin_eof();
-    }
+     * such as a lone ESC, is no item and is left where it is. console.c keeps
+     * that the input ended until the end of the exec chain, and a launcher
+     * started again that reads stdin is told again here. */
+    if (console_waiting() && tio_idle())
+        console_eof();
     return 0;
 }
 
@@ -93,7 +91,7 @@ bool console_open(bool window)
 
 void console_idle(void)
 {
-    if (!std_stdin_waiting() || !tio_idle())
+    if (!console_waiting() || !tio_idle())
         return;
     fflush(stdout);
     os_console_wait(VGA_FRAME_NS);

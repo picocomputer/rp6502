@@ -7,7 +7,6 @@
 #include "core/api/proc.h"
 #include "core/com/com.h"
 #include "core/sys/ria.h"
-#include "core/aud/bel.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
 #include "ria/sys/vga.h"
@@ -159,8 +158,6 @@ static void HOST_IN_RAM_FUNC manifold_uart_drain_tx(void)
         /* A debug probe hears the UART's wire, at the wire's pace. */
         rtt_write(&ch, 1);
         manifold_term_feed(ch);
-        if (ch == '\a' && com_get_bel())
-            bel_add(&bel_teletype);
     }
 }
 
@@ -265,6 +262,7 @@ static void manifold_stdio_out_flush(void)
     while (RING_LEN(&manifold_tx_core0))
         manifold_stdio_pump();
     manifold_uart_flush();
+    com_telnet_flush();
 }
 
 static int manifold_stdio_in_chars(char *buf, int length)
@@ -291,8 +289,8 @@ void HOST_IN_FLASH_FUNC manifold_init(void)
     gpio_set_function(MANIFOLD_UART_RX_PIN, GPIO_FUNC_UART);
     stdio_set_driver_enabled(&manifold_stdio_driver, true);
     uart_init(MANIFOLD_UART, MANIFOLD_UART_BAUD_RATE);
-    // Wait for the UART to settle after VGA startup then purge everything.
-    busy_wait_ms(30);
+    /* Nothing waits here for a VGA that is starting: vga.c asks until it
+     * answers, and clears what the UART took in before then. */
     manifold_uart_clear();
     hw_clear_bits(&uart_get_hw(MANIFOLD_UART)->rsr, UART_UARTRSR_BITS);
 }
@@ -302,6 +300,7 @@ void manifold_flush(void)
     while (!ria_uart_tx_empty() || RING_LEN(&manifold_tx_core0))
         manifold_stdio_pump();
     manifold_uart_flush();
+    com_telnet_flush();
 }
 
 void HOST_IN_RAM_FUNC manifold_task(void)

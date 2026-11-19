@@ -271,7 +271,7 @@ static size_t HOST_IN_RAM_FUNC tio_scan(com_source_t src, char *buf)
                 overlong = false;
             break;
         }
-        else if (!n || start || !tio_quiet(t, (uint8_t)n, buf))
+        else if (!n || start || !tio_quiet(t, (uint8_t)n, buf != NULL))
             break;
         else /* Only an ESC is open at one byte. */
             step = n == 1 ? TIO_END : TIO_DROP;

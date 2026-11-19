@@ -63,6 +63,12 @@ static bool mon_program_stopped;
 static bool mon_needs_read_line = true;
 static bool mon_needs_break = false;
 static mon_confirm_fn mon_confirm_cb;
+
+// The command prompt's history: the line being typed and the last seven
+// entered.
+#define MON_HISTORY_LINES 8
+static char mon_history_lines[MON_HISTORY_LINES][RLN_LINE_MAX];
+static rln_history_t mon_history = {mon_history_lines, MON_HISTORY_LINES, 0, 0};
 static enum {
     MON_MORE_OFF,
     MON_MORE_START,
@@ -668,9 +674,9 @@ static void HOST_IN_RAM_FUNC mon_step(void)
         mon_response_width_aware = false;
         ria_get_sigint(); // discard any SIGINT raised while monitor was idle
         if (mon_confirm_cb)
-            rln_read_line_no_history(mon_confirm_enter);
+            rln_read_line(mon_confirm_enter, NULL);
         else
-            rln_read_line(mon_enter);
+            rln_read_line(mon_enter, &mon_history);
         return;
     }
     // A Ctrl-C cancels the line once no whole item is waiting.

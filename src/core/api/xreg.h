@@ -46,6 +46,10 @@ bool xreg_sst_load(sst_cursor_t *c, unsigned flags);
 void xreg1_clear(void);
 
 #define XREG_DRIVER DRIVER(                                    \
-    SST(XREG, 2, XREG_SST_SIZE, xreg_sst_save, xreg_sst_load))
+    SST(.id = "XREG",                                          \
+        .version = 2,                                          \
+        .size = XREG_SST_SIZE,                                 \
+        .save = xreg_sst_save,                                 \
+        .load = xreg_sst_load))
 
 #endif /* _CORE_API_XREG_H_ */

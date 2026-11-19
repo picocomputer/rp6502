@@ -216,11 +216,11 @@ mode3_render(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_
 }
 
 #define MODE3_RENDER_FN(name, bpp, reverse)                                    \
-    static bool name(int16_t plane_id, int16_t scanline_id, int16_t width,     \
+    static bool name(uint16_t options, int16_t scanline_id, int16_t width,     \
                      uint16_t *rgb, uint16_t config_ptr,                       \
                      vga_fill_cache_t *cache)                                  \
     {                                                                          \
-        (void)plane_id;                                                        \
+        (void)options;                                                         \
         return mode3_render(scanline_id, width, rgb, config_ptr, cache,        \
                             bpp, reverse);                                     \
     }
@@ -263,16 +263,7 @@ bool mode3_fill_valid(uint16_t attributes)
     }
 }
 
-#ifdef RP6502_VGA_FABRIC
-
-vga_fill_fn_t mode3_fill_fn(uint16_t attributes)
-{
-    (void)attributes;
-    return NULL;
-}
-
-#else
-
+#ifndef RP6502_VGA_FABRIC
 vga_fill_fn_t mode3_fill_fn(uint16_t attributes)
 {
     switch (attributes)
@@ -285,20 +276,6 @@ vga_fill_fn_t mode3_fill_fn(uint16_t attributes)
     default:
         return NULL;
     }
-}
-
-#endif
-
-#ifndef RP6502_VGA_FABRIC
-bool mode3_fill_attr(vga_fill_fn_t fn, uint16_t *attributes)
-{
-    for (uint16_t a = 0; a < 16; a++)
-        if (fn && mode3_fill_fn(a) == fn)
-        {
-            *attributes = a;
-            return true;
-        }
-    return false;
 }
 #endif
 
@@ -316,9 +293,8 @@ bool mode3_prog(uint16_t *xregs)
 
     if (!mode3_fill_valid(attributes))
         return false;
-    vga_fill_fn_t render_fn = mode3_fill_fn(attributes);
 
-    return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, render_fn);
+    return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, 3, attributes);
 }
 
 #pragma GCC pop_options

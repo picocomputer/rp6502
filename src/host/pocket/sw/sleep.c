@@ -39,14 +39,10 @@
 #include "core/api/std.h"
 #include "core/sys/debug_log.h"
 #include "core/sys/sst.h"
-#include "core/sys/sst_size.h"
 #include "core/sys/sys.h"
 #include "pocket_version.h"
 
 #include <stdio.h>
-
-_Static_assert(SST_TOTAL <= POCKET_SST_BYTES,
-               "the savestate is larger than gen/version.py's SST_BYTES");
 
 bool sleep_waking(void)
 {
@@ -80,8 +76,9 @@ static void sleep_save(void)
 /* The live input is taken again after a load, because the KEYB and GPAD
  * rows put back what was held at the save, and apf.c sends only what
  * changes. A load that fails may have put back part of a machine, a
- * launcher or an exec on its way among it, so those are dropped and the
- * machine is stopped, which tears down what was loaded. */
+ * launcher or an exec on its way among it, so those are dropped, the
+ * machine is stopped, and its chain ends, which closes the files the rows
+ * reopened. */
 static void sleep_load(void)
 {
     uint32_t started = UPTIME_LO;
@@ -107,8 +104,15 @@ static void sleep_load(void)
         printf("\nbad savestate: %s\n%lu ms, %lu file errors\n", why,
                (unsigned long)((UPTIME_LO - started) / 1000u),
                (unsigned long)(fs_failed_count() - failed));
+        /* The chain ends once: where an exec was on its way, here; where
+         * the machine was left running, at its stop; and otherwise now. */
+        const bool running = sys_running();
+        const bool pending = proc_exec_inflight();
         proc_exec_drop();
-        sys_stop();
+        if (running)
+            sys_stop();
+        else if (!pending)
+            proc_chain_end();
     }
     else
         apf_refresh();

@@ -5,8 +5,13 @@
  */
 
 #include "osal/os.h"
+#include "core/tim/tim.h"
 #include <errno.h>
+#if !defined(__ANDROID__)
+#include <langinfo.h>
+#endif
 #include <locale.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -29,24 +34,22 @@ void os_sleep_ns(uint64_t ns)
     nanosleep(&ts, NULL);
 }
 
-bool os_localtime(time_t t, struct tm *out)
+void os_zone(int64_t utc, int32_t *offset, bool *dst, char *name, size_t name_size)
 {
-    return localtime_r(&t, out) != NULL;
+    time_t t = (time_t)utc;
+    struct tm tm;
+    *offset = 0, *dst = false, name[0] = 0;
+    if (!localtime_r(&t, &tm))
+        return;
+    *offset = (int32_t)tm.tm_gmtoff;
+    *dst = tm.tm_isdst > 0;
+    if (tm.tm_zone)
+        snprintf(name, name_size, "%s", tm.tm_zone);
 }
 
-bool os_gmtime(time_t t, struct tm *out)
-{
-    return gmtime_r(&t, out) != NULL;
-}
-
-#if defined(__APPLE__)
-size_t strftime_l(char *restrict, size_t, const char *restrict,
-                  const struct tm *restrict, locale_t);
-#endif
-
-/* The environment's locale, used only by strftime so that the rest of the
- * process stays in the C locale. NULL when that locale is not installed, and
- * the C locale answers instead. */
+/* The environment's locale, used only for the words of a time so that the
+ * rest of the process stays in the C locale. NULL when that locale is not
+ * installed, and the C locale answers instead. */
 static locale_t g_locale;
 
 void os_locale_reset(void)
@@ -63,21 +66,34 @@ void os_locale_free(void)
         freelocale(g_locale), g_locale = (locale_t)0;
 }
 
-size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm)
-{
-    return g_locale ? strftime_l(buf, max, fmt, tm, g_locale)
-                    : strftime(buf, max, fmt, tm);
-}
-
-void os_tm_apply_zone(struct tm *tm, const struct tm *probe)
-{
-#if defined(__GLIBC__) || defined(__APPLE__) || defined(__EMSCRIPTEN__) || defined(__USE_MISC)
-    tm->tm_gmtoff = probe->tm_gmtoff;
-    tm->tm_zone = probe->tm_zone;
-#else
-    (void)tm, (void)probe;
+#if defined(__APPLE__)
+char *nl_langinfo_l(nl_item, locale_t);
 #endif
+
+/* Android's C library has the C locale and no other, and asks nothing of
+ * the device's language, so the words are left to the caller. */
+#if defined(__ANDROID__)
+const char *os_time_word(int word)
+{
+    (void)word;
+    return NULL;
 }
+#else
+const char *os_time_word(int word)
+{
+    static const nl_item items[TIM_WORD_COUNT] = {
+        DAY_1, DAY_2, DAY_3, DAY_4, DAY_5, DAY_6, DAY_7,
+        ABDAY_1, ABDAY_2, ABDAY_3, ABDAY_4, ABDAY_5, ABDAY_6, ABDAY_7,
+        MON_1, MON_2, MON_3, MON_4, MON_5, MON_6,
+        MON_7, MON_8, MON_9, MON_10, MON_11, MON_12,
+        ABMON_1, ABMON_2, ABMON_3, ABMON_4, ABMON_5, ABMON_6,
+        ABMON_7, ABMON_8, ABMON_9, ABMON_10, ABMON_11, ABMON_12,
+        AM_STR, PM_STR, D_T_FMT, D_FMT, T_FMT, T_FMT_AMPM};
+    if (word < 0 || word >= TIM_WORD_COUNT)
+        return NULL;
+    return g_locale ? nl_langinfo_l(items[word], g_locale) : nl_langinfo(items[word]);
+}
+#endif
 
 /* The XDG Base Directory spec requires mode 0700 for every folder created
  * here, and a folder that already exists keeps its permissions. */

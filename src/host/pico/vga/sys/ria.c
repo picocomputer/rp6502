@@ -16,6 +16,13 @@
 
 static const char *version_pos;
 static const char *version_tail;
+static uint32_t version_asked_us;
+
+/* The line idles this long between the pin becoming the backchannel's and
+ * the version's first byte. Until then the pin was held high only by its
+ * pull-up, and a receiver that took noise there for a start bit needs a
+ * byte's time of idle line to be back in step. */
+#define RIA_VERSION_IDLE_US 500
 
 #define RIA_BACKCHAN_BYTE_US (11 * 1000000 / RIA_BACKCHAN_BAUDRATE)
 
@@ -69,7 +76,8 @@ void ria_init(void)
 
 void ria_task(void)
 {
-    if (version_pos && pio_sm_is_tx_fifo_empty(RIA_BACKCHAN_PIO, RIA_BACKCHAN_SM))
+    if (version_pos && time_us_32() - version_asked_us >= RIA_VERSION_IDLE_US &&
+        pio_sm_is_tx_fifo_empty(RIA_BACKCHAN_PIO, RIA_BACKCHAN_SM))
     {
         char ch = *version_pos++;
         if (!ch && version_tail)
@@ -125,6 +133,7 @@ void ria_backchan(uint16_t word)
         break;
     case 1: // attach backchannel (PIO drives pin) and queue version string
         pio_gpio_init(RIA_BACKCHAN_PIO, RIA_BACKCHAN_PIN);
+        version_asked_us = time_us_32();
         version_pos = "VGA ";
         version_tail = version_string();
         break;

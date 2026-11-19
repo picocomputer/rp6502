@@ -21,8 +21,9 @@ void proc_run(void);
 void proc_stop(void);
 
 /* The program is done: the machine returns to its monitor, or with none,
- * idles. The launcher goes, the code page goes back, the bell comes back on,
- * the type-ahead is dropped and the console gets its soft reset on a clean
+ * idles. The launcher goes, every open file closes and the console is on 0,
+ * 1 and 2 again, the code page goes back, the bell comes back on, the
+ * type-ahead is dropped and the console gets its soft reset on a clean
  * line. */
 void proc_chain_end(void);
 

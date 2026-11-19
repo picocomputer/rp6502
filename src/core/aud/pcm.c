@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/sys/div64.h"
 #include "core/aud/pcm.h"
 #include "core/aud/mix.h"
 #include "machine.h"
@@ -60,7 +61,7 @@ bool pcm_parse(const char *args, pcm_fmt_t *fmt)
 
 uint64_t HOST_IN_RAM_FUNC pcm_step(uint32_t rate)
 {
-    return ((uint64_t)rate << 32) / AUD_NATIVE_RATE;
+    return div64((uint64_t)rate << 32, AUD_NATIVE_RATE, NULL);
 }
 
 void HOST_IN_RAM_FUNC pcm_reset(pcm_t *s, const pcm_fmt_t *fmt)

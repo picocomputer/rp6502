@@ -57,6 +57,11 @@ void manifold_uart_clear(void);
  * that terminal is the console's, dropped where another chip answers. */
 void manifold_reply(const char *s, size_t n);
 
+/* The bell of the terminal in core/term/cells.c: rung where that terminal
+ * is the console's and the bell is on, and nothing where another chip
+ * rings it. */
+void manifold_bell(void);
+
 /* The terminal emulator's input: every byte the console sends to the UART or
  * to COM_TERM_SCREEN. */
 void manifold_set_term_out(void (*out_chars)(const char *buf, int len));
@@ -101,6 +106,10 @@ bool manifold_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define MANIFOLD_DRIVER DRIVER(     \
     TASK_PUMPED(manifold_task)      \
-    SST(MFLD, 3, MANIFOLD_SST_SIZE, manifold_sst_save, manifold_sst_load))
+    SST(.id = "MFLD",               \
+        .version = 3,               \
+        .size = MANIFOLD_SST_SIZE,  \
+        .save = manifold_sst_save,  \
+        .load = manifold_sst_load))
 
 #endif /* _CORE_COM_MANIFOLD_H_ */

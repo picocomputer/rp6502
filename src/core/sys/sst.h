@@ -78,14 +78,14 @@ static inline const uint8_t *sst_view(sst_cursor_t *c, size_t n)
     return sst_room(c, n);
 }
 
-static inline void sst_put(sst_cursor_t *c, const void *src, size_t n)
+static inline __attribute__((always_inline)) void sst_put(sst_cursor_t *c, const void *src, size_t n)
 {
     uint8_t *p = sst_room(c, n);
     if (p)
         memcpy(p, src, n);
 }
 
-static inline void sst_get(sst_cursor_t *c, void *dst, size_t n)
+static inline __attribute__((always_inline)) void sst_get(sst_cursor_t *c, void *dst, size_t n)
 {
     const uint8_t *p = sst_view(c, n);
     if (p)
@@ -259,8 +259,27 @@ static inline const char *sst_view_str(sst_cursor_t *c, size_t slot)
 #define SST_TRUSTED 0x01
 #define SST_SHARED 0x02
 
+/* One driver's chunk, as its row in the driver list names it:
+ *
+ *   SST(.id = "TTY_",
+ *       .version = 1,
+ *       .size = TTY_SST_SIZE,
+ *       .save = tty_sst_save,
+ *       .load = tty_sst_load)
+ *
+ * The id is four letters. The version goes up whenever what save writes
+ * changes, and size is the most it can write. */
+typedef struct
+{
+    char id[5];
+    uint16_t version;
+    uint32_t size;
+    void (*save)(sst_cursor_t *c, unsigned flags);
+    bool (*load)(sst_cursor_t *c, unsigned flags);
+} sst_row_t;
+
 /* The size of every blob this build makes, and the only size it will load. It
- * is a sum of per-row constants, so it is fixed at compile time and can be
+ * is a sum of the rows' sizes, so it is fixed for a build and can be
  * answered before the machine is up. */
 size_t sst_size(void);
 

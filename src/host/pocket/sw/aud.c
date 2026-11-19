@@ -45,12 +45,18 @@ void aud_psg_map(uint16_t word)
 /* The OPL holds writes in its queue while it clears its registers. */
 void aud_opl_map(uint16_t word) { AUD_OPL_XADDR = word; }
 
-/* A program's end takes its sound with it, so the close that std_stop makes
- * next has nothing to wait for. */
+/* A program's stop parks the engines it mapped. PCM: is a descriptor, which
+ * an exec hands on, so its sound plays on into the next program. */
 void aud_stop(void)
 {
     aud_psg_map(0xFFFF);
     aud_opl_map(0xFFFF);
+}
+
+/* The end of a chain takes its PCM: sound with it, so the close std_reset
+ * makes next has nothing to wait for. */
+void aud_end(void)
+{
     AUD_PCM_CLEAR = 0;
     /* A read clears the underrun count. */
     (void)AUD_PCM_UNDERRUNS;

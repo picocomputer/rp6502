@@ -54,7 +54,7 @@ int cyw_country_code_response(char *buf, size_t buf_size, int state, unsigned wi
 #define CYW_DRIVER DRIVER(       \
     INIT(cyw_init)              \
     TASK_ALWAYS(cyw_task)       \
-    TASK_PUMPED(cyw_reset_task) \
+    TASK_FATFS(cyw_reset_task)  \
     CYW_CONFIG_RF               \
     CYW_CONFIG_RFCC)
 

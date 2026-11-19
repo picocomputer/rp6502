@@ -199,11 +199,11 @@ static uint32_t HOST_IN_FLASH_FUNC uf2_read_ptr(const struct uf2_map *map,
 
 static const char *HOST_IN_FLASH_FUNC uf2_find_program_name(void)
 {
-    if (uf2_read_addr(uf2_low_addr, mbuf, MBUF_SIZE) != MBUF_SIZE)
+    if (uf2_read_addr(uf2_low_addr, buf1k, BUF1K_SIZE) != BUF1K_SIZE)
         return NULL;
 
-    const uint32_t *words = (const uint32_t *)mbuf;
-    uint32_t scan = MBUF_SIZE / 4;
+    const uint32_t *words = (const uint32_t *)buf1k;
+    uint32_t scan = BUF1K_SIZE / 4;
     uint32_t bi_start = 0, bi_end = 0, map_ptr = 0;
     bool found = false;
     for (uint32_t i = 0; i + 4 < scan; i++)
@@ -224,7 +224,7 @@ static const char *HOST_IN_FLASH_FUNC uf2_find_program_name(void)
     }
     if (!found)
     {
-        RP6502_LOG(uf2, WARN, "no binary_info marker in first %u bytes", MBUF_SIZE);
+        RP6502_LOG(uf2, WARN, "no binary_info marker in first %u bytes", BUF1K_SIZE);
         return NULL;
     }
 
@@ -259,14 +259,14 @@ static const char *HOST_IN_FLASH_FUNC uf2_find_program_name(void)
             core.tag != BINARY_INFO_TAG_RASPBERRY_PI ||
             core.id != BINARY_INFO_ID_RP_PROGRAM_NAME)
             continue;
-        uint32_t got = uf2_read_ptr(map, map_count, core.value, mbuf, UF2_NAME_READ_MAX);
-        if (!got || !memchr(mbuf, 0, got))
+        uint32_t got = uf2_read_ptr(map, map_count, core.value, buf1k, UF2_NAME_READ_MAX);
+        if (!got || !memchr(buf1k, 0, got))
         {
             RP6502_LOG(uf2, WARN, "program_name not terminated within %lu bytes",
                        (unsigned long)got);
             return NULL;
         }
-        return (const char *)mbuf;
+        return (const char *)buf1k;
     }
     RP6502_LOG(uf2, WARN, "no program_name entry in binary_info");
     return NULL;
@@ -275,7 +275,7 @@ static const char *HOST_IN_FLASH_FUNC uf2_find_program_name(void)
 static void HOST_IN_FLASH_FUNC uf2_do_validate(void)
 {
     UINT br;
-    if (f_read(&uf2_fil, mbuf, 512, &br) != FR_OK || br != 512)
+    if (f_read(&uf2_fil, buf1k, 512, &br) != FR_OK || br != 512)
     {
         RP6502_LOG(uf2, WARN, "short read at block %lu of %lu",
                    (unsigned long)uf2_block_idx, (unsigned long)uf2_num_blocks);
@@ -283,7 +283,7 @@ static void HOST_IN_FLASH_FUNC uf2_do_validate(void)
         return;
     }
     const struct uf2_block *b = UF2_BLOCK;
-    const struct uf2_header *h = (const struct uf2_header *)mbuf;
+    const struct uf2_header *h = (const struct uf2_header *)buf1k;
 
     if (!uf2_num_blocks)
     {

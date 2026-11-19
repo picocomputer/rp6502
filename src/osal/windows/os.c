@@ -7,7 +7,7 @@
 
 #include "osal/os.h"
 #include "osal/windows/dir.h"
-#include <locale.h>
+#include "core/tim/tim.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -83,42 +83,158 @@ void os_sleep_ns(uint64_t ns)
     WaitForSingleObject(timer, INFINITE);
 }
 
-bool os_localtime(time_t t, struct tm *out)
+/* The C runtime's zone: the TZ environment variable where it is set, as on
+ * the other hosts, and Windows's own zone where it is not. Its names are
+ * then whole ones such as "Pacific Standard Time", because Windows has no
+ * short names. The runtime has no time before 1970, and the zone's standard
+ * time answers for one. */
+void os_zone(int64_t utc, int32_t *offset, bool *dst, char *name, size_t name_size)
 {
-    return localtime_s(out, &t) == 0;
+    __time64_t t = (__time64_t)utc;
+    struct tm local;
+    long west = 0;
+    size_t length = 0;
+    *offset = 0, *dst = false, name[0] = 0;
+    _tzset();
+    if (utc >= 0 && _localtime64_s(&local, &t) == 0)
+    {
+        /* The local date read as UTC is that many seconds ahead of the time. */
+        *dst = local.tm_isdst > 0;
+        *offset = (int32_t)(_mkgmtime64(&local) - t);
+    }
+    else if (_get_timezone(&west) == 0)
+        *offset = (int32_t)-west;
+    if (_get_tzname(&length, name, name_size, *dst ? 1 : 0) != 0)
+        name[0] = 0;
 }
 
-bool os_gmtime(time_t t, struct tm *out)
+/* A date or time picture of Windows, such as "M/d/yyyy" or "h:mm:ss tt", as
+ * a format of strftime: a run of one letter is a field, and how long the
+ * run is says how the field is written. Text between single quotes is
+ * itself. */
+static void win_picture(const char *picture, char *out, size_t out_size)
 {
-    return gmtime_s(out, &t) == 0;
+    size_t n = 0;
+#define PUT(text)                                         \
+    for (const char *t_ = (text); *t_ && n + 1 < out_size; t_++) \
+        out[n++] = *t_
+    for (const char *p = picture; *p;)
+    {
+        if (*p == '\'')
+        {
+            for (p++; *p && (*p != '\'' || *++p == '\''); p++)
+                if (n + 1 < out_size)
+                    out[n++] = *p;
+            continue;
+        }
+        size_t run = 1;
+        while (p[run] == *p)
+            run++;
+        const char *field = NULL;
+        switch (*p)
+        {
+        case 'd': field = run == 1 ? "%-d" : run == 2 ? "%d" : run == 3 ? "%a" : "%A"; break;
+        case 'M': field = run == 1 ? "%-m" : run == 2 ? "%m" : run == 3 ? "%b" : "%B"; break;
+        case 'y': field = run == 1 ? "%-y" : run == 2 ? "%y" : "%Y"; break;
+        case 'h': field = run == 1 ? "%-I" : "%I"; break;
+        case 'H': field = run == 1 ? "%-H" : "%H"; break;
+        case 'm': field = run == 1 ? "%-M" : "%M"; break;
+        case 's': field = run == 1 ? "%-S" : "%S"; break;
+        case 't': field = "%p"; break;
+        case 'g': field = ""; break; /* the era, which strftime has none of */
+        case '%': field = "%%"; run = 1; break;
+        }
+        if (field)
+        {
+            PUT(field);
+            p += run;
+        }
+        else if (n + 1 < out_size)
+            out[n++] = *p++;
+        else
+            p++;
+    }
+#undef PUT
+    out[n] = 0;
 }
 
-/* The user's regional format in UTF-8, used only by strftime so that the rest
- * of the process stays in the C locale. NULL before Windows 10 version 1803,
- * and the C locale answers instead. */
-static _locale_t win_locale;
+/* The words of the user's regional format, each asked for once. */
+#define WIN_WORD_SIZE 96
+static char win_words[TIM_WORD_COUNT][WIN_WORD_SIZE];
+static bool win_word_known[TIM_WORD_COUNT];
 
 void os_locale_reset(void)
 {
-    if (!win_locale)
-        win_locale = _create_locale(LC_ALL, ".UTF8");
+    memset(win_word_known, 0, sizeof win_word_known);
 }
 
 void os_locale_free(void)
 {
-    if (win_locale)
-        _free_locale(win_locale), win_locale = NULL;
 }
 
-size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm)
+static bool win_locale_info(LCTYPE type, char *out, size_t out_size)
 {
-    return win_locale ? _strftime_l(buf, max, fmt, tm, win_locale)
-                      : strftime(buf, max, fmt, tm);
+    wchar_t wide[WIN_WORD_SIZE];
+    return GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, type, wide, WIN_WORD_SIZE) &&
+           WideCharToMultiByte(CP_UTF8, 0, wide, -1, out, (int)out_size, NULL, NULL);
 }
 
-void os_tm_apply_zone(struct tm *tm, const struct tm *probe)
+const char *os_time_word(int word)
 {
-    (void)tm, (void)probe; /* the CRT's struct tm has no tm_gmtoff or tm_zone */
+    /* Windows counts its days from Monday. */
+    static const LCTYPE names[TIM_WORD_AM] = {
+        LOCALE_SDAYNAME7, LOCALE_SDAYNAME1, LOCALE_SDAYNAME2, LOCALE_SDAYNAME3,
+        LOCALE_SDAYNAME4, LOCALE_SDAYNAME5, LOCALE_SDAYNAME6,
+        LOCALE_SABBREVDAYNAME7, LOCALE_SABBREVDAYNAME1, LOCALE_SABBREVDAYNAME2,
+        LOCALE_SABBREVDAYNAME3, LOCALE_SABBREVDAYNAME4, LOCALE_SABBREVDAYNAME5,
+        LOCALE_SABBREVDAYNAME6,
+        LOCALE_SMONTHNAME1, LOCALE_SMONTHNAME2, LOCALE_SMONTHNAME3, LOCALE_SMONTHNAME4,
+        LOCALE_SMONTHNAME5, LOCALE_SMONTHNAME6, LOCALE_SMONTHNAME7, LOCALE_SMONTHNAME8,
+        LOCALE_SMONTHNAME9, LOCALE_SMONTHNAME10, LOCALE_SMONTHNAME11, LOCALE_SMONTHNAME12,
+        LOCALE_SABBREVMONTHNAME1, LOCALE_SABBREVMONTHNAME2, LOCALE_SABBREVMONTHNAME3,
+        LOCALE_SABBREVMONTHNAME4, LOCALE_SABBREVMONTHNAME5, LOCALE_SABBREVMONTHNAME6,
+        LOCALE_SABBREVMONTHNAME7, LOCALE_SABBREVMONTHNAME8, LOCALE_SABBREVMONTHNAME9,
+        LOCALE_SABBREVMONTHNAME10, LOCALE_SABBREVMONTHNAME11, LOCALE_SABBREVMONTHNAME12};
+    if (word < 0 || word >= TIM_WORD_COUNT)
+        return NULL;
+    char *out = win_words[word];
+    if (win_word_known[word])
+        return out[0] || word < TIM_WORD_D_T_FMT ? out : NULL;
+    win_word_known[word] = true;
+    out[0] = 0;
+    char date[WIN_WORD_SIZE], clock[WIN_WORD_SIZE];
+    bool ok = false;
+    if (word < TIM_WORD_AM)
+        ok = win_locale_info(names[word], out, WIN_WORD_SIZE);
+    else if (word == TIM_WORD_AM || word == TIM_WORD_PM)
+        ok = win_locale_info(word == TIM_WORD_AM ? LOCALE_S1159 : LOCALE_S2359, out, WIN_WORD_SIZE);
+    else if (word == TIM_WORD_D_FMT || word == TIM_WORD_D_T_FMT)
+    {
+        /* %c is the short date and the time, as the C runtime has it. */
+        ok = win_locale_info(LOCALE_SSHORTDATE, date, sizeof date);
+        if (ok && word == TIM_WORD_D_T_FMT)
+        {
+            ok = win_locale_info(LOCALE_STIMEFORMAT, clock, sizeof clock);
+            size_t n = strlen(date);
+            snprintf(date + n, sizeof date - n, " %s", clock);
+        }
+        if (ok)
+            win_picture(date, out, WIN_WORD_SIZE);
+    }
+    else if (word == TIM_WORD_T_FMT)
+    {
+        ok = win_locale_info(LOCALE_STIMEFORMAT, clock, sizeof clock);
+        if (ok)
+            win_picture(clock, out, WIN_WORD_SIZE);
+    }
+    /* Windows has no format of its own for %r. */
+    if (!ok)
+    {
+        out[0] = 0;
+        win_word_known[word] = word >= TIM_WORD_D_T_FMT;
+        return NULL;
+    }
+    return out;
 }
 
 /* A folder path from the wide API joined with an ASCII tail, as one UTF-8

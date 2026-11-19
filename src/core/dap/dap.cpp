@@ -1620,6 +1620,7 @@ extern "C" void dap_start(void)
                 std::vector<char *> argv;
                 for (const std::string &a : args)
                     argv.push_back(const_cast<char *>(a.c_str()));
+                proc_start_by_name();
                 proc_set_argv(prog_oem.c_str(), (int)argv.size(), argv.data());
                 proc_exec_request();
             }

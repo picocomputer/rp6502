@@ -5,6 +5,7 @@
  */
 
 #include <string.h>
+#include "core/sys/div64.h"
 #include "core/hid/hid.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
@@ -84,10 +85,11 @@ uint8_t HOST_IN_RAM_FUNC hid_scale_analog(uint32_t raw_value, uint8_t bit_size, 
     /* The ends of the range land on 0 and 255, rounded to the nearest step,
      * so that the middle of a range with an odd count, such as -127..127,
      * lands on 128 rather than one short of it. */
-    int64_t span = (int64_t)max - min;
+    const uint32_t span = (uint32_t)max - (uint32_t)min;
     if (!span)
         return 0;
-    return (uint8_t)((((int64_t)value - min) * 255 + span / 2) / span);
+    const uint32_t above = (uint32_t)value - (uint32_t)min;
+    return (uint8_t)div64((uint64_t)above * 255 + span / 2, span, NULL);
 }
 
 /* A reversed range, such as an XInput stick that counts up as positive, reads

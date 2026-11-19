@@ -75,7 +75,7 @@ static int HOST_IN_FLASH_FUNC ram_print_response(char *buf, size_t buf_size,
     {
         if (i == 8)
             *buf++ = ' ';
-        uint8_t c = ram_rw_addr + i < 0x10000 ? mbuf[i] : xram[ram_rw_addr + i - 0x10000];
+        uint8_t c = ram_rw_addr + i < 0x10000 ? buf1k[i] : xram[ram_rw_addr + i - 0x10000];
         sprintf(buf, " %02X", c);
         buf += 3;
     }
@@ -91,7 +91,7 @@ static int HOST_IN_FLASH_FUNC ram_print_response(char *buf, size_t buf_size,
         *buf++ = '|';
         for (size_t i = 0; i < mbuf_len; i++)
         {
-            uint8_t c = ram_rw_addr + i < 0x10000 ? mbuf[i] : xram[ram_rw_addr + i - 0x10000];
+            uint8_t c = ram_rw_addr + i < 0x10000 ? buf1k[i] : xram[ram_rw_addr + i - 0x10000];
             if (c < 32 || c >= 127)
                 c = '.';
             *buf++ = c;
@@ -128,8 +128,8 @@ static void HOST_IN_FLASH_FUNC ram_begin_write(void)
         ram_rw_addr -= 0x10000;
         for (size_t i = 0; i < mbuf_len; i++)
         {
-            xram[ram_rw_addr + i] = mbuf[i];
-            pix_send_blocking(PIX_DEVICE_XRAM, 0, mbuf[i], (uint16_t)(ram_rw_addr + i));
+            xram[ram_rw_addr + i] = buf1k[i];
+            pix_send_blocking(PIX_DEVICE_XRAM, 0, buf1k[i], (uint16_t)(ram_rw_addr + i));
         }
         return;
     }
@@ -171,7 +171,7 @@ static void HOST_IN_FLASH_FUNC ram_intel_hex(const char *args)
         else if (i == 6)
             itype = val;
         else
-            mbuf[mbuf_len++] = val;
+            buf1k[mbuf_len++] = val;
     }
     if (icount != --mbuf_len || ichecksum)
     {
@@ -194,11 +194,11 @@ static void HOST_IN_FLASH_FUNC ram_intel_hex(const char *args)
         break;
     case 2: // Extended segment address
         if (icount == 2)
-            ram_intel_hex_base = mbuf[0] * 0x1000 + mbuf[1] * 0x10;
+            ram_intel_hex_base = buf1k[0] * 0x1000 + buf1k[1] * 0x10;
         break;
     case 4: // Extended linear address
         if (icount == 2)
-            ram_intel_hex_base = mbuf[0] * 0x1000000 + mbuf[1] * 0x10000;
+            ram_intel_hex_base = buf1k[0] * 0x1000000 + buf1k[1] * 0x10000;
         break;
     case 3: // Start segment address
     case 5: // Start linear address
@@ -206,8 +206,8 @@ static void HOST_IN_FLASH_FUNC ram_intel_hex(const char *args)
         {
             // Start address is big-endian in the record; the 6502 reset
             // vector at $FFFC/$FFFD is little-endian.
-            mbuf[0] = mbuf[3];
-            mbuf[1] = mbuf[2];
+            buf1k[0] = buf1k[3];
+            buf1k[1] = buf1k[2];
             ram_rw_addr = 0xFFFC;
             mbuf_len = 2;
             ram_begin_write();
@@ -299,7 +299,7 @@ void HOST_IN_FLASH_FUNC ram_mon_address(const char *args)
         {
             if (data < 0x100)
             {
-                mbuf[mbuf_len++] = data;
+                buf1k[mbuf_len++] = data;
                 data = 0x80000000;
             }
             else
@@ -322,7 +322,7 @@ static void HOST_IN_FLASH_FUNC ram_rx_mbuf(bool timeout)
         mon_add_response_utf8(S(STR_ERR_RX_TIMEOUT));
         return;
     }
-    if (host_crc32(0, mbuf, mbuf_len) != ram_rw_crc)
+    if (host_crc32(0, buf1k, mbuf_len) != ram_rw_crc)
     {
         mon_add_response_utf8(S(STR_ERR_CRC));
         return;
@@ -331,7 +331,7 @@ static void HOST_IN_FLASH_FUNC ram_rx_mbuf(bool timeout)
     {
         ram_state = RAM_XRAM;
         for (size_t i = 0; i < ram_rw_size; i++)
-            xram[ram_rw_addr + i - 0x10000] = mbuf[i];
+            xram[ram_rw_addr + i - 0x10000] = buf1k[i];
     }
     else
     {
@@ -364,7 +364,7 @@ void HOST_IN_FLASH_FUNC ram_mon_binary(const char *args)
             mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
             return;
         }
-        if (!ram_rw_size || ram_rw_size > MBUF_SIZE ||
+        if (!ram_rw_size || ram_rw_size > BUF1K_SIZE ||
             (ram_rw_addr < 0x10000 && ram_rw_addr + ram_rw_size > 0x10000) ||
             ram_rw_addr + ram_rw_size > 0x20000)
         {

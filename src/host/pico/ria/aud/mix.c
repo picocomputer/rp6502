@@ -336,14 +336,22 @@ static void HOST_IN_RAM_FUNC aud_engine_unlock(void)
     irq_set_enabled(PWM_IRQ_WRAP_0, true);
 }
 
-/* A program's end takes its sound with it, so the close that std_stop makes
- * next has nothing to wait for. */
+/* A program's stop parks the engines it mapped. PCM: is a descriptor, which
+ * an exec hands on, so its sound plays on into the next program. */
 void __noinline HOST_IN_RAM_FUNC aud_stop(void)
 {
     aud_engine_lock();
     psg_park();
     opl_park();
     opl_take_drops();
+    aud_engine_unlock();
+}
+
+/* The end of a chain takes its PCM: sound with it, so the close std_reset
+ * makes next has nothing to wait for. */
+void __noinline HOST_IN_RAM_FUNC aud_end(void)
+{
+    aud_engine_lock();
     pcm_clear(&aud_pcm);
     aud_pcm.underruns = 0;
     aud_engine_unlock();

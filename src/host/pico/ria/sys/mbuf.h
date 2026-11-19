@@ -11,15 +11,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "core/com/com.h"
+#include "core/sys/buf1k.h"
 
-// Misc memory buffer for moving things around.
-// 6502 <-> RAM, USB <-> RAM, UART <-> RAM, etc.
-// Also used as a littlefs buffer for read/write.
-#define MBUF_SIZE 1024
-extern uint8_t mbuf[];
+// What the monitor keeps beside buf1k (core/sys/buf1k.h): how many bytes of
+// it are in use, for 6502 <-> RAM, USB <-> RAM, UART <-> RAM and the like.
 extern size_t mbuf_len;
 
-// Read memory buffer from stdio, from src alone or from COM_SOURCE_ANY.
+// Read buf1k from stdio, from src alone or from COM_SOURCE_ANY.
 typedef void (*mbuf_read_callback_t)(bool timeout);
 void mbuf_task(void);
 void mbuf_break(void);

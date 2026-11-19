@@ -150,7 +150,7 @@ static bool posix_ok(bool ok, api_errno *err)
 static void fat_pack_time(time_t t, uint16_t *fdate, uint16_t *ftime)
 {
     struct tm tm;
-    os_localtime(t, &tm);
+    localtime_r(&t, &tm);
     int year = tm.tm_year + 1900;
     if (year < 1980)
     {

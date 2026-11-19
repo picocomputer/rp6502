@@ -25,6 +25,11 @@
     INIT(aud_init)                                                   \
     TASK_ALWAYS(aud_task)                                            \
     STOP(aud_stop)                                                   \
-    SST(AUD_, 1, AUD_FABRIC_SST_SIZE, aud_sst_save, aud_sst_load))
+    END(aud_end)                                                     \
+    SST(.id = "AUD_",                                                \
+        .version = 1,                                                \
+        .size = AUD_FABRIC_SST_SIZE,                                 \
+        .save = aud_sst_save,                                        \
+        .load = aud_sst_load))
 
 #endif /* _HOST_POCKET_SW_AUD_H_ */

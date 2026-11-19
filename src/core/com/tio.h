@@ -99,6 +99,10 @@ bool tio_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define TIO_DRIVER DRIVER(        \
     INIT(tio_init)                \
-    SST(TIO_, 10, TIO_SST_SIZE, tio_sst_save, tio_sst_load))
+    SST(.id = "TIO_",             \
+        .version = 10,            \
+        .size = TIO_SST_SIZE,     \
+        .save = tio_sst_save,     \
+        .load = tio_sst_load))
 
 #endif /* _CORE_COM_TIO_H_ */

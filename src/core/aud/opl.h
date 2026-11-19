@@ -121,6 +121,10 @@ bool opl_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define OPL_DRIVER DRIVER(                                  \
     INIT(opl_reset)                                         \
-    SST(OPL_, 2, OPL_SST_SIZE, opl_sst_save, opl_sst_load))
+    SST(.id = "OPL_",                                       \
+        .version = 2,                                       \
+        .size = OPL_SST_SIZE,                               \
+        .save = opl_sst_save,                               \
+        .load = opl_sst_load))
 
 #endif /* _CORE_AUD_OPL_H_ */

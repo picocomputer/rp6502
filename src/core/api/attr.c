@@ -8,7 +8,7 @@
 #include "core/aud/mix.h"
 #include "core/api/api.h"
 #include "core/api/attr.h"
-#include "core/api/clk.h"
+#include "core/tim/clk.h"
 #include "core/str/oem.h"
 #include "core/api/proc.h"
 #include "core/api/std.h"

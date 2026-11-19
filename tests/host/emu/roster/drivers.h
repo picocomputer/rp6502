@@ -30,7 +30,11 @@ bool c_sst_load(sst_cursor_t *c, unsigned flags);
     STOP(a_stop)                                      \
     BREAK(a_break)                                    \
     FLASHING(a_flashing)                              \
-    SST(AAAA, 1, A_SST_SIZE, a_sst_save, a_sst_load))
+    SST(.id = "AAAA",                                 \
+        .version = 1,                                 \
+        .size = A_SST_SIZE,                           \
+        .save = a_sst_save,                           \
+        .load = a_sst_load))
 #define B_DRIVER DRIVER( \
     INIT(b_init)         \
     TASK_PUMPED(b_task)  \
@@ -47,7 +51,11 @@ bool c_sst_load(sst_cursor_t *c, unsigned flags);
     STOP(c_stop)                                      \
     BREAK(c_break)                                    \
     FLASHING(c_flashing)                              \
-    SST(CCCC, 2, C_SST_SIZE, c_sst_save, c_sst_load))
+    SST(.id = "CCCC",                                 \
+        .version = 2,                                 \
+        .size = C_SST_SIZE,                           \
+        .save = c_sst_save,                           \
+        .load = c_sst_load))
 
 #define RP6502_MACH_DRIVERS A_DRIVER, B_DRIVER, C_DRIVER
 

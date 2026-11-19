@@ -209,6 +209,10 @@ bool api_sst_load(sst_cursor_t *c, unsigned flags);
     TASK_FATFS(api_task)                                    \
     RUN(api_run)                                            \
     STOP(api_stop)                                          \
-    SST(API_, 1, API_SST_SIZE, api_sst_save, api_sst_load))
+    SST(.id = "API_",                                       \
+        .version = 1,                                       \
+        .size = API_SST_SIZE,                               \
+        .save = api_sst_save,                               \
+        .load = api_sst_load))
 
 #endif /* _CORE_API_API_H_ */

@@ -32,8 +32,6 @@ typedef struct
  * copy and draws from it. A write to XRAM part way through a line, such as one
  * byte of a 16-bit size, then cannot slip in behind the checks. */
 
-static uint16_t mode2_options[VGA_PROG_MAX][SCANVIDEO_PLANE_COUNT];
-
 // tile_w and tile_h are the tile's on-screen size: tile_size, less any X or Y
 // trim. A trimmed height need not be a power of two, so the row within the
 // tile needs a modulo rather than a mask.
@@ -554,10 +552,9 @@ mode2_render_bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t con
 }
 
 static bool
-mode2_render(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr,
+mode2_render(uint16_t opt, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr,
              vga_fill_cache_t *cache)
 {
-    const uint16_t opt = mode2_options[scanline_id][plane_id];
     switch (opt & 0x07)
     {
     case 0:
@@ -573,26 +570,25 @@ mode2_render(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb
     }
 }
 
-vga_fill_fn_t mode2_fill_fn(uint16_t attributes)
+/* Whether options name a tile depth, with trims that leave at least one
+ * column and one row of the tile. A custom size takes any value in bits
+ * 4:11. */
+bool mode2_fill_valid(uint16_t options)
 {
-    return (attributes & 0x8000) ? NULL : mode2_render;
-}
-
-bool mode2_fill_attr(int16_t scanline, int16_t plane, uint16_t *attributes)
-{
-    if (scanline < 0 || scanline >= VGA_PROG_MAX ||
-        plane < 0 || plane >= SCANVIDEO_PLANE_COUNT)
+    if (options & 0x8000 || (options & 0x07) > 3)
         return false;
-    *attributes = mode2_options[scanline][plane];
-    return true;
+    const int16_t tile_size = (options & 0x08) ? 16 : 8;
+    const int16_t x_trim = (options >> 4) & 0x0F;
+    const int16_t y_trim = (options >> 8) & 0x0F;
+    return (options & MODE2_CUSTOM) || (x_trim < tile_size && y_trim < tile_size);
 }
 
-void mode2_set_options(int16_t scanline, int16_t plane, uint16_t options)
+#ifndef RP6502_VGA_FABRIC
+vga_fill_fn_t mode2_fill_fn(uint16_t options)
 {
-    if (scanline >= 0 && scanline < VGA_PROG_MAX &&
-        plane >= 0 && plane < SCANVIDEO_PLANE_COUNT)
-        mode2_options[scanline][plane] = options;
+    return mode2_fill_valid(options) ? mode2_render : NULL;
 }
+#endif
 
 bool mode2_prog(uint16_t *xregs)
 {
@@ -605,23 +601,10 @@ bool mode2_prog(uint16_t *xregs)
     if (config_ptr & 1 ||
         config_ptr > 0x10000 - sizeof(mode2_config_t))
         return false;
-    if (options & 0x8000 || (options & 0x07) > 3 ||
-        plane < 0 || plane >= SCANVIDEO_PLANE_COUNT)
-        return false;
-    // A custom size takes any value in bits 4:11. A trim must leave at least
-    // one column and one row of the tile.
-    const int16_t tile_size = (options & 0x08) ? 16 : 8;
-    const int16_t x_trim = (options >> 4) & 0x0F;
-    const int16_t y_trim = (options >> 8) & 0x0F;
-    if (!(options & MODE2_CUSTOM) && (x_trim >= tile_size || y_trim >= tile_size))
+    if (!mode2_fill_valid(options))
         return false;
 
-    const int16_t end = scanline_end ? scanline_end : vga_canvas_height();
-    if (!vga_prog_fill(plane, scanline_begin, end, config_ptr, mode2_render))
-        return false;
-    for (int16_t i = scanline_begin; i < end; i++)
-        mode2_options[i][plane] = options;
-    return true;
+    return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, 2, options);
 }
 
 #pragma GCC pop_options

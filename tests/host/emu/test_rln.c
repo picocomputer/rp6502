@@ -21,13 +21,18 @@
 static int lines;
 static char last[256];
 
+/* The history these reads are handed, as the monitor hands its own. */
+static char history_lines[4][RLN_LINE_MAX];
+static rln_history_t history = {history_lines, 4, 0, 0};
+static rln_history_t *reading_with = &history;
+
 static void got_line(bool timeout, const char *buf)
 {
     (void)timeout;
     lines++;
     strncpy(last, buf, sizeof last - 1);
     last[sizeof last - 1] = 0;
-    rln_read_line(got_line);
+    rln_read_line(got_line, reading_with);
 }
 
 static void tasks(void)
@@ -49,6 +54,8 @@ static void wire(const char *s)
  * size from it. */
 static void fresh(void)
 {
+    history.count = 0;
+    reading_with = &history;
     cells_init();
     com_set_reply_default(true);
     rln_set_plain(false);
@@ -63,7 +70,7 @@ static void reading(void)
 {
     lines = 0;
     last[0] = 0;
-    rln_read_line(got_line);
+    rln_read_line(got_line, reading_with);
 }
 
 UTEST(rln, either_spelling_ends_a_line)
@@ -211,7 +218,7 @@ static const term_pos_t *pos(void)
     return term_pos(term_shown(&cells_term));
 }
 
-/* The monitor and std.c start the next read after the callback returns. */
+/* The monitor and console.c start the next read after the callback returns. */
 static bool need_next;
 
 static void got_line_later(bool timeout, const char *buf)
@@ -228,7 +235,7 @@ static void next(void)
     if (need_next)
     {
         need_next = false;
-        rln_read_line(got_line_later);
+        rln_read_line(got_line_later, reading_with);
     }
 }
 
@@ -826,29 +833,138 @@ UTEST(rln, plain_lines_edit_with_no_escape_sequences)
     screen_done();
 }
 
-/* A terminal in VT52 mode takes no CSI, so a read that starts there is a
- * plain line of any length. */
-UTEST(rln, a_read_in_vt52_mode_is_a_plain_line)
+/* A terminal in VT52 mode takes no CSI. A read there is laid out all the
+ * same, with a VT52's own moves and erase, each without a count. */
+UTEST(rln, a_read_in_vt52_mode_is_laid_out_in_vt52_commands)
 {
     fresh();
     com_printf("> \33[?2l");
     capture();
     reading();
+    const uint8_t top = pos()->y;
     type_n(100, 'a');
-    wire("\33D\33Dxy\33H\33F\b");
+    /* 78 fit on the prompt's row and the rest are on the next. */
+    ASSERT_EQ(pos()->y, top + 1);
+    ASSERT_EQ(pos()->x, 22);
+    ASSERT_TRUE(strstr(shown, "\r\n") != NULL);
+    /* Left twice, two typed, then Home, which is up a row and right to the
+     * prompt's column, and End, which is down a row and right again. */
+    wire("\33D\33Dxy");
+    shown_len = 0;
+    wire("\33H");
+    ASSERT_STREQ(shown, "\33A\r\33C\33C");
+    ASSERT_EQ(pos()->y, top);
+    ASSERT_EQ(pos()->x, 2);
+    wire("\33F");
+    ASSERT_EQ(pos()->y, top + 1);
+    ASSERT_EQ(pos()->x, 24);
+    /* A backspace at the end erases with a VT52's erase. */
+    shown_len = 0;
+    wire("\b");
     manifold_set_tx_tap(NULL);
-    ASSERT_TRUE(strchr(shown, '\33') == NULL);
+    ASSERT_TRUE(strstr(shown, "\33K") != NULL || strchr(shown, ' ') != NULL);
+    ASSERT_TRUE(strstr(shown, "\33[") == NULL);
     ASSERT_TRUE(cells_term.vt52);
     wire("\r");
     ASSERT_EQ(lines, 1);
     ASSERT_EQ(strlen(last), (size_t)101);
     ASSERT_STREQ(last + 97, "axya");
-    /* The next read starts in ANSI mode and is laid out again. */
+    /* The next read starts in ANSI mode, and is sent that mode's commands. */
     com_printf("\33<");
     capture();
     reading();
     manifold_set_tx_tap(NULL);
     ASSERT_STREQ(shown, "\33[4l");
+}
+
+/* Nothing of a whole read in VT52 mode is a CSI: the history, a line that
+ * shrinks over a row, and the cursor's shape among it. */
+UTEST(rln, a_read_in_vt52_mode_sends_no_csi)
+{
+    fresh();
+    com_printf("> \33[?2l");
+    capture();
+    reading();
+    type_n(100, 'b');
+    wire("\r");
+    type_n(10, 'c');
+    wire("\33A\33B\33A\33H\33C\33C\33F");
+    for (int i = 0; i < 30; i++)
+        wire("\b");
+    wire("\r");
+    manifold_set_tx_tap(NULL);
+    ASSERT_TRUE(strstr(shown, "\33[") == NULL);
+    ASSERT_TRUE(strstr(shown, "\33K") != NULL);
+    ASSERT_EQ(lines, 2);
+    ASSERT_EQ(strlen(last), (size_t)70);
+    com_printf("\33<");
+}
+
+/* Between left and right margins a row is the columns between them: the
+ * line breaks at the right margin, a CR lands on the left one, and nothing
+ * either side of the margins is touched. */
+UTEST(rln, a_line_between_left_and_right_margins_stays_between_them)
+{
+    fresh();
+    /* Margins at columns 11 and 30, a mark either side of them on two rows,
+     * and a prompt at the left margin of row 3. */
+    com_printf("\33[2J\33[3;5HX\33[3;40HY\33[4;5HX\33[4;40HY");
+    com_printf("\33[?69h\33[11;30s\33[3;11H> ");
+    reading();
+    const uint8_t top = pos()->y;
+    ASSERT_EQ(top, 2);
+    ASSERT_EQ(pos()->x, 12);
+    /* 18 fit after the prompt, and the next 7 start at the left margin. */
+    type_n(25, 'a');
+    ASSERT_EQ(pos()->y, top + 1);
+    ASSERT_EQ(pos()->x, 17);
+    ASSERT_EQ(tb_screen_row(top)[12].glyph, 'a');
+    ASSERT_EQ(tb_screen_row(top)[29].glyph, 'a');
+    ASSERT_EQ(tb_screen_row(top)[30].glyph, ' ');
+    ASSERT_EQ(tb_screen_row(top + 1)[10].glyph, 'a');
+    ASSERT_EQ(tb_screen_row(top + 1)[16].glyph, 'a');
+    ASSERT_EQ(tb_screen_row(top + 1)[17].glyph, ' ');
+    ASSERT_EQ(tb_screen_row(top + 1)[9].glyph, ' ');
+    /* Home and End find the ends of it. */
+    wire("\33[H");
+    ASSERT_EQ(pos()->y, top);
+    ASSERT_EQ(pos()->x, 12);
+    wire("b");
+    ASSERT_EQ(tb_screen_row(top)[12].glyph, 'b');
+    ASSERT_EQ(tb_screen_row(top + 1)[10].glyph, 'a');
+    ASSERT_EQ(tb_screen_row(top + 1)[17].glyph, 'a');
+    wire("\33[F");
+    ASSERT_EQ(pos()->y, top + 1);
+    ASSERT_EQ(pos()->x, 18);
+    /* A line that shrinks back onto one row erases what it had below. */
+    for (int i = 0; i < 12; i++)
+        wire("\b");
+    ASSERT_EQ(pos()->y, top);
+    ASSERT_EQ(tb_screen_row(top + 1)[10].glyph, ' ');
+    for (uint8_t y = top; y <= top + 1; y++)
+    {
+        ASSERT_EQ(tb_screen_row(y)[4].glyph, 'X');
+        ASSERT_EQ(tb_screen_row(y)[39].glyph, 'Y');
+    }
+    wire("\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_EQ(strlen(last), (size_t)14);
+    ASSERT_EQ(last[0], 'b');
+    com_printf("\33[?69l");
+}
+
+/* A line has no more rows than the scroll region its cursor is in. */
+UTEST(rln, a_line_has_no_more_rows_than_its_scroll_region)
+{
+    fresh();
+    com_printf("\33[2J\33[5;6r\33[5;1H> ");
+    reading();
+    type_n(250, 'a');
+    wire("\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_TRUE(strlen(last) <= 2 * 80 - 2);
+    ASSERT_TRUE(strlen(last) >= 2 * 80 - 4);
+    com_printf("\33[r");
 }
 
 /* A VT52's arrows, Home and End work in every mode. */
@@ -1105,6 +1221,40 @@ UTEST(rln, the_lf_of_a_crlf_pair_keeps_the_next_prompt_column)
     wire("\33[D");
     manifold_set_tx_tap(NULL);
     ASSERT_STREQ(shown, "\r\33[8C");
+}
+
+/* A history is its caller's, with as many lines as the caller gave it: the
+ * one being typed and three entered here. */
+UTEST(rln, a_history_holds_the_lines_its_caller_gave_it)
+{
+    fresh();
+    reading();
+    wire("one\rtwo\rthree\rfour\r");
+    ASSERT_EQ(lines, 4);
+    ASSERT_EQ((int)history.count, 3);
+    wire("\33[A\33[A\33[A\33[A\r");
+    ASSERT_EQ(lines, 5);
+    ASSERT_STREQ(last, "two");
+    /* The same line again is not entered twice. */
+    wire("two\r\33[A\33[A\r");
+    ASSERT_STREQ(last, "four");
+}
+
+UTEST(rln, a_read_handed_no_history_keeps_and_recalls_nothing)
+{
+    fresh();
+    reading();
+    wire("kept\r");
+    reading_with = NULL;
+    reading();
+    wire("secret\r");
+    wire("\33[A\r");
+    ASSERT_STREQ(last, "");
+    reading_with = &history;
+    reading();
+    wire("\33[A\r");
+    ASSERT_STREQ(last, "kept");
+    ASSERT_EQ((int)history.count, 1);
 }
 
 UTEST_MAIN();

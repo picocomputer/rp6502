@@ -20,7 +20,7 @@
  */
 
 void mid_task(void);
-void mid_stop(void);
+void mid_end(void);
 
 /* Status
  */
@@ -37,16 +37,14 @@ std_rw_result mid_std_sync(int desc, api_errno *err);
 std_rw_result mid_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
 std_rw_result mid_std_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err);
 
-#define MID_DRIVER DRIVER(TASK_PUMPED(mid_task) STOP(mid_stop))
-
-#define MID_STD_DRIVER           \
-    {                               \
-        .handles = mid_std_handles, \
+#define MID_DRIVER DRIVER(          \
+    TASK_PUMPED(mid_task)           \
+    END(mid_end)                    \
+    STD(.handles = mid_std_handles, \
         .open = mid_std_open,       \
         .close = mid_std_close,     \
         .read = mid_std_read,       \
         .write = mid_std_write,     \
-        .sync = mid_std_sync,       \
-    }
+        .sync = mid_std_sync))
 
 #endif /* _RIA_USB_MID_H_ */

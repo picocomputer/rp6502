@@ -11,7 +11,7 @@
 #include "core/api/ops.h"
 #include "core/api/api.h"
 #include "core/api/attr.h"
-#include "core/api/clk.h"
+#include "core/tim/clk.h"
 #include "core/api/dir.h"
 #include "core/api/proc.h"
 #include "core/api/std.h"
@@ -41,14 +41,12 @@ bool HOST_IN_RAM_FUNC ops_dispatch(uint8_t operation)
         return attr_api_get();
     case 0x0B:
         return attr_api_set();
-    case 0x0F:
-        return clk_api_clock();
-    case 0x10:
-        return clk_api_get_res();
     case 0x11:
-        return clk_api_get_time();
+        return std_api_isatty();
     case 0x12:
-        return clk_api_set_time();
+        return std_api_dup();
+    case 0x13:
+        return std_api_dup2();
     case 0x14:
         return std_api_open();
     case 0x15:
