@@ -1820,8 +1820,9 @@ void cells_publish(void)
     mode0_regs.cursor_color = cells_cursor_color;
     mode0_regs.screen = cells->cell_blink_phase |
                         (cells_term.reverse_screen ? MODE0_SCREEN_REVERSE : 0);
-    const cells_smooth_t *sm = &cells->smooth;
-    if (sm->on && sm->buf == (uint8_t)(buf - cells->bufs))
+    cells_smooth_t *sm = &cells->smooth;
+    const bool smooth = sm->on && sm->buf == (uint8_t)(buf - cells->bufs);
+    if (smooth)
     {
         mode0_regs.smooth_ghost =
             MODE0_ROW(buf->mem + (uint32_t)sm->ghost * buf->width - mode0_cells, sm->ghost_size);
@@ -1833,6 +1834,15 @@ void cells_publish(void)
     // The words now describe one picture.
     mode0_regs.publish = 1;
     cells_stale = false;
+    // A fabric that met a frame start part way through the publish kept the
+    // last frame's words for that frame, and reads the publish word back 0.
+    // When that frame was a smooth scroll's first, no frame has shown the
+    // scroll on its way, so it starts a frame later and goes again.
+    if (smooth && !mode0_regs.publish && cells_frame() == sm->frame)
+    {
+        sm->frame++;
+        cells_stale = true;
+    }
 }
 
 void cells_reply(const term_t *term, const char *s, size_t n)

@@ -326,6 +326,9 @@ typedef struct
  *                         the load, rebuilding what derives from the rows.
  *   IN_FN lv              state a FN row carries
  *   SKIP lv               state the savestate does not carry
+ *   SKIP_PREFIX prefix    every static the unit names with that prefix,
+ *                         for statics a macro makes, such as config.c's
+ *                         settings, which the driver walk makes one of each
  *
  * A table whose rows are all SKIP is not in the driver list, and its file
  * needs no driver for it: it is there for the inventory check, which builds
@@ -493,6 +496,13 @@ typedef struct
 #define SST_DESC_IN_FN(lv, ...)
 #define SST_ASSERT_IN_FN(lv, ...)
 #define SST_SKIPS_IN_FN(lv, ...) "IN_FN " #lv ";"
+
+#define SST_PUT_SKIP_PREFIX(prefix, ...)
+#define SST_GET_SKIP_PREFIX(prefix, ...)
+#define SST_SIZE_SKIP_PREFIX(prefix, ...)
+#define SST_DESC_SKIP_PREFIX(prefix, ...)
+#define SST_ASSERT_SKIP_PREFIX(prefix, ...)
+#define SST_SKIPS_SKIP_PREFIX(prefix, ...) "SKIP_PREFIX " #prefix ";"
 
 #define SST_PUT_SKIP(lv, ...)
 #define SST_GET_SKIP(lv, ...)

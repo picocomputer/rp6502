@@ -123,15 +123,13 @@ def named(nm, obj):
 
 def rows(text):
     """The first name of each row in a check string's part. A row is its
-    kind and its lvalue, "U8 via.acr;". A SKIP's lvalue may itself be a list,
-    "SKIP a; b;", as config.c makes from the driver walk, so a part with one
-    word is a name."""
+    kind and its lvalue, "U8 via.acr;"."""
     for row in text.decode().split(";"):
         bits = row.replace("{", " ").replace("}", " ").split()
-        name = bits[1] if len(bits) >= 2 else bits[0] if bits else ""
-        m = IDENT.match(name)
-        if m:
-            yield m.group(0)
+        if len(bits) >= 2:
+            m = IDENT.match(bits[1])
+            if m:
+                yield m.group(0)
 
 
 def main():
@@ -161,9 +159,11 @@ def main():
                     saving[name.decode() + "_sst"] = rel
             # A table is const, but its pointers can put it in writable data.
             listed = set(t[0].decode() + "_sst" for t in tables)
+            prefixes = []
             for _, saved, other in tables:
                 listed.update(rows(saved))
                 listed.update(rows(other))
+                prefixes += re.findall(r"SKIP_PREFIX (\w+);", other.decode())
             for name in sorted(state):
                 if "MergedGlobals" in name:
                     problems.append("%s: %s merges its objects into one "
@@ -173,7 +173,8 @@ def main():
                     problems.append("%s %s: a static inside a function; "
                                     "move it to file scope and list it"
                                     % (rel, name))
-                elif name not in listed:
+                elif name not in listed and not name.startswith(
+                        tuple(prefixes)):
                     problems.append("%s %s: in no row of the unit's "
                                     "SST_TABLE" % (rel, name))
             checked += 1

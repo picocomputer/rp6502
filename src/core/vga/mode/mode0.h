@@ -186,7 +186,8 @@ extern mode0_colors_t mode0_colors[MODE0_CELLS];
  *   the row words any more.
  * publish: written last, once the others describe one picture. A fabric
  *   that copies the words as a frame starts takes none of them while a
- *   publish is part way through. */
+ *   publish is part way through, and then reads this word back 0 until the
+ *   next publish is taken whole. Memory reads back the 1 written. */
 #define MODE0_ROWS 32
 typedef struct
 {

@@ -194,22 +194,28 @@ module mode0 (
             if (b_we && b_wstrb[3]) pal3[pal_idx] <= b_wdata[31:24];
         end
     end
-    /* Of the registers the firmware reads back only the frame counter,
-     * which it can also write, so a savestate puts back the count it was
-     * taken at. */
+    /* A write to any of the words a frame copies opens a publish, and the
+     * publish word, written last, closes it. */
+    logic pub_open /*verilator public_flat_rd*/;
+    /* A frame started while the publish was open, so that frame kept the
+     * last frame's words. The publish word reads back 0 then, and 1 once
+     * the publish was taken whole, as a machine's memory reads back the 1
+     * written. The publish's first write clears it. */
+    logic pub_missed;
+    /* Of the registers the firmware reads back the publish word, whether
+     * the last publish was taken whole, and the frame counter, which it
+     * can also write, so a savestate puts back the count it was taken
+     * at. */
     always_ff @(posedge clk) begin
         if (b_stb) begin
             sel_q <= b_sel;
-            regs_q <= frame_count;
+            regs_q <= b_addr[7:2] == 6'd38 ? {31'b0, !pub_missed} : frame_count;
         end
     end
 
     logic use_40;  // the 40-column terminal, on a 320-wide canvas
     logic reg_w;
     always_comb reg_w = b_stb && b_we && b_sel == 2'd1;
-    /* A write to any of the words a frame copies opens a publish, and the
-     * publish word, written last, closes it. */
-    logic pub_open /*verilator public_flat_rd*/;
     initial begin
         cursor_shadow = 32'h0;
         cursor_color_shadow = 16'h0;
@@ -222,6 +228,7 @@ module mode0 (
         sm_ghost_s = '0;
         frame_count = 32'h0;
         pub_open = 1'b0;
+        pub_missed = 1'b0;
     end
     always_ff @(posedge clk) begin
         if (frame_start)
@@ -246,7 +253,11 @@ module mode0 (
                 pub_open <= 1'b0;
             else if (b_addr[7:2] < 6'd38)
                 pub_open <= 1'b1;
+            if (b_addr[7:2] < 6'd38 && !pub_open)
+                pub_missed <= 1'b0;
         end
+        if (frame_start && pub_open)
+            pub_missed <= 1'b1;
     end
 
     /* Latched as the frame starts, on the line row 0 is drawn on, with

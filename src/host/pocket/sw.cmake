@@ -128,9 +128,12 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
 
     # One command builds the whole firmware, so compile_commands.json has no
     # entry for each of its units. sw_units.json gives each one in that form,
-    # for tests/sst_inventory.py, which builds every unit again.
+    # for tests/sst_inventory.py, which builds every unit again. sw/log.c is
+    # among them even where a test build links its own log in its place.
+    set(SW_UNITS ${SW_SOURCES} ${SW_SRC}/log.c)
+    list(REMOVE_DUPLICATES SW_UNITS)
     set(_entries "")
-    foreach(_src IN LISTS SW_SOURCES)
+    foreach(_src IN LISTS SW_UNITS)
         if(NOT _src MATCHES "\\.c$")
             continue()
         endif()
