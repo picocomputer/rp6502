@@ -163,6 +163,7 @@ void aud_sst_settle(void);
     TASK_ALWAYS(aud_task)                                   \
     STOP(aud_stop)                                          \
     END(aud_end)                                            \
+    RESET(aud_init)                                         \
     SST(.id = "AUD_",                                       \
         .version = 6,                                       \
         .size = AUD_SST_SIZE,                               \

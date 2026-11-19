@@ -42,6 +42,10 @@ void psg_put(unsigned offset, uint8_t val);
  * aud_psg_map. */
 void psg_map(uint16_t word);
 
+/* Resets all nine voices, the bell's too, their registers included, and
+ * parks the engine. */
+void psg_reset(void);
+
 /* Where this engine's channel block sits in XRAM, 0xFFFF for parked. */
 uint16_t psg_xaddr_get(void);
 

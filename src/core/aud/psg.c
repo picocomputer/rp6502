@@ -371,3 +371,12 @@ void HOST_IN_RAM_FUNC psg_map(uint16_t word)
     memset(psg_regs, 0, PSG_REGS_SIZE);
     psg_xaddr = word;
 }
+
+/* psg_map leaves the bell's voice to the bell, but a failed load can leave
+ * it holding anything, so it takes voice 0's fresh state and registers. */
+void psg_reset(void)
+{
+    psg_map(0xFFFF);
+    psg_channel_state[PSG_BEL] = psg_channel_state[0];
+    psg_regs[PSG_BEL] = psg_regs[0];
+}

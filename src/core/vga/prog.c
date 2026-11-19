@@ -83,6 +83,20 @@ vga_sprite_fn_t vga_mode_sprite_fn(uint8_t mode, uint16_t options)
     }
 }
 
+bool vga_mode_config_ok(uint8_t mode, uint16_t options, uint16_t config_ptr,
+                        uint16_t length)
+{
+    switch (mode)
+    {
+    case 1: return mode1_config_ok(config_ptr);
+    case 2: return mode2_config_ok(config_ptr);
+    case 3: return mode3_config_ok(config_ptr);
+    case 4: return mode4_config_ok(options, config_ptr, length);
+    case 5: return mode5_config_ok(options, config_ptr, length);
+    default: return true; /* mode 0 bounds its rows as it draws them */
+    }
+}
+
 static void vga_prog_row_set(vga_prog_t *row, int16_t plane, vga_fill_fn_t fill_fn,
                              uint8_t mode, uint16_t options, uint16_t config_ptr)
 {

@@ -35,6 +35,9 @@ typedef struct mouse_connection
 } mouse_connection_t;
 
 void mouse_init(void);
+/* Unmaps the block. It is also the RESET hook: a failed load can leave the
+ * address pointing into the next program's XRAM, and the counters behind the
+ * block are deltas that any value serves. */
 void mouse_stop(void);
 
 bool mouse_xreg(uint16_t word);
@@ -70,6 +73,7 @@ bool mouse_sst_load(sst_cursor_t *c, unsigned flags);
 #define MOUSE_DRIVER DRIVER(                                      \
     INIT(mouse_init)                                              \
     STOP(mouse_stop)                                              \
+    RESET(mouse_stop)                                             \
     SST(.id = "MOUS",                                             \
         .version = 1,                                             \
         .size = MOUSE_SST_SIZE,                                   \

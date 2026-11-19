@@ -17,6 +17,7 @@
 #undef STOP
 #undef END
 #undef BREAK
+#undef RESET
 #undef FLASHING
 #undef CONFIG_INT
 #undef CONFIG_STR

@@ -1541,13 +1541,13 @@ UTEST(term, rep_draws_what_printing_draws)
  * savestate: both come back over a console that has since lost them. */
 UTEST(term, the_palette_and_the_guards_come_back)
 {
-    static uint8_t blob[1 << 20], undo[1 << 20];
+    static uint8_t blob[1 << 20];
     fresh();
     feed("\33]4;1;#102030\7\33]10;#405060\7\33[31mA\33[39mB\33[1\"qG\33[0\"qh");
     ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
     feed("\33c");
     ASSERT_STREQ(row(0), "");
-    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_STREQ(row(0), "ABGh");
     ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), rgb(0x10, 0x20, 0x30));
     ASSERT_EQ(mode0_color(ink(1, 0)->fg_color), rgb(0x40, 0x50, 0x60));
@@ -1559,13 +1559,13 @@ UTEST(term, the_palette_and_the_guards_come_back)
  * load: the survivors, and the blank color for each side. */
 UTEST(term, a_shift_still_owed_comes_back)
 {
-    static uint8_t blob[1 << 20], undo[1 << 20];
+    static uint8_t blob[1 << 20];
     fresh();
     feed("\33[3;1HABCDEF\33[10;1H\33[41m\33[2 A\33[42m\33[3 @");
     ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
     feed("\33c");
     ASSERT_STREQ(row(2), "");
-    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_STREQ(row(2), "BCDEF");
     ASSERT_EQ(mode0_color(ink(79, 2)->bg_color), color_256[2]);
     feed("\33[3;1H\33[43m\33[2 A");
@@ -1815,12 +1815,12 @@ UTEST(term, declrmm_has_no_double_size_lines)
 /* The margins are part of a savestate. */
 UTEST(term, the_left_and_right_margins_come_back)
 {
-    static uint8_t blob[1 << 20], undo[1 << 20];
+    static uint8_t blob[1 << 20];
     fresh();
     feed("\33[?69h\33[5;10s");
     ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
     feed("\33c");
-    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     feed("\33[1;5Habcdefgh");
     ASSERT_STREQ(row(0), "    abcdef");
     ASSERT_STREQ(row(1), "    gh");
@@ -2165,12 +2165,12 @@ UTEST(term, a_scroll_between_margins_is_right_at_every_width)
 /* A change of attributes a row is owed is saved with the row. */
 UTEST(term, attributes_still_owed_come_back)
 {
-    static uint8_t blob[1 << 20], undo[1 << 20];
+    static uint8_t blob[1 << 20];
     fresh();
     feed("\33[3;1HABCDEF\33[10;1H\33[2*x\33[3;2;3;4;4;7$r");
     ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
     feed("\33c");
-    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_EQ(cell(0, 2)->attributes, 0);
     ASSERT_EQ(cell(1, 2)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE) | MODE0_ATTR_REVERSE);
     ASSERT_EQ(cell(3, 2)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE) | MODE0_ATTR_REVERSE);
@@ -2242,7 +2242,7 @@ UTEST(term, rep_between_margins_draws_what_printing_draws)
  * savestate. */
 UTEST(term, line_feeds_between_margins_add_up)
 {
-    static uint8_t blob[1 << 20], undo[1 << 20];
+    static uint8_t blob[1 << 20];
     fresh();
     lettered(6);
     feed("\33[?69h\33[2;5r\33[4;7s\33[5;5H\n\n");
@@ -2268,7 +2268,7 @@ UTEST(term, line_feeds_between_margins_add_up)
     feed("\33[2;4Hrs\33[5;5H\n");
     ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
     feed("\33c");
-    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_STREQ(row(1), "bbb    bbb");
     ASSERT_STREQ(row(2), "ccc z  ccc");
     ASSERT_STREQ(row(0), "aaaaaaaaaa");
@@ -2412,11 +2412,11 @@ UTEST(term, a_dcs_string_that_is_not_decrqss_is_dropped)
     ASSERT_STREQ(ask("\33P+qmmmmmmmmmmmmmmmmmmmmmmmm\33\\"), "");
     ASSERT_STREQ(row(0), "abcdef");
     /* A string split across a savestate is still answered. */
-    static uint8_t blob[1 << 20], undo[1 << 20];
+    static uint8_t blob[1 << 20];
     feed("\33P$qr\33");
     ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
     feed("\33c");
-    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_STREQ(ask("\\"), "\33P1$r1;30r\33\\");
 }
 

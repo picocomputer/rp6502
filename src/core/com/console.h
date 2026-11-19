@@ -23,6 +23,7 @@
 
 void console_stop(void);
 void console_end(void);
+void console_reset(void);
 
 /* Whether a cooked read is outstanding on the console, and the notice that
  * input has ended. On end of input whatever partial line was typed is still
@@ -67,6 +68,7 @@ bool console_sst_load(sst_cursor_t *c, unsigned flags);
 #define CONSOLE_DRIVER DRIVER(            \
     STOP(console_stop)                    \
     END(console_end)                      \
+    RESET(console_reset)                  \
     SST(.id = "CON_",                     \
         .version = 1,                     \
         .size = CONSOLE_SST_SIZE,         \

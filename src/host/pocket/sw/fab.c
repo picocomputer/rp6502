@@ -7,6 +7,7 @@
 #include "fab.h"
 #include "tim.h"
 
+#include "core/ria/regs.h"
 #include "host/host.h"
 
 #define FAB_REGS_RUN(at, n) {at, n},
@@ -98,6 +99,9 @@ static inline uint32_t fab_u32(const uint8_t **p)
     return v;
 }
 
+/* mtime as it was before the load moved it, for fab_reset. */
+static uint64_t fab_clock_was;
+
 /* Everything the 6502 runs on goes back before the 6502 itself: the
  * memories, then the RIA, then RESB and the jam, which loads the 6502, the
  * VIA, the PHI2 count and the open bus on one clock. RESB is written as it
@@ -106,9 +110,16 @@ static inline uint32_t fab_u32(const uint8_t **p)
 bool fab_sst_load(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
+    fab_clock_was = host_clock_us();
     const uint8_t *p = sst_view(c, FAB_SST_SIZE);
     if (!p)
         return sst_refuse(c, "the fabric's state is short");
+    /* The xstack pointer is the last regs word, and api_pop and api_push
+     * index the xstack by XSTACK_SIZE less it, so one above XSTACK_SIZE
+     * would reach past the xstack. */
+    if ((sst_be32_read(p + 4 * (3 + FAB_JAM_WORDS + FAB_REGS_WORDS - 1))
+         & 0x3FFu) > XSTACK_SIZE)
+        return sst_refuse(c, "the xstack pointer is out of range");
     uint64_t mtime = (uint64_t)fab_u32(&p) << 32;
     mtime |= fab_u32(&p);
     tim_clock_set(mtime);
@@ -137,4 +148,20 @@ bool fab_sst_load(sst_cursor_t *c, unsigned flags)
         JAM_DATA(k) = jam[k];
     JAM = 1;
     return true;
+}
+
+/* A failed load leaves the RIA's registers as the blob had them, with the
+ * 6502 in reset. The byte waiting in RX is taken back, so the next program
+ * does not read a key typed at another machine, and the xstack is emptied,
+ * with the zero above its top that api_pop_str's strlen ends on. The rest
+ * is harmless: resb_release clears the interrupt word, the console queue
+ * only plays out, and VID's reset clears the scanline table. mtime goes back
+ * to what it was before the load, because the rows the load did not reach
+ * keep deadlines on that clock. */
+void fab_reset(void)
+{
+    tim_clock_set(fab_clock_was);
+    (void)RX_RECLAIM;
+    xstack_ptr = XSTACK_SIZE;
+    xstack[XSTACK_SIZE] = 0;
 }

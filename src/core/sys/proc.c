@@ -40,6 +40,10 @@ bool proc_sst_load(sst_cursor_t *c, unsigned flags)
     bool pending = sst_get_bool(c);
     if (!sst_ok(c) || !proc_chain_sst_load(c))
         return false;
+    /* proc_exec_task loads what argv[0] names, so an exec on its way with
+     * no argv[0] is refused. */
+    if (pending && !arg_index(0))
+        return false;
     queued = pending;
     return true;
 }
@@ -47,6 +51,14 @@ bool proc_sst_load(sst_cursor_t *c, unsigned flags)
 void proc_exec_init(void)
 {
     queued = false;
+}
+
+/* No exec is on its way, so proc_exec_task loads nothing, and the chain is
+ * empty. What ends a chain in other drivers is their own reset's job. */
+void proc_reset(void)
+{
+    queued = false;
+    proc_chain_reset();
 }
 
 void proc_exec_request(void)

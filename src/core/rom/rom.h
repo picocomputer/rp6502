@@ -112,9 +112,13 @@ void asset_sst_save(sst_cursor_t *c, unsigned flags);
 bool asset_sst_load(sst_cursor_t *c, unsigned flags);
 
 /* A stop closes the image, as the Pico's monitor does, because the stop also
- * clears the running program's name that a savestate reopens it by. */
+ * clears the running program's name that a savestate reopens it by. A failed
+ * savestate load closes it too: rom_fd is only ever what a load or the loader
+ * opened, so the close is safe, and STD's reset, later in the list and so run
+ * first, has already closed the ROM: windows that read through it. */
 #define ASSET_DRIVER DRIVER(          \
     STOP(rom_assets_reset)            \
+    RESET(rom_assets_reset)           \
     SST(.id = "ASET",                 \
         .version = 1,                 \
         .size = ASSET_SST_SIZE,       \

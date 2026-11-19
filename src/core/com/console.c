@@ -165,6 +165,15 @@ void HOST_IN_FLASH_FUNC console_end(void)
     console_closed = false;
 }
 
+/* A failed load can leave a read waiting on a line rln will never hand
+ * over, a line longer than rln's buffer, or the input closed. Neither STOP
+ * nor END runs then, so this does both. */
+void console_reset(void)
+{
+    console_stop();
+    console_end();
+}
+
 bool console_std_ident(int desc, sst_cursor_t *c)
 {
     sst_put_u8(c, (uint8_t)desc);

@@ -76,6 +76,16 @@ bool proc_chain_sst_load(sst_cursor_t *c)
     return true;
 }
 
+/* The paths are heap copies that only set_path writes, so a failed load
+ * leaves them whole, and they are dropped. Only the zero pair of argv is
+ * cleared, because nothing reads past it. */
+void proc_chain_reset(void)
+{
+    set_path(&proc_running_path, NULL);
+    proc_cancel_launcher();
+    arg_clear();
+}
+
 void proc_set_launcher(bool is_launcher)
 {
     set_path(&proc_launcher_path, is_launcher ? proc_running_path : NULL);

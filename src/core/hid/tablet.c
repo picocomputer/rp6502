@@ -112,7 +112,7 @@ bool tablet_sst_load(sst_cursor_t *c, unsigned flags)
     uint8_t block[TABLET_BLOCK_SIZE];
     sst_get(c, block, sizeof block);
     bool cursor = sst_get_bool(c);
-    if (!sst_ok(c))
+    if (!sst_ok(c) || (at > 0x10000 - TABLET_BLOCK_SIZE && at != 0xFFFF))
         return false;
     tablet_xram = at;
     memcpy(tablet_state, block, sizeof tablet_state);

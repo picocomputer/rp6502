@@ -107,6 +107,9 @@ bool api_sst_load(sst_cursor_t *c, unsigned flags)
     return true;
 }
 
+/* api_task dispatches the op in flight whether or not the machine runs, so
+ * on a stop, and after a failed savestate load that may have left an op from
+ * either machine, this drops it before it acts on the xstack. */
 void api_stop(void)
 {
     api_active_op = 0;

@@ -142,6 +142,13 @@ void ria_break(void)
     regs[0x02] = 0;
 }
 
+void ria_reset(void)
+{
+    ria_break();
+    xstack_ptr = XSTACK_SIZE;
+    xstack[XSTACK_SIZE] = 0;
+}
+
 uint8_t ria_reg_read(uint16_t addr)
 {
     switch (addr & 0x1F)
@@ -221,7 +228,9 @@ bool ria_sst_load(sst_cursor_t *c, unsigned flags)
     uint16_t ptr = sst_get_u16(c);
     if (!sst_ok(c))
         return false;
-    if (ptr > XSTACK_SIZE)
+    /* The byte above the top is always zero, because api_pop_str runs strlen
+     * up to it. */
+    if (ptr > XSTACK_SIZE || stack[XSTACK_SIZE])
         return false;
     ria.PINS = pins;
     ria.irq_enabled = enabled;

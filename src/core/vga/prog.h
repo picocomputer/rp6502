@@ -34,6 +34,17 @@ typedef struct
 vga_fill_fn_t vga_mode_fill_fn(uint8_t mode, uint16_t options);
 vga_sprite_fn_t vga_mode_sprite_fn(uint8_t mode, uint16_t options);
 
+/* A config of size bytes at config_ptr is on a word and inside xram. */
+static inline bool vga_xram_ok(uint16_t config_ptr, uint32_t size)
+{
+    return !(config_ptr & 1) && size <= 0x10000 && config_ptr <= 0x10000 - size;
+}
+
+/* Whether a row's config is one its mode's prog books, so the renderer reads
+ * only xram. length is a sprite mode's count of sprites. */
+bool vga_mode_config_ok(uint8_t mode, uint16_t options, uint16_t config_ptr,
+                        uint16_t length);
+
 /* Puts a fill in a row a savestate is loading. False for a mode and options
  * that name no renderer. */
 bool vga_prog_row_fill(vga_prog_t *row, int16_t plane, uint8_t mode,

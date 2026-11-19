@@ -81,6 +81,13 @@ typedef struct
     bool held;
 } sys_latch_t;
 
+/* Puts a machine whose state cannot be trusted back where a new program can
+ * start: stopped, RESB low, and every driver's RESET hook run. A failed
+ * savestate load calls it, because it leaves some drivers loaded, one partly
+ * loaded and the rest as they were. No STOP, END or BREAK hook runs, since
+ * those trust the state they tear down. */
+void sys_reset(void);
+
 void sys_latch_get(sys_latch_t *latch);
 bool sys_latch_apply(const sys_latch_t *latch); /* false when it is not legal */
 

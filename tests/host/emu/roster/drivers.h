@@ -10,10 +10,10 @@
 #include "core/sys/driver.h"
 #include "core/sys/sst.h"
 
-void a_init(void), a_task(void), a_io(void), a_run(void), a_stop(void), a_break(void);
+void a_init(void), a_task(void), a_io(void), a_run(void), a_stop(void), a_break(void), a_reset(void);
 void b_init(void), b_task(void), b_io(void), b_run(void), b_stop(void), b_break(void);
 void b_always(void), a_flashing(void), c_flashing(void);
-void c_init(void), c_task(void), c_io(void), c_run(void), c_stop(void), c_break(void);
+void c_init(void), c_task(void), c_io(void), c_run(void), c_stop(void), c_break(void), c_reset(void);
 
 #define A_SST_SIZE 6
 #define C_SST_SIZE 3
@@ -29,6 +29,7 @@ bool c_sst_load(sst_cursor_t *c, unsigned flags);
     RUN(a_run)                                        \
     STOP(a_stop)                                      \
     BREAK(a_break)                                    \
+    RESET(a_reset)                                    \
     FLASHING(a_flashing)                              \
     SST(.id = "AAAA",                                 \
         .version = 1,                                 \
@@ -50,6 +51,7 @@ bool c_sst_load(sst_cursor_t *c, unsigned flags);
     RUN(c_run)                                        \
     STOP(c_stop)                                      \
     BREAK(c_break)                                    \
+    RESET(c_reset)                                    \
     FLASHING(c_flashing)                              \
     SST(.id = "CCCC",                                 \
         .version = 2,                                 \

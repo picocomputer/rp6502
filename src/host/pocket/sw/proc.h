@@ -27,9 +27,13 @@ void proc_exec_drop(void);
 void proc_sst_save(sst_cursor_t *c, unsigned flags);
 bool proc_sst_load(sst_cursor_t *c, unsigned flags);
 
+/* After a failed savestate load: no exec on its way and proc_chain_reset. */
+void proc_reset(void);
+
 #define PROC_DRIVER DRIVER(                                    \
     RUN(proc_run)                                              \
     STOP(proc_stop)                                            \
+    RESET(proc_reset)                                          \
     SST(.id = "PROC",                                          \
         .version = 1,                                          \
         .size = PROC_SST_SIZE,                                 \

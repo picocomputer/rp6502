@@ -330,9 +330,10 @@ bool std_sst_load(sst_cursor_t *c, unsigned flags)
         goto fail;
     if (kind > STD_BUF_XRAM)
         goto fail;
-    if (kind == STD_BUF_XSTACK && at > XSTACK_SIZE)
-        goto fail;
-    if (kind != STD_BUF_NONE && (uint32_t)at + size > 0x10000)
+    /* The buffer lies wholly inside the xstack or xram it names, because a
+     * re-dispatched transfer writes up to its end. */
+    if (kind != STD_BUF_NONE &&
+        (uint32_t)at + size > (kind == STD_BUF_XSTACK ? XSTACK_SIZE : 0x10000))
         goto fail;
     if (pos > size)
         goto fail;
@@ -786,4 +787,14 @@ void HOST_IN_FLASH_FUNC std_stop(void)
     std_dup2_from = std_dup2_to = STD_NONE;
     std_xram_hi = 0;
     std_xram_end = std_xram_addr;
+}
+
+/* A failed load leaves the table of open files whole, the old machine's or
+ * the blob's, because std_sst_load closes what it reopened when it refuses.
+ * The transfer in flight may be either machine's, so it is dropped, then
+ * every open file closes and the console is on 0, 1 and 2 again. */
+void std_sst_reset(void)
+{
+    std_stop();
+    std_reset();
 }

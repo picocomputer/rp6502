@@ -72,6 +72,9 @@ bool proc_sst_load(sst_cursor_t *c, unsigned flags);
 /* A break cancels an exec or relaunch still queued, which ends the chain. */
 void proc_exec_break(void);
 
+/* After a failed savestate load: no exec queued and proc_chain_reset. */
+void proc_reset(void);
+
 /* The host is closing the machine. It ends the session the way a break does,
  * so no launcher relaunches into a machine that is going away. */
 void proc_shutdown(void);
@@ -82,6 +85,7 @@ void proc_shutdown(void);
     RUN(proc_run)                                              \
     STOP(proc_stop)                                            \
     BREAK(proc_exec_break)                                     \
+    RESET(proc_reset)                                          \
     SST(.id = "PROC",                                          \
         .version = 1,                                          \
         .size = PROC_SST_SIZE,                                 \

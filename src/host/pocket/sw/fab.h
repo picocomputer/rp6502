@@ -39,8 +39,10 @@
                       + 2 * 0x10000)
 void fab_sst_save(sst_cursor_t *c, unsigned flags);
 bool fab_sst_load(sst_cursor_t *c, unsigned flags);
+void fab_reset(void);
 
 #define FAB_DRIVER DRIVER(                                     \
+    RESET(fab_reset)                                           \
     SST(.id = "FAB_",                                          \
         .version = 1,                                          \
         .size = FAB_SST_SIZE,                                  \

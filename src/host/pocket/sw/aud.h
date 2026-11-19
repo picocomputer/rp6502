@@ -21,11 +21,14 @@
  * 4 control, 1 place, the bell, then AUD_SST_WORDS words. */
 #define AUD_FABRIC_SST_SIZE (4 + 1 + BEL_SST_SIZE + AUD_SST_WORDS * 4)
 
+void aud_reset(void);
+
 #define AUD_FABRIC_DRIVER DRIVER(                                    \
     INIT(aud_init)                                                   \
     TASK_ALWAYS(aud_task)                                            \
     STOP(aud_stop)                                                   \
     END(aud_end)                                                     \
+    RESET(aud_reset)                                                 \
     SST(.id = "AUD_",                                                \
         .version = 1,                                                \
         .size = AUD_FABRIC_SST_SIZE,                                 \

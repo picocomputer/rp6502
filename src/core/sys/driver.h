@@ -30,6 +30,11 @@
  *                   again, after the stop, in reverse order: what a program
  *                   could hand on to an exec is put away here
  *   BREAK(f)        on a break, in reverse order
+ *   RESET(f)        when a savestate load fails, in reverse order, with RESB
+ *                   low: what the driver's load writes may hold any value,
+ *                   and the hook puts the driver back where a new program
+ *                   can start. It may keep what is harmless, such as output
+ *                   still on its way out.
  *   FLASHING(f)     once, when the RIA starts rewriting its own flash, in
  *                   reverse order
  *   CONFIG_INT/STR/RAW/HIDDEN/SAVE(...) and SST(...), any number of each

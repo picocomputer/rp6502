@@ -23,6 +23,7 @@ void rln_init(void);
 void rln_task(void);
 void rln_run(void);
 void rln_stop(void);
+void rln_reset(void);
 
 // Timeout is true when input is idle too long.
 // Requesting a timeout of 0 ms will disable the idle timer.
@@ -148,6 +149,7 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags);
     RUN(rln_run)                                            \
     STOP(rln_stop)                                          \
     BREAK(rln_stop)                                         \
+    RESET(rln_reset)                                        \
     SST(.id = "RLN_",                                       \
         .version = 9,                                       \
         .size = RLN_SST_SIZE,                               \

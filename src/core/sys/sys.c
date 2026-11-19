@@ -114,6 +114,17 @@ static void HOST_IN_FLASH_FUNC sys_on_break(void)
 #include "core/sys/driver_walk_end.h"
 }
 
+void sys_reset(void)
+{
+    sys_state = stopped;
+    sys_breaking = false;
+    resb_assert();
+#define RESET(f) f();
+#include "core/sys/driver_walk.h"
+    DRIVERS_REVERSE(RP6502_MACH_DRIVERS)
+#include "core/sys/driver_walk_end.h"
+}
+
 void sys_latch_get(sys_latch_t *latch)
 {
     latch->state = (uint8_t)sys_state;

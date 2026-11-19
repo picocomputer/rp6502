@@ -75,6 +75,9 @@ typedef struct gamepad_connection
 } gamepad_connection_t;
 
 void gamepad_init(void);
+/* Unmaps the block. It is also the RESET hook: a failed load can leave the
+ * address pointing into the next program's XRAM, and the next mapping
+ * rewrites all four reports from the connections. */
 void gamepad_stop(void);
 
 // Which labels the face buttons carry, reported in dpad bits 4 and 5. A HID
@@ -163,6 +166,7 @@ bool gamepad_sst_load(sst_cursor_t *c, unsigned flags);
 #define GAMEPAD_DRIVER DRIVER(                                          \
     INIT(gamepad_init)                                                  \
     STOP(gamepad_stop)                                                  \
+    RESET(gamepad_stop)                                                 \
     SST(.id = "GPAD",                                                   \
         .version = 1,                                                   \
         .size = GAMEPAD_SST_SIZE,                                       \

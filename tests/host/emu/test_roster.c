@@ -56,6 +56,16 @@ const std_driver_t *std_drivers(size_t *count)
 }
 
 static uint8_t a_held, c_held;
+void a_reset(void)
+{
+    note("aR");
+    a_held = 0;
+}
+void c_reset(void)
+{
+    note("cR");
+    c_held = 0;
+}
 static bool a_refuses, c_refuses;
 static bool a_overruns;
 
@@ -203,8 +213,6 @@ static void a_committed_machine(void)
 }
 
 static uint8_t blob[64];
-/* Where a load saves the machine it may have to put back. */
-static uint8_t undo[sizeof blob];
 
 UTEST(roster, both_savestate_walks_go_forward)
 {
@@ -213,10 +221,8 @@ UTEST(roster, both_savestate_walks_go_forward)
     ASSERT_STREQ("aScS", walked);
 
     walked[0] = '\0';
-    ASSERT_EQ(sst_load(blob, sizeof blob, undo, 0), (const char *)NULL);
-    /* A load handed an undo buffer first saves the machine into it, so
-     * every row's save runs before its load. */
-    ASSERT_STREQ("aScSaLcL", walked);
+    ASSERT_EQ(sst_load(blob, sizeof blob, 0), (const char *)NULL);
+    ASSERT_STREQ("aLcL", walked);
 }
 
 /* The blob is an 18-byte header, a 10-byte chunk header and a slot for each
@@ -253,8 +259,9 @@ UTEST(roster, the_unused_tail_of_a_slot_is_zero)
 }
 
 /* C's load fails and C comes after A, so A has already loaded the blob's
- * byte, and the rollback from the undo buffer has to put 0x33 back. */
-UTEST(roster, a_row_that_refuses_puts_the_machine_back)
+ * byte. The machine is reset: stopped, RESB low, and every RESET hook run in
+ * reverse order, with no STOP or BREAK. */
+UTEST(roster, a_row_that_refuses_resets_the_machine)
 {
     a_committed_machine();
     a_held = 0x11;
@@ -264,9 +271,13 @@ UTEST(roster, a_row_that_refuses_puts_the_machine_back)
     a_held = 0x33;
     c_held = 0x44;
     c_refuses = true;
-    ASSERT_NE(sst_load(blob, sizeof blob, undo, 0), (const char *)NULL);
-    ASSERT_EQ((int)a_held, 0x33);
-    ASSERT_EQ((int)c_held, 0x44);
+    walked[0] = '\0';
+    ASSERT_NE(sst_load(blob, sizeof blob, 0), (const char *)NULL);
+    ASSERT_STREQ("aLcLcRaR", walked);
+    ASSERT_EQ((int)a_held, 0);
+    ASSERT_EQ((int)c_held, 0);
+    ASSERT_FALSE(sys_active());
+    ASSERT_TRUE(resb_down);
     c_refuses = false;
 }
 
@@ -280,11 +291,3 @@ UTEST(roster, every_row_is_handed_the_same_flags)
     ASSERT_EQ(saw, (uint32_t)SST_SHARED);
 }
 
-UTEST(roster, a_load_with_no_undo_takes_no_copy)
-{
-    a_committed_machine();
-    ASSERT_EQ(sst_save(blob, sizeof blob, SST_TRUSTED), (const char *)NULL);
-    walked[0] = '\0';
-    ASSERT_EQ(sst_load(blob, sizeof blob, NULL, SST_TRUSTED), (const char *)NULL);
-    ASSERT_STREQ("aLcL", walked);
-}

@@ -30,6 +30,16 @@ void proc_exec_drop(void)
     proc_cancel_launcher();
 }
 
+/* No exec is on its way, so proc_exec_take starts nothing, and the chain is
+ * empty. proc_argv0 is only saved, and proc_restage writes it before the
+ * next start. What ends a chain in other drivers is their own reset's
+ * job. */
+void proc_reset(void)
+{
+    proc_exec_pending = false;
+    proc_chain_reset();
+}
+
 void proc_restage(void)
 {
     /* A start by name overrides an exec still on its way. */
@@ -118,6 +128,10 @@ bool proc_sst_load(sst_cursor_t *c, unsigned flags)
         return false;
     if (!proc_chain_sst_load(c))
         return sst_refuse(c, "the program's name and arguments are out of range");
+    /* proc_exec_take loads what argv[0] names, so an exec on its way with
+     * no argv[0] is refused. */
+    if (pending && !arg_index(0))
+        return sst_refuse(c, "an exec is on its way with no program");
     strcpy(proc_argv0, argv0);
     proc_exec_pending = pending;
     return true;

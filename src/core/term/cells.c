@@ -1657,8 +1657,6 @@ static int cells_out_chars(const char *buf, int length, bool force)
 
 void cells_init(void)
 {
-    // The colors start as the reset leaves them.
-    cells_colors_reset(&cells_term);
     // The cells are mode 0's: each size's primary, then its alternate.
     mode0_cell_t *mem = mode0_cells;
     cells_40.bufs[0].mem = mem;
@@ -1672,18 +1670,30 @@ void cells_init(void)
     mem += 80 * TERM_MEM_ROWS;
     cells_80.bufs[1].mem = mem;
 #endif
-    for (int b = 0; b < 2; b++)
-        cells_40.bufs[b].spare = cells_80.bufs[b].spare = TERM_MAX_HEIGHT;
     /* Without an alt store, bufs[1] never has cells, and the terminal never
      * switches to it. */
     cells_40.bufs[0].width = cells_40.bufs[1].width = 40;
     cells_80.bufs[0].width = cells_80.bufs[1].width = 80;
+    cells_restart();
+    // become part of stdout
+    manifold_set_term_out(cells_out_chars);
+}
+
+void cells_restart(void)
+{
+    /* Every cell is a blank in the default colors at once, the scrollback
+     * too, so no glyph or color a load left can reach the renderer. */
+    const cells_fill_t e = cells_blank(' ', MODE0_ENTRY(MODE0_DEFAULT_FG, false),
+                                       MODE0_ENTRY(MODE0_DEFAULT_BG, false), false);
+    cells_run_fill(mode0_cells, MODE0_CELLS, e.cell, e.colors);
+    /* New grids, and a new terminal on them, whose RIS lays out every
+     * screen's cells again, stops a smooth scroll, restarts the blinks and
+     * resets the palette. A program's own grid is dropped with the rest. */
     term_grid_init(&cells_40.grid, 40, cells_40.lines, TERM_MAX_HEIGHT);
     term_grid_init(&cells_80.grid, 80, cells_80.lines, TERM_MAX_HEIGHT);
     term_grid_t *const grids[] = {&cells_40.grid, &cells_80.grid};
     term_init(&cells_term, grids, 2);
-    // become part of stdout
-    manifold_set_term_out(cells_out_chars);
+    cells_stale = true;
 }
 
 // Cursor blink timing only — toggles cursor_lit on its cadence and forces

@@ -45,7 +45,10 @@ bool xreg_sst_load(sst_cursor_t *c, unsigned flags);
  * them. */
 void xreg1_clear(void);
 
+/* RESET drops a half-assembled mode program, so a failed savestate load
+ * leaves nothing for the next program's MODE write to consume. */
 #define XREG_DRIVER DRIVER(                                    \
+    RESET(xreg1_clear)                                         \
     SST(.id = "XREG",                                          \
         .version = 2,                                          \
         .size = XREG_SST_SIZE,                                 \

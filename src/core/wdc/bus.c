@@ -109,6 +109,20 @@ void bus_reset(void)
     bus_ria_irq = false;
 }
 
+/* The load may leave bus_lines far from the beam, which owes the 6502 a debt
+ * or a burst as long as the gap, and bus_at_khz at a rate that is not
+ * running. A cycle count near the top of its range wraps the batch end and
+ * the 6502 never runs again, so the count starts over; only differences are
+ * read. sys_reset has already put back the configured PHI2 rate. */
+void bus_resync(void)
+{
+    bus_lines = vga_beam_lines();
+    bus_owed = 0;
+    bus_cycle_count = 0;
+    bus_at_khz = phi2_get_khz_run();
+    bus_at_next();
+}
+
 static inline void bus_hoist(uint16_t *addr, uint8_t *data, bool *read,
                              bool *via_irq, bool *ria_irq)
 {

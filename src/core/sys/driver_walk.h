@@ -40,6 +40,9 @@
 #ifndef BREAK
 #define BREAK(f)
 #endif
+#ifndef RESET
+#define RESET(f)
+#endif
 #ifndef FLASHING
 #define FLASHING(f)
 #endif

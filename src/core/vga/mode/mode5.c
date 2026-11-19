@@ -513,6 +513,14 @@ bool mode5_sprite_attr(vga_sprite_fn_t fn, uint16_t *attributes)
 }
 #endif
 
+bool mode5_config_ok(uint16_t attributes, uint16_t config_ptr, uint16_t length)
+{
+    const uint32_t size = mode5_sprite_key(attributes) == MODE5_CUSTOM
+                              ? sizeof(mode5_csprite_t)
+                              : sizeof(mode5_sprite_t);
+    return vga_xram_ok(config_ptr, size * length);
+}
+
 bool mode5_prog(uint16_t *xregs)
 {
     const uint16_t attributes = xregs[2];
@@ -522,17 +530,8 @@ bool mode5_prog(uint16_t *xregs)
     const int16_t scanline_begin = xregs[6];
     const int16_t scanline_end = xregs[7];
 
-    if (config_ptr & 1)
-        return false;
-
-    const uint32_t descriptor_size = mode5_sprite_key(attributes) == MODE5_CUSTOM
-                                         ? sizeof(mode5_csprite_t)
-                                         : sizeof(mode5_sprite_t);
-    const uint32_t region_size = descriptor_size * length;
-    if (region_size > 0x10000 || config_ptr > 0x10000 - region_size)
-        return false;
-
-    if (!mode5_sprite_valid(attributes))
+    if (!mode5_config_ok(attributes, config_ptr, length) ||
+        !mode5_sprite_valid(attributes))
         return false;
 
     return vga_prog_sprite(plane, scanline_begin, scanline_end, config_ptr, length, 5, attributes);

@@ -287,16 +287,17 @@ size_t sst_size(void);
  * mid-fan-out.
  *
  * A load overwrites the machine one row at a time, so a row that refuses
- * partway through leaves the rows before it already loaded. undo, sst_size()
- * bytes of the caller's, is where the load first saves the machine as it
- * stands, and a refused load puts it back from there. A caller with no undo
- * passes NULL and is left with a half loaded machine when a row refuses. */
+ * partway through leaves the rows before it loaded, itself partly loaded and
+ * the rows after it as they were. A refused load therefore resets the machine
+ * with sys_reset before it returns: the machine is stopped and empty, and
+ * the caller starts a program on it again if it has one. A blob refused
+ * before any row loads changes nothing. */
 const char *sst_save(void *buf, size_t len, unsigned flags);
-const char *sst_load(const void *buf, size_t len, void *undo, unsigned flags);
+const char *sst_load(const void *buf, size_t len, unsigned flags);
 
 /* sst_load without the checks, for a caller that has just had sst_check pass
  * the same bytes with the same flags and has work to do in between. */
-const char *sst_load_checked(const void *buf, void *undo, unsigned flags);
+const char *sst_load_checked(const void *buf, unsigned flags);
 
 /* NULL when the len bytes at buf are a savestate this build can load, else
  * a static reason. It checks what sst_load checks before it changes

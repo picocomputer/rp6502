@@ -39,6 +39,11 @@ typedef struct keyboard_connection
 
 void keyboard_init(void);
 void keyboard_stop(void);
+/* After a failed load the bitmap's address and its keys hold whatever the
+ * load left. This unmaps the bitmap and releases every key, so no stuck
+ * modifier reaches the next program. The locks are masked wherever they are
+ * read, so they stay. */
+void keyboard_reset(void);
 
 bool keyboard_mount(int slot, const keyboard_connection_t *desc,
                     uint16_t vendor_id, uint16_t product_id);
@@ -93,6 +98,7 @@ bool keyboard_sst_load(sst_cursor_t *c, unsigned flags);
 #define KEYBOARD_DRIVER DRIVER(                                            \
     INIT(keyboard_init)                                                    \
     STOP(keyboard_stop)                                                    \
+    RESET(keyboard_reset)                                                  \
     SST(.id = "KEYB",                                                      \
         .version = 1,                                                      \
         .size = KEYBOARD_SST_SIZE,                                         \

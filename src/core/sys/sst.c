@@ -305,20 +305,17 @@ const char *sst_check(const void *buf, size_t len, unsigned flags)
     return NULL;
 }
 
-const char *sst_load(const void *buf, size_t len, void *undo, unsigned flags)
+const char *sst_load(const void *buf, size_t len, unsigned flags)
 {
     const char *why = sst_check(buf, len, flags);
-    return why ? why : sst_load_checked(buf, undo, flags);
+    return why ? why : sst_load_checked(buf, flags);
 }
 
-const char *sst_load_checked(const void *buf, void *undo, unsigned flags)
+const char *sst_load_checked(const void *buf, unsigned flags)
 {
     const uint8_t *p = (const uint8_t *)buf;
     sys_latch_t latch;
     sst_latch(p, &latch);
-
-    if (undo && sst_write((uint8_t *)undo, flags) != NULL)
-        return "the machine could not be copied aside";
 
     if (!sys_latch_apply(&latch))
         return "a savestate of a machine that could not have existed";
@@ -326,17 +323,6 @@ const char *sst_load_checked(const void *buf, void *undo, unsigned flags)
     if (sst_load_rows((uint8_t *)(uintptr_t)(p + SST_HEADER_LEN), flags))
         return NULL;
 
-    const char *why = sst_why;
-    if (undo)
-    {
-        const uint8_t *u = (const uint8_t *)undo;
-        sys_latch_t was;
-        was.state = u[16];
-        was.held = (u[17] & 1) != 0;
-        was.breaking = (u[17] & 2) != 0;
-        sys_latch_apply(&was);
-        if (!sst_load_rows((uint8_t *)undo + SST_HEADER_LEN, flags))
-            return "the machine could not be put back";
-    }
-    return why;
+    sys_reset();
+    return sst_why;
 }

@@ -25,6 +25,9 @@
 #endif
 
 void oem_init(void);
+/* After a failed load, puts the configured code page back in all three
+ * places it is kept: the page in force, the filesystem's and the font's. */
+void oem_reset(void);
 /* Puts back the configured code page if a program changed it. */
 void oem_restore_code_page(void);
 
@@ -108,6 +111,7 @@ bool oem_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define OEM_DRIVER DRIVER(                                  \
     INIT(oem_init)                                          \
+    RESET(oem_reset)                                        \
     OEM_CONFIG_CODE_PAGE                                    \
     SST(.id = "OEM_",                                       \
         .version = 1,                                       \

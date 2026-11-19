@@ -66,6 +66,18 @@ void HOST_IN_FLASH_FUNC oem_init(void)
     vga_set_code_page(oem_code_page_run);
 }
 
+/* oem_request_code_page compares against oem_code_page_run, which a failed
+ * load leaves at any value, so this sets all three copies outright. The
+ * glyphs go in without the terminal reset, because the terminal's own RESET
+ * puts it back. */
+void oem_reset(void)
+{
+    uint16_t cp = oem_resolve();
+    oem_code_page_run = unicode_has_page(cp) ? cp : 0;
+    oem_fs_code_page(oem_code_page_run);
+    vga_load_code_page(oem_code_page_run);
+}
+
 uint16_t oem_get_code_page_restore(void)
 {
     return unicode_has_page(oem_resolve()) ? oem_resolve() : oem_code_page_run;

@@ -402,6 +402,11 @@ vga_fill_fn_t mode1_fill_fn(uint16_t attributes)
 }
 #endif
 
+bool mode1_config_ok(uint16_t config_ptr)
+{
+    return vga_xram_ok(config_ptr, sizeof(mode1_config_t));
+}
+
 bool mode1_prog(uint16_t *xregs)
 {
     const uint16_t attributes = xregs[2];
@@ -410,8 +415,7 @@ bool mode1_prog(uint16_t *xregs)
     const int16_t scanline_begin = xregs[5];
     const int16_t scanline_end = xregs[6];
 
-    if (config_ptr & 1 ||
-        config_ptr > 0x10000 - sizeof(mode1_config_t))
+    if (!mode1_config_ok(config_ptr))
         return false;
 
     if (!mode1_fill_valid(attributes))

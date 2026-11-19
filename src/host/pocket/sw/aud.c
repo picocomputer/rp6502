@@ -25,6 +25,25 @@ void aud_init(void)
     bel_init();
 }
 
+/* A failed savestate load leaves the engines sounding from any registers
+ * and the bell's deadlines on any clock, with the machine held. The bell is
+ * silenced first, and the PSG's pointer write is not waited on, because a
+ * held PSG whose sample counter was loaded at zero starts no clearing pass
+ * until the hold ends; the pass zeroes only the eight voices, so the bell's
+ * writes ahead of it are kept. PCM:'s buffer is emptied, because the held
+ * buffer never drains, and std_sst_reset, which runs next, waits for it
+ * to play before it closes a PCM: descriptor. PCM: is closed, because
+ * aud_pcm_open refuses while aud_pcm_ctrl is set, which no closed
+ * descriptor would ever clear. */
+void aud_reset(void)
+{
+    bel_init();
+    AUD_PSG_XADDR = 0xFFFF;
+    aud_opl_map(0xFFFF);
+    aud_end();
+    aud_pcm_close();
+}
+
 void aud_task(void)
 {
     bel_task();

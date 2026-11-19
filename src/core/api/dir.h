@@ -37,9 +37,13 @@ bool dir_api_getfree(void);
 void dir_sst_save(sst_cursor_t *c, unsigned flags);
 bool dir_sst_load(sst_cursor_t *c, unsigned flags);
 
+/* A failed savestate load closes every directory either machine had open
+ * and zeroes the entry counts, as a program start does, so no handle is held
+ * while the machine waits for one. */
 #define DIR_DRIVER DRIVER(                                  \
     RUN(dir_run)                                            \
     STOP(dir_stop)                                          \
+    RESET(dir_run)                                          \
     SST(.id = "DIR_",                                       \
         .version = 1,                                       \
         .size = DIR_SST_SIZE,                               \

@@ -271,8 +271,8 @@ bool aud_enabled(void) { return aud_on; }
 
 static void aud_apply(const aud_ev_t *e);
 
-/* A stop or a reset empties what was stamped, but the bell is not the
- * program's and outlives both, so its bytes are taken now. */
+/* A stop empties what was stamped, but the bell is not the program's and
+ * outlives it, so its bytes are taken now. */
 static void aud_keep_bel(void)
 {
     const uint32_t n = RING_LEN(&aud_ev);
@@ -282,19 +282,29 @@ static void aud_keep_bel(void)
     RING_SKIP(&aud_ev, n);
 }
 
+/* At boot, and when a savestate load fails, which can leave the engines,
+ * the bell, the mix and the PCM: model holding anything. Both engines are
+ * reset and parked, the bell rests, nothing is stamped or buffered, and
+ * every count starts at the machine's present, so no loop has a gap to
+ * catch up. The ring is emptied first so the bell's pushes cannot find it
+ * full while the lock is held. STD's reset runs after this one and closes
+ * PCM: on an empty buffer, so the close has nothing to wait for. */
 void aud_init(void)
 {
     aud_lock();
+    RING_SKIP(&aud_ev, RING_LEN(&aud_ev));
+    psg_reset();
+    opl_map(0xFFFF);
     bel_init();
+    aud_keep_bel();
     rsmp_reset(&aud_rs_l);
     rsmp_reset(&aud_rs_r);
-    aud_keep_bel();
-    aud_psg_at = psg_xaddr_get();
-    aud_opl_at = opl_xaddr_get();
+    aud_psg_at = aud_opl_at = 0xFFFF;
     aud_made = bus_now(AUD_NATIVE_RATE);
     atomic_store(&aud_now, aud_made);
     aud_oq_reset(aud_made);
     aud_pm.on = false;
+    aud_pm.level = 0;
     aud_pm.underruns = 0;
     aud_pcm_play = false;
     aud_off = 0;

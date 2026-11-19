@@ -199,10 +199,11 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     /* The lengths need no range check because a uint8_t cannot reach past a
      * buffer this size, and the static assert keeps that true if RLN_BUF_SIZE
      * changes. The indexes are checked because they can exceed the lengths
-     * they index. */
+     * they index. A line with a prompt column wraps at its width, so that
+     * width is never 0. */
     _Static_assert(RLN_BUF_SIZE > UINT8_MAX, "a byte length must not escape rln_buf");
     if (!sst_ok(c) || reader > 1 || bufpos > buflen ||
-        cur > buflen || lastkey_len > RLN_LASTKEY_MAX)
+        cur > buflen || lastkey_len > RLN_LASTKEY_MAX || (pcol && !width))
         return false;
     if (grid && !rln_has_grid())
         term_add_grid(&cells_term, &rln_grid, cells_shown(&cells_term),
@@ -1302,6 +1303,16 @@ void rln_stop(void)
             com_printf("\r\n");
         rln_read_cancel();
     }
+    rln_reset();
+}
+
+/* No read, and the third grid off the screen's terminal, with nothing drawn:
+ * after a failed load the line's indexes and geometry may hold anything, and
+ * the console they would draw through is not reset yet. CELLS' RESET runs
+ * first, so the grid list is sound to search. The rest is set again by the
+ * next read's start. */
+void rln_reset(void)
+{
     if (rln_has_grid())
         term_drop_grid(&cells_term, &rln_grid);
     rln_init();

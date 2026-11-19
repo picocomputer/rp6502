@@ -230,6 +230,21 @@ void HOST_IN_FLASH_FUNC com_run(void)
     com_reply_quiet = com_reply_default;
 }
 
+/* A failed load can leave the picker held by no source, which reads nothing
+ * ever again, the latch byte named for no source, and the answer's indexes
+ * past its buffer. This drops the input and answers waiting, holds no
+ * source, names the keyboard for the latch, turns the bell on and answers
+ * queries as the machine's default says, as a new program finds them. A
+ * latch byte named for no source is the RIA's RESET to drop. */
+void com_reset(void)
+{
+    com_rx_clear();
+    com_rx_held = COM_SOURCE_ANY;
+    com_rx_staged = COM_SOURCE_KEYBOARD;
+    com_bel_enabled = true;
+    com_run();
+}
+
 /* Where COM_LIBC_STDOUT says the C library's stdout is the console, this
  * formats straight to it. Elsewhere it formats into a 1 KB buffer and cuts off
  * what does not fit. */

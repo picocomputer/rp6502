@@ -25,6 +25,12 @@
 void cells_init(void);
 void cells_task(void);
 
+/* The terminal and the cells of both sizes as at power-up: every cell blank,
+ * new grids at TERM_STD_HEIGHT, and a RIS. It is the RESET hook, because a
+ * load that fails leaves any value in all of them. The renderer's RESET,
+ * which runs first, leaves setting the heights again to its next task. */
+void cells_restart(void);
+
 /* The console's terminal. On a machine that runs a program and draws its
  * screen in one, it is this file's; the RIA has its own, which follows the
  * VGA's (ria/term/cells.c). */
@@ -72,6 +78,7 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags);
 #define CELLS_DRIVER DRIVER(                                    \
     INIT(cells_init)                                            \
     TASK_FATFS(cells_task)                                      \
+    RESET(cells_restart)                                        \
     SST(.id = "CELL",                                           \
         .version = 14,                                          \
         .size = CELLS_SST_SIZE,                                 \

@@ -92,6 +92,9 @@ typedef struct tablet_connection
 } tablet_connection_t;
 
 void tablet_init(void);
+/* Unmaps the block. It is also the RESET hook: a failed load can leave the
+ * address pointing into the next program's XRAM, and the next mapping
+ * rewrites the block. */
 void tablet_stop(void);
 
 bool tablet_xreg(uint16_t word);
@@ -135,6 +138,7 @@ bool tablet_sst_load(sst_cursor_t *c, unsigned flags);
 #define TABLET_DRIVER DRIVER(                                        \
     INIT(tablet_init)                                                \
     STOP(tablet_stop)                                                \
+    RESET(tablet_stop)                                               \
     SST(.id = "TBLT",                                                \
         .version = 3,                                                \
         .size = TABLET_SST_SIZE,                                     \

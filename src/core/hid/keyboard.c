@@ -80,7 +80,7 @@ bool keyboard_sst_load(sst_cursor_t *c, unsigned flags)
     uint32_t keys[8];
     for (int i = 0; i < 8; i++)
         keys[i] = sst_get_u32(c);
-    if (!sst_ok(c))
+    if (!sst_ok(c) || (at > 0x10000 - sizeof(keyboard_keys) && at != 0xFFFF))
         return false;
     keyboard_xram = at;
     keyboard_locks = leds;
@@ -98,6 +98,12 @@ void HOST_IN_FLASH_FUNC keyboard_init(void)
 void keyboard_stop(void)
 {
     keyboard_xram = 0xFFFF;
+}
+
+void keyboard_reset(void)
+{
+    keyboard_stop();
+    keyboard_release_all();
 }
 
 bool keyboard_mount(int slot, const keyboard_connection_t *desc,

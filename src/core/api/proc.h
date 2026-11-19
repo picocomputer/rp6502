@@ -58,6 +58,10 @@ const char *proc_launcher(void);
 void proc_chain_sst_save(sst_cursor_t *c);
 bool proc_chain_sst_load(sst_cursor_t *c);
 
+/* For every machine's PROC reset after a failed savestate load: no program
+ * runs, no launcher is set and argv is empty. */
+void proc_chain_reset(void);
+
 /* Program EXIT, op 0xFF: record the code and stop. */
 void proc_exit(int16_t exit_code);
 

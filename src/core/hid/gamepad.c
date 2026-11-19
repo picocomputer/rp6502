@@ -503,7 +503,8 @@ bool gamepad_sst_load(sst_cursor_t *c, unsigned flags)
         in[p].lt = sst_get_u8(c);
         in[p].rt = sst_get_u8(c);
     }
-    if (!sst_ok(c))
+    if (!sst_ok(c) ||
+        (at > 0x10000 - sizeof gamepad_reports && at != 0xFFFF))
         return false;
     gamepad_xram = at;
     memcpy(gamepad_reports, in, sizeof gamepad_reports);

@@ -76,6 +76,12 @@ void vga_stop(void)
     vga_needs_reset = true;
 }
 
+/* Every console a host can give is 640 wide and 480, 400 or 360 high. */
+static bool vga_console_ok(int h)
+{
+    return h == 480 || h == 400 || h == 360;
+}
+
 static void vga_render_scanline(int y);
 
 /* The line within the frame and the clock are computed from beam_n rather than
@@ -85,6 +91,21 @@ static unsigned long frame_n;
 static bool vsynced;
 
 static bool vga_scanout = true;
+
+void vga_reset(void)
+{
+    /* The console reset reads the console's size, so a size no host gives
+     * becomes the size every host starts with. */
+    int w, h;
+    vga_console_size(&w, &h);
+    if (w != 640 || !vga_console_ok(h))
+        vga_set_console_size(640, 480);
+    frame_n = (unsigned long)(beam_n / VGA_SCANLINES);
+    /* The console reset calls into the cells, whose RESET runs after this
+     * one, so it waits for vga_task. That clears the table and its rows
+     * before it draws one. */
+    vga_needs_reset = true;
+}
 
 #define BEAM_US_NUM 2000ull
 #define BEAM_US_DEN 63ull
@@ -184,29 +205,32 @@ bool vga_sst_load(sst_cursor_t *c, unsigned flags)
      * well, rather than left for vga_canvas_load to refuse, because the
      * console's size has to be set before the canvas is loaded, and a refused
      * load must have set nothing. */
-    if ((console_h != 480 && console_h != 400 && console_h != 360) ||
-        canvas >= VGA_CANVAS_COUNT)
+    if (!vga_console_ok(console_h) || canvas >= VGA_CANVAS_COUNT)
         return false;
 
     /* Every renderer the table names is resolved before any row is installed,
      * so a blob naming a mode this build does not have refuses the load
      * before anything is mutated. That is why the cursor is saved here and
-     * read a second time below. */
+     * read a second time below. Each config is bounded as its mode's prog
+     * bounds it, because the renderer reads it from xram unchecked. */
     const sst_cursor_t table = *c;
     for (int16_t line = 0; line < VGA_SST_ROWS; line++)
         for (int16_t plane = 0; plane < SCANVIDEO_PLANE_COUNT; plane++)
         {
             uint8_t mode = sst_get_u8(c);
             uint16_t attr = sst_get_u16(c);
-            if (mode != VGA_MODE_NONE && !vga_mode_fill_fn(mode, attr))
+            uint16_t config = sst_get_u16(c);
+            if (mode != VGA_MODE_NONE &&
+                (!vga_mode_fill_fn(mode, attr) || !vga_mode_config_ok(mode, attr, config, 0)))
                 return false;
-            sst_get_u16(c);
             mode = sst_get_u8(c);
             attr = sst_get_u16(c);
-            if (mode != VGA_MODE_NONE && !vga_mode_sprite_fn(mode, attr))
+            config = sst_get_u16(c);
+            uint16_t length = sst_get_u16(c);
+            if (mode != VGA_MODE_NONE &&
+                (!vga_mode_sprite_fn(mode, attr) ||
+                 !vga_mode_config_ok(mode, attr, config, length)))
                 return false;
-            sst_get_u16(c);
-            sst_get_u16(c);
         }
     if (!sst_ok(c))
         return false;

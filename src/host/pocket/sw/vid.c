@@ -48,7 +48,11 @@ unsigned long vga_frame_count(void)
 /* The console's code page and canvas are put back when a program stops.
  * Both are deferred to vid_task so that they land after every other stop hook
  * has run, which a stop hook itself could ensure only from the first row of
- * the driver list, because stop hooks run in reverse order. */
+ * the driver list, because stop hooks run in reverse order. A failed
+ * savestate load resets through here too: vga_console_reset puts back the
+ * canvas, clears the scanline table and the console's mask, and sets the
+ * console's plane, so no program's booking meets the load's values, since
+ * vid_task runs before the next program starts. */
 void vid_stop(void)
 {
     vid_needs_restore = true;

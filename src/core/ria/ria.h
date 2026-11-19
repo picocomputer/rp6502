@@ -68,6 +68,11 @@ bool ria_irq_asserted(void);
  * and the next program would read what was typed at the one just stopped. */
 void ria_break(void);
 
+/* After a failed savestate load: drops the $FFE2 byte as ria_break does, and
+ * puts back the empty xstack and the zero above its top that string pops end
+ * on. */
+void ria_reset(void);
+
 #ifdef __cplusplus
 }
 #endif
@@ -82,6 +87,7 @@ bool ria_sst_load(sst_cursor_t *c, unsigned flags);
 #define RIA_DRIVER DRIVER(                                  \
     RUN(ria_run)                                            \
     BREAK(ria_break)                                        \
+    RESET(ria_reset)                                        \
     SST(.id = "RIA_",                                       \
         .version = 2,                                       \
         .size = RIA_SST_SIZE,                               \

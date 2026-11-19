@@ -53,9 +53,9 @@
  * through vga_canvas_select, and vga_canvas_select then calls mode0_prog,
  * which calls cells_set_height on the terminals that cells_init sets up.
  *
- * AUD_FABRIC_DRIVER follows STD_DRIVER because END hooks run in reverse,
- * so aud_end empties PCM before std_reset closes it, which would otherwise
- * wait for the buffer to play.
+ * AUD_FABRIC_DRIVER follows STD_DRIVER because END and RESET hooks run in
+ * reverse, so aud_end and aud_reset empty PCM before std_reset closes it,
+ * which would otherwise wait for the buffer to play.
  *
  * A savestate walks the list in order. FAB_DRIVER comes first, so the
  * mtime it saves is the one the other rows' times were kept by. ASSET_DRIVER

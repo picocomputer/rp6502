@@ -58,7 +58,6 @@ static int16_t audio_buf[RETRO_AUD_MAX * 2];
 static char *loaded_host; /* the content's absolute host path */
 static char *loaded_rom;  /* the path or ":name" the last boot loaded */
 static char *save_dir;    /* the frontend's save folder + "/rp6502", or NULL */
-static void *sst_undo;    /* where a load saves the machine it may have to put back */
 static bool machine_inited;
 static int geom_w, geom_h;
 /* Frames run since the program stopped, up to 2, when the shutdown has gone
@@ -346,7 +345,6 @@ void retro_set_input_state(retro_input_state_t cb) { input_state_cb = cb; }
 
 void retro_init(void)
 {
-    sst_undo = malloc(sst_size());
     struct retro_log_callback logging;
     if (environ_cb && environ_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logging))
         log_cb = logging.log;
@@ -371,7 +369,6 @@ void retro_deinit(void)
     forget_rom();
     free(loaded_host), loaded_host = NULL;
     free(save_dir), save_dir = NULL;
-    free(sst_undo), sst_undo = NULL;
     fs_save_free();
     exit_frames = 0;
     geom_w = geom_h = 0;
@@ -762,16 +759,12 @@ bool retro_unserialize(const void *data, size_t size)
         return false;
     fs_std_settle();
     unsigned flags = savestate_flags();
-    /* A runahead load puts back a state this core saved a moment ago, so
-     * it takes no copy of the machine to undo it with. */
-    const char *why = sst_load(data, size,
-                               (flags & SST_TRUSTED) ? NULL : sst_undo, flags);
+    const char *why = sst_load(data, size, flags);
     if (why)
     {
         RP6502_LOG(retro, ERROR, "cannot load state: %s", why);
-        /* A refused load rolls itself back, but a trusted load has no
-         * rollback and a rollback can itself fail. Either leaves no machine
-         * standing, and only this file has a ROM to stand one up with. */
+        /* A load refused partway leaves the machine reset, stopped and
+         * empty, and only this file has a ROM to stand one up with. */
         if (!sys_active() && loaded_host)
             boot();
         return false;

@@ -45,6 +45,7 @@ bool tty_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define TTY_DRIVER DRIVER(            \
     STOP(tty_stop)                    \
+    RESET(tty_stop)                   \
     SST(.id = "TTY_",                 \
         .version = 1,                 \
         .size = TTY_SST_SIZE,         \

@@ -21,6 +21,11 @@ void vga_init(void);
 
 void vga_stop(void);
 
+/* The console canvas again, at a size a host gives, with the frame count
+ * the beam's. The canvas and the table are put back by the console reset
+ * at the start of the next vga_task, before any row is drawn. */
+void vga_reset(void);
+
 void vga_task(void);
 
 /* Scanlines the beam has passed since boot, blanking included; only a
@@ -87,6 +92,7 @@ bool vga_sst_load(sst_cursor_t *c, unsigned flags);
     INIT(vga_init)                                          \
     TASK_PUMPED(vga_task)                                   \
     STOP(vga_stop)                                          \
+    RESET(vga_reset)                                        \
     SST(.id = "VGA_",                                       \
         .version = 3,                                       \
         .size = VGA_SST_SIZE,                               \

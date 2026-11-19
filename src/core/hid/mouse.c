@@ -198,7 +198,7 @@ bool mouse_sst_load(sst_cursor_t *c, unsigned flags)
     uint8_t w = sst_get_u8(c), p = sst_get_u8(c);
     uint16_t mx = sst_get_u16(c), my = sst_get_u16(c);
     int32_t ax = sst_get_i32(c), ay = sst_get_i32(c);
-    if (!sst_ok(c))
+    if (!sst_ok(c) || (at > 0x10000 - sizeof(mouse_state) && at != 0xFFFF))
         return false;
     mouse_xram = at;
     mouse_state.buttons = b;

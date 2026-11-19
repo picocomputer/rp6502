@@ -28,6 +28,9 @@ void std_stop(void);
  * has what the one before it left open. */
 void std_reset(void);
 
+/* After a failed savestate load: std_stop, then std_reset. */
+void std_sst_reset(void);
+
 bool std_api_open(void);
 bool std_api_close(void);
 bool std_api_dup(void);
@@ -119,6 +122,7 @@ bool std_sst_load(sst_cursor_t *c, unsigned flags);
     TASK_PUMPED(std_task)                                   \
     STOP(std_stop)                                          \
     END(std_reset)                                          \
+    RESET(std_sst_reset)                                    \
     SST(.id = "STD_",                                       \
         .version = 4,                                       \
         .size = STD_SST_SIZE,                               \

@@ -29,6 +29,7 @@ bool vid_sst_load(sst_cursor_t *c, unsigned flags);
     INIT(vid_init)                                             \
     TASK_FATFS(vid_task)                                       \
     STOP(vid_stop)                                             \
+    RESET(vid_stop)                                            \
     SST(.id = "VID_",                                          \
         .version = 3,                                          \
         .size = VID_SST_SIZE,                                  \
