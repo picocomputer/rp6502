@@ -83,11 +83,18 @@ static __force_inline void vga_vsync_set(uint8_t frame)
 /* A VGA that stops sending VSYNCs is found lost only by vga_task, which a
  * loop on core 0 waiting for the console may not run, so the count goes on
  * by the clock once two frames pass with none: whatever waits on frames
- * still sees them go by. */
+ * still sees them go by. The count and its time are read as a pair no VSYNC
+ * came between, and the clock after them: a wait that came out negative
+ * would read as a VGA silent for an hour. */
 uint32_t HOST_IN_RAM_FUNC vga_frames(void)
 {
-    uint32_t frames = vga_vsync_frames;
-    uint32_t late = time_us_32() - vga_vsync_at_us;
+    uint32_t frames, at;
+    do
+    {
+        frames = vga_vsync_frames;
+        at = vga_vsync_at_us;
+    } while (frames != vga_vsync_frames);
+    uint32_t late = time_us_32() - at;
     if (late > 2 * VGA_VSYNC_PERIOD_US)
         frames += late / VGA_VSYNC_PERIOD_US;
     return frames;
