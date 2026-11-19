@@ -1436,12 +1436,11 @@ UTEST(fs, a_save_file_open_refuses_an_exec)
 /* CON:0, CON:1 and CON:2 are the waiting console; no other number is. */
 UTEST(fs, con_takes_0_1_or_2)
 {
+    static const char *const paths[] = {"CON:0", "CON:1", "CON:2"};
     ASSERT_TRUE(fresh_cwd());
     for (int n = 0; n < 3; n++)
     {
-        char path[8] = "CON:0";
-        path[4] = (char)('0' + n);
-        int fd = ssys_open(path, O_RD | O_WR);
+        int fd = ssys_open(paths[n], O_RD | O_WR);
         ASSERT_TRUE(fd >= 0);
         ASSERT_EQ(ssys_write(fd, "", 0), 0);
         ssys_close(fd);
