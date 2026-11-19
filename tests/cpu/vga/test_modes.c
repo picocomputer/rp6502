@@ -430,6 +430,25 @@ UTEST(mode0, smooth_scroll_down_320x240)
     run_smooth(utest_result, "mode0_smooth_down320", 15, 2, 0x4DE10E86);
 }
 
+/* Lines said faster than a smooth scroll moves them wait for it, and none of
+ * their bytes are lost on the way: four scrolls of sixteen frames, and then
+ * the picture they land on. */
+UTEST(mode0, smooth_scroll_flood_640x480)
+{
+    const char *name = "mode0_smooth_flood640";
+    char path[256];
+    snprintf(path, sizeof(path), "%s/%s.rp6502", ROMS_DIR, name);
+    ASSERT_TRUE(mut_boot(path));
+    for (int f = 0; f < 4 * 16 + 60; f++)
+        mut_frame(640, 480);
+    ASSERT_TRUE(settle(settled, 640, 480));
+    uint32_t got = host_crc32(0, settled, 640 * 480 * sizeof(uint32_t));
+    if (getenv("RP6502_BLESS_CRC"))
+        printf("    0x%08X,  /* %s */\n", got, name);
+    else
+        ASSERT_EQ(got, 0x30794435u);
+}
+
 UTEST(mode3, bpp1_builtin_320x240)
 {
     run_case(utest_result, "mode3_1bpp", 0x4EA78B8D, MUT_BUDGET_NONE);

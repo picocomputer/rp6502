@@ -938,6 +938,20 @@ def mode0smooth(name, canvas, width, scroll):
 
 mode0smooth("mode0_smooth_up640", 3, 80, "\33[20;1H\n\n")
 mode0smooth("mode0_smooth_down320", 1, 40, "\33[5;1H\33M\33M")
+
+
+# Thirty-three colored lines said as fast as the UART takes them, with smooth
+# scroll on, so the last four each wait for the one before to finish moving.
+# The picture they land on has every byte.
+def mode0flood_text():
+    s = "\33[0m\33[2J\33[H\33[?25l\33[?4h"
+    for r in range(33):
+        s += f"\33[{31 + r % 7}m{r:02} " + "abcdefghij"[r % 10] * 36 + "\r\n"
+    return s
+
+
+mode0text("mode0_smooth_flood640", 3, mode0flood_text())
+
 mode0text("mode0_dbl320", 1, MODE0_SIZES + "\33[2;2H\33[6 q")
 mode0text("mode0_rev640", 3, "\33[?5h" + MODE0_SIZES + "\33[3;4H\33[4 q")
 mode0text("mode0_rev320", 1, "\33[?5h" + MODE0_SIZES + "\33[1;3H\33[2 q")
