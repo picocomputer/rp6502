@@ -7,9 +7,11 @@
 /* term.c, the console's terminal, fed through the console and read through
  * its view. The console canvas holds the 80-column terminal, 30 rows. */
 
+#include "core/api/xreg.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/com/rln.h"
+#include "core/com/console.h"
 #include "core/str/str.h"
 #include "core/sys/sst.h"
 #include "core/sys/sys.h"
@@ -19,6 +21,7 @@
 #include "tb_screen.h"
 #include "core/vga/vga.h"
 #include "core/vga/vga_emu.h"
+#include "core/vga/mode/mode0.h"
 #include "utest.h"
 #include <stdio.h>
 #include <string.h>
@@ -592,6 +595,16 @@ UTEST(term, decrqm)
     ASSERT_STREQ(ask("\33[2$p"), "\33[2;4$y");
     ASSERT_STREQ(ask("\33[12$p"), "\33[12;3$y");
     ASSERT_STREQ(ask("\33[?4000$p"), "\33[?4000;0$y");
+}
+
+/* DECCOLM is 80 columns or 132. The 40-column screen is neither. */
+UTEST(term, decrqm_deccolm_on_the_40_column_screen)
+{
+    fresh();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    ASSERT_STREQ(ask("\33[?3$p"), "\33[?3;0$y");
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    ASSERT_STREQ(ask("\33[?3$p"), "\33[?3;4$y");
 }
 
 /* ---- the keyboard's modes: the terminal holds them, the keyboard reads --- */
@@ -2482,6 +2495,133 @@ UTEST(term, what_neovim_asks_as_it_starts_is_all_answered)
     ASSERT_STREQ(ask("\33P$qm\33\\"), "\33P1$r0m\33\\");
     /* And as it leaves. */
     ASSERT_STREQ(ask("\33[>4;0m\33[c"), "\33[?6c");
+}
+
+/* ---- smooth scroll ---- */
+
+/* The row a smooth scroll is moving out, as text, trailing spaces dropped. */
+static const char *ghost(void)
+{
+    static char text[96];
+    const mode0_cell_t *c = &mode0_cells[MODE0_ROW_CELL(mode0_regs.smooth_ghost)];
+    int last = 0;
+    for (int x = 0; x < 80; x++)
+    {
+        text[x] = (char)mode0_glyph_code(c[x].glyph);
+        if (text[x] != ' ')
+            last = x + 1;
+    }
+    text[last] = 0;
+    return text;
+}
+
+UTEST(term, decsclm_is_reported)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33[?4$p"), "\33[?4;2$y");
+    ASSERT_STREQ(ask("\33[?4h\33[?4$p"), "\33[?4;1$y");
+}
+
+/* The row going out still shows while it goes, so an erase it was owed is
+ * paid first: a whole-screen scroll after ED 2 moves out a blank row. */
+UTEST(term, a_smooth_scroll_moves_out_the_row_as_it_is)
+{
+    fresh();
+    feed("\33[HXXXX\33[?4h\33[2J\33[30;1H\n");
+    ASSERT_TRUE(mode0_regs.smooth & MODE0_SMOOTH_ON);
+    ASSERT_STREQ(ghost(), "");
+}
+
+/* The same for a reverse index in a region, whose bottom row goes out. */
+UTEST(term, a_smooth_reverse_index_moves_out_the_bottom_row_as_it_is)
+{
+    fresh();
+    feed("\33[10;1HYYYY\33[?4h\33[5;10r\33[5;1H\33[J\33M");
+    ASSERT_FALSE(mode0_regs.smooth & MODE0_SMOOTH_UP);
+    ASSERT_STREQ(ghost(), "");
+    feed("\33[r");
+}
+
+/* A line feed that would scroll the moving rows again waits for them to
+ * land, which takes TERM_SMOOTH_FRAMES frames. Text goes on into the row
+ * coming in. */
+UTEST(term, a_smooth_scroll_holds_the_next_line_feed)
+{
+    fresh();
+    feed("\33[?4h\33[30;1H\n");
+    ASSERT_TRUE(term_holds(&cells_term, '\n'));
+    ASSERT_FALSE(term_holds(&cells_term, 'A'));
+    int frames = 0;
+    while (term_holds(&cells_term, '\n') && frames < 100)
+    {
+        vga_run_frame();
+        frames++;
+    }
+    ASSERT_EQ(frames, TERM_SMOOTH_FRAMES);
+}
+
+/* A line feed that has to wait, behind one that is scrolling: what the
+ * console's output holds while a smooth scroll moves. */
+static bool held_line_feed(void)
+{
+    fresh();
+    feed("\33[?4h\33[30;1H\n\n");
+    return !manifold_drained();
+}
+
+/* A sync of the console returns once both lines have arrived. */
+UTEST(term, a_console_sync_waits_for_the_scroll)
+{
+    ASSERT_TRUE(held_line_feed());
+    api_errno err;
+    ASSERT_EQ(console_std_sync(1, &err), STD_PENDING);
+    int frames = 0;
+    while (console_std_sync(1, &err) == STD_PENDING && frames < 100)
+    {
+        vga_run_frame();
+        frames++;
+    }
+    ASSERT_TRUE(frames > TERM_SMOOTH_FRAMES);
+    ASSERT_TRUE(frames <= 2 * TERM_SMOOTH_FRAMES);
+    ASSERT_TRUE(manifold_drained());
+}
+
+/* The end of a chain waits for no scroll: what was held goes out at once. */
+UTEST(term, the_end_of_a_chain_releases_a_held_line)
+{
+    ASSERT_TRUE(held_line_feed());
+    term_release_smooth(&cells_term);
+    manifold_task();
+    ASSERT_TRUE(manifold_drained());
+    /* DECSCLM set again holds again. */
+    feed("\33[?4h\n\n");
+    ASSERT_TRUE(!manifold_drained());
+}
+
+static char rln_got[8];
+static void rln_cb(bool timeout, const char *buf)
+{
+    (void)timeout;
+    snprintf(rln_got, sizeof rln_got, "%s", buf);
+}
+
+/* A read started while a line is held is laid out once it has arrived, and
+ * the keys typed wait for it. */
+UTEST(term, a_read_waits_for_the_held_line)
+{
+    ASSERT_TRUE(held_line_feed());
+    rln_read_line(rln_cb, NULL);
+    manifold_uart_push("hi\r", 3);
+    rln_got[0] = 0;
+    int frames = 0;
+    while (!rln_got[0] && frames < 100)
+    {
+        vga_run_frame();
+        frames++;
+    }
+    ASSERT_STREQ(rln_got, "hi");
+    ASSERT_TRUE(frames > TERM_SMOOTH_FRAMES);
+    ASSERT_EQ(cy(), 29);
 }
 
 UTEST_MAIN();

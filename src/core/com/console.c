@@ -6,6 +6,7 @@
 
 #include "core/com/console.h"
 #include "core/com/manifold.h"
+#include "core/term/cells.h"
 #include "core/str/str.h"
 #include "machine.h"
 #include <string.h>
@@ -94,6 +95,20 @@ std_rw_result console_std_close(int desc, api_errno *err)
     (void)desc;
     (void)err;
     return STD_OK;
+}
+
+bool console_rendered(void)
+{
+    return manifold_drained() && !cells_smooth_busy(term_shown(&cells_term));
+}
+
+/* A sync waits until what was written shows: a program that wants its last
+ * lines to finish a smooth scroll syncs before it exits. */
+std_rw_result console_std_sync(int desc, api_errno *err)
+{
+    (void)desc;
+    (void)err;
+    return console_rendered() ? STD_OK : STD_PENDING;
 }
 
 std_rw_result console_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)

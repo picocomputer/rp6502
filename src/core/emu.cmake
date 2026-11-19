@@ -43,6 +43,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/sys/config.c
     ${RP6502_SRC}/core/com/com.c
     ${RP6502_SRC}/core/com/manifold.c
+    ${RP6502_SRC}/core/com/manifold_tx.c
     ${RP6502_SRC}/core/com/tio.c
     ${RP6502_SRC}/core/com/rln.c
     ${RP6502_SRC}/core/wdc/bus.c

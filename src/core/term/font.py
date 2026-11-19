@@ -12,8 +12,7 @@ import sys
 import zlib
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import gen
+import build
 
 FONT_C = "src/core/term/font.c"
 
@@ -165,7 +164,7 @@ def emit_tables_h(path, font16, font8, pages, highs):
            c_array("FONT16", f16), "",
            c_array("FONT8", f8), "",
            "#endif /* _FONT_TABLES_H_ */", ""]
-    Path(path).write_text("\n".join(out))
+    build.write_text(path, "\n".join(out))
 
 
 # The code page charts: each FONT8_* and FONT16_* array in font.c as a
@@ -269,9 +268,9 @@ def emit_charts(out, text):
 
 
 def main():
-    text = (gen.ROOT / FONT_C).read_text(encoding="utf-8")
+    text = (build.ROOT / FONT_C).read_text(encoding="utf-8")
     font16, font8, pages, highs = build_tables(text)
-    a = gen.main(
+    a = build.generate(
         inputs=[FONT_C],
         c={"font_tables.h": lambda p: emit_tables_h(
             p, font16, font8, pages, highs)},

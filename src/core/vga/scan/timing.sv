@@ -3,14 +3,17 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The 640x480 raster, timed from a clock at twice the pixel clock: 50.4
- * MHz against 25.2 MHz, so every pixel spans two clocks and the engines
- * rendering into a line have 1,600 clocks to do it in.
+ * The machine's beam: 800 pixels a line and 525 lines a frame, from a
+ * clock at twice the pixel clock, 50.4 MHz against 25.2 MHz, which is
+ * exactly 60 frames a second. Every pixel spans two clocks, so the
+ * engines drawing a line have 1,600 clocks to do it in.
  *
- * timing_line_start, timing_frame_start and timing_vsync_pulse fire on a
- * pixel's first clock. timing_de is high on its last clock, when
- * everything upstream has settled, so one active pixel produces one de.
- * timing_hsync and timing_vsync are active low.
+ * The beam is the machine's, as the C renderer's is: on line N the
+ * engines draw line N, the frame starts on line 0, and the VSYNC comes on
+ * the last line drawn. What reaches the screen trails it by a line, and
+ * host/pocket/core/wiring.sv keeps that line's count.
+ *
+ * timing_line_start and timing_frame_start fire on a pixel's first clock.
  */
 
 module timing
@@ -22,12 +25,8 @@ module timing
     output logic [9:0] timing_v,
     output logic timing_px_first,
     output logic timing_px_last,
-    output logic timing_de,
-    output logic timing_hsync,
-    output logic timing_vsync,
     output logic timing_line_start,
-    output logic timing_frame_start,
-    output logic timing_vsync_pulse
+    output logic timing_frame_start
 );
 
     logic tick;
@@ -55,17 +54,9 @@ module timing
     always_comb begin
         timing_px_first = tick == 1'd0;
         timing_px_last = tick == 1'd1;
-        timing_de = timing_h < 10'(H_ACTIVE)
-            && timing_v < 10'(V_ACTIVE) && tick == 1'd1;
-        timing_hsync = !(timing_h >= 10'(H_ACTIVE + H_FP)
-            && timing_h < 10'(H_ACTIVE + H_FP + H_SYNC));
-        timing_vsync = !(timing_v >= 10'(V_ACTIVE + V_FP)
-            && timing_v < 10'(V_ACTIVE + V_FP + V_SYNC));
         timing_line_start = timing_h == 10'd0 && tick == 1'd0;
         timing_frame_start = timing_h == 10'd0
             && timing_v == 10'd0 && tick == 1'd0;
-        timing_vsync_pulse = timing_h == 10'd0
-            && timing_v == 10'(V_ACTIVE) && tick == 1'd0;
     end
 
 endmodule

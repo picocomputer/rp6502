@@ -33,6 +33,7 @@ bool tty_asked(void);
 bool tty_std_handles(const char *path);
 int tty_std_open(const char *path, uint8_t mode, api_errno *err);
 std_rw_result tty_std_close(int desc, api_errno *err);
+std_rw_result tty_std_sync(int desc, api_errno *err);
 std_rw_result tty_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
 std_rw_result tty_std_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err);
 bool tty_std_ident(int desc, sst_cursor_t *c);
@@ -54,6 +55,7 @@ bool tty_sst_load(sst_cursor_t *c, unsigned flags);
         .close = tty_std_close,       \
         .read = tty_std_read,         \
         .write = tty_std_write,       \
+        .sync = tty_std_sync,         \
         .terminal = true)             \
     STD_SST(.ident = tty_std_ident,   \
             .reopen = tty_std_reopen, \

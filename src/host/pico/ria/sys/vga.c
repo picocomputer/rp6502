@@ -66,6 +66,39 @@ static bool vga_needs_reset = true;
 static vga_canvas_t vga_canvas_current = vga_canvas_console;
 static volatile uint32_t vga_vsync_deadline;
 static uint8_t vga_vsync_frame;
+/* The frames counted from the VSYNCs, with no 8-bit wrap, and when the last
+ * one came: vga_frames. */
+static volatile uint32_t vga_vsync_frames;
+static volatile uint32_t vga_vsync_at_us;
+
+/* The frame number takes a new value, a step on or a correction. */
+static __force_inline void vga_vsync_set(uint8_t frame)
+{
+    vga_vsync_frames += (uint32_t)(int32_t)(int8_t)(uint8_t)(frame - vga_vsync_frame);
+    vga_vsync_at_us = time_us_32();
+    vga_vsync_frame = frame;
+    REGS(0xFFE3) = frame;
+}
+
+/* A VGA that stops sending VSYNCs is found lost only by vga_task, which a
+ * loop on core 0 waiting for the console may not run, so the count goes on
+ * by the clock once two frames pass with none: whatever waits on frames
+ * still sees them go by. The count and its time are read as a pair no VSYNC
+ * came between, and the clock after them: a wait that came out negative
+ * would read as a VGA silent for an hour. */
+uint32_t HOST_IN_RAM_FUNC vga_frames(void)
+{
+    uint32_t frames, at;
+    do
+    {
+        frames = vga_vsync_frames;
+        at = vga_vsync_at_us;
+    } while (frames != vga_vsync_frames);
+    uint32_t late = time_us_32() - at;
+    if (late > 2 * VGA_VSYNC_PERIOD_US)
+        frames += late / VGA_VSYNC_PERIOD_US;
+    return frames;
+}
 
 static int vga_vsync_alarm = -1;
 static bool vga_vsync_alarm_arms;
@@ -229,7 +262,7 @@ static void HOST_ISR_FUNC vga_vsync_trap_irq_handler(void)
     // VSYNC arrives about 74 us later, and when its frame number differs,
     // vga_backchannel_command writes the corrected number and calls
     // ria_trigger_vsync again.
-    REGS(0xFFE3) = ++vga_vsync_frame;
+    vga_vsync_set((uint8_t)(vga_vsync_frame + 1));
     ria_trigger_vsync();
 }
 
@@ -248,10 +281,10 @@ static __force_inline void vga_backchannel_command(uint8_t byte)
             if ((vga_vsync_frame & 0xF) == frame)
                 break;
         }
-        if (frame < (vga_vsync_frame & 0xF))
-            vga_vsync_frame += 0x10;
-        vga_vsync_frame = (vga_vsync_frame & 0xF0) | frame;
-        REGS(0xFFE3) = vga_vsync_frame;
+        uint8_t next = vga_vsync_frame;
+        if (frame < (next & 0xF))
+            next += 0x10;
+        vga_vsync_set((uint8_t)((next & 0xF0) | frame));
         ria_trigger_vsync();
         break;
     }

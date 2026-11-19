@@ -672,10 +672,12 @@ UTEST(com, a_write_to_one_terminal_lands_between_the_output_around_it)
 static char screen[128];
 static size_t screen_len;
 
-static void screen_out(const char *buf, int len)
+static int screen_out(const char *buf, int len, bool force)
 {
+    (void)force;
     memcpy(screen + screen_len, buf, (size_t)len);
     screen_len += (size_t)len;
+    return len;
 }
 
 static char wired[128];

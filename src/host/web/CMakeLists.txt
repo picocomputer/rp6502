@@ -7,9 +7,7 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-cmake_path(SET RP6502_ROOT NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../../..)
-set(RP6502_SRC ${RP6502_ROOT}/src)
-set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
+include(${CMAKE_CURRENT_LIST_DIR}/../../core/build.cmake)
 
 if(NOT CMAKE_TOOLCHAIN_FILE)
     set(CMAKE_TOOLCHAIN_FILE ${CMAKE_CURRENT_LIST_DIR}/emsdk_toolchain.cmake)

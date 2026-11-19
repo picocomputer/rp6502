@@ -6,11 +6,13 @@
 
 #include "core/api/proc.h"
 #include "core/com/com.h"
+#include "core/com/manifold_tx.h"
 #include "core/sys/ria.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
 #include "ria/sys/vga.h"
 #include "core/sys/ring.h"
+#include "core/term/cells.h"
 #include "ria/com/manifold.h"
 #include "ria/com/com_telnet.h"
 #include "rtt.h"
@@ -19,34 +21,9 @@
 #include <pico/stdio/driver.h>
 #include <stdio.h>
 
-/* One byte of core 0's output and the COM_TERM_ bits of the terminals it is
- * for. */
-typedef struct
-{
-    uint8_t ch;
-    uint8_t to;
-} manifold_tx_entry_t;
-
-// The producers of this ring, the stdio driver, manifold_putchar_raw and
-// manifold_write_to, and its consumer, manifold_tx_fanout, all run on the
-// core 0 main loop.
-static RING(manifold_tx_entry_t, 32) manifold_tx_core0;
-
-/* manifold_stdio_driver sets crlf_enabled, so a newline can be written to the
- * ring as CR LF, and manifold_cts asks for room for both bytes. */
-bool manifold_cts(void)
-{
-    return RING_AVAIL(&manifold_tx_core0) >= 2;
-}
-
-static void manifold_tx_put(uint8_t to, char c)
-{
-    RING_PUT(&manifold_tx_core0, ((manifold_tx_entry_t){.ch = (uint8_t)c, .to = to}));
-}
-
 void manifold_putchar_raw(char c)
 {
-    manifold_tx_put(COM_TERM_ALL, c);
+    manifold_tx_try_put(COM_TERM_ALL, c);
 }
 
 /* stderr goes out as stdout does. */
@@ -64,9 +41,9 @@ static RING(uint8_t, MANIFOLD_RING_SIZE) manifold_uart_rx;
 
 /* The console's terminal is fed every byte the VGA's terminal gets, as it is
  * sent. */
-static void (*manifold_term_out)(const char *buf, int len);
+static int (*manifold_term_out)(const char *buf, int len, bool force);
 
-void manifold_set_term_out(void (*out_chars)(const char *buf, int len))
+void manifold_set_term_out(int (*out_chars)(const char *buf, int len, bool force))
 {
     manifold_term_out = out_chars;
 }
@@ -76,7 +53,7 @@ void manifold_set_term_out(void (*out_chars)(const char *buf, int len))
 static void HOST_IN_RAM_FUNC manifold_term_feed(char ch)
 {
     if (manifold_term_out)
-        manifold_term_out(&ch, 1);
+        manifold_term_out(&ch, 1, true);
 }
 
 void HOST_IN_RAM_FUNC manifold_uart_drain_rx(void)
@@ -150,6 +127,10 @@ static void HOST_IN_RAM_FUNC manifold_uart_drain_tx(void)
                 : (uart_get_hw(MANIFOLD_UART)->fr & UART_UARTFR_TXFF_BITS))
             break;
         char ch = (char)*RING_AT(&manifold_uart_tx, 0);
+        /* A byte that would scroll a region the VGA is still moving waits,
+         * and everything behind it. */
+        if (vga && manifold_term_out && term_holds(&cells_term, (uint8_t)ch))
+            break;
         RING_SKIP(&manifold_uart_tx, 1);
         if (vga)
             manifold_vga_write(0x03, ch);
@@ -177,7 +158,7 @@ static bool manifold_tx_from_ria;
 
 static bool HOST_IN_RAM_FUNC manifold_tx_waiting(void)
 {
-    return manifold_tx_from_ria ? !ria_uart_tx_empty() : RING_LEN(&manifold_tx_core0) != 0;
+    return manifold_tx_from_ria ? !ria_uart_tx_empty() : manifold_tx_len() != 0;
 }
 
 /* A byte for the screen's terminal alone goes over PIX as TERM_TX, never on
@@ -187,6 +168,12 @@ static bool HOST_IN_RAM_FUNC manifold_tx_waiting(void)
 static bool HOST_IN_RAM_FUNC manifold_screen_writable(void)
 {
     return !vga_connected() || (!RING_LEN(&manifold_uart_tx) && manifold_vga_writable());
+}
+
+/* The same wait for a byte to the screen alone, which is never the 6502's. */
+static bool HOST_IN_RAM_FUNC manifold_screen_holds(uint8_t ch)
+{
+    return vga_connected() && manifold_term_out && term_holds(&cells_term, ch);
 }
 
 static void HOST_IN_RAM_FUNC manifold_screen_write(char ch)
@@ -203,7 +190,7 @@ static void HOST_IN_RAM_FUNC manifold_tx_fanout(void)
 {
     while (true)
     {
-        if (manifold_tx_from_ria && !RING_AVAIL(&manifold_tx_core0))
+        if (manifold_tx_from_ria && manifold_tx_len() == MANIFOLD_TX_SIZE)
             manifold_tx_from_ria = false;
         if (!manifold_tx_waiting())
         {
@@ -211,9 +198,11 @@ static void HOST_IN_RAM_FUNC manifold_tx_fanout(void)
             if (!manifold_tx_waiting())
                 break;
         }
-        uint8_t to = manifold_tx_from_ria ? COM_TERM_ALL : RING_AT(&manifold_tx_core0, 0)->to;
+        uint8_t to = manifold_tx_from_ria ? COM_TERM_ALL : manifold_tx_at(0).to;
         if ((to & COM_TERM_UART) ? !manifold_uart_tx_writable()
-                                 : (to & COM_TERM_SCREEN) && !manifold_screen_writable())
+                                 : (to & COM_TERM_SCREEN) &&
+                                       (!manifold_screen_writable() ||
+                                        manifold_screen_holds(manifold_tx_at(0).ch)))
             break;
         if ((to & COM_TERM_TEL) && !com_telnet_tx_writable())
             break;
@@ -222,8 +211,8 @@ static void HOST_IN_RAM_FUNC manifold_tx_fanout(void)
             ria_uart_tx_dequeue(&ch);
         else
         {
-            ch = RING_AT(&manifold_tx_core0, 0)->ch;
-            RING_SKIP(&manifold_tx_core0, 1);
+            ch = manifold_tx_at(0).ch;
+            manifold_tx_skip(1);
         }
         if (to & COM_TERM_UART)
             manifold_uart_tx_write((char)ch);
@@ -242,14 +231,16 @@ static void manifold_stdio_pump(void)
     com_telnet_pump();
 }
 
-void manifold_write_to(uint8_t to, const char *buf, size_t n)
+/* A byte must go into core 0's output and none is left: the console is
+ * pumped until the terminals take some. */
+void manifold_tx_make_room(void)
 {
-    while (n--)
-    {
-        while (!RING_AVAIL(&manifold_tx_core0))
-            manifold_stdio_pump();
-        manifold_tx_put(to, *buf++);
-    }
+    manifold_stdio_pump();
+}
+
+/* manifold_task sends core 0's output. */
+void manifold_tx_wrote(void)
+{
 }
 
 static void manifold_stdio_out_chars(const char *buf, int len)
@@ -259,7 +250,7 @@ static void manifold_stdio_out_chars(const char *buf, int len)
 
 static void manifold_stdio_out_flush(void)
 {
-    while (RING_LEN(&manifold_tx_core0))
+    while (manifold_tx_len())
         manifold_stdio_pump();
     manifold_uart_flush();
     com_telnet_flush();
@@ -295,9 +286,14 @@ void HOST_IN_FLASH_FUNC manifold_init(void)
     hw_clear_bits(&uart_get_hw(MANIFOLD_UART)->rsr, UART_UARTRSR_BITS);
 }
 
+bool manifold_drained(void)
+{
+    return ria_uart_tx_empty() && !manifold_tx_len() && !RING_LEN(&manifold_uart_tx);
+}
+
 void manifold_flush(void)
 {
-    while (!ria_uart_tx_empty() || RING_LEN(&manifold_tx_core0))
+    while (!ria_uart_tx_empty() || manifold_tx_len())
         manifold_stdio_pump();
     manifold_uart_flush();
     com_telnet_flush();

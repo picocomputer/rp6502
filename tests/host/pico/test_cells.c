@@ -17,8 +17,9 @@
 
 /* The console with no VGA: the 80-column terminal. */
 bool vga_connected(void) { return false; }
+uint32_t vga_frames(void) { return 0; }
 void vga_canvas_size(int *w, int *h) { *w = 640, *h = 480; }
-void manifold_set_term_out(void (*out)(const char *buf, int len)) { (void)out; }
+void manifold_set_term_out(int (*out)(const char *buf, int len, bool force)) { (void)out; }
 void com_reply(const char *s, size_t n) { (void)s, (void)n; }
 bool com_get_bel(void) { return false; }
 void bel_add(const bel_sound_t *sound) { (void)sound; }

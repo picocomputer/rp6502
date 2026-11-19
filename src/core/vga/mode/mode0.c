@@ -169,9 +169,39 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
     scanline_id -= begin;
     if ((uint16_t)scanline_id >= TERM_MAX_HEIGHT * ch)
         return false;
-    const uint8_t logical_row = (uint8_t)(scanline_id / ch);
-    const uint8_t scanrow = (uint8_t)(scanline_id % ch);
-    const uint32_t row_word = mode0_regs.row[logical_row];
+    uint8_t logical_row = (uint8_t)(scanline_id / ch);
+    uint8_t scanrow = (uint8_t)(scanline_id % ch);
+    uint32_t row_word = mode0_regs.row[logical_row];
+    /* A smooth scroll moving: a scanline of its rows shows the rows where
+     * they were, moved on by the scanlines it has gone, with the row going
+     * out still at the edge it leaves by. A row of the ghost has no cursor. */
+    const uint32_t region = mode0_regs.smooth;
+    if ((region & MODE0_SMOOTH_ON) && logical_row >= MODE0_SMOOTH_TOP(region) &&
+        logical_row <= MODE0_SMOOTH_BOT(region))
+    {
+        const unsigned moved = mode0_smooth_moved(mode0_regs.smooth_frame,
+                                                  (uint32_t)vga_frame_count(), (unsigned)ch);
+        if (moved < (unsigned)ch)
+        {
+            const uint8_t top = MODE0_SMOOTH_TOP(region);
+            const uint8_t bot = MODE0_SMOOTH_BOT(region);
+            const bool up = region & MODE0_SMOOTH_UP;
+            const unsigned at = (unsigned)(scanline_id - top * ch) +
+                                (up ? moved : (unsigned)ch - moved);
+            const unsigned r = at / ch;
+            scanrow = (uint8_t)(at % ch);
+            if (up ? r == 0 : r == (unsigned)(bot - top + 1))
+            {
+                row_word = mode0_regs.smooth_ghost;
+                logical_row = 0xFF;
+            }
+            else
+            {
+                logical_row = (uint8_t)(top + r - (up ? 1 : 0));
+                row_word = mode0_regs.row[logical_row];
+            }
+        }
+    }
     const uint32_t cursor = mode0_regs.cursor;
     const uint32_t screen = mode0_regs.screen;
     const bool reverse = screen & MODE0_SCREEN_REVERSE;

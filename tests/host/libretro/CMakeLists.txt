@@ -63,7 +63,7 @@ execute_process(COMMAND ${Python3_EXECUTABLE} -c "import yaml"
     RESULT_VARIABLE _have_yaml OUTPUT_QUIET ERROR_QUIET)
 if(_have_yaml EQUAL 0)
     add_test(NAME libretro_targets
-        COMMAND ${Python3_EXECUTABLE}
+        COMMAND ${RP6502_PYTHON}
             ${CMAKE_CURRENT_LIST_DIR}/libretro_targets_gate.py
             --gitlab ${RP6502_ROOT}/.gitlab-ci.yml
             --github ${RP6502_ROOT}/.github/workflows/ci.yml)

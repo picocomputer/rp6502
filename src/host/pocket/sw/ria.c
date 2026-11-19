@@ -44,8 +44,11 @@ int ria_uart_rx_peek(void)
 
 void ria_task(void)
 {
+    /* A byte leaves the fabric's queue only when the console has room for
+     * it. While a byte waits for a smooth scroll, the queue fills and the
+     * fabric clears TX_READY, so the 6502 waits too. */
     uint32_t v;
-    while ((v = UART_POP) & 0x100)
+    while (manifold_cts() && (v = UART_POP) & 0x100)
         manifold_putchar_raw((char)v);
 
     /* A 6502 read of the UART that finds no byte sets a request, and a byte

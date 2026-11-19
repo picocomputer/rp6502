@@ -10,6 +10,7 @@
 #include "core/term/term.h"
 #include "core/vga/pixel_format.h"
 #include "host/host.h"
+#include "machine.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -113,6 +114,8 @@ static void term_reset_core(term_t *t)
     t->protect_mode = TERM_PROTECT_OFF;
     t->erase_all = false;
     t->reverse_screen = false;
+    t->smooth_scroll = false;
+    t->smooth_released = false;
     t->cursor_enabled = true;
     t->cursor_style = 0;
     term_reset_parser(t);
@@ -599,9 +602,12 @@ static void term_out_DECRQM(term_t *t, bool private)
         case 2: // DECANM: ANSI mode, since this reply is ANSI
             pm = 1;
             break;
-        case 3: // DECCOLM: 80 columns only
-        case 4: // DECSCLM: no smooth scroll
-            pm = 4;
+        case 3: // DECCOLM: 80 columns, and never 132. The 40-column screen is
+                // neither of DECCOLM's two, so the mode is not reported there.
+            pm = term_shown(t)->width == 80 ? 4 : 0;
+            break;
+        case 4: // DECSCLM
+            pm = t->smooth_scroll ? 1 : 2;
             break;
         case 5: // DECSCNM
             pm = t->reverse_screen ? 1 : 2;
@@ -870,6 +876,10 @@ static void term_out_DECSET(term_t *t, bool set)
                 term_pen(t)->g1_charset = TERM_CS_ASCII;
                 term_pen(t)->gl_is_g1 = false;
             }
+            break;
+        case 4: // DECSCLM: smooth scroll
+            t->smooth_scroll = set;
+            t->smooth_released = false;
             break;
         case 5: // DECSCNM: the whole screen in reverse video
             t->reverse_screen = set;
@@ -1731,6 +1741,59 @@ void term_write(term_t *t, uint8_t ch)
     }
 }
 
+// The byte's effect on g's region, as far as a smooth scroll still moving
+// cares: true when it would scroll it again or set the margins.
+static bool HOST_IN_RAM_FUNC term_byte_scrolls(const term_t *t, const term_grid_t *g, uint8_t ch)
+{
+    if (ch == TERM_C0_ESC)
+        return false;
+    ansi_state_t state = t->ansi_state;
+    bool lf = ch == '\n' || ch == '\v' || ch == '\f';
+    if (state == ansi_state_ground)
+    {
+        if (lf)
+            return grid_index_scrolls(g);
+        bool glyph = ch >= 0x20 ? ch != TERM_DEL || t->disp_ctrl
+                     : t->disp_ctrl ? !(TERM_C0_ALWAYS & (1u << ch))
+                                    : !(TERM_C0_ACTION & (1u << ch));
+        return glyph && grid_glyph_scrolls(t, g);
+    }
+    // A line feed inside a sequence acts and the sequence goes on.
+    if (ch < 0x20)
+        return lf && (TERM_C0_IN_SEQ & (1u << ch)) && grid_index_scrolls(g);
+    switch (state)
+    {
+    case ansi_state_esc:
+        if (ch == 'D' || ch == 'E')
+            return grid_index_scrolls(g);
+        return ch == 'M' && grid_ri_scrolls(g);
+    case ansi_state_vt52_esc:
+        return ch == 'I' && grid_ri_scrolls(g);
+    case ansi_state_csi:
+        // DECSTBM waits, as on a VT100. So does REP, which can scroll many
+        // times in one sequence.
+        return (ch == 'r' || ch == 'b') && !t->csi_private && !t->csi_intermediate &&
+               !t->csi_colon;
+    default:
+        return false;
+    }
+}
+
+void term_release_smooth(term_t *t)
+{
+    t->smooth_released = true;
+}
+
+bool HOST_IN_RAM_FUNC term_holds(const term_t *t, uint8_t ch)
+{
+    if (t->smooth_released)
+        return false;
+    for (uint8_t i = 0; i < t->grid_count; i++)
+        if (cells_smooth_busy(t->grids[i]) && term_byte_scrolls(t, t->grids[i], ch))
+            return true;
+    return false;
+}
+
 /* ---- savestate ----------------------------------------------------------
  *
  * Written field by field. term_pen_t has padding, and a struct copy would put
@@ -1820,6 +1883,8 @@ void term_sst_put(sst_cursor_t *c, const term_t *t)
     sst_put_u8(c, t->protect_mode);
     sst_put_bool(c, t->erase_all);
     sst_put_bool(c, t->reverse_screen);
+    sst_put_bool(c, t->smooth_scroll);
+    sst_put_bool(c, t->smooth_released);
     sst_put_bool(c, t->cursor_enabled);
     sst_put_u8(c, t->cursor_style);
     sst_put_u8(c, t->last_glyph);
@@ -1880,6 +1945,8 @@ bool term_sst_get(sst_cursor_t *c, term_t *t)
     t->protect_mode = sst_get_u8(c);
     t->erase_all = sst_get_bool(c);
     t->reverse_screen = sst_get_bool(c);
+    t->smooth_scroll = sst_get_bool(c);
+    t->smooth_released = sst_get_bool(c);
     t->cursor_enabled = sst_get_bool(c);
     t->cursor_style = sst_get_u8(c);
     t->last_glyph = sst_get_u8(c);

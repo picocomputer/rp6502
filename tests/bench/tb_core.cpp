@@ -111,14 +111,9 @@ uint16_t tb_core_h()
     return tb_core_dut->rootp->wiring__DOT__vid_h;
 }
 
-bool tb_core_hsync()
-{
-    return tb_core_dut->rootp->wiring__DOT__vid_hsync;
-}
-
 bool tb_core_vsync()
 {
-    return tb_core_dut->rootp->wiring__DOT__vid_vsync;
+    return tb_core_dut->rootp->wiring__DOT__prog_vsync_pulse;
 }
 
 bool tb_core_de()

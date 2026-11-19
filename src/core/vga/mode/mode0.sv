@@ -14,7 +14,13 @@
  * takes nothing from the fills.
  *
  * Firmware writes to the registers are shadows; the scanout latches them
- * at frame start, for one frame of latency and never a tear.
+ * as a frame starts, for one frame of latency and never a tear. A publish
+ * is many writes, closed by a write to the publish word, and a frame that
+ * starts while one is open keeps the last frame's words.
+ *
+ * A smooth scroll (DECSCLM) moves its rows a scanline a frame over the
+ * row words, which already have the rows in their new places, as
+ * core/vga/mode/mode0.c draws it.
  *
  * The memories power up zero, as BRAM contents ship in the bitstream, so
  * there is no boot-time clear.
@@ -25,7 +31,6 @@ module mode0 (
     input logic frame_start,
 
     input logic [9:0] h,
-    input logic [9:0] v,
     input logic px_last,
     input logic line_start,
     input logic [9:0] cw,
@@ -66,28 +71,28 @@ module mode0 (
      * mode0_colors as the firmware has them: a run of halfwords, three a
      * cell, so a cell's colors start on a word or in the middle of one.
      * The palette is mode0_palette, two entries a word. The depths are
-     * this firmware's, MODE0_CELLS of 7200.
+     * this firmware's, MODE0_CELLS of 7440.
      *
      * Flat rather than banked: hand-banking gives the blocks back more
      * exactly and pays for it with an adder and a mux on the scanout's
      * address. */
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell0[7200] /*verilator public_flat_rw*/;
+    logic [7:0] cell0[7440] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell1[7200] /*verilator public_flat_rw*/;
+    logic [7:0] cell1[7440] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell2[7200] /*verilator public_flat_rw*/;
+    logic [7:0] cell2[7440] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell3[7200] /*verilator public_flat_rw*/;
+    logic [7:0] cell3[7440] /*verilator public_flat_rw*/;
 
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] col0[10800] /*verilator public_flat_rw*/;
+    logic [7:0] col0[11160] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] col1[10800] /*verilator public_flat_rw*/;
+    logic [7:0] col1[11160] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] col2[10800] /*verilator public_flat_rw*/;
+    logic [7:0] col2[11160] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] col3[10800] /*verilator public_flat_rw*/;
+    logic [7:0] col3[11160] /*verilator public_flat_rw*/;
 
     (* ramstyle = "no_rw_check" *)
     logic [7:0] pal0[258] /*verilator public_flat_rw*/;
@@ -109,10 +114,16 @@ module mode0 (
 
     /* row {size[17:16], cell[12:0]};
      * cursor {enabled[25], lit[24], style[23:16], y[15:8], x[7:0]};
-     * screen {reverse[2], blink[1:0]}. */
+     * screen {reverse[2], blink[1:0]};
+     * smooth {on[17], up[16], bot[15:8], top[7:0]};
+     * smooth_frame, a frame count; smooth_ghost, a row word. */
     logic [31:0] cursor_shadow /*verilator public_flat_rd*/;
     logic [15:0] cursor_color_shadow /*verilator public_flat_rd*/;
     logic [2:0] screen_shadow /*verilator public_flat_rw*/;
+    logic sm_on_s, sm_up_s;
+    logic [4:0] sm_top_s, sm_bot_s;
+    logic [31:0] sm_frame_s;
+    logic [14:0] sm_ghost_s;
     logic [31:0] frame_count /*verilator public_flat_rd*/;
 
     /* The scanout reads stand alone and unreset: a block RAM's output
@@ -193,13 +204,24 @@ module mode0 (
         end
     end
 
+    logic use_40;  // the 40-column terminal, on a 320-wide canvas
     logic reg_w;
     always_comb reg_w = b_stb && b_we && b_sel == 2'd1;
+    /* A write to any of the words a frame copies opens a publish, and the
+     * publish word, written last, closes it. */
+    logic pub_open /*verilator public_flat_rd*/;
     initial begin
         cursor_shadow = 32'h0;
         cursor_color_shadow = 16'h0;
         screen_shadow = 3'h0;
+        sm_on_s = 1'b0;
+        sm_up_s = 1'b0;
+        sm_top_s = '0;
+        sm_bot_s = '0;
+        sm_frame_s = '0;
+        sm_ghost_s = '0;
         frame_count = 32'h0;
+        pub_open = 1'b0;
     end
     always_ff @(posedge clk) begin
         if (frame_start)
@@ -209,18 +231,28 @@ module mode0 (
                 6'd32: cursor_shadow <= b_wdata;
                 6'd33: cursor_color_shadow <= b_wdata[15:0];
                 6'd34: screen_shadow <= b_wdata[2:0];
+                6'd35: begin
+                    sm_top_s <= b_wdata[4:0];
+                    sm_bot_s <= b_wdata[12:8];
+                    sm_up_s <= b_wdata[16];
+                    sm_on_s <= b_wdata[17];
+                end
+                6'd36: sm_frame_s <= b_wdata;
+                6'd37: sm_ghost_s <= {b_wdata[17:16], b_wdata[12:0]};
                 6'd40: frame_count <= b_wdata;
                 default: ;
             endcase
+            if (b_addr[7:2] == 6'd38)
+                pub_open <= 1'b0;
+            else if (b_addr[7:2] < 6'd38)
+                pub_open <= 1'b1;
         end
     end
 
-    /* Latched at the start of the line the render takes row 0 on, so a
-     * mid-frame publish never tears: line 524, or 523 on a 320-wide canvas,
-     * whose row 0 is the pair (523, 524) and is drawn on its first line. */
+    /* Latched as the frame starts, on the line row 0 is drawn on, with
+     * the frame counter's step, unless a publish is part way through. */
     logic frame_render;
-    always_comb frame_render = line_start
-        && v == (cw == 10'd320 ? 10'd523 : 10'd524);
+    always_comb frame_render = frame_start && !pub_open;
 
     /* Each row's word has two slots, and row_front picks the one
      * the render reads. A write goes to the other slot and is flipped in
@@ -251,15 +283,18 @@ module mode0 (
         row_w <= reg_w && !b_addr[7];
         row_wi <= b_addr[6:2];
         row_wd <= {b_wdata[17:16], b_wdata[12:0]};
+        /* A row written lands a clock after its write opened a publish,
+         * so the latch never meets one landing. */
         if (frame_render) begin
-            row_front <= row_front
-                ^ (row_pend | (32'(row_w) << row_wi));
+            row_front <= row_front ^ row_pend;
             row_pend <= '0;
         end else if (row_w)
             row_pend[row_wi] <= 1'b1;
     end
+    logic ghost_r;  // the line is in the row moving out
     logic [14:0] row_word;
-    always_comb row_word = row_mem[{logical_row, row_front[logical_row]}];
+    always_comb row_word = ghost_r ? sm_ghost_q
+        : row_mem[{logical_row, row_front[logical_row]}];
 
     logic [31:0] cursor_q;
     logic [15:0] cursor_color_q;
@@ -277,6 +312,60 @@ module mode0 (
             cursor_color_q <= cursor_color_shadow;
             blink_q <= screen_shadow[1:0];
             reverse_q <= screen_shadow[2];
+        end
+    end
+
+    /* The smooth scroll this frame, as mode0.c's mode0_smooth_moved has
+     * it: the scanlines it has moved by this frame's count, one a frame on
+     * 16-pixel rows and one every second frame on 8, and ch once it is
+     * over; a frame before its first moves 0. It is worked out on the
+     * clock after the frame starts, when the count has stepped, and every
+     * frame, because a frame that keeps the last words still moves on. */
+    logic sm_on_q, sm_up_q;
+    logic [4:0] sm_top_q, sm_bot_q;
+    logic [31:0] sm_frame_q;
+    logic [14:0] sm_ghost_q;
+    logic sm_calc;
+    logic sm_act;        // a scroll is part way across this frame
+    logic [4:0] sm_off;  // scanlines its rows are drawn on from
+    logic [31:0] sm_d;
+    logic [4:0] sm_moved;
+    always_comb begin
+        sm_d = frame_count - sm_frame_q;
+        if (sm_d[31])
+            sm_moved = 5'd0;
+        else if (use_40)
+            sm_moved = sm_d[30:4] != '0 || sm_d[3:1] == 3'd7
+                ? 5'd8 : 5'(sm_d[3:1]) + 5'd1;
+        else
+            sm_moved = sm_d[30:4] != '0 || sm_d[3:0] == 4'd15
+                ? 5'd16 : 5'(sm_d[3:0]) + 5'd1;
+    end
+    initial begin
+        sm_on_q = 1'b0;
+        sm_up_q = 1'b0;
+        sm_top_q = '0;
+        sm_bot_q = '0;
+        sm_frame_q = '0;
+        sm_ghost_q = '0;
+        sm_calc = 1'b0;
+        sm_act = 1'b0;
+        sm_off = '0;
+    end
+    always_ff @(posedge clk) begin
+        sm_calc <= frame_start;
+        if (frame_render) begin
+            sm_on_q <= sm_on_s;
+            sm_up_q <= sm_up_s;
+            sm_top_q <= sm_top_s;
+            sm_bot_q <= sm_bot_s;
+            sm_frame_q <= sm_frame_s;
+            sm_ghost_q <= sm_ghost_s;
+        end
+        if (sm_calc) begin
+            sm_act <= sm_on_q && sm_moved < (use_40 ? 5'd8 : 5'd16);
+            sm_off <= sm_up_q ? sm_moved
+                : (use_40 ? 5'd8 : 5'd16) - sm_moved;
         end
     end
 
@@ -308,7 +397,8 @@ module mode0 (
 
     logic [9:0] px;    // write pointer into the line
     logic run /*verilator public_flat_rd*/;
-    logic setup;       // the row's first clock
+    logic remap;       // the row's first clock, which places it
+    logic setup;       // the clock that reads its row word
     logic pre;         // the first cell's fetch, before any pixel
 
     /* 320-wide canvases run the 40-column terminal: 8x8 cells, so one
@@ -320,7 +410,6 @@ module mode0 (
      * attribute lines follow the glyph row, while the cursor's underline
      * follows the scanline. The underlines are on the glyph's last three
      * rows, the strike on its middle row and the overline on its first. */
-    logic use_40;
     always_comb use_40 = cw == 10'd320;
     always_comb wide = size_r != 2'd0;  /* TERM_LINE_NORMAL */
     always_comb begin
@@ -484,10 +573,27 @@ module mode0 (
     logic [14:0] hw_next;
     always_comb hw_next = hw + 15'd3;
 
+    /* A row in a scroll part way across draws the rows where they were,
+     * moved on by the scanlines the scroll has gone, and the row going
+     * out at the edge it leaves by, as mode0.c does. The row's line, moved
+     * on by sm_off, falls in the row whose place it shows, so the line
+     * this row draws is that, back a row on an upward scroll. */
+    logic [4:0] lr0, lr2;
+    logic [8:0] s2;
+    logic in_reg;
+    always_comb begin
+        lr0 = use_40 ? term_line[7:3] : term_line[8:4];
+        s2 = term_line + {4'd0, sm_off};
+        lr2 = use_40 ? s2[7:3] : s2[8:4];
+        in_reg = sm_act && lr0 >= sm_top_q && lr0 <= sm_bot_q;
+    end
+
     initial begin
         wr_bank = 1'b0;
         run = 1'b0;
+        remap = 1'b0;
         setup = 1'b0;
+        ghost_r = 1'b0;
         pre = 1'b0;
         term_line = '0;
         size_r = '0;
@@ -526,13 +632,21 @@ module mode0 (
                 wr_bank <= !wr_bank;
         end else if (term_go) begin
             run <= 1'b1;
+            remap <= 1'b1;
             setup <= 1'b1;
             pre <= 1'b1;
             px <= '0;
+            ghost_r <= 1'b0;
             term_line <= t[8:0] - term_cfg[8:0];
+        end else if (run && remap) begin
+            if (in_reg) begin
+                ghost_r <= sm_up_q ? lr2 == sm_top_q : lr2 == sm_bot_q + 5'd1;
+                term_line <= s2 - (sm_up_q ? (use_40 ? 9'd8 : 9'd16) : 9'd0);
+            end
+            remap <= 1'b0;
         end else if (run && setup) begin
             size_r <= row_word[14:13];
-            cur_hit <= cursor_q[25]  /* enabled */
+            cur_hit <= !ghost_r && cursor_q[25]  /* enabled */
                 && (cursor_q[24]     /* lit, or steady style */
                     || cursor_q[18:16] == 3'd2
                     || cursor_q[18:16] == 3'd4

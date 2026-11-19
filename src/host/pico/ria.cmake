@@ -4,18 +4,13 @@ include(${RP6502_ROOT}/src/osal/pico/pico.cmake)
 include(${RP6502_ROOT}/src/core/gen.cmake)
 rp6502_gen_c()
 
-set(HID_USAGE_STAMP ${CMAKE_CURRENT_BINARY_DIR}/hid_usage.stamp)
 set(HID_USAGE ${RP6502_ROOT}/src/core/hid/usage.h)
 set(HID_VENDOR ${RP6502_ROOT}/vendor/tinyusb/src/class/hid/hid.h)
-add_custom_command(OUTPUT ${HID_USAGE_STAMP}
-    COMMAND ${CMAKE_COMMAND} -E env python3
-        ${RP6502_ROOT}/src/core/hid/usage.py
-        --usage ${HID_USAGE} --vendor ${HID_VENDOR}
-    COMMAND ${CMAKE_COMMAND} -E touch ${HID_USAGE_STAMP}
-    DEPENDS ${RP6502_ROOT}/src/core/hid/usage.py ${HID_USAGE} ${HID_VENDOR}
-    COMMENT "Checking core/hid/usage.h against TinyUSB"
-    VERBATIM)
-add_custom_target(hid_usage DEPENDS ${HID_USAGE_STAMP})
+rp6502_python_step(hid_usage
+    SCRIPT ${RP6502_ROOT}/src/core/hid/usage.py
+    ARGS --usage ${HID_USAGE} --vendor ${HID_VENDOR}
+    DEPENDS ${HID_USAGE} ${HID_VENDOR}
+    COMMENT "Checking core/hid/usage.h against TinyUSB")
 
 add_executable(${RIA_TARGET})
 add_dependencies(${RIA_TARGET} hid_usage rp6502_gen_c)
@@ -29,7 +24,7 @@ rp6502_pico_rtt(${RIA_TARGET})
 # Sources that run in an interrupt, on the main loop's hot path, or while the
 # RIA rewrites its own flash, whole: the SDK's, TinyUSB's, FatFs, the storage
 # path, the consoles, the network and the bell. The linker can keep code out of
-# flash only by its object file, so these skip LTO. The SDK's flash .text and
+# flash only by its object file, as these are not ours to mark. The SDK's flash .text and
 # .rodata take everything but the files its one-line default_text_excludes.incl
 # and default_rodata_excludes.incl name, and whatever they skip lands in RAM
 # with .data. These overrides add the list.
@@ -79,6 +74,7 @@ set(RIA_RAM_SOURCES
     ${RIA_SRC}/mon/uf2_write.c
     ${RP6502_ROOT}/src/core/aud/bel.c
     ${RP6502_ROOT}/src/core/com/com.c
+    ${RP6502_ROOT}/src/core/com/manifold_tx.c
     ${RIA_SRC}/com/manifold.c
     ${RIA_SRC}/com/com_telnet.c
     ${RP6502_ROOT}/src/host/pico/ria-w/net/cyw.c
@@ -86,25 +82,8 @@ set(RIA_RAM_SOURCES
     ${RP6502_ROOT}/src/host/pico/ria-w/net/telnet.c
     ${RP6502_ROOT}/src/host/pico/ria-w/net/wifi.c
 )
-set_source_files_properties(${RIA_RAM_SOURCES} PROPERTIES COMPILE_OPTIONS -fno-lto)
-# The linker's pattern for each source's object. An object sits in a directory
-# named as CMake names it: the source's path from here, with ".." turned into
-# "__".
-function(ria_object_patterns out)
-    set(_patterns "")
-    foreach(_src ${ARGN})
-        file(RELATIVE_PATH _dir ${CMAKE_CURRENT_SOURCE_DIR} ${_src})
-        get_filename_component(_dir ${_dir} DIRECTORY)
-        get_filename_component(_dir ${_dir} NAME)
-        if(_dir STREQUAL "..")
-            set(_dir "__")
-        endif()
-        get_filename_component(_name ${_src} NAME)
-        string(APPEND _patterns " */${_dir}/${_name}.o")
-    endforeach()
-    set(${out} "${_patterns}" PARENT_SCOPE)
-endfunction()
-ria_object_patterns(_ria_ram_objects ${RIA_RAM_SOURCES})
+rp6502_linker_named(${RIA_TARGET} ${RIA_RAM_SOURCES})
+rp6502_object_patterns(_ria_ram_objects ${RIA_RAM_SOURCES})
 set(_ria_ram_files "*libgcc.a: *libc.a: *lib*_a-mem*.o *lib*_a-strcmp.o *lib*_a-strncmp.o *lib*_a-strncpy.o *lib*_a-strlen*.o *lib*_a-strchr.o *lib*_a-strcspn.o *lib*_a-strcasecmp.o *lib*_a-strncasecmp.o *libm.a:${_ria_ram_objects}")
 
 # Functions of the files above that run only at boot, at a radio start or
@@ -148,7 +127,7 @@ foreach(_entry ${RIA_FLASH_SECTIONS})
     string(REPLACE "|" ";" _entry "${_entry}")
     list(GET _entry 0 _src)
     list(GET _entry 1 _sections)
-    ria_object_patterns(_object ${_src})
+    rp6502_object_patterns(_object ${_src})
     string(REGEX MATCHALL "\\.text\\.[^ ]+" _text "${_sections}")
     string(REGEX MATCHALL "\\.rodata\\.[^ ]+" _rodata "${_sections}")
     if(_text)
@@ -170,7 +149,7 @@ set(RIA_RAM_STRING_SOURCES
     ${PICO_SDK_PATH}/lib/cyw43-driver/src/cyw43_lwip.c
     ${PICO_SDK_PATH}/src/rp2_common/pico_cyw43_driver/cyw43_bus_pio_spi.c
 )
-ria_object_patterns(_ria_ram_strings ${RIA_RAM_STRING_SOURCES})
+rp6502_object_patterns(_ria_ram_strings ${RIA_RAM_STRING_SOURCES})
 
 set(_ria_ld ${CMAKE_CURRENT_BINARY_DIR}/${RIA_TARGET}_ld)
 file(WRITE ${_ria_ld}/default_text_excludes.incl
@@ -186,10 +165,19 @@ set_target_properties(${RIA_TARGET} PROPERTIES
 )
 
 # Everything that can run while the RIA rewrites its own flash must be in RAM.
-# flash_check.py proves it from the ELF after every link.
+# flash_check.py proves it from the ELF after every link, and that each of
+# RIA_FLASH_SECTIONS is in flash. It reads both lists from files, as a command
+# line on Windows holds 8191 characters.
+string(REPLACE ";" "\n" _ria_ram_list "${RIA_RAM_SOURCES}")
+file(WRITE ${_ria_ld}/ram_sources.txt "${_ria_ram_list}\n")
+string(REPLACE ";" "\n" _ria_flash_list "${RIA_FLASH_SECTIONS}")
+file(WRITE ${_ria_ld}/flash_sections.txt "${_ria_flash_list}\n")
 add_custom_command(TARGET ${RIA_TARGET} POST_BUILD
-    COMMAND ${Python3_EXECUTABLE} ${RP6502_ROOT}/src/host/pico/flash_check.py
+    COMMAND ${RP6502_PYTHON} ${RP6502_ROOT}/src/host/pico/flash_check.py
         --elf $<TARGET_FILE:${RIA_TARGET}>
+        --ram-sources ${_ria_ld}/ram_sources.txt
+        --flash-sections ${_ria_ld}/flash_sections.txt
+        --map $<TARGET_FILE:${RIA_TARGET}>.map
         --compile-commands ${CMAKE_BINARY_DIR}/compile_commands.json
         --objdump ${CMAKE_OBJDUMP}
         --addr2line ${CMAKE_ADDR2LINE}
@@ -237,6 +225,7 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
 
 target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/main.c
+    ${RP6502_ROOT}/src/host/pico/flash_roots.c
     ${RP6502_ROOT}/src/host/pico/host.c
     ${RP6502_ROOT}/src/core/sys/sys.c
     ${RP6502_ROOT}/src/core/sys/version.c
@@ -305,6 +294,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/com/manifold.c
     ${RIA_SRC}/com/com_telnet.c
     ${RP6502_ROOT}/src/core/com/com.c
+    ${RP6502_ROOT}/src/core/com/manifold_tx.c
     ${RP6502_ROOT}/src/core/com/tio.c
     ${RP6502_ROOT}/src/core/com/rln.c
     ${RIA_SRC}/sys/phi2.c

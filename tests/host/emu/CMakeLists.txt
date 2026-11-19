@@ -161,7 +161,7 @@ if(CMAKE_EXPORT_COMPILE_COMMANDS
    AND CMAKE_C_COMPILER_ID STREQUAL "GNU"
    AND NOT APPLE AND NOT WIN32)
     add_test(NAME state_inventory
-        COMMAND ${CMAKE_COMMAND} -E env python3
+        COMMAND ${RP6502_PYTHON}
             ${CMAKE_CURRENT_LIST_DIR}/state_inventory.py
             ${CMAKE_BINARY_DIR}/compile_commands.json
             ${RP6502_SRC}
@@ -237,9 +237,9 @@ rp6502_add_test(w65c02dasm INCLUDES ${RP6502_SRC} ${RP6502_VENDOR})
 
 set(EXPR_CASES ${CMAKE_CURRENT_BINARY_DIR}/expr_cases.txt)
 add_custom_command(OUTPUT ${EXPR_CASES}
-    COMMAND ${CMAKE_COMMAND} -E env python3
+    COMMAND ${RP6502_PYTHON}
         ${CMAKE_CURRENT_LIST_DIR}/expr_cases.py --emit ${EXPR_CASES}
-    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/expr_cases.py
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/expr_cases.py ${RP6502_PYTHON_LIBS}
     COMMENT "Generating the expression test cases"
     VERBATIM)
 add_custom_target(expr_cases DEPENDS ${EXPR_CASES})

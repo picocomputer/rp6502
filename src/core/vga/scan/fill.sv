@@ -73,8 +73,8 @@ module fill
 
     logic m3_start;
     logic [2:0] m3_bpp;
-    logic m3_reversed;
-    logic m3_seg_imm;
+    logic m3_reversed, m3_dbl;
+    logic m3_seg_imm, m3_seg_half;
     logic [22:0] m3_seg_bits;
     logic tl_take;
     logic tl_a_req;
@@ -307,7 +307,9 @@ module fill
         .rm_end(rm_end),
         .mode3_bpp(m3_bpp),
         .mode3_reversed(m3_reversed),
+        .mode3_dbl(m3_dbl),
         .mode3_seg_imm(m3_seg_imm),
+        .mode3_seg_half(m3_seg_half),
         .mode3_seg_bits(m3_seg_bits)
     );
 
@@ -341,7 +343,7 @@ module fill
             tf_seg_pay = {16'd0, m2_seg_half, m2_seg_bits};
         end else begin
             tf_seg_imm = m3_seg_imm;
-            tf_seg_pay = {17'd0, m3_seg_bits};
+            tf_seg_pay = {16'd0, m3_seg_half, m3_seg_bits};
         end
     end
     pixtail pixtail (
@@ -353,7 +355,7 @@ module fill
         .pal_xram(tf_pal_xram),
         .bpp_log(tf_bpp),
         .reversed(tf_reversed),
-        .dbl(mode == 3'd2 && m2_dbl),
+        .dbl(mode == 3'd2 ? m2_dbl : mode != 3'd1 && m3_dbl),
         .seg_valid(rm_seg_valid),
         .seg_imm(tf_seg_imm),
         .seg_pay(tf_seg_pay),

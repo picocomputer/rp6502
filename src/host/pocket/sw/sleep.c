@@ -79,7 +79,7 @@ static void sleep_save(void)
  * launcher or an exec on its way among it, so those are dropped, the
  * machine is stopped, and its chain ends, which closes the files the rows
  * reopened. */
-static void sleep_load(void)
+void sleep_load(void)
 {
     uint32_t started = UPTIME_LO;
     uint32_t failed = fs_failed_count();
@@ -137,8 +137,5 @@ bool sleep_task(void)
         sys_stop();
         return false;
     }
-    if (!fs_idle() || !(ctl & SST_LOAD_REQ) || !(ctl & SST_WQ_EMPTY))
-        return false;
-    sleep_load();
-    return true;
+    return fs_idle() && (ctl & SST_LOAD_REQ) && (ctl & SST_WQ_EMPTY);
 }
