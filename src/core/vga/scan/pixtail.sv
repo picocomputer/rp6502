@@ -34,8 +34,8 @@ module pixtail
     input logic pal_xram,
     input logic [2:0] bpp_log,
     input logic reversed,
-    /* Doubled across, as mode 2 asks for: every pixel of an xram segment
-     * lands twice. The segment's count is still in canvas pixels, and its
+    /* Doubled across, as modes 2 and 3 ask for: every pixel of an xram
+     * segment lands twice. The segment's count is still in canvas pixels, and its
      * payload's bit 23 starts it on the right half of its first pixel. */
     input logic dbl,
 
@@ -242,8 +242,9 @@ module pixtail
             pixtail_px_data = {imm_on1 ? cur.pay[31:16] : cur.pay[15:0],
                                imm_on ? cur.pay[31:16] : cur.pay[15:0]};
         else if (emit_xram)
-            pixtail_px_data = dbl ? {pal_q, pal_q}
-                : bpp_log == 3'd4 ? {pix16_1, pix16} : {pal_q1, pal_q};
+            pixtail_px_data = bpp_log == 3'd4
+                ? (dbl ? {pix16, pix16} : {pix16_1, pix16})
+                : dbl ? {pal_q, pal_q} : {pal_q1, pal_q};
     end
 
     always_comb begin
