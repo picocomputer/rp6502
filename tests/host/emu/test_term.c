@@ -7,6 +7,7 @@
 /* term.c, the console's terminal, fed through the console and read through
  * its view. The console canvas holds the 80-column terminal, 30 rows. */
 
+#include "core/api/xreg.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/com/rln.h"
@@ -594,6 +595,16 @@ UTEST(term, decrqm)
     ASSERT_STREQ(ask("\33[2$p"), "\33[2;4$y");
     ASSERT_STREQ(ask("\33[12$p"), "\33[12;3$y");
     ASSERT_STREQ(ask("\33[?4000$p"), "\33[?4000;0$y");
+}
+
+/* DECCOLM is 80 columns or 132. The 40-column screen is neither. */
+UTEST(term, decrqm_deccolm_on_the_40_column_screen)
+{
+    fresh();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    ASSERT_STREQ(ask("\33[?3$p"), "\33[?3;0$y");
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    ASSERT_STREQ(ask("\33[?3$p"), "\33[?3;4$y");
 }
 
 /* ---- the keyboard's modes: the terminal holds them, the keyboard reads --- */

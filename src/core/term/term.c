@@ -602,8 +602,9 @@ static void term_out_DECRQM(term_t *t, bool private)
         case 2: // DECANM: ANSI mode, since this reply is ANSI
             pm = 1;
             break;
-        case 3: // DECCOLM: 80 columns only
-            pm = 4;
+        case 3: // DECCOLM: 80 columns, and never 132. The 40-column screen is
+                // neither of DECCOLM's two, so the mode is not reported there.
+            pm = term_shown(t)->width == 80 ? 4 : 0;
             break;
         case 4: // DECSCLM
             pm = t->smooth_scroll ? 1 : 2;
