@@ -36,6 +36,7 @@
 #include "ria-w/ble/ble.h"
 #include "ria-w/net/cyw.h"
 #include "ria-w/net/modem.h"
+#include "ria-w/net/net.h"
 #include "ria-w/net/ntp.h"
 #include "ria-w/net/wifi.h"
 #include "ria/sys/rp2350.h"
@@ -84,7 +85,8 @@
     VGA_DRIVER,                                      \
     LFS_DRIVER, CFG_DRIVER,                          \
     PROC_DRIVER, STR_DRIVER, STD_DRIVER,             \
-    CYW_DRIVER, WIFI_DRIVER, NTP_DRIVER, BLE_DRIVER, \
+    CYW_DRIVER, NET_DRIVER, WIFI_DRIVER,             \
+    NTP_DRIVER, BLE_DRIVER,                          \
     OEM_DRIVER, LED_DRIVER,                          \
     AUD_DRIVER, MID_DRIVER, KEYBOARD_DRIVER,         \
     LAYOUT_DRIVER, KEYMAP_DRIVER,                    \

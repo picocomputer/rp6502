@@ -262,6 +262,7 @@ static void manifold_stdio_out_flush(void)
     while (RING_LEN(&manifold_tx_core0))
         manifold_stdio_pump();
     manifold_uart_flush();
+    com_telnet_flush();
 }
 
 static int manifold_stdio_in_chars(char *buf, int length)
@@ -299,6 +300,7 @@ void manifold_flush(void)
     while (!ria_uart_tx_empty() || RING_LEN(&manifold_tx_core0))
         manifold_stdio_pump();
     manifold_uart_flush();
+    com_telnet_flush();
 }
 
 void HOST_IN_RAM_FUNC manifold_task(void)
