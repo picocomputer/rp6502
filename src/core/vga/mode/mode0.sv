@@ -25,7 +25,6 @@ module mode0 (
     input logic frame_start,
 
     input logic [9:0] h,
-    input logic [9:0] v,
     input logic px_last,
     input logic line_start,
     input logic [9:0] cw,
@@ -215,12 +214,10 @@ module mode0 (
         end
     end
 
-    /* Latched at the start of the line the render takes row 0 on, so a
-     * mid-frame publish never tears: line 524, or 523 on a 320-wide canvas,
-     * whose row 0 is the pair (523, 524) and is drawn on its first line. */
+    /* Latched as the frame starts, on the line row 0 is drawn on, with
+     * the frame counter's step. */
     logic frame_render;
-    always_comb frame_render = line_start
-        && v == (cw == 10'd320 ? 10'd523 : 10'd524);
+    always_comb frame_render = frame_start;
 
     /* Each row's word has two slots, and row_front picks the one
      * the render reads. A write goes to the other slot and is flipped in

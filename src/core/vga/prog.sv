@@ -16,9 +16,8 @@
  * writes and reads through the other. At this depth a block with two
  * such ports costs no more blocks than one with a single reader.
  *
- * The canvas and the vsync line are shadows: the canvas latches where
- * the render takes the frame's first row, the vsync line at the beam's
- * own boundary. The vsync line is where the oracle counts the frame —
+ * The canvas and the vsync line are shadows, latched together as the
+ * frame starts. The vsync line is where the oracle counts the frame —
  * the highest programmed scanline, mid-frame once a mode programs fewer
  * lines than the raster — and it resets to 480 so the console machine
  * keeps its M3 cadence.
@@ -152,21 +151,25 @@ module prog
             else
                 canvas_shadow <= b_wdata[2:0];
         end
-        /* The canvas is a render latch: it fires one raster line
-         * before the beam's frame, where the engines take row 0, so
-         * row 0 sees the same canvas as every other row. The vsync
-         * line paces the beam and latches at the beam's boundary. */
-        if (h == 10'd0 && px_first && v == 10'd524)
+        /* The canvas and the vsync line latch as the frame starts, on
+         * the line row 0 is drawn on, so every row of a frame sees the
+         * same ones. */
+        if (frame_start) begin
             prog_canvas <= canvas_shadow;
-        if (frame_start)
             vsync_q <= vsync_shadow;
+        end
     end
 
 
     always_comb begin
         prog_cw = canvas_w(prog_canvas);
         prog_ch = canvas_h(prog_canvas);
-        prog_vsync_pulse = h == 10'd0 && px_first && v == vsync_q;
+        /* The VSYNC comes as the last line drawn starts, which is where
+         * the C renderer has it, the vsync line being one past that. On
+         * line 0 that is the latch's own clock, so the frame's line is the
+         * one being latched. */
+        prog_vsync_pulse = h == 10'd0 && px_first
+            && v == (frame_start ? vsync_shadow : vsync_q) - 10'd1;
     end
 
     /* The sprite stage only ever asks for words 2 and 3 — its index

@@ -525,14 +525,9 @@ module wiring
 
     logic [9:0] vid_h /*verilator public_flat_rd*/;
     logic [9:0] vid_v /*verilator public_flat_rd*/;
-    logic vid_de_full;
     logic vid_de /*verilator public_flat_rd*/;
-    logic vid_hsync /*verilator public_flat_rd*/;
-    logic vid_vsync /*verilator public_flat_rd*/;
     logic vid_line_start, vid_frame_start;
-    always_comb wiring_vid_frame = vid_frame_start;
-    logic vid_vsync_pulse;
-    logic prog_vsync_pulse;
+    logic prog_vsync_pulse /*verilator public_flat_rd*/;
     logic vid_px_first, vid_px_last;
     timing timing (
         .clk(clk_sys),
@@ -540,14 +535,17 @@ module wiring
         .timing_v(vid_v),
         .timing_px_first(vid_px_first),
         .timing_px_last(vid_px_last),
-        .timing_de(vid_de_full),
-        .timing_hsync(vid_hsync),
-        .timing_vsync(vid_vsync),
         .timing_line_start(vid_line_start),
-        .timing_frame_start(vid_frame_start),
-        .timing_vsync_pulse(vid_vsync_pulse)
+        .timing_frame_start(vid_frame_start)
     );
     always_comb wiring_scanline = vid_v;
+
+    /* The line going to the screen, which the beam drew on the line
+     * before. The screen's frame starts a line after the machine's, so
+     * its first pixel is tagged there. */
+    logic [9:0] vid_out_v;
+    always_comb vid_out_v = vid_v == 10'd0 ? 10'(V_TOTAL - 1) : vid_v - 10'd1;
+    always_comb wiring_vid_frame = vid_line_start && vid_v == 10'd1;
 
     /* The RW engine in regs.sv, which serves the 6502's RW0 and RW1
      * registers, holds XRAM port B while xr_busy is high. Its background
@@ -726,7 +724,6 @@ module wiring
         .clk(clk_sys),
         .frame_start(vid_frame_start),
         .h(vid_h),
-        .v(vid_v),
         .px_last(vid_px_last),
         .line_start(vid_line_start),
         .cw(vid_cw),
@@ -999,10 +996,11 @@ module wiring
         wiring_aud_valid = psg_tick;
     end
 
-    /* A 320 wide canvas spans two lines of timing per row of graphics, so
-     * the row is handed to the scaler on the first line of the pair and the
-     * second is blanked. The scaler still receives ch rows; what changed is
-     * that the beam now takes the whole frame to cross the canvas. */
+    /* A 320 wide canvas spans two lines of timing per row of graphics.
+     * The row is drawn across a pair of the beam's lines and goes to the
+     * screen once, on the odd line of the screen's pair, which is the
+     * first line after the drawing; the even line goes out blank. The
+     * scaler still receives ch rows. */
     /* A line buffer flips where a pair starts, and next_ok says the line
      * about to start is one; a row of graphics starts where a pair does. */
     logic vid_dbl, vid_flip_ok, vid_next_ok, vid_row_start;
@@ -1010,9 +1008,9 @@ module wiring
     always_comb vid_flip_ok = sched_pair_start;
     always_comb vid_next_ok = sched_pair_end;
     always_comb vid_row_start = vid_line_start && sched_pair_start;
-    always_comb vid_de = vid_de_full && vid_h < vid_cw
-        && (vid_dbl ? !vid_v[0] && vid_v < {vid_ch[8:0], 1'b0}
-                    : vid_v < vid_ch);
+    always_comb vid_de = vid_px_last && vid_h < vid_cw
+        && (vid_dbl ? vid_out_v[0] && vid_out_v < {vid_ch[8:0], 1'b0}
+                    : vid_out_v < vid_ch);
 
     logic [15:0] c_pix[3];
     always_comb
@@ -1030,10 +1028,5 @@ module wiring
         .compose_pix(wiring_vid_pixel),
         .compose_de(wiring_vid_de)
     );
-
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_vid;
-    always_comb unused_vid = ^{vid_hsync, vid_vsync, vid_vsync_pulse};
-    /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
