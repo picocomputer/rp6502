@@ -328,6 +328,46 @@ UTEST(mode3, bpp16_odd_data_wrap_640x360)
     run_case(utest_result, "mode3_16odd_wrap", 0xFA27DA4F, MUT_BUDGET_NONE);
 }
 
+/* Each doubled bitmap draws what the same picture doubled before it is drawn
+ * does: odd positions cut the first doubled pixel in half, odd widths end a
+ * row part way into a byte, and the wraps fold at twice the size. */
+UTEST(mode3, dbl_1bpp_matches_doubled_bitmap_320x240)
+{
+    run_pair(utest_result, "mode3_dbl_1bpp", "mode3_dbl_1bpp_ref", 0x59E617EC);
+}
+
+UTEST(mode3, hdbl_2bpp_reversed_wrap_matches_doubled_bitmap_320x240)
+{
+    run_pair(utest_result, "mode3_hdbl_2bppr", "mode3_hdbl_2bppr_ref", 0xF1A897B1);
+}
+
+UTEST(mode3, vdbl_4bpp_wrap_matches_doubled_bitmap_320x240)
+{
+    run_pair(utest_result, "mode3_vdbl_4bpp", "mode3_vdbl_4bpp_ref", 0x064B98AC);
+}
+
+UTEST(mode3, hdbl_4bpp_reversed_matches_doubled_bitmap_320x240)
+{
+    run_pair(utest_result, "mode3_hdbl_4bppr", "mode3_hdbl_4bppr_ref", 0x91312121);
+}
+
+UTEST(mode3, dbl_8bpp_wrap_matches_doubled_bitmap_640x480)
+{
+    run_pair(utest_result, "mode3_dbl_8bpp_wrap", "mode3_dbl_8bpp_wrap_ref",
+             0x42A43F2E);
+}
+
+UTEST(mode3, dbl_16bpp_wrap_matches_doubled_bitmap_320x180)
+{
+    run_pair(utest_result, "mode3_dbl_16bpp", "mode3_dbl_16bpp_ref", 0xDECC35F4);
+}
+
+/* 20000 pixels fit an int16_t, and 40000 doubled do not. */
+UTEST(mode3, dbl_size_out_of_range_320x240)
+{
+    run_pair(utest_result, "mode3_dbl_size_w", "blank320", BLANK320_CRC);
+}
+
 UTEST(mode3, bpp1_builtin_320x240)
 {
     run_case(utest_result, "mode3_1bpp", 0x4EA78B8D, MUT_BUDGET_NONE);

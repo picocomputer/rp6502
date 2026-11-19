@@ -65,13 +65,13 @@ def le16(*vals):
 
 def mode3(name, canvas, attr, bpp, w, h, x, y, xram_pal,
           x_wrap=False, y_wrap=False, config_ptr=0x0100, pal_ptr=0x0200,
-          data_ptr=0x0800):
+          data_ptr=0x0800, data=None):
     if not xram_pal:
         pal_ptr = 0xFFFF
     cfg = bytearray((1 if x_wrap else 0, 1 if y_wrap else 0)) \
         + le16(x, y, w, h, data_ptr, pal_ptr)
-    bm = bytes((i * 13 + 7) & 0xFF
-               for i in range(((w * bpp + 7) // 8) * h))
+    bm = data if data is not None else bytes(
+        (i * 13 + 7) & 0xFF for i in range(((w * bpp + 7) // 8) * h))
     chunks = [(config_ptr, cfg), (data_ptr, bm)]
     if xram_pal:
         chunks.append((pal_ptr, le16(*((0x0020 | (i * 2657))
@@ -996,6 +996,62 @@ rom("text_term640", 3,
 # next segment starts right behind it.
 mode3("mode3_16odd_wrap", 4, 4, 16, 32, 16, -10, 50, False, x_wrap=True,
       data_ptr=0x0801)
+
+MODE3_REVERSE = 0x08
+MODE3_HDBL = 0x10
+MODE3_VDBL = 0x20
+
+
+def bits_reversed(data, bpp):
+    # Each byte's pixels in the other order: mode 3's reversed bitmaps keep
+    # their first pixel in the low bits.
+    if bpp >= 8:
+        return bytes(data)
+    mask = (1 << bpp) - 1
+    out = bytearray()
+    for b in data:
+        r = 0
+        for k in range(8 // bpp):
+            r = (r << bpp) | ((b >> (k * bpp)) & mask)
+        out.append(r)
+    return bytes(out)
+
+
+def mode3_pair(name, canvas, attr, bpp, w, h, x, y, xram_pal, **kw):
+    # <name> draws a bitmap doubled by its attributes, and <name>_ref draws
+    # the same picture from a bitmap doubled here, with the bits clear.
+    bm = bytes((i * 13 + 7) & 0xFF for i in range(((w * bpp + 7) // 8) * h))
+    mode3(name, canvas, attr, bpp, w, h, x, y, xram_pal, data=bm, **kw)
+    rev = bool(attr & MODE3_REVERSE) and bpp < 8
+    rows = img_rows(bits_reversed(bm, bpp) if rev else bm, w, h, bpp)
+    if attr & MODE3_HDBL:
+        rows = img_hdbl(rows)
+    if attr & MODE3_VDBL:
+        rows = img_vdbl(rows)
+    ref = img_pack(rows, bpp)
+    mode3(name + "_ref", canvas, attr & ~(MODE3_HDBL | MODE3_VDBL), bpp,
+          len(rows[0]), len(rows), x, y, xram_pal,
+          data=bits_reversed(ref, bpp) if rev else ref, **kw)
+
+
+# Doubled bitmaps against the same pictures doubled before they are drawn.
+# Odd positions start a line on the right half of a doubled pixel, odd widths
+# end a row part way into a byte, and the wraps fold at twice the width and
+# height.
+mode3_pair("mode3_dbl_1bpp", 1, MODE3_HDBL | MODE3_VDBL | 0, 1, 37, 20,
+           -3, 5, False)
+mode3_pair("mode3_hdbl_2bppr", 1, MODE3_HDBL | 9, 2, 50, 30, 7, -4, True,
+           x_wrap=True)
+mode3_pair("mode3_vdbl_4bpp", 1, MODE3_VDBL | 2, 4, 41, 25, 3, 11, True,
+           y_wrap=True)
+mode3_pair("mode3_hdbl_4bppr", 1, MODE3_HDBL | 10, 4, 33, 21, 9, 100, True)
+mode3_pair("mode3_dbl_8bpp_wrap", 3, MODE3_HDBL | MODE3_VDBL | 3, 8, 50, 40,
+           -37, -23, True, x_wrap=True, y_wrap=True)
+mode3_pair("mode3_dbl_16bpp", 2, MODE3_HDBL | MODE3_VDBL | 4, 16, 31, 16,
+           -5, 50, False, x_wrap=True)
+# A width that fits an int16_t only undoubled draws nothing doubled.
+mode3("mode3_dbl_size_w", 1, MODE3_HDBL | 0, 1, 20000, 1, 0, 0, False,
+      x_wrap=True)
 
 # Two 16bpp bitmaps on one line whose data pointers differ in byte parity. A
 # 16bpp bitmap at an odd byte is the only fill whose words start part way into
