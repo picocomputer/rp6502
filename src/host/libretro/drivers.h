@@ -17,7 +17,7 @@
 #include "core/api/proc.h"
 #include "core/sys/proc.h"
 #include "core/api/std.h"
-#include "core/com/con.h"
+#include "core/com/console.h"
 #include "core/com/tty.h"
 #include "core/tim/os.h"
 #include "core/aud/mix.h"
@@ -52,7 +52,8 @@
 #define RP6502_MACH_DRIVERS                                                  \
     RIA_DRIVER, SRAM_DRIVER, XRAM_DRIVER,                     \
     PROC_DRIVER, STR_DRIVER, ASSET_DRIVER,\
-    MANIFOLD_DRIVER, COM_DRIVER, STD_DRIVER, CON_DRIVER, TTY_DRIVER, TIO_DRIVER, RLN_DRIVER, \
+    MANIFOLD_DRIVER, COM_DRIVER, STD_DRIVER,                      \
+    CONSOLE_DRIVER, TTY_DRIVER, TIO_DRIVER, RLN_DRIVER,          \
     API_DRIVER, XREG_DRIVER, CELLS_DRIVER,                                 \
     KEYBOARD_DRIVER, MOUSE_DRIVER,                           \
     GAMEPAD_DRIVER, TABLET_DRIVER, FONT_DRIVER,      \

@@ -15,7 +15,7 @@ EXIT = 0x10  # zero page byte that holds the OR of the close results
 ERR = "err\n"
 EOF = "eof\n"
 INPUT = "a\rbb\r"
-# core/com/con.c follows each line read from stdin with a newline, whether a
+# core/com/console.c follows each line read from stdin with a newline, whether a
 # carriage return or a line feed ended the line in the input.
 OUTPUT = "a\nbb\n" + EOF
 

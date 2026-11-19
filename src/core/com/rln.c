@@ -7,7 +7,7 @@
 #include "core/sys/timer.h"
 #include "machine.h"
 #include "core/api/api.h"
-#include "core/com/con.h"
+#include "core/com/console.h"
 #include "core/com/rln.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
@@ -132,12 +132,12 @@ void rln_sst_save(sst_cursor_t *c, unsigned flags)
     (void)flags;
     sst_put(c, rln_buf, RLN_BUF_SIZE);
     /* A callback is a function pointer, which cannot be written to a blob, so
-     * it is saved as a token. con.c's reader is the only one this file can
+     * it is saved as a token. console.c's reader is the only one this file can
      * name, and any other callback fails the save rather than being restored
      * as the wrong reader. Its reads have no history, so none is carried. */
     if (!rln_callback)
         sst_put_u8(c, 0);
-    else if (rln_callback == con_rln_reader())
+    else if (rln_callback == console_rln_reader())
         sst_put_u8(c, 1);
     else
         sst_fail(c);
@@ -208,7 +208,7 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
 
     rln_history = NULL;
     memcpy(rln_buf, line, sizeof rln_buf);
-    rln_callback = reader ? con_rln_reader() : NULL;
+    rln_callback = reader ? console_rln_reader() : NULL;
     rln_idle_deadline = idle;
     rln_buflen = buflen;
     rln_bufpos = bufpos;

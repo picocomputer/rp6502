@@ -53,7 +53,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/tim/clk.c
         ${RP6502_SRC}/core/tim/tim.c
         ${RP6502_SRC}/core/api/std.c
-        ${RP6502_SRC}/core/com/con.c
+        ${RP6502_SRC}/core/com/console.c
         ${RP6502_SRC}/core/com/tty.c
         ${RP6502_SRC}/core/api/dir.c
         ${RP6502_SRC}/core/api/ops.c

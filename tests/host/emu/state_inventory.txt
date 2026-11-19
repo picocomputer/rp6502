@@ -78,13 +78,13 @@ core/com/com.c com_rx_deadline: the COM chunk
 core/com/com.c com_rx_held: the COM chunk
 core/com/com.c com_rx_staged: the COM chunk
 core/com/com.c com_sources: the COM chunk
-core/com/con.c con_closed: the CON chunk
-core/com/con.c con_rln_active: the CON chunk
-core/com/con.c con_rln_buf: not carried: NULL or rln's line buffer, which is at a fixed address; the load points it there
-core/com/con.c con_rln_len: the CON chunk
-core/com/con.c con_rln_needs_nl: the CON chunk
-core/com/con.c con_rln_pos: the CON chunk
-core/com/con.c con_was_asked: the CON chunk
+core/com/console.c console_closed: the CON chunk
+core/com/console.c console_rln_active: the CON chunk
+core/com/console.c console_rln_buf: not carried: NULL or rln's line buffer, which is at a fixed address; the load points it there
+core/com/console.c console_rln_len: the CON chunk
+core/com/console.c console_rln_needs_nl: the CON chunk
+core/com/console.c console_rln_pos: the CON chunk
+core/com/console.c console_was_asked: the CON chunk
 core/com/manifold.c manifold_crlf_last: the MFLD chunk
 core/com/manifold.c manifold_keyboard_ring: the MFLD chunk
 core/com/manifold.c manifold_std_tap: not carried: host wiring; libretro installs no wire at all

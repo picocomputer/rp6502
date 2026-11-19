@@ -72,7 +72,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/str/unicode.c
     ${RP6502_GEN}/unicode_oem.c
     ${RP6502_SRC}/core/api/std.c
-    ${RP6502_SRC}/core/com/con.c
+    ${RP6502_SRC}/core/com/console.c
     ${RP6502_SRC}/core/com/tty.c
     ${RP6502_SRC}/core/aud/bel.c
     ${RP6502_SRC}/core/aud/opl.c

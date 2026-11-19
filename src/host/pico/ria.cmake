@@ -74,7 +74,7 @@ set(RIA_RAM_SOURCES
     ${RP6502_ROOT}/src/host/pico/ria/usb/usb.c
     ${RP6502_ROOT}/src/osal/pico/fs.c
     ${RP6502_ROOT}/src/core/api/std.c
-    ${RP6502_ROOT}/src/core/com/con.c
+    ${RP6502_ROOT}/src/core/com/console.c
     ${RP6502_ROOT}/src/core/com/tty.c
     ${RIA_SRC}/mon/uf2_write.c
     ${RP6502_ROOT}/src/core/aud/bel.c
@@ -265,7 +265,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/term/cells.c
     ${RP6502_GEN}/unicode_oem.c
     ${RP6502_ROOT}/src/core/api/std.c
-    ${RP6502_ROOT}/src/core/com/con.c
+    ${RP6502_ROOT}/src/core/com/console.c
     ${RP6502_ROOT}/src/core/com/tty.c
     ${RIA_SRC}/api/tim.c
     ${RIA_SRC}/aud/mix.c

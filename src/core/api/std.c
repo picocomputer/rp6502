@@ -7,7 +7,7 @@
 #include "core/sys/driver.h"
 #include "core/api/api.h"
 #include "core/api/std.h"
-#include "core/com/con.h"
+#include "core/com/console.h"
 #include "core/com/tty.h"
 #include "core/ria/regs.h"
 #include "core/sys/xram.h"
@@ -365,7 +365,7 @@ fail:
 #define STD_ROW_CON 0
 #define STD_ROW_TTY 1
 static const std_driver_t std_driver_table[] = {
-    CON_STD_DRIVER,
+    CONSOLE_STD_DRIVER,
     TTY_STD_DRIVER,
     RP6502_STD_DRIVERS};
 

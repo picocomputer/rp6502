@@ -15,7 +15,7 @@
 #include "osal/fs.h"
 #include "ria/api/proc.h"
 #include "core/api/std.h"
-#include "core/com/con.h"
+#include "core/com/console.h"
 #include "core/com/tty.h"
 #include "core/com/com.h"
 #include "core/com/tio.h"
@@ -77,7 +77,7 @@
     VGA_DRIVER,                                      \
     LFS_DRIVER, CFG_DRIVER,                          \
     PROC_DRIVER, STR_DRIVER,                         \
-    STD_DRIVER, CON_DRIVER, TTY_DRIVER,              \
+    STD_DRIVER, CONSOLE_DRIVER, TTY_DRIVER,          \
     OEM_DRIVER, LED_DRIVER,                          \
     AUD_DRIVER, MID_DRIVER, KEYBOARD_DRIVER,         \
     LAYOUT_DRIVER, KEYMAP_DRIVER,                    \

@@ -10,7 +10,7 @@
 #include "host/sokol/cli/png.h"
 #include "host/sokol/cli/state.h"
 #include "core/api/api.h"
-#include "core/com/con.h"
+#include "core/com/console.h"
 #include "core/rom/rom.h"
 #include "core/str/oem.h"
 #include "core/sys/sys.h"
@@ -1828,9 +1828,9 @@ static bool script_settle(void)
     case SCRIPT_EOF:
         /* The moment console.c ends a piped stdin: a read is waiting and
          * every whole item typed has been taken, so no typed key is lost. */
-        if (con_waiting() && tio_idle())
+        if (console_waiting() && tio_idle())
         {
-            con_eof();
+            console_eof();
             break;
         }
         if (script_spend())
