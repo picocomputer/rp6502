@@ -6,6 +6,7 @@
 import argparse
 from pathlib import Path
 
+import build
 from rp6502_asm import Asm
 
 ap = argparse.ArgumentParser(description=__doc__)
@@ -1153,5 +1154,5 @@ rom("fill_three640_16bpp_spr", 3,
     + spr_img)
 
 if ARGS.emit_manifest:
-    ARGS.emit_manifest.write_text(
-        "".join(f"{n} {w} {h}\n" for n, w, h in sorted(MANIFEST)))
+    build.write_text(
+        ARGS.emit_manifest, "".join(f"{n} {w} {h}\n" for n, w, h in sorted(MANIFEST)))

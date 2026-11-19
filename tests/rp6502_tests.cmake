@@ -24,29 +24,17 @@ set(RP6502_TEST_ROM_DIR ${CMAKE_BINARY_DIR}/roms)
 set(RP6502_TEST_CORPUS ${RP6502_TEST_ROM_DIR})
 
 # The Python files of the tests import the assembler and the test runner
-# from lib, and rp6502 from tools. PYTHONPATH separates folders with ; on
-# Windows and with : on other hosts.
+# from lib, which RP6502_PYTHON gives them.
 set(RP6502_TEST_LIB ${RP6502_TESTS_DIR}/lib)
-if(CMAKE_HOST_WIN32)
-    set(RP6502_TEST_PYTHONPATH "${RP6502_TEST_LIB}$<SEMICOLON>${RP6502_ROOT}/tools")
-else()
-    set(RP6502_TEST_PYTHONPATH "${RP6502_TEST_LIB}:${RP6502_ROOT}/tools")
-endif()
-set(RP6502_TEST_PYTHON ${CMAKE_COMMAND} -E env
-    PYTHONPATH=${RP6502_TEST_PYTHONPATH} PYTHONDONTWRITEBYTECODE=1 python3)
-set(RP6502_TEST_LIB_FILES
-    ${RP6502_TEST_LIB}/rp6502_asm.py
-    ${RP6502_TEST_LIB}/rp6502_rom.py
-    ${RP6502_ROOT}/tools/rp6502.py)
 
 if(NOT TARGET rp6502_test_corpus)
     set(RP6502_CORPUS_GEN ${RP6502_TESTS_DIR}/cpu/vga/vidmodes.py)
     add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/roms.stamp
-        COMMAND ${RP6502_TEST_PYTHON}
+        COMMAND ${RP6502_PYTHON}
             ${RP6502_CORPUS_GEN} --out ${RP6502_TEST_CORPUS}
             --emit-manifest ${RP6502_TEST_CORPUS}/manifest.txt
         COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_BINARY_DIR}/roms.stamp
-        DEPENDS ${RP6502_CORPUS_GEN} ${RP6502_TEST_LIB_FILES}
+        DEPENDS ${RP6502_CORPUS_GEN} ${RP6502_PYTHON_LIBS}
         COMMENT "Generating the video-mode ROM corpus"
         VERBATIM)
     add_custom_target(rp6502_test_corpus DEPENDS ${CMAKE_BINARY_DIR}/roms.stamp)
@@ -73,9 +61,9 @@ function(rp6502_test_roms target file)
         set(${var}_ROM ${path} PARENT_SCOPE)
     endforeach()
     add_custom_command(OUTPUT ${outputs}
-        COMMAND ${RP6502_TEST_PYTHON} ${RP6502_TESTS_DIR}/${file}
+        COMMAND ${RP6502_PYTHON} ${RP6502_TESTS_DIR}/${file}
             --emit ${RP6502_TEST_ROM_DIR}
-        DEPENDS ${RP6502_TESTS_DIR}/${file} ${RP6502_TEST_LIB_FILES}
+        DEPENDS ${RP6502_TESTS_DIR}/${file} ${RP6502_PYTHON_LIBS}
         COMMENT "Assembling the ROMs of ${file}"
         VERBATIM)
     add_custom_target(${target} DEPENDS ${outputs})
@@ -150,8 +138,7 @@ function(rp6502_add_script_test)
         add_test(NAME script.${S_NAME}
             COMMAND ${CMAKE_COMMAND} -E env RP6502_EMU=$<TARGET_FILE:rp6502-emu>
                 RP6502_ROMS=${RP6502_TEST_ROM_DIR}
-                PYTHONPATH=${RP6502_TEST_PYTHONPATH} PYTHONDONTWRITEBYTECODE=1
-                python3 ${file} ${S_NAME} --save-dir ${_work} ${args})
+                ${RP6502_PYTHON} ${file} ${S_NAME} --save-dir ${_work} ${args})
     else()
         add_test(NAME script.${S_NAME}
             COMMAND rp6502-emu --save-dir ${_work} --script ${file} ${args})

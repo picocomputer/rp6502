@@ -5,13 +5,10 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import functools
-import importlib.util
 import re
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import gen
+import build
 
 W65C02_GEN = 'vendor/chips/codegen/w65c02_gen.py'
 
@@ -19,12 +16,7 @@ W65C02_GEN = 'vendor/chips/codegen/w65c02_gen.py'
 @functools.lru_cache(maxsize=None)
 def chips():
     """The vendored generator, once every expression it uses is modelled."""
-    path = gen.ROOT / W65C02_GEN
-    sys.path.insert(0, str(path.parent))
-    spec = importlib.util.spec_from_file_location('w65c02_gen_vendored', path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
+    mod = build.load_module(build.ROOT / W65C02_GEN, 'w65c02_gen_vendored')
     missing = check_vocabulary(mod)
     if missing:
         sys.exit('cpu.py: unmodelled expressions (%d):\n  %s'
@@ -452,11 +444,11 @@ def emit(w65, out):
                  "1'b0, 1'b0, 1'b0, 1'b0};\n" % (hold, hold))
     lines.append('        endcase\n    endfunction\n\nendpackage\n')
 
-    Path(out).write_text(''.join(lines))
+    build.write_text(out, ''.join(lines))
 
 
 def main():
-    a = gen.main(inputs=[W65C02_GEN],
+    a = build.generate(inputs=[W65C02_GEN],
                  sv={'cpu_rom_pkg.sv': lambda p: emit(chips(), p)},
                  extra=lambda ap: ap.add_argument('--report', action='store_true'))
     if a.report:

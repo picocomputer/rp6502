@@ -4,7 +4,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
+include(${CMAKE_CURRENT_LIST_DIR}/src/core/build.cmake)
 
 # The TinyUSB submodule has to be present before pico_sdk_init(), because the
 # SDK reads the tree at PICO_TINYUSB_PATH during that call.
@@ -35,6 +35,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/pico_sdk_import.cmake)
 
 set(PICO_TINYUSB_PATH ${RP6502_ROOT}/vendor/tinyusb)
 
+rp6502_portable_objects()
 project(rp6502-pico C CXX ASM)
 
 # TinyUSB's hw/bsp/rp2040/family.cmake sets CFG_TUSB_DEBUG from LOG when

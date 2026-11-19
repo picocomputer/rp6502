@@ -16,18 +16,25 @@
 #   - reached functions, inlined or not, with no RAM annotation and no home in
 #     a RAM source file, because LTO may stop inlining them.
 #
-# The roots are the TASK_ALWAYS tasks, read from the driver table, the targets
-# of the reviewed indirect calls, the interrupt handlers, core 1's loop, and
-# the writer.
+# The roots are the TASK_ALWAYS tasks, which flash_roots.c names in the ELF,
+# the targets of the reviewed indirect calls, the interrupt handlers, core 1's
+# loop, and the writer. The RAM sources come from ria.cmake.
+#
+# A check that finds nothing to check fails: no roots, or no code found in a
+# RAM source, means the inputs were misread, not that all is well. So does a
+# section of ria.cmake's RIA_FLASH_SECTIONS that is not in flash, or that no
+# object of the link has, kept or discarded, as its rule in the linker script
+# then matches nothing.
 
 import argparse
 import collections
 import json
 import os
 import re
-import shlex
-import subprocess
 import sys
+
+import build
+import rp6502
 
 # Reached, but a guard keeps them from running while flashing: not followed.
 PRUNE = {
@@ -146,7 +153,7 @@ OTHER_ROOTS = ['aud_irq', 'vga_backchannel_irq_handler', 'vga_vsync_trap_irq_han
 SCHEDULER = 'sys_walk'
 # Our own sources. A static inline in one of our headers needs an annotation
 # like any other function; one in an SDK or vendor header does not.
-SRC = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
+SRC = build.same_path(build.ROOT / 'src')
 # A literal loaded only to be handed to one of these is a message. No message
 # is needed while flashing: the image was read whole before the first erase,
 # and the writer's own progress and failure lines are RAM strings.
@@ -163,31 +170,10 @@ def flash(a):
     return 0x10000000 <= a < 0x20000000
 
 
-def run(*cmd, **kw):
-    return subprocess.run(cmd, capture_output=True, text=True, check=True, **kw).stdout
-
-
-def compile_args(entry):
-    args = entry['arguments'] if 'arguments' in entry else shlex.split(entry['command'])
-    out, skip = [], False
-    for a in args:
-        if skip:
-            skip = False
-        elif a == '-o':
-            skip = True
-        elif a != '-c' and a != entry['file']:
-            out.append(a)
-    return out
-
-
-def always_tasks(cc):
-    """The TASK_ALWAYS tasks, from the driver table as the compiler sees it."""
-    entry = next(e for e in cc if e['file'].replace('\\', '/').endswith('/src/core/sys/sys.c'))
-    src = ('#include "drivers.h"\n#define TASK_ALWAYS(f) FLASH_CHECK_ROOT f;\n'
-           '#include "core/sys/driver_walk.h"\nDRIVERS_FORWARD(RP6502_MACH_DRIVERS)\n'
-           '#include "core/sys/driver_walk_end.h"\n')
-    out = run(*compile_args(entry), '-E', '-P', '-x', 'c', '-', input=src, cwd=entry['directory'])
-    return re.findall(r'FLASH_CHECK_ROOT (\w+);', out)
+def always_tasks(args):
+    """The TASK_ALWAYS tasks, from the .flash_roots section of flash_roots.c."""
+    out = build.run(args.readelf, '-p', '.flash_roots', args.elf)
+    return re.findall(r'^\s*\[\s*[0-9a-f]+\]\s+(\w+)$', out, re.M)
 
 
 class Image:
@@ -199,14 +185,13 @@ class Image:
         self.words = {}
         self.load_sections()
         self.load_code()
-        self.a2l = subprocess.Popen([args.addr2line, '-e', args.elf, '-i', '-f', '-a'],
-                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        self.load_chains()
         self.lines = {}
         self.placed = {}
 
     def load_sections(self):
         lo, hi = 0x20000000, 0x10000000
-        for l in run(self.args.readelf, '-S', '-W', self.args.elf).split('\n'):
+        for l in build.run(self.args.readelf, '-S', '-W', self.args.elf).split('\n'):
             m = re.match(r'\s*\[\s*\d+\]\s+\S+\s+\S+\s+([0-9a-f]{8})\s+[0-9a-f]+\s+([0-9a-f]+)', l)
             if m and flash(int(m.group(1), 16)) and int(m.group(2), 16):
                 lo = min(lo, int(m.group(1), 16))
@@ -218,7 +203,7 @@ class Image:
 
     def load_code(self):
         sym = None
-        for l in run(self.args.objdump, '-d', '--no-show-raw-insn', self.args.elf).split('\n'):
+        for l in build.run(self.args.objdump, '-d', '--no-show-raw-insn', self.args.elf).split('\n'):
             m = re.match(r'^([0-9a-f]{8}) <(.+)>:$', l)
             if m:
                 sym = int(m.group(1), 16)
@@ -299,22 +284,29 @@ class Image:
                 k += 1
         return out
 
+    def load_chains(self):
+        """Every instruction's inline chain, innermost first, of (function,
+        file:line), from one run of addr2line."""
+        # addr2line from binutils 2.45 gives no file or line for the first
+        # address it is asked about, so the first is one nobody looks up.
+        addrs = '0x0\n' + ''.join('0x%x\n' % a for insns in self.insns.values() for a, _ in insns)
+        out = build.run(self.args.addr2line, '-e', self.args.elf, '-i', '-f', '-a',
+                          input=addrs).split('\n')
+        self.chain, cur, i = {}, None, 0
+        while i < len(out):
+            if re.match(r'^0x[0-9a-f]+$', out[i]):
+                cur = int(out[i], 16)
+                self.chain[cur] = []
+                i += 1
+            elif out[i] and i + 1 < len(out):
+                self.chain[cur].append((out[i], out[i + 1]))
+                i += 2
+            else:
+                i += 1
+
     def chains(self, addrs):
         """addr -> inline chain, innermost first, of (function, file:line)."""
-        self.a2l.stdin.write(''.join('0x%x\n' % a for a in addrs) + '0x0\n')
-        self.a2l.stdin.flush()
-        res, cur = {}, None
-        while True:
-            l = self.a2l.stdout.readline().rstrip('\n')
-            if re.match(r'^0x[0-9a-f]+$', l):
-                if int(l, 16) == 0:
-                    self.a2l.stdout.readline()
-                    self.a2l.stdout.readline()
-                    return res
-                cur = int(l, 16)
-                res[cur] = []
-                continue
-            res[cur].append((l, self.a2l.stdout.readline().rstrip('\n')))
+        return {a: self.chain.get(a, []) for a in addrs}
 
     def source(self, path):
         if path not in self.lines:
@@ -327,10 +319,10 @@ class Image:
 
     def placement(self, fn, loc, ram_sources):
         """For fn, whose body holds loc: ram-file, forced, annotated, header (not ours), none or unknown."""
-        path = loc.split(':')[0]
+        path, line = build.split_location(loc)
         if (fn, path) in self.placed:
             return self.placed[(fn, path)]
-        rp = os.path.realpath(path) if path not in ('??', '') else None
+        rp = build.same_path(path) if path not in ('??', '') else None
         r = 'unknown'
         if rp is None:
             pass
@@ -340,11 +332,10 @@ class Image:
             r = 'header'
         else:
             ls = self.source(rp)
-            m = re.match(r'.*:(\d+)', loc)
-            if ls is not None and m:
+            if ls is not None and line:
                 base = re.sub(r'\.(lto_priv|constprop|isra|part|cold)\b.*$', '', fn)
                 pat = re.compile(r'^[A-Za-z_].*\b' + re.escape(base) + r'\b\s*\)?\s*\(')
-                for k in range(min(int(m.group(1)) - 1, len(ls) - 1), -1, -1):
+                for k in range(min(line - 1, len(ls) - 1), -1, -1):
                     if pat.match(ls[k]) and not ls[k].startswith('#'):
                         head = (ls[k - 1] + ' ' if k else '') + ls[k]
                         r = 'forced' if FORCED.search(head) else \
@@ -357,6 +348,9 @@ class Image:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--elf', required=True)
+    ap.add_argument('--ram-sources', required=True)
+    ap.add_argument('--flash-sections', required=True)
+    ap.add_argument('--map', required=True)
     ap.add_argument('--compile-commands', required=True)
     ap.add_argument('--objdump', required=True)
     ap.add_argument('--addr2line', required=True)
@@ -365,9 +359,9 @@ def main():
 
     with open(args.compile_commands) as f:
         cc = json.load(f)
-    ram_sources = {os.path.realpath(os.path.join(e['directory'], e['file'])) for e in cc
-                   if '-fno-lto' in compile_args(e)}
-    tasks = always_tasks(cc)
+    with open(args.ram_sources) as f:
+        ram_sources = {build.same_path(l) for l in f.read().split('\n') if l}
+    tasks = always_tasks(args)
     img = Image(args)
 
     targets = sorted({t for _, ts in INDIRECT.values() for t in ts} | set(OTHER_ROOTS))
@@ -384,6 +378,7 @@ def main():
             enter(a, None)
 
     flash_code, flash_data, indirect, unannotated, sites = {}, {}, {}, {}, set()
+    found = collections.Counter()  # placement -> how many frames had it
     pruned = set(PRUNE)
 
     def scan(s, only=None):
@@ -406,6 +401,7 @@ def main():
                 if fn == '??':
                     continue
                 p = img.placement(fn, loc, ram_sources)
+                found[p] += 1
                 if p == 'forced':
                     break
                 if p == 'none':
@@ -447,6 +443,33 @@ def main():
     missing = [t for t in wanted if not re.search(r'\b' + re.escape(t) + r'\s*\(', text)]
     home = os.path.expanduser('~')
     report = []
+    # The files this ELF has code from, the input sections of the link, which
+    # the map lists one to a line, and where each symbol is.
+    files = {build.same_path(build.split_location(loc)[0])
+             for c in img.chain.values() for _, loc in c
+             if build.split_location(loc)[0] not in ('??', '')}
+    with open(args.map) as f:
+        linked = set(re.findall(r'^ (\.(?:text|rodata)\.\S+)', f.read(), re.M))
+    where = collections.defaultdict(list)
+    for name, value in rp6502.Symbols.elf_symbols(args.elf):
+        where[name].append(value)
+    with open(args.flash_sections) as f:
+        for entry in f.read().split('\n'):
+            if not entry:
+                continue
+            src, sections = entry.split('|')
+            if build.same_path(src) not in files:
+                continue  # a source this RIA does not build
+            for sec in sections.split():
+                name = re.sub(r'^\.(text|rodata)\.', '', sec)
+                if sec not in linked:
+                    report.append('flash section %s of %s matches nothing' % (sec, src))
+                elif where[name] and not any(flash(v) for v in where[name]):
+                    report.append('flash section %s of %s is not in flash' % (sec, src))
+    if not tasks:
+        report.append('no TASK_ALWAYS task in the .flash_roots section')
+    if not found['ram-file']:
+        report.append('no reached code is in a RAM source: --ram-sources was misread')
     for a in sorted(flash_code, key=lambda a: img.name[a]):
         report.append('code in flash: ' + path(a))
     for (inner, v), s in sorted(flash_data.items()):

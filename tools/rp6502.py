@@ -1397,8 +1397,10 @@ class Symbols(dict):
         return pairs
 
     @staticmethod
-    def _elf_symbols(path: str) -> list:
-        """The (name, value) pairs of the symbol table of an ELF32 file."""
+    def elf_symbols(path: str) -> list:
+        """The (name, value) pairs of the symbol table of a little-endian
+        ELF32 file, such as a program llvm-mos links or a Picocomputer's
+        firmware. Section and file symbols are left out."""
         with open(path, "rb") as f:
             data = f.read()
         (shoff,) = struct.unpack_from("<I", data, 0x20)
@@ -1433,7 +1435,7 @@ class Symbols(dict):
                 errors.append(f'rp6502_align({target} "{regex}"): {e}')
 
         cc65 = linked.endswith(".dbg")
-        pairs = Symbols._dbg_symbols(linked) if cc65 else Symbols._elf_symbols(linked)
+        pairs = Symbols._dbg_symbols(linked) if cc65 else Symbols.elf_symbols(linked)
         work = os.path.abspath(work)
         os.makedirs(work, exist_ok=True)
         sources = Symbols._sources(commands, objects)

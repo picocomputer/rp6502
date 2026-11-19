@@ -22,6 +22,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "src" / "core"))
 sys.path.insert(0, str(ROOT / "tests" / "lib"))
 sys.dont_write_bytecode = True
 
@@ -519,7 +520,7 @@ class Probe:
         self.serial = serial
         self.board = board
         self.sym = {}
-        for name, value in rp6502.Symbols._elf_symbols(self.elf):
+        for name, value in rp6502.Symbols.elf_symbols(self.elf):
             self.sym.setdefault(name.split(".")[0], value)
         self.openocd = find_openocd()
         self.proc = None

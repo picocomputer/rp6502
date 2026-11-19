@@ -13,9 +13,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-cmake_path(SET RP6502_ROOT NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../../..)
-set(RP6502_SRC ${RP6502_ROOT}/src)
-set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
+include(${CMAKE_CURRENT_LIST_DIR}/../../core/build.cmake)
 
 include(${RP6502_ROOT}/version.cmake)
 
