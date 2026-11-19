@@ -53,16 +53,14 @@ void vcp_apply_nfc_device_hash(const char *hash, bool changed);
 
 #define VCP_CONFIG_NFC_HASH CONFIG_HIDDEN(H, vcp, nfc_device_hash, VCP_NFC_HASH_SIZE, "", \
     vcp_check_nfc_device_hash, vcp_apply_nfc_device_hash)
-#define VCP_DRIVER DRIVER(TASK_PUMPED(vcp_task) VCP_CONFIG_NFC_HASH)
-
-#define VCP_STD_DRIVER           \
-    {                               \
-        .handles = vcp_std_handles, \
+#define VCP_DRIVER DRIVER(          \
+    TASK_PUMPED(vcp_task)           \
+    VCP_CONFIG_NFC_HASH             \
+    STD(.handles = vcp_std_handles, \
         .open = vcp_std_open,       \
         .close = vcp_std_close,     \
         .opening = vcp_std_opening, \
         .read = vcp_std_read,       \
-        .write = vcp_std_write,     \
-    }
+        .write = vcp_std_write))
 
 #endif /* _RIA_USB_VCP_H_ */

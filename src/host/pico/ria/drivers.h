@@ -10,11 +10,13 @@
 #include "core/sys/driver.h"
 
 #include "core/api/api.h"
-#include "core/api/clk.h"
+#include "core/tim/clk.h"
 #include "core/api/dir.h"
 #include "osal/fs.h"
 #include "ria/api/proc.h"
 #include "core/api/std.h"
+#include "core/com/console.h"
+#include "core/com/tty.h"
 #include "core/com/com.h"
 #include "core/com/tio.h"
 #include "ria/api/tim.h"
@@ -32,6 +34,7 @@
 #include "ria/mon/mon.h"
 #include "ria/mon/ram.h"
 #include "core/rom/rom.h"
+#include "core/aud/pcm.h"
 #include "ria/mon/rom.h"
 #include "ria/sys/rp2350.h"
 #include "ria/com/manifold.h"
@@ -74,7 +77,8 @@
     RIA_DRIVER, PIX_DRIVER, CELLS_RIA_DRIVER,        \
     VGA_DRIVER,                                      \
     LFS_DRIVER, CFG_DRIVER,                          \
-    PROC_DRIVER, STR_DRIVER, STD_DRIVER,             \
+    PROC_DRIVER, STR_DRIVER,                         \
+    STD_DRIVER, CONSOLE_DRIVER, TTY_DRIVER,          \
     OEM_DRIVER, LED_DRIVER,                          \
     AUD_DRIVER, MID_DRIVER, KEYBOARD_DRIVER,         \
     LAYOUT_DRIVER, KEYMAP_DRIVER,                    \
@@ -87,13 +91,16 @@
     VCP_DRIVER, NFC_DRIVER, API_DRIVER,              \
     USB_DRIVER, PHI2_DRIVER, RESB_DRIVER
 
-/* open() tries these in order, and FS_STD_DRIVER accepts every name, so it
- * must be last. */
+/* open() tries these drivers' STD rows in order, and the filesystem's
+ * accepts every path, so it is last. ASSET_DRIVER is here for ROM:'s row
+ * alone: the monitor resets the assets itself, so its hooks are not in the
+ * list above. */
 #define RP6502_STD_DRIVERS                           \
-    VCP_STD_DRIVER, MID_STD_DRIVER,                  \
-    ROM_STD_DRIVER, NFC_STD_DRIVER,                  \
-    PCM_STD_DRIVER,                                  \
-    SAVE_STD_DRIVER, FS_STD_DRIVER
+    CONSOLE_DRIVER, TTY_DRIVER,                      \
+    VCP_DRIVER, MID_DRIVER,                          \
+    ASSET_DRIVER, NFC_DRIVER,                        \
+    PCM_DRIVER,                                      \
+    SAVE_DRIVER, FS_DRIVER
 
 #define RP6502_COM_SOURCES                     \
     [COM_SOURCE_KEYBOARD] = KEYMAP_COM_SOURCE, \

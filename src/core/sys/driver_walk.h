@@ -34,6 +34,9 @@
 #ifndef STOP
 #define STOP(f)
 #endif
+#ifndef END
+#define END(f)
+#endif
 #ifndef BREAK
 #define BREAK(f)
 #endif
@@ -56,5 +59,11 @@
 #define CONFIG_SAVE(fn)
 #endif
 #ifndef SST
-#define SST(id, ver, size, save, load)
+#define SST(...)
+#endif
+#ifndef STD
+#define STD(...)
+#endif
+#ifndef STD_SST
+#define STD_SST(...)
 #endif

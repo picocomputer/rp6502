@@ -93,6 +93,10 @@ bool keyboard_sst_load(sst_cursor_t *c, unsigned flags);
 #define KEYBOARD_DRIVER DRIVER(                                            \
     INIT(keyboard_init)                                                    \
     STOP(keyboard_stop)                                                    \
-    SST(KEYB, 1, KEYBOARD_SST_SIZE, keyboard_sst_save, keyboard_sst_load))
+    SST(.id = "KEYB",                                                      \
+        .version = 1,                                                      \
+        .size = KEYBOARD_SST_SIZE,                                         \
+        .save = keyboard_sst_save,                                         \
+        .load = keyboard_sst_load))
 
 #endif /* _CORE_HID_KEYBOARD_H_ */

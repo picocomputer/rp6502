@@ -4,7 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/api/api.h"
 #include "core/str/oem.h"
+#include "core/wdc/phi2.h"
 #include "core/hid/hid.h"
 #include "core/api/proc.h"
 #include "core/sys/sys.h"
@@ -22,6 +24,31 @@ term_t cells_term = {.autorepeat = true};
 bool hid_boot_enumerating(void)
 {
     return false;
+}
+
+/* What the sources linked here name and the test never reaches: the
+ * settings beside the keyboard's in config.c, and the errno of an API
+ * call. */
+bool phi2_check_khz(uint16_t *v)
+{
+    (void)v;
+    return false;
+}
+
+void phi2_apply_khz(uint16_t phi2_khz, bool changed)
+{
+    (void)phi2_khz;
+    (void)changed;
+}
+
+void oem_locale_changed(uint16_t cp)
+{
+    (void)cp;
+}
+
+uint16_t api_platform_errno(api_errno num)
+{
+    return (uint16_t)num;
 }
 
 void hid_set_leds(uint8_t leds)

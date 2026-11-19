@@ -27,6 +27,7 @@
 
 void aud_init(void);
 void aud_stop(void);
+void aud_end(void);
 
 /* Polls the bell's sequencer. */
 void aud_task(void);
@@ -87,7 +88,7 @@ uint32_t aud_opl_overruns(void);
 
 /* Times the PCM: device's buffer ran dry since the last call, saturating at
  * 0x7FFFFFFF: each take of a frame that left less than one. An open and
- * aud_stop clear it. A software machine counts by the machine's present, as
+ * aud_end clear it. A software machine counts by the machine's present, as
  * it answers aud_pcm_level. */
 uint32_t aud_pcm_underruns(void);
 
@@ -116,6 +117,12 @@ void aud_set_sink_rate(uint32_t rate);
  * stamped. Off, the default, is a sink that pulls once a frame on the
  * machine's thread. */
 void aud_set_streaming(bool on);
+
+/* How fast the machine runs against the wall clock, for a streaming sink:
+ * 1 on the wall clock, and the display's frames a second over the machine's
+ * where the host takes its frames from a display. The resampler's step
+ * follows it, which leaves the trim only what the crystals differ by. */
+void aud_set_speed(double speed);
 
 /* Fills the sink's buffer with this many frames at the sink's rate, made on
  * the spot. A streaming sink gets them all. A sink that pulls once a frame
@@ -155,6 +162,11 @@ void aud_sst_settle(void);
     INIT(aud_init)                                          \
     TASK_ALWAYS(aud_task)                                   \
     STOP(aud_stop)                                          \
-    SST(AUD_, 6, AUD_SST_SIZE, aud_sst_save, aud_sst_load))
+    END(aud_end)                                            \
+    SST(.id = "AUD_",                                       \
+        .version = 6,                                       \
+        .size = AUD_SST_SIZE,                               \
+        .save = aud_sst_save,                               \
+        .load = aud_sst_load))
 
 #endif /* _CORE_AUD_MIX_H_ */

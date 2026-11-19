@@ -13,7 +13,7 @@
 #include "ria-w/net/cyw.h"
 #include "ria-w/net/telnet.h"
 #include "ria-w/net/wifi.h"
-#include "core/api/tim.h"
+#include "core/tim/tim.h"
 #include "core/str/str.h"
 #include "osal/pico/lfs.h"
 #include "machine.h"
@@ -265,8 +265,8 @@ static int modem_response_code(char *buf, size_t buf_size, int code, unsigned wi
 // RING, then the caller ID block after the first one when +VCID=1.
 static int modem_ring_response(char *buf, size_t buf_size, int state, unsigned width)
 {
-    struct timespec ts;
-    struct tm tm;
+    tim_spec_t ts;
+    tim_tm_t tm;
     switch (state)
     {
     case 0:
@@ -277,7 +277,7 @@ static int modem_ring_response(char *buf, size_t buf_size, int state, unsigned w
         return -1;
     case 1:
     case 2:
-        if (!tim_get_time(&ts) || !tim_localtime(ts.tv_sec, &tm))
+        if (!tim_get_time(&ts) || !tim_localtime(ts.sec, &tm))
             memset(&tm, 0, sizeof(tm));
         if (state == 1)
             snprintf(buf, buf_size, "\r\nDATE = %02d%02d\r\n", tm.tm_mon + 1, tm.tm_mday);
@@ -776,7 +776,7 @@ bool modem_set_listen_port(uint16_t port)
 
 void HOST_IN_FLASH_FUNC modem_init(void)
 {
-    modem_stop();
+    modem_end();
 }
 
 void HOST_IN_RAM_FUNC modem_task(void)
@@ -891,7 +891,9 @@ static void modem_conn_stop(modem_conn_t *conn)
     conn->has_caller = false;
 }
 
-void modem_stop(void)
+/* The end of a chain hangs up every connection. A stop leaves them, for the
+ * program an exec starts. */
+void modem_end(void)
 {
     for (int i = 0; i < NET_MODEM_DESCS; i++)
         modem_conn_stop(&modem_conns[i]);

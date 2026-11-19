@@ -307,7 +307,7 @@ static void vga_render_scanline(void)
     {
         if (prog.fill_fn[i])
         {
-            filled[i] = prog.fill_fn[i](i,
+            filled[i] = prog.fill_fn[i](prog.fill_options[i],
                                         scanline_id,
                                         width,
                                         scanline_buffer->pixels[i],

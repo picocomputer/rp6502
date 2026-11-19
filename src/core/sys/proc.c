@@ -129,24 +129,29 @@ static bool proc_boot_failed(const char *why, int argc)
     return false;
 }
 
-bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags)
+void proc_start_by_name(void)
 {
-    /* A start by name is not the outgoing program's child, so its chain ends
-     * at the stop, with its type-ahead and its paste. */
-    if (argc >= 0)
-        proc_cancel_launcher();
-    sys_stop_now(); /* before the load writes over what it was running on */
+    proc_cancel_launcher();
+    sys_stop_now();
     /* Cleared after that stop and not before, because the stop reaches
      * proc_stop, which reads proc_exec_inflight to decide whether the
      * launcher comes back. An exec it leaves queued ends with the chain. */
-    if (argc >= 0 && queued)
+    if (queued)
     {
         queued = false;
         proc_chain_end();
     }
-    queued = false;
+    paste_cancel();
+}
+
+bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags)
+{
+    /* Either stops what was running before the load writes over it. */
     if (argc >= 0)
-        paste_cancel();
+        proc_start_by_name();
+    else
+        sys_stop_now();
+    queued = false;
     boot_error = "";
     if (argc < 0 ? !argv0_absolute() : !proc_argv_fits(rom, argc, args))
         return proc_boot_failed(S(STR_ERR_ROM_ARGV_OVERFLOW), argc);

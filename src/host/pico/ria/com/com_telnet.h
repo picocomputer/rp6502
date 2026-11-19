@@ -30,6 +30,12 @@ int com_telnet_peek(size_t offset);
  * callbacks can start or end a session and clear the rings, so a caller
  * holding a ring index must check it again after com_telnet_pump returns. */
 void com_telnet_pump(void);
+
+/* Everything written so far is handed to the network: the TX ring, and what
+ * Nagle's algorithm is holding (net.c). A flush of stdio does it, so output
+ * written before a reboot is not lost with it. Runs com_telnet_pump. */
+void com_telnet_flush(void);
+
 void com_telnet_task(void);
 void com_telnet_flashing(void);
 

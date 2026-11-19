@@ -10,6 +10,7 @@
 #include "osal/fs.h"
 #include "host/host.h"
 #include "core/rom/rom.h"
+#include "core/sys/buf1k.h"
 #include "core/str/str.h"
 #include "machine.h"
 #include <stdio.h>
@@ -110,12 +111,14 @@ static long pump_gets(rom_pump_t *p, char *line, size_t cap, uint32_t *past,
     return (long)i;
 }
 
-bool rom_pump_open(rom_pump_t *p, const char *path, uint8_t *buf, api_errno *err)
+_Static_assert(BUF1K_SIZE >= ROM_RECORD_MAX, "a record fits the scratch buffer");
+
+bool rom_pump_open(rom_pump_t *p, const char *path, api_errno *err)
 {
     int fd = fs_rom_open(path, FS_RD, err);
     if (fd < 0)
         return false;
-    return rom_pump_open_fd(p, fd, buf, err);
+    return rom_pump_open_fd(p, fd, err);
 }
 
 /* Any shebang naming rp6502 heads a ROM, so a file made executable with
@@ -130,11 +133,11 @@ static bool shebang_ok(const char *line)
     return false;
 }
 
-bool rom_pump_open_fd(rom_pump_t *p, int fd, uint8_t *buf, api_errno *err)
+bool rom_pump_open_fd(rom_pump_t *p, int fd, api_errno *err)
 {
     memset(p, 0, sizeof *p);
     p->fd = fd;
-    char *line = (char *)buf;
+    char *line = (char *)buf1k;
     uint32_t past;
     long n = pump_gets(p, line, ROM_RECORD_MAX, &past, err);
     if (n < 0 || !shebang_ok(line))
@@ -168,16 +171,15 @@ fail:
     return false;
 }
 
-rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_record_t *rec,
-                              api_errno *err)
+rom_pump_result rom_pump_next(rom_pump_t *p, rom_record_t *rec, api_errno *err)
 {
     if (p->prog_end && p->pos >= p->prog_end)
         return ROM_PUMP_EOF;
-    /* The header line is read into the caller's record buffer, so that a
-     * machine stepping the pump from a task need not keep a second kilobyte.
+    /* The header line is read into the record's buffer, so that a machine
+     * stepping the pump from a task need not keep a second kilobyte.
      * The parse below finishes with it before the payload overwrites it. */
     uint32_t start = p->pos, past;
-    long n = pump_gets(p, (char *)buf, ROM_RECORD_MAX, &past, err);
+    long n = pump_gets(p, (char *)buf1k, ROM_RECORD_MAX, &past, err);
     if (n == PUMP_FAIL)
         return ROM_PUMP_ERROR;
     if (n == PUMP_EOF)
@@ -187,7 +189,7 @@ rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_record_t *rec,
         *err = API_ENOEXEC; /* the file ends where a line must be */
         return ROM_PUMP_ERROR;
     }
-    record_result r = record_parse((char *)buf, rec);
+    record_result r = record_parse((char *)buf1k, rec);
     if (r == RECORD_SKIP)
         return ROM_PUMP_SKIP;
     if (r != RECORD_OK)
@@ -198,10 +200,10 @@ rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_record_t *rec,
     /* The bytes read past the header begin the payload, and the rest of it is
      * read on from there. */
     uint32_t have = past < rec->len ? past : rec->len;
-    memmove(buf, buf + (p->pos - start), have);
+    memmove(buf1k, buf1k + (p->pos - start), have);
     uint32_t got = 0;
     if (have < rec->len &&
-        pump_read(p->fd, buf + have, rec->len - have, &got, err) != STD_OK)
+        pump_read(p->fd, buf1k + have, rec->len - have, &got, err) != STD_OK)
         return ROM_PUMP_ERROR;
     if (have + got != rec->len)
     {
@@ -209,7 +211,7 @@ rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_record_t *rec,
         return ROM_PUMP_ERROR;
     }
     p->pos += rec->len;
-    if (host_crc32(0, buf, rec->len) != rec->crc)
+    if (host_crc32(0, buf1k, rec->len) != rec->crc)
     {
         *err = API_ENOEXEC;
         return ROM_PUMP_ERROR;

@@ -5,7 +5,7 @@
  */
 
 #include "cfg.h"
-#include "main.h"
+#include "tim.h"
 #include "mmio.h"
 
 #include "core/hid/keyboard.h"

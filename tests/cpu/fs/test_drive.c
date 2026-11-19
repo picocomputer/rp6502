@@ -31,7 +31,7 @@ static bool fresh(void)
     char dir[TEST_PATH_MAX];
     if (!host_make_tmpdir(dir, sizeof(dir)))
         return false;
-    std_stop();
+    std_reset();
     if (!drive_chdir_to(dir))
         return false;
     api_set_errno_opt(2);

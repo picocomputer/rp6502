@@ -11,13 +11,15 @@
 #include "core/api/api.h"
 #include "core/api/xreg.h"
 #include "core/sys/random.h"
-#include "core/api/clk.h"
+#include "core/tim/clk.h"
 #include "core/api/dir.h"
 #include "osal/fs.h"
 #include "core/api/proc.h"
 #include "core/sys/proc.h"
 #include "core/api/std.h"
-#include "core/api/tim.h"
+#include "core/com/console.h"
+#include "core/com/tty.h"
+#include "core/tim/os.h"
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
@@ -33,6 +35,7 @@
 #include "core/sys/xram.h"
 #include "core/ria/ria.h"
 #include "core/rom/rom.h"
+#include "core/aud/pcm.h"
 #include "core/str/oem.h"
 #include "core/com/rln.h"
 #include "core/str/str.h"
@@ -50,7 +53,8 @@
 #define RP6502_MACH_DRIVERS                                                  \
     RIA_DRIVER, SRAM_DRIVER, XRAM_DRIVER,                     \
     PROC_DRIVER, STR_DRIVER, ASSET_DRIVER,\
-    MANIFOLD_DRIVER, COM_DRIVER, STD_DRIVER, TIO_DRIVER, RLN_DRIVER, \
+    MANIFOLD_DRIVER, COM_DRIVER, STD_DRIVER,                      \
+    CONSOLE_DRIVER, TTY_DRIVER, TIO_DRIVER, RLN_DRIVER,          \
     API_DRIVER, XREG_DRIVER, CELLS_DRIVER,                                 \
     KEYBOARD_DRIVER, MOUSE_DRIVER,                           \
     GAMEPAD_DRIVER, TABLET_DRIVER, FONT_DRIVER,      \
@@ -59,7 +63,16 @@
     CLK_DRIVER, RANDOM_DRIVER, PHI2_DRIVER,                 \
     CPU_DRIVER, VIA_DRIVER, BUS_DRIVER
 
-#define RP6502_STD_DRIVERS ROM_STD_DRIVER, PCM_STD_DRIVER, SAVE_STD_DRIVER, FS_STD_DRIVER
+/* This machine makes savestates, so its stdio rows keep their STD_SST
+ * parts. */
+#define RP6502_SST
+
+/* open() tries these drivers' STD rows in order, and the filesystem's
+ * accepts every path, so it is last. */
+#define RP6502_STD_DRIVERS                           \
+    CONSOLE_DRIVER, TTY_DRIVER,                      \
+    ASSET_DRIVER, PCM_DRIVER,                        \
+    SAVE_DRIVER, FS_DRIVER
 
 /* No host attaches a serial port to this machine, so the only bytes that ever
  * reach the UART source are the terminal's replies to a program's queries,

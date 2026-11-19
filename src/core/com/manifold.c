@@ -143,7 +143,7 @@ void manifold_set_wire(void (*tx)(const char *buf, int len),
 }
 
 /* The UART is the only terminal here besides term.c. The UART's sinks are the
- * tx tap, the bell, the host wire and term.c; COM_TERM_SCREEN's is term.c
+ * tx tap, the host wire and term.c; COM_TERM_SCREEN's is term.c
  * alone. */
 static void manifold_tx_write(uint8_t to, const char *buf, int len)
 {
@@ -151,10 +151,6 @@ static void manifold_tx_write(uint8_t to, const char *buf, int len)
     {
         if (manifold_tx_tap)
             manifold_tx_tap(buf, len);
-        if (com_get_bel())
-            for (int i = 0; i < len; i++)
-                if (buf[i] == '\a')
-                    bel_add(&bel_teletype);
         if (manifold_wire_tx)
             manifold_wire_tx(buf, len);
     }
@@ -227,6 +223,12 @@ void manifold_flush(void)
 void manifold_reply(const char *s, size_t n)
 {
     com_reply(s, n);
+}
+
+void manifold_bell(void)
+{
+    if (com_get_bel())
+        bel_add(&bel_teletype);
 }
 
 /* A Ctrl-C is scanned for before the bytes are pushed, so a break is seen

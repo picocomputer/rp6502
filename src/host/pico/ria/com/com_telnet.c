@@ -25,6 +25,7 @@
 bool HOST_IN_RAM_FUNC com_telnet_tx_writable(void) { return true; }
 void com_telnet_tx_write(char ch) { (void)ch; }
 void com_telnet_pump(void) {}
+void com_telnet_flush(void) {}
 void HOST_IN_RAM_FUNC com_telnet_task(void) {}
 
 #else
@@ -107,6 +108,20 @@ void com_telnet_pump(void)
     com_telnet_drain_tx();
     if (!com_telnet_tx_writable())
         cyw_task();
+}
+
+void com_telnet_flush(void)
+{
+    /* A full send buffer empties only as ACKs come in, which cyw_task takes
+     * in; it can also close the session, which ends the wait. */
+    while (com_telnet_state == COM_TELNET_STATE_CONNECTED)
+    {
+        com_telnet_drain_tx();
+        if (!RING_LEN(&com_telnet_tx))
+            break;
+        cyw_task();
+    }
+    net_flush(NET_TELNET_DESC);
 }
 
 static void com_telnet_handle_auth(uint8_t ch)

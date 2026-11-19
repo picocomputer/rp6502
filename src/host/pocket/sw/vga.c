@@ -13,18 +13,10 @@
 #include "core/term/font.h"
 
 static int16_t vga_highest_scanline;
-static uint8_t vga_pub_mode;
-static uint16_t vga_pub_attr;
 
 bool vga_connected(void)
 {
     return true;
-}
-
-void vga_mode_begin(uint8_t mode, uint16_t attr)
-{
-    vga_pub_mode = mode;
-    vga_pub_attr = attr;
 }
 
 bool vga_prog_valid(int16_t plane, int16_t scanline_begin,
@@ -63,11 +55,19 @@ static void vga_publish_vsync(void)
 static uint32_t vga_mode0_mask[VGA_MASK_WORDS];
 static int16_t vga_mode0_plane;
 
+/* The scanline table is prog.sv's: a word for a plane's fill and one for
+ * its sprites, each the mode and the options word of its XREG call under
+ * an enable bit. */
+static uint32_t vga_table_word(uint8_t mode, uint16_t options)
+{
+    return 0x80000000u | ((uint32_t)(mode & 7) << 16) | options;
+}
+
+/* Only the terminal books this way, and its mode and options are 0. */
 bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin,
                         int16_t scanline_end, uint16_t config_ptr,
-                        vga_fill_fn_t fill_fn)
+                        uint8_t mode, uint16_t options)
 {
-    (void)fill_fn;
     if (!vga_prog_valid(plane, scanline_begin, &scanline_end))
         return false;
     for (int16_t i = 0; i < VGA_PROG_MAX; i++)
@@ -77,7 +77,7 @@ bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin,
         vga_mode0_mask[i] = 0;
     for (int16_t i = scanline_begin; i < scanline_end; i++)
     {
-        VID_XPROG(i, plane, 0) = 0x80000000u;
+        VID_XPROG(i, plane, 0) = vga_table_word(mode, options);
         VID_XPROG(i, plane, 1) = config_ptr;
         vga_mode0_mask[i >> 5] |= 1u << (i & 31);
     }
@@ -87,18 +87,15 @@ bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin,
 }
 
 bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
-                   uint16_t config_ptr,
-                   vga_fill_fn_t fill_fn)
+                   uint16_t config_ptr, uint8_t mode, uint16_t options)
 {
-    (void)fill_fn;
     if (vga_canvas_is_console())
         return false;
     if (!vga_prog_valid(plane, scanline_begin, &scanline_end))
         return false;
     for (int16_t i = scanline_begin; i < scanline_end; i++)
     {
-        VID_XPROG(i, plane, 0) = 0x80000000u
-            | ((uint32_t)(vga_pub_mode & 7) << 16) | vga_pub_attr;
+        VID_XPROG(i, plane, 0) = vga_table_word(mode, options);
         VID_XPROG(i, plane, 1) = config_ptr;
     }
     if (plane == vga_mode0_plane)
@@ -110,18 +107,15 @@ bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
 
 bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
                      uint16_t config_ptr, uint16_t length,
-                     void (*sprite_fn)(int16_t, int16_t, uint16_t *,
-                                       uint16_t, uint16_t))
+                     uint8_t mode, uint16_t options)
 {
-    (void)sprite_fn;
     if (vga_canvas_is_console())
         return false;
     if (!vga_prog_valid(plane, scanline_begin, &scanline_end))
         return false;
     for (int16_t i = scanline_begin; i < scanline_end; i++)
     {
-        VID_XPROG(i, plane, 2) = 0x80000000u
-            | ((uint32_t)(vga_pub_mode & 7) << 16) | vga_pub_attr;
+        VID_XPROG(i, plane, 2) = vga_table_word(mode, options);
         VID_XPROG(i, plane, 3) = ((uint32_t)length << 16) | config_ptr;
     }
     vga_publish_vsync();
@@ -151,8 +145,6 @@ void vga_canvas_publish(vga_canvas_t canvas)
 void vga_table_save(sst_cursor_t *c)
 {
     sst_put_i16(c, vga_highest_scanline);
-    sst_put_u8(c, vga_pub_mode);
-    sst_put_u16(c, vga_pub_attr);
     for (int i = 0; i < VGA_MASK_WORDS; i++)
         sst_put_u32(c, vga_mode0_mask[i]);
     sst_put_i16(c, vga_mode0_plane);
@@ -161,8 +153,6 @@ void vga_table_save(sst_cursor_t *c)
 bool vga_table_load(sst_cursor_t *c)
 {
     int16_t highest = sst_get_i16(c);
-    uint8_t mode = sst_get_u8(c);
-    uint16_t attr = sst_get_u16(c);
     uint32_t mask[VGA_MASK_WORDS];
     for (int i = 0; i < VGA_MASK_WORDS; i++)
         mask[i] = sst_get_u32(c);
@@ -171,8 +161,6 @@ bool vga_table_load(sst_cursor_t *c)
         || plane >= SCANVIDEO_PLANE_COUNT)
         return false;
     vga_highest_scanline = highest;
-    vga_pub_mode = mode;
-    vga_pub_attr = attr;
     for (int i = 0; i < VGA_MASK_WORDS; i++)
         vga_mode0_mask[i] = mask[i];
     vga_mode0_plane = plane;

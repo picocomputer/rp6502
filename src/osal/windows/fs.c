@@ -92,7 +92,7 @@ static HANDLE g_xfer_event;
 bool fs_std_handles(const char *path)
 {
     (void)path;
-    /* FS_STD_DRIVER comes last in every RP6502_STD_DRIVERS, so this catch-all
+    /* FS_DRIVER comes last in every RP6502_STD_DRIVERS, so this catch-all
      * sees only what the drivers before it declined. */
     return true;
 }

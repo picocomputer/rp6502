@@ -11,7 +11,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "core/api/api.h"
-#include "core/com/rln.h"
 #include "core/sys/sst.h"
 
 void std_init(void);
@@ -23,27 +22,20 @@ void std_task(void);
 void std_xram_landed(const void *dst, uint32_t n);
 void std_stop(void);
 
-/* Whether a cooked read is outstanding on the console, and the notice that
- * input has ended. On end of input whatever partial line was typed is still
- * delivered, so reads answer from what is left of it before every read answers
- * end of file until the next program starts.
- */
-
-bool std_stdin_waiting(void);
-void std_stdin_eof(void);
-
-/* True once the running program has read the console. It stays true until the
- * program stops, because a raw TTY: read completes at once and leaves nothing
- * for a caller to observe. */
-bool std_console_asked(void);
-
-/* The reader rln calls back with a line. rln writes down whether a read was
- * outstanding as a token rather than as a pointer, so this is the reader its
- * load installs when the token says one was. */
-rln_read_callback_t std_rln_reader(void);
+/* Every open file closed and the console on 0, 1 and 2 again, CON:0, CON:1
+ * and CON:2. The END walk runs it, at the end of an exec chain and before a
+ * launcher starts again, not at each stop, so a program that an exec starts
+ * has what the one before it left open. */
+void std_reset(void);
 
 bool std_api_open(void);
 bool std_api_close(void);
+bool std_api_dup(void);
+bool std_api_dup2(void);
+bool std_api_isatty(void);
+
+// Whether a descriptor open now refuses an exec (std_driver_t).
+bool std_exec_refused(void);
 bool std_api_read_xstack(void);
 bool std_api_read_xram(void);
 bool std_api_write_xstack(void);
@@ -78,49 +70,47 @@ typedef struct
     std_rw_result (*write)(int desc, const char *, uint32_t, uint32_t *, api_errno *);
     std_rw_result (*sync)(int desc, api_errno *);
     int (*lseek)(int desc, int8_t, int32_t, int32_t *, api_errno *);
-    // A descriptor open for writing refuses a savestate unless its driver
-    // sets this. A write in progress, such as a game saving its progress,
-    // cannot be caught whole, but sound can always resume.
-    bool resumes_writes;
-#ifdef RP6502_SST
-    // The savestate's two, optional like the rest. ident writes down what an
-    // open descriptor is and reopen makes that descriptor again, with the
-    // open mode that the core carries.
-    //
-    // A driver that leaves them NULL cannot carry its descriptors, so a
-    // machine with one of those open refuses to be saved.
-    bool (*ident)(int desc, sst_cursor_t *);
-    int (*reopen)(sst_cursor_t *, uint8_t mode, api_errno *);
-#endif
+    // A file of the filesystem, SAVE: included: a machine has STD_FILES_MAX
+    // of them open at once.
+    bool file;
+    // An open one refuses an exec. ROM: reads the running program's own
+    // image, and SAVE: is in the running program's save folder, neither of
+    // which is the next program's.
+    bool refuses_exec;
+    // The console, which isatty answers 1 for.
+    bool terminal;
+    // The savestate's part, optional like the rest.
+    struct
+    {
+        // ident writes down what an open descriptor is and reopen makes that
+        // descriptor again, with the open mode that the core carries. A
+        // driver that leaves them NULL cannot carry its descriptors, so a
+        // machine with one of those open refuses to be saved.
+        bool (*ident)(int desc, sst_cursor_t *);
+        int (*reopen)(sst_cursor_t *, uint8_t mode, api_errno *);
+        // A descriptor open for writing refuses a savestate unless its
+        // driver sets this. A write in progress, such as a game saving its
+        // progress, cannot be caught whole, but sound can always resume.
+        bool resumes_writes;
+    } sst;
 } std_driver_t;
-
-/* A row's ident, reopen and resumes_writes. The first two exist only on a
- * machine that builds core/sys/sst.c, which defines RP6502_SST. */
-#ifdef RP6502_SST
-#define STD_SST_COLS(id, re, rw) .ident = id, .reopen = re, .resumes_writes = rw,
-#else
-#define STD_SST_COLS(id, re, rw) .resumes_writes = rw,
-#endif
 
 const std_driver_t *std_drivers(size_t *count);
 
-/* Whether an open descriptor refuses a savestate: one above the console
- * rows that is open for writing, on a driver that does not resume writes.
- * Every savestate asks here, core's own and one a machine makes without
- * core/sys/sst.c. */
+/* Whether an open file refuses a savestate: one open for writing, on a
+ * driver that does not resume writes. Every savestate asks here, core's own
+ * and one a machine makes without core/sys/sst.c. */
 bool std_sst_refused(void);
 
-/* The descriptors above the console rows, the transfer or open one of them may
- * be in the middle of, and how far the stdin reader has got through a line. A
- * descriptor is written down by the driver that opened it, and its function
- * pointers are rebuilt from that driver's row number and the open mode rather
- * than carried.
+/* The open files, the descriptors that name them, the transfer, open or dup2
+ * one of them may be in the middle of. An open file is written down by the
+ * driver that opened it, and its handlers are found again from that driver's
+ * row number and the open mode rather than carried.
  *
- * 4240 is a fixed slot with room to spare. The most that can be written is
- * sixteen carry flags, eleven carriable descriptors (fd 5 through 15) of a
- * driver byte, a mode byte and at most 260 bytes of ident, and a twenty byte
- * tail, which comes to 2918. */
-#define STD_SST_SIZE 4240
+ * The most that can be written is sixteen carry flags, sixteen open files of
+ * a driver byte, a mode byte and at most 260 bytes of ident, sixteen
+ * descriptors and a fourteen byte tail, which comes to 4238. */
+#define STD_SST_SIZE 4400
 void std_sst_save(sst_cursor_t *c, unsigned flags);
 bool std_sst_load(sst_cursor_t *c, unsigned flags);
 
@@ -128,6 +118,11 @@ bool std_sst_load(sst_cursor_t *c, unsigned flags);
     INIT(std_init)                                          \
     TASK_PUMPED(std_task)                                   \
     STOP(std_stop)                                          \
-    SST(STD_, 2, STD_SST_SIZE, std_sst_save, std_sst_load))
+    END(std_reset)                                          \
+    SST(.id = "STD_",                                       \
+        .version = 4,                                       \
+        .size = STD_SST_SIZE,                               \
+        .save = std_sst_save,                               \
+        .load = std_sst_load))
 
 #endif /* _CORE_API_STD_H_ */

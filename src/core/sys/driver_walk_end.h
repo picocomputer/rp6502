@@ -15,6 +15,7 @@
 #undef TASK_ALWAYS
 #undef RUN
 #undef STOP
+#undef END
 #undef BREAK
 #undef FLASHING
 #undef CONFIG_INT
@@ -23,3 +24,5 @@
 #undef CONFIG_HIDDEN
 #undef CONFIG_SAVE
 #undef SST
+#undef STD
+#undef STD_SST

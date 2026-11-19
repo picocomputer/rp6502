@@ -109,6 +109,10 @@ bool oem_sst_load(sst_cursor_t *c, unsigned flags);
 #define OEM_DRIVER DRIVER(                                  \
     INIT(oem_init)                                          \
     OEM_CONFIG_CODE_PAGE                                    \
-    SST(OEM_, 1, OEM_SST_SIZE, oem_sst_save, oem_sst_load))
+    SST(.id = "OEM_",                                       \
+        .version = 1,                                       \
+        .size = OEM_SST_SIZE,                               \
+        .save = oem_sst_save,                               \
+        .load = oem_sst_load))
 
 #endif /* _CORE_STR_OEM_H_ */

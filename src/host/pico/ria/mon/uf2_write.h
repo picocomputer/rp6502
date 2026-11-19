@@ -15,10 +15,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* The block last read sits at the start of mbuf, and the page built from it
+/* The block last read sits at the start of buf1k, and the page built from it
  * right after. */
-#define UF2_BLOCK ((const struct uf2_block *)mbuf)
-#define UF2_PAGE (mbuf + 512)
+#define UF2_BLOCK ((const struct uf2_block *)buf1k)
+#define UF2_PAGE (buf1k + 512)
 
 bool uf2_read_block(FIL *fil);
 void uf2_block_pages(uint32_t *first, uint32_t *count);

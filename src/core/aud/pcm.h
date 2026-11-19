@@ -97,15 +97,16 @@ int pcm_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err);
 
 /* Sound can always resume, so a savestate carries the device and the mixer's
  * row carries its buffer. */
-#define PCM_STD_DRIVER              \
-    {                               \
-        .handles = pcm_std_handles, \
-        .open = pcm_std_open,       \
-        .close = pcm_std_close,     \
-        .write = pcm_std_write,     \
-        .sync = pcm_std_sync,       \
-        .lseek = pcm_std_lseek,     \
-        STD_SST_COLS(pcm_std_ident, pcm_std_reopen, true) \
-    }
+#define PCM_DRIVER DRIVER(            \
+    STD(.handles = pcm_std_handles,   \
+        .open = pcm_std_open,         \
+        .close = pcm_std_close,       \
+        .write = pcm_std_write,       \
+        .sync = pcm_std_sync,         \
+        .lseek = pcm_std_lseek)       \
+    STD_SST(.ident = pcm_std_ident,   \
+            .reopen = pcm_std_reopen, \
+            .resumes_writes = true))
+
 
 #endif /* _CORE_AUD_PCM_H_ */

@@ -45,6 +45,10 @@ bool phi2_sst_load(sst_cursor_t *c, unsigned flags);
 #define PHI2_DRIVER DRIVER(                                    \
     INIT(phi2_init)                                            \
     PHI2_CONFIG_KHZ                                            \
-    SST(PHI2, 1, PHI2_SST_SIZE, phi2_sst_save, phi2_sst_load))
+    SST(.id = "PHI2",                                          \
+        .version = 1,                                          \
+        .size = PHI2_SST_SIZE,                                 \
+        .save = phi2_sst_save,                                 \
+        .load = phi2_sst_load))
 
 #endif /* _CORE_WDC_PHI2_H_ */

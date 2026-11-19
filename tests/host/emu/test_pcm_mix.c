@@ -93,6 +93,7 @@ static void fresh(void)
 {
     aud_set_enabled(true);
     aud_stop();
+    aud_end();
     table_at = 0;
 }
 
@@ -270,7 +271,7 @@ UTEST(pcm_mix, each_time_the_buffer_runs_dry_is_an_underrun)
     ASSERT_EQ(underruns(), 0);
     ASSERT_EQ(ssys_write_xram(fd, TABLE, 1000), 1000);
     pull(0, 4);
-    aud_stop();
+    aud_end();
     ASSERT_EQ(underruns(), 0);
     ASSERT_EQ(ssys_close(fd), 0);
 }
@@ -323,14 +324,48 @@ UTEST(pcm_mix, close_waits_for_the_sound)
     ASSERT_LE(frames, 7);
 }
 
-/* A program's end takes its sound with it, so std_stop's close is at once. */
-UTEST(pcm_mix, a_stop_ends_the_sound)
+/* dup2 onto PCM: closes it first, which waits for the sound like a close,
+ * and then the descriptor is the other file's. */
+UTEST(pcm_mix, dup2_onto_pcm_waits_for_its_close)
+{
+    fresh();
+    const int fd = ssys_open("PCM:22050,16,1", O_WR);
+    ASSERT_TRUE(fd >= 0);
+    ASSERT_EQ(ssys_write_xram(fd, TABLE, PCM_BUF_SIZE), PCM_BUF_SIZE);
+    const int con = ssys_open("CON:", O_WR);
+    ASSERT_TRUE(con >= 0);
+    int16_t from = (int16_t)con;
+    xstack_ptr = XSTACK_SIZE - 2;
+    memcpy(&xstack[xstack_ptr], &from, 2);
+    API_A = (uint8_t)fd;
+    int frames = 0;
+    while (std_api_dup2())
+    {
+        pull(0, 1);
+        frames++;
+    }
+    ASSERT_EQ(dsys_ax(), fd);
+    ASSERT_GE(frames, 5);
+    ASSERT_LE(frames, 7);
+    ASSERT_EQ(ssys_isatty(fd), 1);
+    const int again = ssys_open("PCM:22050,16,1", O_WR);
+    ASSERT_TRUE(again >= 0);
+    ASSERT_EQ(ssys_close(again), 0);
+    ASSERT_EQ(ssys_close(fd), 0);
+    ASSERT_EQ(ssys_close(con), 0);
+}
+
+/* A stop leaves PCM: playing, for the program an exec starts; the end of
+ * the chain takes the sound with it, so the close then is at once. */
+UTEST(pcm_mix, the_end_of_a_chain_ends_the_sound)
 {
     fresh();
     const int fd = ssys_open("PCM:22050,16,1", O_WR);
     ASSERT_TRUE(fd >= 0);
     ASSERT_EQ(ssys_write_xram(fd, TABLE, PCM_BUF_SIZE), PCM_BUF_SIZE);
     aud_stop();
+    ASSERT_EQ(ssys_lseek(fd, 0, WHENCE_CUR), PCM_BUF_SIZE);
+    aud_end();
     ASSERT_EQ(ssys_lseek(fd, 0, WHENCE_CUR), 0);
     ASSERT_EQ(ssys_close(fd), 0);
 }

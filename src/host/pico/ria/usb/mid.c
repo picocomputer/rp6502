@@ -1056,7 +1056,10 @@ void tuh_midi_umount_cb(uint8_t itf)
         }
 }
 
-void mid_stop(void)
+/* The end of a chain finalizes what is open without waiting for it to
+ * drain, so std_reset's close of it is at once. A stop leaves it, for the
+ * program an exec starts. */
+void mid_end(void)
 {
     for (uint8_t idx = 0; idx < CFG_TUH_MIDI; idx++)
         if (mid_mounts[idx].opened)

@@ -34,6 +34,10 @@ void cpu_sst_save(sst_cursor_t *c, unsigned flags);
 bool cpu_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define CPU_DRIVER DRIVER(                                  \
-    SST(CPU_, 1, CPU_SST_SIZE, cpu_sst_save, cpu_sst_load))
+    SST(.id = "CPU_",                                       \
+        .version = 1,                                       \
+        .size = CPU_SST_SIZE,                               \
+        .save = cpu_sst_save,                               \
+        .load = cpu_sst_load))
 
 #endif /* _CORE_WDC_CPU_H_ */

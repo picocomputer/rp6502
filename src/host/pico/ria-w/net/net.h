@@ -41,5 +41,10 @@ void net_reject(uint16_t port);
 bool net_has_pending(uint16_t port);
 bool net_is_closed(int desc);
 bool net_pending_peer(uint16_t port, ip_addr_t *remote);
+// What Nagle's algorithm is holding goes out now.
+void net_flush(int desc);
+void net_task(void);
+
+#define NET_DRIVER DRIVER(TASK_PUMPED(net_task))
 
 #endif /* _RIA_W_NET_NET_H_ */

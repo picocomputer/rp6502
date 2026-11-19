@@ -526,16 +526,7 @@ bool mode4_sprite_valid(uint16_t attributes)
     }
 }
 
-#ifdef RP6502_VGA_FABRIC
-
-vga_sprite_fn_t mode4_sprite_fn(uint16_t attributes)
-{
-    (void)attributes;
-    return NULL;
-}
-
-#else
-
+#ifndef RP6502_VGA_FABRIC
 vga_sprite_fn_t mode4_sprite_fn(uint16_t attributes)
 {
     switch (attributes)
@@ -550,9 +541,6 @@ vga_sprite_fn_t mode4_sprite_fn(uint16_t attributes)
     }
 }
 
-#endif
-
-#ifndef RP6502_VGA_FABRIC
 bool mode4_sprite_attr(vga_sprite_fn_t fn, uint16_t *attributes)
 {
     for (uint16_t a = 0; a < 4; a++)
@@ -579,7 +567,6 @@ bool mode4_prog(uint16_t *xregs)
 
     if (!mode4_sprite_valid(attributes))
         return false;
-    vga_sprite_fn_t render_fn = mode4_sprite_fn(attributes);
     switch (attributes)
     {
     case 0:
@@ -600,7 +587,7 @@ bool mode4_prog(uint16_t *xregs)
         return false;
     }
 
-    return vga_prog_sprite(plane, scanline_begin, scanline_end, config_ptr, length, render_fn);
+    return vga_prog_sprite(plane, scanline_begin, scanline_end, config_ptr, length, 4, attributes);
 }
 
 #pragma GCC pop_options

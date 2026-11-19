@@ -15,7 +15,10 @@ rp6502_gen_c()
 add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/hid_null.c
     ${RP6502_SRC}/core/sys/proc.c
-    ${RP6502_SRC}/core/api/tim.c
+    ${RP6502_SRC}/core/tim/clk.c
+    ${RP6502_SRC}/core/tim/os.c
+    ${RP6502_SRC}/core/tim/tim.c
+    ${RP6502_SRC}/core/tim/tz.c
     ${RP6502_SRC}/core/aud/mix.c
     ${RP6502_SRC}/core/aud/pcm.c
     ${RP6502_SRC}/core/aud/rsmp.c
@@ -32,7 +35,9 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/rom/rom.c
     ${RP6502_SRC}/core/rom/asset.c
     ${RP6502_SRC}/core/rom/pump.c
+    ${RP6502_SRC}/core/sys/buf1k.c
     ${RP6502_SRC}/core/sys/random.c
+    ${RP6502_SRC}/core/sys/div64.c
     ${RP6502_SRC}/core/sys/ring.c
     ${RP6502_SRC}/core/sys/timer.c
     ${RP6502_SRC}/core/sys/config.c
@@ -59,7 +64,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/api/proc.c
     ${RP6502_SRC}/core/api/arg.c
     ${RP6502_SRC}/core/api/attr.c
-    ${RP6502_SRC}/core/api/clk.c
     ${RP6502_SRC}/core/api/dir.c
     ${RP6502_SRC}/core/api/ops.c
     ${RP6502_SRC}/core/api/save.c
@@ -68,6 +72,8 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/str/unicode.c
     ${RP6502_GEN}/unicode_oem.c
     ${RP6502_SRC}/core/api/std.c
+    ${RP6502_SRC}/core/com/console.c
+    ${RP6502_SRC}/core/com/tty.c
     ${RP6502_SRC}/core/aud/bel.c
     ${RP6502_SRC}/core/aud/opl.c
     ${RP6502_SRC}/core/aud/psg.c
@@ -125,7 +131,6 @@ target_include_directories(emu_core PUBLIC
 )
 target_compile_definitions(emu_core PUBLIC
     ROM_ALIAS_MAX=16 # --install is documented as repeatable to sixteen.
-    RP6502_SST # This library builds core/sys/sst.c.
     _GNU_SOURCE
     RP6502_EXFAT=0
     RP6502_LOCALE=EN

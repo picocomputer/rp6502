@@ -122,7 +122,7 @@ static void HOST_IN_FLASH_FUNC ria_action_start(void)
         // FFF2  8D 00 00  STA $0000
         // FFF5  80 F9     BRA $FFF0
         REGS(0xFFF0) = 0xA9;
-        REGS(0xFFF1) = mbuf[0];
+        REGS(0xFFF1) = buf1k[0];
         REGS(0xFFF2) = 0x8D;
         REGS(0xFFF3) = rw_addr & 0xFF;
         REGS(0xFFF4) = rw_addr >> 8;
@@ -176,7 +176,7 @@ static void HOST_IN_FLASH_FUNC ria_verify_start(void)
     uint16_t addr = rw_addr;
     uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
-        if (addr + --len <= 0xFFFF && mbuf[len] != REGS(addr + len))
+        if (addr + --len <= 0xFFFF && buf1k[len] != REGS(addr + len))
             action_result = addr + len;
     while (len && (addr + len > 0xFF00))
         --len;
@@ -237,11 +237,11 @@ void HOST_IN_FLASH_FUNC ria_read_buf(uint16_t addr, ria_callback_t callback)
     uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
         if (addr + --len <= 0xFFFF)
-            mbuf[len] = REGS(addr + len);
+            buf1k[len] = REGS(addr + len);
         else
-            mbuf[len] = 0;
+            buf1k[len] = 0;
     while (len && (addr + len > 0xFF00))
-        mbuf[--len] = 0;
+        buf1k[--len] = 0;
     action_state = action_state_read;
     if (!len)
     {
@@ -263,7 +263,7 @@ void HOST_IN_FLASH_FUNC ria_write_buf(uint16_t addr, ria_callback_t callback)
     uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
         if (addr + --len <= 0xFFFF)
-            REGS(addr + len) = mbuf[len];
+            REGS(addr + len) = buf1k[len];
     while (len && (addr + len > 0xFF00))
         len--;
     rw_addr = addr;
@@ -399,7 +399,7 @@ __attribute__((optimize("O3"), flatten)) static void __scratch_x("act_loop") act
                             ria_action_end(RIA_ACTION_RESULT_FINISHED);
                         else if (++rw_pos < rw_end)
                         {
-                            REGS(0xFFF1) = mbuf[rw_pos];
+                            REGS(0xFFF1) = buf1k[rw_pos];
                             REGSW(0xFFF3) += 1;
                         }
                         else // LDA, so RESB never drops in a write cycle
@@ -410,7 +410,7 @@ __attribute__((optimize("O3"), flatten)) static void __scratch_x("act_loop") act
                     if (action_state == action_state_read)
                     {
                         REGSW(0xFFF1) += 1;
-                        mbuf[rw_pos] = data;
+                        buf1k[rw_pos] = data;
                         if (++rw_pos == rw_end)
                             ria_action_end(RIA_ACTION_RESULT_FINISHED);
                     }
@@ -419,7 +419,7 @@ __attribute__((optimize("O3"), flatten)) static void __scratch_x("act_loop") act
                     if (action_state == action_state_verify)
                     {
                         REGSW(0xFFF1) += 1;
-                        if (mbuf[rw_pos] != data)
+                        if (buf1k[rw_pos] != data)
                             ria_action_end(REGSW(0xFFF1) - 1);
                         else if (++rw_pos == rw_end)
                             ria_action_end(RIA_ACTION_RESULT_FINISHED);

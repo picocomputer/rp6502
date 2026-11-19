@@ -33,6 +33,10 @@ bool xram_sst_load(sst_cursor_t *c, unsigned flags);
  * compile xram.c too, but nothing there calls xram_init. */
 #define XRAM_DRIVER DRIVER(                                    \
     INIT(xram_init)                                            \
-    SST(XRAM, 1, XRAM_SST_SIZE, xram_sst_save, xram_sst_load))
+    SST(.id = "XRAM",                                          \
+        .version = 1,                                          \
+        .size = XRAM_SST_SIZE,                                 \
+        .save = xram_sst_save,                                 \
+        .load = xram_sst_load))
 
 #endif /* _CORE_SYS_XRAM_H_ */

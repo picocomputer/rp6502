@@ -28,19 +28,32 @@ void rln_stop(void);
 // Requesting a timeout of 0 ms will disable the idle timer.
 typedef void (*rln_read_callback_t)(bool timeout, const char *buf);
 
+#define RLN_LINE_MAX 256
+
+// The lines a read can bring back with the up and down keys. Its caller
+// owns it and says how many lines it has: `line` is that many, the first of
+// them the line being typed, kept while older ones are looked at, and the
+// rest the lines entered, newest first. A caller starts one with its lines
+// and their count and the rest zero, and hands it to each read that is to
+// use it.
+typedef struct
+{
+    char (*line)[RLN_LINE_MAX];
+    uint8_t lines;
+    uint8_t count; // the lines entered that it holds
+    uint8_t pos;   // the line showing, 0 for the one being typed
+} rln_history_t;
+
 // Prepare the line editor. The rln module can read entire
-// lines of input with editing on ANSI terminals.
-void rln_read_line(rln_read_callback_t callback);
+// lines of input with editing on ANSI terminals. The line is recorded in
+// history, and the lines before it can be brought back; NULL for a read
+// with no history, such as a YES/no confirmation or a program's input.
+void rln_read_line(rln_read_callback_t callback, rln_history_t *history);
 
 // Read a line typed by a script, such as the monitor's UPLOAD chunk headers:
-// the line is laid out plainly, as rln_set_plain does, and it is not
-// recorded in history. The callback gets a timeout after
-// timeout_ms with no input.
+// the line is laid out plainly, as rln_set_plain does, and it has no
+// history. The callback gets a timeout after timeout_ms with no input.
 void rln_read_line_script(rln_read_callback_t callback, uint32_t timeout_ms);
-
-// Read a line that is not recorded in history (e.g. a YES/no confirmation),
-// keeping the normal (disabled) idle timeout.
-void rln_read_line_no_history(rln_read_callback_t callback);
 
 // The source whose line end finished the line, for the callback to read the
 // bytes that follow from that source alone. COM_SOURCE_ANY when a poke, a
@@ -110,13 +123,12 @@ bool rln_api_lastkey(void);
 bool rln_api_peek(void);
 bool rln_api_poke(void);
 
-/* The line being edited. std.c's stdin bridge points into it, and a savestate
+/* The line being edited. console.c's stdin bridge points into it, and a savestate
  * rebuilds that pointer by calling this rather than carrying it. */
-#define RLN_LINE_MAX 256
 const char *rln_line(void);
 
 /* The reader is a function pointer, so it is saved as a token. A software
- * machine has exactly one, std.c's stdin bridge, and rebuilding it by calling
+ * machine has exactly one, console.c's stdin bridge, and rebuilding it by calling
  * rln_read_line would start a new read and wipe the line the blob just
  * restored.
  *
@@ -126,7 +138,7 @@ const char *rln_line(void);
  *
  * A pinned size comes last: the pins (4), whether the third grid is attached
  * (1), and that grid. */
-#define RLN_SST_SIZE 2940
+#define RLN_SST_SIZE 889
 void rln_sst_save(sst_cursor_t *c, unsigned flags);
 bool rln_sst_load(sst_cursor_t *c, unsigned flags);
 
@@ -136,6 +148,10 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags);
     RUN(rln_run)                                            \
     STOP(rln_stop)                                          \
     BREAK(rln_stop)                                         \
-    SST(RLN_, 7, RLN_SST_SIZE, rln_sst_save, rln_sst_load))
+    SST(.id = "RLN_",                                       \
+        .version = 8,                                       \
+        .size = RLN_SST_SIZE,                               \
+        .save = rln_sst_save,                               \
+        .load = rln_sst_load))
 
 #endif /* _CORE_COM_RLN_H_ */

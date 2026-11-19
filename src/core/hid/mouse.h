@@ -70,6 +70,10 @@ bool mouse_sst_load(sst_cursor_t *c, unsigned flags);
 #define MOUSE_DRIVER DRIVER(                                      \
     INIT(mouse_init)                                              \
     STOP(mouse_stop)                                              \
-    SST(MOUS, 1, MOUSE_SST_SIZE, mouse_sst_save, mouse_sst_load))
+    SST(.id = "MOUS",                                             \
+        .version = 1,                                             \
+        .size = MOUSE_SST_SIZE,                                   \
+        .save = mouse_sst_save,                                   \
+        .load = mouse_sst_load))
 
 #endif /* _CORE_HID_MOUSE_H_ */

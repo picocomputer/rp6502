@@ -1,0 +1,62 @@
+# Installs packages with apt, keeping the package files in the Actions
+# cache so a run does not wait on Ubuntu's mirrors. A mirror that stalls
+# on one file has cost a job 18 minutes that another spent 4 seconds on.
+#
+# The key is the files apt would fetch, by name and checksum, so a new
+# version of any package is a new key: that run fetches as apt always
+# does and saves what it fetched. On a hit apt finds every file in its
+# archive folder and fetches nothing.
+name: apt install
+description: apt-get install, from the Actions cache when it has the files
+inputs:
+  packages:
+    description: The packages, separated by spaces
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Find what apt would fetch
+      id: plan
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        set -euo pipefail
+        sudo apt-get update
+        dir="$HOME/.cache/apt-archives"
+        mkdir -p "$dir/partial"
+        # A line for each file: its URL, name, size and checksum. The URL
+        # names the mirror, which differs from runner to runner.
+        files=$(apt-get install -y --no-install-recommends --print-uris $PACKAGES \
+                  | awk '/^\x27/ {print $2, $4}' | sort)
+        sum=$(printf '%s' "$files" | sha256sum | cut -c1-16)
+        echo "dir=$dir" >> "$GITHUB_OUTPUT"
+        echo "key=apt-${ImageOS:-linux}-$(dpkg --print-architecture)-$sum" >> "$GITHUB_OUTPUT"
+
+    - name: The package files
+      id: files
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.plan.outputs.dir }}
+        key: ${{ steps.plan.outputs.key }}
+
+    - name: Install
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+        DIR: ${{ steps.plan.outputs.dir }}
+      run: |
+        set -euo pipefail
+        sudo apt-get install -y --no-install-recommends \
+          -o Dir::Cache::archives="$DIR" $PACKAGES
+        # apt wrote as root, and the cache is saved as the runner.
+        sudo chown -R "$(id -u):$(id -g)" "$DIR"
+
+    # Saved here and not as the job ends, so a long job that is cancelled
+    # has still saved them.
+    - name: Keep the package files
+      if: steps.files.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ steps.plan.outputs.dir }}
+        key: ${{ steps.plan.outputs.key }}
