@@ -8,6 +8,7 @@
 #include "mmio.h"
 #include "rom.h"
 #include "core/rom/rom.h"
+#include "core/sys/buf1k.h"
 
 #include <stdio.h>
 
@@ -30,12 +31,11 @@ bool rom_load_fd(int fd)
 {
     api_errno err;
     rom_pump_t pump;
-    static uint8_t buf[ROM_RECORD_MAX];
-    if (!rom_pump_open_fd(&pump, fd, buf, &err))
+    if (!rom_pump_open_fd(&pump, fd, &err))
         return false;
     rom_record_t rec;
     rom_pump_result r;
-    while ((r = rom_pump_next(&pump, buf, &rec, &err)) != ROM_PUMP_EOF)
+    while ((r = rom_pump_next(&pump, &rec, &err)) != ROM_PUMP_EOF)
     {
         if (r == ROM_PUMP_SKIP)
             continue;
@@ -44,7 +44,7 @@ bool rom_load_fd(int fd)
             rom_pump_close(&pump);
             return false;
         }
-        rom_deposit(&rec, buf);
+        rom_deposit(&rec, buf1k);
     }
     if (!rom_pump_complete(&pump))
     {

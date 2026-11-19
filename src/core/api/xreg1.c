@@ -67,7 +67,6 @@ bool xreg1(uint8_t channel, uint8_t index, uint16_t word)
                 xreg1_clear();
                 return false;
             }
-            vga_mode_begin((uint8_t)word, xregs[2]);
             bool ok = vga_mode_prog(word, xregs);
             xreg1_clear();
             return ok;

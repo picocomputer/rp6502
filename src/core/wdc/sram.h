@@ -34,6 +34,10 @@ bool sram_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define SRAM_DRIVER DRIVER(                                    \
     INIT(sram_init)                                            \
-    SST(SRAM, 1, SRAM_SST_SIZE, sram_sst_save, sram_sst_load))
+    SST(.id = "SRAM",                                          \
+        .version = 1,                                          \
+        .size = SRAM_SST_SIZE,                                 \
+        .save = sram_sst_save,                                 \
+        .load = sram_sst_load))
 
 #endif /* _CORE_WDC_SRAM_H_ */

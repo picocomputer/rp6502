@@ -173,12 +173,12 @@ static bool HOST_IN_FLASH_FUNC drive_is_fat_vbr(const uint8_t *w)
 
 static const char *HOST_IN_FLASH_FUNC drive_scheme_word(void)
 {
-    if (!msc_drive_read(drive_vol, mbuf, 0, 1))
+    if (!msc_drive_read(drive_vol, buf1k, 0, 1))
         return NULL;
-    if (drive_is_fat_vbr(mbuf))
+    if (drive_is_fat_vbr(buf1k))
         return STR_SFD;
-    if (mbuf[510] == 0x55 && mbuf[511] == 0xAA)
-        return (mbuf[446 + 4] == 0xEE) ? STR_GPT : STR_MBR;
+    if (buf1k[510] == 0x55 && buf1k[511] == 0xAA)
+        return (buf1k[446 + 4] == 0xEE) ? STR_GPT : STR_MBR;
     return NULL;
 }
 
@@ -335,7 +335,7 @@ static FRESULT HOST_IN_FLASH_FUNC drive_preview_mkfs(void)
     drive_gpt_threshold = (drive_layout == DRIVE_LAYOUT_GPT) ? 0 : (LBA_t)-1;
 #endif
     drive_previewing = true;
-    FRESULT fr = f_mkfs(drive_path, &parm, mbuf, MBUF_SIZE);
+    FRESULT fr = f_mkfs(drive_path, &parm, buf1k, BUF1K_SIZE);
     drive_previewing = false;
 #if FF_LBA64
     drive_gpt_threshold = DRIVE_GPT_DEFAULT;
@@ -373,7 +373,7 @@ static FRESULT HOST_IN_FLASH_FUNC drive_do_mkfs(void)
 #if FF_LBA64
     drive_gpt_threshold = (drive_layout == DRIVE_LAYOUT_GPT) ? 0 : (LBA_t)-1;
 #endif
-    FRESULT fr = f_mkfs(drive_path, &parm, mbuf, MBUF_SIZE);
+    FRESULT fr = f_mkfs(drive_path, &parm, buf1k, BUF1K_SIZE);
 #if FF_LBA64
     drive_gpt_threshold = DRIVE_GPT_DEFAULT;
 #endif
@@ -471,10 +471,10 @@ static int HOST_IN_FLASH_FUNC drive_run_response(char *buf, size_t size,
             return -1;
         }
         {
-            uint32_t per = MBUF_SIZE / 512;
+            uint32_t per = BUF1K_SIZE / 512;
             uint64_t remain = drive_total - drive_lba;
             uint32_t n = remain < per ? (uint32_t)remain : per;
-            if (!msc_drive_write(drive_vol, mbuf, drive_lba, n))
+            if (!msc_drive_write(drive_vol, buf1k, drive_lba, n))
             {
                 mon_add_response_fatfs(FR_DISK_ERR);
                 msc_drive_reenumerate(drive_vol);
@@ -503,7 +503,7 @@ static int HOST_IN_FLASH_FUNC drive_run_response(char *buf, size_t size,
             while (drive_pin_i < drive_pin_n)
             {
                 uint64_t lba = drive_lba + drive_pin_i++;
-                if (!msc_drive_read(drive_vol, mbuf, lba, 1))
+                if (!msc_drive_read(drive_vol, buf1k, lba, 1))
                 {
                     drive_bad++;
                     buf[0] = '\r';
@@ -517,10 +517,10 @@ static int HOST_IN_FLASH_FUNC drive_run_response(char *buf, size_t size,
         }
         else if (drive_lba < drive_total)
         {
-            uint32_t per = MBUF_SIZE / 512;
+            uint32_t per = BUF1K_SIZE / 512;
             uint64_t remain = drive_total - drive_lba;
             uint32_t n = remain < per ? (uint32_t)remain : per;
-            if (!msc_drive_read(drive_vol, mbuf, drive_lba, n))
+            if (!msc_drive_read(drive_vol, buf1k, drive_lba, n))
             {
                 drive_pin_n = n;
                 drive_pin_i = 0;
@@ -617,7 +617,7 @@ static void HOST_IN_FLASH_FUNC drive_run_erase(void)
     }
     drive_last_pct = -1;
     drive_lba = 0;
-    memset(mbuf, 0, MBUF_SIZE);
+    memset(buf1k, 0, BUF1K_SIZE);
     mon_add_response_utf8(S(STR_DISK_ERASING));
     drive_state = DRIVE_RUN_ERASE;
     mon_add_response_fn(drive_run_response);
@@ -645,8 +645,8 @@ static bool HOST_IN_FLASH_FUNC drive_validate(uint8_t vol, msc_drive_info_t *inf
     }
     // Only 512-byte sectors are accepted because FatFs is built with FF_MIN_SS
     // and FF_MAX_SS set to 512 and never queries the drive for its sector size.
-    // The erase and verify passes also transfer MBUF_SIZE / 512 sectors at a
-    // time through mbuf, so a larger sector would run past the end of mbuf.
+    // The erase and verify passes also transfer BUF1K_SIZE / 512 sectors at a
+    // time through buf1k, so a larger sector would run past the end of buf1k.
     if (info->block_size != 512)
     {
         mon_add_response_utf8(S(STR_ERR_SECTOR_SIZE));

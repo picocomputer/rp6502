@@ -90,11 +90,11 @@ jobs:
 
 
       - name: Install host packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build python3 git ca-certificates \
-            libusb-1.0-0-dev pkg-config
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            build-essential cmake ninja-build python3 git
+            ca-certificates libusb-1.0-0-dev pkg-config
 
       - name: Install Arm GNU toolchain (${{ env.ARM_TOOLCHAIN }})
         uses: carlosperate/arm-none-eabi-gcc-action@v1
@@ -200,11 +200,11 @@ jobs:
 
 
       - name: Install build + windowed-emu dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build \
-            libgl-dev libx11-dev libxi-dev libxcursor-dev libpulse-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            build-essential cmake ninja-build libgl-dev libx11-dev
+            libxi-dev libxcursor-dev libpulse-dev
 
       - name: Configure & build emulator (Release)
         run: |
@@ -260,9 +260,9 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
             build-essential cmake ninja-build
 
       - name: Configure & build core (Release)
@@ -612,9 +612,10 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build python3
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            build-essential cmake ninja-build python3
 
       # No emsdk step: this root names its own toolchain file, which fetches the
       # submodule and runs install and activate itself — the path a developer
@@ -725,10 +726,10 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install build dependencies + Verilator + RISC-V toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build verilator \
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            build-essential cmake ninja-build verilator
             gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
 
       - name: Configure & build simulation (Release)
@@ -763,10 +764,10 @@ jobs:
       # it reads chips/codegen to do it. This job needs no simulator and no
       # test fixtures, which is why it is not simply test-rtl's list.
       - name: Install build dependencies + RISC-V toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build python3 \
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            build-essential cmake ninja-build python3
             gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
 
       # Quartus is the only thing here that needs the old image, so it is the

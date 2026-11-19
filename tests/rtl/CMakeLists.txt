@@ -44,6 +44,11 @@ else()
     set(RP6502_OSAL ${RP6502_SRC}/osal/linux)
 endif()
 include(${RP6502_SRC}/core/emu.cmake)
+# No link-time optimization here. This tree links 79 test programs, and with
+# it each link compiles the simulation again: 2,050 seconds of processor to
+# build where this takes 340, for tests that then run 2.5% faster.
+set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION OFF)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
 include(${RP6502_SRC}/osal/posix/posix.cmake)
 rp6502_osal_posix(emu_core TRANSPORT aio)
 target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c)

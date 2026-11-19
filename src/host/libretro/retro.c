@@ -23,7 +23,8 @@
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/vga/vga_emu.h"
-#include "core/api/std.h"
+#include "core/com/console.h"
+#include "core/com/tty.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
 #include "osal/os.h"
@@ -639,7 +640,7 @@ void retro_run(void)
     /* Not the gamepad or the tablet: a frontend polls pads and the pointer
      * with Game Focus on or off, and withholds only the keyboard and the
      * mouse. */
-    if (!hint_shown && (std_console_asked() || keyboard_is_mapped() ||
+    if (!hint_shown && (console_asked() || tty_asked() || keyboard_is_mapped() ||
                         mouse_is_mapped()))
         say_how_to_type();
 

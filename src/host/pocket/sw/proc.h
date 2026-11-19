@@ -30,6 +30,10 @@ bool proc_sst_load(sst_cursor_t *c, unsigned flags);
 #define PROC_DRIVER DRIVER(                                    \
     RUN(proc_run)                                              \
     STOP(proc_stop)                                            \
-    SST(PROC, 1, PROC_SST_SIZE, proc_sst_save, proc_sst_load))
+    SST(.id = "PROC",                                          \
+        .version = 1,                                          \
+        .size = PROC_SST_SIZE,                                 \
+        .save = proc_sst_save,                                 \
+        .load = proc_sst_load))
 
 #endif /* _HOST_POCKET_SW_PROC_H_ */

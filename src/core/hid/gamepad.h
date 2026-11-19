@@ -163,6 +163,10 @@ bool gamepad_sst_load(sst_cursor_t *c, unsigned flags);
 #define GAMEPAD_DRIVER DRIVER(                                          \
     INIT(gamepad_init)                                                  \
     STOP(gamepad_stop)                                                  \
-    SST(GPAD, 1, GAMEPAD_SST_SIZE, gamepad_sst_save, gamepad_sst_load))
+    SST(.id = "GPAD",                                                   \
+        .version = 1,                                                   \
+        .size = GAMEPAD_SST_SIZE,                                       \
+        .save = gamepad_sst_save,                                       \
+        .load = gamepad_sst_load))
 
 #endif /* _CORE_HID_GAMEPAD_H_ */

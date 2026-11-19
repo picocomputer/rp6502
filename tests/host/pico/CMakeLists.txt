@@ -40,3 +40,15 @@ rp6502_add_test(path
     INCLUDES ${CMAKE_CURRENT_LIST_DIR}/stub ${RP6502_SRC}/host/pico/ria
         ${RP6502_SRC}/host/pico ${RP6502_VENDOR}
     DEFS RP6502_EXFAT=0 PICO_PROGRAM_NAME="RP6502-RIA" RP6502_LOCALE=EN)
+
+# The RIA's terminal, which follows the VGA's and has no cells.
+rp6502_add_test(ria_cells
+    SOURCES test_cells.c ${RP6502_SRC}/host/pico/ria/term/cells.c
+        ${RP6502_SRC}/core/term/term.c ${RP6502_SRC}/core/term/grid.c
+        ${RP6502_SRC}/core/term/color.c
+        ${RP6502_ROOT}/tests/bench/tb_version.c
+    INCLUDES ${CMAKE_CURRENT_LIST_DIR}/stub ${RP6502_SRC}/host/pico/ria
+        ${RP6502_SRC}/host/pico ${RP6502_SRC} ${RP6502_GEN}
+    DEFS PICO_PROGRAM_NAME="RP6502-RIA" RP6502_LOCALE=EN
+        TERM_MAX_HEIGHT=32 TERM_ALT_SCREEN=1)
+add_dependencies(test_ria_cells rp6502_gen_c)

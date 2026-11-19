@@ -51,6 +51,13 @@
  * after a passkey was lost that way. The cyw43 driver copies the frame out
  * with pbuf_copy_partial, so it has no need for an unchained pbuf. */
 
+/* What Nagle's algorithm gathers (net.c) goes into a pbuf allocated this far
+ * ahead of what has been written, and a segment that is sent early holds all
+ * of it from MEM_SIZE until it is acknowledged. The default of a whole MSS
+ * let six such segments use up the heap, and output stopped until ACKs came;
+ * at 115200 baud the console fills this much in 11 ms. */
+#define TCP_OVERSIZE 128
+
 #define LWIP_DHCP_DOES_ACD_CHECK 0
 
 #define MEM_STATS 0

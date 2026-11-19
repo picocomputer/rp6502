@@ -7,10 +7,8 @@
 #include "core/sys/driver.h"
 #include "core/api/api.h"
 #include "core/api/std.h"
-#include "core/com/rln.h"
-#include "core/str/str.h"
-#include "core/com/com.h"
-#include "core/com/manifold.h"
+#include "core/com/console.h"
+#include "core/com/tty.h"
 #include "core/ria/regs.h"
 #include "core/sys/xram.h"
 #include "core/sys/pix.h"
@@ -20,31 +18,35 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <strings.h>
 #include <unistd.h>
 
+/* As POSIX has them: a descriptor names an open file, and an open file is what
+ * a driver opened, with its open mode. dup and dup2 give an open file another
+ * descriptor, which shares its position, and the driver's close runs when the
+ * last of them is closed. open, dup and dup2 take the lowest free descriptor.
+ * Every descriptor can be a file or a console, 0, 1 and 2 included. */
 #define STD_FD_MAX 16
-#define STD_FD_CON 3
-#define STD_FD_TTY 4
-#define STD_FD_FIRST_FREE 5
+#define STD_OPEN_MAX STD_FD_MAX // each open file has a descriptor at least
+#define STD_NONE 0xFF
 typedef struct
 {
-    bool is_open;
-    std_rw_result (*close)(int, api_errno *);
-    std_rw_result (*read)(int, char *, uint32_t, uint32_t *, api_errno *);
-    std_rw_result (*write)(int, const char *, uint32_t, uint32_t *, api_errno *);
-    std_rw_result (*sync)(int, api_errno *);
-    int (*lseek)(int, int8_t, int32_t, int32_t *, api_errno *);
-    int desc;
-    /* Which row of std_driver_table opened it. The five pointers above are
-     * this build's own addresses, so a savestate writes down this index and
-     * the open mode, and rebuilds them from the two. */
+    uint8_t refs; // the descriptors that name it, 0 when the slot is free
+    /* Which row of std_driver_table opened it. Its handlers are the row's, so
+     * a savestate writes down this index and the open mode, and the build
+     * that loads it finds its own. */
     uint8_t driver;
-} std_fd_t;
-static std_fd_t std_fd_pool[STD_FD_MAX];
+    uint8_t mode; // FS_RD and FS_WR
+    int desc;     // the driver's own
+} std_open_t;
+static std_open_t std_opens[STD_OPEN_MAX];
+static uint8_t std_fds[STD_FD_MAX]; // 1 + its open file's index in std_opens, 0 when free
 
-// The descriptor the op in flight reads, writes, or waits to open.
-static std_fd_t *std_fd_active;
+/* Files of the filesystem open at once, on every machine, those on SAVE:
+ * included: what the Pico's FatFs allows. */
+#define STD_FILES_MAX 8
+
+// The open file the op in flight reads, writes, or waits to open.
+static std_open_t *std_fd_active;
 static char *std_buf;
 static uint16_t std_size;
 static uint16_t std_pos;
@@ -53,71 +55,117 @@ static volatile uint32_t std_xram_end;   // xram offset up to which the read has
 static uint32_t std_xram_lo, std_xram_hi; // the read's xram range while it runs, hi 0 when closed
 static int std_xram_err;                  // a failed read's errno, -1 when none
 
-static bool std_rln_active;
-static const char *std_rln_buf;
-static bool std_rln_needs_nl;
-static size_t std_rln_pos;
-static size_t std_rln_len;
-static bool std_stdin_closed;
-static bool std_asked_console;
+/* A dup2 whose descriptor was the last of an open file whose close is taking
+ * more than one pass: the two descriptors, STD_NONE when there is none. */
+static uint8_t std_dup2_from = STD_NONE, std_dup2_to = STD_NONE;
 
-static std_fd_t *std_validate_fd(int fd)
+static const std_driver_t *std_row(const std_open_t *o)
 {
-    if (fd < 0 || fd >= STD_FD_MAX || !std_fd_pool[fd].is_open)
-        return NULL;
-    return &std_fd_pool[fd];
+    size_t count;
+    return &std_drivers(&count)[o->driver];
 }
 
-static void HOST_IN_FLASH_FUNC std_rln_callback(bool timeout, const char *buf)
+static std_open_t *std_file(int fd)
 {
-    (void)timeout;
-    std_rln_active = false;
-    std_rln_buf = buf;
-    std_rln_pos = 0;
-    std_rln_len = strlen(buf);
-    std_rln_needs_nl = true;
+    if (fd < 0 || fd >= STD_FD_MAX || !std_fds[fd])
+        return NULL;
+    return &std_opens[std_fds[fd] - 1];
+}
+
+/* A direction that the open mode does not include has no handler, so a read
+ * or write in that direction gives EBADF. */
+static std_rw_result (*std_reader(const std_open_t *o))(int, char *, uint32_t, uint32_t *, api_errno *)
+{
+    return (o->mode & FS_RD) ? std_row(o)->read : NULL;
+}
+
+static std_rw_result (*std_writer(const std_open_t *o))(int, const char *, uint32_t, uint32_t *, api_errno *)
+{
+    return (o->mode & FS_WR) ? std_row(o)->write : NULL;
+}
+
+static int std_lowest_free_fd(void)
+{
+    for (int fd = 0; fd < STD_FD_MAX; fd++)
+        if (!std_fds[fd])
+            return fd;
+    return -1;
 }
 
 /* A close that returns STD_PENDING is called again until it finishes,
  * because no later dispatch repeats it. */
-static void std_close_now(std_fd_t *f)
+static void std_close_now(std_open_t *o)
 {
     api_errno ignored;
-    while (f->close(f->desc, &ignored) == STD_PENDING)
+    while (std_row(o)->close(o->desc, &ignored) == STD_PENDING)
         ;
-    f->is_open = false;
+    o->refs = 0;
 }
 
-/* A direction that the open mode does not include gets no handler, so a read
- * or write in that direction gives EBADF. */
-static void std_bind(std_fd_t *f, uint8_t row, int desc, uint8_t mode)
+// Every open file closed and every descriptor free.
+static void std_close_all(void)
 {
-    size_t count;
-    const std_driver_t *d = &std_drivers(&count)[row];
-    f->is_open = true;
-    f->close = d->close;
-    f->read = (mode & FS_RD) ? d->read : NULL;
-    f->write = (mode & FS_WR) ? d->write : NULL;
-    f->sync = d->sync;
-    f->lseek = d->lseek;
-    f->desc = desc;
-    f->driver = row;
+    for (int i = 0; i < STD_OPEN_MAX; i++)
+        if (std_opens[i].refs)
+            std_close_now(&std_opens[i]);
+    for (int fd = 0; fd < STD_FD_MAX; fd++)
+        std_fds[fd] = 0;
+}
+
+// A free slot of the pool made the open file of fd.
+static std_open_t *std_bind(int fd, uint8_t row, int desc, uint8_t mode)
+{
+    uint8_t i = 0;
+    while (std_opens[i].refs)
+        i++;
+    std_open_t *o = &std_opens[i];
+    o->refs = 1;
+    o->driver = row;
+    o->mode = mode & (FS_RD | FS_WR);
+    o->desc = desc;
+    std_fds[fd] = (uint8_t)(i + 1);
+    return o;
+}
+
+/* fd no longer names its open file. The last descriptor of it closes it, which
+ * can take more passes than one: STD_PENDING leaves fd as it was, to be
+ * called again. */
+static std_rw_result std_release(int fd, api_errno *err)
+{
+    std_open_t *o = &std_opens[std_fds[fd] - 1];
+    if (o->refs == 1)
+    {
+        std_rw_result result = std_row(o)->close(o->desc, err);
+        if (result == STD_PENDING)
+            return result;
+        o->refs = 0;
+        std_fds[fd] = 0;
+        return result;
+    }
+    o->refs--;
+    std_fds[fd] = 0;
+    return STD_OK;
+}
+
+static unsigned std_files_open(void)
+{
+    unsigned n = 0;
+    for (int i = 0; i < STD_OPEN_MAX; i++)
+        if (std_opens[i].refs && std_row(&std_opens[i])->file)
+            n++;
+    return n;
 }
 
 bool std_sst_refused(void)
 {
-    size_t count;
-    const std_driver_t *drivers = std_drivers(&count);
-    for (int fd = STD_FD_FIRST_FREE; fd < STD_FD_MAX; fd++)
+    for (int i = 0; i < STD_OPEN_MAX; i++)
     {
-        const std_fd_t *f = &std_fd_pool[fd];
-        if (f->is_open && f->write && !drivers[f->driver].resumes_writes)
+        const std_open_t *o = &std_opens[i];
+        if (o->refs && std_writer(o) && !std_row(o)->sst.resumes_writes)
             return true;
     }
     return false;
 }
-
-#ifdef RP6502_SST
 
 /* Which of xstack and xram a transfer is landing in. A savestate has to
  * record where the buffer started, because it cannot be worked back out: a
@@ -131,17 +179,18 @@ bool std_sst_refused(void)
  * record files opened by path, because that path may not exist on the other
  * machine, and loading the state closes them. A SAVE: file is recorded by its
  * name, which opens the same save on every machine. */
-static bool std_left_out(const std_fd_t *f, unsigned flags)
+static bool std_left_out(const std_open_t *o, unsigned flags)
 {
-    size_t count;
-    return (flags & SST_SHARED) && f >= &std_fd_pool[STD_FD_FIRST_FREE] &&
-           std_drivers(&count)[f->driver].open == fs_std_open;
+    return (flags & SST_SHARED) && std_row(o)->open == fs_std_open;
+}
+
+static bool std_carried(const std_open_t *o, unsigned flags)
+{
+    return o->refs && !std_left_out(o, flags);
 }
 
 void std_sst_save(sst_cursor_t *c, unsigned flags)
 {
-    size_t count;
-    const std_driver_t *drivers = std_drivers(&count);
     /* Before std_left_out, so a netplay state refuses a writer too rather
      * than leaving it out. */
     if (std_sst_refused())
@@ -149,25 +198,32 @@ void std_sst_save(sst_cursor_t *c, unsigned flags)
         sst_fail(c);
         return;
     }
-    for (int fd = 0; fd < STD_FD_MAX; fd++)
+    for (int i = 0; i < STD_OPEN_MAX; i++)
     {
-        std_fd_t *f = &std_fd_pool[fd];
-        bool carried = f->is_open && fd >= STD_FD_FIRST_FREE && !std_left_out(f, flags);
+        std_open_t *o = &std_opens[i];
+        bool carried = std_carried(o, flags);
         sst_put_bool(c, carried);
         if (!carried)
             continue;
-        if (f->driver >= count || !drivers[f->driver].ident)
+        if (!std_row(o)->sst.ident)
         {
             sst_fail(c);
             return;
         }
-        sst_put_u8(c, f->driver);
-        sst_put_u8(c, (f->read ? FS_RD : 0) | (f->write ? FS_WR : 0));
-        if (!drivers[f->driver].ident(f->desc, c))
+        sst_put_u8(c, o->driver);
+        sst_put_u8(c, o->mode);
+        if (!std_row(o)->sst.ident(o->desc, c))
         {
             sst_fail(c);
             return;
         }
+    }
+    /* A descriptor of an open file left out is closed by the load. The
+     * reference counts are the descriptors, so they are not written down. */
+    for (int fd = 0; fd < STD_FD_MAX; fd++)
+    {
+        uint8_t i = std_fds[fd];
+        sst_put_u8(c, i && std_carried(&std_opens[i - 1], flags) ? (uint8_t)(i - 1) : STD_NONE);
     }
     uint8_t kind = STD_BUF_NONE;
     uint16_t at = 0;
@@ -188,19 +244,19 @@ void std_sst_save(sst_cursor_t *c, unsigned flags)
      * is not recorded either, so its op is dispatched again after the load
      * and fails. */
     bool active = std_fd_active && !std_left_out(std_fd_active, flags);
-    sst_put_u8(c, active ? (uint8_t)(std_fd_active - std_fd_pool) : 0xFF);
+    sst_put_u8(c, active ? (uint8_t)(std_fd_active - std_opens) : STD_NONE);
+    /* So is a dup2 whose descriptors are not both recorded. */
+    bool dup2 = std_dup2_from != STD_NONE &&
+                std_carried(std_file(std_dup2_from), flags) &&
+                std_carried(std_file(std_dup2_to), flags);
+    sst_put_u8(c, dup2 ? std_dup2_from : STD_NONE);
+    sst_put_u8(c, dup2 ? std_dup2_to : STD_NONE);
     sst_put_u8(c, kind);
     sst_put_u16(c, at);
     sst_put_u16(c, std_size);
     sst_put_u16(c, std_pos);
     sst_put_u16(c, (uint16_t)std_xram_addr);
     sst_put_u16(c, (uint16_t)(std_xram_end - std_xram_addr));
-    sst_put_bool(c, std_rln_active);
-    sst_put_bool(c, std_rln_needs_nl);
-    sst_put_u16(c, (uint16_t)std_rln_pos);
-    sst_put_u16(c, (uint16_t)std_rln_len);
-    sst_put_bool(c, std_stdin_closed);
-    sst_put_bool(c, std_asked_console);
 }
 
 bool std_sst_load(sst_cursor_t *c, unsigned flags)
@@ -209,57 +265,81 @@ bool std_sst_load(sst_cursor_t *c, unsigned flags)
     size_t count;
     const std_driver_t *drivers = std_drivers(&count);
 
-    /* What this machine has open is closed before the blob's descriptors take
-     * their places, because otherwise the host's own file handles leak. The
-     * console rows below STD_FD_FIRST_FREE are opened by std_init and stay. */
-    for (int fd = STD_FD_FIRST_FREE; fd < STD_FD_MAX; fd++)
-        if (std_fd_pool[fd].is_open)
-            std_close_now(&std_fd_pool[fd]);
-
-    for (int fd = 0; fd < STD_FD_MAX; fd++)
+    /* What this machine has open is closed before the blob's open files take
+     * their places, because otherwise the host's own file handles leak. A
+     * load that fails closes what it reopened, for the same reason. */
+    std_close_all();
+    bool carried[STD_OPEN_MAX];
+    for (int i = 0; i < STD_OPEN_MAX; i++)
     {
-        bool carried = sst_get_bool(c);
+        carried[i] = sst_get_bool(c);
         if (!sst_ok(c))
-            return false;
-        if (!carried)
+            goto fail;
+        if (!carried[i])
             continue;
         uint8_t row = sst_get_u8(c);
         uint8_t mode = sst_get_u8(c);
-        if (!sst_ok(c) || row >= count || !drivers[row].reopen ||
+        if (!sst_ok(c) || row >= count || !drivers[row].sst.reopen || !(mode & (FS_RD | FS_WR)) ||
             (mode & ~(FS_RD | FS_WR)))
-            return false;
+            goto fail;
         api_errno err = API_EIO;
-        int desc = drivers[row].reopen(c, mode, &err);
-        if (desc < 0 || !sst_ok(c))
-            return false;
-        std_bind(&std_fd_pool[fd], row, desc, mode);
+        int desc = drivers[row].sst.reopen(c, mode, &err);
+        if (desc < 0)
+            goto fail;
+        // Held by the load until the descriptors are counted.
+        std_opens[i] = (std_open_t){.refs = 1, .driver = row, .mode = mode, .desc = desc};
+        if (!sst_ok(c))
+            goto fail;
     }
+    uint8_t named[STD_OPEN_MAX] = {0};
+    for (int fd = 0; fd < STD_FD_MAX; fd++)
+    {
+        uint8_t i = sst_get_u8(c);
+        if (!sst_ok(c) || (i != STD_NONE && (i >= STD_OPEN_MAX || !carried[i])))
+            goto fail;
+        if (i == STD_NONE)
+            continue;
+        std_fds[fd] = (uint8_t)(i + 1);
+        named[i]++;
+    }
+    /* An open file that no descriptor names would never be closed. */
+    for (int i = 0; i < STD_OPEN_MAX; i++)
+        if (carried[i])
+        {
+            if (!named[i])
+                std_close_now(&std_opens[i]);
+            std_opens[i].refs = named[i];
+        }
 
     uint8_t active = sst_get_u8(c);
+    uint8_t from = sst_get_u8(c), to = sst_get_u8(c);
     uint8_t kind = sst_get_u8(c);
     uint16_t at = sst_get_u16(c);
     uint16_t size = sst_get_u16(c), pos = sst_get_u16(c);
     uint16_t xaddr = sst_get_u16(c), xlen = sst_get_u16(c);
-    bool rln_on = sst_get_bool(c), needs_nl = sst_get_bool(c);
-    uint16_t rpos = sst_get_u16(c), rlen = sst_get_u16(c);
-    bool closed = sst_get_bool(c), asked = sst_get_bool(c);
     if (!sst_ok(c))
-        return false;
-    /* An active descriptor must be one that is open, or the first re-dispatch
-     * after the load calls through a row whose handlers and desc name
-     * nothing. */
-    if (active != 0xFF && (active >= STD_FD_MAX || !std_fd_pool[active].is_open))
-        return false;
+        goto fail;
+    /* An active open file must be one that is open, or the first re-dispatch
+     * after the load calls through a row whose desc names nothing. A dup2
+     * in flight is between two open descriptors that differ. */
+    if (active != STD_NONE && (active >= STD_OPEN_MAX || !std_opens[active].refs))
+        goto fail;
+    if ((from == STD_NONE) != (to == STD_NONE) ||
+        (from != STD_NONE && (from >= STD_FD_MAX || to >= STD_FD_MAX || from == to ||
+                              !std_fds[from] || !std_fds[to])))
+        goto fail;
     if (kind > STD_BUF_XRAM)
-        return false;
+        goto fail;
     if (kind == STD_BUF_XSTACK && at > XSTACK_SIZE)
-        return false;
+        goto fail;
     if (kind != STD_BUF_NONE && (uint32_t)at + size > 0x10000)
-        return false;
-    if (pos > size || rpos > rlen || rlen >= RLN_LINE_MAX)
-        return false;
+        goto fail;
+    if (pos > size)
+        goto fail;
 
-    std_fd_active = (active == 0xFF) ? NULL : &std_fd_pool[active];
+    std_fd_active = (active == STD_NONE) ? NULL : &std_opens[active];
+    std_dup2_from = from;
+    std_dup2_to = to;
     std_buf = (kind == STD_BUF_XSTACK) ? (char *)xstack + at
               : (kind == STD_BUF_XRAM) ? (char *)xram + at
                                        : NULL;
@@ -272,108 +352,29 @@ bool std_sst_load(sst_cursor_t *c, unsigned flags)
     /* Not carried. A machine that saves streams nothing, so a failed read
      * returns at once. */
     std_xram_err = -1;
-    std_rln_active = rln_on;
-    std_rln_needs_nl = needs_nl;
-    std_rln_pos = rpos;
-    std_rln_len = rlen;
-    std_stdin_closed = closed;
-    std_asked_console = asked;
-    /* Not carried in the blob. It is either NULL or rln's line buffer, which
-     * is at a fixed address, and nothing reads it until a line arrives. */
-    std_rln_buf = rln_line();
     return true;
+fail:
+    std_close_all();
+    return false;
 }
 
-#endif /* RP6502_SST */
-
-rln_read_callback_t std_rln_reader(void)
-{
-    return std_rln_callback;
-}
-
-static std_rw_result std_stdin_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
-{
-    (void)desc;
-    (void)err;
-    std_asked_console = true;
-    *bytes_read = 0;
-    if (count == 0)
-        return STD_OK;
-    if (!std_rln_needs_nl && std_rln_pos >= std_rln_len)
-    {
-        if (std_stdin_closed)
-            return STD_OK;
-        if (!std_rln_active)
-        {
-            std_rln_active = true;
-            rln_read_line_no_history(std_rln_callback);
-        }
-        return STD_PENDING;
-    }
-    uint32_t i = 0;
-    for (; i < count && std_rln_pos < std_rln_len; i++)
-        buf[i] = std_rln_buf[std_rln_pos++];
-    if (i < count && std_rln_needs_nl)
-    {
-        buf[i++] = '\n';
-        std_rln_needs_nl = false;
-    }
-    *bytes_read = i;
-    return STD_OK;
-}
-
-static std_rw_result std_stdout_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
-{
-    (void)desc;
-    (void)err;
-    *bytes_written = (uint32_t)manifold_write(STDOUT_FILENO, buf, count);
-    return (*bytes_written < count) ? STD_PENDING : STD_OK;
-}
-
-static std_rw_result std_stderr_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
-{
-    (void)desc;
-    (void)err;
-    *bytes_written = (uint32_t)manifold_write(STDERR_FILENO, buf, count);
-    return (*bytes_written < count) ? STD_PENDING : STD_OK;
-}
-
-static std_rw_result std_con_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
-{
-    std_rw_result result = std_stdin_read(desc, buf, count, bytes_read, err);
-    return (result == STD_PENDING) ? STD_OK : result;
-}
-
-static std_rw_result std_con_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
-{
-    std_rw_result result = std_stdout_write(desc, buf, count, bytes_written, err);
-    return (result == STD_PENDING) ? STD_OK : result;
-}
-
-static std_rw_result std_tty_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
-{
-    (void)desc;
-    (void)err;
-    std_asked_console = true;
-    *bytes_read = (uint32_t)com_stdin_read(buf, count);
-    return STD_OK;
-}
-
-static std_rw_result std_tty_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
-{
-    (void)desc;
-    (void)err;
-    uint32_t i = 0;
-    for (; i < count && manifold_cts(); i++)
-        manifold_putchar_raw(buf[i]);
-    *bytes_written = i;
-    return STD_OK;
-}
-
-/* This machine's stdio driver table, listed by its drivers.h. The row order
- * is the order open() tries them, so the filesystem catch-all is last. */
+/* This machine's stdio driver table: one row for each driver in its
+ * drivers.h's RP6502_STD_DRIVERS, made of that driver's STD and STD_SST. The
+ * row order is the order open() tries them, so the filesystem catch-all is
+ * last. STD_SST is kept only on a machine whose drivers.h says it makes
+ * savestates, so on one that does not, nothing links what it names. The list
+ * is expanded as it stands rather than through DRIVERS_FORWARD, because the
+ * rows' commas would split it. */
 static const std_driver_t std_driver_table[] = {
-    RP6502_STD_DRIVERS};
+#define DRIVER(row) {row}
+#define STD(...) __VA_ARGS__,
+#ifdef RP6502_SST
+#define STD_SST(...) .sst = {__VA_ARGS__},
+#endif
+#include "core/sys/driver_walk.h"
+    RP6502_STD_DRIVERS
+#include "core/sys/driver_walk_end.h"
+};
 
 const std_driver_t *std_drivers(size_t *count)
 {
@@ -381,81 +382,143 @@ const std_driver_t *std_drivers(size_t *count)
     return std_driver_table;
 }
 
+// The row that claims path, or -1 when none does.
+static int std_row_for(const char *path)
+{
+    for (size_t i = 0; i < sizeof std_driver_table / sizeof std_driver_table[0]; i++)
+        if (std_driver_table[i].handles(path))
+            return (int)i;
+    return -1;
+}
+
 bool std_api_open(void)
 {
-    size_t count;
-    const std_driver_t *drivers = std_drivers(&count);
     api_errno err = API_EIO;
     if (std_fd_active)
     {
-        std_fd_t *f = std_fd_active;
-        std_rw_result result = drivers[f->driver].opening(f->desc, &err);
+        std_open_t *o = std_fd_active;
+        std_rw_result result = std_row(o)->opening(o->desc, &err);
         if (result == STD_PENDING)
             return api_working();
         std_fd_active = NULL;
+        // A file being opened has the one descriptor.
+        int fd = 0;
+        while (std_fds[fd] != (uint8_t)(o - std_opens + 1))
+            fd++;
         if (result == STD_ERROR)
         {
-            std_close_now(f);
+            std_close_now(o);
+            std_fds[fd] = 0;
             return api_return_errno(err);
         }
-        return api_return_ax((uint16_t)(f - std_fd_pool));
+        return api_return_ax((uint16_t)fd);
     }
     const char *path = api_pop_path_end(&err);
     if (!(API_A & (FS_RD | FS_WR)))
         return api_return_errno(API_EINVAL);
     if (!path)
         return api_return_errno(err);
-    if (strcasecmp(path, STR_TTY_COLON) == 0)
-        return api_return_ax(STD_FD_TTY);
-    if (strcasecmp(path, STR_CON_COLON) == 0)
-        return api_return_ax(STD_FD_CON);
-    int fd = -1;
-    for (int i = STD_FD_FIRST_FREE; i < STD_FD_MAX; i++)
-        if (!std_fd_pool[i].is_open)
-        {
-            fd = i;
-            break;
-        }
+    int fd = std_lowest_free_fd();
     if (fd < 0)
         return api_return_errno(API_EMFILE);
-    for (size_t i = 0; i < count; i++)
-    {
-        if (drivers[i].handles(path))
-        {
-            if ((API_A & FS_WR) && !drivers[i].write)
-                return api_return_errno(API_EACCES);
-            err = API_EIO;
-            int idx = drivers[i].open(path, API_A, &err);
-            if (idx < 0)
-                return api_return_errno(err);
-            std_bind(&std_fd_pool[fd], (uint8_t)i, idx, API_A);
-            if (!drivers[i].opening)
-                return api_return_ax(fd);
-            std_fd_active = &std_fd_pool[fd];
-            return api_working();
-        }
-    }
-    return api_return_errno(API_ENOENT);
+    int i = std_row_for(path);
+    if (i < 0)
+        return api_return_errno(API_ENOENT);
+    if ((API_A & FS_WR) && !std_driver_table[i].write)
+        return api_return_errno(API_EACCES);
+    if (std_driver_table[i].file && std_files_open() >= STD_FILES_MAX)
+        return api_return_errno(API_EMFILE);
+    err = API_EIO;
+    int idx = std_driver_table[i].open(path, API_A, &err);
+    if (idx < 0)
+        return api_return_errno(err);
+    std_open_t *o = std_bind(fd, (uint8_t)i, idx, API_A);
+    if (!std_driver_table[i].opening)
+        return api_return_ax((uint16_t)fd);
+    std_fd_active = o;
+    return api_working();
 }
 
 bool std_api_close(void)
 {
     int fd = API_A;
-    /* The console descriptors stay open, so a close of one succeeds and
-     * changes nothing. */
-    if (fd < STD_FD_FIRST_FREE)
-        return api_return_ax(0);
-    if (fd >= STD_FD_MAX || !std_fd_pool[fd].is_open)
+    if (!std_file(fd))
         return api_return_errno(API_EBADF);
-    std_fd_t *f = &std_fd_pool[fd];
     api_errno err = API_EIO;
-    std_rw_result result = f->close(f->desc, &err);
+    std_rw_result result = std_release(fd, &err);
     if (result == STD_PENDING)
         return api_working();
-    f->is_open = false;
     if (result == STD_ERROR)
         return api_return_errno(err);
     return api_return_ax(0);
+}
+
+// fd names the open file that names.
+static void std_attach(int fd, int names)
+{
+    std_fds[fd] = std_fds[names];
+    std_opens[std_fds[fd] - 1].refs++;
+}
+
+bool std_api_dup(void)
+{
+    if (!std_file(API_A))
+        return api_return_errno(API_EBADF);
+    int fd = std_lowest_free_fd();
+    if (fd < 0)
+        return api_return_errno(API_EMFILE);
+    std_attach(fd, API_A);
+    return api_return_ax((uint16_t)fd);
+}
+
+/* 1 for a descriptor of the console, CON: or TTY:, and 0 for anything else
+ * open, which is how a library tells a terminal from a redirected file. */
+bool std_api_isatty(void)
+{
+    std_open_t *o = std_file(API_A);
+    if (!o)
+        return api_return_errno(API_EBADF);
+    return api_return_ax(std_row(o)->terminal);
+}
+
+bool std_exec_refused(void)
+{
+    for (int i = 0; i < STD_OPEN_MAX; i++)
+        if (std_opens[i].refs && std_row(&std_opens[i])->refuses_exec)
+            return true;
+    return false;
+}
+
+/* fildes2 is in A and fildes on the xstack, the last argument in A as for
+ * every call. An open fildes2 is closed first, and as POSIX has it, an error
+ * of that close is not reported. */
+bool std_api_dup2(void)
+{
+    if (std_dup2_from == STD_NONE)
+    {
+        int16_t from;
+        int to = API_A;
+        if (!api_pop_int16_end(&from))
+            return api_return_errno(API_EINVAL);
+        if (!std_file(from) || to >= STD_FD_MAX)
+            return api_return_errno(API_EBADF);
+        if (to == from)
+            return api_return_ax((uint16_t)to);
+        if (!std_fds[to])
+        {
+            std_attach(to, from);
+            return api_return_ax((uint16_t)to);
+        }
+        std_dup2_from = (uint8_t)from;
+        std_dup2_to = (uint8_t)to;
+    }
+    api_errno ignored;
+    if (std_release(std_dup2_to, &ignored) == STD_PENDING)
+        return api_working();
+    std_attach(std_dup2_to, std_dup2_from);
+    uint8_t to = std_dup2_to;
+    std_dup2_from = std_dup2_to = STD_NONE;
+    return api_return_ax(to);
 }
 
 bool std_api_read_xstack(void)
@@ -464,9 +527,9 @@ bool std_api_read_xstack(void)
     {
         uint32_t bytes_read;
         api_errno err = API_EIO;
-        std_rw_result result = std_fd_active->read(std_fd_active->desc,
-                                                   &std_buf[std_pos], std_size - std_pos,
-                                                   &bytes_read, &err);
+        std_rw_result result = std_reader(std_fd_active)(std_fd_active->desc,
+                                                         &std_buf[std_pos], std_size - std_pos,
+                                                         &bytes_read, &err);
         std_pos += bytes_read;
         if (result == STD_PENDING)
             return api_working();
@@ -482,8 +545,8 @@ bool std_api_read_xstack(void)
     }
     if (!api_pop_uint16_end(&std_size) || std_size > XSTACK_SIZE)
         return api_return_errno(API_EINVAL);
-    std_fd_t *fd = std_validate_fd(API_A);
-    if (!fd || !fd->read)
+    std_open_t *fd = std_file(API_A);
+    if (!fd || !std_reader(fd))
         return api_return_errno(API_EBADF);
     std_fd_active = fd;
     std_buf = (char *)&xstack[XSTACK_SIZE - std_size];
@@ -508,9 +571,9 @@ bool std_api_read_xram(void)
             uint32_t want = std_size - std_pos;
             uint32_t bytes_read;
             api_errno err = API_EIO;
-            std_rw_result result = std_fd_active->read(std_fd_active->desc,
-                                                       &std_buf[std_pos], want,
-                                                       &bytes_read, &err);
+            std_rw_result result = std_reader(std_fd_active)(std_fd_active->desc,
+                                                             &std_buf[std_pos], want,
+                                                             &bytes_read, &err);
             std_pos += bytes_read;
             std_xram_end = std_xram_lo + std_pos;
             if (result == STD_PENDING)
@@ -545,8 +608,8 @@ bool std_api_read_xram(void)
     uint16_t xram_addr;
     if (!api_pop_uint16(&std_size) || !api_pop_uint16_end(&xram_addr))
         return api_return_errno(API_EINVAL);
-    std_fd_t *fd = std_validate_fd(API_A);
-    if (!fd || !fd->read)
+    std_open_t *fd = std_file(API_A);
+    if (!fd || !std_reader(fd))
         return api_return_errno(API_EBADF);
     if (std_size > 0x7FFF)
         std_size = 0x7FFF;
@@ -569,7 +632,7 @@ bool std_api_write_xstack(void)
     {
         uint32_t bytes_written;
         api_errno err = API_EIO;
-        std_rw_result result = std_fd_active->write(std_fd_active->desc, &std_buf[std_pos],
+        std_rw_result result = std_writer(std_fd_active)(std_fd_active->desc, &std_buf[std_pos],
                                                     std_size - std_pos, &bytes_written, &err);
         std_pos += bytes_written;
         if (result == STD_PENDING)
@@ -579,8 +642,8 @@ bool std_api_write_xstack(void)
             return api_return_errno(err);
         return api_return_ax(std_pos);
     }
-    std_fd_t *fd = std_validate_fd(API_A);
-    if (!fd || !fd->write)
+    std_open_t *fd = std_file(API_A);
+    if (!fd || !std_writer(fd))
         return api_return_errno(API_EBADF);
     std_fd_active = fd;
     std_size = XSTACK_SIZE - xstack_ptr;
@@ -596,7 +659,7 @@ bool std_api_write_xram(void)
     {
         uint32_t bytes_written;
         api_errno err = API_EIO;
-        std_rw_result result = std_fd_active->write(std_fd_active->desc, &std_buf[std_pos],
+        std_rw_result result = std_writer(std_fd_active)(std_fd_active->desc, &std_buf[std_pos],
                                                     std_size - std_pos, &bytes_written, &err);
         std_pos += bytes_written;
         if (result == STD_PENDING)
@@ -609,8 +672,8 @@ bool std_api_write_xram(void)
     uint16_t xram_addr;
     if (!api_pop_uint16(&std_size) || !api_pop_uint16_end(&xram_addr))
         return api_return_errno(API_EINVAL);
-    std_fd_t *fd = std_validate_fd(API_A);
-    if (!fd || !fd->write)
+    std_open_t *fd = std_file(API_A);
+    if (!fd || !std_writer(fd))
         return api_return_errno(API_EBADF);
     if (std_size > 0x7FFF)
         std_size = 0x7FFF;
@@ -626,13 +689,13 @@ bool std_api_write_xram(void)
 
 bool std_api_syncfs(void)
 {
-    std_fd_t *fd = std_validate_fd(API_A);
+    std_open_t *fd = std_file(API_A);
     if (!fd)
         return api_return_errno(API_EBADF);
-    if (!fd->sync)
+    if (!std_row(fd)->sync)
         return api_return_errno(API_EINVAL);
     api_errno err = API_EIO;
-    std_rw_result result = fd->sync(fd->desc, &err);
+    std_rw_result result = std_row(fd)->sync(fd->desc, &err);
     if (result == STD_PENDING)
         return api_working();
     if (result == STD_ERROR)
@@ -640,11 +703,11 @@ bool std_api_syncfs(void)
     return api_return_ax(0);
 }
 
-static bool std_lseek_common(std_fd_t *fd, int8_t whence, int32_t ofs)
+static bool std_lseek_common(std_open_t *fd, int8_t whence, int32_t ofs)
 {
     int32_t pos;
     api_errno err = API_EIO;
-    if (fd->lseek(fd->desc, whence, ofs, &pos, &err) < 0)
+    if (std_row(fd)->lseek(fd->desc, whence, ofs, &pos, &err) < 0)
         return api_return_errno(err);
     return api_return_axsreg(pos);
 }
@@ -653,12 +716,12 @@ bool std_api_lseek_cc65(void)
 {
     int8_t whence_cc65;
     int32_t ofs;
-    std_fd_t *fd = std_validate_fd(API_A);
+    std_open_t *fd = std_file(API_A);
     if (!fd)
         return api_return_errno(API_EBADF);
     if (!api_pop_int8(&whence_cc65) || !api_pop_int32_end(&ofs))
         return api_return_errno(API_EINVAL);
-    if (!fd->lseek)
+    if (!std_row(fd)->lseek)
         return api_return_errno(API_ESPIPE);
     // Translate cc65 whence (2=SET, 0=CUR, 1=END)
     // to standard (0=SET, 1=CUR, 2=END)
@@ -678,39 +741,16 @@ bool std_api_lseek_llvm(void)
 {
     int8_t whence;
     int32_t ofs;
-    std_fd_t *fd = std_validate_fd(API_A);
+    std_open_t *fd = std_file(API_A);
     if (!fd)
         return api_return_errno(API_EBADF);
     if (!api_pop_int8(&whence) || !api_pop_int32_end(&ofs))
         return api_return_errno(API_EINVAL);
-    if (!fd->lseek)
+    if (!std_row(fd)->lseek)
         return api_return_errno(API_ESPIPE);
     if (whence != SEEK_SET && whence != SEEK_CUR && whence != SEEK_END)
         return api_return_errno(API_EINVAL);
     return std_lseek_common(fd, whence, ofs);
-}
-
-bool std_stdin_waiting(void)
-{
-    return std_rln_active;
-}
-
-bool std_console_asked(void)
-{
-    return std_asked_console;
-}
-
-void std_stdin_eof(void)
-{
-    std_stdin_closed = true;
-    if (!std_rln_active)
-        return;
-    std_rln_active = false;
-    /* A last line that the input never terminated is still a line, so it is
-     * handed over before the read is given up; the next read is the one that
-     * answers nothing. */
-    if (!rln_read_flush())
-        rln_read_cancel();
 }
 
 void HOST_IN_RAM_FUNC std_task(void)
@@ -719,34 +759,31 @@ void HOST_IN_RAM_FUNC std_task(void)
         std_xram_addr = pix_stream_xram(std_xram_addr, std_xram_end);
 }
 
-void HOST_IN_FLASH_FUNC std_init(void)
+void std_reset(void)
 {
-    std_fd_pool[STDIN_FILENO].is_open = true;
-    std_fd_pool[STDIN_FILENO].read = std_stdin_read;
-    std_fd_pool[STDOUT_FILENO].is_open = true;
-    std_fd_pool[STDOUT_FILENO].write = std_stdout_write;
-    std_fd_pool[STDERR_FILENO].is_open = true;
-    std_fd_pool[STDERR_FILENO].write = std_stderr_write;
-    std_fd_pool[STD_FD_CON].is_open = true;
-    std_fd_pool[STD_FD_CON].read = std_con_read;
-    std_fd_pool[STD_FD_CON].write = std_con_write;
-    std_fd_pool[STD_FD_TTY].is_open = true;
-    std_fd_pool[STD_FD_TTY].read = std_tty_read;
-    std_fd_pool[STD_FD_TTY].write = std_tty_write;
+    const char *const console[] = {"CON:0", "CON:1", "CON:2"};
+    std_close_all();
+    for (int fd = STDIN_FILENO; fd <= STDERR_FILENO; fd++)
+    {
+        int row = std_row_for(console[fd]);
+        api_errno err;
+        int desc = std_driver_table[row].open(console[fd], FS_RD | FS_WR, &err);
+        std_bind(fd, (uint8_t)row, desc, FS_RD | FS_WR);
+    }
 }
 
+void HOST_IN_FLASH_FUNC std_init(void)
+{
+    std_reset();
+}
+
+/* A stop ends what the program had in flight. Its descriptors stay, for the
+ * program an exec starts; the end of the chain is where std_reset puts the
+ * console back. */
 void HOST_IN_FLASH_FUNC std_stop(void)
 {
     std_fd_active = NULL;
+    std_dup2_from = std_dup2_to = STD_NONE;
     std_xram_hi = 0;
     std_xram_end = std_xram_addr;
-    std_rln_active = false;
-    std_rln_needs_nl = false;
-    std_rln_pos = 0;
-    std_rln_len = 0;
-    std_stdin_closed = false;
-    std_asked_console = false;
-    for (int i = STD_FD_FIRST_FREE; i < STD_FD_MAX; i++)
-        if (std_fd_pool[i].is_open)
-            std_close_now(&std_fd_pool[i]);
 }

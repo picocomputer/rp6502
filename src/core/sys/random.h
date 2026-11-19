@@ -38,6 +38,10 @@ void random_sst_save(sst_cursor_t *c, unsigned flags);
 bool random_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define RANDOM_DRIVER DRIVER(                                        \
-    SST(RAND, 1, RANDOM_SST_SIZE, random_sst_save, random_sst_load))
+    SST(.id = "RAND",                                                \
+        .version = 1,                                                \
+        .size = RANDOM_SST_SIZE,                                     \
+        .save = random_sst_save,                                     \
+        .load = random_sst_load))
 
 #endif /* _CORE_SYS_RANDOM_H_ */

@@ -1,24 +1,19 @@
 core/api/api.c api_active_op: the API chunk
 core/api/api.c api_errno_opt: the API chunk
 core/api/arg.c arg_buf: the PROC chunk, whose row reaches into this file for it
-core/api/clk.c clk_start_us: the CLK chunk
 core/api/dir.c tells: the DIR chunk
 core/api/proc.c proc_exit_code: the PROC chunk
 core/api/proc.c proc_launcher_path: the PROC chunk
 core/api/proc.c proc_running_path: the PROC chunk
-core/api/std.c std_asked_console: the STD chunk
 core/api/std.c std_buf: the STD chunk
 core/api/std.c std_driver_table: the machine's own stdio table, fixed at build; the manifest folds its length so two machines cannot disagree about what a driver index means
+core/api/std.c std_dup2_from: the STD chunk
+core/api/std.c std_dup2_to: the STD chunk
 core/api/std.c std_fd_active: the STD chunk
-core/api/std.c std_fd_pool: the STD chunk
+core/api/std.c std_fds: the STD chunk
+core/api/std.c std_opens: the STD chunk, each open file by its driver's ident, its count rebuilt from the descriptors that name it
 core/api/std.c std_pos: the STD chunk
-core/api/std.c std_rln_active: the STD chunk
-core/api/std.c std_rln_buf: the STD chunk
-core/api/std.c std_rln_len: the STD chunk
-core/api/std.c std_rln_needs_nl: the STD chunk
-core/api/std.c std_rln_pos: the STD chunk
 core/api/std.c std_size: the STD chunk
-core/api/std.c std_stdin_closed: not carried: the host re-asserts it
 core/api/std.c std_xram_addr: the STD chunk
 core/api/std.c std_xram_end: the STD chunk, as its distance from std_xram_addr
 core/api/std.c std_xram_err: not carried: a machine that saves streams nothing, so a failed read returns at once; none on load
@@ -33,7 +28,9 @@ core/aud/mix.c aud_anchored: not carried: the streaming sink's trim, the host's
 core/aud/mix.c aud_busy: not carried: a lock, free between frames
 core/aud/mix.c aud_carry: not carried: the streaming sink's, the host's
 core/aud/mix.c aud_carry_n: not carried: the streaming sink's, the host's
+core/aud/mix.c aud_dry: not carried: the streaming sink's trim, the host's
 core/aud/mix.c aud_ev: not carried: a state is saved with the sound taken, the ring empty
+core/aud/mix.c aud_hint: not carried: the streaming sink's trim, the host's
 core/aud/mix.c aud_last_l: not carried: the level the host's sink last took
 core/aud/mix.c aud_last_r: not carried: the level the host's sink last took
 core/aud/mix.c aud_low: not carried: the streaming sink's trim, the host's
@@ -44,7 +41,6 @@ core/aud/mix.c aud_off: not carried: the streaming sink's trim, the host's; 0 on
 core/aud/mix.c aud_on: not carried: --mute is a session setting
 core/aud/mix.c aud_opl_at: not carried: rebuilt from the OPL chunk on load
 core/aud/mix.c aud_oq: the AUD chunk carries the drops; the rest is rebuilt from the OPL chunk's queue on load
-core/aud/mix.c aud_owed: not carried: the streaming sink's trim, the host's
 core/aud/mix.c aud_pcm: the AUD chunk
 core/aud/mix.c aud_pcm_due: not carried: the render steps on from the AUD chunk's samples made
 core/aud/mix.c aud_pcm_l: not carried: what the PCM: device's last step made, made again on the next
@@ -55,7 +51,10 @@ core/aud/mix.c aud_probe: not carried: a test's own device, never on the wire
 core/aud/mix.c aud_psg_at: not carried: rebuilt from the PSG chunk on load
 core/aud/mix.c aud_rs_l: the AUD chunk
 core/aud/mix.c aud_rs_r: the AUD chunk
+core/aud/mix.c aud_seen: not carried: the streaming sink's trim, the host's
+core/aud/mix.c aud_short: not carried: the streaming sink's trim, the host's
 core/aud/mix.c aud_sink_rate: not carried: what the host's device answered
+core/aud/mix.c aud_speed: not carried: the streaming sink's, set by the host each frame
 core/aud/mix.c aud_streaming: not carried: which sink the host has
 core/aud/mix.c aud_trim: not carried: the streaming sink's trim, the host's
 core/aud/mix.c aud_trim_i: not carried: the streaming sink's trim, the host's
@@ -79,6 +78,13 @@ core/com/com.c com_rx_deadline: the COM chunk
 core/com/com.c com_rx_held: the COM chunk
 core/com/com.c com_rx_staged: the COM chunk
 core/com/com.c com_sources: the COM chunk
+core/com/console.c console_closed: the CON chunk
+core/com/console.c console_rln_active: the CON chunk
+core/com/console.c console_rln_buf: not carried: NULL or rln's line buffer, which is at a fixed address; the load points it there
+core/com/console.c console_rln_len: the CON chunk
+core/com/console.c console_rln_needs_nl: the CON chunk
+core/com/console.c console_rln_pos: the CON chunk
+core/com/console.c console_was_asked: the CON chunk
 core/com/manifold.c manifold_crlf_last: the MFLD chunk
 core/com/manifold.c manifold_keyboard_ring: the MFLD chunk
 core/com/manifold.c manifold_std_tap: not carried: host wiring; libretro installs no wire at all
@@ -101,9 +107,7 @@ core/com/rln.c rln_cur_idx: the RLN chunk
 core/com/rln.c rln_grid: the RLN chunk
 core/com/rln.c rln_grid_lines: the RLN chunk
 core/com/rln.c rln_grid_width: the RLN chunk
-core/com/rln.c rln_history: the RLN chunk
-core/com/rln.c rln_history_count: the RLN chunk
-core/com/rln.c rln_history_pos: the RLN chunk
+core/com/rln.c rln_history: not carried: its caller's, and the one reader the RLN chunk can name has none
 core/com/rln.c rln_idle_deadline: the RLN chunk
 core/com/rln.c rln_idle_timeout_ms: the RLN chunk
 core/com/rln.c rln_last_render_buflen: the RLN chunk
@@ -120,10 +124,10 @@ core/com/rln.c rln_plain: not carried: host wiring
 core/com/rln.c rln_prompt_col: the RLN chunk
 core/com/rln.c rln_rendered_max_row: the RLN chunk
 core/com/rln.c rln_rows: the RLN chunk
-core/com/rln.c rln_skip_history: the RLN chunk
 core/com/rln.c rln_suppress_newline: the RLN chunk
 core/com/rln.c rln_width: the RLN chunk
 core/com/tio.c tio_sources: the TIO chunk
+core/com/tty.c tty_was_asked: the TTY chunk
 core/dap/dbg.c dbg_watch_armed: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
 core/dap/dbg.c g_active: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
 core/dap/dbg.c g_bp: not carried: a debug session is the host's, and a load while the debugger holds leaves its stop PC stale until the next SYNC
@@ -185,7 +189,6 @@ core/rom/asset.c g_rom_generation: the ASET chunk
 core/rom/asset.c rom_assets_start: the ASET chunk
 core/rom/asset.c rom_fd: the ASET chunk
 core/rom/asset.c windows: not carried: each open window is the STD chunk's own record of that descriptor
-core/rom/rom.c buf: parse scratch, dead at every frame boundary
 core/rom/rom.c rom_error: not carried: the message for the last failed load, which proc_boot reads right after the load
 core/str/oem.c oem_auto_cp: not carried: the locale's code page, the host's to re-announce
 core/str/oem.c oem_code_page_run: the OEM chunk
@@ -197,6 +200,7 @@ core/str/str.c str_tab_EN: the linked table image and a parse buffer dead at eve
 core/str/str.c str_tab_FR: the linked table image and a parse buffer dead at every frame boundary
 core/str/str.c str_tab_PL: the linked table image and a parse buffer dead at every frame boundary
 core/str/str.c str_tabs: the linked table image and a parse buffer dead at every frame boundary
+core/sys/buf1k.c buf1k: scratch, dead at every frame boundary
 core/sys/config.c config_depth: not carried: host settings, not machine state
 core/sys/config.c config_dirty: not carried: host settings, not machine state
 core/sys/config.c config_oem_code_page: not carried: host settings, not machine state
@@ -210,7 +214,6 @@ core/sys/sst.c sst_body: the savestate's own working memory: the blob being walk
 core/sys/sst.c sst_manifest_crc: the savestate's own working memory: the blob being walked and the manifest sum
 core/sys/sst.c sst_manifest_done: the savestate's own working memory: the blob being walked and the manifest sum
 core/sys/sst.c sst_offset: the savestate's own working memory: the blob being walked and the manifest sum
-core/sys/sst.c sst_walk_bad: the savestate's own working memory: the blob being walked and the manifest sum
 core/sys/sst.c sst_why: the savestate's own working memory: the blob being walked and the manifest sum
 core/sys/sst.c sst_why_row: the savestate's own working memory: the blob being walked and the manifest sum
 core/sys/sst.c sst_refusal: the savestate's own working memory: the blob being walked and the manifest sum
@@ -230,6 +233,8 @@ core/term/cells.c cells_cursor_color: the CELL chunk
 core/term/cells.c cells_published: derived: the layout the row words were last written from; a load publishes again
 core/term/cells.c cells_stale: not carried: a load publishes everything, which clears it
 core/term/cells.c cells_term: the CELL chunk
+core/tim/clk.c clk_start_us: the CLK chunk
+core/tim/os.c tim_zone_name: not carried: the host's names for its zone, asked for again at every use
 core/vga/canvas.c canvas_code: the VGA chunk
 core/vga/canvas.c canvas_h: the VGA chunk
 core/vga/canvas.c canvas_w: the VGA chunk
@@ -239,7 +244,6 @@ core/vga/mode/mode0.c mode0_cells: the CELL chunk, through each screen's cells
 core/vga/mode/mode0.c mode0_colors: the CELL chunk
 core/vga/mode/mode0.c mode0_palette: the CELL chunk, its first half; the faint half follows from it
 core/vga/mode/mode0.c mode0_regs: derived: the CELL and VGA loads publish them again
-core/vga/mode/mode2.c mode2_options: the VGA chunk: each row's class rides as that row's attribute
 core/vga/mode/mode2.c mode2_tiles: a table of functions, fixed at build
 core/vga/mode/mode4.c sw_interp: per-scanline scratch, reloaded at the top of every sprite render
 core/vga/prog.c vga_highest_scanline: the VGA chunk
@@ -247,7 +251,7 @@ core/vga/prog.c vga_prog: the VGA chunk
 core/vga/vga.c beam_n: the VGA chunk
 core/vga/vga.c frame_n: the VGA chunk
 core/vga/vga.c g_framebuffer: not carried: the app owns the pixels; no row touches them
-core/vga/vga.c vga_fill_cache: derived: every line checks its 4bpp pairs against the palette they were built from, and builds a row of text's pairs again
+core/vga/vga.c vga_fill_cache: derived: every line checks the cache's key against what it would build from, and builds a row of text's pairs again
 core/vga/vga.c vga_needs_reset: the VGA chunk
 core/vga/vga.c vga_scanout: not carried: whether this host wants pixels at all
 core/vga/vga.c vsynced: the VGA chunk

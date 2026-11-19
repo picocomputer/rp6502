@@ -110,23 +110,6 @@ static inline bool grid_in_columns(const term_grid_t *g, unsigned x)
     return x >= g->margin_left && x <= g->margin_right;
 }
 
-// The last column a glyph or a move to the right reaches from the cursor:
-// the right margin for a cursor at or left of it, otherwise the last column
-// of its row.
-static unsigned grid_right_stop(const term_grid_t *g)
-{
-    const term_pos_t *pos = term_pos(g);
-    unsigned last = term_cols(g, pos->y) - 1;
-    return pos->x <= g->margin_right && g->margin_right < last ? g->margin_right : last;
-}
-
-// The first column a move to the left reaches: the left margin for a cursor
-// at or right of it, otherwise the first column.
-static unsigned grid_left_stop(const term_grid_t *g)
-{
-    return term_pos(g)->x >= g->margin_left ? g->margin_left : 0;
-}
-
 void term_grid_init(term_grid_t *g, uint8_t width, uint8_t *lines, uint8_t rows)
 {
     memset(g, 0, sizeof *g);
@@ -409,7 +392,7 @@ static void grid_put_glyph(term_t *t, term_grid_t *g, uint8_t byte)
 {
     term_pos_t *pos = term_pos(g);
     grid_wrap(t, g);
-    unsigned stop = grid_right_stop(g);
+    unsigned stop = term_right_stop(g);
     if (grid_inserting(t) && grid_in_columns(g, pos->x))
         cells_insert(t, g, pos->y, pos->x, stop + 1, 1);
     cells_glyphs(t, g, pos->y, pos->x, byte, 1);
@@ -451,7 +434,7 @@ static unsigned grid_rep_pass(term_t *t, term_grid_t *g, unsigned n, bool write,
         unsigned cols = term_cols(g, pos->y);
         if (pos->x >= cols)
             pos->x = (uint8_t)(cols - 1);
-        unsigned stop = grid_right_stop(g);
+        unsigned stop = term_right_stop(g);
         unsigned run = (unsigned)(stop + 1 - pos->x);
         if (run > n)
             run = n;
@@ -594,7 +577,7 @@ static inline bool grid_tab_is_set(const term_grid_t *g, uint8_t col)
 static void grid_tab_forward(term_grid_t *g, uint16_t n)
 {
     term_pos_t *pos = term_pos(g);
-    unsigned last = grid_right_stop(g);
+    unsigned last = term_right_stop(g);
     while (n-- && pos->x < last)
     {
         do
@@ -656,7 +639,7 @@ static void grid_cursor_down(term_t *t, term_grid_t *g, uint16_t n)
 static void grid_cursor_forward(term_t *t, term_grid_t *g, uint16_t n)
 {
     term_pos_t *pos = term_pos(g);
-    unsigned stop = grid_right_stop(g);
+    unsigned stop = term_right_stop(g);
     unsigned room = stop - (pos->x < stop ? pos->x : stop);
     grid_goto(t, g, (unsigned)pos->x + (n < room ? n : room), pos->y);
 }
@@ -665,7 +648,7 @@ static void grid_cursor_forward(term_t *t, term_grid_t *g, uint16_t n)
 static void grid_cursor_back(term_t *t, term_grid_t *g, uint16_t n)
 {
     term_pos_t *pos = term_pos(g);
-    unsigned room = pos->x - grid_left_stop(g);
+    unsigned room = pos->x - term_left_stop(g);
     grid_goto(t, g, (unsigned)pos->x - (n < room ? n : room), pos->y);
 }
 
@@ -861,7 +844,7 @@ static void grid_csi(term_t *t, term_grid_t *g, uint8_t ch)
     case '@': // ICH: Pn erased cells at the cursor, up to the right margin
         if (!grid_in_columns(g, pos->x))
             break;
-        end = grid_right_stop(g) + 1;
+        end = term_right_stop(g) + 1;
         n = grid_edit_count(t, g, end);
         cells_insert(t, g, pos->y, pos->x, end, n);
         break;
@@ -914,7 +897,7 @@ static void grid_csi(term_t *t, term_grid_t *g, uint8_t ch)
     case 'P': // DCH: the rest of the row up to the right margin moves left
         if (!grid_in_columns(g, pos->x))
             break;
-        end = grid_right_stop(g) + 1;
+        end = term_right_stop(g) + 1;
         n = grid_edit_count(t, g, end);
         cells_delete(t, g, pos->y, pos->x, end, n);
         break;
@@ -1201,7 +1184,7 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
         if (ch == '\b')
         {
             pos->wrap_pending = false;
-            if (pos->x > grid_left_stop(g))
+            if (pos->x > term_left_stop(g))
                 pos->x--;
         }
         else if (ch == '\t')

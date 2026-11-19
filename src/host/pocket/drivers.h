@@ -10,11 +10,13 @@
 #include "core/sys/driver.h"
 
 #include "core/api/api.h"
-#include "core/api/clk.h"
+#include "core/tim/clk.h"
 #include "core/api/dir.h"
 #include "core/api/proc.h"
 #include "core/api/std.h"
-#include "core/api/tim.h"
+#include "core/com/console.h"
+#include "core/com/tty.h"
+#include "sw/tim.h"
 #include "core/api/xreg.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
@@ -42,6 +44,7 @@
 #include "sw/vid.h"
 #include "osal/fs.h"
 #include "core/rom/rom.h"
+#include "core/aud/pcm.h"
 
 /* LOG_DRIVER is first, so what log_init connects to the debug port is there
  * before any other init runs.
@@ -50,8 +53,8 @@
  * through vga_canvas_select, and vga_canvas_select then calls mode0_prog,
  * which calls cells_set_height on the terminals that cells_init sets up.
  *
- * AUD_FABRIC_DRIVER follows STD_DRIVER because stop hooks run in reverse,
- * so aud_stop empties PCM before std_stop closes it, which would otherwise
+ * AUD_FABRIC_DRIVER follows STD_DRIVER because END hooks run in reverse,
+ * so aud_end empties PCM before std_reset closes it, which would otherwise
  * wait for the buffer to play.
  *
  * A savestate walks the list in order. FAB_DRIVER comes first, so the
@@ -66,7 +69,8 @@
     PROC_DRIVER, ASSET_DRIVER, XREG_DRIVER,             \
     RANDOM_DRIVER, STR_DRIVER,                          \
     MANIFOLD_DRIVER, RIA_DRIVER, COM_DRIVER,            \
-    STD_DRIVER, FS_DRIVER,                              \
+    STD_DRIVER, CONSOLE_DRIVER, TTY_DRIVER,             \
+    FS_POCKET_DRIVER,                                   \
     AUD_FABRIC_DRIVER,                                  \
     TIO_DRIVER, RLN_DRIVER, CELLS_DRIVER,               \
     LAYOUT_DRIVER, KEYBOARD_DRIVER,                     \
@@ -76,10 +80,16 @@
     DIR_DRIVER, API_DRIVER,                             \
     CLK_DRIVER, PHI2_DRIVER
 
-/* open() tries these rows in order, and the filesystem row accepts every
- * path, so it is last. */
-#define RP6502_STD_DRIVERS ROM_STD_DRIVER, PCM_STD_DRIVER, \
-                           FS_POCKET_SAVE_DRIVER, FS_POCKET_STD_DRIVER
+/* This machine makes savestates, so its stdio rows keep their STD_SST
+ * parts. */
+#define RP6502_SST
+
+/* open() tries these drivers' STD rows in order, and the filesystem's
+ * accepts every path, so it is last. */
+#define RP6502_STD_DRIVERS                           \
+    CONSOLE_DRIVER, TTY_DRIVER,                      \
+    ASSET_DRIVER, PCM_DRIVER,                        \
+    SAVE_DRIVER, FS_DRIVER
 
 /* No serial line feeds the UART row on this machine, but the row stays
  * because the terminal's replies to a program's queries arrive through it. */

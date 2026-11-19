@@ -195,30 +195,65 @@ static _Atomic bool aud_streaming;
 
 /* The streaming trim works on headroom: at each render, how many native
  * samples past the end of what it asks for the machine has stamped. A render
- * that finds less than none first moves aud_off on by the shortfall, so a
- * change never lands after its sample; that headroom is owed. The trim sees
- * the headroom less what is owed, as if nothing had moved: each half second
- * the least is taken. A PI loop on it, critically
- * damped with a natural frequency of half a radian a second, stretches the
- * resampler's step by at most 0.5%, the deviation Arntzen's dynamic rate
- * control for emulators found no listener could detect. What is owed past the
- * deepest shortfall of the last four seconds is given back, and so is a least
- * beyond what the trim takes a second to remove two windows running, by
- * moving aud_off back. That
- * waits for the OPL2's queue to be empty and goes only up to the next stamped
- * change, so the queue never sees two writes closer than the machine made
- * them and keeps or drops each as the Pico would. */
-#define AUD_TRIM_W 0.5
+ * that finds less than none moves aud_off on by the shortfall, so a change
+ * never lands after its sample, and the sound is that much further behind
+ * the machine from then on.
+ *
+ * The resampler's step is first the machine's speed, which the host knows
+ * (aud_set_speed): a machine that takes its frames from a 59.94 Hz display
+ * makes a thousandth less sound a second than one on the wall clock. What
+ * is left for the trim is the two crystals, the host's and the device's,
+ * hundredths of a percent, and whatever the host's figure is off by.
+ *
+ * It takes the least headroom of each half second and steers by the least
+ * of the last sixteen seconds of those. Frames do not come evenly from a
+ * display the machine does not follow: at 800x600's 60.32 Hz each comes a
+ * little earlier than the one before for three seconds, and then one comes a
+ * whole frame late. The least of sixteen seconds is the bottom of that,
+ * which stays where it is. A shortfall moves aud_off, and the leasts kept
+ * with it, so they stay what they would have been where the render now is,
+ * and it steers the loop once, in its own half second. A sink that runs
+ * fast is short a little at every render, and plays on: that keeps it in
+ * step by itself, a sample at a time, while the loop comes round to it.
+ *
+ * A PI loop on that, critically damped with a natural frequency of a
+ * twentieth of a radian a second, stretches the resampler's step by at most
+ * 0.5%, and the step moves no more than AUD_BEND in a half second. It is
+ * that slow so that the pitch does not move: a loop ten times as fast bent
+ * a steady tone by a third of a percent from one half second to the next,
+ * which is heard. The loop is at its 0.5% with a least of AUD_JUMP, 50 ms,
+ * and a least that far past one of the sink's requests, sixteen seconds
+ * running, is past what it can remove and is given back by moving aud_off
+ * back. That waits for
+ * the OPL2's queue to be empty and goes only up to the next stamped change,
+ * so the queue never sees two writes closer than the machine made them and
+ * keeps or drops each as the Pico would. */
+#define AUD_TRIM_W 0.05
 #define AUD_TRIM_MAX 0.005
-#define AUD_JUMP ((int64_t)(AUD_TRIM_MAX * AUD_NATIVE_RATE))
+#define AUD_JUMP ((int64_t)(AUD_TRIM_MAX * AUD_NATIVE_RATE) * 10)
+#define AUD_BEND 0.00025
+#define AUD_LOWS 32
+static _Atomic int32_t aud_speed; // the machine's, off the wall clock's, in parts of 1e9
 static bool aud_anchored;
-static int64_t aud_owed, aud_low, aud_lows[8];
+static int64_t aud_low, aud_short, aud_lows[AUD_LOWS];
 static uint32_t aud_window;
-static double aud_trim_i, aud_trim;
+static double aud_trim_i, aud_trim, aud_hint;
 
-/* A streaming sink this far behind has stopped asking, and the machine's
- * thread brings the render along: four frames. */
-#define AUD_STALL ((int64_t)AUD_NATIVE_RATE * 4 / VGA_HZ)
+/* A machine that stopped is not a frame come late: a window being moved,
+ * or the host busy for a while, takes time the machine never makes up. So
+ * the shortfall since the machine last stepped is counted, and once it
+ * passes two frames the trim, which has nothing to learn from it, waits for
+ * the machine and starts over. */
+#define AUD_GONE ((int64_t)AUD_NATIVE_RATE * 2 / VGA_HZ)
+static uint64_t aud_seen;
+static int64_t aud_dry;
+
+/* A streaming sink this far behind has stopped asking, or the machine is
+ * running faster than sound plays, and the machine's thread brings the
+ * render along: eight frames, which is past what a sink's request, the
+ * frame it waits on, what late frames have it hold and a burst after a stall
+ * come to. The render then starts over where the machine is. */
+#define AUD_STALL ((int64_t)AUD_NATIVE_RATE * 8 / VGA_HZ)
 
 static void aud_lock(void)
 {
@@ -270,8 +305,8 @@ void aud_init(void)
     aud_unlock();
 }
 
-/* A program's end takes its sound with it, so the close that std_stop makes
- * next has nothing to wait for. */
+/* A program's stop parks the engines it mapped. PCM: is a descriptor, which
+ * an exec hands on, so its sound plays on into the next program. */
 void aud_stop(void)
 {
     aud_lock();
@@ -279,9 +314,16 @@ void aud_stop(void)
     psg_park();
     opl_park();
     aud_psg_at = aud_opl_at = 0xFFFF;
-    const uint64_t now = bus_now(AUD_NATIVE_RATE);
-    aud_oq_reset(now);
-    aud_pm_step(now);
+    aud_oq_reset(bus_now(AUD_NATIVE_RATE));
+    aud_unlock();
+}
+
+/* The end of a chain takes its PCM: sound with it, so the close std_reset
+ * makes next has nothing to wait for. */
+void aud_end(void)
+{
+    aud_lock();
+    aud_pm_step(bus_now(AUD_NATIVE_RATE));
     aud_pm.level = 0;
     aud_pm.underruns = 0;
     pcm_clear(&aud_pcm);
@@ -590,6 +632,11 @@ void aud_set_streaming(bool on)
     aud_unlock();
 }
 
+void aud_set_speed(double speed)
+{
+    atomic_store(&aud_speed, (int32_t)((speed - 1) * 1e9));
+}
+
 void aud_step(void)
 {
     const uint64_t now = bus_now(AUD_NATIVE_RATE);
@@ -612,31 +659,33 @@ void aud_step(void)
     {
         const uint64_t to = now + (uint64_t)aud_off;
         if ((int64_t)(to - aud_made) > AUD_STALL)
+        {
             aud_skip(to);
+            aud_anchored = false;
+        }
         aud_unlock();
     }
 }
 
 uint64_t aud_samples(void) { return aud_made; }
 
-/* The end of a window of the streaming trim. */
-static void aud_settle(uint32_t rate)
+/* The end of a window of the streaming trim. need is the sink's request. */
+static void aud_settle(uint32_t rate, int64_t need)
 {
     const double dt = (double)aud_window / rate;
-    memmove(&aud_lows[1], &aud_lows[0], 7 * sizeof *aud_lows);
-    int64_t low = aud_lows[0] = aud_low, deep = INT64_MAX;
+    const int64_t shortfall = aud_short;
+    memmove(&aud_lows[1], &aud_lows[0], (AUD_LOWS - 1) * sizeof *aud_lows);
+    aud_lows[0] = aud_low;
     aud_low = INT64_MAX;
+    aud_short = 0;
     aud_window = 0;
-    for (int i = 0; i < 8; i++)
-        if (aud_lows[i] < deep)
-            deep = aud_lows[i];
-    const int64_t spare = aud_owed - (deep < 0 ? -deep : 0);
-    int64_t by = spare > 0 ? spare : 0;
-    const bool over = low > AUD_JUMP && aud_lows[1] > AUD_JUMP && aud_lows[1] != INT64_MAX;
-    if (over)
-        by += low < aud_lows[1] ? low : aud_lows[1];
-    if (by > 0 && !RING_LEN(&opl_queue.ring))
+    int64_t low = INT64_MAX;
+    for (int i = 0; i < AUD_LOWS; i++)
+        if (aud_lows[i] < low)
+            low = aud_lows[i];
+    if (aud_lows[AUD_LOWS - 1] != INT64_MAX && low > need + AUD_JUMP && !RING_LEN(&opl_queue.ring))
     {
+        int64_t by = low;
         if (RING_LEN(&aud_ev))
         {
             /* The queue's credit is back to idle two samples after it
@@ -649,53 +698,100 @@ static void aud_settle(uint32_t rate)
         if (by > 0)
         {
             aud_off -= by;
-            const int64_t owed = spare <= 0 ? 0 : by < spare ? by : spare;
-            aud_owed -= owed;
-            for (int i = 0; i < 8; i++)
+            for (int i = 0; i < AUD_LOWS; i++)
                 if (aud_lows[i] != INT64_MAX)
-                    aud_lows[i] -= by - owed;
-            low -= by - owed;
+                    aud_lows[i] -= by;
+            low -= by;
         }
     }
-    const double e = (double)(low > AUD_JUMP ? AUD_JUMP : low < -AUD_JUMP ? -AUD_JUMP : low);
+    const int64_t on = shortfall ? -shortfall : low;
+    const double e = (double)(on > AUD_JUMP ? AUD_JUMP : on < -AUD_JUMP ? -AUD_JUMP : on);
     const double r = AUD_NATIVE_RATE;
     aud_trim_i += AUD_TRIM_W * AUD_TRIM_W / r * e * dt;
     if (aud_trim_i > AUD_TRIM_MAX)
         aud_trim_i = AUD_TRIM_MAX;
     if (aud_trim_i < -AUD_TRIM_MAX)
         aud_trim_i = -AUD_TRIM_MAX;
-    aud_trim = 2 * AUD_TRIM_W / r * e + aud_trim_i;
-    if (aud_trim > AUD_TRIM_MAX)
-        aud_trim = AUD_TRIM_MAX;
-    if (aud_trim < -AUD_TRIM_MAX)
-        aud_trim = -AUD_TRIM_MAX;
+    double to = 2 * AUD_TRIM_W / r * e + aud_trim_i;
+    if (to > AUD_TRIM_MAX)
+        to = AUD_TRIM_MAX;
+    if (to < -AUD_TRIM_MAX)
+        to = -AUD_TRIM_MAX;
+    aud_trim += to - aud_trim > AUD_BEND ? AUD_BEND : to - aud_trim < -AUD_BEND ? -AUD_BEND : to - aud_trim;
+}
+
+// The trim starts over: no windows behind it.
+static void aud_forget(void)
+{
+    aud_low = INT64_MAX;
+    aud_short = 0;
+    for (int i = 0; i < AUD_LOWS; i++)
+        aud_lows[i] = INT64_MAX;
+    aud_window = 0;
 }
 
 /* A streaming render: everything asked for, made now. */
 static int aud_stream(float *dst, int samples)
 {
     const uint32_t rate = atomic_load(&aud_sink_rate);
+    /* The machine's speed is followed no faster than the trim moves, so a
+     * machine that leaves its display for the wall clock, as it does while
+     * a window is moved, bends the pitch no more than the trim does. The
+     * headroom takes what that is behind by. A render that starts over
+     * starts at the speed told. */
+    const double speed = atomic_load(&aud_speed) / 1e9;
+    const double bend = AUD_BEND * samples / (rate / 2.0);
+    if (!aud_anchored)
+        aud_hint = speed;
+    else
+        aud_hint += speed - aud_hint > bend ? bend : speed - aud_hint < -bend ? -bend : speed - aud_hint;
     uint64_t step = aud_ratio();
-    step += (uint64_t)(int64_t)((double)step * aud_trim);
+    step += (uint64_t)(int64_t)((double)step * (aud_trim + aud_hint));
     const int64_t need = (int64_t)(((uint64_t)samples * step) >> 32);
-    const int64_t h = (int64_t)atomic_load(&aud_now) + aud_off - (int64_t)aud_made - need;
+    const uint64_t now = atomic_load(&aud_now);
+    const int64_t h = (int64_t)now + aud_off - (int64_t)aud_made - need;
     if (!aud_anchored)
     {
-        /* The first render starts with none. */
-        aud_off -= h;
+        /* A render that starts, or starts over, starts with none. What the
+         * machine has stamped past that is left unplayed, the render moving
+         * on to it, since moving aud_off back instead would put the changes
+         * stamped there closer together than the machine made them. */
+        if (h > 0)
+            aud_skip(aud_made + (uint64_t)h);
+        else
+            aud_off -= h;
         aud_anchored = true;
-        aud_owed = 0;
-        aud_low = INT64_MAX;
-        for (int i = 0; i < 8; i++)
-            aud_lows[i] = INT64_MAX;
-        aud_window = 0;
+        aud_forget();
+        aud_seen = now;
+        aud_dry = 0;
     }
     else
     {
-        if (h - aud_owed < aud_low)
-            aud_low = h - aud_owed;
+        if (now != aud_seen)
+        {
+            if (aud_dry > AUD_GONE)
+                aud_forget();
+            aud_seen = now;
+            aud_dry = 0;
+        }
+        if (aud_dry > AUD_GONE)
+            aud_forget();
+        else
+        {
+            if (h < 0)
+            {
+                aud_short -= h;
+                for (int i = 0; i < AUD_LOWS; i++)
+                    if (aud_lows[i] != INT64_MAX)
+                        aud_lows[i] -= h;
+                if (aud_low != INT64_MAX)
+                    aud_low -= h;
+            }
+            if ((h < 0 ? 0 : h) < aud_low)
+                aud_low = h < 0 ? 0 : h;
+        }
         if (h < 0)
-            aud_off -= h, aud_owed -= h;
+            aud_off -= h, aud_dry -= h;
     }
     int at = 0, kept = 0;
     for (int i = 0; i < aud_carry_n; i++)
@@ -719,9 +815,10 @@ static int aud_stream(float *dst, int samples)
                 aud_carry[aud_carry_n++][1] = aud_clip(out_r[i]);
             }
     }
-    aud_window += (uint32_t)samples;
+    if (aud_dry <= AUD_GONE)
+        aud_window += (uint32_t)samples;
     if (aud_window >= rate / 2)
-        aud_settle(rate);
+        aud_settle(rate, need);
     return samples;
 }
 

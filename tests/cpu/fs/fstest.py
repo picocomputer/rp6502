@@ -727,7 +727,7 @@ def build():
 
     open_it("SAVE:s8.dat", O_WRONLY | O_CREAT)
     p.lda_abs(FD)
-    check("is_ff", platform=True)
+    check("is_ff")
 
     p.store(BAD, 0)
     for i in range(8):
@@ -1125,10 +1125,9 @@ def fstest_rom():
 
 
 def test_fstest():
-    """A host-backed drive fails the four platform checks, because it
-    allows more than eight open files, its SAVE: folder is not
-    /Saves/rp6502/common and its working directory is not the Pocket's. The
-    run passes when exactly those four fail."""
+    """A host-backed drive fails the three platform checks, because its
+    SAVE: folder is not /Saves/rp6502/common and its working directory is
+    not the Pocket's. The run passes when exactly those three fail."""
     build()
     for name in CREATES:
         (save_dir() / name).unlink(missing_ok=True)

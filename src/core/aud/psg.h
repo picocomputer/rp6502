@@ -59,6 +59,10 @@ void psg_sst_save(sst_cursor_t *c, unsigned flags);
 bool psg_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define PSG_DRIVER DRIVER(                                  \
-    SST(PSG_, 3, PSG_SST_SIZE, psg_sst_save, psg_sst_load))
+    SST(.id = "PSG_",                                       \
+        .version = 3,                                       \
+        .size = PSG_SST_SIZE,                               \
+        .save = psg_sst_save,                               \
+        .load = psg_sst_load))
 
 #endif /* _CORE_AUD_PSG_H_ */

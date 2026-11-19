@@ -17,7 +17,7 @@
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
 #include "core/sys/debug_log.h"
-#include "pico/aon_timer.h"
+#include "core/tim/tim.h"
 #include <stdio.h>
 #include <string.h>
 #include "pico/time.h"
@@ -1561,12 +1561,10 @@ void HOST_IN_FLASH_FUNC msc_class_driver_close(uint8_t dev_addr)
 
 DWORD get_fattime(void)
 {
-    struct timespec ts;
-    struct tm tm;
-    if (aon_timer_get_time(&ts))
+    tim_spec_t ts;
+    tim_tm_t tm;
+    if (tim_get_time(&ts) && tim_localtime(ts.sec, &tm))
     {
-        time_t t = (time_t)ts.tv_sec;
-        localtime_r(&t, &tm);
         if (tm.tm_year + 1900 >= 1980 && tm.tm_year + 1900 <= 2107)
             return ((DWORD)(tm.tm_year + 1900 - 1980) << 25) |
                    ((DWORD)(tm.tm_mon + 1) << 21) |

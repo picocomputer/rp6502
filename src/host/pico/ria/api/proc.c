@@ -183,6 +183,10 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
     bel_add(&bel_nfc_success_2);
     proc_cancel_launcher();
     sys_stop_now();
+    /* A program that had just asked for an exec stops without ending its
+     * chain, which ends here instead, as a start by name does. */
+    if (proc_exec_inflight())
+        proc_chain_end();
     rln_stop();
     mon_stop();
     com_clean_line();

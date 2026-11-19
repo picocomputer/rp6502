@@ -40,6 +40,10 @@ void via_sst_save(sst_cursor_t *c, unsigned flags);
 bool via_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define VIA_DRIVER DRIVER(                                  \
-    SST(VIA_, 1, VIA_SST_SIZE, via_sst_save, via_sst_load))
+    SST(.id = "VIA_",                                       \
+        .version = 1,                                       \
+        .size = VIA_SST_SIZE,                               \
+        .save = via_sst_save,                               \
+        .load = via_sst_load))
 
 #endif /* _CORE_WDC_VIA_H_ */

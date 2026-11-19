@@ -48,6 +48,11 @@ bool sys_running(void);
 void sys_run(void);
 void sys_stop(void);
 
+/* The END walk: the exec chain is over, or a launcher is about to start
+ * again from nothing. proc_chain_end runs it, so it comes after the stop of
+ * the program that ended the chain. */
+void sys_end(void);
+
 /* Carry out whatever was requested: a start, a stop or a break. Never call it
  * from inside a driver walk, because tearing the machine down there would do
  * so under the driver that is mid-pass. */

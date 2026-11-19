@@ -40,7 +40,7 @@ typedef struct
 
 void modem_init(void);
 void modem_task(void);
-void modem_stop(void);
+void modem_end(void);
 
 /* STDIO
  */
@@ -80,18 +80,14 @@ bool modem_set_listen_port(uint16_t port);
 bool modem_conns_is_open(int desc);
 uint16_t modem_conns_listen_port(int desc);
 
-#define MODEM_DRIVER DRIVER( \
-    INIT(modem_init)         \
-    TASK_PUMPED(modem_task)  \
-    STOP(modem_stop))
-
-#define MODEM_STD_DRIVER           \
-    {                                 \
-        .handles = modem_std_handles, \
+#define MODEM_DRIVER DRIVER(          \
+    INIT(modem_init)                  \
+    TASK_PUMPED(modem_task)           \
+    END(modem_end)                    \
+    STD(.handles = modem_std_handles, \
         .open = modem_std_open,       \
         .close = modem_std_close,     \
         .read = modem_std_read,       \
-        .write = modem_std_write,     \
-    }
+        .write = modem_std_write))
 
 #endif /* _RIA_W_NET_MODEM_H_ */

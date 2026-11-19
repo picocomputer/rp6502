@@ -5,7 +5,7 @@
  */
 
 #include "fab.h"
-#include "main.h"
+#include "tim.h"
 
 #include "host/host.h"
 

@@ -29,6 +29,10 @@ bool bus_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define BUS_DRIVER DRIVER(                                  \
     TASK_PUMPED(bus_task)                                   \
-    SST(BUS_, 1, BUS_SST_SIZE, bus_sst_save, bus_sst_load))
+    SST(.id = "BUS_",                                       \
+        .version = 1,                                       \
+        .size = BUS_SST_SIZE,                               \
+        .save = bus_sst_save,                               \
+        .load = bus_sst_load))
 
 #endif /* _CORE_WDC_BUS_H_ */

@@ -148,6 +148,10 @@ bool com_sst_load(sst_cursor_t *c, unsigned flags);
     RUN(com_run)                 \
     STOP(com_run)                \
     BREAK(com_rx_clear)          \
-    SST(COM_, 8, COM_SST_SIZE, com_sst_save, com_sst_load))
+    SST(.id = "COM_",            \
+        .version = 8,            \
+        .size = COM_SST_SIZE,    \
+        .save = com_sst_save,    \
+        .load = com_sst_load))
 
 #endif /* _CORE_COM_COM_H_ */

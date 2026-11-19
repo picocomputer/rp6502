@@ -35,10 +35,6 @@
 #include <ctype.h>
 #include <string.h>
 
-/* rom_pump_open and rom_pump_next take no buffer size and read up to
- * ROM_RECORD_MAX bytes into mbuf. */
-_Static_assert(MBUF_SIZE >= ROM_RECORD_MAX, "mbuf is the RIA's record buffer");
-
 static enum {
     ROM_IDLE,
     ROM_HELPING,
@@ -72,7 +68,7 @@ static void HOST_IN_FLASH_FUNC rom_loading(void)
 {
     rom_record_t rec;
     api_errno err;
-    switch (rom_pump_next(&rom_pump, mbuf, &rec, &err))
+    switch (rom_pump_next(&rom_pump, &rec, &err))
     {
     case ROM_PUMP_SKIP:
         return;
@@ -153,7 +149,7 @@ static int HOST_IN_FLASH_FUNC rom_install_end(bool complete)
     return -1;
 }
 
-// One record of the check, then one mbuf of the copy, per step.
+// One record of the check, then one buf1k of the copy, per step.
 static int HOST_IN_FLASH_FUNC rom_install_response(char *, size_t,
                                                                            int state, unsigned)
 {
@@ -169,7 +165,7 @@ static int HOST_IN_FLASH_FUNC rom_install_response(char *, size_t,
     {
         rom_record_t rec;
         int32_t landed;
-        switch (rom_pump_next(&rom_pump, mbuf, &rec, &err))
+        switch (rom_pump_next(&rom_pump, &rec, &err))
         {
         case ROM_PUMP_RECORD:
         case ROM_PUMP_SKIP:
@@ -193,12 +189,12 @@ static int HOST_IN_FLASH_FUNC rom_install_response(char *, size_t,
         return rom_install_end(false);
     }
     uint32_t got = 0;
-    if (fs_std_read(rom_pump.fd, (char *)mbuf, MBUF_SIZE, &got, &err) == STD_OK)
+    if (fs_std_read(rom_pump.fd, (char *)buf1k, BUF1K_SIZE, &got, &err) == STD_OK)
     {
         if (!got)
             return rom_install_end(true);
         uint32_t put = 0;
-        if (fs_std_write(rom_install_wr, (const char *)mbuf, got, &put, &err) == STD_OK)
+        if (fs_std_write(rom_install_wr, (const char *)buf1k, got, &put, &err) == STD_OK)
         {
             if (put == got)
                 return 0;
@@ -262,7 +258,7 @@ void HOST_IN_FLASH_FUNC rom_mon_install(const char *args)
     rom_assets_reset();
     rom_pump_close(&rom_pump);
     api_errno err;
-    if (!rom_pump_open(&rom_pump, tok, mbuf, &err))
+    if (!rom_pump_open(&rom_pump, tok, &err))
     {
         mon_add_response_errno(err);
         return;
@@ -343,7 +339,7 @@ bool HOST_IN_FLASH_FUNC rom_exec(void)
     rom_assets_reset();
     rom_pump_close(&rom_pump);
     api_errno err;
-    if (!rom_pump_open(&rom_pump, path, mbuf, &err))
+    if (!rom_pump_open(&rom_pump, path, &err))
     {
         mon_add_response_errno(err);
         return false;
@@ -426,21 +422,21 @@ static bool HOST_IN_FLASH_FUNC help_read(uint32_t want, uint32_t *got)
     int32_t landed;
     if (fs_std_lseek(rom_asset_fd(), SEEK_SET, (int32_t)help_pos, &landed, &err) < 0)
         return false;
-    return fs_std_read(rom_asset_fd(), (char *)mbuf, want, got, &err) == STD_OK;
+    return fs_std_read(rom_asset_fd(), (char *)buf1k, want, got, &err) == STD_OK;
 }
 
 static long HOST_IN_FLASH_FUNC help_gets(void)
 {
     uint32_t got = 0;
-    if (!help_read(MBUF_SIZE - 1, &got) || got == 0)
+    if (!help_read(BUF1K_SIZE - 1, &got) || got == 0)
         return -1;
     size_t i = 0;
-    while (i < got && mbuf[i] != '\n')
+    while (i < got && buf1k[i] != '\n')
         i++;
     help_pos += (uint32_t)(i < got ? i + 1 : got);
-    if (i && mbuf[i - 1] == '\r')
+    if (i && buf1k[i - 1] == '\r')
         i--;
-    mbuf[i] = 0;
+    buf1k[i] = 0;
     return (long)i;
 }
 
@@ -492,10 +488,10 @@ static int HOST_IN_FLASH_FUNC rom_help_response(char *buf, size_t buf_size,
         // The zero after the data is not a UTF-8 continuation byte, so a
         // sequence cut off at the end of the help asset decodes as 0x7F and
         // leaves p at p_end.
-        mbuf[got] = 0;
+        buf1k[got] = 0;
         size_t out = 0;
-        const char *p = (const char *)mbuf;
-        const char *p_end = (const char *)mbuf + got;
+        const char *p = (const char *)buf1k;
+        const char *p_end = (const char *)buf1k + got;
         while (out + 1 < buf_size && p < p_end)
         {
             int seq = rom_utf8_seq_len((unsigned char)*p);
@@ -517,9 +513,9 @@ static int HOST_IN_FLASH_FUNC rom_help_response(char *buf, size_t buf_size,
         buf[0] = 0;
         return -1;
     }
-    if (n && mbuf[0] == '#' && mbuf[1] == ' ')
+    if (n && buf1k[0] == '#' && buf1k[1] == ' ')
     {
-        snprintf(buf, buf_size, "%s\n", (char *)mbuf + 2);
+        snprintf(buf, buf_size, "%s\n", (char *)buf1k + 2);
         state = 1;
     }
     else
@@ -537,7 +533,7 @@ static bool HOST_IN_FLASH_FUNC rom_help_open(const char *path)
     rom_assets_reset();
     rom_pump_close(&rom_pump);
     api_errno err;
-    if (!rom_pump_open(&rom_pump, path, mbuf, &err))
+    if (!rom_pump_open(&rom_pump, path, &err))
     {
         mon_add_response_errno(err);
         return false;
@@ -586,7 +582,7 @@ static bool HOST_IN_FLASH_FUNC rom_xram_done(void)
     while (rom_len && pix_ready())
     {
         uint32_t addr = rom_addr + --rom_len - 0x10000;
-        xram[addr] = mbuf[rom_len];
+        xram[addr] = buf1k[rom_len];
         pix_send(PIX_DEVICE_XRAM, 0, xram[addr], (uint16_t)addr);
     }
     return !rom_len;

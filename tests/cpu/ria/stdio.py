@@ -6,8 +6,8 @@
 import subprocess
 
 import rp6502
-from rp6502_asm import (API_A, API_X, OP_CLOSE, OP_EXIT, OP_READ_XSTACK,
-                        OP_WRITE_XSTACK, XSTACK, Asm)
+from rp6502_asm import (API_A, API_X, O_RDWR, OP_CLOSE, OP_EXIT, OP_OPEN,
+                        OP_READ_XSTACK, OP_WRITE_XSTACK, XSTACK, Asm)
 from rp6502_rom import main, rom, script
 
 EXIT_CODE = 3
@@ -15,7 +15,7 @@ EXIT = 0x10  # zero page byte that holds the OR of the close results
 ERR = "err\n"
 EOF = "eof\n"
 INPUT = "a\rbb\r"
-# core/api/std.c follows each line read from stdin with a newline, whether a
+# core/com/console.c follows each line read from stdin with a newline, whether a
 # carriage return or a line feed ended the line in the input.
 OUTPUT = "a\nbb\n" + EOF
 
@@ -77,14 +77,28 @@ def test_stdio():
 
 
 def prog_close():
-    """Closes stdin, stdout, stderr, CON: and TTY:, and exits with the OR of
-    the five results, then writes to stdout to show that it is still open."""
+    """Closes stdout, then shows it closed: a write to 1 fails, 3 and 4 were
+    never open, and an open of CON:1 lands on 1, the lowest free descriptor,
+    where it writes "ok". Exits with the OR of what each step got wrong."""
     p = Asm()
     p.store(EXIT, 0)
-    for fd in range(5):
+
+    def wrong_unless(want):
+        # A is the low byte of the result; anything but want is an error.
+        p.cmp_imm(want)
+        with p.branch("beq"):
+            p.inc_abs(EXIT)
+
+    p.call_a(OP_CLOSE, 1)
+    wrong_unless(0)
+    write_str(p, 1, "lost\n")
+    wrong_unless(0xFF)
+    for fd in (3, 4):
         p.call_a(OP_CLOSE, fd)
-        p.ora_abs(EXIT)
-        p.sta_abs(EXIT)
+        wrong_unless(0xFF)
+    p.push_str("CON:1")
+    p.call_a(OP_OPEN, O_RDWR)
+    wrong_unless(1)
     write_str(p, 1, "ok\n")
     p.lda_abs(EXIT)
     p.sta_abs(API_A)
@@ -95,10 +109,12 @@ def prog_close():
 
 
 CLOSE_SCRIPT = r"""
-# A close of a console descriptor succeeds and leaves it open.
+# close() of a console descriptor really closes it, and the console opens
+# again on the lowest free descriptor.
 
 wait exit
 expect exit 0
+expect-not "lost"
 expect "ok\n"
 """
 

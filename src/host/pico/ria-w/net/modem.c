@@ -730,7 +730,7 @@ bool modem_set_listen_port(uint16_t port)
 
 void HOST_IN_FLASH_FUNC modem_init(void)
 {
-    modem_stop();
+    modem_end();
 }
 
 void HOST_IN_RAM_FUNC modem_task(void)
@@ -844,7 +844,9 @@ static void modem_conn_stop(modem_conn_t *conn)
     conn->is_answering = false;
 }
 
-void modem_stop(void)
+/* The end of a chain hangs up every connection. A stop leaves them, for the
+ * program an exec starts. */
+void modem_end(void)
 {
     for (int i = 0; i < NET_MODEM_DESCS; i++)
         modem_conn_stop(&modem_conns[i]);

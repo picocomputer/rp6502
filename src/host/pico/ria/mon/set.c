@@ -5,7 +5,7 @@
  */
 
 #include "core/str/oem.h"
-#include "core/api/tim.h"
+#include "core/tim/tim.h"
 #include "ria/api/tim.h"
 #include "ria-w/ble/ble.h"
 #include "core/hid/keyboard.h"

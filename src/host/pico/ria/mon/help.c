@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/api/tim.h"
+#include "core/tim/tim.h"
 #include "ria/api/tim.h"
 #include "core/hid/layout.h"
 #include "ria/mon/help.h"

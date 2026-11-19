@@ -229,6 +229,7 @@ X(STR_HELP_SET,
   "HELP SET atr       - \aPokaż informacje o ustawieniu.\n"
   "SET PHI2 (kHz)     - \aSprawdź lub ustaw prędkość PHI2 (zegar 6502).\n"
   "SET BOOT (rom|-)   - \aWybierz ROM startowy po zimnym starcie. \"-\" oznacza brak.\n"
+  "SET LOC (loc)      - \aSprawdź lub ustaw język interfejsu.\n"
   "SET TZ (tz)        - \aSprawdź lub ustaw strefę czasową.\n"
   "SET KB (układy)    - \aSprawdź lub ustaw układy klawiatury.\n"
   "SET CP (cp)        - \aSprawdź lub ustaw stronę kodową.\n"

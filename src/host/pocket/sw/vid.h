@@ -29,6 +29,10 @@ bool vid_sst_load(sst_cursor_t *c, unsigned flags);
     INIT(vid_init)                                             \
     TASK_FATFS(vid_task)                                       \
     STOP(vid_stop)                                             \
-    SST(VID_, 2, VID_SST_SIZE, vid_sst_save, vid_sst_load))
+    SST(.id = "VID_",                                          \
+        .version = 3,                                          \
+        .size = VID_SST_SIZE,                                  \
+        .save = vid_sst_save,                                  \
+        .load = vid_sst_load))
 
 #endif /* _HOST_POCKET_SW_VID_H_ */

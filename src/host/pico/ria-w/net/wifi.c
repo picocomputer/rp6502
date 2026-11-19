@@ -225,8 +225,8 @@ typedef struct
     uint8_t auth;
 } wifi_ap_t;
 
-_Static_assert(WIFI_SCAN_MAX * sizeof(wifi_ap_t) <= MBUF_SIZE,
-               "wifi scan store exceeds mbuf");
+_Static_assert(WIFI_SCAN_MAX * sizeof(wifi_ap_t) <= BUF1K_SIZE,
+               "wifi scan store exceeds buf1k");
 
 static uint8_t wifi_ap_count;
 static enum { WIFI_SCAN_IDLE,
@@ -235,7 +235,7 @@ static enum { WIFI_SCAN_IDLE,
 
 static void wifi_ap_insert(const char *ssid, int8_t rssi, uint8_t auth)
 {
-    wifi_ap_t *aps = (wifi_ap_t *)mbuf;
+    wifi_ap_t *aps = (wifi_ap_t *)buf1k;
     if (rssi == 0)
         return;
     for (unsigned i = 0; i < wifi_ap_count; i++)
@@ -307,7 +307,7 @@ static bool wifi_scan_busy(void)
 
 static void wifi_ap_sort(void)
 {
-    wifi_ap_t *aps = (wifi_ap_t *)mbuf;
+    wifi_ap_t *aps = (wifi_ap_t *)buf1k;
     for (unsigned i = 1; i < wifi_ap_count; i++)
     {
         wifi_ap_t key = aps[i];
@@ -323,7 +323,7 @@ static void wifi_ap_sort(void)
 
 static void wifi_scan_format(unsigned i, char *buf, size_t size)
 {
-    const wifi_ap_t *ap = &((wifi_ap_t *)mbuf)[i];
+    const wifi_ap_t *ap = &((wifi_ap_t *)buf1k)[i];
     const char *sec = (ap->auth & 4)   ? "WPA2"
                       : (ap->auth & 2) ? "WPA"
                       : (ap->auth & 1) ? "WEP"
