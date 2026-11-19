@@ -83,12 +83,10 @@ int32_t tim_days_from_civil(int32_t year, int month, int day);
 
 /* ---- What a machine gives ---- */
 
-/* The clock: the time now, false when the machine does not know it; a new
- * time for it, false on a machine whose clock a program may not set; and
- * how fine it counts. */
+/* The clock: the time now, false when the machine does not know it; and a
+ * new time for it, false on a machine whose clock a program may not set. */
 bool tim_get_time(tim_spec_t *ts);
 bool tim_set_time(const tim_spec_t *ts);
-void tim_get_time_res(tim_spec_t *ts);
 
 /* The zone at a time in UTC: how far east of UTC it is in seconds, whether
  * that is summer time, and its short name. */

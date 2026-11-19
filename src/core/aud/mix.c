@@ -305,8 +305,8 @@ void aud_init(void)
     aud_unlock();
 }
 
-/* A program's end takes its sound with it, so the close that std_stop makes
- * next has nothing to wait for. */
+/* A program's stop parks the engines it mapped. PCM: is a descriptor, which
+ * an exec hands on, so its sound plays on into the next program. */
 void aud_stop(void)
 {
     aud_lock();
@@ -314,9 +314,16 @@ void aud_stop(void)
     psg_park();
     opl_park();
     aud_psg_at = aud_opl_at = 0xFFFF;
-    const uint64_t now = bus_now(AUD_NATIVE_RATE);
-    aud_oq_reset(now);
-    aud_pm_step(now);
+    aud_oq_reset(bus_now(AUD_NATIVE_RATE));
+    aud_unlock();
+}
+
+/* The end of a chain takes its PCM: sound with it, so the close std_reset
+ * makes next has nothing to wait for. */
+void aud_end(void)
+{
+    aud_lock();
+    aud_pm_step(bus_now(AUD_NATIVE_RATE));
     aud_pm.level = 0;
     aud_pm.underruns = 0;
     pcm_clear(&aud_pcm);

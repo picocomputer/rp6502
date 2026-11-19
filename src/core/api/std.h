@@ -23,10 +23,16 @@ void std_task(void);
 void std_xram_landed(const void *dst, uint32_t n);
 void std_stop(void);
 
+/* Every open file closed and the console on 0, 1 and 2 again, CON:0, CON:1
+ * and CON:2. The END walk runs it, at the end of an exec chain and before a
+ * launcher starts again, not at each stop, so a program that an exec starts
+ * has what the one before it left open. */
+void std_reset(void);
+
 /* Whether a cooked read is outstanding on the console, and the notice that
  * input has ended. On end of input whatever partial line was typed is still
  * delivered, so reads answer from what is left of it before every read answers
- * end of file until the next program starts.
+ * end of file until the exec chain ends. Telling it again is harmless.
  */
 
 bool std_stdin_waiting(void);
@@ -44,6 +50,12 @@ rln_read_callback_t std_rln_reader(void);
 
 bool std_api_open(void);
 bool std_api_close(void);
+bool std_api_dup(void);
+bool std_api_dup2(void);
+bool std_api_isatty(void);
+
+// Whether a descriptor open now refuses an exec (std_driver_t).
+bool std_exec_refused(void);
 bool std_api_read_xstack(void);
 bool std_api_read_xram(void);
 bool std_api_write_xstack(void);
@@ -78,6 +90,13 @@ typedef struct
     std_rw_result (*write)(int desc, const char *, uint32_t, uint32_t *, api_errno *);
     std_rw_result (*sync)(int desc, api_errno *);
     int (*lseek)(int desc, int8_t, int32_t, int32_t *, api_errno *);
+    // A file of the filesystem, SAVE: included: a machine has STD_FILES_MAX
+    // of them open at once.
+    bool file;
+    // An open one refuses an exec. ROM: reads the running program's own
+    // image, and SAVE: is in the running program's save folder, neither of
+    // which is the next program's.
+    bool refuses_exec;
     // A descriptor open for writing refuses a savestate unless its driver
     // sets this. A write in progress, such as a game saving its progress,
     // cannot be caught whole, but sound can always resume.
@@ -104,23 +123,21 @@ typedef struct
 
 const std_driver_t *std_drivers(size_t *count);
 
-/* Whether an open descriptor refuses a savestate: one above the console
- * rows that is open for writing, on a driver that does not resume writes.
- * Every savestate asks here, core's own and one a machine makes without
- * core/sys/sst.c. */
+/* Whether an open file refuses a savestate: one open for writing, on a
+ * driver that does not resume writes. Every savestate asks here, core's own
+ * and one a machine makes without core/sys/sst.c. */
 bool std_sst_refused(void);
 
-/* The descriptors above the console rows, the transfer or open one of them may
- * be in the middle of, and how far the stdin reader has got through a line. A
- * descriptor is written down by the driver that opened it, and its function
- * pointers are rebuilt from that driver's row number and the open mode rather
- * than carried.
+/* The open files, the descriptors that name them, the transfer, open or dup2
+ * one of them may be in the middle of, and how far the stdin reader has got
+ * through a line. An open file is written down by the driver that opened it,
+ * and its handlers are found again from that driver's row number and the
+ * open mode rather than carried.
  *
- * 4240 is a fixed slot with room to spare. The most that can be written is
- * sixteen carry flags, eleven carriable descriptors (fd 5 through 15) of a
- * driver byte, a mode byte and at most 260 bytes of ident, and a twenty byte
- * tail, which comes to 2918. */
-#define STD_SST_SIZE 4240
+ * The most that can be written is sixteen carry flags, sixteen open files of
+ * a driver byte, a mode byte and at most 260 bytes of ident, sixteen
+ * descriptors and a twenty-two byte tail, which comes to 4246. */
+#define STD_SST_SIZE 4400
 void std_sst_save(sst_cursor_t *c, unsigned flags);
 bool std_sst_load(sst_cursor_t *c, unsigned flags);
 
@@ -128,6 +145,7 @@ bool std_sst_load(sst_cursor_t *c, unsigned flags);
     INIT(std_init)                                          \
     TASK_PUMPED(std_task)                                   \
     STOP(std_stop)                                          \
-    SST(STD_, 2, STD_SST_SIZE, std_sst_save, std_sst_load))
+    END(std_reset)                                          \
+    SST(STD_, 3, STD_SST_SIZE, std_sst_save, std_sst_load))
 
 #endif /* _CORE_API_STD_H_ */

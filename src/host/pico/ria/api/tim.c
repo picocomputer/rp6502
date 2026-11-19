@@ -49,14 +49,6 @@ bool tim_set_time(const tim_spec_t *ts)
     return aon_timer_set_time(&to);
 }
 
-void tim_get_time_res(tim_spec_t *ts)
-{
-    struct timespec res;
-    aon_timer_get_resolution(&res);
-    ts->sec = res.tv_sec;
-    ts->nsec = (uint32_t)res.tv_nsec;
-}
-
 void tim_zone(int64_t utc, tim_zone_t *zone)
 {
     tim_tz_zone(&tim_tz, utc, zone);

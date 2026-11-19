@@ -21,7 +21,12 @@
  *   TASK_ALWAYS(f)  as TASK_PUMPED, and also while flashing, so it and all
  *                   it reaches then must be in RAM
  *   RUN(f)          when a program starts, in list order
- *   STOP(f)         when a program stops, in reverse order
+ *   STOP(f)         when a program stops, in reverse order: also when it
+ *                   asks for an exec, so what it hands the next program
+ *                   stays
+ *   END(f)          when an exec chain ends, and before a launcher starts
+ *                   again, after the stop, in reverse order: what a program
+ *                   could hand on to an exec is put away here
  *   BREAK(f)        on a break, in reverse order
  *   FLASHING(f)     once, when the RIA starts rewriting its own flash, in
  *                   reverse order

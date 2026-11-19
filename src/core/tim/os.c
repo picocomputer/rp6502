@@ -35,12 +35,6 @@ bool tim_set_time(const tim_spec_t *ts)
     return false;
 }
 
-void tim_get_time_res(tim_spec_t *ts)
-{
-    ts->sec = 1;
-    ts->nsec = 0;
-}
-
 /* A date keeps the name of its zone, so the names are kept here: one for
  * standard time and one for summer time, as the host last gave them. */
 #define TIM_ZONE_NAME_SIZE 48

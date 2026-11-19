@@ -45,6 +45,33 @@ static inline int ssys_close(int fd)
     return dsys_ax();
 }
 
+static inline int ssys_dup(int fd)
+{
+    API_A = (uint8_t)fd;
+    xstack_ptr = XSTACK_SIZE;
+    ssys_dispatch(std_api_dup);
+    return dsys_ax();
+}
+
+// fildes2 in A and fildes on the xstack, as the 6502 passes them.
+static inline int ssys_dup2(int fd, int fd2)
+{
+    int16_t from = (int16_t)fd;
+    xstack_ptr = XSTACK_SIZE - 2;
+    memcpy(&xstack[xstack_ptr], &from, 2);
+    API_A = (uint8_t)fd2;
+    ssys_dispatch(std_api_dup2);
+    return dsys_ax();
+}
+
+static inline int ssys_isatty(int fd)
+{
+    API_A = (uint8_t)fd;
+    xstack_ptr = XSTACK_SIZE;
+    ssys_dispatch(std_api_isatty);
+    return dsys_ax();
+}
+
 static inline int ssys_read(int fd, void *buf, uint16_t n)
 {
     xstack_ptr = XSTACK_SIZE - 2;

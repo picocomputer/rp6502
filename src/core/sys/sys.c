@@ -98,6 +98,14 @@ static void HOST_IN_FLASH_FUNC sys_on_stop(void)
 #include "core/sys/driver_walk_end.h"
 }
 
+void HOST_IN_FLASH_FUNC sys_end(void)
+{
+#define END(f) f();
+#include "core/sys/driver_walk.h"
+    DRIVERS_REVERSE(RP6502_MACH_DRIVERS)
+#include "core/sys/driver_walk_end.h"
+}
+
 static void HOST_IN_FLASH_FUNC sys_on_break(void)
 {
 #define BREAK(f) f();

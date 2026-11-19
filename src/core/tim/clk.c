@@ -12,8 +12,6 @@
 #include "machine.h"
 #include <string.h>
 
-#define CLK_ID_REALTIME 0
-
 static uint64_t clk_start_us;
 
 void clk_run(void)
@@ -131,55 +129,4 @@ bool HOST_IN_FLASH_FUNC clk_api_strftime(void)
     xstack_ptr = XSTACK_SIZE - n;
     memmove(&xstack[xstack_ptr], xstack, n);
     return api_return_ax(n);
-}
-
-// Ops 0x0F-0x12 below are retained for binaries built with older SDKs.
-
-bool HOST_IN_FLASH_FUNC clk_api_clock(void)
-{
-    return api_return_axsreg(clk_get_run(10000));
-}
-
-bool HOST_IN_FLASH_FUNC clk_api_get_res(void)
-{
-    if (xstack_ptr != XSTACK_SIZE || API_A != CLK_ID_REALTIME)
-        return api_return_errno(API_EINVAL);
-    tim_spec_t ts;
-    tim_get_time_res(&ts);
-    int32_t nsec = (int32_t)ts.nsec;
-    uint32_t sec = (uint32_t)ts.sec;
-    api_push_int32(&nsec);
-    api_push_uint32(&sec);
-    return api_return_ax(0);
-}
-
-bool HOST_IN_FLASH_FUNC clk_api_get_time(void)
-{
-    if (xstack_ptr != XSTACK_SIZE || API_A != CLK_ID_REALTIME)
-        return api_return_errno(API_EINVAL);
-    tim_spec_t ts;
-    if (!tim_get_time(&ts))
-        return api_return_errno(API_EIO);
-    int32_t nsec = (int32_t)ts.nsec;
-    uint32_t sec = (uint32_t)ts.sec;
-    api_push_int32(&nsec);
-    api_push_uint32(&sec);
-    return api_return_ax(0);
-}
-
-bool HOST_IN_FLASH_FUNC clk_api_set_time(void)
-{
-    if (API_A != CLK_ID_REALTIME)
-        return api_return_errno(API_EINVAL);
-    uint32_t rawtime_sec;
-    int32_t rawtime_nsec;
-    if (!api_pop_uint32(&rawtime_sec) ||
-        !api_pop_int32_end(&rawtime_nsec))
-        return api_return_errno(API_EINVAL);
-    if (rawtime_nsec < 0 || rawtime_nsec > 999999999)
-        return api_return_errno(API_EINVAL);
-    tim_spec_t ts = {.sec = rawtime_sec, .nsec = (uint32_t)rawtime_nsec};
-    if (!tim_set_time(&ts))
-        return api_return_errno(API_EACCES);
-    return api_return_ax(0);
 }

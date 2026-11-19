@@ -8,8 +8,11 @@ core/api/proc.c proc_running_path: the PROC chunk
 core/api/std.c std_asked_console: the STD chunk
 core/api/std.c std_buf: the STD chunk
 core/api/std.c std_driver_table: the machine's own stdio table, fixed at build; the manifest folds its length so two machines cannot disagree about what a driver index means
+core/api/std.c std_dup2_from: the STD chunk
+core/api/std.c std_dup2_to: the STD chunk
 core/api/std.c std_fd_active: the STD chunk
-core/api/std.c std_fd_pool: the STD chunk
+core/api/std.c std_fds: the STD chunk
+core/api/std.c std_opens: the STD chunk, each open file by its driver's ident, its count rebuilt from the descriptors that name it
 core/api/std.c std_pos: the STD chunk
 core/api/std.c std_rln_active: the STD chunk
 core/api/std.c std_rln_buf: the STD chunk
@@ -17,7 +20,7 @@ core/api/std.c std_rln_len: the STD chunk
 core/api/std.c std_rln_needs_nl: the STD chunk
 core/api/std.c std_rln_pos: the STD chunk
 core/api/std.c std_size: the STD chunk
-core/api/std.c std_stdin_closed: not carried: the host re-asserts it
+core/api/std.c std_stdin_closed: the STD chunk
 core/api/std.c std_xram_addr: the STD chunk
 core/api/std.c std_xram_end: the STD chunk, as its distance from std_xram_addr
 core/api/std.c std_xram_err: not carried: a machine that saves streams nothing, so a failed read returns at once; none on load

@@ -7,6 +7,7 @@
  */
 
 #include "core/api/proc.h"
+#include "core/api/std.h"
 #include "core/api/api.h"
 #include "core/api/arg.h"
 #include "core/str/oem.h"
@@ -158,7 +159,13 @@ void proc_stop(void)
         arg_append(proc_launcher_path);
         proc_exec_relaunch();
         if (proc_exec_inflight())
+        {
+            /* The launcher starts again from nothing, so it has the console
+             * and the devices a chain starts with, not what the program
+             * before it left. */
+            sys_end();
             return;
+        }
     }
     proc_chain_end();
 }
@@ -166,6 +173,7 @@ void proc_stop(void)
 void proc_chain_end(void)
 {
     proc_cancel_launcher();
+    sys_end();
     com_rx_clear();
     com_end_reset();
     /* Output reaches the VGA before a code page change clears it. */
@@ -194,9 +202,13 @@ bool HOST_IN_FLASH_FUNC proc_api_argv(void)
  * .rp6502. The op succeeds as soon as the argv parses and argv[0] fits in a
  * path, because by the time a load can fail, the program that called EXEC has
  * already stopped; the error is printed on the console. A refused argv leaves
- * the argv empty, as a layout that does not parse does. */
+ * the argv empty, as a layout that does not parse does. The program's open
+ * descriptors pass to the next, so one that cannot, ROM: or SAVE:, refuses
+ * the exec with EBUSY and leaves the argv as it was. */
 bool HOST_IN_FLASH_FUNC proc_api_exec(void)
 {
+    if (std_exec_refused())
+        return api_return_errno(API_EBUSY);
     if (!arg_pull_xstack(API_PATH_MAX))
         return api_return_errno(API_EINVAL);
     proc_exec_start();

@@ -34,6 +34,8 @@ void com_set_bel(bool on) { (void)on; }
 void oem_restore_code_page(void) {}
 
 void sys_stop(void) {}
+void sys_end(void) {}
+bool std_exec_refused(void) { return false; }
 void sys_break_request(void) {}
 bool sys_active(void) { return false; }
 

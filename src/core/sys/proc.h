@@ -32,6 +32,12 @@
 #define PROC_REFILL 0x01 /* fill sram and xram first: a fresh machine, not a program change */
 bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags);
 
+/* The stop before a start by name, which is not the running program's child:
+ * its chain ends there, launcher, open files, type-ahead and paste, with any
+ * exec it had queued. proc_boot does it for argc >= 0, and a debugger launch,
+ * which starts its program through an exec, does it first. */
+void proc_start_by_name(void);
+
 /* The line that the last proc_boot printed on the console, or "" when that
  * proc_boot succeeded. */
 const char *proc_boot_error(void);

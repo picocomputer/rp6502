@@ -40,7 +40,7 @@ typedef struct
 
 void modem_init(void);
 void modem_task(void);
-void modem_stop(void);
+void modem_end(void);
 
 /* STDIO
  */
@@ -83,7 +83,7 @@ uint16_t modem_conns_listen_port(int desc);
 #define MODEM_DRIVER DRIVER( \
     INIT(modem_init)         \
     TASK_PUMPED(modem_task)  \
-    STOP(modem_stop))
+    END(modem_end))
 
 #define MODEM_STD_DRIVER           \
     {                                 \

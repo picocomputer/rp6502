@@ -85,6 +85,8 @@ void fs_save_free(void);
         .write = fs_std_write,       \
         .sync = fs_std_sync,         \
         .lseek = fs_std_lseek,       \
+        .file = true,                \
+        .refuses_exec = true,        \
         STD_SST_COLS(fs_std_ident, fs_std_reopen, false) \
     }
 
@@ -97,6 +99,7 @@ void fs_save_free(void);
         .write = fs_std_write,     \
         .sync = fs_std_sync,       \
         .lseek = fs_std_lseek,     \
+        .file = true,              \
         STD_SST_COLS(fs_std_ident, fs_std_reopen, false) \
     }
 

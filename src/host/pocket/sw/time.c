@@ -107,12 +107,6 @@ bool tim_set_time(const tim_spec_t *ts)
     return false;
 }
 
-void tim_get_time_res(tim_spec_t *ts)
-{
-    ts->sec = 0;
-    ts->nsec = 1000;
-}
-
 /* The Pocket's zone is one offset, the year round. */
 void tim_zone(int64_t utc, tim_zone_t *zone)
 {

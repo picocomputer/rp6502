@@ -40,8 +40,8 @@ PRUNE = {
     'initialise_rand': 'runs once, for the first random number at boot (get_rand_64)',
     'btstack_run_loop_poll_data_sources_from_irq':
         'only while the Bluetooth transport is open, and the BLE FLASHING hook closes it',
-    'modem_set_conn': 'modem descriptors only, and modem_stop closed them when the 6502 stopped',
-    'modem_connect': 'modem descriptors only, and modem_stop closed them when the 6502 stopped',
+    'modem_set_conn': 'modem descriptors only, and modem_end closed them when the program\'s chain ended',
+    'modem_connect': 'modem descriptors only, and modem_end closed them when the program\'s chain ended',
     'process_remove_event': 'usbh_process_event drops attach and remove events after tuh_keep_only_driver',
     'enum_new_device': 'usbh_process_event drops attach events after tuh_keep_only_driver',
     'enum_resume': 'tuh_keep_only_driver clears its attempt, and only a failed enumeration sets it',
@@ -64,7 +64,7 @@ TCP = ['net_recv', 'net_connected', 'net_accept_cb', 'net_err', 'net_pending_err
        'tcp_recv_null', 'tcp_accept_null']
 NO_CALLBACK = 'lwIP netif status and link callbacks: nothing sets them'
 BOOTROM = 'the bootrom, or the boot2 copy the SDK keeps in RAM'
-MODEM = 'telnet\'s; modem_stop closed the modem\'s when the 6502 stopped'
+MODEM = 'telnet\'s; modem_end closed the modem\'s when the program\'s chain ended'
 
 # Indirect calls reviewed: the function making the call -> (why, what it can
 # call while flashing). Every target is followed as a root.
@@ -120,7 +120,7 @@ INDIRECT = {
     'net_close': ('net.c close hooks: ' + MODEM, ['com_telnet_on_disconnect']),
     'net_recv': ('net.c close hooks: ' + MODEM, ['com_telnet_on_disconnect']),
     'net_accept_cb': ('net.c accept hooks: the telnet FLASHING hook closed telnet\'s listener, '
-                      'and modem_stop closed the modem\'s', []),
+                      'and modem_end closed the modem\'s', []),
     'edpt_xfer_complete': ('class drivers: after the USB FLASHING hook only MSC\'s endpoints remain',
                            ['msc_class_driver_xfer_cb']),
     'control_xfer_complete': ('control transfer callbacks of the drives, usbh\'s stall clearing '

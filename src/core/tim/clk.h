@@ -50,12 +50,6 @@ bool clk_api_localtime(void);
 bool clk_api_mktime(void);
 bool clk_api_strftime(void);
 
-// Deprecated. Retained for binaries built with older SDKs.
-bool clk_api_clock(void);
-bool clk_api_get_res(void);
-bool clk_api_get_time(void);
-bool clk_api_set_time(void);
-
 /* The host clock reading taken when the running program started, which is
  * what clk_get_run measures against. Every machine that saves state also
  * restores that clock, so the reading means the same thing after a load as it

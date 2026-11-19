@@ -55,7 +55,7 @@ const char *fs_strip_drive(const char *path);
 bool fs_card_path(const char *path, const char *root, char *out, size_t cap);
 
 /* osal/fs.h's two rows. */
-#define FS_POCKET_ROW(handles_fn, open_fn)                \
+#define FS_POCKET_ROW(handles_fn, open_fn, refuses)       \
     {                                                     \
         .handles = handles_fn,                            \
         .open = open_fn,                                  \
@@ -64,10 +64,12 @@ bool fs_card_path(const char *path, const char *root, char *out, size_t cap);
         .write = fs_std_write,                            \
         .sync = fs_std_sync,                              \
         .lseek = fs_std_lseek,                            \
+        .file = true,                                     \
+        .refuses_exec = refuses,                          \
         STD_SST_COLS(fs_std_ident, fs_std_reopen, false)  \
     }
-#define FS_POCKET_SAVE_DRIVER FS_POCKET_ROW(save_std_handles, save_std_open)
-#define FS_POCKET_STD_DRIVER FS_POCKET_ROW(fs_std_handles, fs_std_open)
+#define FS_POCKET_SAVE_DRIVER FS_POCKET_ROW(save_std_handles, save_std_open, true)
+#define FS_POCKET_STD_DRIVER FS_POCKET_ROW(fs_std_handles, fs_std_open, false)
 
 #define FS_DRIVER DRIVER(STOP(fs_stop))
 

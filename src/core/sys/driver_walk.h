@@ -34,6 +34,9 @@
 #ifndef STOP
 #define STOP(f)
 #endif
+#ifndef END
+#define END(f)
+#endif
 #ifndef BREAK
 #define BREAK(f)
 #endif

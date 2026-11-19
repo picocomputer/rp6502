@@ -27,6 +27,7 @@
 
 void aud_init(void);
 void aud_stop(void);
+void aud_end(void);
 
 /* Polls the bell's sequencer. */
 void aud_task(void);
@@ -87,7 +88,7 @@ uint32_t aud_opl_overruns(void);
 
 /* Times the PCM: device's buffer ran dry since the last call, saturating at
  * 0x7FFFFFFF: each take of a frame that left less than one. An open and
- * aud_stop clear it. A software machine counts by the machine's present, as
+ * aud_end clear it. A software machine counts by the machine's present, as
  * it answers aud_pcm_level. */
 uint32_t aud_pcm_underruns(void);
 
@@ -161,6 +162,7 @@ void aud_sst_settle(void);
     INIT(aud_init)                                          \
     TASK_ALWAYS(aud_task)                                   \
     STOP(aud_stop)                                          \
+    END(aud_end)                                            \
     SST(AUD_, 6, AUD_SST_SIZE, aud_sst_save, aud_sst_load))
 
 #endif /* _CORE_AUD_MIX_H_ */

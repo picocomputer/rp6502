@@ -29,7 +29,6 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-static bool stdin_closed;
 /* Written since the last flush. A program that draws with escapes and never
  * prints a newline would otherwise sit in the buffer unseen. */
 static bool tx_pending;
@@ -50,12 +49,11 @@ static size_t stdin_rx(char *buf, size_t max)
     /* End of file is reported only while a read is outstanding and no whole
      * item is waiting, because std_stdin_eof gives that read up and items
      * still queued would never reach it. A sequence the input ended inside,
-     * such as a lone ESC, is no item and is left where it is. */
-    if (!stdin_closed && std_stdin_waiting() && tio_idle())
-    {
-        stdin_closed = true;
+     * such as a lone ESC, is no item and is left where it is. std.c keeps
+     * that the input ended until the end of the exec chain, and a launcher
+     * started again that reads stdin is told again here. */
+    if (std_stdin_waiting() && tio_idle())
         std_stdin_eof();
-    }
     return 0;
 }
 
