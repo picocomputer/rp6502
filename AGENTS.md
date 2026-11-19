@@ -26,15 +26,3 @@ ELF. With two probes, pick one with `adapter serial`. The VGA's own USB port is
 a separate serial device. Some benches also have video and audio capture
 devices. Under WSL, devices come through usbipd; if one is missing, check
 `usbipd.exe list` and attach it.
-
-The build runs on Linux, macOS and Windows hosts. src/core/build.cmake and
-src/core/build.py hold what differs between them; reach for them first, and
-move code into them when it would make a script easier to read.
-- Run Python as ${RP6502_PYTHON} SCRIPT, never python3.
-- A linker script places by section name: .bss.font8 is font8. Only the RIA
-  places whole files by object, through rp6502_object_patterns.
-- A source whose symbols or object a linker script names goes through
-  rp6502_linker_named, and every placement has an ASSERT or a check that
-  fails the build when it matches nothing.
-- CMake hands a script what it needs, rather than the script digging it out
-  of compiler command lines.
