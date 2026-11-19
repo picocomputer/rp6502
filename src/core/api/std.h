@@ -11,7 +11,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "core/api/api.h"
-#include "core/com/rln.h"
 #include "core/sys/sst.h"
 
 void std_init(void);
@@ -28,25 +27,6 @@ void std_stop(void);
  * launcher starts again, not at each stop, so a program that an exec starts
  * has what the one before it left open. */
 void std_reset(void);
-
-/* Whether a cooked read is outstanding on the console, and the notice that
- * input has ended. On end of input whatever partial line was typed is still
- * delivered, so reads answer from what is left of it before every read answers
- * end of file until the exec chain ends. Telling it again is harmless.
- */
-
-bool std_stdin_waiting(void);
-void std_stdin_eof(void);
-
-/* True once the running program has read the console. It stays true until the
- * program stops, because a raw TTY: read completes at once and leaves nothing
- * for a caller to observe. */
-bool std_console_asked(void);
-
-/* The reader rln calls back with a line. rln writes down whether a read was
- * outstanding as a token rather than as a pointer, so this is the reader its
- * load installs when the token says one was. */
-rln_read_callback_t std_rln_reader(void);
 
 bool std_api_open(void);
 bool std_api_close(void);
@@ -129,14 +109,13 @@ const std_driver_t *std_drivers(size_t *count);
 bool std_sst_refused(void);
 
 /* The open files, the descriptors that name them, the transfer, open or dup2
- * one of them may be in the middle of, and how far the stdin reader has got
- * through a line. An open file is written down by the driver that opened it,
- * and its handlers are found again from that driver's row number and the
- * open mode rather than carried.
+ * one of them may be in the middle of. An open file is written down by the
+ * driver that opened it, and its handlers are found again from that driver's
+ * row number and the open mode rather than carried.
  *
  * The most that can be written is sixteen carry flags, sixteen open files of
  * a driver byte, a mode byte and at most 260 bytes of ident, sixteen
- * descriptors and a twenty-two byte tail, which comes to 4246. */
+ * descriptors and a fourteen byte tail, which comes to 4238. */
 #define STD_SST_SIZE 4400
 void std_sst_save(sst_cursor_t *c, unsigned flags);
 bool std_sst_load(sst_cursor_t *c, unsigned flags);
@@ -146,6 +125,6 @@ bool std_sst_load(sst_cursor_t *c, unsigned flags);
     TASK_PUMPED(std_task)                                   \
     STOP(std_stop)                                          \
     END(std_reset)                                          \
-    SST(STD_, 3, STD_SST_SIZE, std_sst_save, std_sst_load))
+    SST(STD_, 4, STD_SST_SIZE, std_sst_save, std_sst_load))
 
 #endif /* _CORE_API_STD_H_ */

@@ -123,12 +123,12 @@ bool rln_api_lastkey(void);
 bool rln_api_peek(void);
 bool rln_api_poke(void);
 
-/* The line being edited. std.c's stdin bridge points into it, and a savestate
+/* The line being edited. con.c's stdin bridge points into it, and a savestate
  * rebuilds that pointer by calling this rather than carrying it. */
 const char *rln_line(void);
 
 /* The reader is a function pointer, so it is saved as a token. A software
- * machine has exactly one, std.c's stdin bridge, and rebuilding it by calling
+ * machine has exactly one, con.c's stdin bridge, and rebuilding it by calling
  * rln_read_line would start a new read and wipe the line the blob just
  * restored.
  *

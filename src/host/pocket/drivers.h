@@ -14,6 +14,8 @@
 #include "core/api/dir.h"
 #include "core/api/proc.h"
 #include "core/api/std.h"
+#include "core/com/con.h"
+#include "core/com/tty.h"
 #include "sw/tim.h"
 #include "core/api/xreg.h"
 #include "core/com/com.h"
@@ -66,7 +68,7 @@
     PROC_DRIVER, ASSET_DRIVER, XREG_DRIVER,             \
     RANDOM_DRIVER, STR_DRIVER,                          \
     MANIFOLD_DRIVER, RIA_DRIVER, COM_DRIVER,            \
-    STD_DRIVER, FS_DRIVER,                              \
+    STD_DRIVER, CON_DRIVER, TTY_DRIVER, FS_DRIVER,      \
     AUD_FABRIC_DRIVER,                                  \
     TIO_DRIVER, RLN_DRIVER, CELLS_DRIVER,               \
     LAYOUT_DRIVER, KEYBOARD_DRIVER,                     \

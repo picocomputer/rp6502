@@ -218,7 +218,7 @@ static const term_pos_t *pos(void)
     return term_pos(term_shown(&cells_term));
 }
 
-/* The monitor and std.c start the next read after the callback returns. */
+/* The monitor and con.c start the next read after the callback returns. */
 static bool need_next;
 
 static void got_line_later(bool timeout, const char *buf)

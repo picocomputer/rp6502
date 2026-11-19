@@ -7,10 +7,8 @@
 #include "core/sys/driver.h"
 #include "core/api/api.h"
 #include "core/api/std.h"
-#include "core/com/rln.h"
-#include "core/str/str.h"
-#include "core/com/com.h"
-#include "core/com/manifold.h"
+#include "core/com/con.h"
+#include "core/com/tty.h"
 #include "core/ria/regs.h"
 #include "core/sys/xram.h"
 #include "core/sys/pix.h"
@@ -20,7 +18,6 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <strings.h>
 #include <unistd.h>
 
 /* As POSIX has them: a descriptor names an open file, and an open file is what
@@ -62,14 +59,6 @@ static int std_xram_err;                  // a failed read's errno, -1 when none
  * more than one pass: the two descriptors, STD_NONE when there is none. */
 static uint8_t std_dup2_from = STD_NONE, std_dup2_to = STD_NONE;
 
-static bool std_rln_active;
-static const char *std_rln_buf;
-static bool std_rln_needs_nl;
-static size_t std_rln_pos;
-static size_t std_rln_len;
-static bool std_stdin_closed;
-static bool std_asked_console;
-
 static const std_driver_t *std_row(const std_open_t *o)
 {
     size_t count;
@@ -101,16 +90,6 @@ static int std_lowest_free_fd(void)
         if (!std_fds[fd])
             return fd;
     return -1;
-}
-
-static void HOST_IN_FLASH_FUNC std_rln_callback(bool timeout, const char *buf)
-{
-    (void)timeout;
-    std_rln_active = false;
-    std_rln_buf = buf;
-    std_rln_pos = 0;
-    std_rln_len = strlen(buf);
-    std_rln_needs_nl = true;
 }
 
 /* A close that returns STD_PENDING is called again until it finishes,
@@ -280,12 +259,6 @@ void std_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_u16(c, std_pos);
     sst_put_u16(c, (uint16_t)std_xram_addr);
     sst_put_u16(c, (uint16_t)(std_xram_end - std_xram_addr));
-    sst_put_bool(c, std_rln_active);
-    sst_put_bool(c, std_rln_needs_nl);
-    sst_put_u16(c, (uint16_t)std_rln_pos);
-    sst_put_u16(c, (uint16_t)std_rln_len);
-    sst_put_bool(c, std_stdin_closed);
-    sst_put_bool(c, std_asked_console);
 }
 
 bool std_sst_load(sst_cursor_t *c, unsigned flags)
@@ -346,9 +319,6 @@ bool std_sst_load(sst_cursor_t *c, unsigned flags)
     uint16_t at = sst_get_u16(c);
     uint16_t size = sst_get_u16(c), pos = sst_get_u16(c);
     uint16_t xaddr = sst_get_u16(c), xlen = sst_get_u16(c);
-    bool rln_on = sst_get_bool(c), needs_nl = sst_get_bool(c);
-    uint16_t rpos = sst_get_u16(c), rlen = sst_get_u16(c);
-    bool closed = sst_get_bool(c), asked = sst_get_bool(c);
     if (!sst_ok(c))
         goto fail;
     /* An active open file must be one that is open, or the first re-dispatch
@@ -366,7 +336,7 @@ bool std_sst_load(sst_cursor_t *c, unsigned flags)
         goto fail;
     if (kind != STD_BUF_NONE && (uint32_t)at + size > 0x10000)
         goto fail;
-    if (pos > size || rpos > rlen || rlen >= RLN_LINE_MAX)
+    if (pos > size)
         goto fail;
 
     std_fd_active = (active == STD_NONE) ? NULL : &std_opens[active];
@@ -384,15 +354,6 @@ bool std_sst_load(sst_cursor_t *c, unsigned flags)
     /* Not carried. A machine that saves streams nothing, so a failed read
      * returns at once. */
     std_xram_err = -1;
-    std_rln_active = rln_on;
-    std_rln_needs_nl = needs_nl;
-    std_rln_pos = rpos;
-    std_rln_len = rlen;
-    std_stdin_closed = closed;
-    std_asked_console = asked;
-    /* Not carried in the blob. It is either NULL or rln's line buffer, which
-     * is at a fixed address, and nothing reads it until a line arrives. */
-    std_rln_buf = rln_line();
     return true;
 fail:
     std_close_all();
@@ -401,178 +362,14 @@ fail:
 
 #endif /* RP6502_SST */
 
-rln_read_callback_t std_rln_reader(void)
-{
-    return std_rln_callback;
-}
-
-/* The cooked console: a line from the line editor, then its newline. It
- * waits for the line, which CON: with no number does not. */
-static std_rw_result std_stdin_read(char *buf, uint32_t count, uint32_t *bytes_read)
-{
-    std_asked_console = true;
-    *bytes_read = 0;
-    if (count == 0)
-        return STD_OK;
-    if (!std_rln_needs_nl && std_rln_pos >= std_rln_len)
-    {
-        if (std_stdin_closed)
-            return STD_OK;
-        if (!std_rln_active)
-        {
-            std_rln_active = true;
-            rln_read_line(std_rln_callback, NULL);
-        }
-        return STD_PENDING;
-    }
-    uint32_t i = 0;
-    for (; i < count && std_rln_pos < std_rln_len; i++)
-        buf[i] = std_rln_buf[std_rln_pos++];
-    if (i < count && std_rln_needs_nl)
-    {
-        buf[i++] = '\n';
-        std_rln_needs_nl = false;
-    }
-    *bytes_read = i;
-    return STD_OK;
-}
-
-/* CON:0, CON:1 and CON:2 are the console as stdin, stdout and stderr have
- * it, and their desc is the number: each reads and writes, and waits, and
- * what CON:2 writes is stderr where a machine keeps the two apart. CON: alone
- * is the console that never waits, as it always was. */
-#define STD_CON_NOWAIT 3
-
-static bool std_con_handles(const char *path)
-{
-    return strncasecmp(path, STR_CON_COLON, STR_CON_COLON_LEN) == 0;
-}
-
-static int std_con_open(const char *path, uint8_t mode, api_errno *err)
-{
-    (void)mode;
-    const char *n = path + STR_CON_COLON_LEN;
-    if (!n[0])
-        return STD_CON_NOWAIT;
-    if (n[0] >= '0' && n[0] <= '2' && !n[1])
-        return n[0] - '0';
-    *err = API_ENOENT;
-    return -1;
-}
-
-static std_rw_result std_con_close(int desc, api_errno *err)
-{
-    (void)desc;
-    (void)err;
-    return STD_OK;
-}
-
-static std_rw_result std_con_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
-{
-    (void)err;
-    std_rw_result result = std_stdin_read(buf, count, bytes_read);
-    return (result == STD_PENDING && desc == STD_CON_NOWAIT) ? STD_OK : result;
-}
-
-static std_rw_result std_con_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
-{
-    (void)err;
-    int to = desc == STDERR_FILENO ? STDERR_FILENO : STDOUT_FILENO;
-    *bytes_written = (uint32_t)manifold_write(to, buf, count);
-    return (*bytes_written < count && desc != STD_CON_NOWAIT) ? STD_PENDING : STD_OK;
-}
-
-// TTY: the console's keys and screen, raw, never waiting.
-static bool std_tty_handles(const char *path)
-{
-    return strcasecmp(path, STR_TTY_COLON) == 0;
-}
-
-static int std_tty_open(const char *path, uint8_t mode, api_errno *err)
-{
-    (void)path;
-    (void)mode;
-    (void)err;
-    return 0;
-}
-
-static std_rw_result std_tty_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
-{
-    (void)desc;
-    (void)err;
-    std_asked_console = true;
-    *bytes_read = (uint32_t)com_stdin_read(buf, count);
-    return STD_OK;
-}
-
-static std_rw_result std_tty_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
-{
-    (void)desc;
-    (void)err;
-    uint32_t i = 0;
-    for (; i < count && manifold_cts(); i++)
-        manifold_putchar_raw(buf[i]);
-    *bytes_written = i;
-    return STD_OK;
-}
-
-#ifdef RP6502_SST
-static bool std_con_ident(int desc, sst_cursor_t *c)
-{
-    sst_put_u8(c, (uint8_t)desc);
-    return true;
-}
-
-static int std_con_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err)
-{
-    (void)mode;
-    uint8_t desc = sst_get_u8(c);
-    if (!sst_ok(c) || desc > STD_CON_NOWAIT)
-    {
-        *err = API_EINVAL;
-        return -1;
-    }
-    return desc;
-}
-
-static bool std_tty_ident(int desc, sst_cursor_t *c)
-{
-    (void)desc;
-    (void)c;
-    return true;
-}
-
-static int std_tty_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err)
-{
-    (void)c;
-    (void)mode;
-    (void)err;
-    return 0;
-}
-#endif
-
 /* This machine's stdio driver table: the console's two, which every machine
  * has, then those its drivers.h lists. The row order is the order open()
  * tries them, so the filesystem catch-all is last. */
 #define STD_ROW_CON 0
 #define STD_ROW_TTY 1
 static const std_driver_t std_driver_table[] = {
-    {
-        .handles = std_con_handles,
-        .open = std_con_open,
-        .close = std_con_close,
-        .read = std_con_read,
-        .write = std_con_write,
-        STD_SST_COLS(std_con_ident, std_con_reopen, true)
-    },
-    {
-        .handles = std_tty_handles,
-        .open = std_tty_open,
-        .close = std_con_close,
-        .read = std_tty_read,
-        .write = std_tty_write,
-        STD_SST_COLS(std_tty_ident, std_tty_reopen, true)
-    },
+    CON_STD_DRIVER,
+    TTY_STD_DRIVER,
     RP6502_STD_DRIVERS};
 
 const std_driver_t *std_drivers(size_t *count)
@@ -949,29 +746,6 @@ bool std_api_lseek_llvm(void)
     return std_lseek_common(fd, whence, ofs);
 }
 
-bool std_stdin_waiting(void)
-{
-    return std_rln_active;
-}
-
-bool std_console_asked(void)
-{
-    return std_asked_console;
-}
-
-void std_stdin_eof(void)
-{
-    std_stdin_closed = true;
-    if (!std_rln_active)
-        return;
-    std_rln_active = false;
-    /* A last line that the input never terminated is still a line, so it is
-     * handed over before the read is given up; the next read is the one that
-     * answers nothing. */
-    if (!rln_read_flush())
-        rln_read_cancel();
-}
-
 void HOST_IN_RAM_FUNC std_task(void)
 {
     if (std_xram_addr < std_xram_end)
@@ -981,7 +755,6 @@ void HOST_IN_RAM_FUNC std_task(void)
 void std_reset(void)
 {
     std_close_all();
-    std_stdin_closed = false;
     for (int fd = STDIN_FILENO; fd <= STDERR_FILENO; fd++)
         std_bind(fd, STD_ROW_CON, fd, FS_RD | FS_WR);
 }
@@ -1000,9 +773,4 @@ void HOST_IN_FLASH_FUNC std_stop(void)
     std_dup2_from = std_dup2_to = STD_NONE;
     std_xram_hi = 0;
     std_xram_end = std_xram_addr;
-    std_rln_active = false;
-    std_rln_needs_nl = false;
-    std_rln_pos = 0;
-    std_rln_len = 0;
-    std_asked_console = false;
 }
