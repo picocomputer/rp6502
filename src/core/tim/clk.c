@@ -14,25 +14,12 @@
 
 static uint64_t clk_start_us;
 
+#define CLK_SST(X) X(U64, clk_start_us)
+SST_TABLE(clk, CLK_SST)
+
 void clk_run(void)
 {
     clk_start_us = host_clock_us();
-}
-
-void clk_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    sst_put_u64(c, clk_start_us);
-}
-
-bool clk_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    uint64_t at = sst_get_u64(c);
-    if (!sst_ok(c))
-        return false;
-    clk_start_us = at;
-    return true;
 }
 
 uint32_t clk_get_run(uint32_t us_per_tick)

@@ -105,8 +105,6 @@ static uint16_t rln_pinned_width;
 static uint16_t rln_pinned_height;
 static term_grid_t rln_grid;
 static uint8_t rln_grid_lines[2 * RLN_GRID_ROWS];
-_Static_assert(RLN_SST_SIZE == 329 + TERM_GRID_SST_SIZE(RLN_GRID_ROWS),
-               "the pinned size's grid is part of the chunk");
 
 // The CR or LF each source, the poke stream included, last ended a line
 // with, so the other half of a CRLF pair arriving next is absorbed instead of
@@ -131,116 +129,107 @@ static bool rln_has_grid(void)
     return cells_term.grid_count > TERM_SCREEN_GRIDS;
 }
 
-void rln_sst_save(sst_cursor_t *c, unsigned flags)
+/* A callback is a function pointer, which cannot be written to a blob, so
+ * it is saved as a token. console.c's reader is the only one this file can
+ * name, and any other callback fails the save rather than being restored
+ * as the wrong reader. Its reads have no history, so none is carried. */
+static void rln_sst_put_reader(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    sst_put(c, rln_buf, RLN_BUF_SIZE);
-    /* A callback is a function pointer, which cannot be written to a blob, so
-     * it is saved as a token. console.c's reader is the only one this file can
-     * name, and any other callback fails the save rather than being restored
-     * as the wrong reader. Its reads have no history, so none is carried. */
     if (!rln_callback)
         sst_put_u8(c, 0);
     else if (rln_callback == console_rln_reader())
         sst_put_u8(c, 1);
     else
         sst_fail(c);
-    sst_put_u64(c, rln_idle_deadline);
-    sst_put_u8(c, rln_buflen);
-    sst_put_u8(c, rln_bufpos);
-    sst_put_u8(c, rln_max_length);
-    sst_put_u32(c, rln_idle_timeout_ms);
-    sst_put_u8(c, rln_caps);
-    sst_put_bool(c, rln_suppress_newline);
-    sst_put_u16(c, rln_prompt_col);
-    sst_put_u16(c, rln_width);
-    sst_put_u8(c, rln_grid_width);
-    sst_put_u8(c, rln_rows);
-    sst_put_u8(c, rln_cur_idx);
-    sst_put_bool(c, rln_overwrite);
-    sst_put_u8(c, rln_rendered_max_row);
-    sst_put_u8(c, rln_last_render_buflen);
-    sst_put(c, rln_lastkey_buf, RLN_LASTKEY_MAX);
-    sst_put_u8(c, rln_lastkey_len);
-    sst_put_bool(c, rln_action_taken);
-    sst_put_bool(c, rln_lastkey_action);
-    sst_put_bool(c, rln_laying_out);
-    sst_put(c, rln_line_ends, RLN_SOURCE_COUNT);
-    sst_put_u16(c, rln_pinned_width);
-    sst_put_u16(c, rln_pinned_height);
+}
+
+static bool rln_sst_get_reader(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint8_t reader = sst_get_u8(c);
+    if (reader > 1)
+        return sst_refuse(c, "a reader rln cannot name");
+    rln_callback = reader ? console_rln_reader() : NULL;
+    rln_history = NULL;
+    return true;
+}
+
+/* Whether the third grid is on the console's terminal, and the grid. */
+static void rln_sst_put_grid(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
     sst_put_bool(c, rln_has_grid());
     term_grid_sst_put(c, &rln_grid);
 }
 
-bool rln_sst_load(sst_cursor_t *c, unsigned flags)
+static bool rln_sst_get_grid(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    const uint8_t *line = sst_view(c, sizeof rln_buf);
-    uint8_t reader = sst_get_u8(c);
-    uint64_t idle = sst_get_u64(c);
-    uint8_t buflen = sst_get_u8(c), bufpos = sst_get_u8(c);
-    uint8_t maxlen = sst_get_u8(c);
-    uint32_t idle_ms = sst_get_u32(c);
-    uint8_t caps = sst_get_u8(c);
-    bool suppress = sst_get_bool(c);
-    uint16_t pcol = sst_get_u16(c), width = sst_get_u16(c);
-    uint8_t grid_width = sst_get_u8(c), rows = sst_get_u8(c);
-    uint8_t cur = sst_get_u8(c);
-    bool over = sst_get_bool(c);
-    uint8_t maxrow = sst_get_u8(c), lastlen = sst_get_u8(c);
-    const uint8_t *lastkey = sst_view(c, sizeof rln_lastkey_buf);
-    uint8_t lastkey_len = sst_get_u8(c);
-    bool acted = sst_get_bool(c), key_acted = sst_get_bool(c);
-    bool laying_out = sst_get_bool(c);
-    uint8_t line_end[RLN_SOURCE_COUNT];
-    sst_get(c, line_end, sizeof line_end);
-    uint16_t pin_w = sst_get_u16(c), pin_h = sst_get_u16(c);
     bool grid = sst_get_bool(c);
-    /* The lengths need no range check because a uint8_t cannot reach past a
-     * buffer this size, and the static assert keeps that true if RLN_BUF_SIZE
-     * changes. The indexes are checked because they can exceed the lengths
-     * they index. A line with a prompt column wraps at its width, so that
-     * width is never 0. */
-    _Static_assert(RLN_BUF_SIZE > UINT8_MAX, "a byte length must not escape rln_buf");
-    if (!sst_ok(c) || reader > 1 || bufpos > buflen ||
-        cur > buflen || lastkey_len > RLN_LASTKEY_MAX || (pcol && !width))
+    if (!sst_ok(c))
         return false;
     if (grid && !rln_has_grid())
         term_add_grid(&cells_term, &rln_grid, cells_shown(&cells_term),
                       rln_grid_lines, RLN_GRID_ROWS);
     else if (!grid && rln_has_grid())
         term_drop_grid(&cells_term, &rln_grid);
-    if (!term_grid_sst_get(c, &rln_grid) || !sst_ok(c))
-        return false;
+    return term_grid_sst_get(c, &rln_grid);
+}
 
-    rln_history = NULL;
-    memcpy(rln_buf, line, sizeof rln_buf);
-    rln_callback = reader ? console_rln_reader() : NULL;
-    rln_idle_deadline = idle;
-    rln_buflen = buflen;
-    rln_bufpos = bufpos;
-    rln_max_length = maxlen;
-    rln_idle_timeout_ms = idle_ms;
-    rln_caps = caps;
-    rln_suppress_newline = suppress;
-    rln_prompt_col = pcol;
-    rln_width = width;
-    rln_grid_width = grid_width;
-    rln_rows = rows;
-    rln_cur_idx = cur;
-    rln_overwrite = over;
-    rln_rendered_max_row = maxrow;
-    rln_last_render_buflen = lastlen;
-    memcpy(rln_lastkey_buf, lastkey, sizeof rln_lastkey_buf);
-    rln_lastkey_len = lastkey_len;
-    rln_action_taken = acted;
-    rln_lastkey_action = key_acted;
-    rln_laying_out = laying_out;
-    memcpy(rln_line_ends, line_end, sizeof rln_line_ends);
-    rln_pinned_width = pin_w;
-    rln_pinned_height = pin_h;
+/* The lengths need no range check because a uint8_t cannot reach past a
+ * buffer this size, and the static assert keeps that true if RLN_BUF_SIZE
+ * changes. The indexes are checked because they can exceed the lengths they
+ * index. A line with a prompt column wraps at its width, so that width is
+ * never 0. */
+_Static_assert(RLN_BUF_SIZE > UINT8_MAX,
+               "a byte length must not escape rln_buf");
+static bool rln_sst_valid(sst_cursor_t *c)
+{
+    if (rln_bufpos > rln_buflen || rln_cur_idx > rln_buflen ||
+        rln_lastkey_len > RLN_LASTKEY_MAX)
+        return sst_refuse(c, "an index past its line");
+    if (rln_prompt_col && !rln_width)
+        return sst_refuse(c, "a prompt column with no width");
     return true;
 }
+
+#define RLN_SST_ROWS(X)                                                 \
+    X(BYTES, rln_buf)                                                   \
+    X(FN, rln_sst_put_reader, rln_sst_get_reader, 1, 1)                 \
+    X(IN_FN, rln_callback)                                              \
+    X(IN_FN, rln_history, "its caller's, so the load sets none")        \
+    X(U64, rln_idle_deadline, "machine time, so carried whole")         \
+    X(U8, rln_buflen)                                                   \
+    X(U8, rln_bufpos)                                                   \
+    X(U8, rln_max_length)                                               \
+    X(U32, rln_idle_timeout_ms)                                         \
+    X(U8, rln_caps)                                                     \
+    X(BOOL, rln_suppress_newline)                                       \
+    X(U16, rln_prompt_col)                                              \
+    X(U16, rln_width)                                                   \
+    X(U8, rln_grid_width)                                               \
+    X(U8, rln_rows)                                                     \
+    X(U8, rln_cur_idx)                                                  \
+    X(BOOL, rln_overwrite)                                              \
+    X(U8, rln_rendered_max_row)                                         \
+    X(U8, rln_last_render_buflen)                                       \
+    X(BYTES, rln_lastkey_buf)                                           \
+    X(U8, rln_lastkey_len)                                              \
+    X(BOOL, rln_action_taken)                                           \
+    X(BOOL, rln_lastkey_action)                                         \
+    X(BOOL, rln_laying_out)                                             \
+    X(BYTES, rln_line_ends)                                             \
+    X(U16, rln_pinned_width)                                            \
+    X(U16, rln_pinned_height)                                           \
+    X(VALIDATE, rln_sst_valid)                                          \
+    X(FN, rln_sst_put_grid, rln_sst_get_grid,                           \
+      1 + TERM_GRID_SST_SIZE(RLN_GRID_ROWS), 1)                         \
+    X(IN_FN, rln_grid)                                                  \
+    X(IN_FN, rln_grid_lines)                                            \
+    X(SKIP, rln_line_src, "read only inside the read's callback")       \
+    X(SKIP, rln_plain, "host wiring")
+SST_TABLE(rln, RLN_SST_ROWS)
 
 /* ----- Screen position math (multi-line mode) ----- */
 

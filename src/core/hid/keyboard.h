@@ -88,21 +88,12 @@ void keyboard_set_key(uint8_t keycode, bool down);
  * next report. */
 void keyboard_release_all(void);
 
-/* The blob carries where the program asked for its bitmap and what is in it.
- * The connection table is not saved, because it describes what is plugged in
- * now rather than what the blob remembers. */
-#define KEYBOARD_SST_SIZE 35
-void keyboard_sst_save(sst_cursor_t *c, unsigned flags);
-bool keyboard_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t keyboard_sst;
 
 #define KEYBOARD_DRIVER DRIVER(                                            \
     INIT(keyboard_init)                                                    \
     STOP(keyboard_stop)                                                    \
     RESET(keyboard_reset)                                                  \
-    SST(.id = "KEYB",                                                      \
-        .version = 1,                                                      \
-        .size = KEYBOARD_SST_SIZE,                                         \
-        .save = keyboard_sst_save,                                         \
-        .load = keyboard_sst_load))
+    SST("KEYB", keyboard))
 
 #endif /* _CORE_HID_KEYBOARD_H_ */

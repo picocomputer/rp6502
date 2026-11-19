@@ -46,7 +46,8 @@ void resb_release(void) { resb_down = false; }
 /* sst_load empties the PCM: device first and sst_save settles the mixer,
  * and the roster has neither. */
 void aud_pcm_clear(void) {}
-void aud_sst_settle(void) {}
+void aud_sst_hold(bool load) { (void)load; }
+void aud_sst_free(bool loaded) { (void)loaded; }
 
 const std_driver_t *std_drivers(size_t *count)
 {
@@ -69,7 +70,7 @@ void c_reset(void)
 static bool a_refuses, c_refuses;
 static bool a_overruns;
 
-void a_sst_save(sst_cursor_t *cur, unsigned flags)
+static void a_sst_save(sst_cursor_t *cur, unsigned flags)
 {
     note("aS");
     sst_put_u8(cur, a_held);
@@ -78,7 +79,7 @@ void a_sst_save(sst_cursor_t *cur, unsigned flags)
         sst_put_u32(cur, 0);
 }
 
-bool a_sst_load(sst_cursor_t *cur, unsigned flags)
+static bool a_sst_load(sst_cursor_t *cur, unsigned flags)
 {
     note("aL");
     uint8_t got = sst_get_u8(cur);
@@ -90,14 +91,14 @@ bool a_sst_load(sst_cursor_t *cur, unsigned flags)
     return true;
 }
 
-void c_sst_save(sst_cursor_t *cur, unsigned flags)
+static void c_sst_save(sst_cursor_t *cur, unsigned flags)
 {
     (void)flags;
     note("cS");
     sst_put_u8(cur, c_held);
 }
 
-bool c_sst_load(sst_cursor_t *cur, unsigned flags)
+static bool c_sst_load(sst_cursor_t *cur, unsigned flags)
 {
     (void)flags;
     note("cL");
@@ -107,6 +108,19 @@ bool c_sst_load(sst_cursor_t *cur, unsigned flags)
     c_held = got;
     return true;
 }
+
+#define A_SST(X)                                    \
+    X(FN, a_sst_save, a_sst_load, A_SST_SIZE, 1)   \
+    X(IN_FN, a_held)                                \
+    X(SKIP, a_refuses)                              \
+    X(SKIP, a_overruns)
+SST_TABLE(a, A_SST)
+
+#define C_SST(X)                                    \
+    X(FN, c_sst_save, c_sst_load, C_SST_SIZE, 1)   \
+    X(IN_FN, c_held)                                \
+    X(SKIP, c_refuses)
+SST_TABLE(c, C_SST)
 
 static void from_stopped(void)
 {

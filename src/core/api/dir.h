@@ -31,11 +31,7 @@ bool dir_api_setlabel(void);
 bool dir_api_getlabel(void);
 bool dir_api_getfree(void);
 
-/* Eight entry counters of four bytes, then eight slots of an open flag and a
- * path, then the working directory. */
-#define DIR_SST_SIZE (8 * 4 + 8 * (1 + API_PATH_MAX + 1) + API_PATH_MAX + 1)
-void dir_sst_save(sst_cursor_t *c, unsigned flags);
-bool dir_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t dir_sst;
 
 /* A failed savestate load closes every directory either machine had open
  * and zeroes the entry counts, as a program start does, so no handle is held
@@ -44,10 +40,6 @@ bool dir_sst_load(sst_cursor_t *c, unsigned flags);
     RUN(dir_run)                                            \
     STOP(dir_stop)                                          \
     RESET(dir_run)                                          \
-    SST(.id = "DIR_",                                       \
-        .version = 1,                                       \
-        .size = DIR_SST_SIZE,                               \
-        .save = dir_sst_save,                               \
-        .load = dir_sst_load))
+    SST("DIR_", dir))
 
 #endif /* _CORE_API_DIR_H_ */

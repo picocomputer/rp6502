@@ -53,7 +53,20 @@ static struct
  * is in flight at a time, so one flag serves every descriptor, and a close
  * clears it, so a sync that a stop interrupted never completes a later one. */
 static bool fs_syncing;
+#define FS_SYNCING_SST(X) X(SKIP, fs_syncing, "the host's sync in flight")
+#else
+#define FS_SYNCING_SST(X)
 #endif
+
+/* The SAVE: folder, set at each program start. A savestate's SAVE: files
+ * reopen by name in the loading machine's folder, so it is not carried. */
+static char *fs_save_dir;
+
+#define OSAL_FS_SST(X)                                                    \
+    X(SKIP, fs_kept, "the STD row carries each through fs_std_ident")     \
+    FS_SYNCING_SST(X)                                                     \
+    X(SKIP, fs_save_dir)
+SST_TABLE(osal_fs, OSAL_FS_SST)
 
 /* A name that cannot be kept takes no slot, so an ident of the descriptor
  * fails rather than recording another file's name. */
@@ -207,8 +220,6 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
     free(u8);
     return fd;
 }
-
-static char *fs_save_dir;
 
 void fs_save_start(void)
 {

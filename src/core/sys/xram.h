@@ -24,19 +24,13 @@ extern volatile uint8_t xram[0x10000];
 void xram_set_fill(bool random, uint8_t value, uint32_t seed);
 void xram_init(void);
 
-#define XRAM_SST_SIZE 0x10000
-void xram_sst_save(sst_cursor_t *c, unsigned flags);
-bool xram_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t xram_sst;
 
 /* Only the software machines list this row, because they are the ones that
  * fill xram at boot and carry it in a savestate. The Pico's RIA and VGA
  * compile xram.c too, but nothing there calls xram_init. */
 #define XRAM_DRIVER DRIVER(                                    \
     INIT(xram_init)                                            \
-    SST(.id = "XRAM",                                          \
-        .version = 1,                                          \
-        .size = XRAM_SST_SIZE,                                 \
-        .save = xram_sst_save,                                 \
-        .load = xram_sst_load))
+    SST("XRAM", xram))
 
 #endif /* _CORE_SYS_XRAM_H_ */

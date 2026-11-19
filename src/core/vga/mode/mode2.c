@@ -424,6 +424,10 @@ static const mode2_tiles_fn mode2_tiles[4][2][16] = {
     {MODE2_TILES_ROW(8, 0), MODE2_TILES_ROW(8, 1)},
 };
 
+#define MODE2_SST(X) \
+    X(SKIP, mode2_tiles, "a table of functions, fixed at build")
+SST_TABLE(mode2, MODE2_SST)
+
 // The map is walked a tile at a time. Whole tiles go to mode2_emit_tiles while
 // the whole of their decoded row fits in the line; the tiles cut by an edge,
 // and the last few before the end of the line, go through mode2_emit_part.

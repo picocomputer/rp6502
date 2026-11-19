@@ -60,6 +60,12 @@ static uint8_t main_upd_seen;
  * the first one. */
 static bool main_restaging;
 
+#define MAIN_SST(X)                                                     \
+    X(SKIP, main_stdio)                                                 \
+    X(SKIP, main_upd_seen, "the host's ROM requests, not the machine's")  \
+    X(SKIP, main_restaging)
+SST_TABLE(main, MAIN_SST)
+
 static void main_stage(void)
 {
     rom_assets_reset();

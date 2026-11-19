@@ -154,19 +154,17 @@ else()
     message(WARNING "YM3812-LLE absent — the OPL2 test skipped.")
 endif()
 
-# The state_inventory test runs only with GCC because Clang can merge
-# file-scope statics into one MergedGlobals symbol, which leaves nothing to
-# count.
-if(CMAKE_EXPORT_COMPILE_COMMANDS
-   AND CMAKE_C_COMPILER_ID STREQUAL "GNU"
-   AND NOT APPLE AND NOT WIN32)
-    add_test(NAME state_inventory
+# Every static and global of the core is in a row of its unit's savestate
+# table. The check builds each unit again, so it needs the compile commands,
+# and it reads the objects with nm, which MSVC has not.
+if(CMAKE_EXPORT_COMPILE_COMMANDS AND NOT MSVC AND NOT EMSCRIPTEN)
+    add_test(NAME sst_inventory
         COMMAND ${RP6502_PYTHON}
-            ${CMAKE_CURRENT_LIST_DIR}/state_inventory.py
+            ${RP6502_ROOT}/tests/sst_inventory.py
             ${CMAKE_BINARY_DIR}/compile_commands.json
             ${RP6502_SRC}
-            ${CMAKE_CURRENT_LIST_DIR}/state_inventory.txt)
-    set_tests_properties(state_inventory PROPERTIES LABELS "gate;host.emu")
+            /emu_core.dir/)
+    set_tests_properties(sst_inventory PROPERTIES LABELS "gate;host.emu")
 endif()
 
 rp6502_add_test(roster INCLUDES ${CMAKE_CURRENT_LIST_DIR}/roster)

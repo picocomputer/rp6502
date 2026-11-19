@@ -65,6 +65,29 @@ const bel_sound_t HOST_IN_FLASH bel_nfc_success_2 = {
 static RING(bel_sound_t, BEL_QUEUE_SIZE) bel_queue;
 static uint64_t bel_restrike_at, bel_release_at, bel_end_at;
 
+/* A deadline of 0 is none. The queue goes as it lies, its counters and all
+ * eight slots. */
+static bool bel_sst_valid(sst_cursor_t *c)
+{
+    if (RING_LEN(&bel_queue) > BEL_QUEUE_SIZE)
+        return sst_refuse(c, "more sounds queued than the queue holds");
+    return true;
+}
+
+#define BEL_SOUND_ROWS(Y, s)                                    \
+    Y(U16, s.freq) Y(U8, s.duty) Y(U8, s.vol_attack)            \
+    Y(U8, s.vol_decay) Y(U8, s.wave_release)                    \
+    Y(U16, s.restrike_ms) Y(U16, s.release_ms) Y(U16, s.end_ms)
+#define BEL_SST(X)                                              \
+    X(U32, bel_queue.idx.wr)                                    \
+    X(U32, bel_queue.idx.rd)                                    \
+    X(STRUCTS, bel_queue.buf, BEL_SOUND_ROWS)                   \
+    X(VALIDATE, bel_sst_valid)                                  \
+    X(U64, bel_restrike_at)                                     \
+    X(U64, bel_release_at)                                      \
+    X(U64, bel_end_at)
+SST_TABLE(bel, BEL_SST)
+
 static uint64_t bel_in_ms(uint32_t ms)
 {
     return host_clock_us() + (uint64_t)ms * 1000;
@@ -158,60 +181,4 @@ void HOST_IN_RAM_FUNC bel_task(void)
             bel_end_at = 0;
         }
     }
-}
-
-static void bel_put_sound(sst_cursor_t *c, const bel_sound_t *b)
-{
-    sst_put_u16(c, b->freq);
-    sst_put_u8(c, b->duty);
-    sst_put_u8(c, b->vol_attack);
-    sst_put_u8(c, b->vol_decay);
-    sst_put_u8(c, b->wave_release);
-    sst_put_u16(c, b->restrike_ms);
-    sst_put_u16(c, b->release_ms);
-    sst_put_u16(c, b->end_ms);
-}
-
-static void bel_get_sound(sst_cursor_t *c, bel_sound_t *b)
-{
-    b->freq = sst_get_u16(c);
-    b->duty = sst_get_u8(c);
-    b->vol_attack = sst_get_u8(c);
-    b->vol_decay = sst_get_u8(c);
-    b->wave_release = sst_get_u8(c);
-    b->restrike_ms = sst_get_u16(c);
-    b->release_ms = sst_get_u16(c);
-    b->end_ms = sst_get_u16(c);
-}
-
-void bel_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    const uint32_t len = RING_LEN(&bel_queue);
-    static const bel_sound_t none;
-    sst_put_u8(c, (uint8_t)len);
-    for (uint32_t i = 0; i < BEL_QUEUE_SIZE; i++)
-        bel_put_sound(c, i < len ? RING_AT(&bel_queue, i) : &none);
-    sst_put_u64(c, bel_restrike_at);
-    sst_put_u64(c, bel_release_at);
-    sst_put_u64(c, bel_end_at);
-}
-
-bool bel_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    const uint8_t len = sst_get_u8(c);
-    bel_sound_t queue[BEL_QUEUE_SIZE];
-    for (int i = 0; i < BEL_QUEUE_SIZE; i++)
-        bel_get_sound(c, &queue[i]);
-    uint64_t restrike = sst_get_u64(c), release = sst_get_u64(c);
-    uint64_t end = sst_get_u64(c);
-    if (!sst_ok(c) || len > BEL_QUEUE_SIZE)
-        return false;
-    RING_RESET(&bel_queue);
-    RING_IN(&bel_queue, queue, len);
-    bel_restrike_at = restrike;
-    bel_release_at = release;
-    bel_end_at = end;
-    return true;
 }

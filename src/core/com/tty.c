@@ -14,6 +14,9 @@
 
 static bool tty_was_asked;
 
+#define TTY_SST_ROWS(X) X(BOOL, tty_was_asked)
+SST_TABLE(tty, TTY_SST_ROWS)
+
 bool tty_std_handles(const char *path)
 {
     return strcasecmp(path, STR_TTY_COLON) == 0;
@@ -85,20 +88,4 @@ int tty_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err)
     (void)mode;
     (void)err;
     return 0;
-}
-
-void tty_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    sst_put_bool(c, tty_was_asked);
-}
-
-bool tty_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    bool asked = sst_get_bool(c);
-    if (!sst_ok(c))
-        return false;
-    tty_was_asked = asked;
-    return true;
 }

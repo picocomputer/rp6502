@@ -6,6 +6,7 @@
 
 #include "core/hid/paste.h"
 #include "core/str/oem.h"
+#include "core/sys/sst.h"
 #include "core/term/cells.h"
 #include "machine.h"
 #include <stdlib.h>
@@ -14,6 +15,12 @@
 /* Text still being delivered to the keyboard ring, NULL when idle. */
 static char *paste_buf;
 static size_t paste_len, paste_pos;
+
+#define PASTE_SST(X)                                        \
+    X(SKIP, paste_buf, "every load cancels the paste")      \
+    X(SKIP, paste_len)                                      \
+    X(SKIP, paste_pos)
+SST_TABLE(paste, PASTE_SST)
 
 void paste_cancel(void)
 {

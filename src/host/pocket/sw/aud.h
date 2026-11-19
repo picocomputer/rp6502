@@ -11,15 +11,15 @@
 #include "core/aud/mix.h"
 #include "mmio.h"
 
+#include "core/sys/sst.h"
+
 /* The PSG, the OPL and PCM are the fabric's, so this machine's AUD row
  * carries the engines' state through AUD_SST, which it reads and writes
  * with the machine held, and the firmware's own: the open PCM: device's
- * control word, its place in a FIFO word and the bell. It loads after the
- * STD row, whose reopen of PCM: opens the device and so empties the FIFO
- * that this row then puts back.
- *
- * 4 control, 1 place, the bell, then AUD_SST_WORDS words. */
-#define AUD_FABRIC_SST_SIZE (4 + 1 + BEL_SST_SIZE + AUD_SST_WORDS * 4)
+ * control word and its place in a FIFO word. It loads after the STD row,
+ * whose reopen of PCM: opens the device and so empties the FIFO that this
+ * row then puts back. */
+extern const sst_table_t aud_fabric_sst;
 
 void aud_reset(void);
 
@@ -29,10 +29,6 @@ void aud_reset(void);
     STOP(aud_stop)                                                   \
     END(aud_end)                                                     \
     RESET(aud_reset)                                                 \
-    SST(.id = "AUD_",                                                \
-        .version = 1,                                                \
-        .size = AUD_FABRIC_SST_SIZE,                                 \
-        .save = aud_sst_save,                                        \
-        .load = aud_sst_load))
+    SST("AUD_", aud_fabric))
 
 #endif /* _HOST_POCKET_SW_AUD_H_ */

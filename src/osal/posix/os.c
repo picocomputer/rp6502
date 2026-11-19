@@ -5,6 +5,7 @@
  */
 
 #include "osal/os.h"
+#include "core/sys/sst.h"
 #include "core/tim/tim.h"
 #include <errno.h>
 #if !defined(__ANDROID__)
@@ -51,6 +52,9 @@ void os_zone(int64_t utc, int32_t *offset, bool *dst, char *name, size_t name_si
  * rest of the process stays in the C locale. NULL when that locale is not
  * installed, and the C locale answers instead. */
 static locale_t g_locale;
+
+#define OSAL_OS_SST(X) X(SKIP, g_locale, "the host's")
+SST_TABLE(osal_os, OSAL_OS_SST)
 
 void os_locale_reset(void)
 {

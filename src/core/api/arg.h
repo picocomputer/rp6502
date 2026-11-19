@@ -7,6 +7,7 @@
 #ifndef _CORE_API_ARG_H_
 #define _CORE_API_ARG_H_
 
+#include "core/sys/sst.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -29,10 +30,11 @@ uint16_t arg_push_xstack(void);
  * leaves the arguments as they were. The XSTACK is emptied either way. */
 bool arg_pull_xstack(uint16_t first_max);
 
-/* The whole buffer, for a savestate. The offsets inside it are stored little
- * endian whatever the host is, so the bytes carry no host layout. */
-size_t arg_bytes(void);
-const uint8_t *arg_data(void);
-void arg_set_data(const uint8_t *buf);
+/* The whole buffer, as it is. After a failed load, proc_chain_reset of
+ * core/api/proc.h, the CHAN row's RESET, empties it. */
+extern const sst_table_t arg_sst;
+
+#define ARG_DRIVER DRIVER(                                  \
+    SST("ARG_", arg))
 
 #endif /* _CORE_API_ARG_H_ */

@@ -12,13 +12,6 @@
 #include "core/ria/ria.h"
 #include "core/vga/vga_emu.h"
 #include "core/vga/prog.h"
-#include "core/vga/mode/mode0.h"
-#include "core/vga/mode/mode1.h"
-#include "core/vga/mode/mode2.h"
-#include "core/vga/mode/mode3.h"
-#include "core/vga/mode/mode4.h"
-#include "core/vga/mode/mode5.h"
-#include "core/term/cells.h"
 #include "core/term/font.h"
 #include "core/wdc/bus.h"
 #include "core/dap/dbg.h"
@@ -27,6 +20,31 @@
 #include "host/host.h"
 #include <assert.h>
 #include <string.h>
+
+/* The line within the frame, the frame count and the clock are computed from
+ * beam_n rather than accumulated alongside it, so none can drift away from
+ * it. */
+static uint64_t beam_n;
+static bool vsynced;
+static bool vga_needs_reset;
+static bool vga_scanout = true;
+static uint32_t *g_framebuffer;
+
+/* The emulators render one line at a time, so one set of caches serves. A
+ * row of text is forgotten before every line, which builds its pairs again:
+ * a color then shows on the very next line, and a savestate, which carries
+ * no cache, loads into the picture the machine that saved it would draw. */
+static vga_fill_cache_t vga_fill_cache[SCANVIDEO_PLANE_COUNT];
+
+#define VGA_SST(X)                                                     \
+    X(U64, beam_n)                                                     \
+    X(BOOL, vsynced)                                                   \
+    X(BOOL, vga_needs_reset)                                           \
+    X(SKIP, vga_scanout, "whether this host wants pixels at all")      \
+    X(SKIP, g_framebuffer, "the host's; no row touches the pixels")    \
+    X(SKIP, vga_fill_cache, "keyed, and a row of text is built again " \
+                            "on every line")
+SST_TABLE(vga, VGA_SST)
 
 static inline uint32_t rgb555_to_rgba8(uint16_t px)
 {
@@ -69,41 +87,19 @@ void vga_init(void)
     vga_canvas_select(0);
 }
 
-static bool vga_needs_reset;
+static void vga_render_scanline(int y);
 
 void vga_stop(void)
 {
     vga_needs_reset = true;
 }
 
-/* Every console a host can give is 640 wide and 480, 400 or 360 high. */
-static bool vga_console_ok(int h)
-{
-    return h == 480 || h == 400 || h == 360;
-}
-
-static void vga_render_scanline(int y);
-
-/* The line within the frame and the clock are computed from beam_n rather than
- * accumulated alongside it, so neither can drift away from it. */
-static uint64_t beam_n;
-static unsigned long frame_n;
-static bool vsynced;
-
-static bool vga_scanout = true;
-
 void vga_reset(void)
 {
-    /* The console reset reads the console's size, so a size no host gives
-     * becomes the size every host starts with. */
-    int w, h;
-    vga_console_size(&w, &h);
-    if (w != 640 || !vga_console_ok(h))
-        vga_set_console_size(640, 480);
-    frame_n = (unsigned long)(beam_n / VGA_SCANLINES);
-    /* The console reset calls into the cells, whose RESET runs after this
-     * one, so it waits for vga_task. That clears the table and its rows
-     * before it draws one. */
+    /* CANVAS_DRIVER's reset, before this one, has put back a console size
+     * a host gives. The console reset calls into the cells, whose RESET
+     * runs after this one, so it waits for vga_task. That clears the table
+     * and its rows before it draws one. */
     vga_needs_reset = true;
 }
 
@@ -124,13 +120,16 @@ void vga_set_scanout(bool on) { vga_scanout = on; }
 
 uint64_t vga_beam_lines(void) { return beam_n; }
 
-unsigned long vga_frame_count(void) { return frame_n; }
+unsigned long vga_frame_count(void)
+{
+    return (unsigned long)(beam_n / VGA_SCANLINES);
+}
 
 bool vga_run_frame(void)
 {
-    const unsigned long want = frame_n + 1;
+    const unsigned long want = vga_frame_count() + 1;
     bool whole = true;
-    while (frame_n != want)
+    while (vga_frame_count() != want)
     {
         if (dbg_is_stopped() && sys_running())
         {
@@ -142,132 +141,6 @@ bool vga_run_frame(void)
     }
     aud_step();
     return whole;
-}
-
-bool vga_mode_sprite_id(vga_sprite_fn_t fn, uint8_t *mode, uint16_t *attributes)
-{
-    if (!fn)
-    {
-        *mode = VGA_MODE_NONE;
-        *attributes = 0;
-        return true;
-    }
-    if (mode4_sprite_attr(fn, attributes)) { *mode = 4; return true; }
-    if (mode5_sprite_attr(fn, attributes)) { *mode = 5; return true; }
-    return false;
-}
-
-void vga_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    int console_w, console_h;
-    vga_console_size(&console_w, &console_h);
-    sst_put_u64(c, beam_n);
-    sst_put_bool(c, vsynced);
-    sst_put_bool(c, vga_needs_reset);
-    sst_put_u16(c, (uint16_t)vga_canvas_code());
-    sst_put_u16(c, (uint16_t)console_h);
-    sst_put_u16(c, (uint16_t)vga_prog_highest());
-    for (int16_t line = 0; line < VGA_SST_ROWS; line++)
-    {
-        const vga_prog_t *row = vga_prog_row(line);
-        for (int16_t plane = 0; plane < SCANVIDEO_PLANE_COUNT; plane++)
-        {
-            uint8_t mode = row->fill_fn[plane] ? row->fill_mode[plane] : VGA_MODE_NONE;
-            uint16_t attr = row->fill_fn[plane] ? row->fill_options[plane] : 0;
-            sst_put_u8(c, mode);
-            sst_put_u16(c, attr);
-            sst_put_u16(c, row->fill_config[plane]);
-            if (!vga_mode_sprite_id(row->sprite_fn[plane], &mode, &attr))
-                mode = VGA_MODE_NONE, attr = 0;
-            sst_put_u8(c, mode);
-            sst_put_u16(c, attr);
-            sst_put_u16(c, row->sprite_config[plane]);
-            sst_put_u16(c, row->sprite_length[plane]);
-        }
-    }
-}
-
-bool vga_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    uint64_t beam = sst_get_u64(c);
-    bool synced = sst_get_bool(c);
-    bool reset = sst_get_bool(c);
-    uint16_t canvas = sst_get_u16(c);
-    uint16_t console_h = sst_get_u16(c);
-    uint16_t highest = sst_get_u16(c);
-    if (!sst_ok(c) || highest > VGA_SST_ROWS)
-        return false;
-
-    /* Every console a host can give is 640 wide, so only its height is
-     * carried, and that is 480, 400 or 360. The canvas is checked here as
-     * well, rather than left for vga_canvas_load to refuse, because the
-     * console's size has to be set before the canvas is loaded, and a refused
-     * load must have set nothing. */
-    if (!vga_console_ok(console_h) || canvas >= VGA_CANVAS_COUNT)
-        return false;
-
-    /* Every renderer the table names is resolved before any row is installed,
-     * so a blob naming a mode this build does not have refuses the load
-     * before anything is mutated. That is why the cursor is saved here and
-     * read a second time below. Each config is bounded as its mode's prog
-     * bounds it, because the renderer reads it from xram unchecked. */
-    const sst_cursor_t table = *c;
-    for (int16_t line = 0; line < VGA_SST_ROWS; line++)
-        for (int16_t plane = 0; plane < SCANVIDEO_PLANE_COUNT; plane++)
-        {
-            uint8_t mode = sst_get_u8(c);
-            uint16_t attr = sst_get_u16(c);
-            uint16_t config = sst_get_u16(c);
-            if (mode != VGA_MODE_NONE &&
-                (!vga_mode_fill_fn(mode, attr) || !vga_mode_config_ok(mode, attr, config, 0)))
-                return false;
-            mode = sst_get_u8(c);
-            attr = sst_get_u16(c);
-            config = sst_get_u16(c);
-            uint16_t length = sst_get_u16(c);
-            if (mode != VGA_MODE_NONE &&
-                (!vga_mode_sprite_fn(mode, attr) ||
-                 !vga_mode_config_ok(mode, attr, config, length)))
-                return false;
-        }
-    if (!sst_ok(c))
-        return false;
-
-    vga_set_console_size(640, console_h);
-    vga_canvas_load(canvas);
-    beam_n = beam;
-    frame_n = (unsigned long)(beam / VGA_SCANLINES);
-    vsynced = synced;
-    vga_needs_reset = reset;
-    vga_prog_reset();
-    *c = table;
-    for (int16_t line = 0; line < VGA_SST_ROWS; line++)
-    {
-        vga_prog_t row = {0};
-        for (int16_t plane = 0; plane < SCANVIDEO_PLANE_COUNT; plane++)
-        {
-            uint8_t mode = sst_get_u8(c);
-            uint16_t attr = sst_get_u16(c);
-            const uint16_t config = sst_get_u16(c);
-            if (mode != VGA_MODE_NONE)
-                vga_prog_row_fill(&row, plane, mode, attr, config);
-            else
-                row.fill_config[plane] = config;
-            mode = sst_get_u8(c);
-            attr = sst_get_u16(c);
-            row.sprite_fn[plane] = mode == VGA_MODE_NONE ? NULL : vga_mode_sprite_fn(mode, attr);
-            row.sprite_config[plane] = sst_get_u16(c);
-            row.sprite_length[plane] = sst_get_u16(c);
-        }
-        vga_prog_load_row(line, &row);
-    }
-    vga_prog_set_highest((int16_t)highest);
-    /* The cells loaded before the canvas, so the size showing is only now
-     * known. */
-    cells_publish();
-    return true;
 }
 
 void vga_task(void)
@@ -301,14 +174,8 @@ void vga_task(void)
         vsynced = true;
     }
     if (beam_n % VGA_SCANLINES == 0)
-    {
         vsynced = false;
-        frame_n++;
-    }
 }
-
-
-static uint32_t *g_framebuffer;
 
 void vga_set_framebuffer(uint32_t *fb)
 {
@@ -338,12 +205,6 @@ bool vga_frame_crc(uint32_t *crc)
  * The VGA firmware diverges here: it paints a plane's sprites into the buffer
  * of the most recently filled plane at or below it, not into the plane's
  * own. */
-/* The emulators render one line at a time, so one set of caches serves. A
- * row of text is forgotten before every line, which builds its pairs again:
- * a color then shows on the very next line, and a savestate, which carries
- * no cache, loads into the picture the machine that saved it would draw. */
-static vga_fill_cache_t vga_fill_cache[SCANVIDEO_PLANE_COUNT];
-
 static void render_scanline(int y, uint32_t *fb)
 {
     const int W = vga_canvas_width();

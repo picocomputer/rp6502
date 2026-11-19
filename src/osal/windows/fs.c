@@ -87,7 +87,22 @@ static struct
     int fd;
 } g_xfer = {.fd = -1};
 static HANDLE g_xfer_event;
+static bool g_immediate;
+#define FS_XFER_SST(X)                                                    \
+    X(SKIP, g_xfer, "fs_std_settle cancels it before a save or load")     \
+    X(SKIP, g_xfer_event)                                                 \
+    X(SKIP, g_immediate, "a setting of the session")
+#else
+#define FS_XFER_SST(X)
 #endif
+
+/* win_save_dir is set at each program start. A savestate's SAVE: files reopen
+ * by name in the loading machine's folder, so it is not carried. */
+#define OSAL_FS_SST(X)                                                    \
+    X(SKIP, win_files, "the STD row carries each through fs_std_ident")   \
+    X(SKIP, win_save_dir)                                                 \
+    FS_XFER_SST(X)
+SST_TABLE(osal_fs, OSAL_FS_SST)
 
 bool fs_std_handles(const char *path)
 {
@@ -314,10 +329,6 @@ bool fs_rom_remove(const char *name, api_errno *err)
     *err = API_EACCES;
     return false;
 }
-
-#ifndef RP6502_FS_SYNC
-static bool g_immediate;
-#endif
 
 void fs_std_immediate(bool on)
 {

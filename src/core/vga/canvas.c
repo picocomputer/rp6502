@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/vga/canvas.h"
 #include "core/vga/vga.h"
 #include "core/vga/mode/mode0.h"
 #include "core/api/xreg.h"
@@ -14,6 +15,71 @@
 static vga_canvas_t canvas_code = vga_canvas_console;
 static int16_t canvas_w = 640, canvas_h = 480;
 static int16_t console_w = 640, console_h = 480;
+
+/* The savestate load puts the canvas back without what vga_canvas_select
+ * does to the scanline table and the terminal, because their own rows
+ * restore them. */
+static bool canvas_load(uint16_t canvas)
+{
+    int w, h;
+    if (!vga_canvas_geometry(canvas, &w, &h))
+        return false;
+    canvas_code = (vga_canvas_t)canvas;
+    canvas_w = (int16_t)w;
+    canvas_h = (int16_t)h;
+    vga_canvas_publish(canvas_code);
+    return true;
+}
+
+/* The console's height is carried because the host chooses it, and a
+ * program left on the console canvas would come back with its terminal
+ * laid out for another size. The load sets the size it carries in place of
+ * the host's, and stops and resets keep it, so it stays for the rest of the
+ * session. */
+static bool canvas_sst_console_ok(sst_cursor_t *c)
+{
+    if (!vga_console_size_ok(console_w, console_h))
+        return sst_refuse(c, "a console no host gives");
+    return true;
+}
+
+/* The canvas loads after the console's size, which the console canvas
+ * takes, and after the cells, which it publishes for the size it shows. */
+static void canvas_sst_put_code(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u16(c, (uint16_t)canvas_code);
+}
+
+static bool canvas_sst_get_code(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t canvas = sst_get_u16(c);
+    if (!sst_ok(c))
+        return false;
+    if (!canvas_load(canvas))
+        return sst_refuse(c, "a canvas this build lacks");
+    cells_publish();
+    return true;
+}
+
+#define CANVAS_SST(X)                                                  \
+    X(I16, console_h)                                                  \
+    X(SKIP, console_w, "every console is 640 wide")                    \
+    X(VALIDATE, canvas_sst_console_ok)                                 \
+    X(FN, canvas_sst_put_code, canvas_sst_get_code, 2, 1)              \
+    X(IN_FN, canvas_code)                                              \
+    X(SKIP, canvas_w, "derived from the canvas by its load")           \
+    X(SKIP, canvas_h, "derived from the canvas by its load")
+SST_TABLE(canvas, CANVAS_SST)
+
+/* A refused load can leave a console no host gives, which the console's
+ * reset would lay out. Every host gives 640x480. */
+void canvas_reset(void)
+{
+    if (!vga_console_size_ok(console_w, console_h))
+        vga_set_console_size(640, 480);
+}
 
 void vga_console_size(int *w, int *h)
 {
@@ -30,26 +96,6 @@ void vga_set_console_size(int w, int h)
 {
     console_w = (int16_t)w;
     console_h = (int16_t)h;
-}
-
-/* The savestate load restores the scanline table and the terminal's first line
- * after this call, so this function must not reset the table or re-program the
- * terminal the way vga_canvas_select does. */
-bool vga_canvas_load(uint16_t canvas)
-{
-    int w, h;
-    if (!vga_canvas_geometry(canvas, &w, &h))
-        return false;
-    canvas_code = (vga_canvas_t)canvas;
-    canvas_w = (int16_t)w;
-    canvas_h = (int16_t)h;
-    vga_canvas_publish(canvas_code);
-    return true;
-}
-
-vga_canvas_t vga_canvas_code(void)
-{
-    return canvas_code;
 }
 
 /* Selecting a canvas discards everything programmed on the last, because a

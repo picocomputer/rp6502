@@ -239,7 +239,7 @@ typedef struct
     uint8_t last_glyph;   // for REP
     bool rep_valid;       // the last thing written was a glyph
     /* The parser. */
-    ansi_state_t ansi_state;
+    uint8_t ansi_state; // an ansi_state_t
     uint16_t csi_param[TERM_CSI_PARAM_MAX_LEN];
     char csi_separator[TERM_CSI_PARAM_MAX_LEN]; // the byte after each parameter: ';', ':' or 0
     uint8_t csi_param_count;  // the parameter being collected; at dispatch, how many there are
@@ -372,10 +372,107 @@ static inline unsigned term_cell_height(const term_grid_t *g)
     return g->width == 40 ? 8 : 16;
 }
 
-#define TERM_PEN_SST_SIZE 32
-#define TERM_SST_SIZE (4 * TERM_PEN_SST_SIZE + 110 + 4 * TERM_OSC_ASK_MAX)
-void term_sst_put(sst_cursor_t *c, const term_t *t);
-bool term_sst_get(sst_cursor_t *c, term_t *t);
+/* ---- savestate ----------------------------------------------------------
+ *
+ * The rows of a terminal and of a grid for their owner's SST_TABLE (sst.h),
+ * field by field, so no padding reaches the blob. The owner carries
+ * alt_active, whose load is term_show, and the sizes a terminal is followed
+ * at, which are its own. A grid's rows leave out its line sizes, which are
+ * the owner's array. */
+
+#define TERM_PEN_SST_ROWS(Y, p)                                        \
+    Y(U8, p.sgr_attr)                                                  \
+    Y(U8, p.fg.kind) Y(U8, p.fg.index) Y(U16, p.fg.rgb)                \
+    Y(U8, p.fg.r) Y(U8, p.fg.g) Y(U8, p.fg.b)                          \
+    Y(U8, p.bg.kind) Y(U8, p.bg.index) Y(U16, p.bg.rgb)                \
+    Y(U8, p.bg.r) Y(U8, p.bg.g) Y(U8, p.bg.b)                          \
+    Y(U8, p.ul.kind) Y(U8, p.ul.index) Y(U16, p.ul.rgb)                \
+    Y(U8, p.ul.r) Y(U8, p.ul.g) Y(U8, p.ul.b)                          \
+    Y(BOOL, p.ul_set) Y(BOOL, p.bold) Y(BOOL, p.faint)                 \
+    Y(BOOL, p.reverse) Y(BOOL, p.conceal) Y(BOOL, p.protect)           \
+    Y(BOOL, p.origin_mode) Y(U8, p.g0_charset) Y(U8, p.g1_charset)     \
+    Y(BOOL, p.gl_is_g1)
+
+#define TERM_OSC_ASK_SST_ROWS(Y, a) Y(U16, a.which) Y(U16, a.color)
+
+#define TERM_SST_ROWS(X, t)                                            \
+    X(STRUCT, t.pen[0], TERM_PEN_SST_ROWS)                             \
+    X(STRUCT, t.saved[0], TERM_PEN_SST_ROWS)                           \
+    X(BOOL, t.has_saved[0])                                            \
+    X(STRUCT, t.pen[1], TERM_PEN_SST_ROWS)                             \
+    X(STRUCT, t.saved[1], TERM_PEN_SST_ROWS)                           \
+    X(BOOL, t.has_saved[1])                                            \
+    X(BOOL, t.autowrap)                                                \
+    X(BOOL, t.insert_mode)                                             \
+    X(BOOL, t.newline_mode)                                            \
+    X(BOOL, t.disp_ctrl)                                               \
+    X(BOOL, t.vt52)                                                    \
+    X(BOOL, t.app_cursor)                                              \
+    X(BOOL, t.app_keypad)                                              \
+    X(BOOL, t.autorepeat)                                              \
+    X(BOOL, t.ice_colors)                                              \
+    X(BOOL, t.bracketed_paste)                                         \
+    X(U8, t.modify_other_keys)                                         \
+    X(BOOL, t.format_other_keys)                                       \
+    X(BOOL, t.lr_margins)                                              \
+    X(BOOL, t.rect_attrs)                                              \
+    X(U8, t.protect_mode)                                              \
+    X(BOOL, t.erase_all)                                               \
+    X(BOOL, t.reverse_screen)                                          \
+    X(BOOL, t.smooth_scroll)                                           \
+    X(BOOL, t.smooth_released)                                         \
+    X(BOOL, t.cursor_enabled)                                          \
+    X(U8, t.cursor_style)                                              \
+    X(U8, t.last_glyph)                                                \
+    X(BOOL, t.rep_valid)                                               \
+    X(U8, t.ansi_state)                                                \
+    X(U16S, t.csi_param)                                               \
+    X(BYTES, t.csi_separator)                                          \
+    X(U8, t.csi_param_count)                                           \
+    X(U8, t.csi_private)                                               \
+    X(U8, t.csi_intermediate)                                          \
+    X(BOOL, t.csi_colon)                                               \
+    X(BOOL, t.csi_any)                                                 \
+    X(BOOL, t.osc_pending)                                             \
+    X(BOOL, t.dcs_pending)                                             \
+    X(U16, t.osc_ps)                                                   \
+    X(U8, t.osc_stage)                                                 \
+    X(U8, t.osc_item)                                                  \
+    X(U16, t.osc_index)                                                \
+    X(U8, t.osc_len)                                                   \
+    X(BYTES, t.osc_spec)                                               \
+    X(U8, t.osc_asks)                                                  \
+    X(STRUCTS, t.osc_ask, TERM_OSC_ASK_SST_ROWS)
+
+/* Whether what TERM_SST_ROWS loaded is in range: the parser's state and
+ * modes, and the counts that index its arrays. False, after sst_refuse,
+ * when not. */
+bool term_sst_ok(sst_cursor_t *c, const term_t *t);
+
+/* Shows the primary screen or the alternate: the pen, the cursors and the
+ * line sizes follow. A savestate load calls it with the alt_active it
+ * carries. */
+void term_show(term_t *t, bool alt);
+
+#define TERM_POS_SST_ROWS(Y, p)                                        \
+    Y(U8, p.x) Y(U8, p.y) Y(BOOL, p.wrap_pending)
+
+#define TERM_GRID_SST_ROWS(Y, g)                                       \
+    Y(U8, g.width) Y(U8, g.height) Y(U8, g.rows)                       \
+    Y(U8, g.margin_top) Y(U8, g.margin_bot)                            \
+    Y(U8, g.margin_left) Y(U8, g.margin_right)                         \
+    TERM_POS_SST_ROWS(Y, g.pos[0]) TERM_POS_SST_ROWS(Y, g.saved[0])    \
+    TERM_POS_SST_ROWS(Y, g.pos[1]) TERM_POS_SST_ROWS(Y, g.saved[1])    \
+    Y(BYTES, g.tab_stops)
+
+/* Whether a grid TERM_GRID_SST_ROWS loaded, and its line sizes, fit
+ * storage for rows rows, and everything that indexes the cells is in
+ * range. False, after sst_refuse, when not. */
+bool term_grid_sst_ok(sst_cursor_t *c, const term_grid_t *g, uint8_t rows);
+
+/* A grid's rows and then its line sizes, for an owner whose grid is not
+ * always followed and so needs an FN row of its own. A grid of other rows
+ * than g has is refused. */
 #define TERM_GRID_SST_SIZE(rows) (19 + TERM_TAB_BITMAP_BYTES + 2 * (rows))
 void term_grid_sst_put(sst_cursor_t *c, const term_grid_t *g);
 bool term_grid_sst_get(sst_cursor_t *c, term_grid_t *g);

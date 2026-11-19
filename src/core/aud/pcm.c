@@ -190,6 +190,11 @@ bool HOST_IN_RAM_FUNC pcm_std_handles(const char *path)
 /* The open device's format. */
 static pcm_fmt_t pcm_fmt;
 
+#define PCM_SST(X)                                              \
+    X(SKIP, pcm_fmt, "the STD chunk carries it: pcm_std_ident "  \
+                     "writes it and pcm_std_reopen sets it")
+SST_TABLE(pcm, PCM_SST)
+
 static bool pcm_open_fmt(const pcm_fmt_t *fmt, api_errno *err)
 {
     if (!aud_pcm_open(fmt))

@@ -104,18 +104,12 @@ void manifold_set_stderr_sink(void (*sink)(const char *buf, int len));
 
 void manifold_task(void);
 
-/* The two rings, a 16-bit count and MANIFOLD_RING_SIZE bytes each, the CR LF
- * latch (1), and the output that waits (manifold_tx.h). */
-#define MANIFOLD_SST_SIZE (2 * (2 + MANIFOLD_RING_SIZE) + 1 + MANIFOLD_TX_SST_SIZE)
-void manifold_sst_save(sst_cursor_t *c, unsigned flags);
-bool manifold_sst_load(sst_cursor_t *c, unsigned flags);
+void manifold_reset(void);
+extern const sst_table_t manifold_sst;
 
 #define MANIFOLD_DRIVER DRIVER(     \
     TASK_PUMPED(manifold_task)      \
-    SST(.id = "MFLD",               \
-        .version = 4,               \
-        .size = MANIFOLD_SST_SIZE,  \
-        .save = manifold_sst_save,  \
-        .load = manifold_sst_load))
+    RESET(manifold_reset)           \
+    SST("MFLD", manifold))
 
 #endif /* _CORE_COM_MANIFOLD_H_ */

@@ -137,12 +137,7 @@ void com_clean_line(void);
  * clean line. */
 void com_end_reset(void);
 
-/* The picker's held source (1) and its deadline (8), the bell (1), the
- * staged byte's source (1), and the held answer's length (2), how much of it
- * has been read (2), its buffer (256) and the quiet flag (1). */
-#define COM_SST_SIZE 272
-void com_sst_save(sst_cursor_t *c, unsigned flags);
-bool com_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t com_sst;
 
 #define COM_DRIVER DRIVER(       \
     INIT(com_rx_clear)           \
@@ -150,10 +145,6 @@ bool com_sst_load(sst_cursor_t *c, unsigned flags);
     STOP(com_run)                \
     BREAK(com_rx_clear)          \
     RESET(com_reset)             \
-    SST(.id = "COM_",            \
-        .version = 8,            \
-        .size = COM_SST_SIZE,    \
-        .save = com_sst_save,    \
-        .load = com_sst_load))
+    SST("COM_", com))
 
 #endif /* _CORE_COM_COM_H_ */

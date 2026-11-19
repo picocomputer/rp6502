@@ -23,28 +23,14 @@
  * Like the VGA chip, channel 0 has eight registers and ignores the rest. */
 static uint16_t xregs[8];
 
+/* A save taken between a program's register writes and its CANVAS or MODE
+ * write holds a half-assembled mode program that lives nowhere else. */
+#define XREG_SST_ROWS(X) X(U16S, xregs)
+SST_TABLE(xreg, XREG_SST_ROWS)
+
 void xreg1_clear(void)
 {
     memset(xregs, 0, sizeof(xregs));
-}
-
-void xreg_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    for (int i = 0; i < 8; i++)
-        sst_put_u16(c, xregs[i]);
-}
-
-bool xreg_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    uint16_t in[8];
-    for (int i = 0; i < 8; i++)
-        in[i] = sst_get_u16(c);
-    if (!sst_ok(c))
-        return false;
-    memcpy(xregs, in, sizeof xregs);
-    return true;
 }
 
 bool xreg1(uint8_t channel, uint8_t index, uint16_t word)

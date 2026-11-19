@@ -7,6 +7,7 @@
 #ifndef _CORE_TERM_FONT_H_
 #define _CORE_TERM_FONT_H_
 
+#include "core/sys/sst.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -70,6 +71,10 @@ void font_load_code_page(uint16_t cp);
 
 uint16_t font_get_code_page(void);
 
-#define FONT_DRIVER DRIVER(INIT(font_init))
+extern const sst_table_t font_sst;
+
+#define FONT_DRIVER DRIVER(                                    \
+    INIT(font_init)                                            \
+    SST("FONT", font))
 
 #endif /* _CORE_TERM_FONT_H_ */

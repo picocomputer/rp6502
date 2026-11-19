@@ -6,6 +6,7 @@
 
 #include "core/sys/config.h"
 #include "core/str/str.h"
+#include "core/sys/sst.h"
 #include "machine.h"
 
 #include <stdarg.h>
@@ -48,6 +49,21 @@ DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #define CONFIG_SAVE(fn)
 #include "core/sys/driver_walk.h"
 DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
+#include "core/sys/driver_walk_end.h"
+
+/* The settings are the host's, not the machine's, so no savestate carries
+ * them. Each machine's driver list makes its own, so their SKIP row is one
+ * row naming all of them, made by the same walk. */
+#define CONFIG_INT(ltr, pfx, name, ...) config_##pfx##_##name;
+#define CONFIG_STR(ltr, pfx, name, ...) config_##pfx##_##name;
+#define CONFIG_RAW CONFIG_STR
+#define CONFIG_HIDDEN(ltr, pfx, name, ...) config_##pfx##_##name;
+#include "core/sys/driver_walk.h"
+#define CONFIG_SST(X)                                       \
+    X(SKIP, config_depth)                                   \
+    X(SKIP, config_dirty)                                   \
+    X(SKIP, DRIVERS_FORWARD(RP6502_MACH_DRIVERS))
+SST_TABLE(config, CONFIG_SST)
 #include "core/sys/driver_walk_end.h"
 
 /* A machine with no CONFIG_SAVE row still validates, stores and applies its

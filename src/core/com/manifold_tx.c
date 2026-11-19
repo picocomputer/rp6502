@@ -12,6 +12,29 @@
 
 static RING(manifold_tx_entry_t, MANIFOLD_TX_SIZE) manifold_tx;
 
+/* The counters may be anything that holds no more than the ring. */
+static bool manifold_tx_sst_valid(sst_cursor_t *c)
+{
+    if (RING_LEN(&manifold_tx) > RING_SIZE(&manifold_tx))
+        return sst_refuse(c, "a ring holding more than it can");
+    return true;
+}
+
+#define MANIFOLD_TX_ENTRY_ROWS(Y, e) Y(U8, e.ch) Y(U8, e.to)
+#define MANIFOLD_TX_SST_ROWS(X)                                \
+    X(U32, manifold_tx.idx.wr)                                 \
+    X(U32, manifold_tx.idx.rd)                                 \
+    X(STRUCTS, manifold_tx.buf, MANIFOLD_TX_ENTRY_ROWS)        \
+    X(VALIDATE, manifold_tx_sst_valid)
+SST_TABLE(manifold_tx, MANIFOLD_TX_SST_ROWS)
+
+/* A failed load can leave the counters holding more than the ring. What
+ * waits to go out is dropped. */
+void manifold_tx_reset(void)
+{
+    RING_RESET(&manifold_tx);
+}
+
 /* Room for a character, a newline's CR LF included. */
 bool manifold_cts(void)
 {
@@ -50,32 +73,4 @@ manifold_tx_entry_t HOST_IN_RAM_FUNC manifold_tx_at(size_t i)
 void HOST_IN_RAM_FUNC manifold_tx_skip(size_t n)
 {
     RING_SKIP(&manifold_tx, (uint32_t)n);
-}
-
-void manifold_tx_sst_save(sst_cursor_t *c)
-{
-    const uint32_t len = RING_LEN(&manifold_tx);
-    sst_put_u16(c, (uint16_t)len);
-    for (uint32_t i = 0; i < MANIFOLD_TX_SIZE; i++)
-    {
-        manifold_tx_entry_t e = i < len ? *RING_AT(&manifold_tx, i) : (manifold_tx_entry_t){0};
-        sst_put_u8(c, e.ch);
-        sst_put_u8(c, e.to);
-    }
-}
-
-bool manifold_tx_sst_load(sst_cursor_t *c)
-{
-    const uint16_t len = sst_get_u16(c);
-    manifold_tx_entry_t e[MANIFOLD_TX_SIZE];
-    for (uint32_t i = 0; i < MANIFOLD_TX_SIZE; i++)
-    {
-        e[i].ch = sst_get_u8(c);
-        e[i].to = sst_get_u8(c);
-    }
-    if (!sst_ok(c) || len > MANIFOLD_TX_SIZE)
-        return false;
-    RING_RESET(&manifold_tx);
-    RING_IN(&manifold_tx, e, len);
-    return true;
 }

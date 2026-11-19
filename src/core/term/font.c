@@ -21,6 +21,35 @@ alignas(4) uint8_t font16[2 * 4096];
 
 static uint16_t font_code_page;
 
+/* The code page is carried here because a program can choose one of its
+ * own through xreg, apart from the one the OEM settings give. The load
+ * writes its glyphs again without the terminal reset font_set_code_page
+ * makes, because the terminal's cells have their own row. */
+static void font_sst_put_page(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u16(c, font_code_page);
+}
+
+static bool font_sst_get_page(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t cp = sst_get_u16(c);
+    if (!sst_ok(c))
+        return false;
+    if (font_code_page_of(cp) != cp)
+        return sst_refuse(c, "a code page this build lacks");
+    font_load_code_page(cp);
+    return true;
+}
+
+#define FONT_SST(X)                                                    \
+    X(FN, font_sst_put_page, font_sst_get_page, 2, 1)                  \
+    X(IN_FN, font_code_page)                                           \
+    X(SKIP, font8, "the code page's glyphs, written by its load")      \
+    X(SKIP, font16, "the code page's glyphs, written by its load")
+SST_TABLE(font, FONT_SST)
+
 static const alignas(4) HOST_IN_FLASH uint8_t FONT8_ASCII[] = {
     0x00, 0x7e, 0x7e, 0x6c, 0x10, 0x38, 0x10, 0x00, 0xff, 0x00, 0xff, 0x0f, 0x3c, 0x3f, 0x7f, 0x18,
     0x80, 0x02, 0x18, 0x66, 0x7f, 0x3e, 0x00, 0x18, 0x18, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,

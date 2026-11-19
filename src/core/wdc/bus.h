@@ -27,17 +27,11 @@ void bus_resync(void);
 /* Run the bus, and every device on it, up to where the beam has reached. */
 void bus_task(void);
 
-#define BUS_SST_SIZE 30
-void bus_sst_save(sst_cursor_t *c, unsigned flags);
-bool bus_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t bus_sst;
 
 #define BUS_DRIVER DRIVER(                                  \
     TASK_PUMPED(bus_task)                                   \
     RESET(bus_resync)                                       \
-    SST(.id = "BUS_",                                       \
-        .version = 1,                                       \
-        .size = BUS_SST_SIZE,                               \
-        .save = bus_sst_save,                               \
-        .load = bus_sst_load))
+    SST("BUS_", bus))
 
 #endif /* _CORE_WDC_BUS_H_ */

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/sys/sst.h"
 #include "core/hid/layout.h"
 #include "core/hid/keymap.h"
 #include "core/str/str.h"
@@ -69,6 +70,12 @@ static const char *layout_list_pos;
 
 // The layout in use, or -1 before the list is first applied.
 static int layout_list_index = -1;
+
+/* A walk of the setting's list, which the session's config owns. */
+#define LAYOUT_SST(X)                                           \
+    X(SKIP, layout_list_pos)                                    \
+    X(SKIP, layout_list_index)
+SST_TABLE(layout, LAYOUT_SST)
 
 static size_t layout_list_token(const char *s)
 {

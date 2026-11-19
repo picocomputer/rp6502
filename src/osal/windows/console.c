@@ -5,6 +5,7 @@
  */
 
 #include "osal/console.h"
+#include "core/sys/sst.h"
 
 #include <fcntl.h>
 #include <io.h>
@@ -27,6 +28,21 @@ static WCHAR con_repeat_ch;
 static WORD con_repeat_left;
 
 static volatile LONG con_break;
+
+/* The host's terminal, not the machine's. */
+#define OSAL_CON_SST(X)                                                   \
+    X(SKIP, con_saved_in)                                                 \
+    X(SKIP, con_saved_out)                                                \
+    X(SKIP, con_raw_on)                                                   \
+    X(SKIP, con_out_saved)                                                \
+    X(SKIP, con_ended)                                                    \
+    X(SKIP, con_high)                                                     \
+    X(SKIP, con_carry)                                                    \
+    X(SKIP, con_carry_len)                                                \
+    X(SKIP, con_repeat_ch)                                                \
+    X(SKIP, con_repeat_left)                                              \
+    X(SKIP, con_break)
+SST_TABLE(osal_con, OSAL_CON_SST)
 
 static BOOL WINAPI con_ctrl(DWORD type);
 

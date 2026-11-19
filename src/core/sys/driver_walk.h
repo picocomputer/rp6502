@@ -62,7 +62,7 @@
 #define CONFIG_SAVE(fn)
 #endif
 #ifndef SST
-#define SST(...)
+#define SST(id, name)
 #endif
 #ifndef STD
 #define STD(...)

@@ -5,12 +5,17 @@
  */
 
 #include "fs.h"
+#include "core/sys/sst.h"
 
 #include "core/api/dir.h"
 
 #include <string.h>
 
 static char paths[2][API_PATH_MAX + 1];
+
+#define DIR_POCKET_SST(X) \
+    X(SKIP, paths, "held again by the paths a load puts back")
+SST_TABLE(dir_pocket, DIR_POCKET_SST)
 
 char *os_dir_path_hold(const char *path)
 {

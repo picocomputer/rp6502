@@ -40,9 +40,16 @@ int16_t vga_canvas_y_scale(void);
  * VGA is plugged into. A machine that draws its own console holds it in
  * canvas.c, where it is 640x480 unless the host sets another size before the
  * machine starts, and a savestate load sets the size the savestate carries. A
- * new size takes effect at the next vga_canvas_select or vga_canvas_load. */
+ * new size takes effect at the next vga_canvas_select or savestate load. */
 void vga_console_size(int *w, int *h);
 void vga_set_console_size(int w, int h);
+
+/* A console size a machine that draws its own console can have: 640 wide
+ * and 480, 400 or 360 high, which are the sizes every host gives. */
+static inline bool vga_console_size_ok(int w, int h)
+{
+    return w == 640 && (h == 480 || h == 400 || h == 360);
+}
 
 /* The shape of the picture the canvas is shown in, which is what a
  * touchscreen laid over the display covers. Every canvas fills the picture's
@@ -67,9 +74,6 @@ void vga_canvas_reset(void);
 void vga_console_reset(void);
 
 void vga_canvas_publish(vga_canvas_t canvas);
-
-bool vga_canvas_load(uint16_t canvas);
-vga_canvas_t vga_canvas_code(void);
 
 bool vga_mode_prog(uint16_t mode, uint16_t *xregs);
 

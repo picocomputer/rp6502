@@ -17,10 +17,7 @@ void c_init(void), c_task(void), c_io(void), c_run(void), c_stop(void), c_break(
 
 #define A_SST_SIZE 6
 #define C_SST_SIZE 3
-void a_sst_save(sst_cursor_t *c, unsigned flags);
-bool a_sst_load(sst_cursor_t *c, unsigned flags);
-void c_sst_save(sst_cursor_t *c, unsigned flags);
-bool c_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t a_sst, c_sst;
 
 #define A_DRIVER DRIVER(                              \
     INIT(a_init)                                      \
@@ -31,11 +28,7 @@ bool c_sst_load(sst_cursor_t *c, unsigned flags);
     BREAK(a_break)                                    \
     RESET(a_reset)                                    \
     FLASHING(a_flashing)                              \
-    SST(.id = "AAAA",                                 \
-        .version = 1,                                 \
-        .size = A_SST_SIZE,                           \
-        .save = a_sst_save,                           \
-        .load = a_sst_load))
+    SST("AAAA", a))
 #define B_DRIVER DRIVER( \
     INIT(b_init)         \
     TASK_PUMPED(b_task)  \
@@ -53,11 +46,7 @@ bool c_sst_load(sst_cursor_t *c, unsigned flags);
     BREAK(c_break)                                    \
     RESET(c_reset)                                    \
     FLASHING(c_flashing)                              \
-    SST(.id = "CCCC",                                 \
-        .version = 2,                                 \
-        .size = C_SST_SIZE,                           \
-        .save = c_sst_save,                           \
-        .load = c_sst_load))
+    SST("CCCC", c))
 
 #define RP6502_MACH_DRIVERS A_DRIVER, B_DRIVER, C_DRIVER
 

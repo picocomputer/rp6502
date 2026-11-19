@@ -679,25 +679,26 @@ UTEST(term, the_keyboard_modes_belong_to_no_screen)
 
 UTEST(term, a_savestate_carries_the_keyboard_modes)
 {
-    static uint8_t blob[CELLS_SST_SIZE];
+    static uint8_t blob[1 << 18];
     fresh();
     feed("\33[?1h\33=\33[?8l");
-    sst_cursor_t c = {blob, blob + sizeof blob, false};
-    cells_sst_save(&c, 0);
+    ASSERT_LE((size_t)cells_sst.size, sizeof blob);
+    sst_cursor_t c = {blob, blob + cells_sst.size, false, NULL};
+    cells_sst.save(&c, 0);
     ASSERT_TRUE(sst_ok(&c));
     feed("\33c");
-    c = (sst_cursor_t){blob, blob + sizeof blob, false};
-    ASSERT_TRUE(cells_sst_load(&c, 0));
+    c = (sst_cursor_t){blob, blob + cells_sst.size, false, NULL};
+    ASSERT_TRUE(cells_sst.load(&c, 0));
     ASSERT_TRUE(sst_ok(&c));
     ASSERT_TRUE(cells_term.app_cursor);
     ASSERT_TRUE(cells_term.app_keypad);
     ASSERT_FALSE(cells_term.autorepeat);
     feed("\33[?1l\33[?8h");
-    c = (sst_cursor_t){blob, blob + sizeof blob, false};
-    cells_sst_save(&c, 0);
+    c = (sst_cursor_t){blob, blob + cells_sst.size, false, NULL};
+    cells_sst.save(&c, 0);
     feed("\33[?1h\33[?8l");
-    c = (sst_cursor_t){blob, blob + sizeof blob, false};
-    ASSERT_TRUE(cells_sst_load(&c, 0));
+    c = (sst_cursor_t){blob, blob + cells_sst.size, false, NULL};
+    ASSERT_TRUE(cells_sst.load(&c, 0));
     ASSERT_FALSE(cells_term.app_cursor);
     ASSERT_TRUE(cells_term.app_keypad);
     ASSERT_TRUE(cells_term.autorepeat);

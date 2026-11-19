@@ -741,10 +741,13 @@ UTEST(com, a_write_to_the_screen_lands_between_the_output_around_it)
 /* Whether the bell is sounding: its voice's gate is up. */
 static bool bell_rings(void)
 {
-    static uint8_t row[BEL_SST_SIZE], quiet[BEL_SST_SIZE];
-    sst_cursor_t c = {row, row + sizeof row, false};
-    bel_sst_save(&c, 0);
-    return memcmp(row, quiet, sizeof row) != 0;
+    /* The BEL_ chunk starts with the queue's two counters and ends with
+     * the three deadlines, 0 when none is set. */
+    static uint8_t row[256], quiet[24];
+    sst_cursor_t c = {row, row + bel_sst.size, false, NULL};
+    bel_sst.save(&c, 0);
+    return memcmp(row, row + 4, 4) != 0 ||
+           memcmp(row + bel_sst.size - 24, quiet, 24) != 0;
 }
 
 static void say(const char *s)

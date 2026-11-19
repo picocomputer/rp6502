@@ -59,51 +59,65 @@ static uint32_t rom_image_len(void)
     return (uint32_t)end;
 }
 
-void asset_sst_save(sst_cursor_t *c, unsigned flags)
+/* Whether an image is open. The path is not carried, because the CHAN row
+ * already carries the running program's name, and it loads before this one:
+ * the name is reopened the way the load first opened it. */
+static void asset_open_put(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     sst_put_bool(c, rom_fd >= 0);
-    sst_put_u32(c, rom_assets_start);
-    sst_put_u32(c, rom_image_len());
-    sst_put_u32(c, g_rom_generation);
 }
 
-bool asset_sst_load(sst_cursor_t *c, unsigned flags)
+static bool asset_open_get(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     bool open = sst_get_bool(c);
-    uint32_t start = sst_get_u32(c);
-    uint32_t len = sst_get_u32(c);
-    uint32_t gen = sst_get_u32(c);
     if (!sst_ok(c))
         return false;
-
     rom_assets_reset();
-    g_rom_generation = gen;
     if (!open)
         return true;
-
-    /* proc_running() names the image this drive was reading only because
-     * PROC_DRIVER precedes ASSET_DRIVER in the driver list and sst_load loads
-     * in that order. The name is reopened the way the load first opened it. */
     const char *running = proc_running();
-    if (!running || !running[0])
-        return false;
     api_errno err;
-    int fd = rom_alias_open(running, &err);
+    int fd = running[0] ? rom_alias_open(running, &err) : -1;
     if (fd < 0)
-        return false;
+        return sst_refuse(c, "the running program's image did not reopen");
     rom_fd = fd;
-    if (rom_image_len() != len)
-    {
-        rom_assets_reset();
-        return false;
-    }
-    int32_t landed;
-    fs_std_lseek(rom_fd, SEEK_SET, 0, &landed, &err);
-    rom_assets_start = start;
     return true;
 }
+
+/* The image's length, the cross-check that the file on disk is still the
+ * one the blob was made from. */
+static void asset_len_put(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u32(c, rom_image_len());
+}
+
+static bool asset_len_get(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint32_t len = sst_get_u32(c);
+    if (!sst_ok(c))
+        return false;
+    if (rom_fd < 0)
+        return true;
+    if (rom_image_len() != len)
+        return sst_refuse(c, "the running program's image has changed");
+    int32_t landed;
+    api_errno err;
+    fs_std_lseek(rom_fd, SEEK_SET, 0, &landed, &err);
+    return true;
+}
+
+#define ASSET_SST(X)                                                      \
+    X(FN, asset_open_put, asset_open_get, 1, 1)                           \
+    X(IN_FN, rom_fd)                                                      \
+    X(U32, rom_assets_start)                                              \
+    X(FN, asset_len_put, asset_len_get, 4, 1)                             \
+    X(U32, g_rom_generation)                                              \
+    X(SKIP, windows, "the STD row carries each through rom_std_ident")
+SST_TABLE(asset, ASSET_SST)
 
 int rom_asset_fd(void) { return rom_fd; }
 

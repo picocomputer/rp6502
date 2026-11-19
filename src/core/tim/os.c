@@ -5,6 +5,7 @@
  */
 
 #include "core/tim/os.h"
+#include "core/sys/sst.h"
 #include "core/tim/tim.h"
 #include "osal/os.h"
 #include <string.h>
@@ -39,6 +40,10 @@ bool tim_set_time(const tim_spec_t *ts)
  * standard time and one for summer time, as the host last gave them. */
 #define TIM_ZONE_NAME_SIZE 48
 static char tim_zone_name[2][TIM_ZONE_NAME_SIZE];
+
+#define TIM_OS_SST(X)                                       \
+    X(SKIP, tim_zone_name, "the host's, asked for again at every use")
+SST_TABLE(tim_os, TIM_OS_SST)
 
 void tim_zone(int64_t utc, tim_zone_t *zone)
 {

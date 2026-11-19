@@ -15,19 +15,28 @@ static uint8_t xram_fill_value;
 static uint32_t xram_fill_seed;
 
 /* The savestate and the fill cast volatile away, because memcpy and memset
- * take plain bytes. Nothing else writes xram while they run. */
-void xram_sst_save(sst_cursor_t *c, unsigned flags)
+ * take plain bytes. Nothing else writes xram while they run. The savestate is
+ * a FN row for that cast: BYTES would pass the volatile array as it is. */
+static void xram_sst_save(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     sst_put(c, (const void *)xram, sizeof xram);
 }
 
-bool xram_sst_load(sst_cursor_t *c, unsigned flags)
+static bool xram_sst_load(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     sst_get(c, (void *)xram, sizeof xram);
-    return sst_ok(c);
+    return true;
 }
+
+#define XRAM_SST(X)                                             \
+    X(FN, xram_sst_save, xram_sst_load, sizeof xram, 1)         \
+    X(IN_FN, xram)                                              \
+    X(SKIP, xram_fill_random, "a session's fill setting")       \
+    X(SKIP, xram_fill_value, "a session's fill setting")        \
+    X(SKIP, xram_fill_seed, "a session's fill setting")
+SST_TABLE(xram, XRAM_SST)
 
 void xram_set_fill(bool random, uint8_t value, uint32_t seed)
 {

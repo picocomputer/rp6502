@@ -10,6 +10,7 @@
  * start. Kept apart from keyboard.c because a machine whose host has already
  * done this work links neither this file nor the layout database. */
 
+#include "core/sys/sst.h"
 #include "core/sys/timer.h"
 #include "machine.h"
 #include "core/sys/ria.h"
@@ -48,6 +49,25 @@ static char const (*keymap_cached_dead3)[4];
  * having to be initialized in .data. */
 static uint16_t keymap_cache_code_page;
 static bool keymap_cache_valid;
+
+/* The keys held, typed and repeating are the player's, and the Pocket sends
+ * them again after a load. The layout and the cache are the session's. */
+#define KEYMAP_SST(X)                                           \
+    X(SKIP, keymap_layout_index)                                \
+    X(SKIP, keymap_repeat_timer)                                \
+    X(SKIP, keymap_repeat_modifier)                             \
+    X(SKIP, keymap_repeat_keycode)                              \
+    X(SKIP, keymap_key_queue)                                   \
+    X(SKIP, keymap_alt_mode)                                    \
+    X(SKIP, keymap_alt_code)                                    \
+    X(SKIP, keymap_dead_key0)                                   \
+    X(SKIP, keymap_dead_key1)                                   \
+    X(SKIP, keymap_deadkey_cache)                               \
+    X(SKIP, keymap_cached_dead2)                                \
+    X(SKIP, keymap_cached_dead3)                                \
+    X(SKIP, keymap_cache_code_page)                             \
+    X(SKIP, keymap_cache_valid)
+SST_TABLE(keymap, KEYMAP_SST)
 
 /* Everything reaches the queue through here. A run is queued whole or not at
  * all, and a Ctrl-C latches SIGINT before the space is checked, so a break is

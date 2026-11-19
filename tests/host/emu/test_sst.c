@@ -16,6 +16,7 @@
 #include "core/wdc/sram.h"
 #include "core/com/rln.h"
 #include "core/term/cells.h"
+#include "core/vga/canvas.h"
 #include "tb_screen.h"
 #include "host/host.h"
 
@@ -62,8 +63,8 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)242053);
-    ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 31u);
+    ASSERT_EQ(sst_size(), (size_t)242076);
+    ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 40u);
 }
 
 UTEST(sst, a_blob_is_framed)
@@ -392,10 +393,10 @@ UTEST(sst, an_old_opl_chunk_is_refused)
     ASSERT_EQ(take(), (const char *)NULL);
     const size_t total = sst_size();
     size_t at = 0;
-    while (at + 6 <= total && memcmp(blob + at, "OPL_\x00\x02", 6))
+    while (at + 6 <= total && memcmp(blob + at, "OPL_", 4))
         at++;
     ASSERT_LT(at + 6, total);
-    blob[at + 5] = 1;
+    blob[at + 5] ^= 1; /* the chunk's version */
     const uint32_t sum = host_crc32(0, blob, total - 8);
     for (int i = 0; i < 4; i++)
         blob[total - 8 + i] = (uint8_t)(sum >> (24 - 8 * i));
@@ -637,37 +638,45 @@ static void put_u16(uint8_t *p, uint16_t v)
     p[1] = (uint8_t)v;
 }
 
-/* The VGA row is loaded on its own here, where no reset follows a refused
- * row, so a console that survives a refusal survives by the row's own
- * doing. The row's canvas is at byte 10 and the console's height at
- * 12. The last case is a console a host could give on a canvas no build has,
- * which the row has to refuse before it sets the console. */
-UTEST(sst, a_console_no_host_gives_is_refused_before_anything_is_set)
+/* The CANV row is loaded on its own here. Its console height is the I16 at
+ * byte 0 and its canvas the U16 at byte 2. The last case is a console a host
+ * could give on a canvas no build has. The row refuses each, and the reset
+ * that follows a refused load leaves a console a host gives: 640x480 in
+ * place of one no host gives, and the 640x400 the row wrote, which a host
+ * does give. */
+UTEST(sst, a_console_no_host_gives_is_refused)
 {
     static const struct
     {
         uint16_t canvas, h;
+        int after;
     } bad[] = {
-        {vga_canvas_console, 512}, /* the Pico's console on SXGA */
-        {vga_canvas_console, 240},
-        {VGA_CANVAS_COUNT, 400},
+        {vga_canvas_console, 512, 480}, /* the Pico's console on SXGA */
+        {vga_canvas_console, 240, 480},
+        {VGA_CANVAS_COUNT, 400, 400},
     };
-    static uint8_t row[VGA_SST_SIZE], bent[VGA_SST_SIZE];
+    static uint8_t row[64], bent[64];
+    ASSERT_LE((size_t)canvas_sst.size, sizeof row);
     ASSERT_TRUE(on_console(640, 480, 30));
-    sst_cursor_t c = {row, row + sizeof row, false};
-    vga_sst_save(&c, 0);
+    sst_cursor_t c = {row, row + canvas_sst.size, false, NULL};
+    canvas_sst.save(&c, 0);
     ASSERT_TRUE(sst_ok(&c));
     for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++)
     {
-        memcpy(bent, row, sizeof row);
-        put_u16(bent + 10, bad[i].canvas);
-        put_u16(bent + 12, bad[i].h);
-        c = (sst_cursor_t){bent, bent + sizeof bent, false};
-        ASSERT_FALSE(vga_sst_load(&c, 0));
-        ASSERT_TRUE(on_console(640, 480, 30));
+        memcpy(bent, row, canvas_sst.size);
+        put_u16(bent + 0, bad[i].h);
+        put_u16(bent + 2, bad[i].canvas);
+        c = (sst_cursor_t){bent, bent + canvas_sst.size, false, NULL};
+        ASSERT_FALSE(canvas_sst.load(&c, 0));
+        sys_reset();
+        ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
+        emu_frames(2);
+        ASSERT_TRUE(on_console(640, bad[i].after, bad[i].after / 16));
+        vga_set_console_size(640, 480);
+        ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
     }
-    c = (sst_cursor_t){row, row + sizeof row, false};
-    ASSERT_TRUE(vga_sst_load(&c, 0));
+    c = (sst_cursor_t){row, row + canvas_sst.size, false, NULL};
+    ASSERT_TRUE(canvas_sst.load(&c, 0));
     ASSERT_TRUE(on_console(640, 480, 30));
 }
 
@@ -684,7 +693,7 @@ static void row_add(unsigned *n, const sst_row_t *r)
     if (*n < ROWS_MAX)
     {
         memcpy(row_id[*n], r->id, sizeof r->id);
-        row_size[*n] = r->size;
+        row_size[*n] = r->table->size;
     }
     ++*n;
 }
@@ -694,7 +703,7 @@ static void row_add(unsigned *n, const sst_row_t *r)
 static unsigned rows(void)
 {
     unsigned n = 0;
-#define SST(...) row_add(&n, &(const sst_row_t){__VA_ARGS__});
+#define SST(id, name) row_add(&n, &(const sst_row_t){id, &name##_sst});
 #include "core/sys/driver_walk.h"
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #include "core/sys/driver_walk_end.h"

@@ -304,6 +304,9 @@ static struct
     uint32_t mask[2];
 } sw_interp;
 
+#define MODE4_SST(X) X(SKIP, sw_interp, "scratch, set up for every sprite")
+SST_TABLE(mode4, MODE4_SST)
+
 static inline uint32_t sw_interp_mask(unsigned lsb, unsigned msb)
 {
     return (((uint32_t)1 << (msb - lsb + 1)) - 1) << lsb;

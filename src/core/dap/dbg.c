@@ -11,6 +11,7 @@
  */
 
 #include "core/dap/dbg.h"
+#include "core/sys/sst.h"
 #include <stdatomic.h>
 #include <string.h>
 
@@ -40,6 +41,41 @@ static uint8_t g_bp[0x10000 / 8];
 
 static void (*g_stopped_cb)(int reason, uint16_t pc);
 static bool (*g_line_lookup)(uint16_t addr, const char **file, int *line);
+static void (*g_watch_cb)(uint16_t addr, uint8_t val, bool is_write);
+
+static dbg_segment_t g_segments[DBG_MAX_SEGMENTS];
+static int g_nsegments;
+static unsigned g_seg_generation;
+
+/* A debug session is the host's, so the savestate carries none of it. A load
+ * while the debugger holds the machine leaves its stop PC stale until the
+ * next SYNC. */
+#define DBG_SST(X)                                          \
+    X(SKIP, g_active)                                       \
+    X(SKIP, g_stopped)                                      \
+    X(SKIP, g_stop_reason)                                  \
+    X(SKIP, g_stop_pc)                                      \
+    X(SKIP, g_stop_at_entry)                                \
+    X(SKIP, g_step)                                         \
+    X(SKIP, g_cur_sp)                                       \
+    X(SKIP, g_stop_sp)                                      \
+    X(SKIP, g_step_line)                                    \
+    X(SKIP, g_step_file)                                    \
+    X(SKIP, g_step_sp)                                      \
+    X(SKIP, g_pause_req)                                    \
+    X(SKIP, g_break_req)                                    \
+    X(SKIP, g_break_filter)                                 \
+    X(SKIP, dbg_watch_armed)                                \
+    X(SKIP, g_data_pending)                                 \
+    X(SKIP, g_data_addr)                                    \
+    X(SKIP, g_bp)                                           \
+    X(SKIP, g_stopped_cb)                                   \
+    X(SKIP, g_line_lookup)                                  \
+    X(SKIP, g_watch_cb)                                     \
+    X(SKIP, g_segments)                                     \
+    X(SKIP, g_nsegments)                                    \
+    X(SKIP, g_seg_generation)
+SST_TABLE(dbg, DBG_SST)
 
 void dbg_set_active(bool on) { g_active = on; }
 bool dbg_is_active(void) { return g_active; }
@@ -70,10 +106,6 @@ void dbg_note_stop(uint16_t pc)
 
 void dbg_set_stopped_cb(void (*cb)(int reason, uint16_t pc)) { g_stopped_cb = cb; }
 void dbg_set_line_lookup(bool (*cb)(uint16_t, const char **, int *)) { g_line_lookup = cb; }
-
-static dbg_segment_t g_segments[DBG_MAX_SEGMENTS];
-static int g_nsegments;
-static unsigned g_seg_generation;
 
 void dbg_set_segments(const dbg_segment_t *segs, int count)
 {
@@ -203,7 +235,6 @@ void dbg_set_break_filter(bool (*cb)(uint16_t pc)) { g_break_filter = cb; }
 void dbg_note_data_stop(uint16_t addr) { g_data_pending = true; g_data_addr = addr; }
 uint16_t dbg_data_stop_addr(void) { return g_data_addr; }
 
-static void (*g_watch_cb)(uint16_t addr, uint8_t val, bool is_write);
 void dbg_set_watch_cb(void (*cb)(uint16_t addr, uint8_t val, bool is_write)) { g_watch_cb = cb; }
 void dbg_watch_access(uint16_t addr, uint8_t val, bool is_write)
 {

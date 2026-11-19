@@ -19,21 +19,39 @@
  * is the console that never waits, as it always was. */
 #define CONSOLE_NOWAIT 3
 
+/* The line rln handed over is read from rln_line, where it stays until the
+ * next read, which starts only once all of it has been read. */
 static bool console_rln_active;
-static const char *console_rln_buf;
 static bool console_rln_needs_nl;
-static size_t console_rln_pos;
-static size_t console_rln_len;
+static uint16_t console_rln_pos;
+static uint16_t console_rln_len;
 static bool console_closed;
 static bool console_was_asked;
+
+static bool console_sst_valid(sst_cursor_t *c)
+{
+    if (console_rln_pos > console_rln_len ||
+        console_rln_len >= RLN_LINE_MAX)
+        return sst_refuse(c, "a line longer than rln's buffer");
+    return true;
+}
+
+#define CONSOLE_SST_ROWS(X)              \
+    X(BOOL, console_rln_active)          \
+    X(BOOL, console_rln_needs_nl)        \
+    X(U16, console_rln_pos)              \
+    X(U16, console_rln_len)              \
+    X(BOOL, console_closed)              \
+    X(BOOL, console_was_asked)           \
+    X(VALIDATE, console_sst_valid)
+SST_TABLE(console, CONSOLE_SST_ROWS)
 
 static void HOST_IN_FLASH_FUNC console_rln_callback(bool timeout, const char *buf)
 {
     (void)timeout;
     console_rln_active = false;
-    console_rln_buf = buf;
     console_rln_pos = 0;
-    console_rln_len = strlen(buf);
+    console_rln_len = (uint16_t)strlen(buf);
     console_rln_needs_nl = true;
 }
 
@@ -61,9 +79,10 @@ static std_rw_result console_cooked_read(char *buf, uint32_t count, uint32_t *by
         }
         return STD_PENDING;
     }
+    const char *line = rln_line();
     uint32_t i = 0;
     for (; i < count && console_rln_pos < console_rln_len; i++)
-        buf[i] = console_rln_buf[console_rln_pos++];
+        buf[i] = line[console_rln_pos++];
     if (i < count && console_rln_needs_nl)
     {
         buf[i++] = '\n';
@@ -190,35 +209,4 @@ int console_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err)
         return -1;
     }
     return desc;
-}
-
-void console_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    sst_put_bool(c, console_rln_active);
-    sst_put_bool(c, console_rln_needs_nl);
-    sst_put_u16(c, (uint16_t)console_rln_pos);
-    sst_put_u16(c, (uint16_t)console_rln_len);
-    sst_put_bool(c, console_closed);
-    sst_put_bool(c, console_was_asked);
-}
-
-bool console_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    bool active = sst_get_bool(c), needs_nl = sst_get_bool(c);
-    uint16_t pos = sst_get_u16(c), len = sst_get_u16(c);
-    bool closed = sst_get_bool(c), asked = sst_get_bool(c);
-    if (!sst_ok(c) || pos > len || len >= RLN_LINE_MAX)
-        return false;
-    console_rln_active = active;
-    console_rln_needs_nl = needs_nl;
-    console_rln_pos = pos;
-    console_rln_len = len;
-    console_closed = closed;
-    console_was_asked = asked;
-    /* Not carried in the blob. It is either NULL or rln's line buffer, which
-     * is at a fixed address, and nothing reads it until a line arrives. */
-    console_rln_buf = rln_line();
-    return true;
 }

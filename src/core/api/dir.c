@@ -76,10 +76,8 @@ void dir_stop(void)
  * than failing. */
 #define DIR_SLOT (API_PATH_MAX + 1)
 
-void dir_sst_save(sst_cursor_t *c, unsigned flags)
+static void dir_paths_put(sst_cursor_t *c, unsigned flags)
 {
-    for (int i = 0; i < DIR_MAX_OPEN; i++)
-        sst_put_i32(c, tells[i]);
     for (int i = 0; i < DIR_MAX_OPEN; i++)
     {
         char path[DIR_SLOT];
@@ -95,11 +93,8 @@ void dir_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_str(c, cwd, DIR_SLOT);
 }
 
-bool dir_sst_load(sst_cursor_t *c, unsigned flags)
+static bool dir_paths_get(sst_cursor_t *c, unsigned flags)
 {
-    int32_t at[DIR_MAX_OPEN];
-    for (int i = 0; i < DIR_MAX_OPEN; i++)
-        at[i] = sst_get_i32(c);
     bool open[DIR_MAX_OPEN];
     const char *paths[DIR_MAX_OPEN];
     for (int i = 0; i < DIR_MAX_OPEN; i++)
@@ -116,13 +111,11 @@ bool dir_sst_load(sst_cursor_t *c, unsigned flags)
      * SST_TRUSTED or SST_SHARED shares that process with something else. */
     api_errno err;
     if (!flags && cwd[0] && !drive_chdir(cwd, &err))
-        return false;
-
+        return sst_refuse(c, "the working directory is gone");
+    if (flags & SST_SHARED)
+        return true;
     for (int i = 0; i < DIR_MAX_OPEN; i++)
     {
-        tells[i] = at[i];
-        if (flags & SST_SHARED)
-            continue;
         if (!open[i])
         {
             if (drive_validate(i, &err))
@@ -130,17 +123,25 @@ bool dir_sst_load(sst_cursor_t *c, unsigned flags)
             continue;
         }
         if (!drive_reopendir(i, paths[i], &err))
-            return false;
+            return sst_refuse(c, "an open directory is gone");
         /* POSIX does not promise a host lists a directory in the same order
          * twice, so this winds to the same count and not to the same
          * entries. */
         f_stat_t info;
-        for (int32_t n = 0; n < at[i]; n++)
+        for (int32_t n = 0; n < tells[i]; n++)
             if (!drive_readdir(i, &info, &err) || !info.fname[0])
-                return false;
+                return sst_refuse(c, "an open directory has fewer entries");
     }
     return true;
 }
+
+/* The open directories themselves are the drive's, which keeps them in
+ * osal/<host>/dir.c; dir_paths_put names them. */
+#define DIR_SST(X)                                                        \
+    X(U32S, tells)                                                        \
+    X(FN, dir_paths_put, dir_paths_get,                                   \
+      DIR_MAX_OPEN * (1 + DIR_SLOT) + DIR_SLOT, 1)
+SST_TABLE(dir, DIR_SST)
 
 bool HOST_IN_FLASH_FUNC dir_api_stat(void)
 {

@@ -39,18 +39,12 @@ std_rw_result tty_std_write(int desc, const char *buf, uint32_t count, uint32_t 
 bool tty_std_ident(int desc, sst_cursor_t *c);
 int tty_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err);
 
-#define TTY_SST_SIZE 1
-void tty_sst_save(sst_cursor_t *c, unsigned flags);
-bool tty_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t tty_sst;
 
 #define TTY_DRIVER DRIVER(            \
     STOP(tty_stop)                    \
     RESET(tty_stop)                   \
-    SST(.id = "TTY_",                 \
-        .version = 1,                 \
-        .size = TTY_SST_SIZE,         \
-        .save = tty_sst_save,         \
-        .load = tty_sst_load)         \
+    SST("TTY_", tty)                  \
     STD(.handles = tty_std_handles,   \
         .open = tty_std_open,         \
         .close = tty_std_close,       \

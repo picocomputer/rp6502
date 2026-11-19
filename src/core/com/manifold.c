@@ -35,51 +35,39 @@ static bool manifold_wire_stream;
 static bool manifold_wire_held;
 static timer_mach_t manifold_wire_hold;
 
-/* The count, then MANIFOLD_RING_SIZE bytes oldest first. */
-static void manifold_ring_save(sst_cursor_t *c, manifold_ring_t *r)
+/* A ring's counters may be anything that holds no more than the ring. */
+static bool manifold_sst_valid(sst_cursor_t *c)
 {
-    const uint32_t len = RING_LEN(r);
-    sst_put_u16(c, (uint16_t)len);
-    for (uint32_t i = 0; i < MANIFOLD_RING_SIZE; i++)
-        sst_put_u8(c, i < len ? *RING_AT(r, i) : 0);
-}
-
-static uint16_t manifold_ring_get(sst_cursor_t *c, uint8_t *buf)
-{
-    const uint16_t len = sst_get_u16(c);
-    sst_get(c, buf, MANIFOLD_RING_SIZE);
-    return len;
-}
-
-static void manifold_ring_set(manifold_ring_t *r, const uint8_t *buf, uint16_t len)
-{
-    RING_RESET(r);
-    RING_IN(r, buf, len);
-}
-
-void manifold_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    manifold_ring_save(c, &manifold_keyboard_ring);
-    manifold_ring_save(c, &manifold_uart_ring);
-    sst_put_u8(c, (uint8_t)manifold_crlf_last);
-    manifold_tx_sst_save(c);
-}
-
-bool manifold_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    uint8_t kb[MANIFOLD_RING_SIZE], wire[MANIFOLD_RING_SIZE];
-    const uint16_t kb_len = manifold_ring_get(c, kb);
-    const uint16_t wire_len = manifold_ring_get(c, wire);
-    uint8_t crlf = sst_get_u8(c);
-    if (!manifold_tx_sst_load(c) || !sst_ok(c) || kb_len > MANIFOLD_RING_SIZE ||
-        wire_len > MANIFOLD_RING_SIZE)
-        return false;
-    manifold_ring_set(&manifold_keyboard_ring, kb, kb_len);
-    manifold_ring_set(&manifold_uart_ring, wire, wire_len);
-    manifold_crlf_last = (char)crlf;
+    if (RING_LEN(&manifold_keyboard_ring) > MANIFOLD_RING_SIZE ||
+        RING_LEN(&manifold_uart_ring) > MANIFOLD_RING_SIZE)
+        return sst_refuse(c, "a ring holding more than it can");
     return true;
+}
+
+#define MANIFOLD_RING_ROWS(Y, r) \
+    Y(U32, r.idx.wr) Y(U32, r.idx.rd) Y(BYTES, r.buf)
+#define MANIFOLD_SST_ROWS(X)                                   \
+    X(STRUCT, manifold_keyboard_ring, MANIFOLD_RING_ROWS)      \
+    X(STRUCT, manifold_uart_ring, MANIFOLD_RING_ROWS)          \
+    X(VALIDATE, manifold_sst_valid)                            \
+    X(U8, manifold_crlf_last)                                  \
+    X(SKIP, manifold_term_out, "host wiring")                  \
+    X(SKIP, manifold_tx_tap, "host wiring")                    \
+    X(SKIP, manifold_std_tap, "host wiring")                   \
+    X(SKIP, manifold_stderr_sink, "host wiring")               \
+    X(SKIP, manifold_wire_tx, "host wiring")                   \
+    X(SKIP, manifold_wire_rx, "host wiring")                   \
+    X(SKIP, manifold_wire_stream, "host wiring")               \
+    X(SKIP, manifold_wire_held, "host wiring")                 \
+    X(SKIP, manifold_wire_hold, "host wiring")
+SST_TABLE(manifold, MANIFOLD_SST_ROWS)
+
+/* A failed load can leave a ring's counters holding more than the ring. The
+ * input waiting is dropped, as COM's RESET drops it. */
+void manifold_reset(void)
+{
+    RING_RESET(&manifold_keyboard_ring);
+    RING_RESET(&manifold_uart_ring);
 }
 
 size_t manifold_keyboard_read(char *buf, size_t length)

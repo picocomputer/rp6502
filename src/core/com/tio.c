@@ -45,6 +45,21 @@ typedef struct
 
 static tio_source_t tio_sources[COM_SOURCE_COUNT];
 
+static bool tio_sst_valid(sst_cursor_t *c)
+{
+    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
+        if (tio_sources[s].overlong > TIO_FRAME_LAST)
+            return sst_refuse(c, "a framing state past the last");
+    return true;
+}
+
+#define TIO_SOURCE_ROWS(Y, s) \
+    Y(U8, s.overlong) Y(U8, s.open) Y(U64, s.quiet)
+#define TIO_SST_ROWS(X)                          \
+    X(STRUCTS, tio_sources, TIO_SOURCE_ROWS)     \
+    X(VALIDATE, tio_sst_valid)
+SST_TABLE(tio, TIO_SST_ROWS)
+
 /* One byte inside a sequence. ESC starts the sequence over, CAN and SUB
  * cancel it, and any other control, DEL, or a byte of 0x80 and up ends it
  * and stands alone. After a lone ESC the controls and DEL make two-byte
@@ -344,34 +359,4 @@ void tio_read_end(void)
 void tio_init(void)
 {
     memset(tio_sources, 0, sizeof tio_sources);
-}
-
-void tio_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
-    {
-        sst_put_u8(c, tio_sources[s].overlong);
-        sst_put_u8(c, tio_sources[s].open);
-        sst_put_u64(c, tio_sources[s].quiet);
-    }
-}
-
-bool tio_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    tio_source_t sources[COM_SOURCE_COUNT];
-    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
-    {
-        sources[s].overlong = sst_get_u8(c);
-        sources[s].open = sst_get_u8(c);
-        sources[s].quiet = sst_get_u64(c);
-    }
-    if (!sst_ok(c))
-        return false;
-    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
-        if (sources[s].overlong > TIO_FRAME_LAST)
-            return false;
-    memcpy(tio_sources, sources, sizeof tio_sources);
-    return true;
 }

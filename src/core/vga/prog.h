@@ -7,6 +7,7 @@
 #ifndef _CORE_VGA_PROG_H_
 #define _CORE_VGA_PROG_H_
 
+#include "core/sys/sst.h"
 #include "core/vga/pixel_format.h"
 #include "core/vga/vga.h"
 #include <stdbool.h>
@@ -50,10 +51,21 @@ bool vga_mode_config_ok(uint8_t mode, uint16_t options, uint16_t config_ptr,
 bool vga_prog_row_fill(vga_prog_t *row, int16_t plane, uint8_t mode,
                        uint16_t options, uint16_t config_ptr);
 
+/* The mode and options that name a sprite renderer, VGA_MODE_NONE and 0 for
+ * none. False for a renderer no mode names. */
+#define VGA_MODE_NONE 0xFF
+bool vga_mode_sprite_id(vga_sprite_fn_t fn, uint8_t *mode, uint16_t *attributes);
+
 const vga_prog_t *vga_prog_row(int16_t scanline);
 void vga_prog_reset(void);
 
-void vga_prog_load_row(int16_t scanline, const vga_prog_t *row);
-void vga_prog_set_highest(int16_t scanline);
+/* The savestate carries the highest scanline booked and each row's
+ * renderers by their modes and options, which name them in every build.
+ * Rows at or past 480 are never booked, because every booking is bounded
+ * against the canvas and no canvas the emulator has is taller than that. */
+extern const sst_table_t prog_sst;
+
+#define PROG_DRIVER DRIVER(                                    \
+    SST("PROG", prog))
 
 #endif /* _CORE_VGA_PROG_H_ */

@@ -64,20 +64,12 @@ bool mouse_umount(int slot);
 
 void mouse_report(int slot, uint8_t const *report, size_t size);
 
-/* The block, the finer counters behind it, and the fractions a host's motion
- * leaves over: 2 + 5 + 2 + 2 + 4 + 4. */
-#define MOUSE_SST_SIZE 19
-void mouse_sst_save(sst_cursor_t *c, unsigned flags);
-bool mouse_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t mouse_sst;
 
 #define MOUSE_DRIVER DRIVER(                                      \
     INIT(mouse_init)                                              \
     STOP(mouse_stop)                                              \
     RESET(mouse_stop)                                             \
-    SST(.id = "MOUS",                                             \
-        .version = 1,                                             \
-        .size = MOUSE_SST_SIZE,                                   \
-        .save = mouse_sst_save,                                   \
-        .load = mouse_sst_load))
+    SST("MOUS", mouse))
 
 #endif /* _CORE_HID_MOUSE_H_ */

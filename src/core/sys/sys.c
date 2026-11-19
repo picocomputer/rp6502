@@ -15,6 +15,7 @@
  *
  */
 
+#include "core/sys/sst.h"
 #include "core/sys/sys.h"
 #include "core/wdc/resb.h"
 #include "drivers.h"
@@ -35,6 +36,14 @@ static volatile bool sys_breaking;
 
 /* Set when flashing starts, and never cleared. Only sys_pump reads it. */
 static bool sys_flashing;
+
+/* The run state is carried by the blob's header, which core/sys/sst.c
+ * applies before it walks the rows, so no row carries it. */
+#define SYS_SST(X)                                          \
+    X(SKIP, sys_state, "in the blob's header")              \
+    X(SKIP, sys_breaking, "in the blob's header")           \
+    X(SKIP, sys_flashing, "only the RIA sets it, then reboots")
+SST_TABLE(sys, SYS_SST)
 
 void HOST_IN_FLASH_FUNC sys_init(void)
 {

@@ -58,6 +58,15 @@
 // ~3 Hz clears ECMA-48's 150/min (2.5 Hz) slow/rapid boundary.
 #define TERM_BLINK_TICK_FRAMES 10
 
+// The frame count as the blinks and the smooth scrolls keep it, in 32 bits
+// on every machine, as mode 0's smooth_frame word has it. A time is compared
+// with it by the sign of their difference, so the count wrapping is no
+// matter.
+static inline uint32_t cells_frame(void)
+{
+    return (uint32_t)vga_frame_count();
+}
+
 // Cursor blink half-period.
 #define CELLS_CURSOR_BLINK_FRAMES 30
 
@@ -349,7 +358,7 @@ typedef struct
     bool up;
     uint8_t ghost;
     uint8_t ghost_size;
-    unsigned long frame;
+    uint32_t frame;
 } cells_smooth_t;
 
 // The terminal at one size and its screens' cells.
@@ -359,9 +368,9 @@ typedef struct
     uint8_t lines[2 * TERM_MAX_HEIGHT];
     screen_buf_t bufs[2]; /* [0] = primary, [1] = alt, as the terminal's screens */
     cells_smooth_t smooth;
-    unsigned long cursor_frame;
+    uint32_t cursor_frame;
     bool cursor_lit;
-    unsigned long cell_blink_frame;
+    uint32_t cell_blink_frame;
     uint8_t cell_blink_phase;
 } cells_t;
 
@@ -372,6 +381,275 @@ static cells_t cells_80;
  * for cells_task to publish. */
 static bool cells_stale;
 static uint16_t cells_cursor_color; // OSC 12
+
+// The layout the row words were last written from: the screen showing, and
+// which row of memory and what line size each of its rows has. Only a
+// scroll, a line size, a change of height, or another screen showing
+// changes it, so most bytes leave the row words as they are.
+static struct
+{
+    const screen_buf_t *buf;
+    uint8_t y_offset;
+    uint8_t height;
+    uint8_t row_idx[TERM_MAX_HEIGHT];
+    uint8_t lines[TERM_MAX_HEIGHT];
+} cells_published;
+
+static void cells_settle(screen_buf_t *buf);
+
+/* ---- savestate ----------------------------------------------------------
+ *
+ * The terminal, each size's grid, the layout of each screen's cells and the
+ * blinks, then the cursor's color. The cells, their colors and the palette
+ * are mode 0's (mode0.h). The cells' addresses are never written, because
+ * they are mode 0's, the same in every build of a machine. */
+
+static bool cells_sst_term_ok(sst_cursor_t *c)
+{
+    return term_sst_ok(c, &cells_term);
+}
+
+static void cells_sst_put_alt(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_bool(c, cells_term.alt_active);
+}
+
+/* The alternate screen only exists in a build that has one. */
+static bool cells_sst_get_alt(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    bool alt = sst_get_bool(c);
+    if (!sst_ok(c))
+        return false;
+    if (alt && !TERM_ALT_SCREEN)
+        return sst_refuse(c, "the alternate screen, which this build lacks");
+    term_show(&cells_term, alt);
+    return true;
+}
+
+/* A grid keeps its rows and its width, which are this file's. */
+static bool cells_sst_grids_ok(sst_cursor_t *c)
+{
+    if (cells_40.grid.width != 40 || cells_80.grid.width != 80)
+        return sst_refuse(c, "a screen of other columns");
+    return term_grid_sst_ok(c, &cells_40.grid, TERM_MAX_HEIGHT) &&
+           term_grid_sst_ok(c, &cells_80.grid, TERM_MAX_HEIGHT);
+}
+
+/* A screen's layout: its scroll remap and spare row, what each row of
+ * memory is owed in a record of 12 bytes, and the rest. */
+#define CELLS_BUF_SST_SIZE (TERM_MAX_HEIGHT + 1 + 13 * TERM_MEM_ROWS + 3)
+
+static void cells_put_buf(sst_cursor_t *c, const screen_buf_t *b)
+{
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        sst_put_u8(c, b->row_idx[i]);
+    sst_put_u8(c, b->spare);
+    /* What each row of memory is owed, and its record in 12 bytes. */
+    for (int i = 0; i < TERM_MEM_ROWS; i++)
+    {
+        sst_put_u8(c, b->owed[i]);
+        if (b->owed[i] == CELLS_OWED_SHIFT)
+        {
+            const cells_shift_t *s = &b->what[i].shift;
+            sst_put_u8(c, s->from);
+            sst_put_u8(c, s->to);
+            sst_put_u8(c, s->end);
+            sst_put_u8(c, s->cols);
+            sst_put_u16(c, s->left_fg);
+            sst_put_u16(c, s->left_bg);
+            sst_put_u16(c, s->right_fg);
+            sst_put_u16(c, s->right_bg);
+        }
+        else if (b->owed[i] == CELLS_OWED_MARKS)
+        {
+            const cells_marks_t *k = &b->what[i].marks;
+            sst_put_u8(c, k->from);
+            sst_put_u8(c, k->to);
+            sst_put_u8(c, k->set);
+            sst_put_u8(c, k->clear);
+            sst_put_u8(c, k->toggle);
+            for (int n = 5; n < 12; n++)
+                sst_put_u8(c, 0);
+        }
+        else if (b->owed[i] == CELLS_OWED_FILL)
+        {
+            const cells_fill_t *e = &b->what[i].fill;
+            sst_put_u16(c, e->cell.glyph);
+            sst_put_u16(c, e->cell.attributes);
+            sst_put_u16(c, e->colors.fg_color);
+            sst_put_u16(c, e->colors.bg_color);
+            sst_put_u16(c, e->colors.ul_color);
+            sst_put_bool(c, e->selective);
+            sst_put_u8(c, 0);
+        }
+        else
+            for (int k = 0; k < 12; k++)
+                sst_put_u8(c, 0);
+    }
+    sst_put_u8(c, b->y_offset);
+    sst_put_u8(c, b->hidden);
+    sst_put_bool(c, b->all_clean);
+}
+
+static bool cells_get_buf(sst_cursor_t *c, screen_buf_t *b)
+{
+    bool ok = true;
+    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+        b->row_idx[i] = sst_get_u8(c);
+    b->spare = sst_get_u8(c);
+    for (int i = 0; i < TERM_MEM_ROWS; i++)
+    {
+        b->owed[i] = sst_get_u8(c);
+        memset(&b->what[i], 0, sizeof(b->what[i]));
+        if (b->owed[i] == CELLS_OWED_SHIFT)
+        {
+            cells_shift_t *s = &b->what[i].shift;
+            s->from = sst_get_u8(c);
+            s->to = sst_get_u8(c);
+            s->end = sst_get_u8(c);
+            s->cols = sst_get_u8(c);
+            s->left_fg = sst_get_u16(c);
+            s->left_bg = sst_get_u16(c);
+            s->right_fg = sst_get_u16(c);
+            s->right_bg = sst_get_u16(c);
+            /* The record indexes the row's cells. */
+            ok &= s->cols <= b->width && s->end <= s->cols && s->to <= s->end &&
+                  s->from + s->end - s->to <= s->cols &&
+                  mode0_color_ok(s->left_fg) && mode0_color_ok(s->left_bg) &&
+                  mode0_color_ok(s->right_fg) && mode0_color_ok(s->right_bg);
+        }
+        else if (b->owed[i] == CELLS_OWED_MARKS)
+        {
+            cells_marks_t *k = &b->what[i].marks;
+            k->from = sst_get_u8(c);
+            k->to = sst_get_u8(c);
+            k->set = sst_get_u8(c);
+            k->clear = sst_get_u8(c);
+            k->toggle = sst_get_u8(c);
+            for (int n = 5; n < 12; n++)
+                sst_get_u8(c);
+            /* The record indexes the row's cells. */
+            ok &= k->from <= k->to && k->to <= b->width;
+        }
+        else if (b->owed[i] == CELLS_OWED_FILL)
+        {
+            cells_fill_t *e = &b->what[i].fill;
+            e->cell.glyph = sst_get_u16(c);
+            e->cell.attributes = sst_get_u16(c);
+            e->colors.fg_color = sst_get_u16(c);
+            e->colors.bg_color = sst_get_u16(c);
+            e->colors.ul_color = sst_get_u16(c);
+            e->selective = sst_get_bool(c);
+            sst_get_u8(c);
+            ok &= mode0_glyph_ok(e->cell.glyph, b->width == 40 ? 8 : 16) &&
+                  mode0_color_ok(e->colors.fg_color) &&
+                  mode0_color_ok(e->colors.bg_color) && mode0_color_ok(e->colors.ul_color);
+        }
+        else
+        {
+            ok &= b->owed[i] == CELLS_OWED_NONE;
+            for (int k = 0; k < 12; k++)
+                sst_get_u8(c);
+        }
+    }
+    b->y_offset = sst_get_u8(c);
+    b->hidden = sst_get_u8(c);
+    b->all_clean = sst_get_bool(c);
+    b->later.n = 0;
+    /* Everything here indexes the cell array. row_idx is the scroll remap and
+     * y_offset is added to it before the lookup, so both are bounded, and
+     * the slots and the spare name every row of memory once. */
+    if (!sst_ok(c))
+        return false;
+    if (!ok || b->y_offset >= TERM_MAX_HEIGHT || b->hidden >= TERM_MAX_HEIGHT)
+        return sst_refuse(c, "a screen's layout out of range");
+    bool seen[TERM_MEM_ROWS] = {false};
+    for (int i = 0; i <= TERM_MAX_HEIGHT; i++)
+    {
+        uint8_t m = i < TERM_MAX_HEIGHT ? b->row_idx[i] : b->spare;
+        if (i == TERM_MAX_HEIGHT && !TERM_SPARE_ROWS)
+            break;
+        if (m >= TERM_MEM_ROWS || seen[m])
+            return sst_refuse(c, "a screen's rows out of order");
+        seen[m] = true;
+    }
+    return true;
+}
+
+/* A scroll a screen is owed is done first, so the layout saved is the
+ * layout the cells are in. That moves cells, which MODE0_DRIVER saves after
+ * this row. */
+static void cells_sst_put_bufs(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    cells_t *const all[] = {&cells_40, &cells_80};
+    for (int n = 0; n < 2; n++)
+        for (int b = 0; b < 2; b++)
+        {
+            cells_settle(&all[n]->bufs[b]);
+            cells_put_buf(c, &all[n]->bufs[b]);
+        }
+}
+
+static bool cells_sst_get_bufs(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    cells_t *const all[] = {&cells_40, &cells_80};
+    for (int n = 0; n < 2; n++)
+        for (int b = 0; b < 2; b++)
+            if (!cells_get_buf(c, &all[n]->bufs[b]))
+                return false;
+    return true;
+}
+
+#define CELLS_BLINK_SST_ROWS(Y, s)                                     \
+    Y(U32, s.cursor_frame) Y(BOOL, s.cursor_lit)                       \
+    Y(U32, s.cell_blink_frame) Y(U8, s.cell_blink_phase)               \
+    Y(BOOL, s.smooth.on) Y(U8, s.smooth.buf)                           \
+    Y(U8, s.smooth.top) Y(U8, s.smooth.bot) Y(BOOL, s.smooth.up)       \
+    Y(U8, s.smooth.ghost) Y(U8, s.smooth.ghost_size)                   \
+    Y(U32, s.smooth.frame)
+
+/* The ghost and the rows of a smooth scroll index the cells and the row
+ * words. */
+static bool cells_sst_smooth_ok(sst_cursor_t *c)
+{
+    const cells_smooth_t *const all[] = {&cells_40.smooth, &cells_80.smooth};
+    for (int n = 0; n < 2; n++)
+    {
+        const cells_smooth_t *sm = all[n];
+        if (sm->on && (sm->buf > 1 || sm->top > sm->bot || sm->bot >= TERM_MAX_HEIGHT ||
+                       sm->ghost >= TERM_MEM_ROWS || sm->ghost_size > TERM_LINE_BOTTOM))
+            return sst_refuse(c, "a smooth scroll out of range");
+    }
+    return true;
+}
+
+#define CELLS_SST(X)                                                   \
+    TERM_SST_ROWS(X, cells_term)                                       \
+    X(VALIDATE, cells_sst_term_ok)                                     \
+    X(FN, cells_sst_put_alt, cells_sst_get_alt, 1, 1)                  \
+    X(IN_FN, cells_term.alt_active)                                    \
+    X(SKIP, cells_term.grids, "the sizes it is followed at")           \
+    X(STRUCT, cells_40.grid, TERM_GRID_SST_ROWS)                       \
+    X(BYTES, cells_40.lines)                                           \
+    X(STRUCT, cells_80.grid, TERM_GRID_SST_ROWS)                       \
+    X(BYTES, cells_80.lines)                                           \
+    X(VALIDATE, cells_sst_grids_ok)                                    \
+    X(FN, cells_sst_put_bufs, cells_sst_get_bufs,                      \
+      4 * CELLS_BUF_SST_SIZE, 1)                                       \
+    X(IN_FN, cells_40.bufs)                                            \
+    X(IN_FN, cells_80.bufs)                                            \
+    X(STRUCT, cells_40, CELLS_BLINK_SST_ROWS)                          \
+    X(STRUCT, cells_80, CELLS_BLINK_SST_ROWS)                          \
+    X(VALIDATE, cells_sst_smooth_ok)                                   \
+    X(U16, cells_cursor_color)                                         \
+    X(SKIP, cells_stale, "the canvas's load publishes everything")     \
+    X(SKIP, cells_published, "what the row words were last written "   \
+                             "from, which the canvas's load compares")
+SST_TABLE(cells, CELLS_SST)
 
 /* A grid of this file's, or NULL for one with no cells: a program's own size
  * (term_add_grid), which the screen does not draw. */
@@ -386,7 +664,6 @@ static inline screen_buf_t *cells_buf(cells_t *cells)
     return &cells->bufs[cells_term.alt_active ? 1 : 0];
 }
 
-static void cells_settle(screen_buf_t *buf);
 static cells_t *cells_visible(void);
 
 // The cells of a grid, with the scroll its screen is owed done: for
@@ -431,21 +708,12 @@ static inline mode0_cell_t *cells_row_ptr(cells_t *cells, uint8_t y)
 
 /* ---- colors ------------------------------------------------------------ */
 
-// A pixel at half brightness, for SGR 2.
-static uint16_t cells_faint(uint16_t c)
-{
-    uint16_t r = SCANVIDEO_R5_FROM_PIXEL(c) >> 1;
-    uint16_t g = SCANVIDEO_G5_FROM_PIXEL(c) >> 1;
-    uint16_t b = SCANVIDEO_B5_FROM_PIXEL(c) >> 1;
-    return SCANVIDEO_PIXEL_FROM_RGB5(r, g, b) | (c & SCANVIDEO_ALPHA_MASK);
-}
-
 // A cell's color at half brightness: an RGB pixel halved, or the faint twin
 // of an entry.
 static uint16_t cells_color_faint(uint16_t color)
 {
     if (color & SCANVIDEO_ALPHA_MASK)
-        return cells_faint(color);
+        return mode0_faint(color);
     return (uint16_t)(color + MODE0_ENTRY(MODE0_ENTRIES, false));
 }
 
@@ -682,7 +950,7 @@ static void cells_clean_line(cells_t *cells, uint8_t y)
 static inline void cells_cursor_restart_blink(cells_t *cells)
 {
     cells->cursor_lit = false;
-    cells->cursor_frame = vga_frame_count() + CELLS_CURSOR_INPUT_GAP_FRAMES;
+    cells->cursor_frame = cells_frame() + CELLS_CURSOR_INPUT_GAP_FRAMES;
 }
 
 // Restart the cursor blink and the blinking text together, both lit, so a
@@ -691,7 +959,7 @@ static void cells_restart_blinks(cells_t *cells)
 {
     cells_cursor_restart_blink(cells);
     cells->cell_blink_phase = 0;
-    cells->cell_blink_frame = vga_frame_count() + TERM_BLINK_TICK_FRAMES;
+    cells->cell_blink_frame = cells_frame() + TERM_BLINK_TICK_FRAMES;
 }
 
 // Clean one dirty row in `buf`. Returns true if a row was cleaned this
@@ -1357,7 +1625,7 @@ void cells_smooth(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, bool u
         .up = up,
         .ghost = ghost,
         .ghost_size = out,
-        .frame = vga_frame_count() + 1,
+        .frame = cells_frame() + 1,
     };
 }
 
@@ -1365,7 +1633,7 @@ bool cells_smooth_busy(const term_grid_t *g)
 {
     const cells_t *cells = cells_of((term_grid_t *)g);
     return cells && cells->smooth.on &&
-           (long)(vga_frame_count() - (cells->smooth.frame + TERM_SMOOTH_FRAMES - 1)) < 0;
+           (int32_t)(cells_frame() - (cells->smooth.frame + TERM_SMOOTH_FRAMES - 1)) < 0;
 }
 
 void cells_forget(term_t *term, term_grid_t *g)
@@ -1444,20 +1712,13 @@ void cells_height(term_grid_t *g, bool grow, bool top)
  * with it, as on xterm and Linux, because those cells hold the entry and
  * not the color. */
 
-// Set a palette entry or default color, and its faint twin.
-static void cells_set_color(unsigned entry, uint16_t color)
-{
-    mode0_palette[entry] = color;
-    mode0_palette[MODE0_ENTRIES + entry] = cells_faint(color);
-}
-
 void cells_colors_reset(term_t *term)
 {
     (void)term;
     for (unsigned i = 0; i < 256; i++)
-        cells_set_color(i, color_256[i]);
-    cells_set_color(MODE0_DEFAULT_FG, color_256[CELLS_FG_COLOR_INDEX]);
-    cells_set_color(MODE0_DEFAULT_BG, color_256[CELLS_BG_COLOR_INDEX]);
+        mode0_set_color(i, color_256[i]);
+    mode0_set_color(MODE0_DEFAULT_FG, color_256[CELLS_FG_COLOR_INDEX]);
+    mode0_set_color(MODE0_DEFAULT_BG, color_256[CELLS_BG_COLOR_INDEX]);
     cells_cursor_color = color_256[CELLS_FG_COLOR_INDEX];
 }
 
@@ -1481,11 +1742,11 @@ void cells_color(term_t *term, unsigned which, uint16_t color)
 {
     (void)term;
     if (which < 256)
-        cells_set_color(which, color);
+        mode0_set_color(which, color);
     else if (which == CELLS_COLOR_FG)
-        cells_set_color(MODE0_DEFAULT_FG, color);
+        mode0_set_color(MODE0_DEFAULT_FG, color);
     else if (which == CELLS_COLOR_BG)
-        cells_set_color(MODE0_DEFAULT_BG, color);
+        mode0_set_color(MODE0_DEFAULT_BG, color);
     else if (which == CELLS_COLOR_CURSOR)
         cells_cursor_color = color;
 }
@@ -1515,19 +1776,6 @@ static cells_t *cells_visible(void)
 {
     return vga_canvas_width() == 320 ? &cells_40 : &cells_80;
 }
-
-// The layout the row words were last written from: the screen showing, and
-// which row of memory and what line size each of its rows has. Only a
-// scroll, a line size, a change of height, or another screen showing
-// changes it, so most bytes leave the row words as they are.
-static struct
-{
-    const screen_buf_t *buf;
-    uint8_t y_offset;
-    uint8_t height;
-    uint8_t row_idx[TERM_MAX_HEIGHT];
-    uint8_t lines[TERM_MAX_HEIGHT];
-} cells_published;
 
 // TERM_MAX_HEIGHT bytes compared a word at a time.
 static inline bool cells_rows_differ(const uint8_t *a, const uint8_t *b)
@@ -1706,10 +1954,10 @@ static bool cells_blink_cursor(cells_t *cells)
     bool was = cells->cursor_lit;
     if (!cells_term.cursor_enabled)
         cells->cursor_lit = false;
-    else if ((long)(vga_frame_count() - cells->cursor_frame) >= 0)
+    else if ((int32_t)(cells_frame() - cells->cursor_frame) >= 0)
     {
         cells->cursor_lit = !cells->cursor_lit;
-        cells->cursor_frame = vga_frame_count() + CELLS_CURSOR_BLINK_FRAMES;
+        cells->cursor_frame = cells_frame() + CELLS_CURSOR_BLINK_FRAMES;
     }
     return cells->cursor_lit != was;
 }
@@ -1723,11 +1971,11 @@ static bool cells_blink_cursor(cells_t *cells)
 // global. True when the phase changed.
 static bool cells_cell_blink_phase_task(cells_t *cells)
 {
-    if ((long)(vga_frame_count() - cells->cell_blink_frame) < 0)
+    if ((int32_t)(cells_frame() - cells->cell_blink_frame) < 0)
         return false;
     cells->cell_blink_phase =
         (uint8_t)((cells->cell_blink_phase + 1) & TERM_ATTR_ANY_BLINK);
-    cells->cell_blink_frame = vga_frame_count() + TERM_BLINK_TICK_FRAMES;
+    cells->cell_blink_frame = cells_frame() + TERM_BLINK_TICK_FRAMES;
     return true;
 }
 
@@ -1736,7 +1984,7 @@ static bool cells_cell_blink_phase_task(cells_t *cells)
 static bool cells_smooth_task(cells_t *cells)
 {
     if (!cells->smooth.on ||
-        (long)(vga_frame_count() - cells->smooth.frame) < TERM_SMOOTH_FRAMES)
+        (int32_t)(cells_frame() - cells->smooth.frame) < TERM_SMOOTH_FRAMES)
         return false;
     cells->smooth.on = false;
     return true;
@@ -1767,269 +2015,6 @@ void cells_RIS_no_clear(void)
     term_set_height(&cells_term, &cells_40.grid, TERM_STD_HEIGHT);
     term_RIS_no_clear(&cells_term);
     cells_stale = true;
-}
-
-/* ---- savestate ----------------------------------------------------------
- *
- * The terminal, then for each size its grid, the layout of each screen's
- * cells and the blinks, then the colors, the cells and the palette. Written
- * field by field, so no padding reaches the blob. */
-
-// A color a blob gives a cell names an entry the palette has.
-static inline bool cells_color_ok(uint16_t color)
-{
-    return (color & SCANVIDEO_ALPHA_MASK) || (color >> MODE0_ENTRY_SHIFT) < 2 * MODE0_ENTRIES;
-}
-
-static void cells_put_buf(sst_cursor_t *c, const screen_buf_t *b)
-{
-    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
-        sst_put_u8(c, b->row_idx[i]);
-    sst_put_u8(c, b->spare);
-    /* What each row of memory is owed, and its record in 12 bytes. */
-    for (int i = 0; i < TERM_MEM_ROWS; i++)
-    {
-        sst_put_u8(c, b->owed[i]);
-        if (b->owed[i] == CELLS_OWED_SHIFT)
-        {
-            const cells_shift_t *s = &b->what[i].shift;
-            sst_put_u8(c, s->from);
-            sst_put_u8(c, s->to);
-            sst_put_u8(c, s->end);
-            sst_put_u8(c, s->cols);
-            sst_put_u16(c, s->left_fg);
-            sst_put_u16(c, s->left_bg);
-            sst_put_u16(c, s->right_fg);
-            sst_put_u16(c, s->right_bg);
-        }
-        else if (b->owed[i] == CELLS_OWED_MARKS)
-        {
-            const cells_marks_t *k = &b->what[i].marks;
-            sst_put_u8(c, k->from);
-            sst_put_u8(c, k->to);
-            sst_put_u8(c, k->set);
-            sst_put_u8(c, k->clear);
-            sst_put_u8(c, k->toggle);
-            for (int n = 5; n < 12; n++)
-                sst_put_u8(c, 0);
-        }
-        else if (b->owed[i] == CELLS_OWED_FILL)
-        {
-            const cells_fill_t *e = &b->what[i].fill;
-            sst_put_u16(c, e->cell.glyph);
-            sst_put_u16(c, e->cell.attributes);
-            sst_put_u16(c, e->colors.fg_color);
-            sst_put_u16(c, e->colors.bg_color);
-            sst_put_u16(c, e->colors.ul_color);
-            sst_put_bool(c, e->selective);
-            sst_put_u8(c, 0);
-        }
-        else
-            for (int k = 0; k < 12; k++)
-                sst_put_u8(c, 0);
-    }
-    sst_put_u8(c, b->y_offset);
-    sst_put_u8(c, b->hidden);
-    sst_put_bool(c, b->all_clean);
-}
-
-static bool cells_get_buf(sst_cursor_t *c, screen_buf_t *b)
-{
-    bool ok = true;
-    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
-        b->row_idx[i] = sst_get_u8(c);
-    b->spare = sst_get_u8(c);
-    for (int i = 0; i < TERM_MEM_ROWS; i++)
-    {
-        b->owed[i] = sst_get_u8(c);
-        memset(&b->what[i], 0, sizeof(b->what[i]));
-        if (b->owed[i] == CELLS_OWED_SHIFT)
-        {
-            cells_shift_t *s = &b->what[i].shift;
-            s->from = sst_get_u8(c);
-            s->to = sst_get_u8(c);
-            s->end = sst_get_u8(c);
-            s->cols = sst_get_u8(c);
-            s->left_fg = sst_get_u16(c);
-            s->left_bg = sst_get_u16(c);
-            s->right_fg = sst_get_u16(c);
-            s->right_bg = sst_get_u16(c);
-            /* The record indexes the row's cells. */
-            ok &= s->cols <= b->width && s->end <= s->cols && s->to <= s->end &&
-                  s->from + s->end - s->to <= s->cols &&
-                  cells_color_ok(s->left_fg) && cells_color_ok(s->left_bg) &&
-                  cells_color_ok(s->right_fg) && cells_color_ok(s->right_bg);
-        }
-        else if (b->owed[i] == CELLS_OWED_MARKS)
-        {
-            cells_marks_t *k = &b->what[i].marks;
-            k->from = sst_get_u8(c);
-            k->to = sst_get_u8(c);
-            k->set = sst_get_u8(c);
-            k->clear = sst_get_u8(c);
-            k->toggle = sst_get_u8(c);
-            for (int n = 5; n < 12; n++)
-                sst_get_u8(c);
-            /* The record indexes the row's cells. */
-            ok &= k->from <= k->to && k->to <= b->width;
-        }
-        else if (b->owed[i] == CELLS_OWED_FILL)
-        {
-            cells_fill_t *e = &b->what[i].fill;
-            e->cell.glyph = sst_get_u16(c);
-            e->cell.attributes = sst_get_u16(c);
-            e->colors.fg_color = sst_get_u16(c);
-            e->colors.bg_color = sst_get_u16(c);
-            e->colors.ul_color = sst_get_u16(c);
-            e->selective = sst_get_bool(c);
-            sst_get_u8(c);
-            ok &= mode0_glyph_ok(e->cell.glyph, b->width == 40 ? 8 : 16) &&
-                  cells_color_ok(e->colors.fg_color) &&
-                  cells_color_ok(e->colors.bg_color) && cells_color_ok(e->colors.ul_color);
-        }
-        else
-        {
-            ok &= b->owed[i] == CELLS_OWED_NONE;
-            for (int k = 0; k < 12; k++)
-                sst_get_u8(c);
-        }
-    }
-    b->y_offset = sst_get_u8(c);
-    b->hidden = sst_get_u8(c);
-    b->all_clean = sst_get_bool(c);
-    b->later.n = 0;
-    /* Everything here indexes the cell array. row_idx is the scroll remap and
-     * y_offset is added to it before the lookup, so both are bounded, and
-     * the slots and the spare name every row of memory once. */
-    if (!ok || !sst_ok(c) || b->y_offset >= TERM_MAX_HEIGHT || b->hidden >= TERM_MAX_HEIGHT)
-        return false;
-    bool seen[TERM_MEM_ROWS] = {false};
-    for (int i = 0; i <= TERM_MAX_HEIGHT; i++)
-    {
-        uint8_t m = i < TERM_MAX_HEIGHT ? b->row_idx[i] : b->spare;
-        if (i == TERM_MAX_HEIGHT && !TERM_SPARE_ROWS)
-            break;
-        if (m >= TERM_MEM_ROWS || seen[m])
-            return false;
-        seen[m] = true;
-    }
-    return true;
-}
-
-static void cells_put_one(sst_cursor_t *c, const cells_t *cells)
-{
-    term_grid_sst_put(c, &cells->grid);
-    cells_put_buf(c, &cells->bufs[0]);
-    cells_put_buf(c, &cells->bufs[1]);
-    sst_put_u64(c, cells->cursor_frame);
-    sst_put_bool(c, cells->cursor_lit);
-    sst_put_u64(c, cells->cell_blink_frame);
-    sst_put_u8(c, cells->cell_blink_phase);
-    const cells_smooth_t *sm = &cells->smooth;
-    sst_put_bool(c, sm->on);
-    sst_put_u8(c, sm->buf);
-    sst_put_u8(c, sm->top);
-    sst_put_u8(c, sm->bot);
-    sst_put_bool(c, sm->up);
-    sst_put_u8(c, sm->ghost);
-    sst_put_u8(c, sm->ghost_size);
-    sst_put_u64(c, sm->frame);
-}
-
-static bool cells_get_one(sst_cursor_t *c, cells_t *cells)
-{
-    uint8_t width = cells->grid.width;
-    if (!term_grid_sst_get(c, &cells->grid) || cells->grid.width != width ||
-        !cells_get_buf(c, &cells->bufs[0]) || !cells_get_buf(c, &cells->bufs[1]))
-        return false;
-    cells->cursor_frame = (unsigned long)sst_get_u64(c);
-    cells->cursor_lit = sst_get_bool(c);
-    cells->cell_blink_frame = (unsigned long)sst_get_u64(c);
-    cells->cell_blink_phase = sst_get_u8(c);
-    cells_smooth_t *sm = &cells->smooth;
-    sm->on = sst_get_bool(c);
-    sm->buf = sst_get_u8(c);
-    sm->top = sst_get_u8(c);
-    sm->bot = sst_get_u8(c);
-    sm->up = sst_get_bool(c);
-    sm->ghost = sst_get_u8(c);
-    sm->ghost_size = sst_get_u8(c);
-    sm->frame = (unsigned long)sst_get_u64(c);
-    /* The ghost and the rows index the cells and the row words. */
-    if (sm->on && (sm->buf > 1 || sm->top > sm->bot || sm->bot >= TERM_MAX_HEIGHT ||
-                   sm->ghost >= TERM_MEM_ROWS || sm->ghost_size > TERM_LINE_BOTTOM))
-        return false;
-    return sst_ok(c);
-}
-
-void cells_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    /* A scroll a screen is owed is done, so the cells saved are the cells. */
-    for (int b = 0; b < 2; b++)
-    {
-        cells_settle(&cells_40.bufs[b]);
-        cells_settle(&cells_80.bufs[b]);
-    }
-    sst_put_u8(c, TERM_MAX_HEIGHT);
-    sst_put_bool(c, TERM_ALT_SCREEN ? true : false);
-    sst_put_u8(c, 2); /* how many sizes this machine has */
-    term_sst_put(c, &cells_term);
-    cells_put_one(c, &cells_40);
-    cells_put_one(c, &cells_80);
-    sst_put_u16(c, cells_cursor_color);
-    for (int b = 0; b < (TERM_ALT_SCREEN ? 2 : 1); b++)
-    {
-        sst_put(c, cells_40.bufs[b].mem, 40 * TERM_MEM_ROWS * sizeof(mode0_cell_t));
-        sst_put(c, cells_80.bufs[b].mem, 80 * TERM_MEM_ROWS * sizeof(mode0_cell_t));
-    }
-    sst_put(c, mode0_colors, sizeof mode0_colors);
-    /* The faint half of the palette follows from the other. */
-    for (unsigned i = 0; i < MODE0_ENTRIES; i++)
-        sst_put_u16(c, mode0_palette[i]);
-}
-
-bool cells_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    uint8_t rows = sst_get_u8(c);
-    bool alt = sst_get_bool(c);
-    uint8_t count = sst_get_u8(c);
-    if (!sst_ok(c) || rows != TERM_MAX_HEIGHT ||
-        alt != (TERM_ALT_SCREEN ? true : false) || count != 2)
-        return false;
-    if (!term_sst_get(c, &cells_term) ||
-        !cells_get_one(c, &cells_40) || !cells_get_one(c, &cells_80))
-        return false;
-    cells_cursor_color = sst_get_u16(c);
-    /* Never mem: the cells are mode 0's and their addresses are already
-     * right. Only what is in them is the blob's. */
-    for (int b = 0; b < (TERM_ALT_SCREEN ? 2 : 1); b++)
-    {
-        sst_get(c, cells_40.bufs[b].mem, 40 * TERM_MEM_ROWS * sizeof(mode0_cell_t));
-        sst_get(c, cells_80.bufs[b].mem, 80 * TERM_MEM_ROWS * sizeof(mode0_cell_t));
-    }
-    sst_get(c, mode0_colors, sizeof mode0_colors);
-    for (unsigned i = 0; i < MODE0_ENTRIES; i++)
-        cells_set_color(i, sst_get_u16(c));
-    if (!sst_ok(c))
-        return false;
-    for (unsigned i = 0; i < MODE0_CELLS; i++)
-        if (!cells_color_ok(mode0_colors[i].fg_color) || !cells_color_ok(mode0_colors[i].bg_color) ||
-            !cells_color_ok(mode0_colors[i].ul_color))
-            return false;
-    /* A glyph indexes the font of its size. */
-    for (int b = 0; b < (TERM_ALT_SCREEN ? 2 : 1); b++)
-    {
-        for (unsigned i = 0; i < 40 * TERM_MEM_ROWS; i++)
-            if (!mode0_glyph_ok(cells_40.bufs[b].mem[i].glyph, 8))
-                return false;
-        for (unsigned i = 0; i < 80 * TERM_MEM_ROWS; i++)
-            if (!mode0_glyph_ok(cells_80.bufs[b].mem[i].glyph, 16))
-                return false;
-    }
-    cells_publish();
-    return true;
 }
 
 void cells_set_height(uint8_t width, uint8_t height)

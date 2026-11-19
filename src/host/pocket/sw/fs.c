@@ -10,6 +10,7 @@
 #include "core/str/path.h"
 #include "core/str/unicode.h"
 #include "core/sys/debug_log.h"
+#include "core/sys/sst.h"
 #include "core/term/font.h"
 
 #include <assert.h>
@@ -119,11 +120,11 @@ bool fs_idle(void)
 
 /* Only the first few failed transfers are logged. */
 #define FS_SAY_MAX 4
+static uint8_t fs_said;
 
 static bool fs_note(void)
 {
-    static uint8_t said;
-    return said < FS_SAY_MAX && ++said;
+    return fs_said < FS_SAY_MAX && ++fs_said;
 }
 
 static uint32_t fs_command(uint32_t who, uint32_t op)
@@ -381,6 +382,19 @@ static struct
     uint32_t len;
     uint32_t pos;
 } fs_rom;
+
+/* The bridge's commands are waited out before a save, and the files are
+ * opened again by the rows of the drivers that hold them. */
+#define FS_POCKET_SST(X)                                                \
+    X(SKIP, fs_pool, "opened again by the STD row's reopen")            \
+    X(SKIP, fs_owner, "a bridge command in flight, which a save waits out") \
+    X(SKIP, fs_mail)                                                    \
+    X(SKIP, fs_mail_st)                                                 \
+    X(SKIP, fs_grow)                                                    \
+    X(SKIP, fs_failed, "a count of failed transfers, for the log")      \
+    X(SKIP, fs_said)                                                    \
+    X(SKIP, fs_rom, "opened again by the ASSET row's reopen")
+SST_TABLE(fs_pocket, FS_POCKET_SST)
 
 static bool fs_rom_pull(uint32_t len)
 {
