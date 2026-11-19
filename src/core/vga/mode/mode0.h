@@ -151,7 +151,18 @@ extern mode0_colors_t mode0_colors[MODE0_CELLS];
  *   whether it is shown at all.
  * cursor_color: OSC 12's color.
  * screen: the blink phase a cell's TERM_ATTR_ANY_BLINK bits are tested
- *   against, and DECSCNM. */
+ *   against, and DECSCNM.
+ * smooth: a smooth scroll (DECSCLM) moving, which mode 0 draws over the
+ *   row words, which already have the rows in their new places: the rows
+ *   top to bot, which way they move, and whether one is moving. Zero when
+ *   none is.
+ * smooth_frame: the first frame that shows the rows a scanline on their
+ *   way.
+ * smooth_ghost: the row word of the row moving out, which is in none of
+ *   the row words any more.
+ * publish: written last, once the others describe one picture. A fabric
+ *   that copies the words as a frame starts takes none of them while a
+ *   publish is part way through. */
 #define MODE0_ROWS 32
 typedef struct
 {
@@ -159,30 +170,16 @@ typedef struct
     uint32_t cursor;
     uint32_t cursor_color;
     uint32_t screen;
+    uint32_t smooth;
+    uint32_t smooth_frame;
+    uint32_t smooth_ghost;
+    uint32_t publish;
 } mode0_regs_t;
 
 _Static_assert(TERM_MAX_HEIGHT <= MODE0_ROWS, "a row word for every row");
 _Static_assert(MODE0_CELLS <= 0x10000, "a row word holds a 16-bit cell");
 
 extern volatile mode0_regs_t mode0_regs;
-
-/* A smooth scroll (DECSCLM) moving, which mode 0 draws over the row words.
- * The rows already have their new places; the scroll shows them coming
- * there. Kept apart from mode0_regs, whose words are a fabric's registers.
- *
- * region: the rows top to bot, which way they move, and whether one is
- *   moving. Zero when none is.
- * frame: the first frame that shows the rows a scanline on their way.
- * ghost: the row word of the row moving out, which is in none of the row
- *   words any more. */
-typedef struct
-{
-    uint32_t region;
-    uint32_t frame;
-    uint32_t ghost;
-} mode0_smooth_t;
-
-extern volatile mode0_smooth_t mode0_smooth;
 
 #define MODE0_SMOOTH_ON (1u << 17)
 #define MODE0_SMOOTH_UP (1u << 16)

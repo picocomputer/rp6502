@@ -30,10 +30,10 @@ MEMORY
 {
     ROM (rx) : ORIGIN = 0x00000000, LENGTH = 256K
     RAM (rw) : ORIGIN = 0x00040000, LENGTH = 64K
-    VIDCELLS (rw) : ORIGIN = 0x50000000, LENGTH = 28800
-    VIDREGS (rw) : ORIGIN = 0x50010000, LENGTH = 140
+    VIDCELLS (rw) : ORIGIN = 0x50000000, LENGTH = 29760
+    VIDREGS (rw) : ORIGIN = 0x50010000, LENGTH = 156
     VIDFONT (rw) : ORIGIN = 0x50040000, LENGTH = 16K
-    VIDCOLORS (rw) : ORIGIN = 0x50080000, LENGTH = 43200
+    VIDCOLORS (rw) : ORIGIN = 0x50080000, LENGTH = 44640
     VIDPALETTE (rw) : ORIGIN = 0x50100000, LENGTH = 1032
 }
 
@@ -75,10 +75,10 @@ SECTIONS
     .vidregs (NOLOAD) : {
         *(.bss.mode0_regs .bss.mode0_regs.*)
     } > VIDREGS
-    ASSERT(SIZEOF(.vidcells) == 28800, "mode0_cells is not mode0.sv's cells")
-    ASSERT(SIZEOF(.vidcolors) == 43200, "mode0_colors is not mode0.sv's colors")
+    ASSERT(SIZEOF(.vidcells) == 29760, "mode0_cells is not mode0.sv's cells")
+    ASSERT(SIZEOF(.vidcolors) == 44640, "mode0_colors is not mode0.sv's colors")
     ASSERT(SIZEOF(.vidpalette) == 1032, "mode0_palette is not mode0.sv's palette")
-    ASSERT(SIZEOF(.vidregs) == 140, "mode0_regs is not on mode0.sv's registers")
+    ASSERT(SIZEOF(.vidregs) == 156, "mode0_regs is not on mode0.sv's registers")
 
     /* These come before .bss for the same reason. The sizes are the
      * fonts' sizes in font.sv. */

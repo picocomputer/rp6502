@@ -2503,7 +2503,7 @@ UTEST(term, what_neovim_asks_as_it_starts_is_all_answered)
 static const char *ghost(void)
 {
     static char text[96];
-    const mode0_cell_t *c = &mode0_cells[MODE0_ROW_CELL(mode0_smooth.ghost)];
+    const mode0_cell_t *c = &mode0_cells[MODE0_ROW_CELL(mode0_regs.smooth_ghost)];
     int last = 0;
     for (int x = 0; x < 80; x++)
     {
@@ -2528,7 +2528,7 @@ UTEST(term, a_smooth_scroll_moves_out_the_row_as_it_is)
 {
     fresh();
     feed("\33[HXXXX\33[?4h\33[2J\33[30;1H\n");
-    ASSERT_TRUE(mode0_smooth.region & MODE0_SMOOTH_ON);
+    ASSERT_TRUE(mode0_regs.smooth & MODE0_SMOOTH_ON);
     ASSERT_STREQ(ghost(), "");
 }
 
@@ -2537,7 +2537,7 @@ UTEST(term, a_smooth_reverse_index_moves_out_the_bottom_row_as_it_is)
 {
     fresh();
     feed("\33[10;1HYYYY\33[?4h\33[5;10r\33[5;1H\33[J\33M");
-    ASSERT_FALSE(mode0_smooth.region & MODE0_SMOOTH_UP);
+    ASSERT_FALSE(mode0_regs.smooth & MODE0_SMOOTH_UP);
     ASSERT_STREQ(ghost(), "");
     feed("\33[r");
 }

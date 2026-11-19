@@ -20,9 +20,6 @@
 /* A program that ends returns the machine to its monitor. */
 #define RP6502_HAS_MONITOR 0
 #define TERM_MAX_HEIGHT 30
-/* mode0.sv holds the cells of 30 rows a screen, with no spare row for a
- * smooth scroll, so the terminal scrolls whole rows in DECSCLM too. */
-#define TERM_SPARE_ROWS 0
 /* Terminal replies are the only bytes pushed into the console rings on
  * this machine. core/com/manifold.c queues at most 32 bytes of them, so a
  * ring of 32 takes a full one. */

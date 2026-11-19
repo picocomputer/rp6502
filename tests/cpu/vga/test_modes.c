@@ -61,6 +61,54 @@ static void run_case(int *utest_result, const char *name, uint32_t expect,
         ASSERT_EQ((int)b, (int)claim);
 }
 
+/* A smooth scroll, drawn frame by frame. Frames in a row that are the same
+ * are one picture, so the boot, which takes a different number of frames on
+ * each machine, falls away. The scroll's pictures, between the one it starts
+ * from and the one it lands on, each last per_step frames; there are steps
+ * of them, and the CRC of their CRCs and the landed picture's is pinned. */
+static void run_smooth(int *utest_result, const char *name, int steps, int per_step,
+                       uint32_t expect)
+{
+    enum
+    {
+        FRAMES = 100
+    };
+    int w, h;
+    ASSERT_TRUE(corpus_size(name, &w, &h));
+    const size_t px = (size_t)w * (size_t)h;
+    char path[256];
+    snprintf(path, sizeof(path), "%s/%s.rp6502", ROMS_DIR, name);
+    ASSERT_TRUE(mut_boot(path));
+    static uint32_t crcs[FRAMES];
+    static int runs[FRAMES];
+    int n = 0;
+    for (int f = 0; f < FRAMES; f++)
+    {
+        uint32_t c = host_crc32(0, mut_frame(w, h), px * sizeof(uint32_t));
+        if (n && crcs[n - 1] == c)
+            runs[n - 1]++;
+        else
+        {
+            crcs[n] = c;
+            runs[n++] = 1;
+        }
+    }
+    /* The landed picture holds to the end, and before the scroll's
+     * pictures is the one it started from, which held while it waited. */
+    ASSERT_GT(runs[n - 1], per_step);
+    int moving = 0;
+    while (moving < n - 1 && runs[n - 2 - moving] == per_step)
+        moving++;
+    ASSERT_LT(moving, n - 1);
+    ASSERT_GT(runs[n - 2 - moving], per_step);
+    ASSERT_EQ(moving, steps);
+    uint32_t got = host_crc32(0, &crcs[n - 1 - moving], (size_t)(moving + 1) * sizeof(uint32_t));
+    if (getenv("RP6502_BLESS_CRC"))
+        printf("    0x%08X,  /* %s */\n", got, name);
+    else
+        ASSERT_EQ(got, expect);
+}
+
 /* The reference frame is pinned by CRC and the frame under test has to match
  * it pixel for pixel, which names the first pixel that is off. run_case leaves
  * the reference's frame in settled, so only the frame under test boots here. */
@@ -366,6 +414,20 @@ UTEST(mode3, dbl_16bpp_wrap_matches_doubled_bitmap_320x180)
 UTEST(mode3, dbl_size_out_of_range_320x240)
 {
     run_pair(utest_result, "mode3_dbl_size_w", "blank320", BLANK320_CRC);
+}
+
+/* Two lines of an upward scroll on the 80-column terminal: a scanline a
+ * frame, fifteen pictures a line on the way and the one it lands on. */
+UTEST(mode0, smooth_scroll_up_640x480)
+{
+    run_smooth(utest_result, "mode0_smooth_up640", 31, 1, 0xC8785F4F);
+}
+
+/* Two lines of a downward scroll on the 40-column terminal: a scanline every
+ * second frame, seven pictures a line on the way and the one it lands on. */
+UTEST(mode0, smooth_scroll_down_320x240)
+{
+    run_smooth(utest_result, "mode0_smooth_down320", 15, 2, 0x4DE10E86);
 }
 
 UTEST(mode3, bpp1_builtin_320x240)

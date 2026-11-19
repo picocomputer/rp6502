@@ -1575,13 +1575,15 @@ void cells_publish(void)
     const cells_smooth_t *sm = &cells->smooth;
     if (sm->on && sm->buf == (uint8_t)(buf - cells->bufs))
     {
-        mode0_smooth.ghost = MODE0_ROW(buf->mem + (uint32_t)sm->ghost * buf->width - mode0_cells,
-                                       sm->ghost_size);
-        mode0_smooth.frame = (uint32_t)sm->frame;
-        mode0_smooth.region = MODE0_SMOOTH(sm->top, sm->bot, sm->up);
+        mode0_regs.smooth_ghost =
+            MODE0_ROW(buf->mem + (uint32_t)sm->ghost * buf->width - mode0_cells, sm->ghost_size);
+        mode0_regs.smooth_frame = (uint32_t)sm->frame;
+        mode0_regs.smooth = MODE0_SMOOTH(sm->top, sm->bot, sm->up);
     }
     else
-        mode0_smooth.region = 0;
+        mode0_regs.smooth = 0;
+    // The words now describe one picture.
+    mode0_regs.publish = 1;
     cells_stale = false;
 }
 

@@ -903,6 +903,41 @@ def mode0text(name, canvas, text):
 
 
 mode0text("mode0_dbl640", 3, MODE0_SIZES + "\33[1;3H\33[2 q")
+
+
+# Smooth scrolls (DECSCLM), drawn frame by frame. Every row has its own text,
+# the region holds a double-height pair, and the cursor is hidden, so every
+# step of a scroll is a picture of its own. The program waits after the text
+# for the boot to be over on any machine, then scrolls the region twice and
+# stops.
+def mode0smooth_text(width):
+    s = "\33[0m\33[2J\33[H\33[?25l"
+    for r in range(30):
+        s += f"\33[{r + 1};1H\33[{31 + r % 7}m{r:02} " + "abcdefghij"[r % 10] * (width // 2 - 4)
+    s += "\33[0m\33[9;1H\33#3\33[1;33mTall row\33[10;1H\33#4\33[1;33mTall row\33[0m"
+    return s + "\33[5;20r\33[?4h"
+
+
+def mode0smooth(name, canvas, width, scroll):
+    p = prog(canvas, [(0, 0, 0, 0)], stop=False)
+    say(p, mode0smooth_text(width))
+    frame, tick = p.local("frame"), p.local("tick")
+    p.ldx_imm(24)
+    p.symbol(frame)
+    p.lda_abs(0xFFE3)
+    p.symbol(tick)
+    p.cmp_abs(0xFFE3)
+    p.beq(tick)
+    p.dex()
+    p.bne(frame)
+    say(p, scroll)
+    p.stp()
+    note(name, canvas)
+    p.write(OUT / f"{name}.rp6502")
+
+
+mode0smooth("mode0_smooth_up640", 3, 80, "\33[20;1H\n\n")
+mode0smooth("mode0_smooth_down320", 1, 40, "\33[5;1H\33M\33M")
 mode0text("mode0_dbl320", 1, MODE0_SIZES + "\33[2;2H\33[6 q")
 mode0text("mode0_rev640", 3, "\33[?5h" + MODE0_SIZES + "\33[3;4H\33[4 q")
 mode0text("mode0_rev320", 1, "\33[?5h" + MODE0_SIZES + "\33[1;3H\33[2 q")

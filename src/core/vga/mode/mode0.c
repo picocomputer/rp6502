@@ -15,7 +15,6 @@ mode0_cell_t mode0_cells[MODE0_CELLS] __attribute__((aligned(4)));
 mode0_colors_t mode0_colors[MODE0_CELLS] __attribute__((aligned(4)));
 uint16_t mode0_palette[2 * MODE0_ENTRIES];
 volatile mode0_regs_t mode0_regs;
-volatile mode0_smooth_t mode0_smooth;
 
 /* Indexed by row, then by style: none, single, double, curly, dotted,
  * dashed. The curly underline is a wave three rows tall and a cell wide on
@@ -176,11 +175,11 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
     /* A smooth scroll moving: a scanline of its rows shows the rows where
      * they were, moved on by the scanlines it has gone, with the row going
      * out still at the edge it leaves by. A row of the ghost has no cursor. */
-    const uint32_t region = mode0_smooth.region;
+    const uint32_t region = mode0_regs.smooth;
     if ((region & MODE0_SMOOTH_ON) && logical_row >= MODE0_SMOOTH_TOP(region) &&
         logical_row <= MODE0_SMOOTH_BOT(region))
     {
-        const unsigned moved = mode0_smooth_moved(mode0_smooth.frame,
+        const unsigned moved = mode0_smooth_moved(mode0_regs.smooth_frame,
                                                   (uint32_t)vga_frame_count(), (unsigned)ch);
         if (moved < (unsigned)ch)
         {
@@ -193,7 +192,7 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
             scanrow = (uint8_t)(at % ch);
             if (up ? r == 0 : r == (unsigned)(bot - top + 1))
             {
-                row_word = mode0_smooth.ghost;
+                row_word = mode0_regs.smooth_ghost;
                 logical_row = 0xFF;
             }
             else
