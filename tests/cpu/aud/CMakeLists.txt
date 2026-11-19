@@ -7,21 +7,25 @@ if(NOT WIN32)
 endif()
 
 rp6502_add_test(pcm
-    SOURCES test_pcm.c ${RP6502_SRC}/core/aud/pcm.c ${RP6502_SRC}/core/aud/rsmp.c
+    SOURCES test_pcm.c ${RP6502_SRC}/core/aud/pcm.c
         ${RP6502_SRC}/core/sys/div64.c
         ${RP6502_SRC}/core/sys/ring.c
     INCLUDES ${RP6502_SRC} ${RP6502_GEN} ${RP6502_SRC}/host/sokol
     DEFS PICO_PROGRAM_NAME="RP6502-EMU" RP6502_EXFAT=0)
 add_dependencies(test_pcm rp6502_gen_c)
 
-# At the 48 kHz the Pocket plays at, where 48000 Hz is a step of one.
+# At 48 kHz, where 48000 Hz is a step of one.
 rp6502_add_test(pcm48
-    SOURCES test_pcm.c ${RP6502_SRC}/core/aud/pcm.c ${RP6502_SRC}/core/aud/rsmp.c
+    SOURCES test_pcm.c ${RP6502_SRC}/core/aud/pcm.c
         ${RP6502_SRC}/core/sys/div64.c
         ${RP6502_SRC}/core/sys/ring.c
     INCLUDES ${RP6502_SRC} ${RP6502_GEN} ${RP6502_SRC}/host/sokol
     DEFS PICO_PROGRAM_NAME="RP6502-EMU" RP6502_EXFAT=0 AUD_NATIVE_RATE=48000)
 add_dependencies(test_pcm48 rp6502_gen_c)
+if(NOT WIN32)
+    target_link_libraries(test_pcm PRIVATE m)
+    target_link_libraries(test_pcm48 PRIVATE m)
+endif()
 
 if(RP6502_SOFT_CPU)
     rp6502_add_machine_test(aud FIRMWARE

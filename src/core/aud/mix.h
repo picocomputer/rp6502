@@ -147,9 +147,9 @@ int aud_viz_take(float *dst);
  * 1 engines, 2 resamplers of 24 taps and a Q32 phase and a primed flag,
  * 8 samples made, 4 OPL2 drops, 4 PCM: underruns, the bell, then the PCM:
  * device: open, its rate, bits and channels, the Q32 phase, both channels'
- * 24 samples of history, the bytes buffered and PCM_BUF_SIZE of them. */
+ * PCM_TAPS samples of history, the bytes buffered and PCM_BUF_SIZE of them. */
 #define AUD_RSMP_SIZE (RSMP_TAPS * 4 + 8 + 1)
-#define AUD_PCM_SST_SIZE (1 + 4 + 1 + 1 + 8 + 2 * RSMP_TAPS * 4 + 2 + PCM_BUF_SIZE)
+#define AUD_PCM_SST_SIZE (1 + 4 + 1 + 1 + 8 + 2 * PCM_TAPS * 4 + 2 + PCM_BUF_SIZE)
 #define AUD_SST_SIZE (1 + 2 * AUD_RSMP_SIZE + 8 + 4 + 4 + BEL_SST_SIZE + AUD_PCM_SST_SIZE)
 void aud_sst_save(sst_cursor_t *c, unsigned flags);
 bool aud_sst_load(sst_cursor_t *c, unsigned flags);
@@ -164,7 +164,7 @@ void aud_sst_settle(void);
     STOP(aud_stop)                                          \
     END(aud_end)                                            \
     SST(.id = "AUD_",                                       \
-        .version = 6,                                       \
+        .version = 7,                                       \
         .size = AUD_SST_SIZE,                               \
         .save = aud_sst_save,                               \
         .load = aud_sst_load))

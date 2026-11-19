@@ -14,7 +14,7 @@ extern "C"
 {
 #endif
 
-    /* One pcm_t of core/aud/pcm.c at AUD_NATIVE_RATE. */
+    /* The rsmp-exact engine pcm.sv implements, at AUD_NATIVE_RATE. */
     uint64_t shim_pcm_step(uint32_t rate);
     void shim_pcm_reset(uint32_t rate, uint8_t bits, uint8_t channels);
     uint32_t shim_pcm_put(const uint8_t *src, uint32_t n);

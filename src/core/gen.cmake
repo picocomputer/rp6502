@@ -8,6 +8,7 @@ find_package(Python3 COMPONENTS Interpreter REQUIRED)
 # needs adding here.
 set(RP6502_GENERATORS
     aud/opl.py
+    aud/pcm.py
     aud/psg.py
     aud/rsmp.py
     hid/layout.py

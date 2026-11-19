@@ -761,11 +761,11 @@ def record(name, *lines):
 def opl_drops(path):
     """The OPL2's drop count from a savestate. A software machine decides each
     write as the 6502 makes it and keeps the count in the AUD_ chunk, whose
-    id, version 6 and length come before its fields: the engines byte, two
+    id, version 7 and length come before its fields: the engines byte, two
     resamplers of 105 bytes and the 8-byte samples made come before it."""
     with open(path, "rb") as f:
         blob = f.read()
-    at = blob.index(b"AUD_\x00\x06") + 10 + 1 + 2 * 105 + 8
+    at = blob.index(b"AUD_\x00\x07") + 10 + 1 + 2 * 105 + 8
     return int.from_bytes(blob[at:at + 4], "big")
 
 
@@ -876,14 +876,15 @@ def test_opl_exit():
 
 def test_pcm():
     """Ten frames of the tone, after it has had two to start, are 1050 Hz
-    within a tenth and as loud as the table."""
+    within a tenth and as loud as the table, less PCM_GAIN's 1 dB."""
     record("pcm", "run 2", 'wav "pcm.wav" 10')
     m = mono("pcm.wav")
     cross = crossings(m)
     hz = cross / 2 * 48000 / len(m)
     peak = max(abs(v) for v in m)
+    want = PCM_PEAK * 29204 / 32768
     assert abs(hz - PCM_HZ) < PCM_HZ / 10, f"{cross} crossings, {hz:.1f} Hz"
-    assert abs(peak - PCM_PEAK) < PCM_PEAK * 0.02, f"peak {peak}"
+    assert abs(peak - want) < want * 0.02, f"peak {peak}"
 
 
 def check_pcm_rules(w):

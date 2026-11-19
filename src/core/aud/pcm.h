@@ -8,7 +8,6 @@
 #define _CORE_AUD_PCM_H_
 
 #include "core/api/std.h"
-#include "core/aud/rsmp.h"
 #include "core/sys/ring.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -17,7 +16,8 @@
  * writes frames as a WAV file holds them: interleaved, little-endian, 8-bit
  * unsigned or 16-bit signed, one or two channels. They wait in a buffer of
  * PCM_BUF_SIZE bytes and play at rate, resampled to AUD_NATIVE_RATE with
- * rsmp's filter and summed into the mix.
+ * the filter src/core/aud/pcm.py designs, 1 dB down, and summed into the
+ * mix.
  *
  * A write takes what fits and returns the count, so the program resends the
  * rest. lseek with an offset of 0 is the only seek: SEEK_SET empties the
@@ -26,6 +26,15 @@
 
 #define PCM_BUF_SIZE 4096
 #define PCM_RATE_MAX 48000
+
+/* A polyphase windowed sinc: PCM_PHASES rows of PCM_TAPS taps, blended
+ * linearly between adjacent rows. */
+#define PCM_TAPS 48
+#define PCM_PHASES 128
+
+/* Q15. A full-scale stream rings past full scale on a sharp edge, and the
+ * mix would clip it. */
+#define PCM_GAIN 29204
 
 typedef struct
 {
@@ -47,9 +56,9 @@ typedef struct
     uint8_t at;     /* where hist takes the next sample */
     uint64_t step;  /* frames per native sample, Q32, one at most */
     uint64_t phase; /* Q32; at one or more the next sample takes a frame */
-    /* Each channel's last RSMP_TAPS samples, every one written twice, at at
-     * and at + RSMP_TAPS, so the newest RSMP_TAPS always lie in a row. */
-    int32_t hist[2][2 * RSMP_TAPS];
+    /* Each channel's last PCM_TAPS samples, every one written twice, at at
+     * and at + PCM_TAPS, so the newest PCM_TAPS always lie in a row. */
+    int32_t hist[2][2 * PCM_TAPS];
     /* Takes that left less than a frame, saturating at 0x7FFFFFFF: each
      * time the buffer ran dry. Only the player counts. */
     uint32_t underruns;
@@ -74,8 +83,9 @@ uint32_t pcm_put(pcm_t *s, const uint8_t *src, uint32_t n);
 void pcm_clear(pcm_t *s);
 
 /* The next native sample. A frame is taken when the phase reaches one; with
- * none whole in the buffer the filter takes silence instead, so time goes on
- * and an underrun is heard as a gap. */
+ * none whole in the buffer the filter takes the last sample again, 1/64
+ * nearer zero each time, so time goes on and an underrun fades to a gap
+ * rather than clicking. */
 void pcm_sample(pcm_t *s, int32_t *left, int32_t *right);
 
 /* How many frames pcm_sample takes over the next n samples, with the phase

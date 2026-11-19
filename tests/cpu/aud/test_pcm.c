@@ -7,14 +7,19 @@
 /* The PCM: device's engine and its rows in std, without a machine. The
  * mixer's side is the stub below, which keeps one pcm_t. */
 
+#define _USE_MATH_DEFINES
+
 #include "core/aud/mix.h"
 #include "core/aud/pcm.h"
-#include "core/aud/rsmp.h"
 #include "osal/fs.h"
 #include "utest.h"
 
+#include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+#include "pcm_coef.h"
 
 UTEST_MAIN();
 
@@ -69,60 +74,83 @@ UTEST(pcm, the_format_parses_only_as_given)
         ASSERT_FALSE(pcm_parse(bad[i], &f));
 }
 
-/* The engine has to give rsmp's samples to the bit: the half table read
- * backwards for the upper rows, the history in a doubled ring, both
- * channels in one pass. rsmp is set up flat at zero, as pcm_reset leaves
- * the engine, and is fed each channel of the same frames. */
-static void match_rsmp(int *utest_result, uint32_t rate, int bits, int channels)
+/* Row p of PCM_PHASES + 1, the upper half the lower read backwards. */
+static int32_t ref_coef(unsigned p, int i)
+{
+    return p <= PCM_PHASES / 2 ? pcm_coef[p][i]
+                               : pcm_coef[PCM_PHASES - p][PCM_TAPS - 1 - i];
+}
+
+/* The engine as the plain sum: frames in a flat array, the window the
+ * PCM_TAPS newest before the next take, every tap's row looked up and
+ * blended where it is used. Against it the engine has to give the same
+ * samples to the bit: the history in a doubled ring, the blend done once
+ * for both channels, the mirror split three ways. */
+static void match_ref(int *utest_result, uint32_t rate, int bits, int channels)
 {
     const pcm_fmt_t fmt = {rate, (uint8_t)bits, (uint8_t)channels};
     pcm_t *s = &stub;
     pcm_reset(s, &fmt);
-    rsmp_t ref[2];
-    for (int c = 0; c < 2; c++)
-    {
-        rsmp_reset(&ref[c]);
-        ref[c].primed = true;
-    }
-    const uint64_t step = rsmp_step(rate, AUD_NATIVE_RATE);
+    const uint64_t step = ((uint64_t)rate << 32) / AUD_NATIVE_RATE;
     ASSERT_EQ((uint64_t)s->step, step);
 
     enum { FRAMES = 6000 };
     const int frame = bits / 8 * channels;
     static uint8_t bytes[FRAMES * 4];
-    static int32_t want[2][FRAMES * 8];
-    int n_want = 0;
+    static int32_t x[2][FRAMES];
     for (int i = 0; i < FRAMES; i++)
     {
-        int32_t x[2];
         for (int c = 0; c < channels; c++)
         {
             uint8_t *b = &bytes[i * frame + c * (bits / 8)];
             if (bits == 8)
             {
                 b[0] = (uint8_t)rnd();
-                x[c] = ((int32_t)b[0] - 128) * 256;
+                x[c][i] = ((int32_t)b[0] - 128) * 256;
             }
             else
             {
                 const int16_t v = (int16_t)rnd();
                 b[0] = (uint8_t)v;
                 b[1] = (uint8_t)((uint16_t)v >> 8);
-                x[c] = v;
+                x[c][i] = v;
             }
         }
         if (channels == 1)
-            x[1] = x[0];
-        int32_t out[2][8];
-        int got = 0;
-        for (int c = 0; c < 2; c++)
-            got = rsmp_push(&ref[c], x[c], step, out[c], 8);
-        for (int k = 0; k < got; k++)
+            x[1][i] = x[0][i];
+    }
+
+    static int32_t want[2][FRAMES * 8];
+    int n_want = 0;
+    uint64_t phase = (uint64_t)1 << 32;
+    int taken = 0;
+    const int sh = PCM_COEF_Q + 15;
+    for (;;)
+    {
+        if (phase >= ((uint64_t)1 << 32))
         {
-            want[0][n_want] = out[0][k];
-            want[1][n_want] = out[1][k];
-            n_want++;
+            if (taken == FRAMES)
+                break;
+            phase -= (uint64_t)1 << 32;
+            taken++;
         }
+        const uint32_t mu = (uint32_t)phase;
+        const unsigned p = mu >> 25;
+        const int32_t f = (int32_t)((mu >> 9) & 0xFFFF);
+        for (int c = 0; c < 2; c++)
+        {
+            int64_t acc = 0;
+            for (int i = 0; i < PCM_TAPS; i++)
+            {
+                const int at = taken - PCM_TAPS + i;
+                const int32_t a = ref_coef(p, i), b = ref_coef(p + 1, i);
+                const int32_t k = a + (((b - a) * f + 0x8000) >> 16);
+                acc += (int64_t)k * (at < 0 ? 0 : x[c][at]);
+            }
+            want[c][n_want] = (int32_t)((acc * PCM_GAIN + ((int64_t)1 << (sh - 1))) >> sh);
+        }
+        n_want++;
+        phase += step;
     }
 
     /* The bytes go in as room appears, in odd sizes, across the wrap. */
@@ -145,13 +173,93 @@ static void match_rsmp(int *utest_result, uint32_t rate, int bits, int channels)
     ASSERT_GT(n_want, FRAMES * (AUD_NATIVE_RATE / (int)rate) - 8);
 }
 
-UTEST(pcm, the_engine_is_rsmp_to_the_bit)
+UTEST(pcm, the_engine_is_the_plain_sum_to_the_bit)
 {
     static const uint32_t rates[] = {8000, 11025, 22050, 32000, 44100, 48000};
     for (size_t i = 0; i < sizeof rates / sizeof *rates; i++)
         for (int bits = 8; bits <= 16; bits += 8)
             for (int channels = 1; channels <= 2; channels++)
-                match_rsmp(utest_result, rates[i], bits, channels);
+                match_ref(utest_result, rates[i], bits, channels);
+}
+
+/* A tone of amp at hz, 16-bit mono at rate, as n native samples after the
+ * filter has filled. */
+enum { TONE_N = 16384 };
+static int32_t tone[TONE_N];
+static void play_tone(uint32_t rate, double hz, double amp)
+{
+    const pcm_fmt_t fmt = {rate, 16, 1};
+    pcm_reset(&stub, &fmt);
+    uint32_t i = 0;
+    for (int k = -4 * PCM_TAPS * (AUD_NATIVE_RATE / (int)rate + 1); k < TONE_N; k++)
+    {
+        while (pcm_level(&stub) < PCM_BUF_SIZE - 2)
+        {
+            const int16_t v = (int16_t)lround(amp * sin(2 * M_PI * hz * i++ / rate));
+            const uint8_t b[2] = {(uint8_t)v, (uint8_t)((uint16_t)v >> 8)};
+            pcm_put(&stub, b, 2);
+        }
+        int32_t l, r;
+        pcm_sample(&stub, &l, &r);
+        if (k >= 0)
+            tone[k] = l;
+    }
+}
+
+/* The amplitude at hz in tone, Hann windowed so a loud tone a few hundred
+ * hertz off leaks nothing measurable. */
+static double amp_at(double hz)
+{
+    double re = 0, im = 0, sum = 0;
+    for (int k = 0; k < TONE_N; k++)
+    {
+        const double w = 0.5 - 0.5 * cos(2 * M_PI * k / (TONE_N - 1));
+        const double t = 2 * M_PI * hz * k / AUD_NATIVE_RATE;
+        re += w * tone[k] * cos(t);
+        im += w * tone[k] * sin(t);
+        sum += w;
+    }
+    return 2 * hypot(re, im) / sum;
+}
+
+/* A tone at 8 kHz rings with images at every multiple of the rate, either
+ * side of it. Each has to be 60 dB under the tone, the one at 4500 Hz just
+ * above the input's Nyquist frequency included. */
+UTEST(pcm, images_above_the_input_nyquist_frequency_are_stopped)
+{
+    play_tone(8000, 3500, 16000);
+    const double a = amp_at(3500);
+    ASSERT_GT(a, 10000.0);
+    for (int m = 1; m * 8000 - 3500 < AUD_NATIVE_RATE / 2; m++)
+    {
+        const int hz[2] = {m * 8000 - 3500, m * 8000 + 3500};
+        for (int j = 0; j < 2; j++)
+        {
+            if (hz[j] >= AUD_NATIVE_RATE / 2)
+                continue;
+            const double db = 20 * log10(amp_at(hz[j]) / a);
+            if (db > -60)
+                fprintf(stderr, "  image at %d Hz: %.1f dB\n", hz[j], db);
+            ASSERT_LT(db, -60.0);
+        }
+    }
+}
+
+/* Up to 0.7 of the input's Nyquist frequency a tone comes out as loud as it
+ * went in, less PCM_GAIN. */
+UTEST(pcm, the_passband_is_flat)
+{
+    static const uint32_t rates[] = {8000, 22050, 44100, 48000};
+    for (size_t i = 0; i < sizeof rates / sizeof *rates; i++)
+        for (int k = 1; k <= 7; k += 3)
+        {
+            const double hz = rates[i] / 2.0 * k / 10;
+            play_tone(rates[i], hz, 16000);
+            const double db = 20 * log10(amp_at(hz) / (16000.0 * PCM_GAIN / 32768));
+            if (fabs(db) >= 0.05)
+                fprintf(stderr, "  %u Hz, %.0f Hz: %+.3f dB\n", (unsigned)rates[i], hz, db);
+            ASSERT_LT(fabs(db), 0.05);
+        }
 }
 
 UTEST(pcm, takes_counts_what_the_samples_take)
@@ -179,31 +287,67 @@ UTEST(pcm, takes_counts_what_the_samples_take)
     }
 }
 
-UTEST(pcm, an_underrun_is_silence_and_play_resumes)
+/* A level of 0x4000 that runs dry fades to zero without a step bigger than
+ * 1/32 of full scale, reaches zero exactly, and plays again. */
+UTEST(pcm, an_underrun_fades_to_silence_and_play_resumes)
 {
     const pcm_fmt_t fmt = {22050, 16, 1};
     pcm_reset(&stub, &fmt);
-    static uint8_t loud[64];
+    static uint8_t loud[1024];
     for (size_t i = 0; i < sizeof loud; i += 2)
     {
         loud[i] = 0x00;
         loud[i + 1] = 0x40;
     }
+    const int32_t steady = 0x4000 * PCM_GAIN / 32768;
     pcm_put(&stub, loud, sizeof loud);
-    int32_t l, r;
-    for (int i = 0; i < 200; i++)
+    int32_t l = 0, r = 0;
+    while (pcm_level(&stub))
         pcm_sample(&stub, &l, &r);
-    ASSERT_EQ(pcm_level(&stub), 0);
-    /* Twenty-four silent frames flush the filter. */
-    for (int i = 0; i < 200; i++)
+    ASSERT_LT(abs(l - steady), 4);
+    int32_t last = l;
+    for (int i = 0; i < 4000; i++)
+    {
         pcm_sample(&stub, &l, &r);
+        ASSERT_LT(abs(l - last), 1024);
+        ASSERT_EQ(l, r);
+        last = l;
+    }
     ASSERT_EQ(l, 0);
     ASSERT_EQ(r, 0);
     pcm_put(&stub, loud, sizeof loud);
-    for (int i = 0; i < 40; i++)
+    for (int i = 0; i < 200; i++)
         pcm_sample(&stub, &l, &r);
-    ASSERT_GT(l, 0x3000);
+    ASSERT_LT(abs(l - steady), 4);
     ASSERT_EQ(l, r);
+}
+
+/* A clear while it plays fades too. */
+UTEST(pcm, a_clear_fades_to_silence)
+{
+    const pcm_fmt_t fmt = {44100, 16, 2};
+    pcm_reset(&stub, &fmt);
+    static uint8_t loud[2048];
+    for (size_t i = 0; i < sizeof loud; i += 2)
+    {
+        loud[i] = 0x00;
+        loud[i + 1] = 0xC0;
+    }
+    pcm_put(&stub, loud, sizeof loud);
+    int32_t l = 0, r = 0;
+    for (int i = 0; i < 300; i++)
+        pcm_sample(&stub, &l, &r);
+    ASSERT_GT(pcm_level(&stub), 0);
+    pcm_clear(&stub);
+    int32_t last = l;
+    for (int i = 0; i < 4000; i++)
+    {
+        pcm_sample(&stub, &l, &r);
+        ASSERT_LT(abs(l - last), 1024);
+        last = l;
+    }
+    ASSERT_EQ(l, 0);
+    ASSERT_EQ(r, 0);
 }
 
 /* The take that leaves less than a frame is an underrun, once each time

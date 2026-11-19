@@ -192,7 +192,7 @@ static void play_tone(int *utest_result, int bits, int channels)
     double hz, peak;
     tone_of(&out[FRAME * 4 * 2], n - FRAME * 8, 2, &hz, &peak);
     ASSERT_LT(fabs(hz - 1050), 1.0);
-    const double want = bits == 8 ? 100.0 * 256 / 32768 : 16000.0 / 32768;
+    const double want = (bits == 8 ? 100.0 * 256 / 32768 : 16000.0 / 32768) * PCM_GAIN / 32768;
     ASSERT_LT(fabs(peak - want), want * 0.02);
     if (channels == 2)
     {
@@ -208,15 +208,26 @@ UTEST(pcm_mix, a_tone_plays_at_its_pitch_and_level)
     play_tone(utest_result, 8, 1);
 }
 
-UTEST(pcm_mix, an_underrun_is_a_gap)
+/* The tone stops near its trough, sample 415 of 21 a cycle, but fades
+ * rather than steps: no sample moves further from the last than the tone
+ * itself does, about 0.06. The first few samples out can be the last of the
+ * test before, which the render still held. */
+UTEST(pcm_mix, an_underrun_fades_to_a_gap)
 {
     fresh();
     make_tone(22050, 1050, 16, 1, 20);
     const int fd = ssys_open("PCM:22050,16,1", O_WR);
     ASSERT_TRUE(fd >= 0);
-    ASSERT_EQ(ssys_write_xram(fd, TABLE, 1000), 1000);
-    size_t n = pull(0, 4);
+    ASSERT_EQ(ssys_write_xram(fd, TABLE, 830), 830);
+    size_t n = pull(0, 6);
     ASSERT_EQ(ssys_lseek(fd, 0, WHENCE_CUR), 0);
+    for (size_t i = 64 * 2; i < n * 2; i += 2)
+        if (fabsf(out[i] - out[i - 2]) >= 0.1f)
+        {
+            fprintf(stderr, "  sample %u of %u: %f after %f\n", (unsigned)(i / 2),
+                    (unsigned)n, out[i], out[i - 2]);
+            ASSERT_LT(fabsf(out[i] - out[i - 2]), 0.1f);
+        }
     for (size_t i = (n - FRAME) * 2; i < n * 2; i++)
         ASSERT_EQ(out[i], 0.0f);
     ASSERT_EQ(ssys_write_xram(fd, TABLE, 1000), 1000);

@@ -919,7 +919,7 @@ static void aud_pcm_save(sst_cursor_t *c)
     sst_put_u8(c, aud_pm.on ? aud_pm.fmt.channels : 0);
     sst_put_u64(c, play ? p->phase : (uint64_t)1 << 32);
     for (int ch = 0; ch < 2; ch++)
-        for (int i = 0; i < RSMP_TAPS; i++)
+        for (int i = 0; i < PCM_TAPS; i++)
             sst_put_i32(c, play ? p->hist[ch][p->at + i] : 0);
     const uint16_t level = play ? pcm_level(p) : 0;
     sst_put_u16(c, level);
@@ -937,10 +937,10 @@ static bool aud_pcm_load(sst_cursor_t *c, uint64_t made)
     fmt.bits = sst_get_u8(c);
     fmt.channels = sst_get_u8(c);
     const uint64_t phase = sst_get_u64(c);
-    int32_t hist[2][RSMP_TAPS];
+    int32_t hist[2][PCM_TAPS];
     bool ok = true;
     for (int ch = 0; ch < 2; ch++)
-        for (int i = 0; i < RSMP_TAPS; i++)
+        for (int i = 0; i < PCM_TAPS; i++)
         {
             hist[ch][i] = sst_get_i32(c);
             if (hist[ch][i] < AUD_SAMPLE_MIN || hist[ch][i] > AUD_SAMPLE_MAX)
@@ -965,8 +965,8 @@ static bool aud_pcm_load(sst_cursor_t *c, uint64_t made)
     pcm_put(&aud_pcm, bytes, level);
     aud_pcm.phase = phase;
     for (int ch = 0; ch < 2; ch++)
-        for (int i = 0; i < RSMP_TAPS; i++)
-            aud_pcm.hist[ch][i] = aud_pcm.hist[ch][i + RSMP_TAPS] = hist[ch][i];
+        for (int i = 0; i < PCM_TAPS; i++)
+            aud_pcm.hist[ch][i] = aud_pcm.hist[ch][i + PCM_TAPS] = hist[ch][i];
     aud_pcm_due = (uint32_t)made;
     aud_pcm_l = aud_pcm_r = 0;
     aud_pm.at = made;

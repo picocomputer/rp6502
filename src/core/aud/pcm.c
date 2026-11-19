@@ -19,11 +19,11 @@
 /* A frame is taken at most once a sample, so the step is one at most. */
 static_assert(PCM_RATE_MAX <= AUD_NATIVE_RATE, "PCM must not downsample");
 
-/* Rows 0 to RSMP_PHASES/2 of rsmp's coefficients. Row RSMP_PHASES-p is row
- * p reversed, which rsmp.py checks. */
-static const int32_t HOST_IN_RAM pcm_coef[RSMP_PHASES / 2 + 1][RSMP_TAPS] = {
-#include "rsmp_half.h"
-};
+/* Rows 0 to PCM_PHASES/2. Row PCM_PHASES-p is row p reversed, which pcm.py
+ * checks. */
+#include "pcm_coef.h"
+static_assert(PCM_COEF_TAPS == PCM_TAPS && PCM_COEF_PHASES == PCM_PHASES,
+              "pcm_coef.h is not the filter pcm.h declares");
 
 static bool pcm_number(const char **s, uint32_t max, uint32_t *out)
 {
@@ -110,7 +110,8 @@ static int32_t HOST_IN_RAM_FUNC pcm_decode(pcm_t *s, uint32_t i)
 
 static void HOST_IN_RAM_FUNC pcm_take(pcm_t *s)
 {
-    int32_t l = 0, r = 0;
+    const unsigned at = s->at;
+    int32_t l, r;
     const uint32_t level = RING_LEN(&s->buf);
     if (level >= s->frame)
     {
@@ -120,44 +121,36 @@ static void HOST_IN_RAM_FUNC pcm_take(pcm_t *s)
         if (level < 2u * s->frame && s->underruns < 0x7FFFFFFF)
             s->underruns++;
     }
-    const unsigned at = s->at;
-    s->hist[0][at] = s->hist[0][at + RSMP_TAPS] = l;
-    s->hist[1][at] = s->hist[1][at + RSMP_TAPS] = r;
-    s->at = (uint8_t)(at + 1 == RSMP_TAPS ? 0 : at + 1);
-}
-
-/* rsmp_at's sum for row p, on both channels at once. A row past the middle
- * is a stored row read backwards. */
-static void HOST_IN_RAM_FUNC pcm_dot(unsigned p, const int32_t *hl, const int32_t *hr, int64_t *al, int64_t *ar)
-{
-    int64_t a = 0, b = 0;
-    if (p <= RSMP_PHASES / 2)
-    {
-        const int32_t *c = pcm_coef[p];
-        for (int i = 0; i < RSMP_TAPS; i++)
-        {
-            a += (int64_t)c[i] * hl[i];
-            b += (int64_t)c[i] * hr[i];
-        }
-    }
     else
     {
-        const int32_t *c = pcm_coef[RSMP_PHASES - p];
-        for (int i = 0; i < RSMP_TAPS; i++)
-        {
-            a += (int64_t)c[RSMP_TAPS - 1 - i] * hl[i];
-            b += (int64_t)c[RSMP_TAPS - 1 - i] * hr[i];
-        }
+        /* The newest sample, written last time at at - 1, so its copy is
+         * at at + PCM_TAPS - 1. Division truncates toward zero, so it
+         * reaches zero exactly. */
+        l = s->hist[0][at + PCM_TAPS - 1] * 63 / 64;
+        r = s->hist[1][at + PCM_TAPS - 1] * 63 / 64;
     }
-    *al = a;
-    *ar = b;
+    s->hist[0][at] = s->hist[0][at + PCM_TAPS] = l;
+    s->hist[1][at] = s->hist[1][at + PCM_TAPS] = r;
+    s->at = (uint8_t)(at + 1 == PCM_TAPS ? 0 : at + 1);
 }
 
-/* rsmp_at's blend and rounding, so the result is rsmp's to the bit. */
-static int32_t HOST_IN_RAM_FUNC pcm_blend(int64_t a, int64_t b, int64_t f)
+/* Rows p and p + 1 blended by f, a 16-bit fraction, once for both
+ * channels. A row past the middle is a stored row read backwards. */
+static void HOST_IN_RAM_FUNC pcm_row(unsigned p, int32_t f, int32_t *c)
 {
-    const int64_t v = a + (((b - a) * f) >> 16);
-    return (int32_t)((v + (1 << (RSMP_Q - 1))) >> RSMP_Q);
+    enum { H = PCM_PHASES / 2, T = PCM_TAPS };
+    const unsigned q = p + 1;
+    const int32_t *a = pcm_coef[p <= H ? p : PCM_PHASES - p];
+    const int32_t *b = pcm_coef[q <= H ? q : PCM_PHASES - q];
+    if (q <= H)
+        for (int i = 0; i < T; i++)
+            c[i] = a[i] + (((b[i] - a[i]) * f + 0x8000) >> 16);
+    else if (p > H)
+        for (int i = 0; i < T; i++)
+            c[i] = a[T - 1 - i] + (((b[T - 1 - i] - a[T - 1 - i]) * f + 0x8000) >> 16);
+    else
+        for (int i = 0; i < T; i++)
+            c[i] = a[i] + (((b[T - 1 - i] - a[i]) * f + 0x8000) >> 16);
 }
 
 void HOST_IN_RAM_FUNC pcm_sample(pcm_t *s, int32_t *left, int32_t *right)
@@ -168,15 +161,20 @@ void HOST_IN_RAM_FUNC pcm_sample(pcm_t *s, int32_t *left, int32_t *right)
         pcm_take(s);
     }
     const uint32_t mu = (uint32_t)s->phase;
-    const unsigned p = mu >> 25;
-    const int64_t f = (mu >> 9) & 0xFFFF;
+    int32_t c[PCM_TAPS];
+    pcm_row(mu >> 25, (int32_t)((mu >> 9) & 0xFFFF), c);
     const int32_t *hl = &s->hist[0][s->at];
     const int32_t *hr = &s->hist[1][s->at];
-    int64_t al, ar, bl, br;
-    pcm_dot(p, hl, hr, &al, &ar);
-    pcm_dot(p + 1, hl, hr, &bl, &br);
-    *left = pcm_blend(al, bl, f);
-    *right = pcm_blend(ar, br, f);
+    int64_t al = 0, ar = 0;
+    for (int i = 0; i < PCM_TAPS; i++)
+    {
+        al += (int64_t)c[i] * hl[i];
+        ar += (int64_t)c[i] * hr[i];
+    }
+    /* Q(PCM_COEF_Q) by Q15, rounded. */
+    const int sh = PCM_COEF_Q + 15;
+    *left = (int32_t)((al * PCM_GAIN + ((int64_t)1 << (sh - 1))) >> sh);
+    *right = (int32_t)((ar * PCM_GAIN + ((int64_t)1 << (sh - 1))) >> sh);
     s->phase += s->step;
 }
 
