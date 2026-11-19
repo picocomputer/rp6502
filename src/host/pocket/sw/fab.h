@@ -41,6 +41,10 @@ void fab_sst_save(sst_cursor_t *c, unsigned flags);
 bool fab_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define FAB_DRIVER DRIVER(                                     \
-    SST(FAB_, 1, FAB_SST_SIZE, fab_sst_save, fab_sst_load))
+    SST(.id = "FAB_",                                          \
+        .version = 1,                                          \
+        .size = FAB_SST_SIZE,                                  \
+        .save = fab_sst_save,                                  \
+        .load = fab_sst_load))
 
 #endif /* _HOST_POCKET_SW_FAB_H_ */

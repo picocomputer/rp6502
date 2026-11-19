@@ -214,7 +214,6 @@ core/sys/sst.c sst_body: the savestate's own working memory: the blob being walk
 core/sys/sst.c sst_manifest_crc: the savestate's own working memory: the blob being walked and the manifest sum
 core/sys/sst.c sst_manifest_done: the savestate's own working memory: the blob being walked and the manifest sum
 core/sys/sst.c sst_offset: the savestate's own working memory: the blob being walked and the manifest sum
-core/sys/sst.c sst_walk_bad: the savestate's own working memory: the blob being walked and the manifest sum
 core/sys/sst.c sst_why: the savestate's own working memory: the blob being walked and the manifest sum
 core/sys/sst.c sst_why_row: the savestate's own working memory: the blob being walked and the manifest sum
 core/sys/sst.c sst_refusal: the savestate's own working memory: the blob being walked and the manifest sum

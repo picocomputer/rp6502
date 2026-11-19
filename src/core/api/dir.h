@@ -40,6 +40,10 @@ bool dir_sst_load(sst_cursor_t *c, unsigned flags);
 #define DIR_DRIVER DRIVER(                                  \
     RUN(dir_run)                                            \
     STOP(dir_stop)                                          \
-    SST(DIR_, 1, DIR_SST_SIZE, dir_sst_save, dir_sst_load))
+    SST(.id = "DIR_",                                       \
+        .version = 1,                                       \
+        .size = DIR_SST_SIZE,                               \
+        .save = dir_sst_save,                               \
+        .load = dir_sst_load))
 
 #endif /* _CORE_API_DIR_H_ */

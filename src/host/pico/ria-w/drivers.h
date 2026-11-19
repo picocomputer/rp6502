@@ -34,6 +34,7 @@
 #include "ria/mon/mon.h"
 #include "ria/mon/ram.h"
 #include "core/rom/rom.h"
+#include "core/aud/pcm.h"
 #include "ria/mon/rom.h"
 #include "ria-w/ble/ble.h"
 #include "ria-w/net/cyw.h"
@@ -102,13 +103,16 @@
     VCP_DRIVER, NFC_DRIVER, API_DRIVER,              \
     USB_DRIVER, PHI2_DRIVER, RESB_DRIVER
 
-/* std_api_open tries these rows in order, and fs_std_handles accepts every
- * path, so FS_STD_DRIVER is last. */
+/* open() tries these drivers' STD rows in order, and the filesystem's
+ * accepts every path, so it is last. ASSET_DRIVER is here for ROM:'s row
+ * alone: the monitor resets the assets itself, so its hooks are not in the
+ * list above. */
 #define RP6502_STD_DRIVERS                           \
-    MODEM_STD_DRIVER, VCP_STD_DRIVER,                \
-    MID_STD_DRIVER, ROM_STD_DRIVER,                  \
-    NFC_STD_DRIVER, PCM_STD_DRIVER,                  \
-    SAVE_STD_DRIVER, FS_STD_DRIVER
+    CONSOLE_DRIVER, TTY_DRIVER,                      \
+    MODEM_DRIVER, VCP_DRIVER,                        \
+    MID_DRIVER, ASSET_DRIVER,                        \
+    NFC_DRIVER, PCM_DRIVER,                          \
+    SAVE_DRIVER, FS_DRIVER
 
 #define RP6502_COM_SOURCES                     \
     [COM_SOURCE_KEYBOARD] = KEYMAP_COM_SOURCE, \

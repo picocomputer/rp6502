@@ -135,6 +135,10 @@ bool tablet_sst_load(sst_cursor_t *c, unsigned flags);
 #define TABLET_DRIVER DRIVER(                                        \
     INIT(tablet_init)                                                \
     STOP(tablet_stop)                                                \
-    SST(TBLT, 3, TABLET_SST_SIZE, tablet_sst_save, tablet_sst_load))
+    SST(.id = "TBLT",                                                \
+        .version = 3,                                                \
+        .size = TABLET_SST_SIZE,                                     \
+        .save = tablet_sst_save,                                     \
+        .load = tablet_sst_load))
 
 #endif /* _CORE_HID_TABLET_H_ */

@@ -87,6 +87,10 @@ bool vga_sst_load(sst_cursor_t *c, unsigned flags);
     INIT(vga_init)                                          \
     TASK_PUMPED(vga_task)                                   \
     STOP(vga_stop)                                          \
-    SST(VGA_, 3, VGA_SST_SIZE, vga_sst_save, vga_sst_load))
+    SST(.id = "VGA_",                                       \
+        .version = 3,                                       \
+        .size = VGA_SST_SIZE,                               \
+        .save = vga_sst_save,                               \
+        .load = vga_sst_load))
 
 #endif /* _CORE_VGA_VGA_EMU_H_ */

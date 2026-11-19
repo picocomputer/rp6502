@@ -35,6 +35,7 @@
 #include "core/sys/xram.h"
 #include "core/ria/ria.h"
 #include "core/rom/rom.h"
+#include "core/aud/pcm.h"
 #include "core/str/oem.h"
 #include "core/com/rln.h"
 #include "core/str/str.h"
@@ -65,7 +66,16 @@
     CLK_DRIVER, RANDOM_DRIVER, PHI2_DRIVER,                 \
     CPU_DRIVER, VIA_DRIVER, BUS_DRIVER
 
-#define RP6502_STD_DRIVERS ROM_STD_DRIVER, PCM_STD_DRIVER, SAVE_STD_DRIVER, FS_STD_DRIVER
+/* This machine makes savestates, so its stdio rows keep their STD_SST
+ * parts. */
+#define RP6502_SST
+
+/* open() tries these drivers' STD rows in order, and the filesystem's
+ * accepts every path, so it is last. */
+#define RP6502_STD_DRIVERS                           \
+    CONSOLE_DRIVER, TTY_DRIVER,                      \
+    ASSET_DRIVER, PCM_DRIVER,                        \
+    SAVE_DRIVER, FS_DRIVER
 
 #define RP6502_COM_SOURCES                       \
     [COM_SOURCE_KEYBOARD] = PASTE_COM_SOURCE,  \

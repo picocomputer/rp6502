@@ -161,7 +161,7 @@ bool std_sst_refused(void)
     for (int i = 0; i < STD_OPEN_MAX; i++)
     {
         const std_open_t *o = &std_opens[i];
-        if (o->refs && std_writer(o) && !std_row(o)->resumes_writes)
+        if (o->refs && std_writer(o) && !std_row(o)->sst.resumes_writes)
             return true;
     }
     return false;
@@ -205,14 +205,14 @@ void std_sst_save(sst_cursor_t *c, unsigned flags)
         sst_put_bool(c, carried);
         if (!carried)
             continue;
-        if (!std_row(o)->ident)
+        if (!std_row(o)->sst.ident)
         {
             sst_fail(c);
             return;
         }
         sst_put_u8(c, o->driver);
         sst_put_u8(c, o->mode);
-        if (!std_row(o)->ident(o->desc, c))
+        if (!std_row(o)->sst.ident(o->desc, c))
         {
             sst_fail(c);
             return;
@@ -279,11 +279,11 @@ bool std_sst_load(sst_cursor_t *c, unsigned flags)
             continue;
         uint8_t row = sst_get_u8(c);
         uint8_t mode = sst_get_u8(c);
-        if (!sst_ok(c) || row >= count || !drivers[row].reopen || !(mode & (FS_RD | FS_WR)) ||
+        if (!sst_ok(c) || row >= count || !drivers[row].sst.reopen || !(mode & (FS_RD | FS_WR)) ||
             (mode & ~(FS_RD | FS_WR)))
             goto fail;
         api_errno err = API_EIO;
-        int desc = drivers[row].reopen(c, mode, &err);
+        int desc = drivers[row].sst.reopen(c, mode, &err);
         if (desc < 0)
             goto fail;
         // Held by the load until the descriptors are counted.
@@ -358,16 +358,23 @@ fail:
     return false;
 }
 
-
-/* This machine's stdio driver table: the console's two, which every machine
- * has, then those its drivers.h lists. The row order is the order open()
- * tries them, so the filesystem catch-all is last. */
-#define STD_ROW_CON 0
-#define STD_ROW_TTY 1
+/* This machine's stdio driver table: one row for each driver in its
+ * drivers.h's RP6502_STD_DRIVERS, made of that driver's STD and STD_SST. The
+ * row order is the order open() tries them, so the filesystem catch-all is
+ * last. STD_SST is kept only on a machine whose drivers.h says it makes
+ * savestates, so on one that does not, nothing links what it names. The list
+ * is expanded as it stands rather than through DRIVERS_FORWARD, because the
+ * rows' commas would split it. */
 static const std_driver_t std_driver_table[] = {
-    CONSOLE_STD_DRIVER,
-    TTY_STD_DRIVER,
-    RP6502_STD_DRIVERS};
+#define DRIVER(row) {row}
+#define STD(...) __VA_ARGS__,
+#ifdef RP6502_SST
+#define STD_SST(...) .sst = {__VA_ARGS__},
+#endif
+#include "core/sys/driver_walk.h"
+    RP6502_STD_DRIVERS
+#include "core/sys/driver_walk_end.h"
+};
 
 const std_driver_t *std_drivers(size_t *count)
 {
@@ -375,10 +382,17 @@ const std_driver_t *std_drivers(size_t *count)
     return std_driver_table;
 }
 
+// The row that claims path, or -1 when none does.
+static int std_row_for(const char *path)
+{
+    for (size_t i = 0; i < sizeof std_driver_table / sizeof std_driver_table[0]; i++)
+        if (std_driver_table[i].handles(path))
+            return (int)i;
+    return -1;
+}
+
 bool std_api_open(void)
 {
-    size_t count;
-    const std_driver_t *drivers = std_drivers(&count);
     api_errno err = API_EIO;
     if (std_fd_active)
     {
@@ -407,26 +421,22 @@ bool std_api_open(void)
     int fd = std_lowest_free_fd();
     if (fd < 0)
         return api_return_errno(API_EMFILE);
-    for (size_t i = 0; i < count; i++)
-    {
-        if (drivers[i].handles(path))
-        {
-            if ((API_A & FS_WR) && !drivers[i].write)
-                return api_return_errno(API_EACCES);
-            if (drivers[i].file && std_files_open() >= STD_FILES_MAX)
-                return api_return_errno(API_EMFILE);
-            err = API_EIO;
-            int idx = drivers[i].open(path, API_A, &err);
-            if (idx < 0)
-                return api_return_errno(err);
-            std_open_t *o = std_bind(fd, (uint8_t)i, idx, API_A);
-            if (!drivers[i].opening)
-                return api_return_ax((uint16_t)fd);
-            std_fd_active = o;
-            return api_working();
-        }
-    }
-    return api_return_errno(API_ENOENT);
+    int i = std_row_for(path);
+    if (i < 0)
+        return api_return_errno(API_ENOENT);
+    if ((API_A & FS_WR) && !std_driver_table[i].write)
+        return api_return_errno(API_EACCES);
+    if (std_driver_table[i].file && std_files_open() >= STD_FILES_MAX)
+        return api_return_errno(API_EMFILE);
+    err = API_EIO;
+    int idx = std_driver_table[i].open(path, API_A, &err);
+    if (idx < 0)
+        return api_return_errno(err);
+    std_open_t *o = std_bind(fd, (uint8_t)i, idx, API_A);
+    if (!std_driver_table[i].opening)
+        return api_return_ax((uint16_t)fd);
+    std_fd_active = o;
+    return api_working();
 }
 
 bool std_api_close(void)
@@ -468,7 +478,7 @@ bool std_api_isatty(void)
     std_open_t *o = std_file(API_A);
     if (!o)
         return api_return_errno(API_EBADF);
-    return api_return_ax(o->driver <= STD_ROW_TTY);
+    return api_return_ax(std_row(o)->terminal);
 }
 
 bool std_exec_refused(void)
@@ -751,9 +761,15 @@ void HOST_IN_RAM_FUNC std_task(void)
 
 void std_reset(void)
 {
+    const char *const console[] = {"CON:0", "CON:1", "CON:2"};
     std_close_all();
     for (int fd = STDIN_FILENO; fd <= STDERR_FILENO; fd++)
-        std_bind(fd, STD_ROW_CON, fd, FS_RD | FS_WR);
+    {
+        int row = std_row_for(console[fd]);
+        api_errno err;
+        int desc = std_driver_table[row].open(console[fd], FS_RD | FS_WR, &err);
+        std_bind(fd, (uint8_t)row, desc, FS_RD | FS_WR);
+    }
 }
 
 void HOST_IN_FLASH_FUNC std_init(void)

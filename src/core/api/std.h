@@ -77,18 +77,22 @@ typedef struct
     // image, and SAVE: is in the running program's save folder, neither of
     // which is the next program's.
     bool refuses_exec;
-    // A descriptor open for writing refuses a savestate unless its driver
-    // sets this. A write in progress, such as a game saving its progress,
-    // cannot be caught whole, but sound can always resume.
-    bool resumes_writes;
-    // The savestate's two, optional like the rest. ident writes down what an
-    // open descriptor is and reopen makes that descriptor again, with the
-    // open mode that the core carries.
-    //
-    // A driver that leaves them NULL cannot carry its descriptors, so a
-    // machine with one of those open refuses to be saved.
-    bool (*ident)(int desc, sst_cursor_t *);
-    int (*reopen)(sst_cursor_t *, uint8_t mode, api_errno *);
+    // The console, which isatty answers 1 for.
+    bool terminal;
+    // The savestate's part, optional like the rest.
+    struct
+    {
+        // ident writes down what an open descriptor is and reopen makes that
+        // descriptor again, with the open mode that the core carries. A
+        // driver that leaves them NULL cannot carry its descriptors, so a
+        // machine with one of those open refuses to be saved.
+        bool (*ident)(int desc, sst_cursor_t *);
+        int (*reopen)(sst_cursor_t *, uint8_t mode, api_errno *);
+        // A descriptor open for writing refuses a savestate unless its
+        // driver sets this. A write in progress, such as a game saving its
+        // progress, cannot be caught whole, but sound can always resume.
+        bool resumes_writes;
+    } sst;
 } std_driver_t;
 
 const std_driver_t *std_drivers(size_t *count);
@@ -115,6 +119,10 @@ bool std_sst_load(sst_cursor_t *c, unsigned flags);
     TASK_PUMPED(std_task)                                   \
     STOP(std_stop)                                          \
     END(std_reset)                                          \
-    SST(STD_, 4, STD_SST_SIZE, std_sst_save, std_sst_load))
+    SST(.id = "STD_",                                       \
+        .version = 4,                                       \
+        .size = STD_SST_SIZE,                               \
+        .save = std_sst_save,                               \
+        .load = std_sst_load))
 
 #endif /* _CORE_API_STD_H_ */

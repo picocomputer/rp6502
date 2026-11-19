@@ -1433,18 +1433,24 @@ UTEST(fs, a_save_file_open_refuses_an_exec)
     ssys_close(f);
 }
 
+/* Whether path opens as a console that takes a write, closed again. */
+static bool opens_as_console(const char *path)
+{
+    int fd = ssys_open(path, O_RD | O_WR);
+    if (fd < 0)
+        return false;
+    bool wrote = ssys_write(fd, "", 0) == 0;
+    ssys_close(fd);
+    return wrote;
+}
+
 /* CON:0, CON:1 and CON:2 are the waiting console; no other number is. */
 UTEST(fs, con_takes_0_1_or_2)
 {
-    static const char *const paths[] = {"CON:0", "CON:1", "CON:2"};
     ASSERT_TRUE(fresh_cwd());
-    for (int n = 0; n < 3; n++)
-    {
-        int fd = ssys_open(paths[n], O_RD | O_WR);
-        ASSERT_TRUE(fd >= 0);
-        ASSERT_EQ(ssys_write(fd, "", 0), 0);
-        ssys_close(fd);
-    }
+    ASSERT_TRUE(opens_as_console("CON:0"));
+    ASSERT_TRUE(opens_as_console("CON:1"));
+    ASSERT_TRUE(opens_as_console("CON:2"));
     ASSERT_TRUE(ssys_open("CON:3", O_RD | O_WR) < 0);
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOENT));
     ASSERT_TRUE(ssys_open("CON:12", O_RD | O_WR) < 0);

@@ -7,7 +7,9 @@
 #ifndef _CORE_SYS_DRIVER_H_
 #define _CORE_SYS_DRIVER_H_
 
-/* A machine's drivers are one list, RP6502_MACH_DRIVERS in its drivers.h. A
+/* A machine's drivers are one list, RP6502_MACH_DRIVERS in its drivers.h,
+ * and its stdio table is a second, RP6502_STD_DRIVERS, which names drivers
+ * in the order open() tries their STD rows. Each list has its own order. A
  * row names only the hooks its driver has:
  *
  *   #define STD_DRIVER DRIVER(         \
@@ -31,6 +33,10 @@
  *   FLASHING(f)     once, when the RIA starts rewriting its own flash, in
  *                   reverse order
  *   CONFIG_INT/STR/RAW/HIDDEN/SAVE(...) and SST(...), any number of each
+ *   STD(...)        the driver's stdio row: the fields of a std_driver_t of
+ *                   core/api/std.h, other than its sst
+ *   STD_SST(...)    the fields of that row's sst, which a machine that
+ *                   makes no savestate leaves out
  *
  * The tasks of a row run in the order the row lists them. A walk defines the
  * labels it uses, then opens with core/sys/driver_walk.h, which makes every

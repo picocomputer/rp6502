@@ -54,25 +54,6 @@ const char *fs_strip_drive(const char *path);
  * resolved. It returns false when the result does not fit in cap. */
 bool fs_card_path(const char *path, const char *root, char *out, size_t cap);
 
-/* osal/fs.h's two rows. */
-#define FS_POCKET_ROW(handles_fn, open_fn, refuses)       \
-    {                                                     \
-        .handles = handles_fn,                            \
-        .open = open_fn,                                  \
-        .close = fs_std_close,                            \
-        .read = fs_std_read,                              \
-        .write = fs_std_write,                            \
-        .sync = fs_std_sync,                              \
-        .lseek = fs_std_lseek,                            \
-        .file = true,                                     \
-        .refuses_exec = refuses,                          \
-        .ident = fs_std_ident,                            \
-        .reopen = fs_std_reopen,                          \
-        .resumes_writes = false,                          \
-    }
-#define FS_POCKET_SAVE_DRIVER FS_POCKET_ROW(save_std_handles, save_std_open, true)
-#define FS_POCKET_STD_DRIVER FS_POCKET_ROW(fs_std_handles, fs_std_open, false)
-
-#define FS_DRIVER DRIVER(STOP(fs_stop))
+#define FS_POCKET_DRIVER DRIVER(STOP(fs_stop))
 
 #endif /* _HOST_POCKET_SW_FS_H_ */

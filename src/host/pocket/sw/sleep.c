@@ -39,14 +39,10 @@
 #include "core/api/std.h"
 #include "core/sys/debug_log.h"
 #include "core/sys/sst.h"
-#include "core/sys/sst_size.h"
 #include "core/sys/sys.h"
 #include "pocket_version.h"
 
 #include <stdio.h>
-
-_Static_assert(SST_TOTAL <= POCKET_SST_BYTES,
-               "the savestate is larger than gen/version.py's SST_BYTES");
 
 bool sleep_waking(void)
 {

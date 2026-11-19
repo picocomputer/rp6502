@@ -106,6 +106,10 @@ bool manifold_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define MANIFOLD_DRIVER DRIVER(     \
     TASK_PUMPED(manifold_task)      \
-    SST(MFLD, 3, MANIFOLD_SST_SIZE, manifold_sst_save, manifold_sst_load))
+    SST(.id = "MFLD",               \
+        .version = 3,               \
+        .size = MANIFOLD_SST_SIZE,  \
+        .save = manifold_sst_save,  \
+        .load = manifold_sst_load))
 
 #endif /* _CORE_COM_MANIFOLD_H_ */

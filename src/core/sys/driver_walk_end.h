@@ -24,3 +24,5 @@
 #undef CONFIG_HIDDEN
 #undef CONFIG_SAVE
 #undef SST
+#undef STD
+#undef STD_SST

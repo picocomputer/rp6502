@@ -60,6 +60,10 @@ bool clk_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define CLK_DRIVER DRIVER(                                  \
     RUN(clk_run)                                            \
-    SST(CLK_, 1, CLK_SST_SIZE, clk_sst_save, clk_sst_load))
+    SST(.id = "CLK_",                                       \
+        .version = 1,                                       \
+        .size = CLK_SST_SIZE,                               \
+        .save = clk_sst_save,                               \
+        .load = clk_sst_load))
 
 #endif /* _CORE_TIM_CLK_H_ */

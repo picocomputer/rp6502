@@ -76,9 +76,8 @@ int fs_save_open(const char *name, uint8_t flags, api_errno *err);
 void fs_save_start(void);
 void fs_save_free(void);
 
-#define SAVE_STD_DRIVER              \
-    {                                \
-        .handles = save_std_handles, \
+#define SAVE_DRIVER DRIVER(          \
+    STD(.handles = save_std_handles, \
         .open = save_std_open,       \
         .close = fs_std_close,       \
         .read = fs_std_read,         \
@@ -86,25 +85,22 @@ void fs_save_free(void);
         .sync = fs_std_sync,         \
         .lseek = fs_std_lseek,       \
         .file = true,                \
-        .refuses_exec = true,        \
-        .ident = fs_std_ident,       \
-        .reopen = fs_std_reopen,     \
-        .resumes_writes = false,     \
-    }
+        .refuses_exec = true)        \
+    STD_SST(.ident = fs_std_ident,   \
+            .reopen = fs_std_reopen, \
+            .resumes_writes = false))
 
-#define FS_STD_DRIVER           \
-    {                              \
-        .handles = fs_std_handles, \
-        .open = fs_std_open,       \
-        .close = fs_std_close,     \
-        .read = fs_std_read,       \
-        .write = fs_std_write,     \
-        .sync = fs_std_sync,       \
-        .lseek = fs_std_lseek,     \
-        .file = true,              \
-        .ident = fs_std_ident,     \
-        .reopen = fs_std_reopen,   \
-        .resumes_writes = false,   \
-    }
+#define FS_DRIVER DRIVER(            \
+    STD(.handles = fs_std_handles,   \
+        .open = fs_std_open,         \
+        .close = fs_std_close,       \
+        .read = fs_std_read,         \
+        .write = fs_std_write,       \
+        .sync = fs_std_sync,         \
+        .lseek = fs_std_lseek,       \
+        .file = true)                \
+    STD_SST(.ident = fs_std_ident,   \
+            .reopen = fs_std_reopen, \
+            .resumes_writes = false))
 
 #endif /* _OSAL_FS_H_ */

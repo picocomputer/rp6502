@@ -148,6 +148,10 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags);
     RUN(rln_run)                                            \
     STOP(rln_stop)                                          \
     BREAK(rln_stop)                                         \
-    SST(RLN_, 8, RLN_SST_SIZE, rln_sst_save, rln_sst_load))
+    SST(.id = "RLN_",                                       \
+        .version = 8,                                       \
+        .size = RLN_SST_SIZE,                               \
+        .save = rln_sst_save,                               \
+        .load = rln_sst_load))
 
 #endif /* _CORE_COM_RLN_H_ */

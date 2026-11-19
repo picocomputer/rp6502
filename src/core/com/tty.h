@@ -42,20 +42,21 @@ int tty_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err);
 void tty_sst_save(sst_cursor_t *c, unsigned flags);
 bool tty_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define TTY_DRIVER DRIVER( \
-    STOP(tty_stop)         \
-    SST(TTY_, 1, TTY_SST_SIZE, tty_sst_save, tty_sst_load))
-
-#define TTY_STD_DRIVER                                        \
-    {                                                         \
-        .handles = tty_std_handles,                           \
-        .open = tty_std_open,                                 \
-        .close = tty_std_close,                               \
-        .read = tty_std_read,                                 \
-        .write = tty_std_write,                               \
-        .ident = tty_std_ident,                               \
-        .reopen = tty_std_reopen,                             \
-        .resumes_writes = true,                               \
-    }
+#define TTY_DRIVER DRIVER(            \
+    STOP(tty_stop)                    \
+    SST(.id = "TTY_",                 \
+        .version = 1,                 \
+        .size = TTY_SST_SIZE,         \
+        .save = tty_sst_save,         \
+        .load = tty_sst_load)         \
+    STD(.handles = tty_std_handles,   \
+        .open = tty_std_open,         \
+        .close = tty_std_close,       \
+        .read = tty_std_read,         \
+        .write = tty_std_write,       \
+        .terminal = true)             \
+    STD_SST(.ident = tty_std_ident,   \
+            .reopen = tty_std_reopen, \
+            .resumes_writes = true))
 
 #endif /* _CORE_COM_TTY_H_ */

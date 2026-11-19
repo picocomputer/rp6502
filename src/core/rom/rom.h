@@ -113,22 +113,22 @@ bool asset_sst_load(sst_cursor_t *c, unsigned flags);
 
 /* A stop closes the image, as the Pico's monitor does, because the stop also
  * clears the running program's name that a savestate reopens it by. */
-#define ASSET_DRIVER DRIVER(                                      \
-    STOP(rom_assets_reset)                                        \
-    SST(ASET, 1, ASSET_SST_SIZE, asset_sst_save, asset_sst_load))
-
-#define ROM_STD_DRIVER           \
-    {                               \
-        .handles = rom_std_handles, \
-        .open = rom_std_open,       \
-        .close = rom_std_close,     \
-        .read = rom_std_read,       \
-        .sync = rom_std_sync,       \
-        .lseek = rom_std_lseek,     \
-        .refuses_exec = true,       \
-        .ident = rom_std_ident,     \
-        .reopen = rom_std_reopen,   \
-        .resumes_writes = false,    \
-    }
+#define ASSET_DRIVER DRIVER(          \
+    STOP(rom_assets_reset)            \
+    SST(.id = "ASET",                 \
+        .version = 1,                 \
+        .size = ASSET_SST_SIZE,       \
+        .save = asset_sst_save,       \
+        .load = asset_sst_load)       \
+    STD(.handles = rom_std_handles,   \
+        .open = rom_std_open,         \
+        .close = rom_std_close,       \
+        .read = rom_std_read,         \
+        .sync = rom_std_sync,         \
+        .lseek = rom_std_lseek,       \
+        .refuses_exec = true)         \
+    STD_SST(.ident = rom_std_ident,   \
+            .reopen = rom_std_reopen, \
+            .resumes_writes = false))
 
 #endif /* _CORE_ROM_ROM_H_ */

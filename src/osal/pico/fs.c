@@ -235,23 +235,6 @@ void fs_std_settle(void)
 {
 }
 
-/* The RIA makes no savestate, so it never writes a file down or opens one
- * again. */
-bool fs_std_ident(int desc, sst_cursor_t *c)
-{
-    (void)desc;
-    (void)c;
-    return false;
-}
-
-int fs_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err)
-{
-    (void)c;
-    (void)mode;
-    *err = API_EINVAL;
-    return -1;
-}
-
 std_rw_result fs_std_close(int desc, api_errno *err)
 {
     lfs_file_t *lf;

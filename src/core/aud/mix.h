@@ -163,6 +163,10 @@ void aud_sst_settle(void);
     TASK_ALWAYS(aud_task)                                   \
     STOP(aud_stop)                                          \
     END(aud_end)                                            \
-    SST(AUD_, 6, AUD_SST_SIZE, aud_sst_save, aud_sst_load))
+    SST(.id = "AUD_",                                       \
+        .version = 6,                                       \
+        .size = AUD_SST_SIZE,                               \
+        .save = aud_sst_save,                               \
+        .load = aud_sst_load))
 
 #endif /* _CORE_AUD_MIX_H_ */

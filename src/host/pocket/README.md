@@ -156,8 +156,8 @@ The firmware builds it, and its driver list carries
 the rows. Two rows are this machine's own: `FAB_`, in `sw/fab.c`, holds
 what only the bitstream keeps, and `AUD_`, in `sw/aud.c`, holds the
 audio engines. The blob is about 230 KB. The size the host is given is
-`SST_BYTES` in `gen/version.py`, and the firmware's build fails when
-core's total does not fit in it. A load writes the blob at the start of
+`SST_BYTES` in `gen/version.py`. A blob that outgrows it is refused by
+`sst_save`, so the sleep tests fail in CI before it can ship. A load writes the blob at the start of
 the window.
 
 **A bitstream runs only the firmware built for it.** The register layout

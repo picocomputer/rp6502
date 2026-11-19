@@ -58,23 +58,23 @@ int console_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err);
 void console_sst_save(sst_cursor_t *c, unsigned flags);
 bool console_sst_load(sst_cursor_t *c, unsigned flags);
 
-#define CONSOLE_DRIVER DRIVER( \
-    STOP(console_stop)         \
-    END(console_end)           \
-    SST(CON_, 1, CONSOLE_SST_SIZE, console_sst_save, console_sst_load))
+#define CONSOLE_DRIVER DRIVER(            \
+    STOP(console_stop)                    \
+    END(console_end)                      \
+    SST(.id = "CON_",                     \
+        .version = 1,                     \
+        .size = CONSOLE_SST_SIZE,         \
+        .save = console_sst_save,         \
+        .load = console_sst_load)         \
+    STD(.handles = console_std_handles,   \
+        .open = console_std_open,         \
+        .close = console_std_close,       \
+        .read = console_std_read,         \
+        .write = console_std_write,       \
+        .terminal = true)                 \
+    STD_SST(.ident = console_std_ident,   \
+            .reopen = console_std_reopen, \
+            .resumes_writes = true))
 
-/* The desc of CON:0, CON:1 and CON:2 is the number, so std_reset opens the
- * console on 0, 1 and 2 with this row and the descriptor for its desc. */
-#define CONSOLE_STD_DRIVER                                        \
-    {                                                         \
-        .handles = console_std_handles,                           \
-        .open = console_std_open,                                 \
-        .close = console_std_close,                               \
-        .read = console_std_read,                                 \
-        .write = console_std_write,                               \
-        .ident = console_std_ident,                               \
-        .reopen = console_std_reopen,                             \
-        .resumes_writes = true,                               \
-    }
 
 #endif /* _CORE_COM_CONSOLE_H_ */

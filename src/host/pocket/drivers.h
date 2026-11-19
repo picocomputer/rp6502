@@ -44,6 +44,7 @@
 #include "sw/vid.h"
 #include "osal/fs.h"
 #include "core/rom/rom.h"
+#include "core/aud/pcm.h"
 
 /* LOG_DRIVER is first, so what log_init connects to the debug port is there
  * before any other init runs.
@@ -68,7 +69,8 @@
     PROC_DRIVER, ASSET_DRIVER, XREG_DRIVER,             \
     RANDOM_DRIVER, STR_DRIVER,                          \
     MANIFOLD_DRIVER, RIA_DRIVER, COM_DRIVER,            \
-    STD_DRIVER, CONSOLE_DRIVER, TTY_DRIVER, FS_DRIVER,  \
+    STD_DRIVER, CONSOLE_DRIVER, TTY_DRIVER,             \
+    FS_POCKET_DRIVER,                                   \
     AUD_FABRIC_DRIVER,                                  \
     TIO_DRIVER, RLN_DRIVER, CELLS_DRIVER,               \
     LAYOUT_DRIVER, KEYBOARD_DRIVER,                     \
@@ -78,10 +80,16 @@
     DIR_DRIVER, API_DRIVER,                             \
     CLK_DRIVER, PHI2_DRIVER
 
-/* open() tries these rows in order, and the filesystem row accepts every
- * path, so it is last. */
-#define RP6502_STD_DRIVERS ROM_STD_DRIVER, PCM_STD_DRIVER, \
-                           FS_POCKET_SAVE_DRIVER, FS_POCKET_STD_DRIVER
+/* This machine makes savestates, so its stdio rows keep their STD_SST
+ * parts. */
+#define RP6502_SST
+
+/* open() tries these drivers' STD rows in order, and the filesystem's
+ * accepts every path, so it is last. */
+#define RP6502_STD_DRIVERS                           \
+    CONSOLE_DRIVER, TTY_DRIVER,                      \
+    ASSET_DRIVER, PCM_DRIVER,                        \
+    SAVE_DRIVER, FS_DRIVER
 
 /* No serial line feeds the UART row on this machine, but the row stays
  * because the terminal's replies to a program's queries arrive through it. */
