@@ -131,10 +131,12 @@ bool xm_start(int rows, int cols, const char *dir)
             dup2(null, 1);
             dup2(null, 2);
             char fd[16], name[16];
+            char screen[32];
             snprintf(fd, sizeof fd, "%d", dfd[1]);
             snprintf(name, sizeof name, ":%d", number);
+            snprintf(screen, sizeof screen, "%dx%dx24", cols * 6 + 4, rows * 13 + 200);
             execlp("Xvfb", "Xvfb", name, "-displayfd", fd, "-nolisten", "tcp", "-nolisten",
-                   "unix", "-screen", "0", "1600x1200x24", (char *)NULL);
+                   "unix", "-screen", "0", screen, (char *)NULL);
             _exit(127);
         }
         close(dfd[1]);
@@ -193,11 +195,13 @@ bool xm_start(int rows, int cols, const char *dir)
         setenv("DISPLAY", display, 1);
         setenv("LC_ALL", "C", 1);
         /* 8-bit, as the console is: no UTF-8, and the 8-bit codes as
-         * Latin-1. The screen stays 80 columns wide when asked for 132, as
-         * the console's does. The print has each cell's attributes and
-         * colors, and a line a row. */
-        execlp("xterm", "xterm", sopt, "+u8", "-geometry", geometry,
-               "-xrm", "*locale: false", "-xrm", "*c132: false",
+         * Latin-1. The font is 6 by 13 and the display just wide enough
+         * for the columns asked for, so with ?40 set DECCOLM does the rest
+         * of what it does but the window cannot grow to 132 columns, as
+         * the console's screen does not. The print has each cell's
+         * attributes and colors, and a line a row. */
+        execlp("xterm", "xterm", sopt, "+u8", "-fn", "6x13", "-geometry", geometry,
+               "-xrm", "*locale: false",
                "-xrm", "*saveLines: 0", "-xrm", printer,
                "-xrm", "*printAttributes: 2", "-xrm", "*printerAutoClose: true",
                "-xrm", "*printerFormFeed: false", "-xrm", "*printerNewLine: true",
