@@ -692,15 +692,17 @@ static void term_out_DECSCA(term_t *t)
         term_pen(t)->protect = false;
 }
 
-// DECREQTPARM, CSI 0 x or CSI 1 x: the VT100's line settings, answered as a
-// VT100 on its fastest line does -- no parity, 8 bits, 9600 baud both ways, clock
-// multiplier 1, no flags. CSI 0 x asks for a report unsolicited reports may
-// follow (2); CSI 1 x, for one only on request (3).
+// DECREQTPARM, CSI 0 x or CSI 1 x: the VT100's line settings -- no parity,
+// 8 bits, 38400 baud both ways, clock multiplier 1, no flags. The VT100's
+// speeds go up by 8 from 0 for 50 baud to 120 for 19200; 128 is xterm's
+// next step, 38400, the fastest the report can say. CSI 0 x asks for a
+// report unsolicited reports may follow (2); CSI 1 x, for one only on
+// request (3).
 static void term_out_DECREQTPARM(term_t *t)
 {
     uint16_t ps = t->csi_param[0];
     if (ps <= 1)
-        term_replyf(t, "\33[%u;1;1;112;112;1;0x", ps + 2u, 0, 0);
+        term_replyf(t, "\33[%u;1;1;128;128;1;0x", ps + 2u, 0, 0);
 }
 
 // A pen color as SGR sets it, for DECRQSS: 30-37 and 90-97 (or 40s and

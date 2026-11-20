@@ -65,7 +65,7 @@ main_4-06 8D60D954 cursor 52,0 style 0
 6_4-01 1C12D933 cursor 13,28 style 0
 6_5-01 3BE7A2B0 cursor 13,28 style 0
 6_6-01 89D4B795 cursor 13,28 style 0
-6_7-01 B1302A78 cursor 13,29 style 0
+6_7-01 553939C5 cursor 13,29 style 0
 main_7-01 A565C2AD cursor 28,12 style 0
 main_7-02 DF2D650E cursor 13,11 style 0
 main_7-03 FC7C7178 cursor 13,4 style 0

@@ -558,8 +558,8 @@ UTEST(term, device_attributes)
 UTEST(term, decreqtparm)
 {
     fresh();
-    ASSERT_STREQ(ask("\33[x"), "\33[2;1;1;112;112;1;0x");
-    ASSERT_STREQ(ask("\33[1x"), "\33[3;1;1;112;112;1;0x");
+    ASSERT_STREQ(ask("\33[x"), "\33[2;1;1;128;128;1;0x");
+    ASSERT_STREQ(ask("\33[1x"), "\33[3;1;1;128;128;1;0x");
     ASSERT_STREQ(ask("\33[2x"), "");
 }
 
