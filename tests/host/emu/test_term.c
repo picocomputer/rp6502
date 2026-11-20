@@ -1934,6 +1934,24 @@ UTEST(term, a_rectangle_lands_on_a_row_as_it_is_owed)
     ASSERT_EQ(mode0_color(ink(4, 4)->bg_color), color_256[0]);
 }
 
+/* VPR and HPR go where VPA and HPA would, past the margins, as in xterm;
+ * under DECOM, as far as the margins. */
+UTEST(term, vpr_and_hpr_position)
+{
+    fresh();
+    feed("\33[5;10r\33[?69h\33[5;20s\33[7;8H\33[10e");
+    ASSERT_EQ(cy(), 16);
+    ASSERT_EQ(cx(), 7);
+    feed("\33[30a");
+    ASSERT_EQ(cx(), 37);
+    feed("\33[99e\33[99a");
+    ASSERT_EQ(cy(), 29);
+    ASSERT_EQ(cx(), 79);
+    feed("\33[?6h\33[2;3H\33[99e\33[99a");
+    ASSERT_EQ(cy(), 9);
+    ASSERT_EQ(cx(), 19);
+}
+
 /* DECERA erases protected cells too; DECSERA leaves them. */
 UTEST(term, decera_erases_and_decsera_spares_the_protected)
 {

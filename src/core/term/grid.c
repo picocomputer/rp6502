@@ -734,6 +734,19 @@ static unsigned grid_origin_col(term_t *t, const term_grid_t *g, uint16_t col)
     return (unsigned)g->margin_left + col - 1u;
 }
 
+// The row (or column) n past the cursor's, counted from 1 as CUP counts:
+// from the margins under DECOM.
+static uint16_t grid_relative(term_t *t, const term_grid_t *g, bool row, unsigned n)
+{
+    const term_pos_t *pos = term_pos(g);
+    unsigned at = row ? pos->y : pos->x;
+    unsigned from = row ? g->margin_top : g->margin_left;
+    if (term_pen(t)->origin_mode)
+        at = at >= from ? at - from : 0;
+    unsigned v = at + 1u + n;
+    return (uint16_t)(v > 0xFFFFu ? 0xFFFFu : v);
+}
+
 // Home: the top left, or the margins' under DECOM.
 static void grid_home(term_t *t, term_grid_t *g)
 {
@@ -909,12 +922,16 @@ static void grid_csi(term_t *t, term_grid_t *g, uint8_t ch)
         grid_cursor_up(t, g, grid_param(t, 0, 1));
         break;
     case 'B':
-    case 'e': // VPR -- alias of CUD
         grid_cursor_down(t, g, grid_param(t, 0, 1));
         break;
+    case 'e': // VPR: as VPA to the row Pn below, past the margins, as in xterm
+        grid_goto(t, g, pos->x, grid_origin_row(t, g, grid_relative(t, g, true, grid_param(t, 0, 1))));
+        break;
     case 'C':
-    case 'a': // HPR -- alias of CUF
         grid_cursor_forward(t, g, grid_param(t, 0, 1));
+        break;
+    case 'a': // HPR: as HPA to the column Pn right, past the margins, as in xterm
+        grid_goto(t, g, grid_origin_col(t, g, grid_relative(t, g, false, grid_param(t, 0, 1))), pos->y);
         break;
     case 'D':
         grid_cursor_back(t, g, grid_param(t, 0, 1));
