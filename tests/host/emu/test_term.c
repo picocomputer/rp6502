@@ -1006,7 +1006,7 @@ UTEST(term, a_double_width_line_has_forty_columns)
     feed("\33#6");
     ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_WIDE);
     ASSERT_EQ(ch(39, 0), 'a');
-    ASSERT_EQ(ch(40, 0), ' '); /* the right half is lost */
+    ASSERT_EQ(ch(40, 0), 'b'); /* the right half is kept, out of sight */
     ASSERT_EQ(cx(), 39);
     feed("\33[1;70Hz");
     ASSERT_EQ(ch(39, 0), 'z');
@@ -1016,6 +1016,7 @@ UTEST(term, a_double_width_line_has_forty_columns)
     ASSERT_EQ(ch(0, 1), 'y');
     feed("\33#5\33[1;1H\33#5");
     ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
+    ASSERT_EQ(ch(40, 0), 'b'); /* and comes back */
     feed("\33[1;60Hq");
     ASSERT_EQ(ch(59, 0), 'q');
 }

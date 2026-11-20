@@ -880,14 +880,12 @@ static void grid_DECSLRM(term_t *t, term_grid_t *g)
 
 // DECDHL, DECDWL and DECSWL, ESC # 3 to 6: the size of the cursor's line,
 // at once, text already on it included. Going double size, the columns past
-// the middle are lost; DEC blanks them.
+// the middle are kept out of sight, and come back when the line is single
+// size again, as in xterm; vttest counts losing them as a VT100 bug.
 static void grid_line_size(term_t *t, term_grid_t *g, uint8_t size)
 {
     term_pos_t *pos = term_pos(g);
-    uint8_t *line = &term_lines(g)[pos->y];
-    if (size != TERM_LINE_NORMAL && *line == TERM_LINE_NORMAL)
-        cells_erase(t, g, pos->y, g->width / 2u, g->width, false);
-    *line = size;
+    term_lines(g)[pos->y] = size;
     grid_goto(t, g, pos->x, pos->y);
 }
 
