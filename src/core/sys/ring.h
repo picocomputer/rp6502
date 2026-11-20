@@ -66,20 +66,20 @@ typedef struct
 
 /* rd first, so wr - rd never goes below zero. */
 static inline __attribute__((always_inline)) uint32_t
-ring_len(ring_t *i)
+ring_len(const ring_t *i)
 {
     const uint32_t rd = atomic_load_explicit(&i->rd, memory_order_acquire);
     return atomic_load_explicit(&i->wr, memory_order_acquire) - rd;
 }
 
 static inline __attribute__((always_inline)) uint32_t
-ring_wr_slot(ring_t *i, uint32_t size)
+ring_wr_slot(const ring_t *i, uint32_t size)
 {
     return atomic_load_explicit(&i->wr, memory_order_relaxed) & (size - 1);
 }
 
 static inline __attribute__((always_inline)) uint32_t
-ring_rd_slot(ring_t *i, uint32_t n, uint32_t size)
+ring_rd_slot(const ring_t *i, uint32_t n, uint32_t size)
 {
     return (atomic_load_explicit(&i->rd, memory_order_relaxed) + n) & (size - 1);
 }
@@ -99,7 +99,7 @@ ring_rd_add(ring_t *i, uint32_t n)
 }
 
 static inline __attribute__((always_inline)) uint32_t
-ring_linear(ring_t *i, uint32_t size)
+ring_linear(const ring_t *i, uint32_t size)
 {
     const uint32_t len = ring_len(i);
     const uint32_t end = size - ring_rd_slot(i, 0, size);
