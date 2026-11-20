@@ -105,7 +105,6 @@ static void term_reset_core(term_t *t)
     t->app_cursor = false;
     t->app_keypad = false;
     t->backarrow_bs = false;
-    t->allow_deccolm = false;
     t->autorepeat = true;
     t->ice_colors = false;
     t->bracketed_paste = false;
@@ -1139,7 +1138,8 @@ static void term_out_DECSET(term_t *t, bool set)
             if (t->allow_deccolm)
                 term_grids(t, GRID_DECCOLM, 0);
             break;
-        case 40: // xterm's allow 80 to 132: DECCOLM does what is above
+        case 40: // xterm's allow 80 to 132: DECCOLM does what is above. As
+                 // in xterm, a reset leaves it as it is.
             t->allow_deccolm = set;
             break;
         case 2: // DECANM: reset enters VT52 mode; ESC < leaves it

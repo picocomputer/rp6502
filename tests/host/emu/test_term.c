@@ -2518,7 +2518,9 @@ UTEST(term, deccolm_with_allow_80_to_132)
     ASSERT_EQ(cy(), 0);
     ASSERT_STREQ(ask("\33P$qr\33\\\33P$qs\33\\"), "\33P1$r1;30r\33\\\33P1$r1;80s\33\\");
     ASSERT_STREQ(ask("\33[?40$p\33[?3$p"), "\33[?40;1$y\33[?3;4$y");
-    ASSERT_STREQ(ask("\33c\33[?40$p"), "\33[?40;2$y");
+    ASSERT_STREQ(ask("\33c\33[!p\33[?40$p"), "\33[?40;1$y");
+    feed(STR_TERM_SOFT_RESET);
+    ASSERT_STREQ(ask("\33[?40$p"), "\33[?40;2$y");
 }
 
 UTEST(term, decbkm_is_a_mode)
