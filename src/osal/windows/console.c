@@ -149,9 +149,13 @@ void os_console_attach(void)
     /* A launcher may start this process with one of the three closed, and the
      * CRT hands the next file opened the lowest free descriptor. Pointing each
      * closed one at NUL first keeps a later fopen from becoming the descriptor
-     * that stdio reads and writes. */
+     * that stdio reads and writes. Started from Explorer, with no console to
+     * attach to, the three are not closed but tied to no stream, which
+     * _get_osfhandle answers with -2. A flush of stdout then goes to the CRT's
+     * invalid parameter handler, which ends the process, the first time the
+     * program prints a newline, so these go to NUL too. */
     for (int fd = 0; fd < 3; fd++)
-        if (_get_osfhandle(fd) == -1)
+        if (_get_osfhandle(fd) == -1 || _get_osfhandle(fd) == -2)
             if (freopen("NUL", fd ? "w" : "r", fd == 0   ? stdin
                                               : fd == 1 ? stdout
                                                         : stderr) == NULL)
