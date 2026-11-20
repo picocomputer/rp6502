@@ -102,7 +102,11 @@ def symbols(nm, obj):
         if len(parts) != 3 or parts[1] not in STATE_KINDS:
             continue
         name = parts[2]
-        if sys.platform == "darwin" and name.startswith("_"):
+        # Mach-O gives a C name a leading underscore, and the assembler's own
+        # labels, such as ltmp1 at the start of a section, have none.
+        if sys.platform == "darwin":
+            if not name.startswith("_"):
+                continue
             name = name[1:]
         names.add(name)
     return names
