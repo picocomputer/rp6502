@@ -34,14 +34,14 @@ static std::vector<int> arrays()
         v.push_back(a);
     for (int a = 0x600; a < 0x640; a++)
         v.push_back(a);
-    for (int a = 0x6A0; a < 0x6C0; a++)
+    for (int a = 0x7C0; a < 0x800; a++)
         v.push_back(a);
     return v;
 }
 static std::vector<int> flops()
 {
     std::vector<int> v;
-    for (int a = 0x790; a < 0x797; a++)
+    for (int a = 0x790; a < 0x798; a++)
         v.push_back(a);
     for (int a = 0x798; a < 0x79A; a++)
         v.push_back(a);
@@ -66,7 +66,7 @@ static bool skipped(int skip, int a)
     {
     case 0: return a < 0x400;
     case 1: return a >= 0x600 && a < 0x640;
-    default: return a >= 0x6A0 && a < 0x6C0;
+    default: return a >= 0x7C0 && a < 0x800;
     }
 }
 
@@ -223,6 +223,8 @@ struct Case
     uint32_t cut = 0;
     long samples = 2000;
     uint32_t under = 0;   // A's underrun count, set before the request
+    bool starve = false;  // A's FIFO cleared before the request and no
+                          // bytes after it, so it plays dry
 };
 
 static unsigned g_rst_pend, g_level, g_cold;
@@ -258,6 +260,11 @@ static long run_case(const Case &c, bool check_image = true)
         a->sst_we = 1;
         edge(a);
     }
+    if (c.starve)
+    {
+        a->clear_we = 1;
+        edge(a);
+    }
     if (c.reopen)
     {
         a->ctrl_we = 1;
@@ -274,7 +281,7 @@ static long run_case(const Case &c, bool check_image = true)
     std::vector<uint32_t> img = image(a, at);
     g_rst_pend = a->rootp->tb_aud__DOT__pcm__DOT__rst_pend;
     g_level = a->pcm_level;
-    g_cold = img[arrays().size() + 3] >> 18 & 31;
+    g_cold = img[arrays().size() + 3] >> 18 & 63;
 
     while (!(b->rsmp_quiet && b->pcm_quiet && sb.calm()))
         run(b, sb, 1, true);
@@ -299,6 +306,11 @@ static long run_case(const Case &c, bool check_image = true)
     for (long i = 0; i < (c.samples + 2) * TICKS && n < c.samples; i++)
     {
         s.next(a->pcm_level);
+        if (c.starve)
+        {
+            s.data = s.byte = s.commit = false;
+            s.staged = s.staged_was;
+        }
         s.apply(a);
         s.apply(b);
         edge(a);
@@ -351,7 +363,7 @@ UTEST(aud_sst, a_save_while_the_window_is_cold_comes_back)
     ASSERT_EQ(-1L, run_case(c));
     ASSERT_NE(0u, g_cold);
     c.cut_at = 0x793;
-    c.cut = 31u << 18;
+    c.cut = 63u << 18;
     long bad = run_case(c, false);
     fprintf(stderr, "  cold %u, cleared: differs at %ld\n", g_cold, bad);
     ASSERT_GE(bad, 0L);
@@ -383,7 +395,7 @@ UTEST(aud_sst, every_save_point_in_a_sample_comes_back)
 UTEST(aud_sst, every_saved_item_matters)
 {
     std::vector<int> items;
-    for (int k = 0; k < 7; k++)
+    for (int k = 0; k < 8; k++)
         items.push_back(SKIP_WORD + k);
     for (int k = 8; k < 10; k++)
         items.push_back(SKIP_WORD + k);
@@ -397,6 +409,8 @@ UTEST(aud_sst, every_saved_item_matters)
         c.skip = skip;
         c.samples = 600;
         c.under = 3;
+        /* The newest samples matter only to the fade of a dry take. */
+        c.starve = skip == SKIP_WORD + 7;
         long bad = run_case(c, false);
         fprintf(stderr, "  without %s %03X: differs at %ld\n",
                 skip < SKIP_ARRAY ? "word" : "array",

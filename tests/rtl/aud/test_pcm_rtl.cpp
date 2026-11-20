@@ -16,6 +16,7 @@
 
 #include "utest.h"
 
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -75,15 +76,17 @@ struct op_t
     fmt_t fmt;
 };
 
-/* Full-scale samples: Nyquist squares with phase flips, which reach the
- * filter's peak, and either rail held or at random. pos counts bytes from
- * the last open or clear, which is where pcm.c's frames start. */
+/* Full-scale samples: Nyquist squares with phase flips, either rail held
+ * or at random, and the signs of the filter's own sinc, which reach its
+ * peak. pos counts bytes from the last open or clear, which is where
+ * pcm.c's frames start. */
 struct rails_t
 {
     uint32_t pos, bps, frame;
     int32_t val;
     int seg, kind, flip;
     uint32_t k;
+    double c;
 };
 
 static char why[512];
@@ -102,8 +105,8 @@ struct sim_t
     long on_tick[7] = {}, in_work[7] = {};
     /* Bytes stored since the last commit, which pcm.c gets at it. */
     std::vector<uint8_t> staged;
-    /* Takes of a whole frame and of silence, ticks with the FIFO full,
-     * and underruns counted. */
+    /* Takes of a whole frame and dry takes, which fade, ticks with the FIFO
+     * full, and underruns counted. */
     long whole = 0, dry = 0, brim = 0, under = 0;
     /* This clock's underrun, and whether it opened the device. */
     uint32_t inc = 0;
@@ -335,7 +338,8 @@ static int32_t rails_next(rails_t &p)
     if (p.seg-- <= 0)
     {
         p.seg = rr(10, 70);
-        p.kind = rr(0, 5);
+        p.kind = rr(0, 6);
+        p.c = p.pos / p.frame + 24.5;
     }
     p.k++;
     if (p.kind <= 2 && rr(0, 40) == 0)
@@ -348,6 +352,12 @@ static int32_t rails_next(rails_t &p)
         return -32768;
     case 5:
         return rr(0, 1) ? 32767 : -32768;
+    case 6:
+    {
+        /* rsmp.py's FC, by frame, so both channels of a frame match. */
+        const double x = M_PI * 0.8975 * (p.pos / p.frame - p.c);
+        return (x == 0 || sin(x) / x >= 0) != (p.flip != 0) ? 32767 : -32768;
+    }
     default:
         return ((p.k ^ (uint32_t)p.flip) & 1) ? 32767 : -32768;
     }
@@ -663,9 +673,9 @@ UTEST(pcm_rtl, words_across_the_wrap)
     }
 }
 
-/* Full-scale samples at rates whose rows reach 64, where the filter
- * peaks: the dot, the difference and the output each need their every
- * bit, and the output passes 17 bits. */
+/* Full-scale samples at rates whose rows reach the middle, where the
+ * filter peaks: the dot, the difference and the output each need their
+ * every bit, and the output passes 17 bits. */
 static const char *rails_in(uint8_t bits, uint8_t channels, uint32_t seed)
 {
     static const uint32_t rails_rates[] = {1, 8000, 11025, 12000, 16000, 22050,

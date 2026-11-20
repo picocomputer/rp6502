@@ -109,11 +109,25 @@ static int32_t HOST_IN_RAM_FUNC pcm_decode(pcm_t *s, uint32_t i)
     return (int16_t)(*RING_AT(&s->buf, i) | *RING_AT(&s->buf, i + 1) << 8);
 }
 
+int32_t HOST_IN_RAM_FUNC pcm_fade(int32_t v, uint64_t step)
+{
+    const uint32_t m = (uint32_t)(step - 1);
+    int k = 0;
+    for (uint32_t t = 1u << 26; t && m >= t; t <<= 1)
+        k++;
+    return v - (v > 0 ? (v + (1 << k) - 1) >> k : v >> k);
+}
+
 static void HOST_IN_RAM_FUNC pcm_take(pcm_t *s)
 {
-    int32_t l = 0, r = 0;
+    int32_t l, r;
     const uint32_t level = RING_LEN(&s->buf);
-    if (level >= s->frame)
+    if (level < s->frame)
+    {
+        l = pcm_fade(s->hist[0][s->at + RSMP_TAPS - 1], s->step);
+        r = pcm_fade(s->hist[1][s->at + RSMP_TAPS - 1], s->step);
+    }
+    else
     {
         l = pcm_decode(s, 0);
         r = s->fmt.channels == 2 ? pcm_decode(s, s->fmt.bits / 8) : l;

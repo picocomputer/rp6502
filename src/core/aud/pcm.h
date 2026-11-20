@@ -74,9 +74,18 @@ uint32_t pcm_put(pcm_t *s, const uint8_t *src, uint32_t n);
 void pcm_clear(pcm_t *s);
 
 /* The next native sample. A frame is taken when the phase reaches one; with
- * none whole in the buffer the filter takes silence instead, so time goes on
- * and an underrun is heard as a gap. */
+ * none whole in the buffer the filter takes each channel's newest sample
+ * moved toward zero instead, so time goes on and an underrun is heard as a
+ * gap that the sound fades into rather than drops into. */
 void pcm_sample(pcm_t *s, int32_t *left, int32_t *right);
+
+/* What an underrun takes in place of a frame: v, a channel's newest sample,
+ * moved toward zero by 2^-k of itself, and by one at least, so it gets
+ * there. k is the place of the top bit of step - 1 above bit 25, which
+ * grows with the rate and makes 2^k frames about 1.3 to 2.7 ms at any rate.
+ * At a 64th of the native rate and below, a frame is that long by itself,
+ * k is 0 and the first silent frame is zero. */
+int32_t pcm_fade(int32_t v, uint64_t step);
 
 /* How many frames pcm_sample takes over the next n samples, with the phase
  * moved on past them, buffer or no buffer. A machine that answers the

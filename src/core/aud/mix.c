@@ -130,7 +130,7 @@ static struct
     uint32_t underruns;
 } aud_pm;
 
-/* Every sample before `to`. A take with no whole frame to take is silence,
+/* Every sample before `to`. A take with no whole frame to take is a fade,
  * and nothing is written between two steps, so the buffer runs dry at most
  * once in one. */
 static void aud_pm_step(uint64_t to)
