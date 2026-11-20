@@ -1,8 +1,8 @@
 main-menu-01 778F419F cursor 40,20 style 0
 main_1-01 9ACAFC13 cursor 67,13 style 0
 main_1-02 9ACAFC13 cursor 67,13 style 0
-main_1-03 2F63E793 cursor 13,27 style 0
-main_1-04 12C0CE28 cursor 13,27 style 0
+main_1-03 858220BE cursor 13,27 style 0
+main_1-04 858220BE cursor 13,27 style 0
 main_1-05 CCAFB83E cursor 13,8 style 0
 main_1-06 71ECB942 cursor 13,19 style 0
 main_2-01 B74EF00B cursor 13,7 style 0
@@ -101,10 +101,10 @@ m04_2-02 7DF865F2 cursor 13,27 style 0
 m04_3-01 19C63FCD cursor 67,11 style 0
 m04_4-01 13D780E5 cursor 8,3 style 0
 m04_4-02 13D780E5 cursor 0,4 style 0
-m04_4-03 21315364 cursor 13,29 style 0
-m04_4-04 E01736FC cursor 0,29 style 0
+m04_4-03 0801EC4E cursor 13,29 style 0
+m04_4-04 A3C76F9F cursor 0,29 style 0
 m04_5-01 52256EE3 cursor 13,9 style 0
-m04_6-01 0FD1F7EA cursor 13,23 style 0
+m04_6-01 FFAD046A cursor 13,2 style 0
 m04_6-02 765442E1 cursor 13,3 style 0
 m04_7-01 5107829E cursor 13,29 style 0
 m04_8-01 4BA0EA53 cursor 13,5 style 0
@@ -248,7 +248,7 @@ m04_9-02 8D570223 cursor 13,20 style 0
 11.7_6-01 FE4EBC43 cursor 13,29 style 0
 11.8-menu-01 0E23C960 cursor 39,17 style 0
 11.8.2-menu-01 D8C2F7DB cursor 39,10 style 0
-11.8.2_2-01 FDF3D9AE cursor 13,28 style 0
+11.8.2_2-01 AABA86C6 cursor 13,28 style 0
 11.8.2_2-02 A5FB38CE cursor 13,28 style 0
 11.8.2_2-03 C66F5A6F cursor 13,28 style 0
 11.8_3-01 A9A857C9 cursor 0,1 style 0

@@ -1383,6 +1383,12 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
         memset(g->lines + g->rows, TERM_LINE_NORMAL, g->rows);
         cells_reset(t, g);
         break;
+    case GRID_DECCOLM:
+        grid_full_margins(g);
+        grid_lines_normal(g, 0, g->rows);
+        cells_clear(t, g);
+        grid_home(t, g);
+        break;
     case GRID_DECSTR:
         grid_full_margins(g);
         for (int s = 0; s < 2; s++)

@@ -105,6 +105,7 @@ static void term_reset_core(term_t *t)
     t->app_cursor = false;
     t->app_keypad = false;
     t->backarrow_bs = false;
+    t->allow_deccolm = false;
     t->autorepeat = true;
     t->ice_colors = false;
     t->bracketed_paste = false;
@@ -689,6 +690,9 @@ static void term_out_DECRQM(term_t *t, bool private)
         case 33: // iCE colors
             pm = t->ice_colors ? 1 : 2;
             break;
+        case 40: // xterm's allow 80 to 132
+            pm = t->allow_deccolm ? 1 : 2;
+            break;
         case 66: // DECNKM
             pm = t->app_keypad ? 1 : 2;
             break;
@@ -1128,6 +1132,15 @@ static void term_out_DECSET(term_t *t, bool set)
         {
         case 1: // DECCKM: the cursor keys send SS3
             t->app_cursor = set;
+            break;
+        case 3: // DECCOLM: with ?40, as xterm does where it may not resize:
+                // the width stays, and the screen is erased, every line
+                // single size, the margins whole and the cursor home
+            if (t->allow_deccolm)
+                term_grids(t, GRID_DECCOLM, 0);
+            break;
+        case 40: // xterm's allow 80 to 132: DECCOLM does what is above
+            t->allow_deccolm = set;
             break;
         case 2: // DECANM: reset enters VT52 mode; ESC < leaves it
             if (!set)

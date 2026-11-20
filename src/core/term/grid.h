@@ -38,6 +38,7 @@ typedef enum
     GRID_CLEAR,   // the screen showing erased, every line single size
     GRID_RESET,   // RIS: the margins, the tabs and the saved positions
     GRID_DECSTR,  // DECSTR: the margins and the saved positions
+    GRID_DECCOLM, // DECCOLM with ?40: the screen erased, single size, full margins, home
 } grid_op_t;
 
 void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch);

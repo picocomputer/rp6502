@@ -2501,6 +2501,26 @@ UTEST(term, decrqpsr_and_decrsps)
     ASSERT_STREQ(ask("\33[2$w"), "\33P2$u\33\\");
 }
 
+/* DECCOLM does nothing until xterm's ?40 allows it; then, as in xterm
+ * where the window may not resize, the width stays and the screen is
+ * erased, every line single size, the margins whole and the cursor home. */
+UTEST(term, deccolm_with_allow_80_to_132)
+{
+    fresh();
+    feed("abc\33#6\33[5;20r\33[?69h\33[3;30s\33[10;10H\33[?3h");
+    ASSERT_STREQ(row(0), "abc");
+    ASSERT_EQ(cx(), 9);
+    ASSERT_STREQ(ask("\33[?40$p"), "\33[?40;2$y");
+    feed("\33[?40h\33[?3l");
+    ASSERT_STREQ(row(0), "");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
+    ASSERT_EQ(cx(), 0);
+    ASSERT_EQ(cy(), 0);
+    ASSERT_STREQ(ask("\33P$qr\33\\\33P$qs\33\\"), "\33P1$r1;30r\33\\\33P1$r1;80s\33\\");
+    ASSERT_STREQ(ask("\33[?40$p\33[?3$p"), "\33[?40;1$y\33[?3;4$y");
+    ASSERT_STREQ(ask("\33c\33[?40$p"), "\33[?40;2$y");
+}
+
 UTEST(term, decbkm_is_a_mode)
 {
     fresh();
