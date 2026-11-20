@@ -1162,7 +1162,9 @@ UTEST(fs, a_read_or_a_write_the_open_did_not_ask_for_fails_with_ebadf)
     ssys_close(w);
 }
 
-UTEST(fs, the_console_cannot_seek_or_sync)
+/* The console cannot seek. Its sync returns once what was written shows,
+ * which with nothing waiting is at once. */
+UTEST(fs, the_console_cannot_seek_and_syncs_at_once)
 {
     ASSERT_TRUE(fresh_cwd());
     ASSERT_EQ(ssys_lseek(0, 0, SEEK_SET), -1);
@@ -1170,8 +1172,7 @@ UTEST(fs, the_console_cannot_seek_or_sync)
     xstack_ptr = XSTACK_SIZE;
     API_A = 1;
     ssys_dispatch(std_api_syncfs);
-    ASSERT_EQ(dsys_ax(), -1);
-    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
+    ASSERT_EQ(dsys_ax(), 0);
 }
 
 UTEST(fs, an_empty_path_fails_with_enoent)

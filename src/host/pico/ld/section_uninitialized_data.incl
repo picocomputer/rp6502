@@ -7,8 +7,9 @@
  *
  * ld gives an input section to the first rule it matches, so the rule for xram
  * comes ahead of the catch-alls for uninitialized data here and for .bss later.
- * The link keeps xram in a .bss.xram of its own with -fdata-sections; see
- * rp6502_pico_memory in pico/CMakeLists.txt. */
+ * xram is in a .bss.xram of its own, as every variable has a section named
+ * after it, and xram.c builds outside LTO; see rp6502_pico_memory in
+ * pico/CMakeLists.txt. */
 SECTIONS
 {
     .xram (NOLOAD) : {

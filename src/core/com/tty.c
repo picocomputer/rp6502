@@ -6,6 +6,7 @@
 
 #include "core/com/tty.h"
 #include "core/com/com.h"
+#include "core/com/console.h"
 #include "core/com/manifold.h"
 #include "core/str/str.h"
 #include "machine.h"
@@ -31,6 +32,14 @@ std_rw_result tty_std_close(int desc, api_errno *err)
     (void)desc;
     (void)err;
     return STD_OK;
+}
+
+// The same wait as CON:'s: until what was written shows.
+std_rw_result tty_std_sync(int desc, api_errno *err)
+{
+    (void)desc;
+    (void)err;
+    return console_rendered() ? STD_OK : STD_PENDING;
 }
 
 std_rw_result tty_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)

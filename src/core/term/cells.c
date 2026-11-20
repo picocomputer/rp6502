@@ -319,13 +319,17 @@ typedef struct
 // what the rows are still owed. A row of the screen is in a row of memory,
 // which row_idx gives by slot. A fill or a shift is owed to the row of
 // memory, so it goes where the row goes and a scroll moves none of them.
+// The screen has TERM_SPARE_ROWS more rows of memory than slots: spare is
+// the one in no slot, which a smooth scroll gives the row coming in while
+// the row going out still shows.
 typedef struct
 {
     mode0_cell_t *mem;
     uint8_t width;
     uint8_t row_idx[TERM_MAX_HEIGHT];
-    uint8_t owed[TERM_MAX_HEIGHT];
-    cells_owed_t what[TERM_MAX_HEIGHT];
+    uint8_t spare;
+    uint8_t owed[TERM_MEM_ROWS];
+    cells_owed_t what[TERM_MEM_ROWS];
     cells_later_t later;
     uint8_t y_offset;
     /* The rows scrolled off the top that are still in the cell store, the
@@ -334,12 +338,27 @@ typedef struct
     bool all_clean;
 } screen_buf_t;
 
+// A smooth scroll moving on one of a size's screens (DECSCLM): rows top to
+// bot, one way, the row of memory that went out (ghost) and its line size,
+// and the first frame it shows moving.
+typedef struct
+{
+    bool on;
+    uint8_t buf;
+    uint8_t top, bot;
+    bool up;
+    uint8_t ghost;
+    uint8_t ghost_size;
+    unsigned long frame;
+} cells_smooth_t;
+
 // The terminal at one size and its screens' cells.
 typedef struct
 {
     term_grid_t grid;
     uint8_t lines[2 * TERM_MAX_HEIGHT];
     screen_buf_t bufs[2]; /* [0] = primary, [1] = alt, as the terminal's screens */
+    cells_smooth_t smooth;
     unsigned long cursor_frame;
     bool cursor_lit;
     unsigned long cell_blink_frame;
@@ -368,6 +387,7 @@ static inline screen_buf_t *cells_buf(cells_t *cells)
 }
 
 static void cells_settle(screen_buf_t *buf);
+static cells_t *cells_visible(void);
 
 // The cells of a grid, with the scroll its screen is owed done: for
 // everything that changes a cell.
@@ -773,11 +793,11 @@ static void cells_mark_buf_erased(screen_buf_t *buf, uint8_t height, const cells
     buf->y_offset = 0;
     buf->hidden = 0;
     buf->later.n = 0;
+    buf->spare = TERM_MAX_HEIGHT;
     for (uint8_t y = 0; y < TERM_MAX_HEIGHT; y++)
-    {
         buf->row_idx[y] = y;
-        buf->owed[y] = CELLS_OWED_NONE;
-    }
+    for (uint8_t m = 0; m < TERM_MEM_ROWS; m++)
+        buf->owed[m] = CELLS_OWED_NONE;
     cells_mark_rows_with(buf, 0, height, e);
 }
 
@@ -1112,6 +1132,7 @@ void cells_scroll(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, uint8_
     if (!cells_settled(g))
         return;
     cells_t *cells = cells_of(g);
+    cells->smooth.on = false;
     cells_rows_rotate(cells_buf(cells), top, bot, n, up);
     if (up)
         cells_mark_rows_erase(term, cells, (uint8_t)(bot - n + 1), (uint8_t)(bot + 1), false);
@@ -1276,6 +1297,7 @@ void cells_index(term_t *term, term_grid_t *g, bool up)
     if (!cells_settled(g))
         return;
     cells_t *cells = cells_of(g);
+    cells->smooth.on = false;
     screen_buf_t *s = cells_buf(cells);
     uint8_t last = (uint8_t)(g->height - 1);
     if (up)
@@ -1295,6 +1317,57 @@ void cells_index(term_t *term, term_grid_t *g, bool up)
     }
 }
 
+// The row coming in takes the spare row of memory when its row of memory is
+// the one going out, which a scroll of a region and a scroll of the whole
+// screen with no scrollback to spare both give it, so the row going out
+// keeps its cells while it still shows. What the row coming in is owed
+// goes with it.
+void cells_smooth(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, bool up, uint8_t out)
+{
+    (void)term;
+    cells_t *cells = cells_of(g);
+    if (!TERM_SPARE_ROWS || !cells || cells != cells_visible())
+        return;
+    screen_buf_t *s = cells_buf(cells);
+    const uint8_t in_row = up ? bot : top;
+    const uint8_t in_slot = cells_buf_slot(s->y_offset, in_row);
+    uint8_t ghost = s->row_idx[in_slot];
+    if (top == 0 && bot == g->height - 1)
+    {
+        // The whole screen rotated through y_offset: the row that went is
+        // the slot just past the edge it left by.
+        uint8_t slot = up ? cells_buf_slot(s->y_offset, TERM_MAX_HEIGHT - 1)
+                          : cells_buf_slot(s->y_offset, g->height % TERM_MAX_HEIGHT);
+        ghost = s->row_idx[slot];
+    }
+    if (ghost == s->row_idx[in_slot])
+    {
+        const uint8_t spare = s->spare;
+        s->row_idx[in_slot] = spare;
+        s->owed[spare] = s->owed[ghost];
+        s->what[spare] = s->what[ghost];
+        s->owed[ghost] = CELLS_OWED_NONE;
+        s->spare = ghost;
+    }
+    cells->smooth = (cells_smooth_t){
+        .on = true,
+        .buf = (uint8_t)(s - cells->bufs),
+        .top = top,
+        .bot = bot,
+        .up = up,
+        .ghost = ghost,
+        .ghost_size = out,
+        .frame = vga_frame_count() + 1,
+    };
+}
+
+bool cells_smooth_busy(const term_grid_t *g)
+{
+    const cells_t *cells = cells_of((term_grid_t *)g);
+    return cells && cells->smooth.on &&
+           (long)(vga_frame_count() - (cells->smooth.frame + TERM_SMOOTH_FRAMES - 1)) < 0;
+}
+
 void cells_forget(term_t *term, term_grid_t *g)
 {
     if (!cells_of(g))
@@ -1308,6 +1381,7 @@ void cells_clear(term_t *term, term_grid_t *g)
     if (!cells_of(g))
         return;
     const cells_fill_t e = cells_pen_erase(term, false);
+    cells_of(g)->smooth.on = false;
     cells_mark_buf_erased(cells_buf(cells_of(g)), g->height, &e);
 }
 
@@ -1316,6 +1390,7 @@ void cells_height(term_grid_t *g, bool grow, bool top)
     if (!cells_settled(g))
         return;
     cells_t *cells = cells_of(g);
+    cells->smooth.on = false;
     screen_buf_t *s = cells_buf(cells);
     uint8_t h = g->height;
     // Other rows are in view now, and one of them may be owed a fill from
@@ -1392,6 +1467,7 @@ void cells_reset(term_t *term, term_grid_t *g)
         return;
     (void)term;
     cells_t *cells = cells_of(g);
+    cells->smooth.on = false;
     if (cells->bufs[1].mem)
     {
         const cells_fill_t e = cells_blank(' ', MODE0_ENTRY(MODE0_DEFAULT_FG, false),
@@ -1496,6 +1572,18 @@ void cells_publish(void)
     mode0_regs.cursor_color = cells_cursor_color;
     mode0_regs.screen = cells->cell_blink_phase |
                         (cells_term.reverse_screen ? MODE0_SCREEN_REVERSE : 0);
+    const cells_smooth_t *sm = &cells->smooth;
+    if (sm->on && sm->buf == (uint8_t)(buf - cells->bufs))
+    {
+        mode0_regs.smooth_ghost =
+            MODE0_ROW(buf->mem + (uint32_t)sm->ghost * buf->width - mode0_cells, sm->ghost_size);
+        mode0_regs.smooth_frame = (uint32_t)sm->frame;
+        mode0_regs.smooth = MODE0_SMOOTH(sm->top, sm->bot, sm->up);
+    }
+    else
+        mode0_regs.smooth = 0;
+    // The words now describe one picture.
+    mode0_regs.publish = 1;
     cells_stale = false;
 }
 
@@ -1535,15 +1623,19 @@ bool cells_row_used(term_t *term, term_grid_t *g, uint8_t y)
     return false;
 }
 
-// Every byte goes to the terminal, which follows it at both sizes. A cursor's
-// blink starts again when a byte moves it or changes how it looks: its
-// style, or it coming back on.
-static void cells_out_chars(const char *buf, int length)
+// Every byte goes to the terminal, which follows it at both sizes, up to
+// one that has to wait for a smooth scroll still moving (term_holds), unless
+// force. Returns how many went. A cursor's blink starts again when a byte
+// moves it or changes how it looks: its style, or it coming back on.
+static int cells_out_chars(const char *buf, int length, bool force)
 {
     term_t *term = &cells_term;
     cells_t *all[2] = {&cells_40, &cells_80};
-    for (int i = 0; i < length; i++)
+    int i = 0;
+    for (; i < length; i++)
     {
+        if (!force && term_holds(term, (uint8_t)buf[i]))
+            break;
         term_pos_t was[2];
         for (int n = 0; n < 2; n++)
             was[n] = *term_pos(&all[n]->grid);
@@ -1560,6 +1652,7 @@ static void cells_out_chars(const char *buf, int length)
         }
     }
     cells_publish();
+    return i;
 }
 
 void cells_init(void)
@@ -1569,16 +1662,18 @@ void cells_init(void)
     // The cells are mode 0's: each size's primary, then its alternate.
     mode0_cell_t *mem = mode0_cells;
     cells_40.bufs[0].mem = mem;
-    mem += 40 * TERM_MAX_HEIGHT;
+    mem += 40 * TERM_MEM_ROWS;
 #if TERM_ALT_SCREEN
     cells_40.bufs[1].mem = mem;
-    mem += 40 * TERM_MAX_HEIGHT;
+    mem += 40 * TERM_MEM_ROWS;
 #endif
     cells_80.bufs[0].mem = mem;
 #if TERM_ALT_SCREEN
-    mem += 80 * TERM_MAX_HEIGHT;
+    mem += 80 * TERM_MEM_ROWS;
     cells_80.bufs[1].mem = mem;
 #endif
+    for (int b = 0; b < 2; b++)
+        cells_40.bufs[b].spare = cells_80.bufs[b].spare = TERM_MAX_HEIGHT;
     /* Without an alt store, bufs[1] never has cells, and the terminal never
      * switches to it. */
     cells_40.bufs[0].width = cells_40.bufs[1].width = 40;
@@ -1626,8 +1721,21 @@ static bool cells_cell_blink_phase_task(cells_t *cells)
     return true;
 }
 
+// A smooth scroll that has finished is put away, so the frame count wrapping
+// round long after can never show it again.
+static bool cells_smooth_task(cells_t *cells)
+{
+    if (!cells->smooth.on ||
+        (long)(vga_frame_count() - cells->smooth.frame) < TERM_SMOOTH_FRAMES)
+        return false;
+    cells->smooth.on = false;
+    return true;
+}
+
 void cells_task(void)
 {
+    cells_stale |= cells_smooth_task(&cells_40);
+    cells_stale |= cells_smooth_task(&cells_80);
     cells_stale |= cells_blink_cursor(&cells_40);
     cells_stale |= cells_blink_cursor(&cells_80);
     cells_stale |= cells_cell_blink_phase_task(&cells_40);
@@ -1667,8 +1775,9 @@ static void cells_put_buf(sst_cursor_t *c, const screen_buf_t *b)
 {
     for (int i = 0; i < TERM_MAX_HEIGHT; i++)
         sst_put_u8(c, b->row_idx[i]);
-    /* What each row is owed, and its record in 12 bytes. */
-    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+    sst_put_u8(c, b->spare);
+    /* What each row of memory is owed, and its record in 12 bytes. */
+    for (int i = 0; i < TERM_MEM_ROWS; i++)
     {
         sst_put_u8(c, b->owed[i]);
         if (b->owed[i] == CELLS_OWED_SHIFT)
@@ -1719,7 +1828,8 @@ static bool cells_get_buf(sst_cursor_t *c, screen_buf_t *b)
     bool ok = true;
     for (int i = 0; i < TERM_MAX_HEIGHT; i++)
         b->row_idx[i] = sst_get_u8(c);
-    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
+    b->spare = sst_get_u8(c);
+    for (int i = 0; i < TERM_MEM_ROWS; i++)
     {
         b->owed[i] = sst_get_u8(c);
         memset(&b->what[i], 0, sizeof(b->what[i]));
@@ -1779,12 +1889,20 @@ static bool cells_get_buf(sst_cursor_t *c, screen_buf_t *b)
     b->all_clean = sst_get_bool(c);
     b->later.n = 0;
     /* Everything here indexes the cell array. row_idx is the scroll remap and
-     * y_offset is added to it before the lookup, so both are bounded. */
+     * y_offset is added to it before the lookup, so both are bounded, and
+     * the slots and the spare name every row of memory once. */
     if (!ok || !sst_ok(c) || b->y_offset >= TERM_MAX_HEIGHT || b->hidden >= TERM_MAX_HEIGHT)
         return false;
-    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
-        if (b->row_idx[i] >= TERM_MAX_HEIGHT)
+    bool seen[TERM_MEM_ROWS] = {false};
+    for (int i = 0; i <= TERM_MAX_HEIGHT; i++)
+    {
+        uint8_t m = i < TERM_MAX_HEIGHT ? b->row_idx[i] : b->spare;
+        if (i == TERM_MAX_HEIGHT && !TERM_SPARE_ROWS)
+            break;
+        if (m >= TERM_MEM_ROWS || seen[m])
             return false;
+        seen[m] = true;
+    }
     return true;
 }
 
@@ -1797,6 +1915,15 @@ static void cells_put_one(sst_cursor_t *c, const cells_t *cells)
     sst_put_bool(c, cells->cursor_lit);
     sst_put_u64(c, cells->cell_blink_frame);
     sst_put_u8(c, cells->cell_blink_phase);
+    const cells_smooth_t *sm = &cells->smooth;
+    sst_put_bool(c, sm->on);
+    sst_put_u8(c, sm->buf);
+    sst_put_u8(c, sm->top);
+    sst_put_u8(c, sm->bot);
+    sst_put_bool(c, sm->up);
+    sst_put_u8(c, sm->ghost);
+    sst_put_u8(c, sm->ghost_size);
+    sst_put_u64(c, sm->frame);
 }
 
 static bool cells_get_one(sst_cursor_t *c, cells_t *cells)
@@ -1809,6 +1936,19 @@ static bool cells_get_one(sst_cursor_t *c, cells_t *cells)
     cells->cursor_lit = sst_get_bool(c);
     cells->cell_blink_frame = (unsigned long)sst_get_u64(c);
     cells->cell_blink_phase = sst_get_u8(c);
+    cells_smooth_t *sm = &cells->smooth;
+    sm->on = sst_get_bool(c);
+    sm->buf = sst_get_u8(c);
+    sm->top = sst_get_u8(c);
+    sm->bot = sst_get_u8(c);
+    sm->up = sst_get_bool(c);
+    sm->ghost = sst_get_u8(c);
+    sm->ghost_size = sst_get_u8(c);
+    sm->frame = (unsigned long)sst_get_u64(c);
+    /* The ghost and the rows index the cells and the row words. */
+    if (sm->on && (sm->buf > 1 || sm->top > sm->bot || sm->bot >= TERM_MAX_HEIGHT ||
+                   sm->ghost >= TERM_MEM_ROWS || sm->ghost_size > TERM_LINE_BOTTOM))
+        return false;
     return sst_ok(c);
 }
 
@@ -1830,8 +1970,8 @@ void cells_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_u16(c, cells_cursor_color);
     for (int b = 0; b < (TERM_ALT_SCREEN ? 2 : 1); b++)
     {
-        sst_put(c, cells_40.bufs[b].mem, 40 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
-        sst_put(c, cells_80.bufs[b].mem, 80 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
+        sst_put(c, cells_40.bufs[b].mem, 40 * TERM_MEM_ROWS * sizeof(mode0_cell_t));
+        sst_put(c, cells_80.bufs[b].mem, 80 * TERM_MEM_ROWS * sizeof(mode0_cell_t));
     }
     sst_put(c, mode0_colors, sizeof mode0_colors);
     /* The faint half of the palette follows from the other. */
@@ -1856,8 +1996,8 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags)
      * right. Only what is in them is the blob's. */
     for (int b = 0; b < (TERM_ALT_SCREEN ? 2 : 1); b++)
     {
-        sst_get(c, cells_40.bufs[b].mem, 40 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
-        sst_get(c, cells_80.bufs[b].mem, 80 * TERM_MAX_HEIGHT * sizeof(mode0_cell_t));
+        sst_get(c, cells_40.bufs[b].mem, 40 * TERM_MEM_ROWS * sizeof(mode0_cell_t));
+        sst_get(c, cells_80.bufs[b].mem, 80 * TERM_MEM_ROWS * sizeof(mode0_cell_t));
     }
     sst_get(c, mode0_colors, sizeof mode0_colors);
     for (unsigned i = 0; i < MODE0_ENTRIES; i++)
@@ -1871,10 +2011,10 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags)
     /* A glyph indexes the font of its size. */
     for (int b = 0; b < (TERM_ALT_SCREEN ? 2 : 1); b++)
     {
-        for (unsigned i = 0; i < 40 * TERM_MAX_HEIGHT; i++)
+        for (unsigned i = 0; i < 40 * TERM_MEM_ROWS; i++)
             if (!mode0_glyph_ok(cells_40.bufs[b].mem[i].glyph, 8))
                 return false;
-        for (unsigned i = 0; i < 80 * TERM_MAX_HEIGHT; i++)
+        for (unsigned i = 0; i < 80 * TERM_MEM_ROWS; i++)
             if (!mode0_glyph_ok(cells_80.bufs[b].mem[i].glyph, 16))
                 return false;
     }

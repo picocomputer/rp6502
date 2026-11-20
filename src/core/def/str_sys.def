@@ -26,7 +26,7 @@ X(STR_UF2_PROG_NAME_VGA, "RP6502-VGA")
 // reset. The hard reset, RIS, goes to the screen alone: a terminal on the UART
 // keeps what it shows.
 X(STR_TERM_HARD_RESET, "\30\33<\33c")
-X(STR_TERM_SOFT_RESET, "\30\33<\33[?47l\33[0m\33(B\17\33[4l\33[?7h\33[?25h\33[?1l\33>\33[?8h\33[?69l\33[>4m\33[>4f")
+X(STR_TERM_SOFT_RESET, "\30\33<\33[?47l\33[?4l\0337\33[r\0338\33[0m\33(B\17\33[4l\33[?7h\33[?25h\33[?1l\33>\33[?8h\33[?69l\33[>4m\33[>4f")
 
 // https://www.ntppool.org/
 X(STR_NTP_SERVER, "pool.ntp.org")

@@ -42,6 +42,14 @@ typedef enum
 
 void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch);
 
+// Whether an index (LF, VT, FF, IND, NEL), a reverse index (RI), or a glyph
+// written now would scroll g's region: the cursor on the margin it scrolls
+// from, between the left and right margins, and for a glyph, a wrap
+// pending with DECAWM on.
+bool grid_index_scrolls(const term_grid_t *g);
+bool grid_ri_scrolls(const term_grid_t *g);
+bool grid_glyph_scrolls(const term_t *t, const term_grid_t *g);
+
 /* g becomes a copy of from, with its own line sizes in lines, rows a
  * screen. The caller points its cur and ls at the screen showing. */
 void term_grid_copy(term_grid_t *g, const term_grid_t *from, uint8_t *lines, uint8_t rows);

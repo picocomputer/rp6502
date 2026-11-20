@@ -4,11 +4,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import argparse
-import importlib.util
 import os
 import sys
 from contextlib import contextmanager
 
+import build
 import rp6502
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -102,12 +102,7 @@ def _dasm():
         raise AsmError(
             "vendor/chips is empty; the instruction set is read from it.\n"
             "  git submodule update --init vendor/chips")
-    sys.path.insert(0, CODEGEN)
-    spec = importlib.util.spec_from_file_location("w65c02_gen_vendored", path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod.DASM
+    return build.load_module(path, "w65c02_gen_vendored").DASM
 
 
 _WIDTH = {

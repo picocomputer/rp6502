@@ -7,10 +7,8 @@
 
 import re
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import gen
+import build
 
 COLOR_C = "src/core/term/color.c"
 
@@ -80,7 +78,7 @@ def emit_sv(path, color_2, color_256):
            sv_array("COLOR_256", color_256), "",
            "    /* verilator lint_on UNUSEDPARAM */", "",
            "endpackage", ""]
-    Path(path).write_text("\n".join(out))
+    build.write_text(path, "\n".join(out))
 
 
 def emit_h(path, color_2, color_256):
@@ -90,14 +88,14 @@ def emit_h(path, color_2, color_256):
            c_array("COLOR_2", color_2), "",
            c_array("COLOR_256", color_256), "",
            "#endif /* _COLOR_TABLES_H_ */", ""]
-    Path(path).write_text("\n".join(out))
+    build.write_text(path, "\n".join(out))
 
 
 def main():
-    text = (gen.ROOT / COLOR_C).read_text(encoding="utf-8")
+    text = (build.ROOT / COLOR_C).read_text(encoding="utf-8")
     color_2 = parse_array(text, "color_2", 2)
     color_256 = parse_array(text, "const uint16_t color_256", 256)
-    gen.main(inputs=[COLOR_C],
+    build.generate(inputs=[COLOR_C],
              c={"color_tables.h": lambda p: emit_h(p, color_2, color_256)},
              sv={"color_pkg.sv": lambda p: emit_sv(p, color_2, color_256)})
 

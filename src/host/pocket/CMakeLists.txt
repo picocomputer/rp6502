@@ -2,9 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(rp6502-pocket NONE)
 
-cmake_path(SET RP6502_ROOT NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../../..)
-set(RP6502_SRC ${RP6502_ROOT}/src)
-set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
+include(${CMAKE_CURRENT_LIST_DIR}/../../core/build.cmake)
 
 include(${RP6502_ROOT}/version.cmake)
 
@@ -116,7 +114,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # reaches the package without a Quartus tool running.
     add_custom_command(OUTPUT ${POCKET_DIR}/fit.stamp
         COMMAND ${QUARTUS_MAP} rp6502
-        COMMAND python3 ${RP6502_SRC}/host/pocket/gen/map_gate.py
+        COMMAND ${RP6502_PYTHON} ${RP6502_SRC}/host/pocket/gen/map_gate.py
             ${POCKET_DIR}/output_files/rp6502.map.rpt
         COMMAND ${QUARTUS_FIT} rp6502
         COMMAND ${QUARTUS_STA} rp6502
@@ -131,11 +129,11 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         VERBATIM)
 
     add_custom_command(OUTPUT ${POCKET_DIR}/signoff.stamp
-        COMMAND python3 ${RP6502_SRC}/host/pocket/gen/sta_gate.py
+        COMMAND ${RP6502_PYTHON} ${RP6502_SRC}/host/pocket/gen/sta_gate.py
             ${POCKET_DIR}/output_files/rp6502.sta.rpt
             ${POCKET_DIR}/output_files/rp6502.paths.rpt
         COMMAND ${QUARTUS_DRC} rp6502
-        COMMAND python3 ${RP6502_SRC}/host/pocket/gen/drc_gate.py
+        COMMAND ${RP6502_PYTHON} ${RP6502_SRC}/host/pocket/gen/drc_gate.py
             ${POCKET_DIR}/output_files/rp6502.drc.rpt
             ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
         COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/signoff.stamp
@@ -149,7 +147,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
 
     add_custom_command(OUTPUT ${POCKET_DIR}/core.bin
         COMMAND ${QUARTUS_ASM} rp6502
-        COMMAND python3 ${RP6502_SRC}/host/pocket/gen/rbf_r_gen.py
+        COMMAND ${RP6502_PYTHON} ${RP6502_SRC}/host/pocket/gen/rbf_r_gen.py
             ${POCKET_DIR}/output_files/rp6502.rbf
             ${POCKET_DIR}/core.bin
         WORKING_DIRECTORY ${POCKET_DIR}

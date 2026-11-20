@@ -1,8 +1,8 @@
 set(ASM_REF ${CMAKE_CURRENT_BINARY_DIR}/asm_ref.bin)
 add_custom_command(OUTPUT ${ASM_REF}
-    COMMAND ${RP6502_TEST_PYTHON}
+    COMMAND ${RP6502_PYTHON}
         ${CMAKE_CURRENT_LIST_DIR}/asm_ref.py --emit-bin ${ASM_REF}
-    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/asm_ref.py ${RP6502_TEST_LIB_FILES}
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/asm_ref.py ${RP6502_PYTHON_LIBS}
     COMMENT "Assembling the reference image"
     VERBATIM)
 add_custom_target(asm_ref DEPENDS ${ASM_REF})
@@ -10,11 +10,11 @@ rp6502_add_test(asm SOURCES test_asm.cpp DEFS ASM_REF="${ASM_REF}")
 add_dependencies(test_asm asm_ref)
 
 add_test(NAME asm_opcodes
-    COMMAND ${RP6502_TEST_PYTHON} ${RP6502_TEST_LIB}/rp6502_asm.py --check)
+    COMMAND ${RP6502_PYTHON} ${RP6502_TEST_LIB}/rp6502_asm.py --check)
 set_tests_properties(asm_opcodes PROPERTIES LABELS "gate;cpu.ria")
 
 add_test(NAME rom_tool
-    COMMAND ${RP6502_TEST_PYTHON}
+    COMMAND ${RP6502_PYTHON}
         ${CMAKE_CURRENT_LIST_DIR}/rom_tool_check.py
         --scratch ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(rom_tool PROPERTIES LABELS "gate;cpu.ria")

@@ -22,7 +22,6 @@ void tb_core_clocks(int count);
 uint16_t tb_core_scanline();
 
 uint16_t tb_core_h();
-bool tb_core_hsync();
 bool tb_core_vsync();
 bool tb_core_de();
 

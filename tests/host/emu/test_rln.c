@@ -303,7 +303,7 @@ UTEST(rln, a_pending_wrap_gives_a_cr_lf_then_column_1)
     capture();
     reading();
     manifold_set_tx_tap(NULL);
-    ASSERT_STREQ(shown, "\33[4l\r\n");
+    ASSERT_STREQ(shown, "\r\n\33[4l");
     const term_pos_t *p = term_pos(term_shown(&cells_term));
     ASSERT_EQ(p->x, 0);
     ASSERT_EQ(p->y, 1);
@@ -717,12 +717,14 @@ UTEST(rln, deleting_at_the_end_of_the_line_erases_the_tail)
 static char screen[256];
 
 /* What is sent to term.c is kept, and term.c still follows it. */
-static void screen_out(const char *buf, int len)
+static int screen_out(const char *buf, int len, bool force)
 {
+    (void)force;
     strncat(screen, buf, (size_t)len);
     for (int i = 0; i < len; i++)
         term_write(&cells_term, (uint8_t)buf[i]);
     cells_publish();
+    return len;
 }
 
 static void screen_reading(void)

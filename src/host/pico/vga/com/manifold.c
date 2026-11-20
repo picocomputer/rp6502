@@ -67,16 +67,16 @@ char manifold_out_read(void)
 }
 
 /* The console's terminal, which cells_init sets first of all; see drivers.h. */
-static void (*manifold_term_out)(const char *buf, int len);
+static int (*manifold_term_out)(const char *buf, int len, bool force);
 
-void manifold_set_term_out(void (*out_chars)(const char *buf, int len))
+void manifold_set_term_out(int (*out_chars)(const char *buf, int len, bool force))
 {
     manifold_term_out = out_chars;
 }
 
 void manifold_term_putc(char ch)
 {
-    manifold_term_out(&ch, 1);
+    manifold_term_out(&ch, 1, true);
 }
 
 /* OUT: a byte goes to the USB port, a debug probe, and the console. The USB
@@ -91,7 +91,7 @@ void manifold_out_write(char ch)
 #if RP6502_RTT_DEBUG
     rtt_write(&ch, 1);
 #endif
-    manifold_term_out(&ch, 1);
+    manifold_term_out(&ch, 1, true);
 }
 
 /* What the VGA prints itself is one more source of OUT. */

@@ -73,7 +73,7 @@ else()
 endif()
 
 add_test(NAME vidmodes_corpus
-    COMMAND ${CMAKE_COMMAND} -E env python3
+    COMMAND ${RP6502_PYTHON}
         ${CMAKE_CURRENT_LIST_DIR}/vidmodes_gate.py
         --manifest ${RP6502_TEST_CORPUS}/manifest.txt
         --suite ${CMAKE_CURRENT_LIST_DIR}/test_modes.c

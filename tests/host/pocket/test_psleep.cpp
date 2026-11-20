@@ -958,7 +958,7 @@ UTEST(psleep, a_save_with_a_file_open_for_writing_answers_err)
 static std::string screen()
 {
     std::string s;
-    for (size_t i = 0; i < 7200; i++)
+    for (size_t i = 0; i < 7440; i++)
         s += (char)MEM(mode0__DOT__cell0)[i];
     return s;
 }

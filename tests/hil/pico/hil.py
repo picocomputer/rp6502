@@ -18,6 +18,8 @@ from pathlib import Path
 import rig
 import roms
 
+import build
+
 UPDATE_NAME = "hil-update.uf2"
 
 
@@ -28,7 +30,7 @@ class Fail(Exception):
 class Rig:
     def __init__(self, args):
         self.args = args
-        self.board = rig.Board(args.device, args.key)
+        self.board = build.Board(args.device, args.key)
         self.probe = rig.Probe(args.elf, args.probe, self.board) if args.elf else None
         self.tmp = tempfile.TemporaryDirectory()
 
@@ -250,7 +252,7 @@ def test_update(r):
         if not c:
             raise Fail(f"no output for 30 s at {done}%")
         text += c.decode("ascii", "replace")
-        error = re.search(r"^\?.+", rig.clean(text), re.M)
+        error = re.search(r"^\?.+", build.clean(text), re.M)
         if error:
             raise Fail(error.group(0)[1:])
         found = re.findall(r"Flash (\d+)%", text)
@@ -316,7 +318,7 @@ def main():
             ap.print_help()
         return 0
     if a.config:
-        device, key = rig.settings(a.config)
+        device, key = build.settings(a.config)
         a.device, a.key = a.device or device, a.key or key
 
     r = Rig(a)

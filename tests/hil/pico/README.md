@@ -35,7 +35,8 @@ on, so a developer runs them on a workstation with the rig attached.
   Debug Probe, on the SWD pins of the RIA, and OpenOCD. The tests find
   OpenOCD in `$OPENOCD`, in `~/.pico-sdk/openocd/`, where the Pico extension
   of VS Code installs it, or on the PATH. For its reads, the probe uses the
-  memory access ports alone (`memap.cfg`), so the cores never halt.
+  memory access ports alone (`src/host/pico/memap.cfg`), so the cores never
+  halt.
 
 ## The console on a debug probe
 
@@ -54,12 +55,12 @@ The option is off in a release. The RIA and the VGA both take it, and a
 probe on either reaches the same console. A break is a word the probe sets
 beside the rings, since RTT has none.
 
-The rig reads the rings itself (`RttDevice` in `rig.py`), through the same
-OpenOCD and the same memory access ports as its other reads. The output
-ring is 256 bytes, 22 ms of a busy console, and the firmware drops and
-counts what does not fit. OpenOCD's own `rtt server` reads every 100 ms
-unless `rtt polling_interval` says otherwise, and has to attach to the
-cores.
+The rig reads the rings itself (`RttDevice` in `src/core/build.py`),
+through the same OpenOCD and the same memory access ports as its other
+reads. The output ring is 256 bytes, 22 ms of a busy console, and the
+firmware drops and counts what does not fit. OpenOCD's own `rtt server`
+reads every 100 ms unless `rtt polling_interval` says otherwise, and has to
+attach to the cores.
 
 ## tput
 

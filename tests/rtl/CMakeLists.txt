@@ -21,9 +21,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-cmake_path(SET RP6502_ROOT NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../..)
-set(RP6502_SRC ${RP6502_ROOT}/src)
-set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
+include(${CMAKE_CURRENT_LIST_DIR}/../../src/core/build.cmake)
 
 include(${RP6502_ROOT}/version.cmake)
 
@@ -58,10 +56,10 @@ target_include_directories(emu_core PUBLIC ${RP6502_ROOT}/src/host/sokol)
 enable_testing()
 
 add_test(NAME w65c02_gen
-    COMMAND ${Python3_EXECUTABLE} ${RP6502_SRC}/core/wdc/cpu.py --report)
+    COMMAND ${RP6502_PYTHON} ${RP6502_SRC}/core/wdc/cpu.py --report)
 set_tests_properties(w65c02_gen PROPERTIES LABELS "gate;rtl")
 add_test(NAME rbf_r
-    COMMAND ${CMAKE_COMMAND} -E env python3
+    COMMAND ${RP6502_PYTHON}
         ${RP6502_SRC}/host/pocket/gen/rbf_r_gen.py --check)
 set_tests_properties(rbf_r PROPERTIES LABELS "gate;rtl")
 

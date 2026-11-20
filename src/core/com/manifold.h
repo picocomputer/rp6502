@@ -13,6 +13,7 @@
 #define _CORE_COM_MANIFOLD_H_
 
 #include "core/com/com.h"
+#include "core/com/manifold_tx.h"
 #include "core/sys/sst.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -44,6 +45,10 @@ void manifold_write_to(uint8_t to, const char *buf, size_t n);
 /* Returns once every byte queued so far has gone out. */
 void manifold_flush(void);
 
+/* No byte is waiting to go out: everything written has reached the
+ * terminals, a byte held for a smooth scroll included. */
+bool manifold_drained(void);
+
 /* The UART's queue holds MANIFOLD_RING_SIZE bytes, which machine.h sets. */
 size_t manifold_uart_read(char *buf, size_t length);
 int manifold_uart_peek(size_t offset);
@@ -63,8 +68,9 @@ void manifold_reply(const char *s, size_t n);
 void manifold_bell(void);
 
 /* The terminal emulator's input: every byte the console sends to the UART or
- * to COM_TERM_SCREEN. */
-void manifold_set_term_out(void (*out_chars)(const char *buf, int len));
+ * to COM_TERM_SCREEN. It returns how many it took: it stops at a byte that
+ * has to wait for a smooth scroll still moving, unless force. */
+void manifold_set_term_out(int (*out_chars)(const char *buf, int len, bool force));
 
 /* Software console: the keyboard and UART rings of a machine with no serial
  * port, the host terminal that feeds the UART ring, and the taps that see the
@@ -98,16 +104,16 @@ void manifold_set_stderr_sink(void (*sink)(const char *buf, int len));
 
 void manifold_task(void);
 
-/* The two rings, a 16-bit count and MANIFOLD_RING_SIZE bytes each, and the
- * CR LF latch (1). */
-#define MANIFOLD_SST_SIZE (2 * (2 + MANIFOLD_RING_SIZE) + 1)
+/* The two rings, a 16-bit count and MANIFOLD_RING_SIZE bytes each, the CR LF
+ * latch (1), and the output that waits (manifold_tx.h). */
+#define MANIFOLD_SST_SIZE (2 * (2 + MANIFOLD_RING_SIZE) + 1 + MANIFOLD_TX_SST_SIZE)
 void manifold_sst_save(sst_cursor_t *c, unsigned flags);
 bool manifold_sst_load(sst_cursor_t *c, unsigned flags);
 
 #define MANIFOLD_DRIVER DRIVER(     \
     TASK_PUMPED(manifold_task)      \
     SST(.id = "MFLD",               \
-        .version = 3,               \
+        .version = 4,               \
         .size = MANIFOLD_SST_SIZE,  \
         .save = manifold_sst_save,  \
         .load = manifold_sst_load))

@@ -105,7 +105,7 @@ static uint16_t rln_pinned_width;
 static uint16_t rln_pinned_height;
 static term_grid_t rln_grid;
 static uint8_t rln_grid_lines[2 * RLN_GRID_ROWS];
-_Static_assert(RLN_SST_SIZE == 328 + TERM_GRID_SST_SIZE(RLN_GRID_ROWS),
+_Static_assert(RLN_SST_SIZE == 329 + TERM_GRID_SST_SIZE(RLN_GRID_ROWS),
                "the pinned size's grid is part of the chunk");
 
 // The CR or LF each source, the poke stream included, last ended a line
@@ -121,6 +121,10 @@ static uint8_t rln_lastkey_buf[RLN_LASTKEY_MAX];
 static uint8_t rln_lastkey_len;
 static bool rln_action_taken;
 static bool rln_lastkey_action;
+/* A read waits to be laid out until what was written before it has reached
+ * the terminal, a line still held for a smooth scroll included, because the
+ * line starts where the cursor is then. Its keys wait with it. */
+static bool rln_laying_out;
 
 static bool rln_has_grid(void)
 {
@@ -160,6 +164,7 @@ void rln_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_u8(c, rln_lastkey_len);
     sst_put_bool(c, rln_action_taken);
     sst_put_bool(c, rln_lastkey_action);
+    sst_put_bool(c, rln_laying_out);
     sst_put(c, rln_line_ends, RLN_SOURCE_COUNT);
     sst_put_u16(c, rln_pinned_width);
     sst_put_u16(c, rln_pinned_height);
@@ -186,6 +191,7 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     const uint8_t *lastkey = sst_view(c, sizeof rln_lastkey_buf);
     uint8_t lastkey_len = sst_get_u8(c);
     bool acted = sst_get_bool(c), key_acted = sst_get_bool(c);
+    bool laying_out = sst_get_bool(c);
     uint8_t line_end[RLN_SOURCE_COUNT];
     sst_get(c, line_end, sizeof line_end);
     uint16_t pin_w = sst_get_u16(c), pin_h = sst_get_u16(c);
@@ -228,6 +234,7 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags)
     rln_lastkey_len = lastkey_len;
     rln_action_taken = acted;
     rln_lastkey_action = key_acted;
+    rln_laying_out = laying_out;
     memcpy(rln_line_ends, line_end, sizeof rln_line_ends);
     rln_pinned_width = pin_w;
     rln_pinned_height = pin_h;
@@ -1113,18 +1120,45 @@ static void rln_item(com_source_t src, const char *item, size_t len)
 // go to every terminal. A cursor in a pending wrap gets a CR LF, so the line
 // starts in column 1 of the next row. A terminal in VT52 mode has no insert
 // mode to turn off, and is sent a VT52's form of every move and erase.
+static void rln_place(void);
+
 static void rln_lay_out(void)
 {
     manifold_flush();
-    bool plain = rln_plain;
-    if (!plain && !cells_term.vt52)
-        manifold_write_to(COM_TERM_ALL, RLN_MODES, sizeof RLN_MODES - 1);
     if (term_pos(term_shown(&cells_term))->wrap_pending)
     {
         manifold_putchar('\r');
         manifold_putchar('\n');
         manifold_flush();
     }
+    rln_place();
+}
+
+// The layout of a read as it starts, without waiting inside: until what was
+// written has reached the terminal, it is left for rln_task to try again on
+// a later pass, a CR LF for a pending wrap waiting the same way. True once
+// the line is laid out.
+static bool rln_lay_out_now(void)
+{
+    if (!manifold_drained())
+        return false;
+    if (term_pos(term_shown(&cells_term))->wrap_pending)
+    {
+        manifold_putchar('\r');
+        manifold_putchar('\n');
+        if (!manifold_drained())
+            return false;
+    }
+    rln_place();
+    return true;
+}
+
+// The modes go to every terminal and the line takes the cursor's place.
+static void rln_place(void)
+{
+    bool plain = rln_plain;
+    if (!plain && !cells_term.vt52)
+        manifold_write_to(COM_TERM_ALL, RLN_MODES, sizeof RLN_MODES - 1);
     /* The line has the columns the terminal gives the cursor: from where a
      * CR lands to where a row of text ends, which are the left and right
      * margins for a cursor between them. Its columns are counted from the
@@ -1183,12 +1217,13 @@ static void rln_start(rln_read_callback_t callback, rln_history_t *history)
     rln_rendered_max_row = 0;
     rln_last_render_buflen = 0;
     rln_line_src = COM_SOURCE_ANY;
+    rln_laying_out = false;
 }
 
 void rln_read_line(rln_read_callback_t callback, rln_history_t *history)
 {
     rln_start(callback, history);
-    rln_lay_out();
+    rln_laying_out = !rln_lay_out_now();
 }
 
 void rln_read_line_script(rln_read_callback_t callback, uint32_t timeout_ms)
@@ -1216,6 +1251,8 @@ bool rln_read_flush(void)
 void HOST_IN_RAM_FUNC rln_task(void)
 {
     if (!rln_callback)
+        return;
+    if (rln_laying_out && (rln_laying_out = !rln_lay_out_now()))
         return;
     char item[TIO_ITEM_MAX];
     com_source_t src;

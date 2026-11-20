@@ -19,10 +19,12 @@ static term_grid_t cells_40, cells_80;
 static uint8_t cells_40_lines[2 * TERM_MAX_HEIGHT];
 static uint8_t cells_80_lines[2 * TERM_MAX_HEIGHT];
 
-static void cells_out_chars(const char *buf, int length)
+static int cells_out_chars(const char *buf, int length, bool force)
 {
+    (void)force;
     for (int i = 0; i < length; i++)
         term_write(&cells_term, (uint8_t)buf[i]);
+    return length;
 }
 
 void cells_init(void)
@@ -254,6 +256,42 @@ void cells_scroll(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, uint8_t n
 void cells_index(term_t *t, term_grid_t *g, bool up)
 {
     cells_rows_scroll(t, g, 0, g->height - 1u, 1, up, true);
+}
+
+/* The VGA draws a smooth scroll from the next frame after its byte reaches
+ * it, and the RIA holds the next byte that would scroll that region until
+ * the VGA's frames, counted from its VSYNCs, say the scroll has landed. The
+ * byte goes out early in the frame it lands, so the VGA has it before its
+ * next frame starts and the rows never stop. With no VGA the console is a
+ * serial port to a terminal of unknown kind, and nothing is held. */
+static struct
+{
+    bool on;
+    const term_grid_t *grid;
+    uint32_t frame;
+} cells_smoothing;
+
+void cells_smooth(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, bool up, uint8_t out)
+{
+    (void)top, (void)bot, (void)up, (void)out;
+    if (!vga_connected() || g != cells_shown(t))
+        return;
+    cells_smoothing.on = true;
+    cells_smoothing.grid = g;
+    cells_smoothing.frame = vga_frames() + 1;
+}
+
+bool HOST_IN_RAM_FUNC cells_smooth_busy(const term_grid_t *g)
+{
+    if (!cells_smoothing.on)
+        return false;
+    if (!vga_connected() ||
+        (int32_t)(vga_frames() - (cells_smoothing.frame + TERM_SMOOTH_FRAMES - 1)) >= 0)
+    {
+        cells_smoothing.on = false;
+        return false;
+    }
+    return g == cells_smoothing.grid;
 }
 
 void cells_forget(term_t *t, term_grid_t *g)

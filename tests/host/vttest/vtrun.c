@@ -165,9 +165,20 @@ static const uint32_t vt_cp437_low[32] = {
     0x2191, 0x2193, 0x2192, 0x2190, 0x221F, 0x2194, 0x25B2, 0x25BC,
 };
 
+/* The bytes go to the terminal as a program's would: a byte held for a smooth
+ * scroll waits in the console's output while frames run, as many as the
+ * scroll takes. All of them are in before the answers are read, because
+ * vttest may be waiting for one. */
 static void vt_term_write(const char *buf, size_t n)
 {
-    manifold_write_to(COM_TERM_SCREEN, buf, n);
+    for (size_t i = 0; i < n; i++)
+    {
+        while (!manifold_cts())
+            vga_run_frame();
+        manifold_write_to(COM_TERM_SCREEN, buf + i, 1);
+    }
+    while (!manifold_drained())
+        vga_run_frame();
     char reply[256];
     size_t r;
     while ((r = com_read(COM_SOURCE_UART, reply, sizeof reply)) > 0)

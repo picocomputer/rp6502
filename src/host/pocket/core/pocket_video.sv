@@ -39,7 +39,7 @@ module pocket_video
     localparam int X_DE0 = 8;
 
     /* A 320 wide canvas spans two lines of timing per row of graphics, so
-     * the writer hands one row over every other line and the reader has to
+     * the writer hands one row over on every odd line and the reader has to
      * take them at the same cadence or it outruns the FIFO. The scaler still
      * receives canvas_h rows either way. */
     function automatic logic cv_row_sel(input logic [2:0] cv,
@@ -48,14 +48,15 @@ module pocket_video
         logic [9:0] lines;
         dbl = canvas_w(cv) == 10'd320;
         lines = dbl ? 10'(canvas_h(cv) << 1) : canvas_h(cv);
-        cv_row_sel = dbl ? !line[0] && line < lines
+        cv_row_sel = dbl ? line[0] && line < lines
                          : line < lines;
     endfunction
 
-    /* sof_arm tags the frame's first pixel. vid_frame is high only on a
-     * frame's first clock. compose registers de, so on that clock vid_de
-     * holds de from the last clock of line 524, which is in blanking, and
-     * vid_frame and vid_de are never high together. */
+    /* sof_arm tags the frame's first pixel. vid_frame is high only on the
+     * first clock of the frame sent to the screen. compose registers de, so
+     * on that clock vid_de holds de from the last clock of the screen's
+     * line 524, which carries no pixels, and vid_frame and vid_de are never
+     * high together. */
     logic sof_arm;
     initial sof_arm = 1'b0;
     always_ff @(posedge clk_sys) begin
@@ -110,9 +111,10 @@ module pocket_video
     /* canvas is also loaded on every clk_vid edge while unlocked,
      * because if the reader kept an older canvas than the writer's, it
      * could pop a different number of pixels than were pushed in its
-     * first locked frame. vid_canvas changes only at the start of the
-     * machine's line 524, so canvas_s2 has settled before canvas is
-     * loaded from it at lock or at the end of the reader's frame. */
+     * first locked frame. vid_canvas changes only as the machine's frame
+     * starts, which is the start of the screen's line 524, so canvas_s2
+     * has settled before canvas is loaded from it at lock or at the end of
+     * the reader's frame. */
     (* preserve *) logic [2:0] canvas_s1, canvas_s2;
     logic [2:0] canvas;
     initial begin
@@ -160,10 +162,10 @@ module pocket_video
 
     /* HS delimits a scanline and the scaler counts rows by it, so a line
      * that carries no scanline must carry no HS either. A 320 wide canvas
-     * hands a row over every other line of timing; without this the rows
+     * hands a row over on every odd line of timing; without this the rows
      * land on every second row of the scaler's frame. */
     logic hs_gap;
-    always_comb hs_gap = cw == 10'd320 && y[0]
+    always_comb hs_gap = cw == 10'd320 && !y[0]
         && y < 10'(canvas_h(canvas) << 1);
 
     logic lock;
@@ -184,7 +186,9 @@ module pocket_video
             raster <= 1'b1;
             locked <= 1'b1;
             x <= '0;
-            y <= '0;
+            /* The tagged pixel starts the frame's first row, which a 320
+             * wide canvas sends on line 1. */
+            y <= cw == 10'd320 ? 10'd1 : 10'd0;
         end else begin
             if (raster) begin
                 if (x == 10'(H_TOTAL - 1)) begin

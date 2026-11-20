@@ -58,9 +58,9 @@ void cells_set_height(uint8_t width, uint8_t height);
  * The chunk starts with the terminal dimensions and a load rejects a chunk
  * whose dimensions differ, because a blob made at a taller height would put
  * its rows in the wrong places. */
-#define CELLS_BUF_SST_SIZE (14 * TERM_MAX_HEIGHT + 3)
-#define CELLS_ONE_SST_SIZE (TERM_GRID_SST_SIZE(TERM_MAX_HEIGHT) + 2 * CELLS_BUF_SST_SIZE + 18)
-#define CELLS_COUNT_SST (TERM_MAX_HEIGHT * (40 + 80) * (TERM_ALT_SCREEN ? 2 : 1))
+#define CELLS_BUF_SST_SIZE (TERM_MAX_HEIGHT + 1 + 13 * TERM_MEM_ROWS + 3)
+#define CELLS_ONE_SST_SIZE (TERM_GRID_SST_SIZE(TERM_MAX_HEIGHT) + 2 * CELLS_BUF_SST_SIZE + 18 + 15)
+#define CELLS_COUNT_SST (TERM_MEM_ROWS * (40 + 80) * (TERM_ALT_SCREEN ? 2 : 1))
 #define CELLS_MEM_SST_SIZE (4 * CELLS_COUNT_SST)
 #define CELLS_COLORS_SST_SIZE (6 * CELLS_COUNT_SST)
 #define CELLS_PALETTE_SST_SIZE (2 * 258)
@@ -73,7 +73,7 @@ bool cells_sst_load(sst_cursor_t *c, unsigned flags);
     INIT(cells_init)                                            \
     TASK_FATFS(cells_task)                                      \
     SST(.id = "CELL",                                           \
-        .version = 13,                                          \
+        .version = 14,                                          \
         .size = CELLS_SST_SIZE,                                 \
         .save = cells_sst_save,                                 \
         .load = cells_sst_load))
@@ -172,6 +172,16 @@ void cells_scroll_cols(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, unsi
 // The whole screen moves a row up, the top row joining the scrollback, or a
 // row down, the newest row of the scrollback lost.
 void cells_index(term_t *t, term_grid_t *g, bool up);
+
+// Under DECSCLM, rows [top, bot] just scrolled a row up or down by an index
+// or a reverse index, and the screen shows them move there a scanline a
+// frame from the next frame, over TERM_SMOOTH_FRAMES. out is the line size
+// of the row that went, which shows until it is gone. A scroll still
+// moving finishes at once.
+void cells_smooth(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, bool up, uint8_t out);
+
+// A smooth scroll of g is still moving.
+bool cells_smooth_busy(const term_grid_t *g);
 
 // ED 3: the scrollback is forgotten.
 void cells_forget(term_t *t, term_grid_t *g);

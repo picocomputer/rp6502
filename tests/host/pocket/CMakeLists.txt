@@ -124,11 +124,11 @@ endif()
 
 set(POCKET_CORE_JSON ${RP6502_SRC}/host/pocket/dist/Cores/Rumbledethumps.RP6502)
 add_test(NAME layout_json
-    COMMAND ${Python3_EXECUTABLE} ${RP6502_SRC}/core/hid/layout.py
+    COMMAND ${RP6502_PYTHON} ${RP6502_SRC}/core/hid/layout.py
         --check-interact ${POCKET_CORE_JSON}/interact.json)
 set_tests_properties(layout_json PROPERTIES LABELS "gate;host.pocket")
 add_test(NAME stage_map
-    COMMAND ${CMAKE_COMMAND} -E env python3
+    COMMAND ${RP6502_PYTHON}
         ${RP6502_SRC}/host/pocket/gen/stage_map_gate.py
         --data ${POCKET_CORE_JSON}/data.json
         --mmio ${RP6502_SRC}/host/pocket/sw/mmio.h
@@ -154,7 +154,7 @@ if(RP6502_HAVE_APF_RTL)
         --rtl-dir ${RP6502_VENDOR}/hazard3/hdl
         --rtl-dir ${RP6502_VENDOR}/openfpga/src/fpga)
     add_test(NAME sdc_filters
-        COMMAND ${CMAKE_COMMAND} -E env python3
+        COMMAND ${RP6502_PYTHON}
             ${RP6502_SRC}/host/pocket/gen/sdc_gate.py
             --sdc ${RP6502_SRC}/host/pocket/quartus/wiring.sdc
             --sdc ${RP6502_SRC}/host/pocket/quartus/pocket.sdc

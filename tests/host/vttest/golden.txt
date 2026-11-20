@@ -252,7 +252,7 @@ m04_9-02 8D570223 cursor 13,20 style 0
 11.7_6-01 FE4EBC43 cursor 13,29 style 0
 11.8-menu-01 0E23C960 cursor 39,17 style 0
 11.8.2-menu-01 D8C2F7DB cursor 39,10 style 0
-11.8.2_2-01 1C227636 cursor 13,28 style 0
+11.8.2_2-01 FDF3D9AE cursor 13,28 style 0
 11.8.2_2-02 78EF3CC5 cursor 13,28 style 0
 11.8.2_2-03 C66F5A6F cursor 13,28 style 0
 11.8_3-01 A9A857C9 cursor 0,1 style 0

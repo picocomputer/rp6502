@@ -6,6 +6,7 @@
 
 #include "core/com/manifold.h"
 #include "core/com/com.h"
+#include "core/com/manifold_tx.h"
 #include "core/aud/bel.h"
 #include "core/sys/ria.h"
 #include "core/sys/ring.h"
@@ -23,7 +24,7 @@ static manifold_ring_t manifold_uart_ring;
 
 static char manifold_crlf_last;
 
-static void (*manifold_term_out)(const char *buf, int len);
+static int (*manifold_term_out)(const char *buf, int len, bool force);
 static void (*manifold_tx_tap)(const char *buf, int len);
 static void (*manifold_std_tap)(int fd, const char *buf, int len);
 static void (*manifold_stderr_sink)(const char *buf, int len);
@@ -62,6 +63,7 @@ void manifold_sst_save(sst_cursor_t *c, unsigned flags)
     manifold_ring_save(c, &manifold_keyboard_ring);
     manifold_ring_save(c, &manifold_uart_ring);
     sst_put_u8(c, (uint8_t)manifold_crlf_last);
+    manifold_tx_sst_save(c);
 }
 
 bool manifold_sst_load(sst_cursor_t *c, unsigned flags)
@@ -71,7 +73,8 @@ bool manifold_sst_load(sst_cursor_t *c, unsigned flags)
     const uint16_t kb_len = manifold_ring_get(c, kb);
     const uint16_t wire_len = manifold_ring_get(c, wire);
     uint8_t crlf = sst_get_u8(c);
-    if (!sst_ok(c) || kb_len > MANIFOLD_RING_SIZE || wire_len > MANIFOLD_RING_SIZE)
+    if (!manifold_tx_sst_load(c) || !sst_ok(c) || kb_len > MANIFOLD_RING_SIZE ||
+        wire_len > MANIFOLD_RING_SIZE)
         return false;
     manifold_ring_set(&manifold_keyboard_ring, kb, kb_len);
     manifold_ring_set(&manifold_uart_ring, wire, wire_len);
@@ -113,7 +116,7 @@ void manifold_uart_clear(void)
     RING_SKIP(&manifold_uart_ring, RING_LEN(&manifold_uart_ring));
 }
 
-void manifold_set_term_out(void (*out_chars)(const char *buf, int len))
+void manifold_set_term_out(int (*out_chars)(const char *buf, int len, bool force))
 {
     manifold_term_out = out_chars;
 }
@@ -143,80 +146,114 @@ void manifold_set_wire(void (*tx)(const char *buf, int len),
 }
 
 /* The UART is the only terminal here besides term.c. The UART's sinks are the
- * tx tap, the host wire and term.c; COM_TERM_SCREEN's is term.c
- * alone. */
-static void manifold_tx_write(uint8_t to, const char *buf, int len)
+ * tx tap, the host wire and term.c; COM_TERM_SCREEN's is term.c alone. The
+ * terminal takes bytes until one has to wait for a smooth scroll still
+ * moving, unless force, and the other sinks get only what it took, so every
+ * terminal shows the same output at the same time. Returns how many of buf
+ * went out. */
+static size_t manifold_emit(uint8_t to, const char *buf, size_t len, bool force)
 {
-    if (to & COM_TERM_UART)
+    size_t took = len;
+    if ((to & (COM_TERM_UART | COM_TERM_SCREEN)) && manifold_term_out)
+        took = (size_t)manifold_term_out(buf, (int)len, force);
+    if ((to & COM_TERM_UART) && took)
     {
         if (manifold_tx_tap)
-            manifold_tx_tap(buf, len);
+            manifold_tx_tap(buf, (int)took);
         if (manifold_wire_tx)
-            manifold_wire_tx(buf, len);
+            manifold_wire_tx(buf, (int)took);
     }
-    if ((to & (COM_TERM_UART | COM_TERM_SCREEN)) && manifold_term_out)
-        manifold_term_out(buf, len);
+    return took;
 }
 
-static void manifold_crlf_write(const char *buf, int len)
+/* What waits goes out, oldest first and in runs for the same terminals, as
+ * far as the terminal takes it. With force, a byte the terminal holds goes
+ * out all the same, which ends the scroll it waits for at once. */
+static void manifold_drain(bool force)
 {
-    char out[2 * 64];
-    int n = 0;
-    for (int i = 0; i < len; i++)
+    size_t len;
+    while ((len = manifold_tx_len()))
     {
-        char c = buf[i];
-        if (c == '\n' && manifold_crlf_last != '\r')
-            out[n++] = '\r';
-        out[n++] = c;
-        manifold_crlf_last = c;
-        if (n >= (int)sizeof(out) - 1)
+        char run[MANIFOLD_TX_SIZE];
+        const uint8_t to = manifold_tx_at(0).to;
+        size_t n = 0;
+        for (; n < len; n++)
         {
-            manifold_tx_write(COM_TERM_ALL, out, n);
-            n = 0;
+            manifold_tx_entry_t e = manifold_tx_at(n);
+            if (e.to != to)
+                break;
+            run[n] = (char)e.ch;
         }
+        size_t sent = manifold_emit(to, run, n, force);
+        manifold_tx_skip(sent);
+        if (sent < n)
+            return;
     }
-    if (n)
-        manifold_tx_write(COM_TERM_ALL, out, n);
 }
 
-/* Output is written as it is made, so there is always room. */
-bool manifold_cts(void)
+/* A write from inside a task cannot wait for frames, so a byte that must go
+ * in ends a smooth scroll it would wait for. */
+void manifold_tx_make_room(void)
 {
-    return true;
+    manifold_drain(true);
 }
 
-int manifold_putchar(int c)
+/* Output is written as it is made, as far as the terminal takes it. */
+void manifold_tx_wrote(void)
 {
-    char ch = (char)c;
-    manifold_crlf_write(&ch, 1);
-    return (int)(unsigned char)c;
+    manifold_drain(false);
+}
+
+/* A newline that does not follow a CR goes in as CR LF, and what waits goes
+ * out at once as far as it can. */
+static void manifold_crlf_put(uint8_t to, char c)
+{
+    if (c == '\n' && manifold_crlf_last != '\r')
+        manifold_tx_put(to, '\r');
+    manifold_tx_put(to, c);
+    manifold_crlf_last = c;
 }
 
 void manifold_putchar_raw(char c)
 {
+    if (!manifold_tx_try_put(COM_TERM_ALL, c))
+        return;
     if (manifold_std_tap)
         manifold_std_tap(STDOUT_FILENO, &c, 1);
-    manifold_tx_write(COM_TERM_ALL, &c, 1);
+    manifold_tx_wrote();
 }
 
-void manifold_write_to(uint8_t to, const char *buf, size_t n)
+int manifold_putchar(int c)
 {
-    manifold_tx_write(to, buf, (int)n);
+    manifold_crlf_put(COM_TERM_ALL, (char)c);
+    manifold_tx_wrote();
+    return (int)(unsigned char)c;
 }
 
+/* Writes what fits and returns the count, as a Pico does. */
 size_t manifold_write(int fd, const char *buf, size_t n)
 {
+    size_t i = 0;
+    for (; i < n && manifold_cts(); i++)
+        manifold_crlf_put(COM_TERM_ALL, buf[i]);
+    manifold_tx_wrote();
     if (manifold_std_tap)
-        manifold_std_tap(fd, buf, (int)n);
+        manifold_std_tap(fd, buf, (int)i);
     if (fd == STDERR_FILENO && manifold_stderr_sink)
-        manifold_stderr_sink(buf, (int)n);
-    manifold_crlf_write(buf, (int)n);
-    return n;
+        manifold_stderr_sink(buf, (int)i);
+    return i;
 }
 
-/* Output is written as it is made. */
+/* What waits goes out now, ending a smooth scroll it waits for: the machine
+ * cannot run frames until the scroll is over while a task waits here. */
 void manifold_flush(void)
 {
+    manifold_drain(true);
+}
+
+bool manifold_drained(void)
+{
+    return !manifold_tx_len();
 }
 
 /* The emulated terminal is the console's own, so com takes its answers. */
@@ -264,6 +301,7 @@ size_t manifold_keyboard_free(void)
  * rest of what was typed is lost. */
 void manifold_task(void)
 {
+    manifold_drain(false);
     if (!manifold_wire_rx)
         return;
     char buf[MANIFOLD_RING_SIZE];

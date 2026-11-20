@@ -65,16 +65,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # README.py writes SHA256SUMS from what is in tools/, so a tool edited
+      # or added without running it shows here as a change to the list.
       - name: Verify tools/SHA256SUMS
         run: |
           set -euo pipefail
-          cd tools
-          grep -E '^[0-9a-f]+ ' SHA256SUMS | sha256sum -c -
-          # A tool left out of SHA256SUMS hashes fine and never ships. The two
-          # excluded here are the list itself and the script that writes it,
-          # which is for whoever edits this directory and does not ship.
-          diff <(ls | grep -v -e '^SHA256SUMS$' -e '^README\.py$' | sort) \
-               <(awk '/^[0-9a-f]+ /{print $2}' SHA256SUMS | sort)
+          python3 tools/README.py
+          git diff --exit-code tools/SHA256SUMS
 
   # ---------------------------------------------------------------------------
   # pico: a pico2_w build produces rp6502-ria-w.uf2 + rp6502-vga.uf2 and a
@@ -177,6 +174,77 @@ jobs:
           path: ${{ env.ARCHIVE }}
           archive: false
           if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # pico-windows: the same three firmwares built on a Windows host, which
+  # ships nothing. Windows names objects and paths its own way, so this is
+  # where a placement that matches only on Linux, or a script that runs only
+  # there, fails. CMake is the latest and asked for SHORT object directories,
+  # so src/core/build.cmake's FULL pin is tested too.
+  # ---------------------------------------------------------------------------
+  pico-windows:
+    runs-on: windows-2025
+    env:
+      CMAKE_INTERMEDIATE_DIR_STRATEGY: SHORT
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: latest
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install Arm GNU toolchain (${{ env.ARM_TOOLCHAIN }})
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: ${{ env.ARM_TOOLCHAIN }}
+
+      - name: Cache Pico SDK + picotool + pioasm
+        id: pico
+        uses: actions/cache@v6
+        with:
+          path: ~/.pico-sdk
+          key: pico-${{ env.PICO_SDK_VERSION }}-cyw43-lwip-btstack-mbedtls-x64-win-v1
+
+      - name: Fetch Pico SDK ${{ env.PICO_SDK_VERSION }} + prebuilt tools
+        if: steps.pico.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $v = $env:PICO_SDK_VERSION
+          $pico = Join-Path $HOME '.pico-sdk'
+          git clone --branch $v --depth 1 https://github.com/raspberrypi/pico-sdk "$pico/sdk/$v"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git -C "$pico/sdk/$v" submodule update --init --depth 1 `
+            lib/cyw43-driver lib/lwip lib/btstack lib/mbedtls
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $base = "https://github.com/raspberrypi/pico-sdk-tools/releases/download/${env:PICO_TOOLS_TAG}"
+          Invoke-WebRequest "$base/picotool-$v-x64-win.zip" -OutFile picotool.zip
+          Expand-Archive picotool.zip "$pico/picotool/$v"
+          Invoke-WebRequest "$base/pico-sdk-tools-$v-x64-win.zip" -OutFile pico-sdk-tools.zip
+          Expand-Archive pico-sdk-tools.zip "$pico/tools/$v"
+          Remove-Item picotool.zip, pico-sdk-tools.zip
+
+      - name: Build firmware (pico2_w and pico2)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pico = Join-Path $HOME '.pico-sdk'
+          foreach ($board in 'pico2_w', 'pico2') {
+            cmake -S . -B "build/$board" -G Ninja `
+              -DRP6502_STRICT_SUBMODULES=ON `
+              -DCMAKE_BUILD_TYPE=Release `
+              "-DPICO_BOARD=$board" `
+              "-DPICO_SDK_PATH=$pico/sdk/${env:PICO_SDK_VERSION}" `
+              "-Dpicotool_DIR=$pico/picotool/${env:PICO_SDK_VERSION}/picotool" `
+              "-Dpioasm_DIR=$pico/tools/${env:PICO_SDK_VERSION}/pioasm"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            cmake --build "build/$board"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
   # ---------------------------------------------------------------------------
   # linux: build the windowed emu, run the CTest suite, ship a tarball per

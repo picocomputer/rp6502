@@ -14,17 +14,14 @@ pico_set_binary_type(rp6502-vga copy_to_ram)
 rp6502_pico_rtt(rp6502-vga)
 # The VGA's own linker files come first, so its memory_ram.incl takes the
 # place of the shared one; see ld/. The fonts and palettes the renderers read,
-# and the console's cells, go in its VIDEO region, which ld/ finds by the
-# objects of font.c, color.c and mode0.c, so those build outside LTO with a
-# section for every array.
+# and the console's cells, go in its VIDEO region, where ld/ places them by
+# name.
 pico_add_linker_script_override_path(rp6502-vga ${VGA_SRC}/ld GLOB_FILES)
 rp6502_pico_memory(rp6502-vga)
-set_source_files_properties(
+rp6502_linker_named(rp6502-vga
     ${RP6502_ROOT}/src/core/term/font.c
     ${RP6502_ROOT}/src/core/term/color.c
-    ${RP6502_ROOT}/src/core/vga/mode/mode0.c
-    TARGET_DIRECTORY rp6502-vga
-    PROPERTIES COMPILE_OPTIONS "-fno-lto;-fdata-sections")
+    ${RP6502_ROOT}/src/core/vga/mode/mode0.c)
 
 set_target_properties(rp6502-vga PROPERTIES
     INTERPROCEDURAL_OPTIMIZATION TRUE

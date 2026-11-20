@@ -7,6 +7,7 @@
 #include "core/term/cells.h"
 #include "core/term/grid.h"
 #include "core/term/term.h"
+#include "machine.h"
 #include <assert.h>
 #include <string.h>
 
@@ -105,7 +106,7 @@ static inline bool grid_all_columns(const term_grid_t *g)
 }
 
 // Whether column x is between the left and right margins.
-static inline bool grid_in_columns(const term_grid_t *g, unsigned x)
+static inline HOST_IN_RAM_FUNC bool grid_in_columns(const term_grid_t *g, unsigned x)
 {
     return x >= g->margin_left && x <= g->margin_right;
 }
@@ -288,6 +289,48 @@ static bool grid_full_region(const term_grid_t *g)
     return g->margin_top == 0 && g->margin_bot == g->height - 1 && grid_all_columns(g);
 }
 
+bool HOST_IN_RAM_FUNC grid_index_scrolls(const term_grid_t *g)
+{
+    const term_pos_t *pos = g->cur;
+    return pos->y == g->margin_bot && grid_in_columns(g, pos->x);
+}
+
+bool HOST_IN_RAM_FUNC grid_ri_scrolls(const term_grid_t *g)
+{
+    const term_pos_t *pos = g->cur;
+    return pos->y == g->margin_top && grid_in_columns(g, pos->x);
+}
+
+bool HOST_IN_RAM_FUNC grid_glyph_scrolls(const term_t *t, const term_grid_t *g)
+{
+    return g->cur->wrap_pending && t->autowrap && grid_index_scrolls(g);
+}
+
+// A scroll of one row by an index or a reverse index moves the row a
+// scanline a frame under DECSCLM, but one between left and right margins,
+// which a VT102 never had, jumps.
+static bool grid_smooths(const term_t *t, const term_grid_t *g)
+{
+    return t->smooth_scroll && grid_all_columns(g);
+}
+
+// Before such a scroll, the row going out is paid what it is owed, such as
+// an erase, because it still shows while it goes.
+static void grid_smooth_out(term_t *t, term_grid_t *g, uint8_t y)
+{
+    if (grid_smooths(t, g))
+        cells_touch(t, g, y);
+}
+
+// After it, the rows [top, bot] start moving. out is the line size of the
+// row that left.
+static void grid_smooth(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, bool up,
+                        uint8_t out)
+{
+    if (grid_smooths(t, g))
+        cells_smooth(t, g, top, bot, up, out);
+}
+
 // Index: down a row, scrolling the region at its bottom margin. The core of
 // LF, VT, FF, IND and NEL. Below the region the cursor walks down to the last
 // row and never scrolls. Outside the left and right margins it stays on the
@@ -304,13 +347,20 @@ static void grid_index_move(term_t *t, term_grid_t *g)
     }
     else if (!grid_in_columns(g, pos->x))
         ;
-    else if (grid_full_region(g))
-    {
-        grid_lines_scroll(g, 0, (uint8_t)(g->height - 1), 1, true);
-        cells_index(t, g, true);
-    }
     else
-        grid_scroll(t, g, g->margin_top, g->margin_bot, 1, true);
+    {
+        uint8_t top = g->margin_top, bot = g->margin_bot;
+        uint8_t out = term_lines(g)[top];
+        grid_smooth_out(t, g, top);
+        if (grid_full_region(g))
+        {
+            grid_lines_scroll(g, 0, (uint8_t)(g->height - 1), 1, true);
+            cells_index(t, g, true);
+        }
+        else
+            grid_scroll(t, g, top, bot, 1, true);
+        grid_smooth(t, g, top, bot, true, out);
+    }
 }
 
 static void grid_index(term_t *t, term_grid_t *g)
@@ -333,13 +383,20 @@ static void grid_reverse_index(term_t *t, term_grid_t *g)
     }
     else if (!grid_in_columns(g, pos->x))
         ;
-    else if (grid_full_region(g))
-    {
-        grid_lines_scroll(g, 0, (uint8_t)(g->height - 1), 1, false);
-        cells_index(t, g, false);
-    }
     else
-        grid_scroll(t, g, g->margin_top, g->margin_bot, 1, false);
+    {
+        uint8_t top = g->margin_top, bot = g->margin_bot;
+        uint8_t out = term_lines(g)[bot];
+        grid_smooth_out(t, g, bot);
+        if (grid_full_region(g))
+        {
+            grid_lines_scroll(g, 0, (uint8_t)(g->height - 1), 1, false);
+            cells_index(t, g, false);
+        }
+        else
+            grid_scroll(t, g, top, bot, 1, false);
+        grid_smooth(t, g, top, bot, false, out);
+    }
     grid_after_scroll(t, g);
 }
 
