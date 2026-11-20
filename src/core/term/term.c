@@ -1511,6 +1511,7 @@ static void term_execute(term_t *t, uint8_t ch)
 static void term_print(term_t *t, uint8_t byte)
 {
     t->last_glyph = byte;
+    t->last_ss = term_pen(t)->ss;
     t->rep_valid = true;
     term_grids(t, GRID_PRINT, byte);
     term_pen(t)->ss = 0;
@@ -1774,7 +1775,14 @@ static void term_csi_dispatch(term_t *t, uint8_t ch)
     {
     case 'b': // REP: the last glyph again, if nothing came between
         if (t->rep_valid)
+        {
+            // The glyph again from the set it came from, single shift and
+            // all, as in xterm.
+            const uint8_t ss = term_pen(t)->ss;
+            term_pen(t)->ss = t->last_ss;
             term_grids(t, GRID_REP, 0);
+            term_pen(t)->ss = ss;
+        }
         break;
     case 'c': // Primary DA
         if (!t->csi_param[0])
@@ -2144,7 +2152,8 @@ static bool term_pen_ok(const term_pen_t *pen)
 bool term_sst_ok(sst_cursor_t *c, const term_t *t)
 {
     if (t->ansi_state >= ansi_state_count || t->protect_mode > TERM_PROTECT_ISO ||
-        t->level < 61 || t->level > 64 || t->osc_stage > 2 || !term_pen_ok(&t->pen[0]) || !term_pen_ok(&t->pen[1]) ||
+        t->level < 61 || t->level > 64 || t->osc_stage > 2 ||
+        (t->last_ss != 0 && t->last_ss != 2 && t->last_ss != 3) || !term_pen_ok(&t->pen[0]) || !term_pen_ok(&t->pen[1]) ||
         !term_pen_ok(&t->saved[0]) || !term_pen_ok(&t->saved[1]) ||
         t->modify_other_keys > 3 || t->csi_param_count > TERM_CSI_PARAM_MAX_LEN ||
         t->osc_len > TERM_OSC_SPEC_MAX + 1 || t->osc_asks > TERM_OSC_ASK_MAX)

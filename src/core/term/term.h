@@ -249,6 +249,7 @@ typedef struct
     bool cursor_enabled;  // DECTCEM, ?25
     uint8_t cursor_style; // DECSCUSR Ps: 0/1/2 block, 3/4 underline, 5/6 bar
     uint8_t last_glyph;   // for REP
+    uint8_t last_ss;      // and the single shift it was drawn with, 0, 2 or 3
     bool rep_valid;       // the last thing written was a glyph
     /* The parser. */
     uint8_t ansi_state; // an ansi_state_t
@@ -440,6 +441,7 @@ static inline unsigned term_cell_height(const term_grid_t *g)
     X(BOOL, t.cursor_enabled)                                          \
     X(U8, t.cursor_style)                                              \
     X(U8, t.last_glyph)                                                \
+    X(U8, t.last_ss)                                                   \
     X(BOOL, t.rep_valid)                                               \
     X(U8, t.ansi_state)                                                \
     X(U16S, t.csi_param)                                               \

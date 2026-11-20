@@ -948,6 +948,11 @@ UTEST(term, g2_and_g3_shift_in)
     feed("\33[H\33*0\33n\33" "7\17\33" "8q\33[!pq");
     ASSERT_TRUE(mode0_glyph_is_dec(cell(0, 0)->glyph));
     ASSERT_EQ(ch(1, 0), 'q');
+    /* REP draws the glyph again from the set it came from. */
+    feed("\33[2;1H\33*0\33Nq\33[2bq");
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(0, 1)->glyph));
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(2, 1)->glyph));
+    ASSERT_EQ(ch(3, 1), 'q');
 }
 
 /* DEC Technical: 0x21 to 0x7E from the second table, the space and DEL as
