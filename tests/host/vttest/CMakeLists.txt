@@ -65,3 +65,19 @@ set_tests_properties(vttest PROPERTIES TIMEOUT 600 LABELS "slow;host.vttest"
 # The last run's screens go first, so what is there after a run is its own.
 add_test(NAME vttest_screens_clean COMMAND ${CMAKE_COMMAND} -E rm -rf ${_screens})
 set_tests_properties(vttest_screens_clean PROPERTIES FIXTURES_SETUP vttest_screens)
+
+# tmux, the program most likely to use the margins and rectangles now that
+# the console says it is a VT420, run in panes through the console and held
+# against xterm, where both are installed. Its locale is C, as the console
+# has no UTF-8: in a UTF-8 locale tmux draws its borders in UTF-8.
+find_program(RP6502_TMUX tmux)
+if(RP6502_TMUX AND RP6502_XTERM AND RP6502_XVFB)
+    set(_tmux_screens ${CMAKE_CURRENT_BINARY_DIR}/tmux)
+    add_test(NAME vttest_tmux
+        COMMAND ${CMAKE_COMMAND} -E env VTXTERM=1
+            "VTCMD=LC_ALL=C LANG=C exec ${RP6502_TMUX} -L rp6502-vtrun-$$ -f /dev/null new-session -x 80 -y 30 sh \\; split-window -h sh \\; split-window -v sh"
+            "VTKEYS=seq space 1 space 50 return|ctrl-b o|seq space 100 space 160 return|ctrl-b o|ls space -l space / return|clear return|ctrl-b z|ctrl-b z|exit return|exit return|exit return"
+            $<TARGET_FILE:vtrun> ${_tmux_screens})
+    set_tests_properties(vttest_tmux PROPERTIES TIMEOUT 120 LABELS "slow;host.vttest")
+endif()
+

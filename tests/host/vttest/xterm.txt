@@ -14,7 +14,7 @@
 # the margins.
 11.3.6_7-02 12A0191B the stream wraps at the screen's edges
 11.3.6_11-02 F9B7BB97 the stream wraps at the screen's edges
-# ERM: the console takes ECMA-48's erasure mode, which xterm ignores, so
+# ERM: the console keeps ECMA-48's erasure mode, which xterm ignores, so
 # with ERM set an erase clears the guarded cells too.
 11.6.7.1_2-01 E9425780 ERM is honored
 11.7.1_2-01 E9425780 ERM is honored

@@ -34,7 +34,12 @@
  *
  * With VTXTERM set, a real xterm is given the same bytes, and every screen
  * recorded is held against xterm's (xmirror.h). The differences are in
- * OUTDIR/xterm.txt and OUTDIR/xterm/, and VTXKNOWN names those approved. */
+ * OUTDIR/xterm.txt and OUTDIR/xterm/, and VTXKNOWN names those approved.
+ *
+ * With VTCMD set, the program run is that shell command instead, with TERM
+ * xterm-256color, and the walk is VTKEYS: a screen is recorded each time
+ * the program has been quiet a moment, then the next step of VTKEYS is
+ * typed, steps between |, words as a test's answer takes them. */
 
 #include "core/com/com.h"
 #include "core/com/manifold.h"
@@ -951,6 +956,7 @@ static const vt_answer_t *vt_answer; /* the row the walk is in */
 static int vt_step;                  /* and the next step of it */
 
 static int vt_slave = -1;
+static int vt_stuck_ms = VT_STUCK_MS;
 
 /* The pipes vtsleep.c's pauses talk to vtrun on, when it is preloaded. */
 static int vt_pause_tell = -1, vt_pause_wait = -1;
@@ -1049,7 +1055,7 @@ static bool vt_drain(void)
             return true;
         }
         quiet += VT_POLL_MS;
-        if (quiet >= VT_STUCK_MS)
+        if (quiet >= vt_stuck_ms)
             return true;
     }
 }
@@ -1375,6 +1381,12 @@ int main(int argc, char **argv)
             close(wait[1]);
         }
         const char *vttest = getenv("VTTEST");
+        if (getenv("VTCMD"))
+        {
+            setenv("TERM", "xterm-256color", 1);
+            execl("/bin/sh", "sh", "-c", getenv("VTCMD"), (char *)NULL);
+            _exit(127);
+        }
         args[0] = (char *)(vttest ? vttest : "vttest");
         execvp(args[0], args);
         _exit(127);
@@ -1397,6 +1409,27 @@ int main(int argc, char **argv)
     int steps = 0;
     int status = 0;
     time_t start = time(NULL);
+    if (getenv("VTCMD"))
+    {
+        /* Another program than vttest, which may never block in a read:
+         * a screen is recorded when it has been quiet a while, and the
+         * next step of VTKEYS, steps between |, is typed. */
+        vt_stuck_ms = 400;
+        const char *keys = getenv("VTKEYS");
+        while (vt_wait())
+        {
+            char name[32], step[512];
+            snprintf(name, sizeof name, "cmd-%02d", ++steps);
+            vt_shot(name);
+            if (!keys || !*keys)
+                break;
+            size_t len = strcspn(keys, "|");
+            snprintf(step, sizeof step, "%.*s", (int)len, keys);
+            keys += len + (keys[len] == '|');
+            vt_send(name, step, 0, step);
+        }
+        goto done;
+    }
     while (steps++ < VT_STEP_LIMIT && vt_wait())
     {
         if (time(NULL) - start > VT_TIME_LIMIT)
@@ -1497,6 +1530,7 @@ int main(int argc, char **argv)
         vt_log("step limit\n");
         status = 1;
     }
+done:
     kill(pid, SIGKILL);
     close(vt_slave);
     close(vt_master);
