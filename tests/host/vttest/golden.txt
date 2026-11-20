@@ -126,13 +126,10 @@ m04_9-02 8D570223 cursor 13,20 style 0
 11.1-menu-01 9D3FFD06 cursor 39,15 style 0
 11.1.1-menu-01 E68872F0 cursor 39,9 style 0
 11.1.1.1-menu-01 494DB0C2 cursor 39,12 style 0
-11.1.1.1_1-01 FE19467C cursor 0,1 style 0
-11.1.1.1_1-02 34C9FC76 cursor 13,28 style 0
+11.1.1.1_1-01 F2E1C69F cursor 13,28 style 0
 11.1.1.1_2-01 0083CEBC cursor 13,28 style 0
-11.1.1.1_3-01 98D31F80 cursor 0,1 style 0
-11.1.1.1_3-02 5203A58A cursor 13,28 style 0
-11.1.1.1_4-01 B71AA77D cursor 0,1 style 0
-11.1.1.1_4-02 7DCA1D77 cursor 13,28 style 0
+11.1.1.1_3-01 C8D521B2 cursor 13,28 style 0
+11.1.1.1_4-01 1E47832C cursor 13,28 style 0
 11.1.2-menu-01 AE5EAEE6 cursor 39,12 style 0
 11.1.2_1-01 E7B9B2DA cursor 9,2 style 0
 11.1.2_1-02 E7B9B2DA cursor 9,2 style 0

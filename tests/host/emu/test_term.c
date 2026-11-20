@@ -563,6 +563,26 @@ UTEST(term, decreqtparm)
     ASSERT_STREQ(ask("\33[2x"), "");
 }
 
+/* The DEC status reports, CSI ? Ps n, as xterm's VT420 answers them. */
+UTEST(term, dec_status_reports)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33[?5n"), "\33[?0n");
+    ASSERT_STREQ(ask("\33[3;7H\33[?6n"), "\33[?3;7;1R");
+    ASSERT_STREQ(ask("\33[2;20r\33[?6h\33[2;4H\33[?6n\33[?6l\33[r"), "\33[?2;4;1R");
+    ASSERT_STREQ(ask("\33[?15n"), "\33[?13n");
+    ASSERT_STREQ(ask("\33[?25n"), "\33[?20n");
+    ASSERT_STREQ(ask("\33[?26n"), "\33[?27;1;0;0n");
+    ASSERT_STREQ(ask("\33[?55n"), "\33[?53n");
+    ASSERT_STREQ(ask("\33[?56n"), "\33[?57;0n");
+    ASSERT_STREQ(ask("\33[?62n"), "\33[0000*{");
+    ASSERT_STREQ(ask("\33[?63;7n"), "\33P7!~0000\33\\");
+    ASSERT_STREQ(ask("\33[?75n"), "\33[?70n");
+    ASSERT_STREQ(ask("\33[?85n"), "\33[?83n");
+    ASSERT_STREQ(ask("\33[?99n"), "");
+    ASSERT_STREQ(ask("\33[15n"), "");
+}
+
 /* XTVERSION: the console's name and the firmware's version. */
 UTEST(term, xtversion_names_the_console_and_its_version)
 {

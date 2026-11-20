@@ -517,13 +517,22 @@ static void term_replyf(const term_t *t, const char *fmt, unsigned a,
 
 #define TERM_REPLY(t, lit) cells_reply((t), (lit), sizeof(lit) - 1)
 
-// Device Status Report: 5 status, 6 cursor position.
-static void term_out_DSR(term_t *t)
+// Device Status Report, CSI Ps n: 5 status, 6 cursor position. The DEC
+// forms, CSI ? Ps n, answer as xterm's VT420 does: 6 is DECXCPR, the
+// position and the page, always 1; 15, there is no printer; 25, the
+// user-defined keys, which the console has none of, are unlocked; 26, a
+// North American LK201 keyboard, ready; 55 and 56, there is no locator; 62,
+// no room for macros (DECMSR); 63, the macros' checksum, of none (DECCKSR);
+// 75, no errors; 85, sessions are not configured.
+static void term_out_DSR(term_t *t, bool private)
 {
     switch (t->csi_param[0])
     {
     case 5:
-        TERM_REPLY(t, "\33[0n");
+        if (private)
+            TERM_REPLY(t, "\33[?0n");
+        else
+            TERM_REPLY(t, "\33[0n");
         break;
     case 6:
     {
@@ -537,9 +546,41 @@ static void term_out_DSR(term_t *t)
             y = (y >= g->margin_top) ? (y - g->margin_top) : 0;
             x = (x >= g->margin_left) ? (x - g->margin_left) : 0;
         }
-        term_replyf(t, "\33[%u;%uR", y + 1, x + 1, 0);
+        term_replyf(t, private ? "\33[?%u;%u;1R" : "\33[%u;%uR", y + 1, x + 1, 0);
         break;
     }
+    }
+    if (!private)
+        return;
+    switch (t->csi_param[0])
+    {
+    case 15:
+        TERM_REPLY(t, "\33[?13n");
+        break;
+    case 25:
+        TERM_REPLY(t, "\33[?20n");
+        break;
+    case 26:
+        TERM_REPLY(t, "\33[?27;1;0;0n");
+        break;
+    case 55:
+        TERM_REPLY(t, "\33[?53n");
+        break;
+    case 56:
+        TERM_REPLY(t, "\33[?57;0n");
+        break;
+    case 62:
+        TERM_REPLY(t, "\33[0000*{");
+        break;
+    case 63:
+        term_replyf(t, "\33P%u!~0000\33\\", t->csi_param_count > 1 ? t->csi_param[1] : 0, 0, 0);
+        break;
+    case 75:
+        TERM_REPLY(t, "\33[?70n");
+        break;
+    case 85:
+        TERM_REPLY(t, "\33[?83n");
+        break;
     }
 }
 
@@ -1463,7 +1504,7 @@ static void term_csi_dispatch(term_t *t, uint8_t ch)
         term_out_SGR(t);
         break;
     case 'n':
-        term_out_DSR(t);
+        term_out_DSR(t, false);
         break;
     case 's': // DECSLRM with DECLRMM set; without, xterm's SCOSC, which is DECSC
         if (t->lr_margins)
@@ -1532,6 +1573,8 @@ static void term_csi_final(term_t *t, uint8_t ch)
             term_grids(t, GRID_SELECTIVE, ch);
         else if (inter == '$' && ch == 'p')
             term_out_DECRQM(t, true);
+        else if (!inter && ch == 'n')
+            term_out_DSR(t, true);
         else if (!inter && t->csi_param[0] == 4 && ch == 'm') // XTQMODKEYS
             term_replyf(t, "\33[>4;%um", t->modify_other_keys, 0, 0);
         else if (!inter && t->csi_param[0] == 4 && ch == 'g') // XTQFMTKEYS
