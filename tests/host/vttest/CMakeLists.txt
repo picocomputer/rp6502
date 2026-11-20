@@ -34,7 +34,7 @@ ExternalProject_Add(vttest_build
     BUILD_BYPRODUCTS ${_vttest_bin}/vttest)
 add_dependencies(vtrun vttest_build vtsleep)
 
-# The walk takes about 8 seconds: vtsleep ends vttest's pauses; vtrun
+# The walk takes about 25 seconds: vtsleep ends vttest's pauses; vtrun
 # gives up after eight minutes. golden.txt holds the approved screens: a CRC
 # of the cells of each and its cursor. A screen that differs, is new or is
 # gone fails the test and is saved in screens/ as text and PNG. To approve a

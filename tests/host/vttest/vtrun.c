@@ -861,11 +861,13 @@ static const char *const vt_skip[] = {
     "Swedish national layout", /* the walk types on a US keyboard, choice 0 */
     "User-Defined Keys",      /* function keys */
     "Tektronix 4014",         /* a graphics terminal xterm can switch to */
-    /* Past what the console aims for: the VT102 and the xterm features a
+    /* Past what the console aims for: the VT420 and the xterm features a
      * program reaches for. */
-    "VT320 features",
-    "VT420 features",
     "VT520 features",
+    /* DECRQCRA, which the console leaves out: a checksum of the screen is a
+     * way to read it back, which a host must not have. vttest waits for an
+     * answer that never comes. */
+    "Checksum of Rectangular Area",
     /* Keeps the alternate-screen tests of 11.8.7 in color. */
     "Do not color after switching",
 };

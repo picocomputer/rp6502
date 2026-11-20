@@ -15,15 +15,16 @@
 #include <stdio.h>
 #include <string.h>
 
-// A VT102 with most of what xterm adds: 256 colors and truecolor, the
-// alternate screen, the dynamic colors of OSC 4/10/11/12, bracketed paste,
-// the VT420's left and right margins and rectangles, and DECRQSS, which is
-// how a program finds kitty's underlines. The parser follows the DEC/xterm state machine (vt100.net), so
-// unknown sequences and strings are taken apart the way xterm does. Inside a sequence BS-SI and BEL act and the sequence
-// goes on, as in xterm; any other control ends it silently, as in Linux. DEC
-// Special Graphics is a character set (ESC ( 0 / SO / SI) the cells draw
-// from. Bytes 0x80-0xFF are always glyphs of the code page: there are no C1
-// controls and no UTF-8.
+// A VT420 as xterm is one: the VT420's margins, rectangles, reports and
+// character sets (DEC Special Graphics and DEC Technical, in G0 to G3), with
+// what xterm adds: 256 colors and truecolor, the alternate screen, the
+// dynamic colors of OSC 4/10/11/12, bracketed paste, and DECRQSS, which is
+// how a program finds kitty's underlines. The parser follows the DEC/xterm
+// state machine (vt100.net), so unknown sequences and strings are taken
+// apart the way xterm does. Inside a sequence BS-SI and BEL act and the
+// sequence goes on, as in xterm; any other control ends it silently, as in
+// Linux. Controls are 7-bit: bytes 0x80-0xFF are always glyphs of the code
+// page, so there are no C1 controls and no UTF-8.
 //
 // This is the parser and everything that is the same at every size: the
 // modes, the pens, the character sets and the queries. What moves the cursor
@@ -531,6 +532,12 @@ static void term_replyf(const term_t *t, const char *fmt, unsigned a,
 }
 
 #define TERM_REPLY(t, lit) cells_reply((t), (lit), sizeof(lit) - 1)
+
+// Primary DA: a VT420 (64) with selective erase (6), horizontal scrolling
+// and the left and right margins (21), ANSI color (22) and the rectangle
+// editing (28). Not soft fonts (7), user-defined keys (8) or the national
+// sets (9), which it has not.
+#define TERM_DA1 "\33[?64;6;21;22;28c"
 
 // Device Status Report, CSI Ps n: 5 status, 6 cursor position. The DEC
 // forms, CSI ? Ps n, answer as xterm's VT420 does: 6 is DECXCPR, the
@@ -1727,7 +1734,7 @@ static void term_esc_byte(term_t *t, uint8_t ch)
         term_restore_cursor(t);
         break;
     case 'Z': // DECID: answered as Primary DA
-        TERM_REPLY(t, "\33[?6c");
+        TERM_REPLY(t, TERM_DA1);
         break;
     case 'V': // SPA: the cells written from here are guarded
         t->protect_mode = TERM_PROTECT_ISO;
@@ -1769,9 +1776,9 @@ static void term_csi_dispatch(term_t *t, uint8_t ch)
         if (t->rep_valid)
             term_grids(t, GRID_REP, 0);
         break;
-    case 'c': // Primary DA: a VT102
+    case 'c': // Primary DA
         if (!t->csi_param[0])
-            TERM_REPLY(t, "\33[?6c");
+            TERM_REPLY(t, TERM_DA1);
         break;
     case 'h':
         term_out_SM_RM(t, true);
@@ -1870,8 +1877,8 @@ static void term_csi_final(term_t *t, uint8_t ch)
             term_out_XTMODKEYS(t, ch);
         else if (t->csi_param[0])
             break;
-        else if (ch == 'c') // Secondary DA: type 0, firmware 1, ROM 0
-            TERM_REPLY(t, "\33[>0;1;0c");
+        else if (ch == 'c') // Secondary DA: a VT420, firmware 1.0, no options
+            TERM_REPLY(t, "\33[>41;10;0c");
         else if (ch == 'q')
             term_out_XTVERSION(t);
         break;

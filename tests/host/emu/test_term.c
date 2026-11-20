@@ -550,11 +550,11 @@ UTEST(term, ed_3_forgets_the_scrollback)
 UTEST(term, device_attributes)
 {
     fresh();
-    ASSERT_STREQ(ask("\33[c"), "\33[?6c");
-    ASSERT_STREQ(ask("\33[0c"), "\33[?6c");
+    ASSERT_STREQ(ask("\33[c"), "\33[?64;6;21;22;28c");
+    ASSERT_STREQ(ask("\33[0c"), "\33[?64;6;21;22;28c");
     ASSERT_STREQ(ask("\33[1c"), "");
-    ASSERT_STREQ(ask("\33Z"), "\33[?6c");
-    ASSERT_STREQ(ask("\33[>c"), "\33[>0;1;0c");
+    ASSERT_STREQ(ask("\33Z"), "\33[?64;6;21;22;28c");
+    ASSERT_STREQ(ask("\33[>c"), "\33[>41;10;0c");
     ASSERT_STREQ(ask("\33[>1c"), "");
     ASSERT_STREQ(ask("\33[=c"), "\33P!|00000000\33\\");
 }
@@ -2389,7 +2389,7 @@ UTEST(term, xterm_key_options_set_and_report)
     /* The options of the other keys are not the console's to set or tell. */
     ASSERT_STREQ(ask("\33[?1m\33[?2g"), "");
     /* The secondary device attributes are still asked with the same marker. */
-    ASSERT_STREQ(ask("\33[>c"), "\33[>0;1;0c");
+    ASSERT_STREQ(ask("\33[>c"), "\33[>41;10;0c");
     /* The end of a program turns them off. */
     feed("\33[>4;2m\33[>4;1f");
     feed(STR_TERM_SOFT_RESET);
@@ -2662,17 +2662,17 @@ UTEST(term, what_neovim_asks_as_it_starts_is_all_answered)
     ASSERT_STREQ(answer(),
                  "\33[?69;2$y\33[?2026;0$y\33[?2027;0$y\33[?2031;0$y\33[?2048;0$y"
                  "\33P1$r0;4:3m\33\\"
-                 "\33[?6c"
+                 "\33[?64;6;21;22;28c"
                  "\33]11;rgb:0000/0000/0000\7\33[0n"
                  "\33]11;rgb:0000/0000/0000\7\33[0n"
                  "\33P1$r0;48:2::1:2:3m\33\\"
-                 "\33[?6c");
+                 "\33[?64;6;21;22;28c");
     ASSERT_STREQ(row(0), "");
     ASSERT_EQ(cx(), 0);
     ASSERT_EQ(cy(), 0);
     ASSERT_STREQ(ask("\33P$qm\33\\"), "\33P1$r0m\33\\");
     /* And as it leaves. */
-    ASSERT_STREQ(ask("\33[>4;0m\33[c"), "\33[?6c");
+    ASSERT_STREQ(ask("\33[>4;0m\33[c"), "\33[?64;6;21;22;28c");
 }
 
 /* ---- smooth scroll ---- */

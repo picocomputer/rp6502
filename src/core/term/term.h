@@ -7,7 +7,7 @@
 #ifndef _CORE_TERM_TERM_H_
 #define _CORE_TERM_TERM_H_
 
-/* The terminal: a VT102 with most of what xterm adds. Bytes go in
+/* The terminal: a VT420 with most of what xterm adds. Bytes go in
  * with term_write and answers to queries come out through cells_reply (cells.h).
  *
  * One terminal follows one stream, and it can be followed at several sizes
