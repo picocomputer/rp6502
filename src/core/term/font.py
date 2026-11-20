@@ -19,6 +19,7 @@ FONT_C = "src/core/term/font.c"
 DEC_MAP_BLANK = 0xFFFF
 DEC_MAP_ASCII = 0x10000
 DEC_MAP_DRAWN = 0x20000
+TECH_MAP_DRAWN = 0x40000
 
 
 def parse_array(text, name):
@@ -28,10 +29,10 @@ def parse_array(text, name):
     return [int(t, 0) for t in re.findall(r"0[xX][0-9a-fA-F]+", m.group(1))]
 
 
-def parse_dec_map(text):
-    m = re.search(r"dec_glyph_map\[0x20\]\s*=\s*\{(.*?)\};", text, re.S)
+def parse_map(text, name, count):
+    m = re.search(re.escape(name) + r"\[0x[0-9A-Fa-f]+\]\s*=\s*\{(.*?)\};", text, re.S)
     if not m:
-        sys.exit("font.py: dec_glyph_map not found")
+        sys.exit(f"font.py: {name} not found")
     entries = []
     for line in m.group(1).splitlines():
         line = re.sub(r"/\*.*?\*/", "", line)
@@ -48,11 +49,13 @@ def parse_dec_map(text):
                 v |= DEC_MAP_ASCII
             elif tok == "DEC_MAP_DRAWN":
                 v |= DEC_MAP_DRAWN
+            elif tok == "TECH_MAP_DRAWN":
+                v |= TECH_MAP_DRAWN
             else:
                 v |= int(tok.rstrip("u"), 0)
         entries.append(v)
-    if len(entries) != 0x20:
-        sys.exit(f"font.py: dec_glyph_map has {len(entries)} entries")
+    if len(entries) != count:
+        sys.exit(f"font.py: {name} has {len(entries)} entries")
     return entries
 
 
@@ -80,14 +83,20 @@ def build_tables(text):
                             ("FONT8_ASCII", ascii8, 1024)):
         if len(arr) != want:
             sys.exit(f"font.py: {name} has {len(arr)} bytes, want {want}")
-    dec_map = parse_dec_map(text)
-    drawn16 = parse_array(text, "FONT16_DEC_DRAWN")
-    drawn8 = parse_array(text, "FONT8_DEC_DRAWN")
+    dec_map = parse_map(text, "dec_glyph_map", 0x20)
+    tech_map = parse_map(text, "tech_glyph_map", 0x5E)
+    drawn = {
+        DEC_MAP_DRAWN: (parse_array(text, "FONT16_DEC_DRAWN"),
+                        parse_array(text, "FONT8_DEC_DRAWN")),
+        TECH_MAP_DRAWN: (parse_array(text, "FONT16_TECH_DRAWN"),
+                         parse_array(text, "FONT8_TECH_DRAWN")),
+    }
 
     # Each font is two tables of 256 glyphs with a 256-byte stride: the
     # code page's, its high half blank here, and then the italics of ASCII
-    # (ASCII itself in the 8-row font) with DEC Special Graphics at 0xDF
-    # to 0xFE, as font_build in core/term/font.c builds them.
+    # (ASCII itself in the 8-row font) with DEC Technical at 0x80 to 0xDD
+    # and DEC Special Graphics at 0xDF to 0xFE, as font_build in
+    # core/term/font.c builds them.
     font16 = [0] * 8192
     for row in range(16):
         for code in range(128):
@@ -99,25 +108,26 @@ def build_tables(text):
             font8[row * 256 + code] = ascii8[row * 128 + code]
             font8[2048 + row * 256 + code] = ascii8[row * 128 + code]
 
-    # font.c builds the DEC graphics from the CP437 glyphs whatever code
-    # page is loaded, so this does the same.
-    for idx in range(0x20):
-        m = dec_map[idx]
+    # font.c builds the DEC sets from the CP437 glyphs whatever code page is
+    # loaded, so this does the same.
+    def mapped(m, row):
         if m == DEC_MAP_BLANK:
-            continue
-        for row in range(16):
-            if m & DEC_MAP_DRAWN:
-                v16 = drawn16[(m & 0xFF) * 16 + row]
-                v8 = drawn8[(m & 0xFF) * 8 + row] if row < 8 else 0
-            elif m & DEC_MAP_ASCII:
-                v16 = ascii16[row * 128 + (m & 0xFF)]
-                v8 = ascii8[row * 128 + (m & 0xFF)] if row < 8 else 0
-            else:
-                v16 = cp437_16[row * 128 + ((m & 0xFF) - 0x80)]
-                v8 = cp437_8[row * 128 + ((m & 0xFF) - 0x80)] if row < 8 else 0
-            font16[4096 + row * 256 + 0xDF + idx] = v16
-            if row < 8:
-                font8[2048 + row * 256 + 0xDF + idx] = v8
+            return 0, 0
+        n = m & 0xFF
+        for flag, (d16, d8) in drawn.items():
+            if m & flag:
+                return d16[n * 16 + row], d8[n * 8 + row] if row < 8 else 0
+        if m & DEC_MAP_ASCII:
+            return ascii16[row * 128 + n], ascii8[row * 128 + n] if row < 8 else 0
+        return cp437_16[row * 128 + n - 0x80], cp437_8[row * 128 + n - 0x80] if row < 8 else 0
+
+    for table, base in ((tech_map, 0x80), (dec_map, 0xDF)):
+        for idx, m in enumerate(table):
+            for row in range(16):
+                v16, v8 = mapped(m, row)
+                font16[4096 + row * 256 + base + idx] = v16
+                if row < 8:
+                    font8[2048 + row * 256 + base + idx] = v8
 
     pages = code_pages(text)
     highs = []

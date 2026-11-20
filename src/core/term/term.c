@@ -862,7 +862,7 @@ static void term_out_DECRQSS(term_t *t, const char *pt, unsigned len)
 // The final of a set's designation, as SCS gives it.
 static char term_cs_final(uint8_t set)
 {
-    return set == TERM_CS_DEC ? '0' : set == TERM_CS_UK ? 'A' : 'B';
+    return set == TERM_CS_DEC ? '0' : set == TERM_CS_UK ? 'A' : set == TERM_CS_TECH ? '>' : 'B';
 }
 
 // DECRQPSR, CSI Ps $ w: 1 asks for the cursor (DECCIR), 2 for the tab
@@ -943,7 +943,11 @@ static void term_cir_byte(term_t *t, uint8_t ch)
         }
         uint8_t set = 0xFF;
         if (!t->csi_intermediate)
-            set = ch == '0' ? TERM_CS_DEC : ch == 'A' ? TERM_CS_UK : ch == 'B' ? TERM_CS_ASCII : 0xFF;
+            set = ch == '0'   ? TERM_CS_DEC
+                  : ch == 'A' ? TERM_CS_UK
+                  : ch == '>' ? TERM_CS_TECH
+                  : ch == 'B' ? TERM_CS_ASCII
+                              : 0xFF;
         t->csi_param[f] = set == 0xFF ? 0xFFFF : set;
         t->csi_intermediate = 0;
         t->csi_param_count++;
@@ -1548,6 +1552,9 @@ static void term_designate(uint8_t *g, uint8_t final)
         break;
     case 'A':
         *g = TERM_CS_UK;
+        break;
+    case '>':
+        *g = TERM_CS_TECH;
         break;
     }
 }

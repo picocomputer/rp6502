@@ -143,7 +143,8 @@ typedef enum
 #define TERM_CS_ASCII 0 // ESC ( B, and the null and user maps ESC ( U / K
 #define TERM_CS_DEC 1   // ESC ( 0, DEC Special Graphics
 #define TERM_CS_UK 2    // ESC ( A, ASCII with the pound sign at 0x23
-#define TERM_CS_COUNT 3
+#define TERM_CS_TECH 3  // ESC ( >, DEC Technical
+#define TERM_CS_COUNT 4
 
 // Where a pen's color comes from. A palette color keeps its index, so the
 // cells take a changed palette entry, and the default colors are their own

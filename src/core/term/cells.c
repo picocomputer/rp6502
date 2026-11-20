@@ -1081,8 +1081,9 @@ void cells_touch(term_t *term, term_grid_t *g, uint8_t y)
 
 // The cell a glyph lands as on a grid: the pen's colors and attributes,
 // through the active character set. The cell holds where the font has the
-// glyph (mode0.h): DEC Special Graphics for that set's 0x5F to 0x7E, the
-// italics for SGR 3's ASCII, the code page's otherwise. The UK set's pound
+// glyph (mode0.h): DEC Special Graphics for that set's 0x5F to 0x7E, DEC
+// Technical for that set's 0x21 to 0x7E, the italics for SGR 3's ASCII, the
+// code page's otherwise. The UK set's pound
 // sign is the DEC set's 0x7D. SGR 7 and 8 swap and hide at the cell, and in
 // iCE colors mode (?33) the blink bits are left off the cell: the bright
 // background is the blink. An underline SGR 58 colored is flagged, so the
@@ -1128,6 +1129,8 @@ static cells_fill_t cells_glyph_cell(term_t *term, const term_grid_t *g, uint8_t
     uint8_t set = pen->g[pen->ss ? pen->ss : pen->gl];
     if (set == TERM_CS_DEC && byte >= 0x5F && byte <= 0x7E)
         glyph = MODE0_GLYPH_DEC(rows, byte);
+    else if (set == TERM_CS_TECH && byte >= 0x21 && byte <= 0x7E)
+        glyph = MODE0_GLYPH_TECH(rows, byte);
     else if (set == TERM_CS_UK && byte == '#')
         glyph = MODE0_GLYPH_DEC(rows, 0x7D);
     else if ((pen->sgr_attr & TERM_ATTR_ITALIC) && byte < 0x80)

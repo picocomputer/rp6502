@@ -65,6 +65,7 @@ typedef struct
 #define MODE0_GLYPH_OTHER(rows) (0x100u * (rows))
 #define MODE0_GLYPH_ITALIC(rows, code) ((uint16_t)(MODE0_GLYPH_OTHER(rows) + (code)))
 #define MODE0_GLYPH_DEC(rows, code) ((uint16_t)(MODE0_GLYPH_OTHER(rows) + 0x80u + (code)))
+#define MODE0_GLYPH_TECH(rows, code) ((uint16_t)(MODE0_GLYPH_OTHER(rows) + 0x5Fu + (code)))
 #define MODE0_ATTR_UL_COLOR (1u << 8)
 #define MODE0_ATTR_GUARD (1u << 9)
 #define MODE0_ATTR_BOLD (1u << 10)
@@ -74,22 +75,32 @@ typedef struct
 #define MODE0_ATTR_LINES (TERM_ATTR_UL_MASK | TERM_ATTR_STRIKE | TERM_ATTR_OVERLINE)
 
 /* Whether a glyph is in a font of this many rows: the code page's 256, the
- * italics of ASCII, or DEC Special Graphics's 0x5F to 0x7E. */
+ * italics of ASCII, DEC Technical's 0x21 to 0x7E, or DEC Special Graphics's
+ * 0x5F to 0x7E. */
 static inline bool mode0_glyph_ok(uint16_t glyph, unsigned rows)
 {
     return glyph < 0x100 || (uint16_t)(glyph - MODE0_GLYPH_OTHER(rows)) < 0x80 ||
+           (uint16_t)(glyph - MODE0_GLYPH_TECH(rows, 0x21)) < 0x5E ||
            (uint16_t)(glyph - MODE0_GLYPH_DEC(rows, 0x5F)) < 0x20;
 }
 
-/* The character a glyph is, and whether it is DEC Special Graphics's. */
-static inline uint8_t mode0_glyph_code(uint16_t glyph)
-{
-    return glyph < 0x100 ? (uint8_t)glyph : (uint8_t)(glyph & 0x7F);
-}
-
+/* Whether a glyph is DEC Special Graphics's, or DEC Technical's. */
 static inline bool mode0_glyph_is_dec(uint16_t glyph)
 {
-    return glyph >= 0x100 && (glyph & 0x80);
+    return glyph >= 0x100 && (glyph & 0xFF) >= 0xDF;
+}
+
+static inline bool mode0_glyph_is_tech(uint16_t glyph)
+{
+    return glyph >= 0x100 && (glyph & 0xFF) >= 0x80 && (glyph & 0xFF) < 0xDF;
+}
+
+/* The character a glyph is. */
+static inline uint8_t mode0_glyph_code(uint16_t glyph)
+{
+    if (glyph < 0x100)
+        return (uint8_t)glyph;
+    return mode0_glyph_is_tech(glyph) ? (uint8_t)((glyph & 0xFF) - 0x5F) : (uint8_t)(glyph & 0x7F);
 }
 
 /* The underlines: the pixels of each TERM_UL_ style, leftmost in bit 7, on

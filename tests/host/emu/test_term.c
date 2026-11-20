@@ -946,6 +946,23 @@ UTEST(term, g2_and_g3_shift_in)
     ASSERT_EQ(ch(1, 0), 'q');
 }
 
+/* DEC Technical: 0x21 to 0x7E from the second table, the space and DEL as
+ * they are. */
+UTEST(term, the_technical_set)
+{
+    fresh();
+    feed("\33(>!~ \33(Ba\33+>\33O<");
+    ASSERT_EQ(cell(0, 0)->glyph, MODE0_GLYPH_TECH(16, '!'));
+    ASSERT_EQ(cell(1, 0)->glyph, MODE0_GLYPH_TECH(16, '~'));
+    ASSERT_TRUE(mode0_glyph_is_tech(cell(1, 0)->glyph));
+    ASSERT_FALSE(mode0_glyph_is_dec(cell(1, 0)->glyph));
+    ASSERT_EQ(mode0_glyph_code(cell(1, 0)->glyph), '~');
+    ASSERT_EQ(ch(2, 0), ' ');
+    ASSERT_EQ(ch(3, 0), 'a');
+    ASSERT_EQ(cell(4, 0)->glyph, MODE0_GLYPH_TECH(16, '<'));
+    ASSERT_STREQ(ask("\33[1$w"), "\33P1$u1;6;1;@;@;@;0;2;@;BBB>\33\\");
+}
+
 /* ---- VT52 ---- */
 
 UTEST(term, vt52_mode)
