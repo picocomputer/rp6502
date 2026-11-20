@@ -4,7 +4,7 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     return()
 endif()
 
-add_executable(vtrun vtrun.c ${RP6502_SRC}/host/sokol/cli/png.c
+add_executable(vtrun vtrun.c xmirror.c ${RP6502_SRC}/host/sokol/cli/png.c
     ${RP6502_BENCH}/tb_seed.c ${RP6502_BENCH}/tb_log.c ${RP6502_BENCH}/tb_version.c
     ${RP6502_SRC}/core/sys/crc32.c)
 target_include_directories(vtrun PRIVATE ${RP6502_SRC} ${RP6502_BENCH})
@@ -39,6 +39,19 @@ set(_screens ${CMAKE_CURRENT_BINARY_DIR}/screens)
 set(_env VTTEST=${_vttest_bin}/vttest)
 if(EXISTS ${_golden})
     list(APPEND _env VTGOLDEN=${_golden})
+endif()
+
+# Where xterm and Xvfb are installed, the walk also gives everything to a real
+# xterm and holds each screen against xterm's. xterm.txt lists the screens
+# that differ on purpose, each with a digest of how; any other difference, or
+# one of those that has changed or gone, fails the test and is shown in
+# screens/xterm/. To approve them, look at those, then copy the lines you agree
+# with from screens/xterm.txt, with why, into xterm.txt.
+find_program(RP6502_XTERM xterm)
+find_program(RP6502_XVFB Xvfb)
+set(_xknown ${CMAKE_CURRENT_LIST_DIR}/xterm.txt)
+if(RP6502_XTERM AND RP6502_XVFB AND EXISTS ${_xknown})
+    list(APPEND _env VTXTERM=1 VTXKNOWN=${_xknown})
 endif()
 add_test(NAME vttest
     COMMAND ${CMAKE_COMMAND} -E env ${_env} $<TARGET_FILE:vtrun> ${_screens})
