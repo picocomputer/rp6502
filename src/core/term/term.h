@@ -81,6 +81,12 @@
 #define TERM_OSC_ASK_MAX 6
 #define TERM_OSC_SPEC_MAX 20
 
+// What a DCS string is, in osc_stage: one kept in osc_spec, or DECRSPS's
+// DECCIR or DECTABSR, taken a byte at a time.
+#define TERM_DCS_KEEP 0
+#define TERM_DCS_CIR 1
+#define TERM_DCS_TABS 2
+
 // The SGR attributes. All but the italics are also the low bits of a cell's
 // attributes (mode0.h); italics are a cell's font. SGR 5 (slow) and SGR 6
 // (rapid) live at bits 0-1 so they map onto the live blink phase counter

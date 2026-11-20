@@ -2446,6 +2446,40 @@ UTEST(term, decrqss_answers_with_the_other_settings)
     ASSERT_STREQ(ask("\33P$qz\33\\"), "\33P0$r\33\\");
 }
 
+/* DECRQPSR reports the cursor (DECCIR) and the tab stops (DECTABSR), and
+ * DECRSPS takes the reports back. */
+UTEST(term, decrqpsr_and_decrsps)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33[1$w"), "\33P1$u1;1;1;@;@;@;0;2;@;BBBB\33\\");
+    ASSERT_STREQ(ask("\33[5;10H\33[1;4;7m\33[1\"q\33*0\33)A\33n\33[1$w"),
+                 "\33P1$u5;10;1;K;A;@;2;2;@;BA0B\33\\");
+    ASSERT_STREQ(ask("\33[0m\33[0\"q\33[30;80Hx\33O\33[1$w"),
+                 "\33P1$u30;80;1;@;@;L;2;2;@;BA0B\33\\");
+    ASSERT_STREQ(ask("\33[2$w"), "\33P2$u9/17/25/33/41/49/57/65/73\33\\");
+    ASSERT_STREQ(ask("\33[3g\33[2$w"), "\33P2$u\33\\");
+
+    fresh();
+    feed("\33[2;20r\33P1$t3;4;1;C;A;I;3;2;@;A%50B\33\\");
+    ASSERT_EQ(cx(), 3);
+    ASSERT_EQ(cy(), 2);
+    ASSERT_STREQ(ask("\33[1$w"), "\33P1$u3;4;1;C;A;I;3;2;@;AB0B\33\\");
+    ASSERT_STREQ(ask("\33P$qm\33\\"), "\33P1$r0;1;4m\33\\");
+    /* Out of range, or garbled, it changes nothing. */
+    feed("\33P1$t31;4;1;@;@;@;0;2;@;BBBB\33\\");
+    feed("\33P1$t1;1;1;@;@;F;0;2;@;BBBB\33\\");
+    feed("\33P1$t1;1;1;@@;@;@;0;2;@;BBBB\33\\");
+    feed("\33P1$t1;1;1;@;@;@;0;2;@;BBB\33\\");
+    ASSERT_STREQ(ask("\33[1$w"), "\33P1$u3;4;1;C;A;I;3;2;@;AB0B\33\\");
+
+    feed("\33P2$t5/12/80\33\\");
+    ASSERT_STREQ(ask("\33[2$w"), "\33P2$u5/12/80\33\\");
+    feed("\33P2$t5/x\33\\");
+    ASSERT_STREQ(ask("\33[2$w"), "\33P2$u5/12/80\33\\");
+    feed("\33P2$t\33\\");
+    ASSERT_STREQ(ask("\33[2$w"), "\33P2$u\33\\");
+}
+
 /* DECSCL sets the level DECRQSS reports, with a soft reset, and takes no
  * level it has not. Controls stay 7-bit whatever it asks. */
 UTEST(term, decscl_sets_the_level_with_a_soft_reset)

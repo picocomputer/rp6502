@@ -853,6 +853,190 @@ static void term_out_DECRQSS(term_t *t, const char *pt, unsigned len)
     cells_reply(t, buf, (size_t)n);
 }
 
+/* ---- presentation state: DECRQPSR and DECRSPS ------------------------ */
+
+// The final of a set's designation, as SCS gives it.
+static char term_cs_final(uint8_t set)
+{
+    return set == TERM_CS_DEC ? '0' : set == TERM_CS_UK ? 'A' : 'B';
+}
+
+// DECRQPSR, CSI Ps $ w: 1 asks for the cursor (DECCIR), 2 for the tab
+// stops (DECTABSR), as xterm answers them.
+//
+// DECCIR is DCS 1 $ u, then the row, the column and the page, 1; the pen's
+// rendition, @ plus 8 for reverse, 4 blink, 2 underline and 1 bold; @ plus
+// 1 for DECSCA's protection; @ plus 8 for a wrap pending, 4 for SS3, 2 for
+// SS2 and 1 for origin mode; the set in GL and in GR, which is always 2, as
+// on a VT420; @, as all four sets are of 94 characters; and the four sets'
+// finals. The row and column are the screen's, not the margins'.
+//
+// DECTABSR is DCS 2 $ u and the tab stops' columns with / between.
+static void term_out_DECRQPSR(term_t *t)
+{
+    const term_grid_t *g = term_shown(t);
+    const term_pos_t *pos = &g->pos[t->alt_active];
+    const term_pen_t *pen = term_pen(t);
+    if (t->csi_param[0] == 1)
+    {
+        char buf[TERM_REPLY_MAX];
+        const unsigned rend = 0x40u | (pen->reverse ? 8u : 0u) |
+                              ((pen->sgr_attr & TERM_ATTR_ANY_BLINK) ? 4u : 0u) |
+                              ((pen->sgr_attr & TERM_ATTR_UL_MASK) ? 2u : 0u) |
+                              (pen->bold ? 1u : 0u);
+        const unsigned att =
+            0x40u | (t->protect_mode == TERM_PROTECT_DEC && pen->protect ? 1u : 0u);
+        const unsigned flag = 0x40u | (pos->wrap_pending ? 8u : 0u) |
+                              (pen->ss == 3 ? 4u : 0u) | (pen->ss == 2 ? 2u : 0u) |
+                              (pen->origin_mode ? 1u : 0u);
+        int n = snprintf(buf, sizeof buf, "\33P1$u%u;%u;1;%c;%c;%c;%u;2;@;%c%c%c%c\33\\",
+                         pos->y + 1u, pos->x + 1u, rend, att, flag, (unsigned)pen->gl,
+                         term_cs_final(pen->g[0]), term_cs_final(pen->g[1]),
+                         term_cs_final(pen->g[2]), term_cs_final(pen->g[3]));
+        if (n > 0 && n < (int)sizeof buf)
+            cells_reply(t, buf, (size_t)n);
+    }
+    else if (t->csi_param[0] == 2)
+    {
+        // A piece at a time: every column of a wide grid can be a stop.
+        char buf[8];
+        TERM_REPLY(t, "\33P2$u");
+        bool first = true;
+        for (unsigned x = 0; x < g->width; x++)
+            if (g->tab_stops[x >> 3] & (1u << (x & 7)))
+            {
+                int n = snprintf(buf, sizeof buf, first ? "%u" : "/%u", x + 1u);
+                cells_reply(t, buf, (size_t)n);
+                first = false;
+            }
+        TERM_REPLY(t, "\33\\");
+    }
+}
+
+// A byte of DECRSPS's DECCIR, DCS 1 $ t ... ST: the fields of DECCIR's
+// report, which csi_param holds in turn, csi_param_count counting them.
+// The first three and the sets in GL and GR are numbers; the rest a
+// character each, with ; after each but the sets' finals, which run on to
+// the end. A final with an intermediate, % & or ", is of a set this
+// terminal has not, and leaves that one as it was. Anything else out of
+// place spoils the lot (csi_colon).
+static void term_cir_byte(term_t *t, uint8_t ch)
+{
+    uint8_t f = t->csi_param_count;
+    if (f >= 13 || t->csi_colon)
+    {
+        t->csi_colon = true;
+        return;
+    }
+    const bool number = f <= 2 || f == 6 || f == 7;
+    if (f >= 9)
+    {
+        // The finals of G0 to G3: 0xFFFF is one this terminal has not.
+        if (!t->csi_intermediate && (ch == '%' || ch == '&' || ch == '"'))
+        {
+            t->csi_intermediate = ch;
+            return;
+        }
+        uint8_t set = 0xFF;
+        if (!t->csi_intermediate)
+            set = ch == '0' ? TERM_CS_DEC : ch == 'A' ? TERM_CS_UK : ch == 'B' ? TERM_CS_ASCII : 0xFF;
+        t->csi_param[f] = set == 0xFF ? 0xFFFF : set;
+        t->csi_intermediate = 0;
+        t->csi_param_count++;
+    }
+    else if (ch == ';')
+        t->csi_param_count++;
+    else if (number && ch >= '0' && ch <= '9')
+    {
+        uint32_t v = t->csi_param[f] * 10u + (ch - '0');
+        t->csi_param[f] = v > 0xFFFF ? 0xFFFF : (uint16_t)v;
+    }
+    else if (!number && !t->csi_param[f] && ch >= 0x40 && ch < 0x80)
+        t->csi_param[f] = ch;
+    else
+        t->csi_colon = true;
+}
+
+// DECRSPS's DECCIR at its ST: the cursor, the pen's rendition and
+// protection, the wrap pending, the single shift, origin mode, GL and the
+// four sets, as DECCIR reported them. Nothing changes if any field is out
+// of range, as on xterm.
+static void term_restore_DECCIR(term_t *t)
+{
+    const uint16_t *f = t->csi_param;
+    const term_grid_t *g = term_shown(t);
+    if (t->csi_colon || t->csi_param_count != 13 || !f[0] || f[0] > g->height || !f[1] ||
+        f[1] > g->width || f[2] != 1 || (f[3] & 0xF0) != 0x40 || (f[4] & 0xFE) != 0x40 ||
+        (f[5] & 0xF0) != 0x40 || f[6] > 3 || f[7] > 3 || (f[5] & 6) == 6)
+        return;
+    term_pen_t *pen = term_pen(t);
+    // The cursor goes as CUP takes it from the screen's corner, origin mode
+    // after.
+    const uint16_t rend = f[3], att = f[4], flag = f[5];
+    pen->origin_mode = false;
+    t->csi_param[0] = f[0];
+    t->csi_param[1] = f[1];
+    t->csi_param_count = 2;
+    term_grids(t, GRID_CSI, 'H');
+    pen->origin_mode = flag & 1;
+    for (uint8_t i = 0; i < t->grid_count; i++)
+        term_pos(t->grids[i])->wrap_pending = (flag & 8) != 0;
+    pen->reverse = (rend & 8) != 0;
+    pen->bold = (rend & 1) != 0;
+    pen->sgr_attr &= (uint8_t)~TERM_ATTR_ANY_BLINK;
+    if (rend & 4)
+        pen->sgr_attr |= TERM_ATTR_BLINK;
+    if (!(rend & 2))
+        pen->sgr_attr &= (uint8_t)~TERM_ATTR_UL_MASK;
+    else if (!(pen->sgr_attr & TERM_ATTR_UL_MASK))
+        pen->sgr_attr |= TERM_ATTR_UL(TERM_UL_SINGLE);
+    if (att & 1)
+        t->protect_mode = TERM_PROTECT_DEC;
+    pen->protect = (att & 1) != 0;
+    pen->ss = (flag & 4) ? 3 : (flag & 2) ? 2 : 0;
+    pen->gl = (uint8_t)f[6];
+    for (int i = 0; i < 4; i++)
+        if (f[9 + i] != 0xFFFF)
+            pen->g[i] = (uint8_t)f[9 + i];
+}
+
+// A byte of DECRSPS's DECTABSR, DCS 2 $ t ... ST: columns from 1 with /
+// between, gathered into csi_param as a bitmap, the column so far in
+// osc_index. Anything else spoils the lot (csi_colon).
+static void term_tabs_byte(term_t *t, uint8_t ch)
+{
+    if (ch >= '0' && ch <= '9')
+    {
+        uint32_t v = t->osc_index * 10u + (ch - '0');
+        t->osc_index = v > 0xFFFF ? 0xFFFF : (uint16_t)v;
+    }
+    else if (ch == '/')
+    {
+        if (t->osc_index >= 1 && t->osc_index <= 16u * 16u)
+            t->csi_param[(t->osc_index - 1) >> 4] |= (uint16_t)(1u << ((t->osc_index - 1) & 15));
+        t->osc_index = 0;
+    }
+    else
+        t->csi_colon = true;
+}
+
+// DECRSPS's DECTABSR at its ST: the tab stops are the ones given, in every
+// grid, each taking those within its width.
+static void term_restore_DECTABSR(term_t *t)
+{
+    term_tabs_byte(t, '/');
+    if (t->csi_colon)
+        return;
+    for (uint8_t i = 0; i < t->grid_count; i++)
+    {
+        term_grid_t *g = t->grids[i];
+        memset(g->tab_stops, 0, sizeof g->tab_stops);
+        for (unsigned x = 0; x < g->width; x++)
+            if (t->csi_param[x >> 4] & (1u << (x & 15)))
+                g->tab_stops[x >> 3] |= (uint8_t)(1u << (x & 7));
+    }
+}
+
 // xterm's key modifier options, of which the console has the one for the
 // keys with no sequence of their own. The keyboard reads them (vtkey.c).
 //   CSI > 4 ; n m   XTMODKEYS: modifyOtherKeys level n, 0 to 3
@@ -1409,24 +1593,51 @@ static void term_start_osc(term_t *t)
     t->osc_asks = 0;
 }
 
-// A byte of a DCS string, kept for DECRQSS, the one DCS the terminal takes.
-// Any other, such as XTGETTCAP's, runs to its ST and is dropped.
-static void term_dcs_byte(term_t *t, uint8_t ch)
+// A byte of a DCS string. DECRQSS's are kept in osc_spec. DECRSPS's, which
+// can be longer than that, are taken a byte at a time once their start,
+// 1 $ t or 2 $ t, is in: their fields go in csi_param, the parser's while a
+// string runs, and are acted on at the ST. Any other DCS, such as
+// XTGETTCAP's, runs to its ST and is dropped.
+static void term_dcs_keep(term_t *t, uint8_t ch)
 {
-    if (ch < 0x20)
-        return; // controls inside a string are ignored
     if (t->osc_len < TERM_OSC_SPEC_MAX)
         t->osc_spec[t->osc_len++] = (char)ch;
     else
         t->osc_len = TERM_OSC_SPEC_MAX + 1;
+    if (t->osc_len == 3 && t->osc_spec[1] == '$' && t->osc_spec[2] == 't' &&
+        (t->osc_spec[0] == '1' || t->osc_spec[0] == '2'))
+    {
+        memset(t->csi_param, 0, sizeof t->csi_param);
+        t->csi_param_count = 0;
+        t->csi_intermediate = 0;
+        t->csi_colon = false;
+        t->osc_index = 0;
+        t->osc_stage = t->osc_spec[0] == '1' ? TERM_DCS_CIR : TERM_DCS_TABS;
+    }
+}
+
+static void term_dcs_byte(term_t *t, uint8_t ch)
+{
+    if (ch < 0x20)
+        return; // controls inside a string are ignored
+    if (t->osc_stage == TERM_DCS_CIR)
+        term_cir_byte(t, ch);
+    else if (t->osc_stage == TERM_DCS_TABS)
+        term_tabs_byte(t, ch);
+    else
+        term_dcs_keep(t, ch);
 }
 
 // The DCS ended with ST.
 static void term_dcs_end(term_t *t)
 {
     t->rep_valid = false;
+    if (t->osc_stage == TERM_DCS_CIR)
+        term_restore_DECCIR(t);
+    else if (t->osc_stage == TERM_DCS_TABS)
+        term_restore_DECTABSR(t);
     // A Pt that is empty or too long is one it has not, and is told so.
-    if (t->osc_len >= 2 && t->osc_spec[0] == '$' && t->osc_spec[1] == 'q')
+    else if (t->osc_len >= 2 && t->osc_spec[0] == '$' && t->osc_spec[1] == 'q')
         term_out_DECRQSS(t, &t->osc_spec[2], t->osc_len - 2u);
 }
 
@@ -1458,6 +1669,7 @@ static void term_esc_byte(term_t *t, uint8_t ch)
     case 'P': // DCS
         t->ansi_state = ansi_state_dcs;
         t->osc_len = 0;
+        t->osc_stage = TERM_DCS_KEEP;
         break;
     case 'X': // SOS
     case '^': // PM
@@ -1600,6 +1812,8 @@ static void term_csi_final(term_t *t, uint8_t ch)
             term_out_DECSCA(t);
         else if (inter == '$' && ch == 'p')
             term_out_DECRQM(t, false);
+        else if (inter == '$' && ch == 'w')
+            term_out_DECRQPSR(t);
         else if (inter == '$' && (ch == 'x' || ch == 'z' || ch == '{' || ch == 'v' ||
                                   ch == 'r' || ch == 't'))
             term_grids(t, GRID_RECT, ch);
@@ -1896,7 +2110,7 @@ static bool term_pen_ok(const term_pen_t *pen)
 bool term_sst_ok(sst_cursor_t *c, const term_t *t)
 {
     if (t->ansi_state >= ansi_state_count || t->protect_mode > TERM_PROTECT_ISO ||
-        t->level < 61 || t->level > 64 || !term_pen_ok(&t->pen[0]) || !term_pen_ok(&t->pen[1]) ||
+        t->level < 61 || t->level > 64 || t->osc_stage > 2 || !term_pen_ok(&t->pen[0]) || !term_pen_ok(&t->pen[1]) ||
         !term_pen_ok(&t->saved[0]) || !term_pen_ok(&t->saved[1]) ||
         t->modify_other_keys > 3 || t->csi_param_count > TERM_CSI_PARAM_MAX_LEN ||
         t->osc_len > TERM_OSC_SPEC_MAX + 1 || t->osc_asks > TERM_OSC_ASK_MAX)
