@@ -214,10 +214,18 @@ static void capture(void)
     manifold_set_tx_tap(show);
 }
 
-/* The console's terminal's cursor. */
+/* The terminal the line editor lays out on: a program's own size while it
+ * has pinned one, otherwise the screen. */
+static term_grid_t *rln_view(void)
+{
+    return cells_term.grid_count > TERM_SCREEN_GRIDS ? cells_term.grids[TERM_SCREEN_GRIDS]
+                                                     : cells_shown(&cells_term);
+}
+
+/* Its cursor. */
 static const term_pos_t *pos(void)
 {
-    return term_pos(term_shown(&cells_term));
+    return term_pos(rln_view());
 }
 
 /* The monitor and console.c start the next read after the callback returns. */
@@ -306,7 +314,7 @@ UTEST(rln, a_pending_wrap_gives_a_cr_lf_then_column_1)
     reading();
     manifold_set_tx_tap(NULL);
     ASSERT_STREQ(shown, "\r\n\33[4l");
-    const term_pos_t *p = term_pos(term_shown(&cells_term));
+    const term_pos_t *p = term_pos(rln_view());
     ASSERT_EQ(p->x, 0);
     ASSERT_EQ(p->y, 1);
     ASSERT_FALSE(p->wrap_pending);
@@ -359,7 +367,7 @@ UTEST(rln, a_new_width_draws_the_line_again)
     tasks();
     manifold_set_tx_tap(NULL);
     ASSERT_STREQ(shown, "\r\n\33[4labc");
-    ASSERT_EQ(term_shown(&cells_term)->width, 40);
+    ASSERT_EQ(rln_view()->width, 40);
     ASSERT_EQ(pos()->x, 3);
     shown_len = 0;
     shown[0] = 0;

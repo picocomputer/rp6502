@@ -202,8 +202,8 @@ UTEST(sst, a_programs_own_size_comes_back)
     ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS);
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS + 1);
-    ASSERT_EQ(term_shown(&cells_term)->width, 132);
-    ASSERT_EQ(term_pos(term_shown(&cells_term))->x, 100);
+    ASSERT_EQ(cells_term.grids[TERM_SCREEN_GRIDS]->width, 132);
+    ASSERT_EQ(term_pos(cells_term.grids[TERM_SCREEN_GRIDS])->x, 100);
     rln_set_term_width(0);
     ASSERT_EQ(take(), (const char *)NULL);
     rln_set_term_width(60);

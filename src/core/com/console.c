@@ -122,7 +122,7 @@ std_rw_result console_std_close(int desc, api_errno *err)
 
 bool console_rendered(void)
 {
-    return manifold_drained() && !cells_smooth_busy(term_shown(&cells_term));
+    return manifold_drained() && !cells_smooth_busy(cells_shown(&cells_term));
 }
 
 /* A sync waits until what was written shows: a program that wants its last

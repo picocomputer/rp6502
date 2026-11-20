@@ -604,7 +604,7 @@ static const char *end_reset_after(const char *drawn, int *row)
     memcpy(tail, sent + reset, n < sizeof tail - 1 ? n : sizeof tail - 1);
     tail[n < sizeof tail - 1 ? n : sizeof tail - 1] = 0;
     /* A cursor not in the first column is a row past any there is. */
-    *row = term_pos(term_shown(&cells_term))->x ? 99 : term_pos(term_shown(&cells_term))->y;
+    *row = term_pos(cells_shown(&cells_term))->x ? 99 : term_pos(cells_shown(&cells_term))->y;
     return tail;
 }
 
@@ -640,13 +640,13 @@ UTEST(com, the_end_reset_leaves_a_clear_line)
 UTEST(com, the_end_reset_scrolls_for_a_clear_line)
 {
     int row;
-    const int bottom = term_shown(&cells_term)->height - 1;
+    const int bottom = cells_shown(&cells_term)->height - 1;
     char drawn[32];
     snprintf(drawn, sizeof drawn, "\33[%d;1Hlast\33[%d;1H", bottom + 1, bottom);
     ASSERT_STREQ(end_reset_after(drawn, &row), "\r\n\r\n");
     ASSERT_EQ(row, bottom);
-    ASSERT_FALSE(cells_row_used(&cells_term, term_shown(&cells_term), (uint8_t)bottom));
-    ASSERT_TRUE(cells_row_used(&cells_term, term_shown(&cells_term), (uint8_t)(bottom - 1)));
+    ASSERT_FALSE(cells_row_used(&cells_term, cells_shown(&cells_term), (uint8_t)bottom));
+    ASSERT_TRUE(cells_row_used(&cells_term, cells_shown(&cells_term), (uint8_t)(bottom - 1)));
 }
 
 /* A program that ends with a left margin set leaves the prompt on the
@@ -659,13 +659,13 @@ UTEST(com, the_end_reset_takes_the_left_and_right_margins_away)
     com_end_reset();
     com_end_now();
     manifold_flush();
-    ASSERT_EQ(term_pos(term_shown(&cells_term))->x, 0);
+    ASSERT_EQ(term_pos(cells_shown(&cells_term))->x, 0);
     for (const char *p = "\33[?69h\33[11;20s\33[5;11H"; *p; p++)
         manifold_putchar(*p);
     com_end_reset();
     com_end_now();
     manifold_flush();
-    ASSERT_EQ(term_pos(term_shown(&cells_term))->x, 0);
+    ASSERT_EQ(term_pos(cells_shown(&cells_term))->x, 0);
 }
 
 UTEST(com, a_write_to_one_terminal_lands_between_the_output_around_it)

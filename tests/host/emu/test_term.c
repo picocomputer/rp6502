@@ -1070,17 +1070,19 @@ UTEST(term, the_soft_reset_sets_the_40_back_to_30)
     ASSERT_EQ(cells_term.grids[0]->height, TERM_STD_HEIGHT);
 }
 
-/* A program's own size is a third grid: the answers come from it, and the
- * screen's 80 columns go on as they were. */
-UTEST(term, a_pinned_width_answers_from_its_own_grid)
+/* A program's own size for the line editor is a third grid the terminal
+ * follows, but the terminal answers from the screen: its size, its cursor. */
+UTEST(term, a_pinned_width_is_the_line_editors_alone)
 {
     fresh();
     rln_set_term_width(132);
     ASSERT_EQ(cells_term.grid_count, 3);
-    ASSERT_STREQ(ask("\33[18t"), "\33[8;30;132t");
+    ASSERT_EQ(cells_term.grids[TERM_SCREEN_GRIDS]->width, 132);
+    ASSERT_STREQ(ask("\33[18t"), "\33[8;30;80t");
     feed("\33[1;100H");
-    ASSERT_STREQ(ask("\33[6n"), "\33[1;100R");
-    ASSERT_EQ(cx(), 79); /* the screen's terminal stops at its edge */
+    ASSERT_STREQ(ask("\33[6n"), "\33[1;80R");
+    ASSERT_EQ(term_pos(cells_term.grids[TERM_SCREEN_GRIDS])->x, 99);
+    ASSERT_STREQ(ask("\33P$q$|\33\\"), "\33P1$r80$|\33\\");
     rln_set_term_width(0);
     ASSERT_EQ(cells_term.grid_count, 2);
     ASSERT_STREQ(ask("\33[6n"), "\33[1;80R");
@@ -1092,10 +1094,12 @@ UTEST(term, a_pinned_height_fixes_the_width_and_stops_with_the_program)
 {
     fresh();
     rln_set_term_height(20);
-    ASSERT_STREQ(ask("\33[18t"), "\33[8;20;80t");
+    ASSERT_EQ(cells_term.grids[TERM_SCREEN_GRIDS]->height, 20);
+    ASSERT_EQ(cells_term.grids[TERM_SCREEN_GRIDS]->width, 80);
+    ASSERT_STREQ(ask("\33[18t"), "\33[8;30;80t");
     rln_set_term_width(132);
     feed("\33[1;81H\t");
-    ASSERT_STREQ(ask("\33[6n"), "\33[1;89R");
+    ASSERT_EQ(term_pos(cells_term.grids[TERM_SCREEN_GRIDS])->x, 88);
     rln_stop();
     ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS);
 }

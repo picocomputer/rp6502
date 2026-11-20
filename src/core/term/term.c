@@ -184,11 +184,6 @@ static void term_out_DECSCL(term_t *t)
     t->level = (uint8_t)level;
 }
 
-term_grid_t *term_shown(term_t *t)
-{
-    return t->grid_count > TERM_SCREEN_GRIDS ? t->grids[TERM_SCREEN_GRIDS] : cells_shown(t);
-}
-
 void term_add_grid(term_t *t, term_grid_t *g, const term_grid_t *from,
                    uint8_t *lines, uint8_t rows)
 {
@@ -558,7 +553,7 @@ static void term_out_DSR(term_t *t, bool private)
         break;
     case 6:
     {
-        const term_grid_t *g = term_shown(t);
+        const term_grid_t *g = cells_shown(t);
         const term_pos_t *pos = &g->pos[t->alt_active];
         unsigned y = pos->y, x = pos->x;
         // Relative to the margins under DECOM, guarded so a cursor outside
@@ -622,7 +617,7 @@ static void term_out_window(term_t *t)
 {
     if (t->csi_param_count > 1)
         return;
-    const term_grid_t *g = term_shown(t);
+    const term_grid_t *g = cells_shown(t);
     // The cell is the screen's font, whatever size the program set.
     unsigned cell = term_cell_height(cells_shown(t));
     switch (t->csi_param[0])
@@ -667,7 +662,7 @@ static void term_out_DECRQM(term_t *t, bool private)
             break;
         case 3: // DECCOLM: 80 columns, and never 132. The 40-column screen is
                 // neither of DECCOLM's two, so the mode is not reported there.
-            pm = term_shown(t)->width == 80 ? 4 : 0;
+            pm = cells_shown(t)->width == 80 ? 4 : 0;
             break;
         case 4: // DECSCLM
             pm = t->smooth_scroll ? 1 : 2;
@@ -807,7 +802,7 @@ static void term_out_DECRQSS(term_t *t, const char *pt, unsigned len)
     char buf[TERM_REPLY_MAX];
     const size_t size = sizeof(buf) - 2; // room for ST
     const term_pen_t *pen = term_pen(t);
-    const term_grid_t *g = term_shown(t);
+    const term_grid_t *g = cells_shown(t);
     int n = snprintf(buf, size, "\33P1$r");
     if (len == 1 && pt[0] == 'm')
     {
@@ -888,7 +883,7 @@ static char term_cs_final(uint8_t set)
 // DECTABSR is DCS 2 $ u and the tab stops' columns with / between.
 static void term_out_DECRQPSR(term_t *t)
 {
-    const term_grid_t *g = term_shown(t);
+    const term_grid_t *g = cells_shown(t);
     const term_pos_t *pos = &g->pos[t->alt_active];
     const term_pen_t *pen = term_pen(t);
     if (t->csi_param[0] == 1)
@@ -982,7 +977,7 @@ static void term_cir_byte(term_t *t, uint8_t ch)
 static void term_restore_DECCIR(term_t *t)
 {
     const uint16_t *f = t->csi_param;
-    const term_grid_t *g = term_shown(t);
+    const term_grid_t *g = cells_shown(t);
     if (t->csi_colon || t->csi_param_count != 13 || !f[0] || f[0] > g->height || !f[1] ||
         f[1] > g->width || f[2] != 1 || (f[3] & 0xF0) != 0x40 || (f[4] & 0xFE) != 0x40 ||
         (f[5] & 0xF0) != 0x40 || f[6] > 3 || f[7] > 3 || (f[5] & 6) == 6)

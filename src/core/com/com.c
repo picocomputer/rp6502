@@ -331,7 +331,7 @@ void com_set_bel(bool value)
 static bool com_line_clean(void)
 {
     manifold_flush();
-    return term_pos(term_shown(&cells_term))->x == 0;
+    return term_pos(cells_shown(&cells_term))->x == 0;
 }
 
 void com_clean_line(void)
@@ -352,7 +352,7 @@ void com_clean_line(void)
 static void com_clear_line(void)
 {
     manifold_flush();
-    term_grid_t *g = term_shown(&cells_term);
+    term_grid_t *g = cells_shown(&cells_term);
     const uint8_t y = term_pos(g)->y;
     uint8_t last = g->height;
     while (last > y && !cells_row_used(&cells_term, g, last - 1))

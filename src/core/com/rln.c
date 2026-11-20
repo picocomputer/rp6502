@@ -105,7 +105,7 @@ static uint8_t rln_last_render_buflen; // buflen as of the last render
 static bool rln_erase_el;
 
 // A program's own size for the console's terminal, while either is pinned:
-// a third grid, which the line editor and the terminal's answers use.
+// a third grid the terminal also follows, which only the line editor uses.
 static uint16_t rln_pinned_width;
 static uint16_t rln_pinned_height;
 static term_grid_t rln_grid;
@@ -132,6 +132,14 @@ static bool rln_laying_out;
 static bool rln_has_grid(void)
 {
     return cells_term.grid_count > TERM_SCREEN_GRIDS;
+}
+
+// The terminal the line editor lays its line out on: the program's own size
+// while it has pinned one, otherwise the screen's. Only the line editor
+// uses the pinned size; the terminal answers queries from the screen.
+static term_grid_t *rln_term(void)
+{
+    return rln_has_grid() ? &rln_grid : cells_shown(&cells_term);
 }
 
 /* ----- The reply -----
@@ -1323,7 +1331,7 @@ static void rln_place(void);
 static void rln_lay_out(void)
 {
     manifold_flush();
-    if (term_pos(term_shown(&cells_term))->wrap_pending)
+    if (term_pos(rln_term())->wrap_pending)
     {
         manifold_putchar('\r');
         manifold_putchar('\n');
@@ -1340,7 +1348,7 @@ static bool rln_lay_out_now(void)
 {
     if (!manifold_drained())
         return false;
-    if (term_pos(term_shown(&cells_term))->wrap_pending)
+    if (term_pos(rln_term())->wrap_pending)
     {
         manifold_putchar('\r');
         manifold_putchar('\n');
@@ -1362,7 +1370,7 @@ static void rln_place(void)
      * margins for a cursor between them. Its columns are counted from the
      * first of those. It has no more rows than the scroll region the
      * cursor is in, where its row breaks scroll. */
-    const term_grid_t *g = term_shown(&cells_term);
+    const term_grid_t *g = rln_term();
     const term_pos_t *p = term_pos(g);
     const unsigned first = term_left_stop(g);
     rln_prompt_col = plain ? 0 : (uint16_t)(p->x - first + 1);
@@ -1539,12 +1547,12 @@ void rln_set_plain(bool plain)
 
 uint16_t rln_get_term_width(void)
 {
-    return term_shown(&cells_term)->width;
+    return rln_term()->width;
 }
 
 uint16_t rln_get_term_height(void)
 {
-    return term_shown(&cells_term)->height;
+    return rln_term()->height;
 }
 
 /* The third grid starts as a copy of the showing one and takes the pinned

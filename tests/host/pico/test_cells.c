@@ -35,7 +35,7 @@ static void say(const char *s)
 static const char *rows(int count)
 {
     static char out[40];
-    term_grid_t *g = term_shown(&cells_term);
+    term_grid_t *g = cells_shown(&cells_term);
     for (int y = 0; y < count; y++)
         out[y] = cells_row_used(&cells_term, g, (uint8_t)y) ? '#' : '.';
     out[count] = 0;
@@ -94,14 +94,14 @@ UTEST(cells, the_rows_move_with_a_scroll)
     ASSERT_STREQ(rows(7), "....#..");
     /* A line feed on the bottom row moves everything up. */
     fresh();
-    const int bottom = term_shown(&cells_term)->height - 1;
+    const int bottom = cells_shown(&cells_term)->height - 1;
     say("top\33[99;1Hbottom");
-    ASSERT_TRUE(cells_row_used(&cells_term, term_shown(&cells_term), 0));
-    ASSERT_TRUE(cells_row_used(&cells_term, term_shown(&cells_term), (uint8_t)bottom));
+    ASSERT_TRUE(cells_row_used(&cells_term, cells_shown(&cells_term), 0));
+    ASSERT_TRUE(cells_row_used(&cells_term, cells_shown(&cells_term), (uint8_t)bottom));
     say("\n");
-    ASSERT_FALSE(cells_row_used(&cells_term, term_shown(&cells_term), 0));
-    ASSERT_TRUE(cells_row_used(&cells_term, term_shown(&cells_term), (uint8_t)(bottom - 1)));
-    ASSERT_FALSE(cells_row_used(&cells_term, term_shown(&cells_term), (uint8_t)bottom));
+    ASSERT_FALSE(cells_row_used(&cells_term, cells_shown(&cells_term), 0));
+    ASSERT_TRUE(cells_row_used(&cells_term, cells_shown(&cells_term), (uint8_t)(bottom - 1)));
+    ASSERT_FALSE(cells_row_used(&cells_term, cells_shown(&cells_term), (uint8_t)bottom));
 }
 
 UTEST(cells, each_screen_has_its_own_rows)

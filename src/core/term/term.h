@@ -322,10 +322,6 @@ void term_add_grid(term_t *t, term_grid_t *g, const term_grid_t *from,
                    uint8_t *lines, uint8_t rows);
 void term_drop_grid(term_t *t, term_grid_t *g);
 
-// The grid the queries are answered from: a program's own while it has one,
-// otherwise the screen's showing grid (cells_shown).
-term_grid_t *term_shown(term_t *t);
-
 // The pen, the cursor and the line sizes of the screen showing.
 static inline term_pen_t *term_pen(const term_t *t)
 {
