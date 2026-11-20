@@ -25,15 +25,16 @@ uint64_t rsmp_step(uint32_t in_rate, uint32_t out_rate)
     return ((uint64_t)in_rate << 32) / out_rate;
 }
 
-/* The fraction between the rows is taken to sixteen bits of the twenty-five
- * that are there, which is what rsmp.sv takes. A 65,536th of a 128th of an
- * input sample is 1.2e-7 of one, and the coefficients are quantised far more
+/* The fraction between the rows is taken to sixteen bits of the twenty-six
+ * that are there, which is what pcm.sv takes. A 65,536th of a 64th of an
+ * input sample is 2.4e-7 of one, and the coefficients are quantised far more
  * coarsely than that.
  */
 static int32_t rsmp_at(const int32_t *h, uint32_t mu)
 {
-    const unsigned p = mu >> 25;               /* 0 .. RSMP_PHASES-1 */
-    const int64_t f = (mu >> 9) & 0xFFFF;      /* Q16 between p and p+1 */
+    /* p is 0 .. RSMP_PHASES-1, and f is Q16 between p and p+1. */
+    const unsigned p = mu >> (32 - RSMP_PHASE_BITS);
+    const int64_t f = (mu >> (16 - RSMP_PHASE_BITS)) & 0xFFFF;
     int64_t a = 0, b = 0;
     for (int i = 0; i < RSMP_TAPS; i++)
     {
@@ -49,7 +50,7 @@ static int32_t rsmp_at(const int32_t *h, uint32_t mu)
 
 int rsmp_push(rsmp_t *r, int32_t x, uint64_t step, int32_t *out, int max_out)
 {
-    /* A cold filter would ring against twenty-three zeros and click at the
+    /* A cold filter would ring against forty-seven zeros and click at the
      * start of every sound, so it starts flat at the first sample. */
     if (!r->primed)
     {

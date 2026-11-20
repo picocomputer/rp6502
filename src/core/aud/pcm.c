@@ -168,8 +168,8 @@ void HOST_IN_RAM_FUNC pcm_sample(pcm_t *s, int32_t *left, int32_t *right)
         pcm_take(s);
     }
     const uint32_t mu = (uint32_t)s->phase;
-    const unsigned p = mu >> 25;
-    const int64_t f = (mu >> 9) & 0xFFFF;
+    const unsigned p = mu >> (32 - RSMP_PHASE_BITS);
+    const int64_t f = (mu >> (16 - RSMP_PHASE_BITS)) & 0xFFFF;
     const int32_t *hl = &s->hist[0][s->at];
     const int32_t *hr = &s->hist[1][s->at];
     int64_t al, ar, bl, br;

@@ -194,13 +194,15 @@ UTEST(pcm, an_underrun_is_silence_and_play_resumes)
     for (int i = 0; i < 200; i++)
         pcm_sample(&stub, &l, &r);
     ASSERT_EQ(pcm_level(&stub), 0);
-    /* Twenty-four silent frames flush the filter. */
+    /* Forty-eight silent frames flush the filter. */
     for (int i = 0; i < 200; i++)
         pcm_sample(&stub, &l, &r);
     ASSERT_EQ(l, 0);
     ASSERT_EQ(r, 0);
     pcm_put(&stub, loud, sizeof loud);
-    for (int i = 0; i < 40; i++)
+    /* The filter delays by half its taps, 24 frames, 55 samples at this
+     * rate. */
+    for (int i = 0; i < 80; i++)
         pcm_sample(&stub, &l, &r);
     ASSERT_GT(l, 0x3000);
     ASSERT_EQ(l, r);
