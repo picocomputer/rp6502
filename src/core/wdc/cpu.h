@@ -29,15 +29,9 @@ void *cpu_chip(void); /* w65c02_t* */
 
 extern void (*cpu_dbg_cycle_cb)(uint64_t pins);
 
-#define CPU_SST_SIZE 34
-void cpu_sst_save(sst_cursor_t *c, unsigned flags);
-bool cpu_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t cpu_sst;
 
 #define CPU_DRIVER DRIVER(                                  \
-    SST(.id = "CPU_",                                       \
-        .version = 1,                                       \
-        .size = CPU_SST_SIZE,                               \
-        .save = cpu_sst_save,                               \
-        .load = cpu_sst_load))
+    SST("CPU_", cpu))
 
 #endif /* _CORE_WDC_CPU_H_ */

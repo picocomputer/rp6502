@@ -16,6 +16,26 @@ static uint8_t keyboard_locks;
 static uint32_t keyboard_keys[8];
 static keyboard_connection_t keyboard_connections[KEYBOARD_MAX_KEYBOARDS];
 
+/* An address that would put the bitmap past the end of XRAM would have the
+ * next publish write past it. */
+static bool keyboard_xram_check(sst_cursor_t *c)
+{
+    if (keyboard_xram > 0x10000 - sizeof(keyboard_keys) &&
+        keyboard_xram != 0xFFFF)
+        return sst_refuse(c, "keyboard block past the end of XRAM");
+    return true;
+}
+
+/* The connection table is not saved, because it describes what is plugged
+ * in now rather than what the blob remembers. */
+#define KEYBOARD_SST(X)                                     \
+    X(U16, keyboard_xram)                                   \
+    X(U8, keyboard_locks)                                   \
+    X(U32S, keyboard_keys)                                  \
+    X(VALIDATE, keyboard_xram_check)                        \
+    X(SKIP, keyboard_connections)
+SST_TABLE(keyboard, KEYBOARD_SST)
+
 #define KEYBOARD_KEY_BIT_SET(data, keycode) ((data)[(keycode) >> 5] |= 1 << ((keycode) & 31))
 #define KEYBOARD_KEY_BIT_VAL(data, keycode) ((data)[(keycode) >> 5] & (1 << ((keycode) & 31)))
 
@@ -63,32 +83,6 @@ static void HOST_IN_RAM_FUNC keyboard_publish(void)
         memcpy((uint8_t *)&xram[keyboard_xram], keyboard_keys, sizeof(keyboard_keys));
 }
 
-void keyboard_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    sst_put_u16(c, keyboard_xram);
-    sst_put_u8(c, keyboard_locks);
-    for (int i = 0; i < 8; i++)
-        sst_put_u32(c, keyboard_keys[i]);
-}
-
-bool keyboard_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    uint16_t at = sst_get_u16(c);
-    uint8_t leds = sst_get_u8(c);
-    uint32_t keys[8];
-    for (int i = 0; i < 8; i++)
-        keys[i] = sst_get_u32(c);
-    if (!sst_ok(c))
-        return false;
-    keyboard_xram = at;
-    keyboard_locks = leds;
-    memcpy(keyboard_keys, keys, sizeof keyboard_keys);
-    keyboard_publish();
-    return true;
-}
-
 void HOST_IN_FLASH_FUNC keyboard_init(void)
 {
     keyboard_stop();
@@ -98,6 +92,12 @@ void HOST_IN_FLASH_FUNC keyboard_init(void)
 void keyboard_stop(void)
 {
     keyboard_xram = 0xFFFF;
+}
+
+void keyboard_reset(void)
+{
+    keyboard_stop();
+    keyboard_release_all();
 }
 
 bool keyboard_mount(int slot, const keyboard_connection_t *desc,

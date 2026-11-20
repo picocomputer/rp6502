@@ -6,6 +6,7 @@
 
 #include "core/sys/config.h"
 #include "core/str/str.h"
+#include "core/sys/sst.h"
 #include "machine.h"
 
 #include <stdarg.h>
@@ -49,6 +50,15 @@ DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #include "core/sys/driver_walk.h"
 DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #include "core/sys/driver_walk_end.h"
+
+/* The settings are the host's, not the machine's, so no savestate carries
+ * them. The driver walk above makes one static for each, named config_ and
+ * the setting, so one row skips them all by that prefix. */
+#define CONFIG_SST(X)                                       \
+    X(SKIP, config_depth)                                   \
+    X(SKIP, config_dirty)                                   \
+    X(SKIP_PREFIX, config_)
+SST_TABLE(config, CONFIG_SST)
 
 /* A machine with no CONFIG_SAVE row still validates, stores and applies its
  * settings; only the write is missing. */

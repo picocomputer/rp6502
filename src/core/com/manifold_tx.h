@@ -34,6 +34,9 @@ void manifold_tx_put(uint8_t to, char c);
  * room. manifold_putchar_raw's. */
 bool manifold_tx_try_put(uint8_t to, char c);
 
+/* Bytes that fit before a put would wait. */
+size_t manifold_tx_room(void);
+
 /* What waits, oldest first. */
 size_t manifold_tx_len(void);
 manifold_tx_entry_t manifold_tx_at(size_t i);
@@ -47,9 +50,11 @@ void manifold_tx_make_room(void);
  * now, and one that drains in a task leaves it for the task. */
 void manifold_tx_wrote(void);
 
-/* A 16-bit count, then MANIFOLD_TX_SIZE entries of two bytes. */
-#define MANIFOLD_TX_SST_SIZE (2 + 2 * MANIFOLD_TX_SIZE)
-void manifold_tx_sst_save(sst_cursor_t *c);
-bool manifold_tx_sst_load(sst_cursor_t *c);
+void manifold_tx_reset(void);
+extern const sst_table_t manifold_tx_sst;
+
+#define MANIFOLD_TX_DRIVER DRIVER(    \
+    RESET(manifold_tx_reset)          \
+    SST("MFTX", manifold_tx))
 
 #endif /* _CORE_COM_MANIFOLD_TX_H_ */

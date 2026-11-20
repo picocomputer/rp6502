@@ -21,16 +21,20 @@
 static const com_source_driver_t
     com_sources[COM_SOURCE_COUNT] = {RP6502_COM_SOURCES};
 
-static com_source_t com_rx_held = COM_SOURCE_ANY;
+static uint8_t com_rx_held = COM_SOURCE_ANY;
 static timer_mach_t com_rx_deadline;
 
 /* The source of the byte staged in the 6502's receive register. Every
  * source's read starts by taking that byte back, and only the source it came
  * from gets it; otherwise the keyboard would be handed a byte typed at the
  * UART. */
-static com_source_t com_rx_staged;
+static uint8_t com_rx_staged;
 
 static bool com_bel_enabled = true;
+
+/* An end of session waits for what the program wrote to go out at the
+ * line's pace, then its reset goes out at once. */
+bool com_end_pending;
 
 /* The console's terminal's answers, read from the UART's source. The first
  * com_reply_at bytes have been read, and while any have, the rest are read
@@ -43,6 +47,33 @@ static uint16_t com_reply_len;
 static uint16_t com_reply_at;
 static bool com_reply_quiet;
 static bool com_reply_default;
+
+/* The picker's held source, the latch byte's source and the answer's
+ * indexes are checked, because each indexes an array. */
+static bool com_sst_valid(sst_cursor_t *c)
+{
+    if (com_rx_held > COM_SOURCE_ANY || com_rx_staged >= COM_SOURCE_COUNT)
+        return sst_refuse(c, "a source the console does not have");
+    if (com_reply_len > sizeof com_reply_buf ||
+        (com_reply_at && com_reply_at >= com_reply_len))
+        return sst_refuse(c, "an answer past its buffer");
+    return true;
+}
+
+#define COM_SST_ROWS(X)                                  \
+    X(SKIP, com_sources, "the machine's, fixed")         \
+    X(U8, com_rx_held)                                   \
+    X(U64, com_rx_deadline)                              \
+    X(BOOL, com_bel_enabled)                             \
+    X(U8, com_rx_staged)                                 \
+    X(U16, com_reply_len)                                \
+    X(U16, com_reply_at)                                 \
+    X(BYTES, com_reply_buf)                              \
+    X(BOOL, com_reply_quiet)                             \
+    X(BOOL, com_end_pending)                             \
+    X(VALIDATE, com_sst_valid)                           \
+    X(SKIP, com_reply_default, "host wiring")
+SST_TABLE(com, COM_SST_ROWS)
 
 static size_t HOST_IN_RAM_FUNC com_reply_read(char *buf, size_t n)
 {
@@ -230,11 +261,30 @@ void HOST_IN_FLASH_FUNC com_run(void)
     com_reply_quiet = com_reply_default;
 }
 
+/* A failed load can leave the picker held by no source, which reads nothing
+ * ever again, the latch byte named for no source, and the answer's indexes
+ * past its buffer. This drops the input and answers waiting, holds no
+ * source, names the keyboard for the latch, turns the bell on and answers
+ * queries as the machine's default says, as a new program finds them. A
+ * latch byte named for no source is the RIA's RESET to drop. */
+void com_reset(void)
+{
+    com_rx_clear();
+    com_rx_held = COM_SOURCE_ANY;
+    com_rx_staged = COM_SOURCE_KEYBOARD;
+    com_bel_enabled = true;
+    com_end_pending = false;
+    com_run();
+}
+
 /* Where COM_LIBC_STDOUT says the C library's stdout is the console, this
  * formats straight to it. Elsewhere it formats into a 1 KB buffer and cuts off
  * what does not fit. */
 int HOST_IN_FLASH_FUNC com_printf(const char *fmt, ...)
 {
+    /* A session's end, still waiting for the program's output, goes out
+     * ahead of what the firmware writes. */
+    com_end_now();
     va_list va;
     va_start(va, fmt);
 #if COM_LIBC_STDOUT
@@ -255,6 +305,7 @@ int HOST_IN_FLASH_FUNC com_printf(const char *fmt, ...)
 int HOST_IN_FLASH_FUNC com_printf_utf8(const char *utf8_fmt, ...)
 {
     char buf[COM_PRINTF_UTF8_SIZE];
+    com_end_now();
     va_list va;
     va_start(va, utf8_fmt);
     oem_vsnprintf(buf, sizeof(buf), utf8_fmt, va);
@@ -285,6 +336,7 @@ static bool com_line_clean(void)
 
 void com_clean_line(void)
 {
+    com_end_now();
     if (!com_line_clean())
     {
         manifold_putchar('\r');
@@ -322,56 +374,42 @@ static void com_clear_line(void)
  * top and bottom ones with the cursor kept where it is, so the line feeds
  * after it move the cursor down the whole screen, at once, and the cursor
  * read after it is the one they move. The default cursor shape goes to
- * the screen alone, because a terminal on the UART or telnet may print it. */
+ * the screen alone, because a terminal on the UART or telnet may print it.
+ * Then the code page comes back, after the output it was printed in, and
+ * the bell rings again. */
 void com_end_reset(void)
 {
+    com_end_pending = true;
+}
+
+void com_end_now(void)
+{
     static const char shape[] = "\33[0 q";
-    /* A smooth scroll still moving snaps into place, the same on every
-     * machine, rather than the end waiting for it. A program that wants its
-     * last lines to finish syncs the console before it exits. */
+    if (!com_end_pending)
+        return;
+    com_end_pending = false;
+    /* A smooth scroll the output started has finished, unless this is
+     * early, and then it snaps into place, the same on every machine. */
     term_release_smooth(&cells_term);
     manifold_flush();
     for (const char *s = STR_TERM_SOFT_RESET; *s; s++)
         manifold_putchar((unsigned char)*s);
     manifold_write_to(COM_TERM_SCREEN, shape, sizeof shape - 1);
     com_clear_line();
+    manifold_flush();
+    oem_restore_code_page();
+    com_set_bel(true);
 }
 
-void com_sst_save(sst_cursor_t *c, unsigned flags)
+void com_task(void)
 {
-    (void)flags;
-    sst_put_u8(c, (uint8_t)com_rx_held);
-    sst_put_u64(c, com_rx_deadline);
-    sst_put_bool(c, com_bel_enabled);
-    sst_put_u8(c, (uint8_t)com_rx_staged);
-    sst_put_u16(c, com_reply_len);
-    sst_put_u16(c, com_reply_at);
-    sst_put(c, com_reply_buf, sizeof com_reply_buf);
-    sst_put_bool(c, com_reply_quiet);
+    if (com_end_pending && manifold_drained())
+        com_end_now();
 }
 
-bool com_sst_load(sst_cursor_t *c, unsigned flags)
+/* A program starting finds the session before it ended. */
+void com_start(void)
 {
-    (void)flags;
-    uint8_t held = sst_get_u8(c);
-    uint64_t deadline = sst_get_u64(c);
-    bool bel = sst_get_bool(c);
-    uint8_t staged = sst_get_u8(c);
-    uint16_t reply_len = sst_get_u16(c);
-    uint16_t reply_at = sst_get_u16(c);
-    uint8_t reply[sizeof com_reply_buf];
-    sst_get(c, reply, sizeof reply);
-    bool quiet = sst_get_bool(c);
-    if (!sst_ok(c) || held > COM_SOURCE_ANY || staged >= COM_SOURCE_COUNT ||
-        reply_len > sizeof com_reply_buf || (reply_at && reply_at >= reply_len))
-        return false;
-    com_rx_held = (com_source_t)held;
-    com_rx_deadline = deadline;
-    com_bel_enabled = bel;
-    com_rx_staged = (com_source_t)staged;
-    com_reply_len = reply_len;
-    com_reply_at = reply_at;
-    memcpy(com_reply_buf, reply, sizeof com_reply_buf);
-    com_reply_quiet = quiet;
-    return true;
+    com_end_now();
+    com_run();
 }

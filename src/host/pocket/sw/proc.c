@@ -19,6 +19,21 @@
 static char proc_argv0[API_PATH_MAX + 1];
 static bool proc_exec_pending;
 
+/* proc_exec_take loads what argv[0] names, so an exec on its way with no
+ * argv[0] is refused. argv is the ARG row's, which loads before this one. */
+static bool proc_exec_check(sst_cursor_t *c)
+{
+    if (proc_exec_pending && !arg_index(0))
+        return sst_refuse(c, "an exec is on its way with no program");
+    return true;
+}
+
+#define PROC_POCKET_SST(X)                                              \
+    X(STR, proc_argv0, "the path a start by name staged")               \
+    X(BOOL, proc_exec_pending)                                          \
+    X(VALIDATE, proc_exec_check)
+SST_TABLE(proc_pocket, PROC_POCKET_SST)
+
 void proc_exec_drop(void)
 {
     /* The stop an exec made did not end the chain, so it ends here. */
@@ -28,6 +43,16 @@ void proc_exec_drop(void)
         proc_chain_end();
     }
     proc_cancel_launcher();
+}
+
+/* No exec is on its way, so proc_exec_take starts nothing, and the chain is
+ * empty. proc_argv0 is only saved, and proc_restage writes it before the
+ * next start. What ends a chain in other drivers is their own reset's
+ * job. */
+void proc_reset(void)
+{
+    proc_exec_pending = false;
+    proc_chain_reset();
 }
 
 void proc_restage(void)
@@ -98,27 +123,5 @@ bool proc_exec_take(void)
         printf("exec: no %s\n", path);
         return false;
     }
-    return true;
-}
-
-void proc_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    sst_put_str(c, proc_argv0, sizeof proc_argv0);
-    sst_put_bool(c, proc_exec_pending);
-    proc_chain_sst_save(c);
-}
-
-bool proc_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    const char *argv0 = sst_view_str(c, sizeof proc_argv0);
-    bool pending = sst_get_bool(c);
-    if (!sst_ok(c))
-        return false;
-    if (!proc_chain_sst_load(c))
-        return sst_refuse(c, "the program's name and arguments are out of range");
-    strcpy(proc_argv0, argv0);
-    proc_exec_pending = pending;
     return true;
 }

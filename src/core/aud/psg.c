@@ -130,6 +130,34 @@ static struct
  * through psg_put. XRAM is the program's and is never read. */
 static struct psg_channel psg_regs[PSG_VOICES];
 
+/* psg_sample steps only the four envelope stages, and the block has to lie
+ * inside XRAM. */
+static bool psg_sst_valid(sst_cursor_t *c)
+{
+    if (psg_xaddr != 0xFFFF && !psg_block_ok(psg_xaddr))
+        return sst_refuse(c, "the channel block runs past XRAM");
+    for (unsigned i = 0; i < PSG_VOICES; i++)
+        if (psg_channel_state[i].adsr > PSG_ADSR_SUSTAIN)
+            return sst_refuse(c, "an envelope stage out of range");
+    return true;
+}
+
+/* The pointer, the eight channels behind it and the bell. XRAM need not
+ * hold what the engine does, so the registers are here too. */
+#define PSG_STATE_ROWS(Y, s)                                    \
+    Y(I16, s.sample) Y(U8, s.adsr) Y(U32, s.vol)                \
+    Y(U32, s.phase) Y(U16, s.noise1) Y(U16, s.noise2)
+#define PSG_REGS_ROWS(Y, r)                                     \
+    Y(U16, r.freq) Y(U8, r.duty) Y(U8, r.vol_attack)            \
+    Y(U8, r.vol_decay) Y(U8, r.wave_release) Y(U8, r.pan_gate)  \
+    Y(U8, r.unused)
+#define PSG_SST(X)                                              \
+    X(U16, psg_xaddr)                                           \
+    X(STRUCTS, psg_channel_state, PSG_STATE_ROWS)               \
+    X(STRUCTS, psg_regs, PSG_REGS_ROWS)                         \
+    X(VALIDATE, psg_sst_valid)
+SST_TABLE(psg, PSG_SST)
+
 /* A silent bell with no frequency and no noise steps to the same state
  * every sample, so the mix skips it. psg.sv's walk steps it anyway, to the
  * same end. */
@@ -304,51 +332,6 @@ uint16_t HOST_IN_RAM_FUNC psg_xaddr_get(void) { return psg_xaddr; }
 
 void HOST_IN_RAM_FUNC psg_park(void) { psg_xaddr = 0xFFFF; }
 
-void psg_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    sst_put_u16(c, psg_xaddr);
-    for (unsigned i = 0; i < PSG_VOICES; i++)
-    {
-        sst_put_u16(c, (uint16_t)psg_channel_state[i].sample);
-        sst_put_u8(c, psg_channel_state[i].adsr);
-        sst_put_u32(c, psg_channel_state[i].vol);
-        sst_put_u32(c, psg_channel_state[i].phase);
-        sst_put_u16(c, psg_channel_state[i].noise1);
-        sst_put_u16(c, psg_channel_state[i].noise2);
-    }
-    for (unsigned i = 0; i < sizeof psg_regs; i++)
-        sst_put_u8(c, ((const uint8_t *)psg_regs)[i]);
-}
-
-bool psg_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    uint16_t at = sst_get_u16(c);
-    __typeof__(psg_channel_state[0]) ch[PSG_VOICES];
-    for (unsigned i = 0; i < PSG_VOICES; i++)
-    {
-        ch[i].sample = (int16_t)sst_get_u16(c);
-        ch[i].adsr = sst_get_u8(c);
-        ch[i].vol = sst_get_u32(c);
-        ch[i].phase = sst_get_u32(c);
-        ch[i].noise1 = sst_get_u16(c);
-        ch[i].noise2 = sst_get_u16(c);
-        if (ch[i].adsr > PSG_ADSR_SUSTAIN)
-            return false;
-    }
-    uint8_t regs[sizeof psg_regs];
-    for (unsigned i = 0; i < sizeof regs; i++)
-        regs[i] = sst_get_u8(c);
-    if (!sst_ok(c) || (at != 0xFFFF && !psg_block_ok(at)))
-        return false;
-    psg_xaddr = at;
-    for (unsigned i = 0; i < PSG_VOICES; i++)
-        psg_channel_state[i] = ch[i];
-    memcpy(psg_regs, regs, sizeof regs);
-    return true;
-}
-
 void HOST_IN_RAM_FUNC psg_map(uint16_t word)
 {
     /* Taking the engine and giving it up both reset it, so a program never
@@ -370,4 +353,13 @@ void HOST_IN_RAM_FUNC psg_map(uint16_t word)
     /* The registers start at zero, whatever XRAM holds. */
     memset(psg_regs, 0, PSG_REGS_SIZE);
     psg_xaddr = word;
+}
+
+/* psg_map leaves the bell's voice to the bell, but a failed load can leave
+ * it holding anything, so it takes voice 0's fresh state and registers. */
+void psg_reset(void)
+{
+    psg_map(0xFFFF);
+    psg_channel_state[PSG_BEL] = psg_channel_state[0];
+    psg_regs[PSG_BEL] = psg_regs[0];
 }

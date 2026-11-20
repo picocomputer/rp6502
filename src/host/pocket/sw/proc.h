@@ -9,6 +9,7 @@
 
 #include "core/api/api.h"
 #include "core/api/proc.h"
+#include "core/sys/sst.h"
 
 #include <stdint.h>
 
@@ -21,19 +22,15 @@ bool proc_exec_take(void);
 /* Drops an exec on its way and the launcher, so nothing starts by itself. */
 void proc_exec_drop(void);
 
-/* The path a start by name staged, the exec on its way, then core/api/proc.h's
- * chain. */
-#define PROC_SST_SIZE (API_PATH_MAX + 1 + 1 + PROC_CHAIN_SST_SIZE)
-void proc_sst_save(sst_cursor_t *c, unsigned flags);
-bool proc_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t proc_pocket_sst;
+
+/* After a failed savestate load: no exec on its way and proc_chain_reset. */
+void proc_reset(void);
 
 #define PROC_DRIVER DRIVER(                                    \
     RUN(proc_run)                                              \
     STOP(proc_stop)                                            \
-    SST(.id = "PROC",                                          \
-        .version = 1,                                          \
-        .size = PROC_SST_SIZE,                                 \
-        .save = proc_sst_save,                                 \
-        .load = proc_sst_load))
+    RESET(proc_reset)                                          \
+    SST("PROC", proc_pocket))
 
 #endif /* _HOST_POCKET_SW_PROC_H_ */

@@ -17,5 +17,6 @@ expect console "zz\r\n"
 
 poke bus:RIA_TX $71
 poke bus:RIA_TX $0A
+run 1
 expect stdout "q\n"
 expect console "q\n"

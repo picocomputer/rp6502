@@ -15,6 +15,7 @@
  */
 
 #include "osal/dir.h"
+#include "core/sys/sst.h"
 #include "core/str/oem.h"
 #include "core/str/path.h"
 #include "osal/os.h"
@@ -280,6 +281,10 @@ static struct
     void *dp;
     char path[API_PATH_MAX + 1];
 } dirs[DIR_MAX_OPEN];
+
+#define OSAL_DIR_SST(X) \
+    X(SKIP, dirs, "the DIR row reopens each by the path kept here")
+SST_TABLE(osal_dir, OSAL_DIR_SST)
 
 bool drive_validate(int des, api_errno *err)
 {

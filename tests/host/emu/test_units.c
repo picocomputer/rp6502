@@ -304,10 +304,11 @@ UTEST(vga, a_stop_puts_the_console_back_without_the_display_register)
     tb_screen(&tv);
     ASSERT_EQ(tv.width, 80);
     ASSERT_EQ(tv.height, 30);
-    uint8_t blob[XREG_SST_SIZE];
-    sst_cursor_t c = {blob, blob + sizeof blob, false};
-    xreg_sst_save(&c, 0);
-    for (size_t i = 0; i < sizeof blob; i++)
+    uint8_t blob[64];
+    ASSERT_LE((size_t)xreg_sst.size, sizeof blob);
+    sst_cursor_t c = {blob, blob + xreg_sst.size, false, NULL};
+    xreg_sst.save(&c, 0);
+    for (size_t i = 0; i < xreg_sst.size; i++)
         ASSERT_EQ(blob[i], 0);
 }
 
@@ -317,10 +318,11 @@ UTEST(vga, channel_0_ignores_registers_it_lacks)
 {
     sys_init();
     ASSERT_TRUE(xreg1(0, 0x12, 1));
-    uint8_t blob[XREG_SST_SIZE];
-    sst_cursor_t c = {blob, blob + sizeof blob, false};
-    xreg_sst_save(&c, 0);
-    for (size_t i = 0; i < sizeof blob; i++)
+    uint8_t blob[64];
+    ASSERT_LE((size_t)xreg_sst.size, sizeof blob);
+    sst_cursor_t c = {blob, blob + xreg_sst.size, false, NULL};
+    xreg_sst.save(&c, 0);
+    for (size_t i = 0; i < xreg_sst.size; i++)
         ASSERT_EQ(blob[i], 0);
 }
 

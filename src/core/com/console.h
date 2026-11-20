@@ -23,6 +23,7 @@
 
 void console_stop(void);
 void console_end(void);
+void console_reset(void);
 
 /* Whether a cooked read is outstanding on the console, and the notice that
  * input has ended. On end of input whatever partial line was typed is still
@@ -59,19 +60,13 @@ std_rw_result console_std_write(int desc, const char *buf, uint32_t count, uint3
 bool console_std_ident(int desc, sst_cursor_t *c);
 int console_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err);
 
-/* How far the cooked reader has got through a line, and the two flags. */
-#define CONSOLE_SST_SIZE 8
-void console_sst_save(sst_cursor_t *c, unsigned flags);
-bool console_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t console_sst;
 
 #define CONSOLE_DRIVER DRIVER(            \
     STOP(console_stop)                    \
     END(console_end)                      \
-    SST(.id = "CON_",                     \
-        .version = 1,                     \
-        .size = CONSOLE_SST_SIZE,         \
-        .save = console_sst_save,         \
-        .load = console_sst_load)         \
+    RESET(console_reset)                  \
+    SST("CON_", console)                  \
     STD(.handles = console_std_handles,   \
         .open = console_std_open,         \
         .close = console_std_close,       \

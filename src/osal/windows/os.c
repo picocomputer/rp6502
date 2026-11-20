@@ -6,6 +6,7 @@
  */
 
 #include "osal/os.h"
+#include "core/sys/sst.h"
 #include "osal/windows/dir.h"
 #include "core/tim/tim.h"
 #include <stdint.h>
@@ -45,14 +46,15 @@ uint32_t os_random(void)
  * t * 1000000000 passes 2^64 after about half an hour on the 10 MHz counter
  * Windows usually reports. The frequency is fixed after boot, so it is read
  * once. */
+static LARGE_INTEGER win_qpc_hz;
+
 uint64_t os_mono_ns(void)
 {
-    static LARGE_INTEGER f;
-    if (!f.QuadPart)
-        QueryPerformanceFrequency(&f);
+    if (!win_qpc_hz.QuadPart)
+        QueryPerformanceFrequency(&win_qpc_hz);
     LARGE_INTEGER c;
     QueryPerformanceCounter(&c);
-    const uint64_t hz = (uint64_t)f.QuadPart;
+    const uint64_t hz = (uint64_t)win_qpc_hz.QuadPart;
     const uint64_t t = (uint64_t)c.QuadPart;
     return (t / hz) * 1000000000ull + (t % hz) * 1000000000ull / hz;
 }
@@ -61,26 +63,27 @@ uint64_t os_mono_ns(void)
  * scheduler's tick. Windows before 1803 refuses the flag and falls back to
  * Sleep, so a wake there can be a tick late; the caller measures when it woke
  * and carries the difference forward. */
+static HANDLE win_timer;
+static bool win_no_timer;
+
 void os_sleep_ns(uint64_t ns)
 {
-    static HANDLE timer;
-    static bool no_timer;
-    if (!timer && !no_timer)
+    if (!win_timer && !win_no_timer)
     {
-        timer = CreateWaitableTimerExW(NULL, NULL,
-                                       CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
-                                       TIMER_ALL_ACCESS);
-        no_timer = !timer;
+        win_timer = CreateWaitableTimerExW(NULL, NULL,
+                                           CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                                           TIMER_ALL_ACCESS);
+        win_no_timer = !win_timer;
     }
-    if (no_timer)
+    if (win_no_timer)
     {
         Sleep((DWORD)(ns / 1000000ull));
         return;
     }
     LARGE_INTEGER due;
     due.QuadPart = -(LONGLONG)(ns / 100ull); /* relative, 100 ns units */
-    SetWaitableTimer(timer, &due, 0, NULL, NULL, FALSE);
-    WaitForSingleObject(timer, INFINITE);
+    SetWaitableTimer(win_timer, &due, 0, NULL, NULL, FALSE);
+    WaitForSingleObject(win_timer, INFINITE);
 }
 
 /* The C runtime's zone: the TZ environment variable where it is set, as on
@@ -162,6 +165,15 @@ static void win_picture(const char *picture, char *out, size_t out_size)
 #define WIN_WORD_SIZE 96
 static char win_words[TIM_WORD_COUNT][WIN_WORD_SIZE];
 static bool win_word_known[TIM_WORD_COUNT];
+
+/* The host's clock, timer and regional format, not the machine's. */
+#define OSAL_OS_SST(X)                                                    \
+    X(SKIP, win_qpc_hz)                                                   \
+    X(SKIP, win_timer)                                                    \
+    X(SKIP, win_no_timer)                                                 \
+    X(SKIP, win_words)                                                    \
+    X(SKIP, win_word_known)
+SST_TABLE(osal_os, OSAL_OS_SST)
 
 void os_locale_reset(void)
 {

@@ -34,7 +34,6 @@
 #include "apf.h"
 #include "fs.h"
 #include "mmio.h"
-#include "proc.h"
 
 #include "core/api/std.h"
 #include "core/sys/debug_log.h"
@@ -74,11 +73,10 @@ static void sleep_save(void)
 }
 
 /* The live input is taken again after a load, because the KEYB and GPAD
- * rows put back what was held at the save, and apf.c sends only what
- * changes. A load that fails may have put back part of a machine, a
- * launcher or an exec on its way among it, so those are dropped, the
- * machine is stopped, and its chain ends, which closes the files the rows
- * reopened. */
+ * rows put back what was held at the save, or their resets release it, and
+ * apf.c sends only what changes. A load that fails partway has already
+ * reset the machine, which leaves it stopped until the host sends the next
+ * ROM. */
 void sleep_load(void)
 {
     uint32_t started = UPTIME_LO;
@@ -93,7 +91,7 @@ void sleep_load(void)
     if (!why)
     {
         sleep_hold();
-        why = sst_load_checked(SST_BLOB, NULL, 0);
+        why = sst_load_checked(SST_BLOB, 0);
     }
     if (why)
     {
@@ -104,18 +102,8 @@ void sleep_load(void)
         printf("\nbad savestate: %s\n%lu ms, %lu file errors\n", why,
                (unsigned long)((UPTIME_LO - started) / 1000u),
                (unsigned long)(fs_failed_count() - failed));
-        /* The chain ends once: where an exec was on its way, here; where
-         * the machine was left running, at its stop; and otherwise now. */
-        const bool running = sys_running();
-        const bool pending = proc_exec_inflight();
-        proc_exec_drop();
-        if (running)
-            sys_stop();
-        else if (!pending)
-            proc_chain_end();
     }
-    else
-        apf_refresh();
+    apf_refresh();
     MACH_HOLD = 0;
 }
 

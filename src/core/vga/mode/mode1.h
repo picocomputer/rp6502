@@ -14,6 +14,9 @@
 
 bool mode1_prog(uint16_t *xregs);
 
+/* The config at config_ptr is on a word and inside xram. */
+bool mode1_config_ok(uint16_t config_ptr);
+
 bool mode1_fill_valid(uint16_t attributes);
 
 /* The renderer an attribute names, or NULL for none. A fabric build has no

@@ -75,6 +75,9 @@ typedef struct gamepad_connection
 } gamepad_connection_t;
 
 void gamepad_init(void);
+/* Unmaps the block. It is also the RESET hook: a failed load can leave the
+ * address pointing into the next program's XRAM, and the next mapping
+ * rewrites all four reports from the connections. */
 void gamepad_stop(void);
 
 // Which labels the face buttons carry, reported in dpad bits 4 and 5. A HID
@@ -152,21 +155,12 @@ int gamepad_get_player_num(int slot);
 bool gamepad_build_led_report(int slot, uint8_t buf[GAMEPAD_LED_REPORT_MAX],
                               uint8_t *report_id, uint16_t *report_len);
 
-/* The blob carries where the program asked for the four players' reports and
- * the reports themselves: 2 + 4 * 10. A report stands on its own, because a
- * host that decodes its own controller writes the feature bits straight into
- * one rather than keeping a connection to read them from. */
-#define GAMEPAD_SST_SIZE 42
-void gamepad_sst_save(sst_cursor_t *c, unsigned flags);
-bool gamepad_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t gamepad_sst;
 
 #define GAMEPAD_DRIVER DRIVER(                                          \
     INIT(gamepad_init)                                                  \
     STOP(gamepad_stop)                                                  \
-    SST(.id = "GPAD",                                                   \
-        .version = 1,                                                   \
-        .size = GAMEPAD_SST_SIZE,                                       \
-        .save = gamepad_sst_save,                                       \
-        .load = gamepad_sst_load))
+    RESET(gamepad_stop)                                                 \
+    SST("GPAD", gamepad))
 
 #endif /* _CORE_HID_GAMEPAD_H_ */

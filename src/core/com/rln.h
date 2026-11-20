@@ -21,8 +21,13 @@
 
 void rln_init(void);
 void rln_task(void);
+
+/* A key's reply is still going out at the console line's pace, or the read
+ * it ended is waiting to be handed its line. */
+bool rln_replying(void);
 void rln_run(void);
 void rln_stop(void);
+void rln_reset(void);
 
 // Timeout is true when input is idle too long.
 // Requesting a timeout of 0 ms will disable the idle timer.
@@ -123,24 +128,11 @@ bool rln_api_lastkey(void);
 bool rln_api_peek(void);
 bool rln_api_poke(void);
 
-/* The line being edited. console.c's stdin bridge points into it, and a savestate
- * rebuilds that pointer by calling this rather than carrying it. */
+/* The line being edited. console.c's stdin bridge reads the line it was
+ * handed from here. */
 const char *rln_line(void);
 
-/* The reader is a function pointer, so it is saved as a token. A software
- * machine has exactly one, console.c's stdin bridge, and rebuilding it by calling
- * rln_read_line would start a new read and wipe the line the blob just
- * restored.
- *
- * The idle deadline is machine time, so it is carried whole rather than
- * re-armed. It means the same thing in the machine that loads the blob as in
- * the one that made it.
- *
- * A pinned size comes last: the pins (4), whether the third grid is attached
- * (1), and that grid. */
-#define RLN_SST_SIZE 890
-void rln_sst_save(sst_cursor_t *c, unsigned flags);
-bool rln_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t rln_sst;
 
 #define RLN_DRIVER DRIVER(                                  \
     INIT(rln_init)                                          \
@@ -148,10 +140,7 @@ bool rln_sst_load(sst_cursor_t *c, unsigned flags);
     RUN(rln_run)                                            \
     STOP(rln_stop)                                          \
     BREAK(rln_stop)                                         \
-    SST(.id = "RLN_",                                       \
-        .version = 9,                                       \
-        .size = RLN_SST_SIZE,                               \
-        .save = rln_sst_save,                               \
-        .load = rln_sst_load))
+    RESET(rln_reset)                                        \
+    SST("RLN_", rln))
 
 #endif /* _CORE_COM_RLN_H_ */

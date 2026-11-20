@@ -32,14 +32,13 @@ void bel_init(void);
 void bel_task(void);
 void bel_add(const bel_sound_t *sound);
 
-/* aud_sst_save writes this inside the AUD chunk; the bell has no row of
- * its own.
- *
- * The count of queued sounds, 8 sounds of 12 oldest first, then the
- * restrike, release and end deadlines of 8. */
-#define BEL_SST_SIZE (1 + 8 * 12 + 3 * 8)
-void bel_sst_save(sst_cursor_t *c, unsigned flags);
-bool bel_sst_load(sst_cursor_t *c, unsigned flags);
+/* The queue and the deadlines. The bell's voice is the PSG's, and its row
+ * carries it. aud_init starts the bell, so this driver has no INIT or
+ * RESET. */
+extern const sst_table_t bel_sst;
+
+#define BEL_DRIVER DRIVER(                                  \
+    SST("BEL_", bel))
 
 extern const bel_sound_t bel_teletype;
 extern const bel_sound_t bel_nfc_fail;

@@ -55,6 +55,41 @@ static void vga_publish_vsync(void)
 static uint32_t vga_mode0_mask[VGA_MASK_WORDS];
 static int16_t vga_mode0_plane;
 
+/* The scanline table itself is the fabric's, which fab.c carries; these
+ * are this file's notes on it. A plane past the fabric's would write past
+ * VID_XPROG's planes. */
+static bool vga_fabric_check(sst_cursor_t *c)
+{
+    if (vga_highest_scanline < 0 || vga_highest_scanline > VGA_PROG_MAX ||
+        vga_mode0_plane < 0 || vga_mode0_plane >= SCANVIDEO_PLANE_COUNT)
+        return sst_refuse(c, "the scanline table's notes are out of range");
+    return true;
+}
+
+/* VID_VSYNC_LINE is written, not read, and is computed from the canvas,
+ * which loads before this row. */
+static void vga_vsync_put(sst_cursor_t *c, unsigned flags)
+{
+    (void)c;
+    (void)flags;
+}
+
+static bool vga_vsync_get(sst_cursor_t *c, unsigned flags)
+{
+    (void)c;
+    (void)flags;
+    vga_publish_vsync();
+    return true;
+}
+
+#define VGA_FABRIC_SST(X)                                               \
+    X(I16, vga_highest_scanline)                                        \
+    X(U32S, vga_mode0_mask)                                             \
+    X(I16, vga_mode0_plane)                                             \
+    X(VALIDATE, vga_fabric_check)                                       \
+    X(FN, vga_vsync_put, vga_vsync_get, 0, 1)
+SST_TABLE(vga_fabric, VGA_FABRIC_SST)
+
 /* The scanline table is prog.sv's: a word for a plane's fill and one for
  * its sprites, each the mode and the options word of its XREG call under
  * an enable bit. */
@@ -137,35 +172,6 @@ void vga_canvas_reset(void)
 void vga_canvas_publish(vga_canvas_t canvas)
 {
     VID_CANVAS = canvas;
-}
-
-/* What this file keeps of the scanline table, for vid.c's savestate row.
- * The table itself is the fabric's, which fab.c carries. The load comes
- * after the canvas's, which VID_VSYNC_LINE is computed from. */
-void vga_table_save(sst_cursor_t *c)
-{
-    sst_put_i16(c, vga_highest_scanline);
-    for (int i = 0; i < VGA_MASK_WORDS; i++)
-        sst_put_u32(c, vga_mode0_mask[i]);
-    sst_put_i16(c, vga_mode0_plane);
-}
-
-bool vga_table_load(sst_cursor_t *c)
-{
-    int16_t highest = sst_get_i16(c);
-    uint32_t mask[VGA_MASK_WORDS];
-    for (int i = 0; i < VGA_MASK_WORDS; i++)
-        mask[i] = sst_get_u32(c);
-    int16_t plane = sst_get_i16(c);
-    if (!sst_ok(c) || highest < 0 || highest > VGA_PROG_MAX || plane < 0
-        || plane >= SCANVIDEO_PLANE_COUNT)
-        return false;
-    vga_highest_scanline = highest;
-    for (int i = 0; i < VGA_MASK_WORDS; i++)
-        vga_mode0_mask[i] = mask[i];
-    vga_mode0_plane = plane;
-    vga_publish_vsync();
-    return true;
 }
 
 /* font.c's tables are linked onto the font memories, so these write them. */

@@ -5,6 +5,7 @@
  */
 
 #include "core/api/xreg.h"
+#include "core/com/com.h"
 #include "drivers.h"
 
 #include "apf.h"
@@ -46,6 +47,9 @@
 static int main_stdio_putc(char c, FILE *f)
 {
     (void)f;
+    /* A session's end, still waiting for the program's output, goes out
+     * ahead of what the firmware prints. */
+    com_end_now();
     return manifold_putchar((unsigned char)c);
 }
 
@@ -59,6 +63,12 @@ static uint8_t main_upd_seen;
 /* A start of the staged ROM asked for and not yet made. The boot asks for
  * the first one. */
 static bool main_restaging;
+
+#define MAIN_SST(X)                                                     \
+    X(SKIP, main_stdio)                                                 \
+    X(SKIP, main_upd_seen, "the host's ROM requests, not the machine's")  \
+    X(SKIP, main_restaging)
+SST_TABLE(main, MAIN_SST)
 
 static void main_stage(void)
 {

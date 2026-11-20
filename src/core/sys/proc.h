@@ -64,13 +64,15 @@ void proc_exec_task(void);
  * or launcher relaunch queued. */
 bool proc_exited(void);
 
-/* The savestate slot holds the queued flag, then core/api/proc.h's chain. */
-#define PROC_SST_SIZE (1 + PROC_CHAIN_SST_SIZE)
-void proc_sst_save(sst_cursor_t *c, unsigned flags);
-bool proc_sst_load(sst_cursor_t *c, unsigned flags);
+/* Whether an exec is on its way. core/api/proc.h's chain and core/api/arg.h's
+ * argv are their own rows. */
+extern const sst_table_t proc_sst;
 
 /* A break cancels an exec or relaunch still queued, which ends the chain. */
 void proc_exec_break(void);
+
+/* After a failed savestate load: no exec queued. */
+void proc_reset(void);
 
 /* The host is closing the machine. It ends the session the way a break does,
  * so no launcher relaunches into a machine that is going away. */
@@ -82,10 +84,7 @@ void proc_shutdown(void);
     RUN(proc_run)                                              \
     STOP(proc_stop)                                            \
     BREAK(proc_exec_break)                                     \
-    SST(.id = "PROC",                                          \
-        .version = 1,                                          \
-        .size = PROC_SST_SIZE,                                 \
-        .save = proc_sst_save,                                 \
-        .load = proc_sst_load))
+    RESET(proc_reset)                                          \
+    SST("PROC", proc))
 
 #endif /* _CORE_SYS_PROC_H_ */

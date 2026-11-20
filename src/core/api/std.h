@@ -28,6 +28,9 @@ void std_stop(void);
  * has what the one before it left open. */
 void std_reset(void);
 
+/* After a failed savestate load: std_stop, then std_reset. */
+void std_sst_reset(void);
+
 bool std_api_open(void);
 bool std_api_close(void);
 bool std_api_dup(void);
@@ -105,24 +108,15 @@ bool std_sst_refused(void);
 /* The open files, the descriptors that name them, the transfer, open or dup2
  * one of them may be in the middle of. An open file is written down by the
  * driver that opened it, and its handlers are found again from that driver's
- * row number and the open mode rather than carried.
- *
- * The most that can be written is sixteen carry flags, sixteen open files of
- * a driver byte, a mode byte and at most 260 bytes of ident, sixteen
- * descriptors and a fourteen byte tail, which comes to 4238. */
-#define STD_SST_SIZE 4400
-void std_sst_save(sst_cursor_t *c, unsigned flags);
-bool std_sst_load(sst_cursor_t *c, unsigned flags);
+ * row number and the open mode rather than carried. */
+extern const sst_table_t std_sst;
 
 #define STD_DRIVER DRIVER(                                  \
     INIT(std_init)                                          \
     TASK_PUMPED(std_task)                                   \
     STOP(std_stop)                                          \
     END(std_reset)                                          \
-    SST(.id = "STD_",                                       \
-        .version = 4,                                       \
-        .size = STD_SST_SIZE,                               \
-        .save = std_sst_save,                               \
-        .load = std_sst_load))
+    RESET(std_sst_reset)                                    \
+    SST("STD_", std))
 
 #endif /* _CORE_API_STD_H_ */

@@ -16,6 +16,60 @@ mode0_colors_t mode0_colors[MODE0_CELLS] __attribute__((aligned(4)));
 uint16_t mode0_palette[2 * MODE0_ENTRIES];
 volatile mode0_regs_t mode0_regs;
 
+static void mode0_sst_put_cells(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put(c, mode0_cells, sizeof mode0_cells);
+    sst_put(c, mode0_colors, sizeof mode0_colors);
+}
+
+static bool mode0_sst_get_cells(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_get(c, mode0_cells, sizeof mode0_cells);
+    sst_get(c, mode0_colors, sizeof mode0_colors);
+    return sst_ok(c);
+}
+
+/* A glyph indexes the font of its size, and a color the palette. */
+static bool mode0_sst_cells_ok(sst_cursor_t *c)
+{
+    for (unsigned i = 0; i < MODE0_CELLS; i++)
+        if (!mode0_glyph_ok(mode0_cells[i].glyph, i < MODE0_CELLS_40 ? 8 : 16) ||
+            !mode0_color_ok(mode0_colors[i].fg_color) ||
+            !mode0_color_ok(mode0_colors[i].bg_color) ||
+            !mode0_color_ok(mode0_colors[i].ul_color))
+            return sst_refuse(c, "a cell outside the font or the palette");
+    return true;
+}
+
+static void mode0_sst_put_palette(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    for (unsigned i = 0; i < MODE0_ENTRIES; i++)
+        sst_put_u16(c, mode0_palette[i]);
+}
+
+static bool mode0_sst_get_palette(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    for (unsigned i = 0; i < MODE0_ENTRIES; i++)
+        mode0_set_color(i, sst_get_u16(c));
+    return sst_ok(c);
+}
+
+#define MODE0_SST(X)                                                   \
+    X(FN, mode0_sst_put_cells, mode0_sst_get_cells,                    \
+      sizeof mode0_cells + sizeof mode0_colors, 1)                     \
+    X(IN_FN, mode0_cells)                                              \
+    X(IN_FN, mode0_colors)                                             \
+    X(VALIDATE, mode0_sst_cells_ok)                                    \
+    X(FN, mode0_sst_put_palette, mode0_sst_get_palette,                \
+      2 * MODE0_ENTRIES, 1)                                            \
+    X(IN_FN, mode0_palette)                                            \
+    X(SKIP, mode0_regs, "published again by the canvas's load")
+SST_TABLE(mode0, MODE0_SST)
+
 /* Indexed by row, then by style: none, single, double, curly, dotted,
  * dashed. The curly underline is a wave three rows tall and a cell wide on
  * the 16-row glyphs, its crest and its trough three pixels each, with the

@@ -304,6 +304,9 @@ static struct
     uint32_t mask[2];
 } sw_interp;
 
+#define MODE4_SST(X) X(SKIP, sw_interp, "scratch, set up for every sprite")
+SST_TABLE(mode4, MODE4_SST)
+
 static inline uint32_t sw_interp_mask(unsigned lsb, unsigned msb)
 {
     return (((uint32_t)1 << (msb - lsb + 1)) - 1) << lsb;
@@ -504,8 +507,8 @@ static void mode4_render_asprite(
 
 /* Every attribute this mode defines and the renderer it names is written here
  * once. mode4_sprite_fn and mode4_sprite_valid both expand this list, so
- * neither can drift from the other. Each attribute's own bounds check stays in
- * mode4_prog, which has the array length in hand.
+ * neither can drift from the other. Each attribute's own bounds check is in
+ * mode4_config_ok, which has the array length in hand.
  *
  * A fabric build expands only the attribute column. Nothing there calls these
  * renderers, and that image has one 96 KB memory for text, stack and heap. */
@@ -553,6 +556,12 @@ bool mode4_sprite_attr(vga_sprite_fn_t fn, uint16_t *attributes)
 }
 #endif
 
+bool mode4_config_ok(uint16_t attributes, uint16_t config_ptr, uint16_t length)
+{
+    const uint32_t size = attributes ? sizeof(mode4_asprite_t) : sizeof(mode4_sprite_t);
+    return vga_xram_ok(config_ptr, size * length);
+}
+
 bool mode4_prog(uint16_t *xregs)
 {
     const uint16_t attributes = xregs[2];
@@ -562,30 +571,9 @@ bool mode4_prog(uint16_t *xregs)
     const int16_t scanline_begin = xregs[6];
     const int16_t scanline_end = xregs[7];
 
-    if (config_ptr & 1)
+    if (!mode4_sprite_valid(attributes) ||
+        !mode4_config_ok(attributes, config_ptr, length))
         return false;
-
-    if (!mode4_sprite_valid(attributes))
-        return false;
-    switch (attributes)
-    {
-    case 0:
-    {
-        const uint32_t region_size = (uint32_t)sizeof(mode4_sprite_t) * length;
-        if (region_size > 0x10000 || config_ptr > 0x10000 - region_size)
-            return false;
-        break;
-    }
-    case 1:
-    {
-        const uint32_t region_size = (uint32_t)sizeof(mode4_asprite_t) * length;
-        if (region_size > 0x10000 || config_ptr > 0x10000 - region_size)
-            return false;
-        break;
-    }
-    default:
-        return false;
-    }
 
     return vga_prog_sprite(plane, scanline_begin, scanline_end, config_ptr, length, 4, attributes);
 }

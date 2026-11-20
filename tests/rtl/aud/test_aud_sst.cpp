@@ -34,16 +34,16 @@ static std::vector<int> arrays()
         v.push_back(a);
     for (int a = 0x600; a < 0x640; a++)
         v.push_back(a);
-    for (int a = 0x6A0; a < 0x6C0; a++)
+    for (int a = 0x7C0; a < 0x800; a++)
         v.push_back(a);
     return v;
 }
 static std::vector<int> flops()
 {
     std::vector<int> v;
-    for (int a = 0x790; a < 0x797; a++)
+    for (int a = 0x790; a < 0x798; a++)
         v.push_back(a);
-    for (int a = 0x798; a < 0x79A; a++)
+    for (int a = 0x798; a < 0x79B; a++)
         v.push_back(a);
     return v;
 }
@@ -66,7 +66,7 @@ static bool skipped(int skip, int a)
     {
     case 0: return a < 0x400;
     case 1: return a >= 0x600 && a < 0x640;
-    default: return a >= 0x6A0 && a < 0x6C0;
+    default: return a >= 0x7C0 && a < 0x800;
     }
 }
 
@@ -223,9 +223,13 @@ struct Case
     uint32_t cut = 0;
     long samples = 2000;
     uint32_t under = 0;   // A's underrun count, set before the request
+    bool close = false;   // A's PCM: closed just before the request
+    bool reopen_after = false; // both opened again after the restore
+    bool starve = false;  // A's FIFO cleared before the request and no
+                          // bytes after it, so it plays dry
 };
 
-static unsigned g_rst_pend, g_level, g_cold;
+static unsigned g_rst_pend, g_level;
 
 static long run_case(const Case &c, bool check_image = true)
 {
@@ -258,6 +262,17 @@ static long run_case(const Case &c, bool check_image = true)
         a->sst_we = 1;
         edge(a);
     }
+    if (c.starve)
+    {
+        a->clear_we = 1;
+        edge(a);
+    }
+    if (c.close)
+    {
+        a->ctrl_we = 1;
+        a->wdata = 0;
+        edge(a);
+    }
     if (c.reopen)
     {
         a->ctrl_we = 1;
@@ -274,7 +289,6 @@ static long run_case(const Case &c, bool check_image = true)
     std::vector<uint32_t> img = image(a, at);
     g_rst_pend = a->rootp->tb_aud__DOT__pcm__DOT__rst_pend;
     g_level = a->pcm_level;
-    g_cold = img[arrays().size() + 3] >> 18 & 31;
 
     while (!(b->rsmp_quiet && b->pcm_quiet && sb.calm()))
         run(b, sb, 1, true);
@@ -293,12 +307,24 @@ static long run_case(const Case &c, bool check_image = true)
             }
     }
 
+    if (c.reopen_after)
+        for (Vtb_aud_sst *d : {a, b})
+        {
+            d->ctrl_we = 1;
+            d->wdata = 7;
+            edge(d);
+        }
     Stream s = sa;
     s.r.seed(c.seed + 555);
     long n = 0, bad = -1;
     for (long i = 0; i < (c.samples + 2) * TICKS && n < c.samples; i++)
     {
         s.next(a->pcm_level);
+        if (c.starve || c.close)
+        {
+            s.data = s.byte = s.commit = false;
+            s.staged = s.staged_was;
+        }
         s.apply(a);
         s.apply(b);
         edge(a);
@@ -339,22 +365,17 @@ UTEST(aud_sst, a_save_just_after_an_open_comes_back)
     ASSERT_EQ(1u, g_rst_pend);
 }
 
-/* A save a few ticks after an open, with the filter's window still part
- * cold, comes back, and the cold count, cleared in B, changes the sound. */
-UTEST(aud_sst, a_save_while_the_window_is_cold_comes_back)
+/* A save just after a close, with the player still playing out what its
+ * filter holds, comes back. */
+UTEST(aud_sst, a_save_while_a_close_plays_out_comes_back)
 {
     Case c;
     c.seed = 51;
     c.offset = 400;
-    c.reopen = true;
-    c.warm = 8;
+    c.close = true;
+    c.samples = 3000;
     ASSERT_EQ(-1L, run_case(c));
-    ASSERT_NE(0u, g_cold);
-    c.cut_at = 0x793;
-    c.cut = 31u << 18;
-    long bad = run_case(c, false);
-    fprintf(stderr, "  cold %u, cleared: differs at %ld\n", g_cold, bad);
-    ASSERT_GE(bad, 0L);
+    ASSERT_EQ(0u, g_level);
 }
 
 /* 64 request points across one sample, each stopped at quiet plus 0, 4 or
@@ -383,9 +404,9 @@ UTEST(aud_sst, every_save_point_in_a_sample_comes_back)
 UTEST(aud_sst, every_saved_item_matters)
 {
     std::vector<int> items;
-    for (int k = 0; k < 7; k++)
+    for (int k = 0; k < 8; k++)
         items.push_back(SKIP_WORD + k);
-    for (int k = 8; k < 10; k++)
+    for (int k = 8; k < 11; k++)
         items.push_back(SKIP_WORD + k);
     for (int k = 0; k < 3; k++)
         items.push_back(SKIP_ARRAY + k);
@@ -397,6 +418,10 @@ UTEST(aud_sst, every_saved_item_matters)
         c.skip = skip;
         c.samples = 600;
         c.under = 3;
+        /* The newest samples matter only to the fade of a dry take. */
+        c.starve = skip == SKIP_WORD + 7;
+        /* The step written matters only to the next open. */
+        c.reopen_after = skip == SKIP_WORD + 10;
         long bad = run_case(c, false);
         fprintf(stderr, "  without %s %03X: differs at %ld\n",
                 skip < SKIP_ARRAY ? "word" : "array",

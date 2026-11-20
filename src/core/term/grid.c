@@ -1394,74 +1394,40 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
 
 /* ---- savestate --------------------------------------------------------- */
 
-static void grid_put_pos(sst_cursor_t *c, const term_pos_t *p)
+/* Everything here indexes the cells or the line sizes. A grid with cells
+ * has its width checked by their owner. */
+bool term_grid_sst_ok(sst_cursor_t *c, const term_grid_t *g, uint8_t rows)
 {
-    sst_put_u8(c, p->x);
-    sst_put_u8(c, p->y);
-    sst_put_bool(c, p->wrap_pending);
-}
-
-static void grid_get_pos(sst_cursor_t *c, term_pos_t *p)
-{
-    p->x = sst_get_u8(c);
-    p->y = sst_get_u8(c);
-    p->wrap_pending = sst_get_bool(c);
+    const uint8_t w = g->width, h = g->height;
+    if (g->rows != rows)
+        return sst_refuse(c, "a grid of other rows");
+    if (w < 1 || h < 1 || h > rows || g->margin_top > g->margin_bot ||
+        g->margin_bot >= h || g->margin_left > g->margin_right || g->margin_right >= w)
+        return sst_refuse(c, "a grid's size or margins out of range");
+    for (int s = 0; s < 2; s++)
+        if (g->pos[s].x >= w || g->pos[s].y >= h ||
+            g->saved[s].x >= w || g->saved[s].y >= h)
+            return sst_refuse(c, "a cursor off its grid");
+    for (unsigned i = 0; i < 2u * rows; i++)
+        if (g->lines[i] > TERM_LINE_BOTTOM)
+            return sst_refuse(c, "a line size out of range");
+    /* The cursor sits inside its own line's columns. */
+    for (int s = 0; s < 2; s++)
+        if (g->lines[s * rows + g->pos[s].y] && g->pos[s].x >= w / 2)
+            return sst_refuse(c, "a cursor past its line's columns");
+    return true;
 }
 
 void term_grid_sst_put(sst_cursor_t *c, const term_grid_t *g)
 {
-    sst_put_u8(c, g->width);
-    sst_put_u8(c, g->height);
-    sst_put_u8(c, g->rows);
-    sst_put_u8(c, g->margin_top);
-    sst_put_u8(c, g->margin_bot);
-    sst_put_u8(c, g->margin_left);
-    sst_put_u8(c, g->margin_right);
-    for (int s = 0; s < 2; s++)
-    {
-        grid_put_pos(c, &g->pos[s]);
-        grid_put_pos(c, &g->saved[s]);
-    }
-    sst_put(c, g->tab_stops, TERM_TAB_BITMAP_BYTES);
+    TERM_GRID_SST_ROWS(SST_ROW_PUT2, (*g))
     sst_put(c, g->lines, 2u * g->rows);
 }
 
-/* The grid keeps its rows and lines storage; a blob of another shape is
- * refused. A grid with cells has its width checked by their owner.
- * Everything else is bounded, because it indexes the cells. */
 bool term_grid_sst_get(sst_cursor_t *c, term_grid_t *g)
 {
-    uint8_t w = sst_get_u8(c);
-    uint8_t h = sst_get_u8(c);
-    uint8_t rows = sst_get_u8(c);
-    if (!sst_ok(c) || w < 1 || rows != g->rows || h < 1 || h > rows)
-        return false;
-    g->width = w;
-    g->height = h;
-    g->margin_top = sst_get_u8(c);
-    g->margin_bot = sst_get_u8(c);
-    g->margin_left = sst_get_u8(c);
-    g->margin_right = sst_get_u8(c);
-    for (int s = 0; s < 2; s++)
-    {
-        grid_get_pos(c, &g->pos[s]);
-        grid_get_pos(c, &g->saved[s]);
-    }
-    sst_get(c, g->tab_stops, TERM_TAB_BITMAP_BYTES);
+    const uint8_t rows = g->rows;
+    TERM_GRID_SST_ROWS(SST_ROW_GET2, (*g))
     sst_get(c, g->lines, 2u * rows);
-    if (!sst_ok(c) || g->margin_top > g->margin_bot || g->margin_bot >= h ||
-        g->margin_left > g->margin_right || g->margin_right >= w)
-        return false;
-    for (int s = 0; s < 2; s++)
-        if (g->pos[s].x >= w || g->pos[s].y >= h ||
-            g->saved[s].x >= w || g->saved[s].y >= h)
-            return false;
-    for (unsigned i = 0; i < 2u * rows; i++)
-        if (g->lines[i] > TERM_LINE_BOTTOM)
-            return false;
-    /* The cursor sits inside its own line's columns. */
-    for (int s = 0; s < 2; s++)
-        if (g->lines[s * rows + g->pos[s].y] && g->pos[s].x >= w / 2)
-            return false;
-    return true;
+    return sst_ok(c) && term_grid_sst_ok(c, g, rows);
 }

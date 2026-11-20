@@ -123,9 +123,12 @@ __attribute__((optimize("O3"))) static void HOST_IN_RAM_FUNC aud_drain(void)
 
 /* The PCM: device's sound. pcm_put on the main loop and the interrupt's
  * pcm_sample share it as pcm.h describes; everything else on it, and
- * aud_pcm_on, changes under aud_engine_lock. */
+ * aud_pcm_on and aud_pcm_closed, changes under aud_engine_lock or in the
+ * interrupt. The player runs from an open until, closed, it has played out
+ * the tail in its filter, when the interrupt stops it. */
 static pcm_t aud_pcm;
 static bool aud_pcm_on;
+static bool aud_pcm_closed;
 
 /* How much of each sample period aud_irq uses, for reading over SWD while a
  * program runs: nothing on the console or the 6502 side can see it then.
@@ -222,6 +225,8 @@ static void HOST_ISR_FUNC aud_irq(void)
         int32_t pl, pr;
         pcm_sample(&aud_pcm, &pl, &pr);
         sl += pl, sr += pr;
+        if (aud_pcm_closed && pcm_settled(&aud_pcm))
+            aud_pcm_on = aud_pcm_closed = false;
     }
     if (sl < AUD_SAMPLE_MIN)
         sl = AUD_SAMPLE_MIN;
@@ -399,19 +404,23 @@ void __noinline HOST_IN_RAM_FUNC aud_opl_map(uint16_t word)
 
 bool __noinline HOST_IN_RAM_FUNC aud_pcm_open(const pcm_fmt_t *fmt)
 {
-    if (aud_pcm_on)
+    if (aud_pcm_on && !aud_pcm_closed)
         return false;
     aud_engine_lock();
-    pcm_reset(&aud_pcm, fmt);
+    pcm_open(&aud_pcm, fmt);
     aud_pcm_on = true;
+    aud_pcm_closed = false;
     aud_engine_unlock();
     return true;
 }
 
+/* A close comes once the buffer holds less than a frame, which it drops,
+ * and the player plays on until its filter has played out. */
 void __noinline HOST_IN_RAM_FUNC aud_pcm_close(void)
 {
     aud_engine_lock();
-    aud_pcm_on = false;
+    pcm_clear(&aud_pcm);
+    aud_pcm_closed = true;
     aud_engine_unlock();
 }
 

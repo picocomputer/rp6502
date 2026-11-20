@@ -14,8 +14,13 @@
  * the strings are in ascending offset order, so str[i] always precedes
  * str[i+1].
  *
- * arg has no driver row, so no run or stop walk touches this buffer. */
+ * arg's driver row has only its savestate, so no run or stop walk touches
+ * this buffer. The offsets are stored little endian whatever the host is, so
+ * the savestate carries the bytes as they are. */
 static uint8_t arg_buf[XSTACK_SIZE];
+
+#define ARG_SST(X) X(BYTES, arg_buf)
+SST_TABLE(arg, ARG_SST)
 
 static uint16_t arg_count(void)
 {
@@ -28,21 +33,6 @@ static uint16_t arg_count(void)
 void arg_clear(void)
 {
     arg_buf[0] = arg_buf[1] = 0;
-}
-
-size_t arg_bytes(void)
-{
-    return sizeof arg_buf;
-}
-
-const uint8_t *arg_data(void)
-{
-    return arg_buf;
-}
-
-void arg_set_data(const uint8_t *buf)
-{
-    memcpy(arg_buf, buf, sizeof arg_buf);
 }
 
 static uint16_t arg_offset_read(uint16_t i)

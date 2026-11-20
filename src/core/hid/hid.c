@@ -11,6 +11,7 @@
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
+#include "core/sys/sst.h"
 #include "machine.h"
 
 static inline int32_t HOST_IN_RAM_FUNC hid_extend_signed(uint32_t raw_value, uint8_t bit_size)
@@ -108,6 +109,10 @@ int8_t HOST_IN_RAM_FUNC hid_scale_analog_signed(uint32_t raw_value, uint8_t bit_
 }
 
 static uint8_t hid_claims[HID_MAX_SLOTS];
+
+#define HID_SST(X)                                          \
+    X(SKIP, hid_claims, "no transport reaches it on a machine that saves")
+SST_TABLE(hid, HID_SST)
 
 uint8_t hid_slot_claims(int slot)
 {

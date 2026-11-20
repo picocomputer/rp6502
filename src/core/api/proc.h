@@ -49,14 +49,19 @@ void proc_set_exit_code(int16_t code);
 
 const char *proc_launcher(void);
 
-/* What a savestate carries of the program and its chain, for every
- * machine's PROC row: the exit code, the running program's path, the
- * launcher's path and the whole argv buffer, 2 + 256 + 256 + XSTACK_SIZE.
- * The load takes all of it or none. */
+/* What a savestate carries of the program and its chain, for every machine:
+ * the exit code, the running program's path and the launcher's path. The
+ * argv is core/api/arg.h's own row. */
 #define PROC_PATH_SLOT 256
-#define PROC_CHAIN_SST_SIZE (2 + 2 * PROC_PATH_SLOT + XSTACK_SIZE)
-void proc_chain_sst_save(sst_cursor_t *c);
-bool proc_chain_sst_load(sst_cursor_t *c);
+extern const sst_table_t proc_chain_sst;
+
+/* After a failed savestate load: no program runs, no launcher is set and
+ * argv is empty. */
+void proc_chain_reset(void);
+
+#define PROC_CHAIN_DRIVER DRIVER(                           \
+    RESET(proc_chain_reset)                                 \
+    SST("CHAN", proc_chain))
 
 /* Program EXIT, op 0xFF: record the code and stop. */
 void proc_exit(int16_t exit_code);

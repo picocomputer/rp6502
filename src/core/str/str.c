@@ -7,6 +7,7 @@
 #include "core/str/oem.h"
 #include "core/str/str.h"
 #include "core/sys/config.h"
+#include "core/sys/sst.h"
 #include "core/wdc/phi2.h"
 /* FatFs where there is one, because not every tree that compiles this file
  * has ff.h; core/str/unicode.h declares ff_oem2uni and ff_wtoupper for one
@@ -53,31 +54,20 @@ static_assert(PHI2_MIN_KHZ >= 0); // catch missing include
 #undef XEND
 #undef X
 
-// Each XBEGIN opens one table of pointers sized to str_loc_id. The [name]
-// designators place each string by its id, so line order within a locale file
-// does not matter.
-#define XBEGIN(code, verbose, cp) \
-    static const char *const HOST_IN_FLASH STR_CAT(str_tab_, XSUFFIX)[STR_LOC_COUNT] = {
-#define XEND() \
-    }          \
-    ;
+// Each XBEGIN opens one locale's row of pointers, indexed by str_loc_id. The
+// [name] designators place each string by its id, so line order within a
+// locale file does not matter.
+#define XBEGIN(code, verbose, cp) {
+#define XEND() },
 #define X(name, value) [name] = STR_ID(XSUFFIX, name),
-#include "core/def/str.def"
-#undef XBEGIN
-#undef XEND
-#undef X
-#undef STR_ID
-#undef STR_ID_
-
-#define XBEGIN(code, verbose, cp) STR_CAT(str_tab_, XSUFFIX),
-#define XEND()
-#define X(name, value)
-static const char *const *const HOST_IN_FLASH str_tabs[] = {
+static const char *const HOST_IN_FLASH str_tabs[][STR_LOC_COUNT] = {
 #include "core/def/str.def"
 };
 #undef XBEGIN
 #undef XEND
 #undef X
+#undef STR_ID
+#undef STR_ID_
 
 // The registry arrays are parallel, one entry per locale in def/str.def order.
 #define XBEGIN(code, verbose, cp) code,
@@ -222,6 +212,16 @@ const char *str_get_locale_verbose(void)
 }
 
 static char str_buf[256];
+
+/* The tables are read-only, in writable data on some builds only for the
+ * relocations of their pointers. */
+#define STR_SST(X)                                          \
+    X(SKIP, str_tabs)                                       \
+    X(SKIP, str_locale_names)                               \
+    X(SKIP, str_locale_verbose)                             \
+    X(SKIP, str_locale_index, "the host's locale setting")  \
+    X(SKIP, str_buf, "parse scratch, dead at every frame boundary")
+SST_TABLE(str, STR_SST)
 
 bool str_oem_eq(const char *a, const char *b)
 {

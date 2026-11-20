@@ -34,6 +34,12 @@
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/ria/ria.h"
+#include "core/ria/regs.h"
+#include "core/api/arg.h"
+#include "core/aud/bel.h"
+#include "core/vga/canvas.h"
+#include "core/vga/mode/mode0.h"
+#include "core/vga/prog.h"
 #include "core/rom/rom.h"
 #include "core/aud/pcm.h"
 #include "core/str/oem.h"
@@ -50,21 +56,19 @@
 /* VGA comes before BUS because vga_task advances the beam one scanline and
  * bus_task then runs the 6502 up to it. CELLS comes before VGA because
  * vga_init programs the console canvas, which sets the terminal's height. */
-#define RP6502_MACH_DRIVERS                                                  \
-    RIA_DRIVER, SRAM_DRIVER, XRAM_DRIVER,                     \
-    PROC_DRIVER, STR_DRIVER, ASSET_DRIVER,\
-    MANIFOLD_DRIVER, COM_DRIVER, STD_DRIVER,                      \
-    CONSOLE_DRIVER, TTY_DRIVER, TIO_DRIVER, RLN_DRIVER,          \
-    API_DRIVER, XREG_DRIVER, CELLS_DRIVER,                                 \
-    KEYBOARD_DRIVER, MOUSE_DRIVER,                           \
-    GAMEPAD_DRIVER, TABLET_DRIVER, FONT_DRIVER,      \
-    OEM_DRIVER, VGA_DRIVER, PASTE_DRIVER,            \
-    PSG_DRIVER, OPL_DRIVER, AUD_DRIVER, TIM_DRIVER, DIR_DRIVER,              \
-    CLK_DRIVER, RANDOM_DRIVER, PHI2_DRIVER,                 \
-    CPU_DRIVER, VIA_DRIVER, BUS_DRIVER
+#define RP6502_MACH_DRIVERS                                    \
+    RIA_DRIVER, REGS_DRIVER, SRAM_DRIVER, XRAM_DRIVER,         \
+    ARG_DRIVER, PROC_CHAIN_DRIVER, PROC_DRIVER, STR_DRIVER,    \
+    ASSET_DRIVER, MANIFOLD_DRIVER, MANIFOLD_TX_DRIVER,         \
+    COM_DRIVER, STD_DRIVER, CONSOLE_DRIVER, TTY_DRIVER,        \
+    TIO_DRIVER, RLN_DRIVER, API_DRIVER, XREG_DRIVER,           \
+    CELLS_DRIVER, MODE0_DRIVER, KEYBOARD_DRIVER, MOUSE_DRIVER, \
+    GAMEPAD_DRIVER, TABLET_DRIVER, FONT_DRIVER, OEM_DRIVER,    \
+    VGA_DRIVER, CANVAS_DRIVER, PROG_DRIVER, PASTE_DRIVER,      \
+    PSG_DRIVER, OPL_DRIVER, AUD_DRIVER, BEL_DRIVER,            \
+    TIM_DRIVER, DIR_DRIVER, CLK_DRIVER, RANDOM_DRIVER,         \
+    PHI2_DRIVER, CPU_DRIVER, VIA_DRIVER, BUS_DRIVER
 
-/* This machine makes savestates, so its stdio rows keep their STD_SST
- * parts. */
 #define RP6502_SST
 
 /* open() tries these drivers' STD rows in order, and the filesystem's

@@ -42,12 +42,6 @@ bool sys_active(void) { return false; }
 /* What the sources linked here name and the test never reaches. */
 bool sys_running(void) { return false; }
 uint16_t api_platform_errno(api_errno num) { return (uint16_t)num; }
-bool sst_refuse(sst_cursor_t *c, const char *why)
-{
-    (void)c;
-    (void)why;
-    return false;
-}
 
 char *os_dir_path_hold(const char *path) { return strdup(path); }
 void os_dir_path_drop(char *path) { free(path); }

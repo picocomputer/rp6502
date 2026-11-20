@@ -42,6 +42,12 @@
 #include "sw/log.h"
 #include "sw/ria.h"
 #include "sw/vid.h"
+#include "sw/vga.h"
+#include "core/api/arg.h"
+#include "core/aud/bel.h"
+#include "core/term/font.h"
+#include "core/vga/canvas.h"
+#include "core/vga/mode/mode0.h"
 #include "osal/fs.h"
 #include "core/rom/rom.h"
 #include "core/aud/pcm.h"
@@ -53,26 +59,38 @@
  * through vga_canvas_select, and vga_canvas_select then calls mode0_prog,
  * which calls cells_set_height on the terminals that cells_init sets up.
  *
- * AUD_FABRIC_DRIVER follows STD_DRIVER because END hooks run in reverse,
- * so aud_end empties PCM before std_reset closes it, which would otherwise
- * wait for the buffer to play.
+ * AUD_FABRIC_DRIVER follows STD_DRIVER because END and RESET hooks run in
+ * reverse, so aud_end and aud_reset empty PCM before std_reset closes it,
+ * which would otherwise wait for the buffer to play.
+ *
+ * FONT_DRIVER follows CELLS_DRIVER because font_init resets the terminals
+ * that cells_init sets up, and comes before VID_DRIVER, whose canvas draws
+ * with the glyphs font_init writes.
  *
  * A savestate walks the list in order. FAB_DRIVER comes first, so the
- * mtime it saves is the one the other rows' times were kept by. ASSET_DRIVER
- * follows PROC_DRIVER, because its load reopens the running program's
- * image by the name PROC_DRIVER loads, and AUD_FABRIC_DRIVER follows
- * STD_DRIVER, because its load puts back the PCM: buffer that the STD
- * row's reopen of PCM: empties.
+ * mtime it saves is the one the other rows' times were kept by. ARG_DRIVER
+ * comes before PROC_DRIVER, whose load checks the argv ARG_DRIVER loads.
+ * ASSET_DRIVER follows PROC_CHAIN_DRIVER, because its load reopens the
+ * running program's image by the name PROC_CHAIN_DRIVER loads, and
+ * AUD_FABRIC_DRIVER follows STD_DRIVER, because its load puts back the PCM:
+ * buffer that the STD row's reopen of PCM: empties. CANVAS_DRIVER follows
+ * CELLS_DRIVER and MODE0_DRIVER, because its load publishes the canvas to
+ * the cells, and VGA_FABRIC_DRIVER follows it, because its load computes the
+ * vsync line from the canvas.
  */
 #define RP6502_MACH_DRIVERS                             \
     LOG_DRIVER, CFG_DRIVER, FAB_DRIVER,                 \
-    PROC_DRIVER, ASSET_DRIVER, XREG_DRIVER,             \
+    ARG_DRIVER, PROC_CHAIN_DRIVER, PROC_DRIVER,         \
+    ASSET_DRIVER, XREG_DRIVER,                          \
     RANDOM_DRIVER, STR_DRIVER,                          \
-    MANIFOLD_DRIVER, RIA_DRIVER, COM_DRIVER,            \
+    MANIFOLD_DRIVER, MANIFOLD_TX_DRIVER,                \
+    RIA_DRIVER, COM_DRIVER,                             \
     STD_DRIVER, CONSOLE_DRIVER, TTY_DRIVER,             \
     FS_POCKET_DRIVER,                                   \
-    AUD_FABRIC_DRIVER,                                  \
+    AUD_FABRIC_DRIVER, BEL_DRIVER,                      \
     TIO_DRIVER, RLN_DRIVER, CELLS_DRIVER,               \
+    MODE0_DRIVER, FONT_DRIVER, CANVAS_DRIVER,           \
+    VGA_FABRIC_DRIVER,                                  \
     LAYOUT_DRIVER, KEYBOARD_DRIVER,                     \
     APF_DRIVER, KEYMAP_DRIVER,                          \
     MOUSE_DRIVER, GAMEPAD_DRIVER, TABLET_DRIVER,        \

@@ -54,6 +54,8 @@ static void wire(const char *s)
  * size from it. */
 static void fresh(void)
 {
+    /* No frames run, so the console's line keeps no pace. */
+    manifold_set_paced(false);
     history.count = 0;
     reading_with = &history;
     cells_init();

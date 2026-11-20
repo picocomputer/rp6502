@@ -18,6 +18,10 @@ bool mode5_prog(uint16_t *xregs);
  * asking for the renderer, because a fabric build has no renderer to name. */
 bool mode5_sprite_valid(uint16_t attributes);
 
+/* The length sprites of a valid attribute at config_ptr are on a word and
+ * inside xram. */
+bool mode5_config_ok(uint16_t attributes, uint16_t config_ptr, uint16_t length);
+
 /* mode5_sprite_fn returns the renderer an attribute names, and
  * mode5_sprite_attr finds the attribute that names a renderer. A savestate
  * stores the attribute rather than the function address, because the function

@@ -18,10 +18,7 @@
  * row is saved and loaded with the machine held, under MACH_HOLD. The load
  * leaves the 6502 in or out of reset as it was saved, still held.
  *
- * The audio engines are the AUD row's, and the cells are the CELL row's.
- *
- * mtime 8, frame 4, the jam words, the regs words, the scanline table,
- * then 64 KB of RAM and 64 KB of XRAM. */
+ * The audio engines are the AUD row's, and the cells are the CELL row's. */
 #define FAB_JAM_WORDS (JAM_BUS + ST_BUS_WORDS)
 
 /* The RIA's words a savestate carries, as runs of REGS_WIN's word numbers,
@@ -34,17 +31,12 @@
 #define FAB_REGS_COUNT(at, n) +(n)
 #define FAB_REGS_WORDS (0 FAB_REGS_RUNS(FAB_REGS_COUNT))
 #define FAB_XPROG_WORDS (VGA_PROG_MAX * SCANVIDEO_PLANE_COUNT * VID_XPROG_WORDS)
-#define FAB_SST_SIZE (8 + 4 + 4 * (FAB_JAM_WORDS + FAB_REGS_WORDS \
-                                   + FAB_XPROG_WORDS)             \
-                      + 2 * 0x10000)
-void fab_sst_save(sst_cursor_t *c, unsigned flags);
-bool fab_sst_load(sst_cursor_t *c, unsigned flags);
+
+extern const sst_table_t fab_sst;
+void fab_reset(void);
 
 #define FAB_DRIVER DRIVER(                                     \
-    SST(.id = "FAB_",                                          \
-        .version = 1,                                          \
-        .size = FAB_SST_SIZE,                                  \
-        .save = fab_sst_save,                                  \
-        .load = fab_sst_load))
+    RESET(fab_reset)                                           \
+    SST("FAB_", fab))
 
 #endif /* _HOST_POCKET_SW_FAB_H_ */

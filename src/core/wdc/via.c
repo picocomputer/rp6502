@@ -10,6 +10,29 @@
 
 static m6522_t via;
 
+/* Every field of the vendored model, because the delay pipelines inside the
+ * timers and the interrupt logic cannot be re-derived from the registers: a
+ * timer one cycle from underflowing looks like any other. */
+#define VIA_PORT_ROWS(Y, p)                                     \
+    Y(U8, p.inpr) Y(U8, p.outr) Y(U8, p.ddr) Y(U8, p.pins)      \
+    Y(BOOL, p.c1_in) Y(BOOL, p.c1_out) Y(BOOL, p.c1_triggered)  \
+    Y(BOOL, p.c2_in) Y(BOOL, p.c2_out) Y(BOOL, p.c2_triggered)
+#define VIA_TIMER_ROWS(Y, t)                                    \
+    Y(U16, t.latch) Y(U16, t.counter) Y(BOOL, t.t_bit)          \
+    Y(BOOL, t.t_out) Y(U16, t.pip)
+#define VIA_SST(X)                                              \
+    X(STRUCT, via.pa, VIA_PORT_ROWS)                            \
+    X(STRUCT, via.pb, VIA_PORT_ROWS)                            \
+    X(STRUCT, via.t1, VIA_TIMER_ROWS)                           \
+    X(STRUCT, via.t2, VIA_TIMER_ROWS)                           \
+    X(U8, via.intr.ier)                                         \
+    X(U8, via.intr.ifr)                                         \
+    X(U16, via.intr.pip)                                        \
+    X(U8, via.acr)                                              \
+    X(U8, via.pcr)                                              \
+    X(U64, via.pins)
+SST_TABLE(via, VIA_SST)
+
 void via_reset(void)
 {
     m6522_init(&via);
@@ -83,87 +106,6 @@ void via_reg_poke(uint16_t addr, uint8_t data)
 void via_reg_write(uint16_t addr, uint8_t data)
 {
     _m6522_write(&via, (uint8_t)(addr & 0xF), data);
-}
-
-static void via_put_port(sst_cursor_t *c, const m6522_port_t *p)
-{
-    sst_put_u8(c, p->inpr);
-    sst_put_u8(c, p->outr);
-    sst_put_u8(c, p->ddr);
-    sst_put_u8(c, p->pins);
-    sst_put_bool(c, p->c1_in);
-    sst_put_bool(c, p->c1_out);
-    sst_put_bool(c, p->c1_triggered);
-    sst_put_bool(c, p->c2_in);
-    sst_put_bool(c, p->c2_out);
-    sst_put_bool(c, p->c2_triggered);
-}
-
-static void via_get_port(sst_cursor_t *c, m6522_port_t *p)
-{
-    p->inpr = sst_get_u8(c);
-    p->outr = sst_get_u8(c);
-    p->ddr = sst_get_u8(c);
-    p->pins = sst_get_u8(c);
-    p->c1_in = sst_get_bool(c);
-    p->c1_out = sst_get_bool(c);
-    p->c1_triggered = sst_get_bool(c);
-    p->c2_in = sst_get_bool(c);
-    p->c2_out = sst_get_bool(c);
-    p->c2_triggered = sst_get_bool(c);
-}
-
-static void via_put_timer(sst_cursor_t *c, const m6522_timer_t *t)
-{
-    sst_put_u16(c, t->latch);
-    sst_put_u16(c, t->counter);
-    sst_put_bool(c, t->t_bit);
-    sst_put_bool(c, t->t_out);
-    sst_put_u16(c, t->pip);
-}
-
-static void via_get_timer(sst_cursor_t *c, m6522_timer_t *t)
-{
-    t->latch = sst_get_u16(c);
-    t->counter = sst_get_u16(c);
-    t->t_bit = sst_get_bool(c);
-    t->t_out = sst_get_bool(c);
-    t->pip = sst_get_u16(c);
-}
-
-void via_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    via_put_port(c, &via.pa);
-    via_put_port(c, &via.pb);
-    via_put_timer(c, &via.t1);
-    via_put_timer(c, &via.t2);
-    sst_put_u8(c, via.intr.ier);
-    sst_put_u8(c, via.intr.ifr);
-    sst_put_u16(c, via.intr.pip);
-    sst_put_u8(c, via.acr);
-    sst_put_u8(c, via.pcr);
-    sst_put_u64(c, via.pins);
-}
-
-bool via_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    m6522_t in;
-    via_get_port(c, &in.pa);
-    via_get_port(c, &in.pb);
-    via_get_timer(c, &in.t1);
-    via_get_timer(c, &in.t2);
-    in.intr.ier = sst_get_u8(c);
-    in.intr.ifr = sst_get_u8(c);
-    in.intr.pip = sst_get_u16(c);
-    in.acr = sst_get_u8(c);
-    in.pcr = sst_get_u8(c);
-    in.pins = sst_get_u64(c);
-    if (!sst_ok(c))
-        return false;
-    via = in;
-    return true;
 }
 
 bool via_tick(uint16_t addr, bool read, uint8_t *data)

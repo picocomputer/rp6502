@@ -5,6 +5,7 @@
  */
 
 #include "osal/console.h"
+#include "core/sys/sst.h"
 
 #include <fcntl.h>
 #include <io.h>
@@ -27,6 +28,21 @@ static WCHAR con_repeat_ch;
 static WORD con_repeat_left;
 
 static volatile LONG con_break;
+
+/* The host's terminal, not the machine's. */
+#define OSAL_CON_SST(X)                                                   \
+    X(SKIP, con_saved_in)                                                 \
+    X(SKIP, con_saved_out)                                                \
+    X(SKIP, con_raw_on)                                                   \
+    X(SKIP, con_out_saved)                                                \
+    X(SKIP, con_ended)                                                    \
+    X(SKIP, con_high)                                                     \
+    X(SKIP, con_carry)                                                    \
+    X(SKIP, con_carry_len)                                                \
+    X(SKIP, con_repeat_ch)                                                \
+    X(SKIP, con_repeat_left)                                              \
+    X(SKIP, con_break)
+SST_TABLE(osal_con, OSAL_CON_SST)
 
 static BOOL WINAPI con_ctrl(DWORD type);
 
@@ -133,9 +149,13 @@ void os_console_attach(void)
     /* A launcher may start this process with one of the three closed, and the
      * CRT hands the next file opened the lowest free descriptor. Pointing each
      * closed one at NUL first keeps a later fopen from becoming the descriptor
-     * that stdio reads and writes. */
+     * that stdio reads and writes. Started from Explorer, with no console to
+     * attach to, the three are not closed but tied to no stream, which
+     * _get_osfhandle answers with -2. A flush of stdout then goes to the CRT's
+     * invalid parameter handler, which ends the process, the first time the
+     * program prints a newline, so these go to NUL too. */
     for (int fd = 0; fd < 3; fd++)
-        if (_get_osfhandle(fd) == -1)
+        if (_get_osfhandle(fd) == -1 || _get_osfhandle(fd) == -2)
             if (freopen("NUL", fd ? "w" : "r", fd == 0   ? stdin
                                               : fd == 1 ? stdout
                                                         : stderr) == NULL)

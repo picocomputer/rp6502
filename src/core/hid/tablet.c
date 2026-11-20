@@ -44,8 +44,33 @@ static int16_t tablet_ref_y;
 static int16_t tablet_sub_x;
 static int16_t tablet_sub_y;
 
-
 static tablet_connection_t tablet_connections[TABLET_MAX_MICE];
+
+/* An address that would put the block past the end of XRAM would have the
+ * next write of it go past it. */
+static bool tablet_xram_check(sst_cursor_t *c)
+{
+    if (tablet_xram > 0x10000 - TABLET_BLOCK_SIZE && tablet_xram != 0xFFFF)
+        return sst_refuse(c, "tablet block past the end of XRAM");
+    return true;
+}
+
+/* The whole block is saved, control byte included. The six counters behind
+ * it are not, because only tablet_report writes them and no machine that
+ * saves state has a report to give it. */
+#define TABLET_SST(X)                                       \
+    X(U16, tablet_xram)                                     \
+    X(BYTES, tablet_state)                                  \
+    X(BOOL, tablet_host_cursor)                             \
+    X(VALIDATE, tablet_xram_check)                          \
+    X(SKIP, tablet_x)                                       \
+    X(SKIP, tablet_y)                                       \
+    X(SKIP, tablet_ref_x)                                   \
+    X(SKIP, tablet_ref_y)                                   \
+    X(SKIP, tablet_sub_x)                                   \
+    X(SKIP, tablet_sub_y)                                   \
+    X(SKIP, tablet_connections, "nothing mounts on a machine that saves")
+SST_TABLE(tablet, TABLET_SST)
 
 static tablet_connection_t *HOST_IN_RAM_FUNC tablet_get_connection_by_slot(int slot)
 {
@@ -93,32 +118,6 @@ static void HOST_IN_RAM_FUNC tablet_write_xram(void)
 void HOST_IN_FLASH_FUNC tablet_init(void)
 {
     tablet_stop();
-}
-
-/* The whole block is saved, control byte included, but a load publishes only
- * from the status byte on, because the control byte is the program's. */
-void tablet_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    sst_put_u16(c, tablet_xram);
-    sst_put(c, tablet_state, sizeof tablet_state);
-    sst_put_bool(c, tablet_host_cursor);
-}
-
-bool tablet_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    uint16_t at = sst_get_u16(c);
-    uint8_t block[TABLET_BLOCK_SIZE];
-    sst_get(c, block, sizeof block);
-    bool cursor = sst_get_bool(c);
-    if (!sst_ok(c))
-        return false;
-    tablet_xram = at;
-    memcpy(tablet_state, block, sizeof tablet_state);
-    tablet_host_cursor = cursor;
-    tablet_write_xram();
-    return true;
 }
 
 void tablet_stop(void)

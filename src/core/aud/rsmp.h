@@ -13,8 +13,8 @@
 /* Arbitrary-ratio resampling, between the rate a machine makes samples at
  * and the rate its sink takes them.
  *
- * A polyphase windowed sinc: 128 rows of 24 taps, row p realising a delay
- * of p/128 of an input sample, with a linear interpolation between adjacent
+ * A polyphase windowed sinc: 64 rows of 48 taps, row p realising a delay
+ * of p/64 of an input sample, with a linear interpolation between adjacent
  * rows for the rest. src/core/aud/rsmp.py designs the rows and
  * records why they are what they are; tests/cpu/aud/test_rsmp.c measures
  * the result.
@@ -24,14 +24,15 @@
  * round differently.
  */
 
-#define RSMP_TAPS 24
-#define RSMP_PHASES 128
+#define RSMP_TAPS 48
+#define RSMP_PHASE_BITS 6
+#define RSMP_PHASES (1 << RSMP_PHASE_BITS)
 #define RSMP_Q 17
 
 typedef struct
 {
-    /* x[n-23] .. x[n], newest last. The interpolation interval is between
-     * hist[11] and hist[12], which is where rsmp.py puts it. */
+    /* x[n-47] .. x[n], newest last. The interpolation interval is between
+     * hist[23] and hist[24], which is where rsmp.py puts it. */
     int32_t hist[RSMP_TAPS];
     /* Q32 position inside that interval. It needs more than 32 bits because
      * the step exceeds 1.0 whenever the source outruns the sink, and

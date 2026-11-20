@@ -42,6 +42,10 @@ void psg_put(unsigned offset, uint8_t val);
  * aud_psg_map. */
 void psg_map(uint16_t word);
 
+/* Resets all nine voices, the bell's too, their registers included, and
+ * parks the engine. */
+void psg_reset(void);
+
 /* Where this engine's channel block sits in XRAM, 0xFFFF for parked. */
 uint16_t psg_xaddr_get(void);
 
@@ -49,20 +53,9 @@ uint16_t psg_xaddr_get(void);
  * leaves the bell. The mixer calls it with its engines held still. */
 void psg_park(void);
 
-/* The pointer, the eight channels behind it and the bell. XRAM need not
- * hold what the engine does, so the registers are here too.
- *
- * 2 pointer, then 9 voices of 2 sample, 1 adsr, 4 vol, 4 phase, 2+2
- * noise, then the 9 voices' registers, 8 bytes each. */
-#define PSG_SST_SIZE (2 + 9 * 15 + 9 * 8)
-void psg_sst_save(sst_cursor_t *c, unsigned flags);
-bool psg_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t psg_sst;
 
 #define PSG_DRIVER DRIVER(                                  \
-    SST(.id = "PSG_",                                       \
-        .version = 3,                                       \
-        .size = PSG_SST_SIZE,                               \
-        .save = psg_sst_save,                               \
-        .load = psg_sst_load))
+    SST("PSG_", psg))
 
 #endif /* _CORE_AUD_PSG_H_ */

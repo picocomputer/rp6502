@@ -13,6 +13,7 @@
  * reads them: mode0.c on a machine that draws in software, mode0.sv on one
  * that draws in fabric, where the linker places them on its memories. */
 
+#include "core/sys/sst.h"
 #include "core/term/term.h"
 #include "core/vga/pixel_format.h"
 #include "core/vga/prog.h"
@@ -133,13 +134,36 @@ static inline uint16_t mode0_color(uint16_t color)
     return (color & SCANVIDEO_ALPHA_MASK) ? color : mode0_palette[color >> MODE0_ENTRY_SHIFT];
 }
 
+/* Whether a color names an entry the palette has, as every RGB color does. */
+static inline bool mode0_color_ok(uint16_t color)
+{
+    return (color & SCANVIDEO_ALPHA_MASK) || (color >> MODE0_ENTRY_SHIFT) < 2 * MODE0_ENTRIES;
+}
+
+/* A pixel at half brightness, for SGR 2. */
+static inline uint16_t mode0_faint(uint16_t c)
+{
+    uint16_t r = SCANVIDEO_R5_FROM_PIXEL(c) >> 1;
+    uint16_t g = SCANVIDEO_G5_FROM_PIXEL(c) >> 1;
+    uint16_t b = SCANVIDEO_B5_FROM_PIXEL(c) >> 1;
+    return SCANVIDEO_PIXEL_FROM_RGB5(r, g, b) | (c & SCANVIDEO_ALPHA_MASK);
+}
+
+/* Sets a palette entry or default color, and its faint twin. */
+static inline void mode0_set_color(unsigned entry, uint16_t color)
+{
+    mode0_palette[entry] = color;
+    mode0_palette[MODE0_ENTRIES + entry] = mode0_faint(color);
+}
+
 _Static_assert(sizeof(mode0_cell_t) == 4, "a cell is a word");
 _Static_assert(sizeof(mode0_colors_t) == 6, "a cell's colors are three halfwords");
 
 /* The cells of every screen: the 40-column terminal's primary and
  * alternate, then the 80-column terminal's. */
 #define MODE0_SCREENS (TERM_ALT_SCREEN ? 2 : 1)
-#define MODE0_CELLS ((40 + 80) * TERM_MEM_ROWS * MODE0_SCREENS)
+#define MODE0_CELLS_40 (40 * TERM_MEM_ROWS * MODE0_SCREENS)
+#define MODE0_CELLS (MODE0_CELLS_40 + 80 * TERM_MEM_ROWS * MODE0_SCREENS)
 extern mode0_cell_t mode0_cells[MODE0_CELLS];
 extern mode0_colors_t mode0_colors[MODE0_CELLS];
 
@@ -162,7 +186,8 @@ extern mode0_colors_t mode0_colors[MODE0_CELLS];
  *   the row words any more.
  * publish: written last, once the others describe one picture. A fabric
  *   that copies the words as a frame starts takes none of them while a
- *   publish is part way through. */
+ *   publish is part way through, and then reads this word back 0 until the
+ *   next publish is taken whole. Memory reads back the 1 written. */
 #define MODE0_ROWS 32
 typedef struct
 {
@@ -260,6 +285,18 @@ static inline bool mode0_place(int16_t w, int16_t h, const uint16_t *xregs,
     return plane >= 0 && plane < SCANVIDEO_PLANE_COUNT &&
            *begin >= 0 && *end <= h && *end - *begin >= 1;
 }
+
+/* The savestate carries the cells, their colors and the first half of the
+ * palette, from which the faint half follows. The cells and colors are
+ * written as they lie in memory, in this build's byte order. The words are
+ * not carried: the canvas's load publishes the console again.
+ *
+ * MODE0_DRIVER follows CELLS_DRIVER in the driver list, because the cells'
+ * save first does the scrolls the screens are owed, which moves cells. */
+extern const sst_table_t mode0_sst;
+
+#define MODE0_DRIVER DRIVER(                                   \
+    SST("MOD0", mode0))
 
 /* The renderer, for options of 0, which is all mode 0 has. A fabric build
  * has no renderers. */

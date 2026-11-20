@@ -73,6 +73,14 @@
 static uint8_t api_errno_opt;
 static uint8_t api_active_op;
 
+/* The op the 6502 is parked on and the errno numbering the running program
+ * selected. The op is enough because a load re-dispatches the same call, and
+ * how far that call had got is saved by the driver that implements it. */
+#define API_SST_ROWS(X)                                         \
+    X(U8, api_active_op)                                        \
+    X(U8, api_errno_opt)
+SST_TABLE(api, API_SST_ROWS)
+
 // The op number is copied because the 6502 can write API_OP again while an op
 // is in flight. Ops 0x00 and 0xFF are never latched, because each machine
 // answers those itself where the 6502 writes them.
@@ -88,25 +96,9 @@ void HOST_IN_RAM_FUNC api_task(void)
         api_active_op = 0;
 }
 
-void api_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    sst_put_u8(c, api_active_op);
-    sst_put_u8(c, api_errno_opt);
-}
-
-bool api_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    uint8_t op = sst_get_u8(c);
-    uint8_t opt = sst_get_u8(c);
-    if (!sst_ok(c))
-        return false;
-    api_active_op = op;
-    api_errno_opt = opt;
-    return true;
-}
-
+/* api_task dispatches the op in flight whether or not the machine runs, so
+ * on a stop, and after a failed savestate load that may have left an op from
+ * either machine, this drops it before it acts on the xstack. */
 void api_stop(void)
 {
     api_active_op = 0;
@@ -267,7 +259,7 @@ const char *api_pop_str(size_t max)
 {
     const char *str = (const char *)&xstack[xstack_ptr];
     size_t len = strlen(str);
-    if (len > max || len >= XSTACK_SIZE - xstack_ptr)
+    if (len > max || len >= (size_t)(XSTACK_SIZE - xstack_ptr))
         return NULL;
     xstack_ptr += len + 1;
     return str;

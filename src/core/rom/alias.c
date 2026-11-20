@@ -29,6 +29,11 @@ typedef struct
 } alias_t;
 static alias_t aliases[ROM_ALIAS_MAX];
 
+/* A cross-session load whose argv[0] is a :name this session has not
+ * installed boots nothing, which is a late failure worth reporting. */
+#define ALIAS_SST(X) X(SKIP, aliases, "the session's, from its command line")
+SST_TABLE(alias, ALIAS_SST)
+
 /* The comparison ignores case, to match the firmware's handling of installed
  * names. */
 static alias_t *alias_find(const char *name)

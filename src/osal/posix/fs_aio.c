@@ -32,6 +32,11 @@ static struct
 
 static bool g_immediate;
 
+#define OSAL_AIO_SST(X)                                                   \
+    X(SKIP, g_xfer, "fs_std_settle cancels it before a save or load")     \
+    X(SKIP, g_immediate, "a setting of the session")
+SST_TABLE(osal_aio, OSAL_AIO_SST)
+
 void fs_std_immediate(bool on)
 {
     g_immediate = on;

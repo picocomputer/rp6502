@@ -424,6 +424,10 @@ static const mode2_tiles_fn mode2_tiles[4][2][16] = {
     {MODE2_TILES_ROW(8, 0), MODE2_TILES_ROW(8, 1)},
 };
 
+#define MODE2_SST(X) \
+    X(SKIP, mode2_tiles, "a table of functions, fixed at build")
+SST_TABLE(mode2, MODE2_SST)
+
 // The map is walked a tile at a time. Whole tiles go to mode2_emit_tiles while
 // the whole of their decoded row fits in the line; the tiles cut by an edge,
 // and the last few before the end of the line, go through mode2_emit_part.
@@ -590,6 +594,11 @@ vga_fill_fn_t mode2_fill_fn(uint16_t options)
 }
 #endif
 
+bool mode2_config_ok(uint16_t config_ptr)
+{
+    return vga_xram_ok(config_ptr, sizeof(mode2_config_t));
+}
+
 bool mode2_prog(uint16_t *xregs)
 {
     const uint16_t options = xregs[2];
@@ -598,8 +607,7 @@ bool mode2_prog(uint16_t *xregs)
     const int16_t scanline_begin = xregs[5];
     const int16_t scanline_end = xregs[6];
 
-    if (config_ptr & 1 ||
-        config_ptr > 0x10000 - sizeof(mode2_config_t))
+    if (!mode2_config_ok(config_ptr))
         return false;
     if (!mode2_fill_valid(options))
         return false;

@@ -703,8 +703,9 @@ bool HOST_IN_RAM_FUNC mon_busy(void)
  * the 6502 while no program does. */
 void HOST_IN_RAM_FUNC mon_task(void)
 {
-    // The monitor must never print while 6502 is running.
-    if (!sys_active() && resb_held())
+    // The monitor must never print while 6502 is running, nor before a
+    // session's end or the line editor's last reply, which go out first.
+    if (!sys_active() && resb_held() && !com_ending() && !rln_replying())
         mon_step();
 }
 

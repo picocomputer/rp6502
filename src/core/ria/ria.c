@@ -8,6 +8,7 @@
 #include "core/api/proc.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
+#include "core/com/rln.h"
 #include "core/wdc/cpu.h"
 #include "core/ria/regs.h"
 #include "core/sys/xram.h"
@@ -15,9 +16,14 @@
 #include "core/api/api.h"
 #include "core/aud/mix.h"
 #include "core/ria/ria.h"
-#include <string.h>
 
 static ria_t ria;
+
+#define RIA_SST(X)                                              \
+    X(U64, ria.PINS)                                            \
+    X(U8, ria.irq_enabled)                                      \
+    X(U8, ria.irq_pending)
+SST_TABLE(ria, RIA_SST)
 
 #define RIA_IRQ_VSYNC 0x80
 #define RIA_IRQ_SIGINT 0x40
@@ -142,6 +148,17 @@ void ria_break(void)
     regs[0x02] = 0;
 }
 
+/* The TX register feeds a FIFO of 16 bytes, as the Pico's does, and its
+ * bytes wait in the console's output: TX is ready while fewer than 16 wait
+ * there to go out at the line's pace, and a byte written to a full FIFO is
+ * lost. The line editor's reply to a key goes out whole, so the program
+ * waits while one does. */
+#define RIA_TX_FIFO 16
+static bool ria_tx_ready(void)
+{
+    return manifold_tx_len() < RIA_TX_FIFO && manifold_cts() && !rln_replying();
+}
+
 uint8_t ria_reg_read(uint16_t addr)
 {
     switch (addr & 0x1F)
@@ -150,9 +167,7 @@ uint8_t ria_reg_read(uint16_t addr)
     {
         if (!(regs[0x00] & RIA_UART_RX_READY))
             com_rx_stage();
-        /* TX takes a byte while the console's output has room, which it
-         * lacks only while a byte waits for a smooth scroll. */
-        if (manifold_cts())
+        if (ria_tx_ready())
             regs[0x00] |= RIA_UART_TX_READY;
         else
             regs[0x00] &= ~RIA_UART_TX_READY;
@@ -193,46 +208,6 @@ uint8_t ria_reg_read(uint16_t addr)
     }
 }
 
-/* regs is declared volatile, so it is copied a byte at a time through the
- * volatile lvalue. A memcpy would read it through a plain pointer, which is
- * undefined. */
-void ria_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    sst_put_u64(c, ria.PINS);
-    sst_put_u8(c, ria.irq_enabled);
-    sst_put_u8(c, ria.irq_pending);
-    for (int i = 0; i < 0x20; i++)
-        sst_put_u8(c, regs[i]);
-    sst_put(c, xstack, XSTACK_SIZE + 1);
-    sst_put_u16(c, (uint16_t)xstack_ptr);
-}
-
-bool ria_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    uint64_t pins = sst_get_u64(c);
-    uint8_t enabled = sst_get_u8(c);
-    uint8_t pending = sst_get_u8(c);
-    uint8_t cells[0x20];
-    for (int i = 0; i < 0x20; i++)
-        cells[i] = sst_get_u8(c);
-    const uint8_t *stack = sst_view(c, XSTACK_SIZE + 1);
-    uint16_t ptr = sst_get_u16(c);
-    if (!sst_ok(c))
-        return false;
-    if (ptr > XSTACK_SIZE)
-        return false;
-    ria.PINS = pins;
-    ria.irq_enabled = enabled;
-    ria.irq_pending = pending;
-    for (int i = 0; i < 0x20; i++)
-        regs[i] = cells[i];
-    memcpy(xstack, stack, XSTACK_SIZE + 1);
-    xstack_ptr = ptr;
-    return true;
-}
-
 /* IRQB is sampled before the register access, because a read of $FFF0
  * acknowledges the pending flags and the line must still show asserted for the
  * cycle that read it. */
@@ -269,8 +244,9 @@ void ria_reg_write(uint16_t addr, uint8_t data)
     switch (addr & 0x1F)
     {
     case 0x01: /* TX */
-        manifold_putchar_raw((char)data);
-        if (!manifold_cts())
+        if (ria_tx_ready())
+            manifold_putchar_raw((char)data);
+        if (!ria_tx_ready())
             regs[0x00] &= ~RIA_UART_TX_READY;
         return;
     case 0x04: /* RW0 */

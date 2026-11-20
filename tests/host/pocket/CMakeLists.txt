@@ -122,6 +122,17 @@ if(RP6502_SOFT_CPU)
         TIMEOUT 1200)
 endif()
 
+# Every static and global of the firmware's units is in a row of its unit's
+# savestate table, and every table that saves state is in the Pocket's
+# driver list. src/host/pocket/sw.cmake writes sw_units.json.
+if(RP6502_SOFT_CPU)
+    add_test(NAME sst_inventory_pocket
+        COMMAND ${RP6502_PYTHON} ${RP6502_ROOT}/tests/sst_inventory.py
+            ${CMAKE_BINARY_DIR}/sw_units.json ${RP6502_SRC} sw_units/)
+    set_tests_properties(sst_inventory_pocket PROPERTIES
+        LABELS "gate;host.pocket")
+endif()
+
 set(POCKET_CORE_JSON ${RP6502_SRC}/host/pocket/dist/Cores/Rumbledethumps.RP6502)
 add_test(NAME layout_json
     COMMAND ${RP6502_PYTHON} ${RP6502_SRC}/core/hid/layout.py

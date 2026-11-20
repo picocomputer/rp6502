@@ -1004,23 +1004,15 @@ void opl_map(uint16_t word)
 
 /* ---------------- savestate ---------------- */
 
-/* A view as its A0, B0 and C0 bytes. */
-static void opl_put_view(sst_cursor_t *c, const opl_view_t *v)
+static bool opl_out13(uint32_t h)
 {
-    sst_put_u8(c, (uint8_t)v->fnum);
-    sst_put_u8(c, (uint8_t)(v->kon << 5 | v->blk << 2 | v->fnum >> 8));
-    sst_put_u8(c, (uint8_t)(v->fb << 1 | v->con));
+    return (int16_t)h >= -4085 && (int16_t)h <= 4084;
 }
 
-static bool opl_get_view(sst_cursor_t *c, opl_view_t *v)
+static bool opl_view_ok(const opl_view_t *v)
 {
-    const uint32_t a0 = sst_get_u8(c), b0 = sst_get_u8(c), c0 = sst_get_u8(c);
-    v->fnum = (uint16_t)(a0 | (b0 & 3) << 8);
-    v->blk = (b0 >> 2) & 7;
-    v->kon = (b0 >> 5) & 1;
-    v->con = c0 & 1;
-    v->fb = (c0 >> 1) & 7;
-    return b0 < 64 && c0 < 16;
+    return v->fnum <= 0x3ff && v->blk <= 7 && v->kon <= 1 && v->con <= 1 &&
+           v->fb <= 7;
 }
 
 static bool opl_same_view(const opl_view_t *a, const opl_view_t *b, bool fb)
@@ -1029,138 +1021,100 @@ static bool opl_same_view(const opl_view_t *a, const opl_view_t *b, bool fb)
            a->con == b->con && (!fb || a->fb == b->fb);
 }
 
-static bool opl_out13(uint32_t h)
+/* Every field in the range the chip's own bits give it, since the tables
+ * the engine indexes with them are no bigger. Then everything else
+ * opl_sample works from is built from them. The step table starts empty, as
+ * opl_reset leaves it, no step words are left from the last sample with sub
+ * set, and no vibrato position is held from a rise of test bit 7. */
+static bool opl_sst_loaded(sst_cursor_t *c)
 {
-    return (int16_t)h >= -4085 && (int16_t)h <= 4084;
-}
-
-void opl_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    sst_put_u16(c, opl_xaddr);
+    if (opl_xaddr != 0xFFFF && !opl_block_ok(opl_xaddr))
+        return sst_refuse(c, "the 256 bytes run past XRAM");
     for (int i = 0; i < 18; i++)
     {
         const opl_slot_t *s = &opl_chip.sl[i];
-        sst_put_u32(c, s->P);
-        sst_put_u16(c, (uint16_t)s->level);
-        sst_put_u8(c, s->state);
-        sst_put_u8(c, s->r20);
-        sst_put_u8(c, s->r40);
-        sst_put_u8(c, s->r60);
-        sst_put_u8(c, s->r80);
-        sst_put_u8(c, s->ws);
+        if ((s->P & 0x1fff) || s->level < 0 || s->level > 0x1ff ||
+            s->state > OPL_REL || s->ws > 3)
+            return sst_refuse(c, "a slot out of range");
     }
     for (int i = 0; i < 9; i++)
     {
-        sst_put_u32(c, opl_chip.ch[i].hist);
-        opl_put_view(c, &opl_chip.cv[i]);
-        opl_put_view(c, &opl_chip.mv[i]);
+        const uint32_t h = opl_chip.ch[i].hist;
+        if (!opl_out13(h) || !opl_out13(h >> 16) ||
+            !opl_view_ok(&opl_chip.cv[i]) || !opl_view_ok(&opl_chip.mv[i]))
+            return sst_refuse(c, "a channel out of range");
+        /* The modulator's view differs from the carrier's only while it
+         * lags, which only channels 0 to 2 do. */
+        const bool lags = opl_chip.lag & (1u << i);
+        if (!opl_same_view(&opl_chip.mv[i], &opl_chip.cv[i], !lags) &&
+            !(i < 3 && lags))
+            return sst_refuse(c, "a modulator's view that cannot lag");
     }
-    sst_put_u8(c, opl_chip.test);
-    sst_put_u8(c, opl_chip.nts);
-    sst_put_u8(c, opl_chip.bd);
-    sst_put_u8(c, opl_chip.lag);
-    sst_put_u8(c, opl_chip.vib);
-    sst_put_u16(c, opl_chip.lfo);
-    sst_put_u16(c, opl_chip.tv);
-    sst_put_u8(c, opl_chip.tdir);
-    sst_put_u8(c, opl_chip.tof);
-    sst_put_u8(c, opl_chip.tstep);
-    sst_put_u32(c, opl_chip.T);
-    sst_put_u8(c, opl_chip.carry);
-    sst_put_u8(c, opl_chip.sub);
-    sst_put_u8(c, opl_chip.egshift);
-    sst_put_u8(c, opl_chip.eglow);
-    sst_put_u32(c, opl_chip.N);
-    sst_put_u8(c, opl_chip.cb);
-    sst_put_i32(c, opl_chip.held15);
-    sst_put_i32(c, opl_chip.held1617);
-    opl_queue_t *q = &opl_queue;
-    const uint32_t len = RING_LEN(&q->ring);
-    sst_put_u16(c, (uint16_t)len);
-    for (uint32_t i = 0; i < OPL_QUEUE_SIZE; i++)
-        sst_put_u16(c, i < len ? *RING_AT(&q->ring, i) : 0);
-    sst_put_u8(c, opl_chip.credit);
-    sst_put_u32(c, q->drops);
-}
-
-bool opl_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    const uint16_t at = sst_get_u16(c);
-    memset(&opl_chip, 0, sizeof opl_chip);
-    RING_RESET(&opl_queue.ring);
-    bool ok = at == 0xFFFF || opl_block_ok(at);
-    for (int i = 0; i < 18; i++)
-    {
-        opl_slot_t *s = &opl_chip.sl[i];
-        s->P = sst_get_u32(c);
-        s->level = sst_get_u16(c);
-        s->state = sst_get_u8(c);
-        s->r20 = sst_get_u8(c);
-        s->r40 = sst_get_u8(c);
-        s->r60 = sst_get_u8(c);
-        s->r80 = sst_get_u8(c);
-        s->ws = sst_get_u8(c);
-        ok &= !(s->P & 0x1fff) && s->level <= 0x1ff && s->state <= OPL_REL && s->ws <= 3;
-    }
-    for (int i = 0; i < 9; i++)
-    {
-        opl_chip.ch[i].hist = sst_get_u32(c);
-        ok &= opl_out13(opl_chip.ch[i].hist) && opl_out13(opl_chip.ch[i].hist >> 16);
-        ok &= opl_get_view(c, &opl_chip.cv[i]);
-        ok &= opl_get_view(c, &opl_chip.mv[i]);
-    }
-    opl_chip.test = sst_get_u8(c);
-    opl_chip.nts = sst_get_u8(c);
-    opl_chip.bd = sst_get_u8(c);
-    opl_chip.lag = sst_get_u8(c);
-    opl_chip.vib = sst_get_u8(c);
-    opl_chip.lfo = sst_get_u16(c);
-    opl_chip.tv = sst_get_u16(c);
-    opl_chip.tdir = sst_get_u8(c);
-    opl_chip.tof = sst_get_u8(c);
-    opl_chip.tstep = sst_get_u8(c);
-    opl_chip.T = sst_get_u32(c);
-    opl_chip.carry = sst_get_u8(c);
-    opl_chip.sub = sst_get_u8(c);
-    opl_chip.egshift = sst_get_u8(c);
-    opl_chip.eglow = sst_get_u8(c);
-    opl_chip.N = sst_get_u32(c);
-    opl_chip.cb = sst_get_u8(c);
-    opl_chip.held15 = sst_get_i32(c);
-    opl_chip.held1617 = sst_get_i32(c);
-    ok &= opl_chip.nts <= 1 && opl_chip.lag <= 0x3f && opl_chip.vib <= 7 && opl_chip.lfo <= 1023 && opl_chip.tv <= 511;
-    ok &= opl_chip.tdir <= 1 && opl_chip.tof <= 1 && opl_chip.tstep <= 1;
-    ok &= opl_chip.T <= 0x3ffff && opl_chip.carry <= 1 && opl_chip.sub <= 1 && opl_chip.egshift <= 13 && opl_chip.eglow <= 3;
-    ok &= opl_chip.N && opl_chip.N <= 0x7fffff && !(opl_chip.cb & ~0x28);
-    ok &= opl_chip.held15 >= -8170 && opl_chip.held15 <= 8168 && opl_chip.held1617 >= -8170 && opl_chip.held1617 <= 8168;
-    /* the modulator view differs from the carrier's only while it lags */
-    for (int i = 0; i < 9; i++)
-        ok &= opl_same_view(&opl_chip.mv[i], &opl_chip.cv[i], !(opl_chip.lag & (1u << i))) ||
-              (i < 3 && (opl_chip.lag & (1u << i)));
-    opl_queue_t *q = &opl_queue;
-    const uint16_t len = sst_get_u16(c);
-    ok &= len <= OPL_QUEUE_SIZE;
-    for (uint32_t i = 0; i < OPL_QUEUE_SIZE; i++)
-    {
-        const uint16_t e = sst_get_u16(c);
-        if (i < len)
-        {
-            ok &= opl_is_reg((uint8_t)e);
-            RING_PUT(&q->ring, e);
-        }
-    }
-    opl_chip.credit = sst_get_u8(c);
-    q->drops = sst_get_u32(c);
-    ok &= opl_chip.credit >= 72 && opl_chip.credit <= (len ? 192 : 96) && !(opl_chip.credit % 24);
-    ok &= q->drops <= 0x7FFFFFFF;
-    if (!ok || !sst_ok(c))
-    {
-        opl_reset();
-        return false;
-    }
+    if (opl_chip.nts > 1 || opl_chip.lag > 0x3f || opl_chip.vib > 7 ||
+        opl_chip.lfo > 1023 || opl_chip.tv > 511 || opl_chip.tdir > 1 ||
+        opl_chip.tof > 1 || opl_chip.tstep > 1 || opl_chip.T > 0x3ffff ||
+        opl_chip.carry > 1 || opl_chip.sub > 1 || opl_chip.egshift > 13 ||
+        opl_chip.eglow > 3 || !opl_chip.N || opl_chip.N > 0x7fffff ||
+        (opl_chip.cb & ~0x28) || opl_chip.held15 < -8170 ||
+        opl_chip.held15 > 8168 || opl_chip.held1617 < -8170 ||
+        opl_chip.held1617 > 8168)
+        return sst_refuse(c, "a counter out of range");
+    const uint32_t len = RING_LEN(&opl_queue.ring);
+    if (len > OPL_QUEUE_SIZE)
+        return sst_refuse(c, "more writes queued than the queue holds");
+    for (uint32_t i = 0; i < len; i++)
+        if (!opl_is_reg((uint8_t)*RING_AT(&opl_queue.ring, i)))
+            return sst_refuse(c, "a queued write to no register");
+    if (opl_chip.credit < 72 || opl_chip.credit > (len ? 192 : 96) ||
+        opl_chip.credit % 24)
+        return sst_refuse(c, "a pacing credit the queue cannot reach");
+    if (opl_queue.drops > 0x7FFFFFFF)
+        return sst_refuse(c, "a drop count past saturation");
+    memset(opl_chip.step, 0, sizeof opl_chip.step);
+    memset(opl_chip.rlw, 0, sizeof opl_chip.rlw);
+    opl_chip.v0fix = 0;
     opl_rebuild();
-    opl_xaddr = at;
     return true;
 }
+
+/* The pointer and the chip's state, then the queue as it lies: its
+ * counters, all 256 entries, the credit and the drop count. */
+#define OPL_SLOT_ROWS(Y, s)                                     \
+    Y(U32, s.P) Y(I32, s.level) Y(U8, s.state) Y(U8, s.r20)     \
+    Y(U8, s.r40) Y(U8, s.r60) Y(U8, s.r80) Y(U8, s.ws)
+#define OPL_CHAN_ROWS(Y, h) Y(U32, h.hist)
+#define OPL_VIEW_ROWS(Y, v)                                     \
+    Y(U16, v.fnum) Y(U8, v.blk) Y(U8, v.kon) Y(U8, v.con)       \
+    Y(U8, v.fb)
+#define OPL_SST(X)                                              \
+    X(U16, opl_xaddr)                                           \
+    X(STRUCTS, opl_chip.sl, OPL_SLOT_ROWS)                      \
+    X(STRUCTS, opl_chip.ch, OPL_CHAN_ROWS)                      \
+    X(STRUCTS, opl_chip.cv, OPL_VIEW_ROWS)                      \
+    X(STRUCTS, opl_chip.mv, OPL_VIEW_ROWS)                      \
+    X(U8, opl_chip.test)                                        \
+    X(U8, opl_chip.nts)                                         \
+    X(U8, opl_chip.bd)                                          \
+    X(U8, opl_chip.lag)                                         \
+    X(U8, opl_chip.vib)                                         \
+    X(U16, opl_chip.lfo)                                        \
+    X(U16, opl_chip.tv)                                         \
+    X(U8, opl_chip.tdir)                                        \
+    X(U8, opl_chip.tof)                                         \
+    X(U8, opl_chip.tstep)                                       \
+    X(U32, opl_chip.T)                                          \
+    X(U8, opl_chip.carry)                                       \
+    X(U8, opl_chip.sub)                                         \
+    X(U8, opl_chip.egshift)                                     \
+    X(U8, opl_chip.eglow)                                       \
+    X(U32, opl_chip.N)                                          \
+    X(U8, opl_chip.cb)                                          \
+    X(I32, opl_chip.held15)                                     \
+    X(I32, opl_chip.held1617)                                   \
+    X(U32, opl_queue.ring.idx.wr)                               \
+    X(U32, opl_queue.ring.idx.rd)                               \
+    X(U16S, opl_queue.ring.buf)                                 \
+    X(U8, opl_chip.credit)                                      \
+    X(U32, opl_queue.drops)                                     \
+    X(VALIDATE, opl_sst_loaded)
+SST_TABLE(opl, OPL_SST)

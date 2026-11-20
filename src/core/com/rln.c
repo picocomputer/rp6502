@@ -14,6 +14,7 @@
 #include "core/com/tio.h"
 #include "core/sys/driver.h"
 #include "core/term/cells.h"
+#include <stdio.h>
 #include <string.h>
 #include <ctype.h>
 #include <assert.h>
@@ -98,6 +99,10 @@ static uint8_t rln_cur_idx;            // buffer index whose screen position the
 static bool rln_overwrite;             // preserved across rln_read_line calls; cleared by rln_init (rln_stop)
 static uint8_t rln_rendered_max_row;   // highest row index rln has written to in the current line
 static uint8_t rln_last_render_buflen; // buflen as of the last render
+// The terminal's erase reaches the end of the line's row and no further: its
+// right margin is the row's last column, as it was when the line was laid
+// out. Otherwise the line erases with spaces.
+static bool rln_erase_el;
 
 // A program's own size for the console's terminal, while either is pinned:
 // a third grid, which the line editor and the terminal's answers use.
@@ -105,8 +110,6 @@ static uint16_t rln_pinned_width;
 static uint16_t rln_pinned_height;
 static term_grid_t rln_grid;
 static uint8_t rln_grid_lines[2 * RLN_GRID_ROWS];
-_Static_assert(RLN_SST_SIZE == 329 + TERM_GRID_SST_SIZE(RLN_GRID_ROWS),
-               "the pinned size's grid is part of the chunk");
 
 // The CR or LF each source, the poke stream included, last ended a line
 // with, so the other half of a CRLF pair arriving next is absorbed instead of
@@ -131,115 +134,308 @@ static bool rln_has_grid(void)
     return cells_term.grid_count > TERM_SCREEN_GRIDS;
 }
 
-void rln_sst_save(sst_cursor_t *c, unsigned flags)
+/* ----- The reply -----
+ *
+ * What a key makes the line editor send is its reply. It is recorded here
+ * and sent as the console's line takes it, and no key is taken until the
+ * last key's reply has gone out, as on a Pico, whose UART holds the editor
+ * up a byte at a time. A reply is pieces: bytes of its own, a run of the
+ * line, and a byte or an escape pair over and over, so a whole line drawn
+ * again is a few pieces rather than a copy of the line. A reply that ends a
+ * read hands the line over only once it has gone out, so what the program
+ * writes next comes after it. A reply too big to record goes out at once, as
+ * one sent at a stop does. */
+#define RLN_OUT_LIT 192
+#define RLN_OUT_PIECES 40
+enum
 {
-    (void)flags;
-    sst_put(c, rln_buf, RLN_BUF_SIZE);
-    /* A callback is a function pointer, which cannot be written to a blob, so
-     * it is saved as a token. console.c's reader is the only one this file can
-     * name, and any other callback fails the save rather than being restored
-     * as the wrong reader. Its reads have no history, so none is carried. */
-    if (!rln_callback)
+    RLN_OUT_BYTES,  /* rln_out_lit[a] on, n of them */
+    RLN_OUT_SCREEN, /* the same, for the screen alone */
+    RLN_OUT_RUN,    /* rln_buf[a] on, n of them */
+    RLN_OUT_REP,    /* byte a, n times */
+    RLN_OUT_ESC,    /* ESC and byte a, n times */
+    RLN_OUT_KINDS
+};
+typedef struct
+{
+    uint8_t kind;
+    uint8_t a;
+    uint8_t n;
+} rln_piece_t;
+_Static_assert(RLN_OUT_LIT <= UINT8_MAX + 1, "a piece's byte offset is a uint8_t");
+static rln_piece_t rln_out[RLN_OUT_PIECES];
+static char rln_out_lit[RLN_OUT_LIT];
+static uint8_t rln_out_len;     /* pieces recorded */
+static uint8_t rln_out_lit_len; /* bytes of their own recorded */
+static uint8_t rln_out_at;      /* the piece going out */
+static uint16_t rln_out_sent;   /* its bytes gone out */
+/* The read the reply ends, handed its line once the reply is out. */
+static rln_read_callback_t rln_out_then;
+static bool rln_out_timed_out;
+
+static uint16_t HOST_IN_RAM_FUNC rln_out_size(const rln_piece_t *p)
+{
+    return p->kind == RLN_OUT_ESC ? (uint16_t)(2u * p->n) : p->n;
+}
+
+static char HOST_IN_RAM_FUNC rln_out_byte(const rln_piece_t *p, uint16_t i)
+{
+    switch (p->kind)
+    {
+    case RLN_OUT_RUN:
+        return rln_buf[p->a + i];
+    case RLN_OUT_REP:
+        return (char)p->a;
+    case RLN_OUT_ESC:
+        return i & 1 ? (char)p->a : '\33';
+    default:
+        return rln_out_lit[p->a + i];
+    }
+}
+
+/* Sends what the console's line takes, or all of it with force, and true
+ * once the reply has gone out and its read has its line. */
+static bool HOST_IN_RAM_FUNC rln_out_send(bool force)
+{
+    for (; rln_out_at < rln_out_len; rln_out_at++, rln_out_sent = 0)
+    {
+        const rln_piece_t *p = &rln_out[rln_out_at];
+        const uint16_t size = rln_out_size(p);
+        if (p->kind == RLN_OUT_SCREEN)
+        {
+            if (!force && manifold_tx_room() < size)
+                return false;
+            manifold_write_to(COM_TERM_SCREEN, &rln_out_lit[p->a], size);
+            continue;
+        }
+        for (; rln_out_sent < size; rln_out_sent++)
+        {
+            if (!force && !manifold_cts())
+                return false;
+            manifold_putchar(rln_out_byte(p, rln_out_sent));
+        }
+    }
+    rln_out_len = rln_out_lit_len = rln_out_at = 0;
+    rln_out_sent = 0;
+    rln_read_callback_t then = rln_out_then;
+    if (then)
+    {
+        rln_out_then = NULL;
+        then(rln_out_timed_out, rln_buf);
+    }
+    return true;
+}
+
+/* The next piece, with room for its bytes of its own, the reply so far
+ * going out at once to make room. */
+static rln_piece_t *rln_out_new(uint8_t kind, uint8_t a, uint8_t n)
+{
+    const bool own = kind == RLN_OUT_BYTES || kind == RLN_OUT_SCREEN;
+    if (rln_out_len == RLN_OUT_PIECES ||
+        (own && rln_out_lit_len + n > RLN_OUT_LIT))
+        rln_out_send(true);
+    rln_piece_t *p = &rln_out[rln_out_len++];
+    *p = (rln_piece_t){kind, own ? rln_out_lit_len : a, own ? 0 : n};
+    return p;
+}
+
+static rln_piece_t *rln_out_last(uint8_t kind)
+{
+    if (!rln_out_len || rln_out_len == rln_out_at)
+        return NULL;
+    rln_piece_t *p = &rln_out[rln_out_len - 1];
+    return p->kind == kind ? p : NULL;
+}
+
+static void rln_out_c(char c)
+{
+    rln_piece_t *p = rln_out_last(RLN_OUT_BYTES);
+    if (!p || p->n == UINT8_MAX || rln_out_lit_len == RLN_OUT_LIT)
+        p = rln_out_new(RLN_OUT_BYTES, 0, 1);
+    rln_out_lit[rln_out_lit_len++] = c;
+    p->n++;
+}
+
+static void rln_out_s(const char *str)
+{
+    while (*str)
+        rln_out_c(*str++);
+}
+
+static void rln_out_buf(uint8_t i)
+{
+    rln_piece_t *p = rln_out_last(RLN_OUT_RUN);
+    if (p && p->a + p->n == i && p->n < UINT8_MAX)
+        p->n++;
+    else
+        rln_out_new(RLN_OUT_RUN, i, 1);
+}
+
+static void rln_out_rep(uint8_t kind, char c, unsigned n)
+{
+    for (; n; n--)
+    {
+        rln_piece_t *p = rln_out_last(kind);
+        if (p && p->a == (uint8_t)c && p->n < UINT8_MAX)
+            p->n++;
+        else
+            rln_out_new(kind, (uint8_t)c, 1);
+    }
+}
+
+static void rln_out_screen(const char *seq, uint8_t n)
+{
+    rln_piece_t *p = rln_out_new(RLN_OUT_SCREEN, 0, n);
+    memcpy(&rln_out_lit[rln_out_lit_len], seq, n);
+    rln_out_lit_len += n;
+    p->n = n;
+}
+
+/* A reply is waiting to go out, or its read to have its line. */
+bool HOST_IN_RAM_FUNC rln_replying(void)
+{
+    return rln_out_len || rln_out_then;
+}
+
+/* A callback is a function pointer, which cannot be written to a blob, so
+ * it is saved as a token. console.c's reader is the only one this file can
+ * name, and any other callback fails the save rather than being restored
+ * as the wrong reader. Its reads have no history, so none is carried. */
+static void rln_sst_put_one(sst_cursor_t *c, rln_read_callback_t reader)
+{
+    if (!reader)
         sst_put_u8(c, 0);
-    else if (rln_callback == console_rln_reader())
+    else if (reader == console_rln_reader())
         sst_put_u8(c, 1);
     else
         sst_fail(c);
-    sst_put_u64(c, rln_idle_deadline);
-    sst_put_u8(c, rln_buflen);
-    sst_put_u8(c, rln_bufpos);
-    sst_put_u8(c, rln_max_length);
-    sst_put_u32(c, rln_idle_timeout_ms);
-    sst_put_u8(c, rln_caps);
-    sst_put_bool(c, rln_suppress_newline);
-    sst_put_u16(c, rln_prompt_col);
-    sst_put_u16(c, rln_width);
-    sst_put_u8(c, rln_grid_width);
-    sst_put_u8(c, rln_rows);
-    sst_put_u8(c, rln_cur_idx);
-    sst_put_bool(c, rln_overwrite);
-    sst_put_u8(c, rln_rendered_max_row);
-    sst_put_u8(c, rln_last_render_buflen);
-    sst_put(c, rln_lastkey_buf, RLN_LASTKEY_MAX);
-    sst_put_u8(c, rln_lastkey_len);
-    sst_put_bool(c, rln_action_taken);
-    sst_put_bool(c, rln_lastkey_action);
-    sst_put_bool(c, rln_laying_out);
-    sst_put(c, rln_line_ends, RLN_SOURCE_COUNT);
-    sst_put_u16(c, rln_pinned_width);
-    sst_put_u16(c, rln_pinned_height);
+}
+
+static bool rln_sst_get_one(sst_cursor_t *c, rln_read_callback_t *reader)
+{
+    uint8_t token = sst_get_u8(c);
+    if (token > 1)
+        return sst_refuse(c, "a reader rln cannot name");
+    *reader = token ? console_rln_reader() : NULL;
+    return true;
+}
+
+/* The read in progress, and the one a reply still going out ends. */
+static void rln_sst_put_reader(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    rln_sst_put_one(c, rln_callback);
+    rln_sst_put_one(c, rln_out_then);
+}
+
+static bool rln_sst_get_reader(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    rln_history = NULL;
+    return rln_sst_get_one(c, &rln_callback) &&
+           rln_sst_get_one(c, &rln_out_then);
+}
+
+/* Whether the third grid is on the console's terminal, and the grid. */
+static void rln_sst_put_grid(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
     sst_put_bool(c, rln_has_grid());
     term_grid_sst_put(c, &rln_grid);
 }
 
-bool rln_sst_load(sst_cursor_t *c, unsigned flags)
+static bool rln_sst_get_grid(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    const uint8_t *line = sst_view(c, sizeof rln_buf);
-    uint8_t reader = sst_get_u8(c);
-    uint64_t idle = sst_get_u64(c);
-    uint8_t buflen = sst_get_u8(c), bufpos = sst_get_u8(c);
-    uint8_t maxlen = sst_get_u8(c);
-    uint32_t idle_ms = sst_get_u32(c);
-    uint8_t caps = sst_get_u8(c);
-    bool suppress = sst_get_bool(c);
-    uint16_t pcol = sst_get_u16(c), width = sst_get_u16(c);
-    uint8_t grid_width = sst_get_u8(c), rows = sst_get_u8(c);
-    uint8_t cur = sst_get_u8(c);
-    bool over = sst_get_bool(c);
-    uint8_t maxrow = sst_get_u8(c), lastlen = sst_get_u8(c);
-    const uint8_t *lastkey = sst_view(c, sizeof rln_lastkey_buf);
-    uint8_t lastkey_len = sst_get_u8(c);
-    bool acted = sst_get_bool(c), key_acted = sst_get_bool(c);
-    bool laying_out = sst_get_bool(c);
-    uint8_t line_end[RLN_SOURCE_COUNT];
-    sst_get(c, line_end, sizeof line_end);
-    uint16_t pin_w = sst_get_u16(c), pin_h = sst_get_u16(c);
     bool grid = sst_get_bool(c);
-    /* The lengths need no range check because a uint8_t cannot reach past a
-     * buffer this size, and the static assert keeps that true if RLN_BUF_SIZE
-     * changes. The indexes are checked because they can exceed the lengths
-     * they index. */
-    _Static_assert(RLN_BUF_SIZE > UINT8_MAX, "a byte length must not escape rln_buf");
-    if (!sst_ok(c) || reader > 1 || bufpos > buflen ||
-        cur > buflen || lastkey_len > RLN_LASTKEY_MAX)
+    if (!sst_ok(c))
         return false;
     if (grid && !rln_has_grid())
         term_add_grid(&cells_term, &rln_grid, cells_shown(&cells_term),
                       rln_grid_lines, RLN_GRID_ROWS);
     else if (!grid && rln_has_grid())
         term_drop_grid(&cells_term, &rln_grid);
-    if (!term_grid_sst_get(c, &rln_grid) || !sst_ok(c))
-        return false;
+    return term_grid_sst_get(c, &rln_grid);
+}
 
-    rln_history = NULL;
-    memcpy(rln_buf, line, sizeof rln_buf);
-    rln_callback = reader ? console_rln_reader() : NULL;
-    rln_idle_deadline = idle;
-    rln_buflen = buflen;
-    rln_bufpos = bufpos;
-    rln_max_length = maxlen;
-    rln_idle_timeout_ms = idle_ms;
-    rln_caps = caps;
-    rln_suppress_newline = suppress;
-    rln_prompt_col = pcol;
-    rln_width = width;
-    rln_grid_width = grid_width;
-    rln_rows = rows;
-    rln_cur_idx = cur;
-    rln_overwrite = over;
-    rln_rendered_max_row = maxrow;
-    rln_last_render_buflen = lastlen;
-    memcpy(rln_lastkey_buf, lastkey, sizeof rln_lastkey_buf);
-    rln_lastkey_len = lastkey_len;
-    rln_action_taken = acted;
-    rln_lastkey_action = key_acted;
-    rln_laying_out = laying_out;
-    memcpy(rln_line_ends, line_end, sizeof rln_line_ends);
-    rln_pinned_width = pin_w;
-    rln_pinned_height = pin_h;
+/* The lengths need no range check because a uint8_t cannot reach past a
+ * buffer this size, and the static assert keeps that true if RLN_BUF_SIZE
+ * changes. The indexes are checked because they can exceed the lengths they
+ * index. A line with a prompt column wraps at its width, so that width is
+ * never 0. */
+_Static_assert(RLN_BUF_SIZE > UINT8_MAX,
+               "a byte length must not escape rln_buf");
+static bool rln_sst_valid(sst_cursor_t *c)
+{
+    if (rln_bufpos > rln_buflen || rln_cur_idx > rln_buflen ||
+        rln_lastkey_len > RLN_LASTKEY_MAX)
+        return sst_refuse(c, "an index past its line");
+    if (rln_prompt_col && !rln_width)
+        return sst_refuse(c, "a prompt column with no width");
+    if (rln_out_len > RLN_OUT_PIECES || rln_out_at > rln_out_len ||
+        rln_out_lit_len > RLN_OUT_LIT)
+        return sst_refuse(c, "a reply past its pieces");
+    for (unsigned i = 0; i < rln_out_len; i++)
+    {
+        const rln_piece_t *p = &rln_out[i];
+        const bool own = p->kind == RLN_OUT_BYTES || p->kind == RLN_OUT_SCREEN;
+        if (p->kind >= RLN_OUT_KINDS ||
+            (own && p->a + p->n > rln_out_lit_len) ||
+            (p->kind == RLN_OUT_RUN && p->a + p->n > RLN_BUF_SIZE) ||
+            (p->kind == RLN_OUT_SCREEN && p->n > MANIFOLD_TX_SIZE))
+            return sst_refuse(c, "a piece of a reply past its bytes");
+    }
+    if (rln_out_at < rln_out_len && rln_out_sent > rln_out_size(&rln_out[rln_out_at]))
+        return sst_refuse(c, "a piece sent past its end");
     return true;
 }
+
+#define RLN_PIECE_ROWS(Y, p) Y(U8, p.kind) Y(U8, p.a) Y(U8, p.n)
+#define RLN_SST_ROWS(X)                                                 \
+    X(BYTES, rln_buf)                                                   \
+    X(FN, rln_sst_put_reader, rln_sst_get_reader, 2, 1)                 \
+    X(IN_FN, rln_out_then)                                              \
+    X(STRUCTS, rln_out, RLN_PIECE_ROWS)                                 \
+    X(BYTES, rln_out_lit)                                               \
+    X(U8, rln_out_len)                                                  \
+    X(U8, rln_out_lit_len)                                              \
+    X(U8, rln_out_at)                                                   \
+    X(U16, rln_out_sent)                                                \
+    X(BOOL, rln_out_timed_out)                                          \
+    X(BOOL, rln_erase_el)                                               \
+    X(IN_FN, rln_callback)                                              \
+    X(IN_FN, rln_history, "its caller's, so the load sets none")        \
+    X(U64, rln_idle_deadline, "machine time, so carried whole")         \
+    X(U8, rln_buflen)                                                   \
+    X(U8, rln_bufpos)                                                   \
+    X(U8, rln_max_length)                                               \
+    X(U32, rln_idle_timeout_ms)                                         \
+    X(U8, rln_caps)                                                     \
+    X(BOOL, rln_suppress_newline)                                       \
+    X(U16, rln_prompt_col)                                              \
+    X(U16, rln_width)                                                   \
+    X(U8, rln_grid_width)                                               \
+    X(U8, rln_rows)                                                     \
+    X(U8, rln_cur_idx)                                                  \
+    X(BOOL, rln_overwrite)                                              \
+    X(U8, rln_rendered_max_row)                                         \
+    X(U8, rln_last_render_buflen)                                       \
+    X(BYTES, rln_lastkey_buf)                                           \
+    X(U8, rln_lastkey_len)                                              \
+    X(BOOL, rln_action_taken)                                           \
+    X(BOOL, rln_lastkey_action)                                         \
+    X(BOOL, rln_laying_out)                                             \
+    X(BYTES, rln_line_ends)                                             \
+    X(U16, rln_pinned_width)                                            \
+    X(U16, rln_pinned_height)                                           \
+    X(VALIDATE, rln_sst_valid)                                          \
+    X(FN, rln_sst_put_grid, rln_sst_get_grid,                           \
+      1 + TERM_GRID_SST_SIZE(RLN_GRID_ROWS), 1)                         \
+    X(IN_FN, rln_grid)                                                  \
+    X(IN_FN, rln_grid_lines)                                            \
+    X(SKIP, rln_line_src, "read only inside the read's callback")       \
+    X(SKIP, rln_plain, "host wiring")
+SST_TABLE(rln, RLN_SST_ROWS)
 
 /* ----- Screen position math (multi-line mode) ----- */
 
@@ -276,13 +472,13 @@ static void rln_emit_move(char way, unsigned n)
     if (!n)
         return;
     if (!cells_term.vt52)
-        com_printf("\33[%u%c", n, way);
+    {
+        char seq[12];
+        snprintf(seq, sizeof seq, "\33[%u%c", n, way);
+        rln_out_s(seq);
+    }
     else
-        for (; n; n--)
-        {
-            manifold_putchar('\33');
-            manifold_putchar(way);
-        }
+        rln_out_rep(RLN_OUT_ESC, way, n);
 }
 
 // Move to column col of the cursor's row: CR, then right. VT100 and VT102
@@ -290,7 +486,7 @@ static void rln_emit_move(char way, unsigned n)
 // and clears it.
 static void rln_emit_col(uint16_t col)
 {
-    manifold_putchar('\r');
+    rln_out_c('\r');
     rln_emit_move('C', col - 1u);
 }
 
@@ -300,15 +496,13 @@ static void rln_emit_col(uint16_t col)
 // back.
 static void rln_emit_erase(uint16_t col)
 {
-    manifold_flush();
-    const term_grid_t *g = term_shown(&cells_term);
-    if (term_right_stop(g) == term_cols(g, term_pos(g)->y) - 1)
+    if (rln_erase_el)
     {
-        com_printf(cells_term.vt52 ? "\33K" : "\33[K");
+        rln_out_s(cells_term.vt52 ? "\33K" : "\33[K");
         return;
     }
-    for (uint16_t c = col; c <= rln_width; c++)
-        manifold_putchar(' ');
+    if (col <= rln_width)
+        rln_out_rep(RLN_OUT_REP, ' ', rln_width - col + 1u);
     rln_emit_col(col);
 }
 
@@ -321,10 +515,10 @@ static void rln_sync_cursor_to(uint8_t target)
     // wraps.
     if (rln_prompt_col == 0)
     {
-        for (uint8_t i = rln_cur_idx; i > target; i--)
-            manifold_putchar('\b');
+        if (rln_cur_idx > target)
+            rln_out_rep(RLN_OUT_REP, '\b', rln_cur_idx - target);
         for (uint8_t i = rln_cur_idx; i < target; i++)
-            manifold_putchar(rln_buf[i]);
+            rln_out_buf(i);
     }
     else
     {
@@ -353,7 +547,10 @@ static void rln_sync_cursor_to(uint8_t target)
 // CUF end the park, so the next write cannot wrap.
 static void rln_put(uint8_t i, char ch, uint8_t end)
 {
-    manifold_putchar(ch);
+    if (ch == rln_buf[i])
+        rln_out_buf(i);
+    else
+        rln_out_c(ch);
     rln_cur_idx = (uint8_t)(i + 1);
     if (!rln_prompt_col)
         return;
@@ -365,7 +562,7 @@ static void rln_put(uint8_t i, char ch, uint8_t end)
     if (rln_input_no_wrap())
         rln_cur_idx = i;
     else if (i + 1 <= end)
-        com_printf("\r\n");
+        rln_out_s("\r\n");
     else
     {
         rln_cur_idx = i;
@@ -447,11 +644,9 @@ static bool rln_below_line(void)
 // backs up to where the spaces started.
 static void rln_emit_trailing_spaces(uint8_t count)
 {
-    for (uint8_t i = 0; i < count; i++)
-        manifold_putchar(' ');
+    rln_out_rep(RLN_OUT_REP, ' ', count);
     if (!rln_prompt_col)
-        for (uint8_t i = 0; i < count; i++)
-            manifold_putchar('\b');
+        rln_out_rep(RLN_OUT_REP, '\b', count);
 }
 
 // Walk down `rows` existing rows from the cursor, clearing each, then return up
@@ -460,7 +655,7 @@ static void rln_clear_rows_below(uint8_t rows, uint16_t col)
 {
     for (uint8_t k = 0; k < rows; k++)
     {
-        com_printf(cells_term.vt52 ? "\33B\r" : "\33[B\r");
+        rln_out_s(cells_term.vt52 ? "\33B\r" : "\33[B\r");
         rln_emit_erase(1);
     }
     rln_emit_move('A', rows);
@@ -483,7 +678,7 @@ static void rln_render_from(uint8_t start)
     if (rln_input_no_wrap())
     {
         for (uint8_t i = start; i < rln_buflen; i++)
-            manifold_putchar(rln_buf[i]);
+            rln_out_buf(i);
         rln_cur_idx = rln_cursor_max();
         if (rln_last_render_buflen > rln_buflen)
             rln_emit_trailing_spaces((uint8_t)(rln_last_render_buflen - rln_buflen));
@@ -528,7 +723,7 @@ static void rln_emit_tail_rewrite(uint8_t at, uint8_t pad)
     }
     rln_sync_cursor_to(at);
     for (uint8_t i = at; i < rln_buflen; i++)
-        manifold_putchar(rln_buf[i]);
+        rln_out_buf(i);
     if (pad)
         rln_emit_trailing_spaces(pad);
     rln_cur_idx = rln_cursor_max();
@@ -592,7 +787,7 @@ static void rln_cursor_shape(uint8_t ps)
         return;
     char seq[] = "\33[0 q";
     seq[2] = (char)('0' + ps);
-    manifold_write_to(COM_TERM_SCREEN, seq, sizeof seq - 1);
+    rln_out_screen(seq, sizeof seq - 1);
 }
 
 // The read is over, or given up: nothing more is read for it, the callback
@@ -603,6 +798,7 @@ void rln_read_cancel(void)
     rln_idle_timeout_ms = 0;
     tio_read_end();
     rln_cursor_shape(0);
+    rln_out_send(false);
 }
 
 /* The line is done at Enter: nothing is read after it, so whatever follows
@@ -614,8 +810,10 @@ static void rln_complete(bool timed_out)
     rln_read_callback_t cc = rln_callback;
     rln_read_cancel();
     if (!rln_suppress_newline && !rln_below_line())
-        manifold_putchar('\n');
-    cc(timed_out, rln_buf);
+        rln_out_c('\n');
+    rln_out_then = cc;
+    rln_out_timed_out = timed_out;
+    rln_out_send(false);
 }
 
 // Park the cursor past the input, nul-terminate the buffer, optionally
@@ -1158,7 +1356,7 @@ static void rln_place(void)
 {
     bool plain = rln_plain;
     if (!plain && !cells_term.vt52)
-        manifold_write_to(COM_TERM_ALL, RLN_MODES, sizeof RLN_MODES - 1);
+        rln_out_s(RLN_MODES);
     /* The line has the columns the terminal gives the cursor: from where a
      * CR lands to where a row of text ends, which are the left and right
      * margins for a cursor between them. Its columns are counted from the
@@ -1169,6 +1367,7 @@ static void rln_place(void)
     const unsigned first = term_left_stop(g);
     rln_prompt_col = plain ? 0 : (uint16_t)(p->x - first + 1);
     rln_width = (uint16_t)(term_right_stop(g) - first + 1);
+    rln_erase_el = term_right_stop(g) == term_cols(g, p->y) - 1;
     rln_grid_width = g->width;
     unsigned rows = g->height;
     if (p->y >= g->margin_top && p->y <= g->margin_bot)
@@ -1187,6 +1386,7 @@ static void rln_follow(void)
     if (!rln_prompt_col || rln_get_term_width() == rln_grid_width)
         return;
     rln_sync_past_line();
+    rln_out_send(true);
     com_clean_line();
     rln_lay_out();
     rln_fit();
@@ -1200,6 +1400,12 @@ static void rln_follow(void)
 
 static void rln_start(rln_read_callback_t callback, rln_history_t *history)
 {
+    /* The reply to the last read's last key goes out first. A read started
+     * before that read was handed its line replaces it, and the line is
+     * dropped: its readers wait for rln_replying to end before they ask for
+     * another. */
+    rln_out_then = NULL;
+    rln_out_send(true);
     rln_idle_timeout_ms = 0;
     rln_buflen = 0;
     rln_bufpos = 0;
@@ -1224,6 +1430,7 @@ void rln_read_line(rln_read_callback_t callback, rln_history_t *history)
 {
     rln_start(callback, history);
     rln_laying_out = !rln_lay_out_now();
+    rln_out_send(false);
 }
 
 void rln_read_line_script(rln_read_callback_t callback, uint32_t timeout_ms)
@@ -1245,12 +1452,13 @@ bool rln_read_flush(void)
         return false;
     rln_line_src = COM_SOURCE_ANY;
     rln_finish_line(false);
+    rln_out_send(false);
     return true;
 }
 
 void HOST_IN_RAM_FUNC rln_task(void)
 {
-    if (!rln_callback)
+    if (!rln_out_send(false) || !rln_callback)
         return;
     if (rln_laying_out && (rln_laying_out = !rln_lay_out_now()))
         return;
@@ -1265,6 +1473,8 @@ void HOST_IN_RAM_FUNC rln_task(void)
             break;
         rln_idle_deadline = timer_mach_in_ms(rln_idle_timeout_ms);
         rln_item(src, item, len);
+        if (!rln_out_send(false))
+            return;
     }
     if (rln_idle_timeout_ms && timer_mach_passed(rln_idle_deadline))
     {
@@ -1299,11 +1509,26 @@ void rln_stop(void)
     {
         rln_sync_past_line();
         if (!rln_below_line())
-            com_printf("\r\n");
+            rln_out_s("\r\n");
         rln_read_cancel();
     }
+    rln_out_then = NULL;
+    rln_out_send(true);
+    rln_reset();
+}
+
+/* No read, and the third grid off the screen's terminal, with nothing drawn:
+ * after a failed load the line's indexes and geometry may hold anything, and
+ * the console they would draw through is not reset yet. CELLS' RESET runs
+ * first, so the grid list is sound to search. The rest is set again by the
+ * next read's start. */
+void rln_reset(void)
+{
     if (rln_has_grid())
         term_drop_grid(&cells_term, &rln_grid);
+    rln_out_len = rln_out_lit_len = rln_out_at = 0;
+    rln_out_sent = 0;
+    rln_out_then = NULL;
     rln_init();
 }
 
@@ -1425,6 +1650,9 @@ void rln_poke(const char *str)
 {
     if (!rln_callback)
         return;
+    /* What a typed key's reply still has to send reads the line as it is
+     * now, so it goes out before the poke edits it. */
+    rln_out_send(true);
     char item[TIO_ITEM_MAX];
     size_t len = 0;
     uint8_t frame = 0;
@@ -1432,6 +1660,9 @@ void rln_poke(const char *str)
     const char *p = str;
     do
     {
+        /* A poked Enter ends the read, and the rest is for no line. */
+        if (!rln_callback)
+            break;
         uint8_t ch = (uint8_t)*p;
         if (ch < 32 && ch != '\33' && !(frame && (ch == '\30' || ch == '\32')))
         {
@@ -1461,6 +1692,7 @@ void rln_poke(const char *str)
         if (step != TIO_OPEN)
             len = 0;
     } while (*++p);
+    rln_out_send(false);
 }
 
 // int ria_rln_poke(const char *poke);

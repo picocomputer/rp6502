@@ -92,6 +92,9 @@ typedef struct tablet_connection
 } tablet_connection_t;
 
 void tablet_init(void);
+/* Unmaps the block. It is also the RESET hook: a failed load can leave the
+ * address pointing into the next program's XRAM, and the next mapping
+ * rewrites the block. */
 void tablet_stop(void);
 
 bool tablet_xreg(uint16_t word);
@@ -124,21 +127,12 @@ void tablet_host_clear(void);
 /* The cursor shape the program asked for, one of TABLET_CURSOR_. */
 uint8_t tablet_control(void);
 
-/* The blob carries the block and whether a host lends its own cursor:
- * 2 + TABLET_BLOCK_SIZE + 1. The six counters behind the block are not saved,
- * because only tablet_report writes them and no machine that saves state has
- * a report to give it. */
-#define TABLET_SST_SIZE (3 + TABLET_BLOCK_SIZE)
-void tablet_sst_save(sst_cursor_t *c, unsigned flags);
-bool tablet_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t tablet_sst;
 
 #define TABLET_DRIVER DRIVER(                                        \
     INIT(tablet_init)                                                \
     STOP(tablet_stop)                                                \
-    SST(.id = "TBLT",                                                \
-        .version = 3,                                                \
-        .size = TABLET_SST_SIZE,                                     \
-        .save = tablet_sst_save,                                     \
-        .load = tablet_sst_load))
+    RESET(tablet_stop)                                               \
+    SST("TBLT", tablet))
 
 #endif /* _CORE_HID_TABLET_H_ */

@@ -91,18 +91,11 @@ void tio_read_end(void);
 
 void tio_init(void);
 
-/* Each source's overlong framing state, and the length and quiet deadline of
- * the sequence in front of it (10 each). */
-#define TIO_SST_SIZE (10 * COM_SOURCE_COUNT)
-void tio_sst_save(sst_cursor_t *c, unsigned flags);
-bool tio_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t tio_sst;
 
 #define TIO_DRIVER DRIVER(        \
     INIT(tio_init)                \
-    SST(.id = "TIO_",             \
-        .version = 10,            \
-        .size = TIO_SST_SIZE,     \
-        .save = tio_sst_save,     \
-        .load = tio_sst_load))
+    RESET(tio_init)               \
+    SST("TIO_", tio))
 
 #endif /* _CORE_COM_TIO_H_ */

@@ -27,24 +27,30 @@ static bool queued;
  * somewhere other than the console. */
 static const char *boot_error = "";
 
-void proc_sst_save(sst_cursor_t *c, unsigned flags)
+/* proc_exec_task loads what argv[0] names, so an exec on its way with no
+ * argv[0] is refused. The ARG row loads before this one. */
+static bool proc_queued_valid(sst_cursor_t *c)
 {
-    (void)flags;
-    sst_put_bool(c, queued);
-    proc_chain_sst_save(c);
-}
-
-bool proc_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    bool pending = sst_get_bool(c);
-    if (!sst_ok(c) || !proc_chain_sst_load(c))
-        return false;
-    queued = pending;
+    if (queued && !arg_index(0))
+        return sst_refuse(c, "an exec is on its way with no program");
     return true;
 }
 
+#define PROC_SST(X)                                                       \
+    X(BOOL, queued)                                                       \
+    X(VALIDATE, proc_queued_valid)                                        \
+    X(SKIP, boot_error, "read right after the boot that sets it")
+SST_TABLE(proc, PROC_SST)
+
 void proc_exec_init(void)
+{
+    queued = false;
+}
+
+/* No exec is on its way, so proc_exec_task loads nothing. The chain is
+ * CHAN's to reset, and what ends a chain in other drivers is their own
+ * reset's job. */
+void proc_reset(void)
 {
     queued = false;
 }
@@ -200,9 +206,11 @@ bool proc_exec_inflight(void)
     return queued;
 }
 
+/* The session's end waits for the program's output to go out at the
+ * console line's pace, and the program has exited once that is done. */
 bool proc_exited(void)
 {
-    return !sys_running() && !proc_exec_inflight();
+    return !sys_running() && !proc_exec_inflight() && !com_ending();
 }
 
 void proc_exec_task(void)

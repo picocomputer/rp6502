@@ -40,6 +40,9 @@
 #ifndef BREAK
 #define BREAK(f)
 #endif
+#ifndef RESET
+#define RESET(f)
+#endif
 #ifndef FLASHING
 #define FLASHING(f)
 #endif
@@ -59,7 +62,7 @@
 #define CONFIG_SAVE(fn)
 #endif
 #ifndef SST
-#define SST(...)
+#define SST(id, name)
 #endif
 #ifndef STD
 #define STD(...)

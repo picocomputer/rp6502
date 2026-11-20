@@ -15,6 +15,7 @@
 #include "core/aud/mix.h"
 #include "core/aud/pcm.h"
 #include "core/sys/sst.h"
+#include "core/sys/sys.h"
 #include "core/sys/xram.h"
 #include "core/wdc/bus.h"
 
@@ -35,7 +36,6 @@
 
 static uint8_t blob[1 << 20];
 /* Where a load saves the machine it may have to put back. */
-static uint8_t undo[1 << 20];
 static float out[FRAME * 2 * 120];
 
 /* Frames run and their sound taken, appended at at. */
@@ -287,7 +287,7 @@ UTEST(pcm_mix, an_underrun_before_a_save_comes_back)
     ASSERT_EQ(ssys_write_xram(fd, TABLE, 1000), 1000);
     pull(0, 4);
     ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
-    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_EQ(underruns(), 1);
     ASSERT_EQ(ssys_close(fd), 0);
 }
@@ -322,6 +322,65 @@ UTEST(pcm_mix, close_waits_for_the_sound)
     }
     ASSERT_GE(frames, 5);
     ASSERT_LE(frames, 7);
+}
+
+/* A close as soon as the buffer is empty still plays out what the filter
+ * holds: the last 24 frames, half its taps, and then the fade to silence.
+ * Cut off at the close, 200 frames of DC at half scale came to 176 frames'
+ * worth of sound at the sink, about 191 samples' area. */
+UTEST(pcm_mix, a_close_plays_out_the_filter)
+{
+    fresh();
+    for (int i = 0; i < 400; i += 2)
+    {
+        xram[TABLE + i] = 0x00;
+        xram[TABLE + i + 1] = 0x40;
+    }
+    const int fd = ssys_open("PCM:22050,16,1", O_WR);
+    ASSERT_TRUE(fd >= 0);
+    ASSERT_EQ(ssys_write_xram(fd, TABLE, 400), 400);
+    /* The close comes on the scanline the buffer runs dry, as a program
+     * polling it would make it. */
+    while (ssys_lseek(fd, 0, WHENCE_CUR) > 0)
+        sys_task();
+    ASSERT_EQ(ssys_close(fd), 0);
+    size_t at = pull(0, 6);
+    double area = 0;
+    for (size_t i = 0; i < at; i++)
+        area += out[i * 2];
+    /* 200 frames at 22050 Hz are 435 samples at 48000, at half scale. */
+    ASSERT_GT(area, 230.0);
+    ASSERT_EQ(out[(at - 1) * 2], 0.0f);
+}
+
+/* A byte short of a frame never plays, so a close does not wait for it and
+ * drops it, and the next open starts on an empty buffer, its frames where
+ * they belong. */
+UTEST(pcm_mix, a_close_drops_a_partial_frame)
+{
+    fresh();
+    const int fd = ssys_open("PCM:22050,16,1", O_WR);
+    ASSERT_TRUE(fd >= 0);
+    ASSERT_EQ(ssys_write_xram(fd, TABLE, 1), 1);
+    ASSERT_EQ(ssys_lseek(fd, 0, WHENCE_CUR), 1);
+    ASSERT_EQ(ssys_close(fd), 0);
+    const int again = ssys_open("PCM:22050,16,1", O_WR);
+    ASSERT_TRUE(again >= 0);
+    ASSERT_EQ(ssys_lseek(again, 0, WHENCE_CUR), 0);
+    /* 0x4000 is half scale. A byte left behind would pair each 0x40 with
+     * the next 0x00 as 0x0040, a 512th of it. */
+    for (int i = 0; i < 400; i += 2)
+    {
+        xram[TABLE + i] = 0x00;
+        xram[TABLE + i + 1] = 0x40;
+    }
+    ASSERT_EQ(ssys_write_xram(again, TABLE, 400), 400);
+    const size_t at = pull(0, 2);
+    float most = 0;
+    for (size_t i = 0; i < at; i++)
+        most = out[i * 2] > most ? out[i * 2] : most;
+    ASSERT_GT(most, 0.45f);
+    ASSERT_EQ(ssys_close(again), 0);
 }
 
 /* dup2 onto PCM: closes it first, which waits for the sound like a close,
@@ -395,7 +454,7 @@ UTEST(pcm_mix, a_savestate_resumes_the_stream)
     }
     memcpy(went, out, n * 2 * sizeof *out);
 
-    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     table_at = saved_at;
     ASSERT_EQ(ssys_lseek(fd, 0, WHENCE_CUR), level);
     size_t m = 0;
@@ -420,7 +479,7 @@ UTEST(pcm_mix, a_load_over_playing_sound_does_not_wait)
     const int fd = ssys_open("PCM:22050,16,1", O_WR);
     ASSERT_TRUE(fd >= 0);
     ASSERT_EQ(ssys_write_xram(fd, TABLE, PCM_BUF_SIZE), PCM_BUF_SIZE);
-    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_TRUE(ssys_lseek(fd, 0, WHENCE_CUR) < 0);
     const int again = ssys_open("PCM:22050,16,1", O_WR);
     ASSERT_TRUE(again >= 0);

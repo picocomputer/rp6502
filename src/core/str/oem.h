@@ -25,6 +25,9 @@
 #endif
 
 void oem_init(void);
+/* After a failed load, puts the configured code page back in all three
+ * places it is kept: the page in force, the filesystem's and the font's. */
+void oem_reset(void);
 /* Puts back the configured code page if a program changed it. */
 void oem_restore_code_page(void);
 
@@ -100,19 +103,12 @@ int oem_vsnprintf(char *dst, size_t dst_size, const char *utf8_fmt, va_list va);
 #define OEM_CONFIG_CODE_PAGE CONFIG_INT(S, oem, code_page, uint16_t, 0, \
     oem_check_code_page, oem_apply_code_page, STR_CP, oem_code_page_response, \
     STR_HELP_SET_CP, NULL)
-/* Only the code page in force is saved. The glyphs follow from that one
- * number, so the load asks for the page again and puts them back. */
-#define OEM_SST_SIZE 2
-void oem_sst_save(sst_cursor_t *c, unsigned flags);
-bool oem_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t oem_sst;
 
 #define OEM_DRIVER DRIVER(                                  \
     INIT(oem_init)                                          \
+    RESET(oem_reset)                                        \
     OEM_CONFIG_CODE_PAGE                                    \
-    SST(.id = "OEM_",                                       \
-        .version = 1,                                       \
-        .size = OEM_SST_SIZE,                               \
-        .save = oem_sst_save,                               \
-        .load = oem_sst_load))
+    SST("OEM_", oem))
 
 #endif /* _CORE_STR_OEM_H_ */

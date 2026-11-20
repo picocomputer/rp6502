@@ -19,9 +19,10 @@
 /* A frame is taken at most once a sample, so the step is one at most. */
 static_assert(PCM_RATE_MAX <= AUD_NATIVE_RATE, "PCM must not downsample");
 
-/* Rows 0 to RSMP_PHASES/2 of rsmp's coefficients. Row RSMP_PHASES-p is row
- * p reversed, which rsmp.py checks. */
-static const int32_t HOST_IN_RAM pcm_coef[RSMP_PHASES / 2 + 1][RSMP_TAPS] = {
+/* Rows 0 to RSMP_PHASES/2 + 1 of rsmp's coefficients. Row RSMP_PHASES-p is
+ * row p reversed, which rsmp.py checks, so rows p and p+1 are two rows in a
+ * row here: read forwards up to the middle and backwards past it. */
+static const int32_t HOST_IN_RAM pcm_coef[RSMP_PHASES / 2 + 2][RSMP_TAPS] = {
 #include "rsmp_half.h"
 };
 
@@ -64,17 +65,35 @@ uint64_t HOST_IN_RAM_FUNC pcm_step(uint32_t rate)
     return div64((uint64_t)rate << 32, AUD_NATIVE_RATE, NULL);
 }
 
-void HOST_IN_RAM_FUNC pcm_reset(pcm_t *s, const pcm_fmt_t *fmt)
+void HOST_IN_RAM_FUNC pcm_open(pcm_t *s, const pcm_fmt_t *fmt)
 {
     s->fmt = *fmt;
     s->frame = (uint8_t)(fmt->bits / 8 * fmt->channels);
     s->step = pcm_step(fmt->rate);
     /* The first sample takes the first frame. */
     s->phase = (uint64_t)1 << 32;
+    s->underruns = 0;
+}
+
+void HOST_IN_RAM_FUNC pcm_reset(pcm_t *s, const pcm_fmt_t *fmt)
+{
+    pcm_open(s, fmt);
+    RING_RESET(&s->buf);
     s->at = 0;
     memset(s->hist, 0, sizeof s->hist);
-    s->underruns = 0;
-    RING_RESET(&s->buf);
+}
+
+/* Every value the filter holds is zero and no frame is left to take, so
+ * every sample from here on is zero. */
+bool HOST_IN_RAM_FUNC pcm_settled(const pcm_t *s)
+{
+    if (RING_LEN(&s->buf) >= s->frame)
+        return false;
+    for (int ch = 0; ch < 2; ch++)
+        for (int i = 0; i < RSMP_TAPS; i++)
+            if (s->hist[ch][i])
+                return false;
+    return true;
 }
 
 uint32_t HOST_IN_RAM_FUNC pcm_put(pcm_t *s, const uint8_t *src, uint32_t n)
@@ -108,11 +127,25 @@ static int32_t HOST_IN_RAM_FUNC pcm_decode(pcm_t *s, uint32_t i)
     return (int16_t)(*RING_AT(&s->buf, i) | *RING_AT(&s->buf, i + 1) << 8);
 }
 
+int32_t HOST_IN_RAM_FUNC pcm_fade(int32_t v, uint64_t step)
+{
+    const uint32_t m = (uint32_t)(step - 1);
+    int k = 0;
+    for (uint32_t t = 1u << 26; t && m >= t; t <<= 1)
+        k++;
+    return v - (v > 0 ? (v + (1 << k) - 1) >> k : v >> k);
+}
+
 static void HOST_IN_RAM_FUNC pcm_take(pcm_t *s)
 {
-    int32_t l = 0, r = 0;
+    int32_t l, r;
     const uint32_t level = RING_LEN(&s->buf);
-    if (level >= s->frame)
+    if (level < s->frame)
+    {
+        l = pcm_fade(s->hist[0][s->at + RSMP_TAPS - 1], s->step);
+        r = pcm_fade(s->hist[1][s->at + RSMP_TAPS - 1], s->step);
+    }
+    else
     {
         l = pcm_decode(s, 0);
         r = s->fmt.channels == 2 ? pcm_decode(s, s->fmt.bits / 8) : l;
@@ -126,32 +159,92 @@ static void HOST_IN_RAM_FUNC pcm_take(pcm_t *s)
     s->at = (uint8_t)(at + 1 == RSMP_TAPS ? 0 : at + 1);
 }
 
-/* rsmp_at's sum for row p, on both channels at once. A row past the middle
- * is a stored row read backwards. */
-static void HOST_IN_RAM_FUNC pcm_dot(unsigned p, const int32_t *hl, const int32_t *hr, int64_t *al, int64_t *ar)
+/* rsmp_at's two sums, for rows p and p+1, on both channels in one pass, so
+ * each coefficient and each sample is loaded once. c is the first of two
+ * stored rows and h the left channel's oldest tap; the right channel's taps
+ * are 2*RSMP_TAPS further on. d gets the sums of the first stored row, left
+ * and right, then of the second. Backwards, the taps are read from the
+ * newest, which reads both rows reversed. */
+#if defined(__GNUC__) && defined(__ARM_ARCH_8M_MAIN__)
+
+/* The Cortex-M33's loop. GCC's spills two of the eight halves of the sums
+ * on every tap; here they all stay in registers: the sums in r2:r3, r4:r5,
+ * r6:r7 and r8:r9, the coefficient, the left tap and the right tap in r10,
+ * r11 and r12, the rows in r0, the taps in r1, and the end of the row in
+ * lr. A tap is four loads and four SMLALs, and the loop takes four. */
+#define PCM_S(x) #x
+#define PCM_X(x) PCM_S(x)
+#define PCM_TAP(step)                                \
+    "ldr r12, [r1, #(" PCM_X(RSMP_TAPS) " * 8)]\n"   \
+    "ldr r11, [r1], #" step "\n"                     \
+    "ldr r10, [r0, #(" PCM_X(RSMP_TAPS) " * 4)]\n"   \
+    "smlal r6, r7, r10, r11\n"                       \
+    "smlal r8, r9, r10, r12\n"                       \
+    "ldr r10, [r0], #4\n"                            \
+    "smlal r2, r3, r10, r11\n"                       \
+    "smlal r4, r5, r10, r12\n"
+#define PCM_SUMS(name, step)                                     \
+    __attribute__((naked, noinline)) static void HOST_IN_RAM_FUNC \
+    name(__attribute__((unused)) const int32_t *c,                \
+         __attribute__((unused)) const int32_t *h,                \
+         __attribute__((unused)) int64_t d[4])                    \
+    {                                                             \
+        __asm__ volatile(                                         \
+            "push {r2, r4-r11, lr}\n"                             \
+            "add lr, r0, #(" PCM_X(RSMP_TAPS) " * 4)\n"           \
+            "movs r2, #0\n"                                       \
+            "movs r3, #0\n"                                       \
+            "movs r4, #0\n"                                       \
+            "movs r5, #0\n"                                       \
+            "movs r6, #0\n"                                       \
+            "movs r7, #0\n"                                       \
+            "mov r8, #0\n"                                        \
+            "mov r9, #0\n"                                        \
+            "1:\n" PCM_TAP(step) PCM_TAP(step)                    \
+                PCM_TAP(step) PCM_TAP(step)                       \
+            "cmp r0, lr\n"                                        \
+            "bne 1b\n"                                            \
+            "pop {r10}\n"                                         \
+            "strd r2, r3, [r10]\n"                                \
+            "strd r4, r5, [r10, #8]\n"                            \
+            "strd r6, r7, [r10, #16]\n"                           \
+            "strd r8, r9, [r10, #24]\n"                           \
+            "pop {r4-r11, pc}\n");                                \
+    }
+static_assert(RSMP_TAPS % 4 == 0, "the loop takes four taps a turn");
+PCM_SUMS(pcm_sums_up, "4")
+PCM_SUMS(pcm_sums_down, "-4")
+
+static inline void pcm_sums(const int32_t *c, const int32_t *h, bool back, int64_t d[4])
 {
-    int64_t a = 0, b = 0;
-    if (p <= RSMP_PHASES / 2)
-    {
-        const int32_t *c = pcm_coef[p];
-        for (int i = 0; i < RSMP_TAPS; i++)
-        {
-            a += (int64_t)c[i] * hl[i];
-            b += (int64_t)c[i] * hr[i];
-        }
-    }
+    if (back)
+        pcm_sums_down(c, &h[RSMP_TAPS - 1], d);
     else
-    {
-        const int32_t *c = pcm_coef[RSMP_PHASES - p];
-        for (int i = 0; i < RSMP_TAPS; i++)
-        {
-            a += (int64_t)c[RSMP_TAPS - 1 - i] * hl[i];
-            b += (int64_t)c[RSMP_TAPS - 1 - i] * hr[i];
-        }
-    }
-    *al = a;
-    *ar = b;
+        pcm_sums_up(c, h, d);
 }
+
+#else
+
+static inline __attribute__((always_inline)) void pcm_sums(const int32_t *c, const int32_t *h, bool back, int64_t d[4])
+{
+    int64_t l0 = 0, r0 = 0, l1 = 0, r1 = 0;
+    for (int i = 0; i < RSMP_TAPS; i++)
+    {
+        const int32_t *t = back ? &h[RSMP_TAPS - 1 - i] : &h[i];
+        const int32_t sl = t[0], sr = t[2 * RSMP_TAPS];
+        const int32_t c0 = c[i], c1 = c[RSMP_TAPS + i];
+        l0 += (int64_t)c0 * sl;
+        r0 += (int64_t)c0 * sr;
+        l1 += (int64_t)c1 * sl;
+        r1 += (int64_t)c1 * sr;
+    }
+    d[0] = l0;
+    d[1] = r0;
+    d[2] = l1;
+    d[3] = r1;
+}
+
+#endif
 
 /* rsmp_at's blend and rounding, so the result is rsmp's to the bit. */
 static int32_t HOST_IN_RAM_FUNC pcm_blend(int64_t a, int64_t b, int64_t f)
@@ -168,15 +261,20 @@ void HOST_IN_RAM_FUNC pcm_sample(pcm_t *s, int32_t *left, int32_t *right)
         pcm_take(s);
     }
     const uint32_t mu = (uint32_t)s->phase;
-    const unsigned p = mu >> 25;
-    const int64_t f = (mu >> 9) & 0xFFFF;
-    const int32_t *hl = &s->hist[0][s->at];
-    const int32_t *hr = &s->hist[1][s->at];
-    int64_t al, ar, bl, br;
-    pcm_dot(p, hl, hr, &al, &ar);
-    pcm_dot(p + 1, hl, hr, &bl, &br);
-    *left = pcm_blend(al, bl, f);
-    *right = pcm_blend(ar, br, f);
+    const unsigned p = mu >> (32 - RSMP_PHASE_BITS);
+    const int64_t f = (mu >> (16 - RSMP_PHASE_BITS)) & 0xFFFF;
+    const int32_t *h = &s->hist[0][s->at];
+    static_assert(sizeof s->hist[0] == 2 * RSMP_TAPS * sizeof(int32_t),
+                  "pcm_sums finds the right channel 2*RSMP_TAPS on");
+    /* Up to the middle, rows p and p+1 are stored rows p and p+1. Past it,
+     * they are stored rows RSMP_PHASES-p and RSMP_PHASES-1-p reversed, so
+     * the pair starts at RSMP_PHASES-1-p and row p's sums come second. */
+    const bool back = p > RSMP_PHASES / 2;
+    int64_t d[4];
+    pcm_sums(pcm_coef[back ? RSMP_PHASES - 1 - p : p], h, back, d);
+    const int a = back ? 2 : 0;
+    *left = pcm_blend(d[a], d[2 - a], f);
+    *right = pcm_blend(d[a + 1], d[3 - a], f);
     s->phase += s->step;
 }
 
@@ -189,6 +287,11 @@ bool HOST_IN_RAM_FUNC pcm_std_handles(const char *path)
 
 /* The open device's format. */
 static pcm_fmt_t pcm_fmt;
+
+#define PCM_SST(X)                                              \
+    X(SKIP, pcm_fmt, "the STD chunk carries it: pcm_std_ident "  \
+                     "writes it and pcm_std_reopen sets it")
+SST_TABLE(pcm, PCM_SST)
 
 static bool pcm_open_fmt(const pcm_fmt_t *fmt, api_errno *err)
 {

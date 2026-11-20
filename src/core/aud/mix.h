@@ -138,35 +138,26 @@ int aud_render(float *dst, int samples);
 #define AUD_VIZ_SAMPLES 4096
 int aud_viz_take(float *dst);
 
-/* The mix as it stands: which engines are sounding, the two resamplers whose
- * phase is continuous across runs, and the native samples made. It is saved
- * with the sink's sound taken, so no stamped change is still waiting.
+/* The mix as it stands: the two resamplers whose phase is continuous across
+ * runs, the native samples made, the OPL2's drops, the PCM: device's
+ * underruns and its sound. It loads after the PSG, OPL and STD rows.
  *
- * The engines are one byte, bit 0 the PSG and bit 1 the OPL2.
- *
- * 1 engines, 2 resamplers of 24 taps and a Q32 phase and a primed flag,
- * 8 samples made, 4 OPL2 drops, 4 PCM: underruns, the bell, then the PCM:
- * device: open, its rate, bits and channels, the Q32 phase, both channels'
- * 24 samples of history, the bytes buffered and PCM_BUF_SIZE of them. */
-#define AUD_RSMP_SIZE (RSMP_TAPS * 4 + 8 + 1)
-#define AUD_PCM_SST_SIZE (1 + 4 + 1 + 1 + 8 + 2 * RSMP_TAPS * 4 + 2 + PCM_BUF_SIZE)
-#define AUD_SST_SIZE (1 + 2 * AUD_RSMP_SIZE + 8 + 4 + 4 + BEL_SST_SIZE + AUD_PCM_SST_SIZE)
-void aud_sst_save(sst_cursor_t *c, unsigned flags);
-bool aud_sst_load(sst_cursor_t *c, unsigned flags);
-
-/* What the machine stamped since the sound was taken, applied, for a save
- * about to write the engines' rows. */
-void aud_sst_settle(void);
+ * A save or a load holds the mix from before the first row to after the
+ * last: aud_sst_hold(false) before a save, aud_sst_hold(true) before a load,
+ * and aud_sst_free after either, before anything that would take the mix's
+ * lock, such as the sys_reset that follows a refused load. loaded is false
+ * after a load that failed, and the mix then rests before it lets the
+ * render in. */
+extern const sst_table_t aud_sst;
+void aud_sst_hold(bool load);
+void aud_sst_free(bool loaded);
 
 #define AUD_DRIVER DRIVER(                                  \
     INIT(aud_init)                                          \
     TASK_ALWAYS(aud_task)                                   \
     STOP(aud_stop)                                          \
     END(aud_end)                                            \
-    SST(.id = "AUD_",                                       \
-        .version = 6,                                       \
-        .size = AUD_SST_SIZE,                               \
-        .save = aud_sst_save,                               \
-        .load = aud_sst_load))
+    RESET(aud_init)                                         \
+    SST("AUD_", aud))
 
 #endif /* _CORE_AUD_MIX_H_ */

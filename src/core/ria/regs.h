@@ -7,6 +7,7 @@
 #ifndef _CORE_RIA_REGS_H_
 #define _CORE_RIA_REGS_H_
 
+#include "core/sys/sst.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -25,6 +26,17 @@ extern volatile uint8_t regs[];
  * caller pushing a C string therefore need not push its terminator. */
 #define XSTACK_SIZE 0x200
 extern uint8_t xstack[];
-extern volatile size_t xstack_ptr;
+extern volatile uint16_t xstack_ptr;
+
+/* After a failed savestate load: puts back the empty xstack and the zero
+ * above its top that string pops end on. */
+void regs_reset(void);
+
+extern const sst_table_t regs_sst;
+
+/* The register file, the xstack and its pointer. */
+#define REGS_DRIVER DRIVER(                                    \
+    RESET(regs_reset)                                          \
+    SST("REGS", regs))
 
 #endif /* _CORE_RIA_REGS_H_ */

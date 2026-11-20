@@ -35,20 +35,12 @@ void phi2_apply_khz(uint16_t phi2_khz, bool changed);
  * the tail arguments it sits in. */
 #define PHI2_CONFIG_KHZ CONFIG_INT(P, phi2, khz, uint16_t, PHI2_DEFAULT_KHZ, \
     phi2_check_khz, phi2_apply_khz, STR_PHI2, phi2_response, STR_HELP_SET_PHI2, NULL)
-/* A savestate carries the rate the machine is running at, not the rate it is
- * configured for: a ROM may set its own, and a reset takes it back to the
- * configured one. */
-#define PHI2_SST_SIZE 2
-void phi2_sst_save(sst_cursor_t *c, unsigned flags);
-bool phi2_sst_load(sst_cursor_t *c, unsigned flags);
+
+extern const sst_table_t phi2_sst;
 
 #define PHI2_DRIVER DRIVER(                                    \
     INIT(phi2_init)                                            \
     PHI2_CONFIG_KHZ                                            \
-    SST(.id = "PHI2",                                          \
-        .version = 1,                                          \
-        .size = PHI2_SST_SIZE,                                 \
-        .save = phi2_sst_save,                                 \
-        .load = phi2_sst_load))
+    SST("PHI2", phi2))
 
 #endif /* _CORE_WDC_PHI2_H_ */
