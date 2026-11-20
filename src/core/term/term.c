@@ -111,6 +111,7 @@ static void term_reset_core(term_t *t)
     t->format_other_keys = false;
     t->lr_margins = false;
     t->rect_attrs = false;
+    t->level = 64;
     t->protect_mode = TERM_PROTECT_OFF;
     t->erase_all = false;
     t->reverse_screen = false;
@@ -166,6 +167,19 @@ static void term_out_DECSTR(term_t *t)
         t->has_saved[s] = false;
     }
     term_grids(t, GRID_DECSTR, 0);
+}
+
+// DECSCL, CSI Pl ; Pc " p: the conformance level, 61 for a VT100 to 64
+// for a VT420, and a soft reset, as on xterm and in DEC STD 070. Controls
+// are always 7-bit, whatever Pc asks. The level is only reported: the
+// terminal does as a VT420 at any of them.
+static void term_out_DECSCL(term_t *t)
+{
+    const uint16_t level = t->csi_param[0];
+    if (level < 61 || level > 64)
+        return;
+    term_out_DECSTR(t);
+    t->level = (uint8_t)level;
 }
 
 term_grid_t *term_shown(term_t *t)
@@ -766,7 +780,10 @@ static int term_format_color(char *buf, size_t size, const term_color_t *c, unsi
 
 // DECRQSS, DCS $ q Pt ST: what a setting is now, as the sequence that would
 // set it. Pt is the end of that sequence: m for SGR, r for DECSTBM, s for
-// DECSLRM, SP q for DECSCUSR, " q for DECSCA and * x for DECSACE. The
+// DECSLRM, SP q for DECSCUSR, " q for DECSCA, * x for DECSACE, " p for
+// DECSCL, with ;1 for 7-bit controls above a VT100, and t, $ | and * | for
+// the rows and columns (DECSLPP, DECSCPP and DECSNLS), which only say what
+// they are. The
 // answer is DCS 1 $ r, the setting, Pt and ST; for any other Pt it is
 // DCS 0 $ r ST, as on xterm. SGR is the pen, after a 0 as xterm has it: a
 // program learns from it that an underline style or an RGB color it just
@@ -818,6 +835,15 @@ static void term_out_DECRQSS(term_t *t, const char *pt, unsigned len)
                       t->protect_mode == TERM_PROTECT_DEC && pen->protect ? 1u : 0u);
     else if (len == 2 && pt[0] == '*' && pt[1] == 'x')
         n += snprintf(buf + n, size - (size_t)n, "%u*x", t->rect_attrs ? 2u : 0u);
+    else if (len == 2 && pt[0] == '"' && pt[1] == 'p')
+        n += snprintf(buf + n, size - (size_t)n, t->level > 61 ? "%u;1\"p" : "%u\"p",
+                      (unsigned)t->level);
+    else if (len == 1 && pt[0] == 't')
+        n += snprintf(buf + n, size - (size_t)n, "%ut", (unsigned)g->height);
+    else if (len == 2 && pt[0] == '$' && pt[1] == '|')
+        n += snprintf(buf + n, size - (size_t)n, "%u$|", (unsigned)g->width);
+    else if (len == 2 && pt[0] == '*' && pt[1] == '|')
+        n += snprintf(buf + n, size - (size_t)n, "%u*|", (unsigned)g->height);
     else
         n = snprintf(buf, size, "\33P0$r");
     if (n >= (int)size)
@@ -1554,6 +1580,8 @@ static void term_csi_final(term_t *t, uint8_t ch)
             term_grids(t, GRID_COLUMNS, ch);
         else if (inter == '!' && ch == 'p')
             term_out_DECSTR(t);
+        else if (inter == '"' && ch == 'p')
+            term_out_DECSCL(t);
         else if (inter == '"' && ch == 'q')
             term_out_DECSCA(t);
         else if (inter == '$' && ch == 'p')
@@ -1846,6 +1874,7 @@ bool HOST_IN_RAM_FUNC term_holds(const term_t *t, uint8_t ch)
 bool term_sst_ok(sst_cursor_t *c, const term_t *t)
 {
     if (t->ansi_state >= ansi_state_count || t->protect_mode > TERM_PROTECT_ISO ||
+        t->level < 61 || t->level > 64 ||
         t->modify_other_keys > 3 || t->csi_param_count > TERM_CSI_PARAM_MAX_LEN ||
         t->osc_len > TERM_OSC_SPEC_MAX + 1 || t->osc_asks > TERM_OSC_ASK_MAX)
         return sst_refuse(c, "the terminal's parser out of range");

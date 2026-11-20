@@ -229,6 +229,7 @@ typedef struct
     bool format_other_keys;    // xterm's formatOtherKeys: CSI > 4 ; 1 f
     bool lr_margins;      // DECLRMM, ?69: CSI s sets the left and right margins
     bool rect_attrs;      // DECSACE 2: DECCARA and DECRARA change a rectangle, not a stream
+    uint8_t level;        // DECSCL's conformance level, 61 (VT100) to 64 (VT420)
     uint8_t protect_mode; // TERM_PROTECT_
     bool erase_all;       // ERM, CSI 6 h: ED, EL and ECH erase the protected cells too
     bool reverse_screen;  // DECSCNM, ?5: every cell's colors swapped
@@ -416,6 +417,7 @@ static inline unsigned term_cell_height(const term_grid_t *g)
     X(BOOL, t.format_other_keys)                                       \
     X(BOOL, t.lr_margins)                                              \
     X(BOOL, t.rect_attrs)                                              \
+    X(U8, t.level)                                                     \
     X(U8, t.protect_mode)                                              \
     X(BOOL, t.erase_all)                                               \
     X(BOOL, t.reverse_screen)                                          \

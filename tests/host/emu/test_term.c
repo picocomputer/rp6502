@@ -2418,8 +2418,26 @@ UTEST(term, decrqss_answers_with_the_other_settings)
     ASSERT_STREQ(ask("\33[1\"q\33P$q\"q\33\\"), "\33P1$r1\"q\33\\");
     ASSERT_STREQ(ask("\33P$q*x\33\\"), "\33P1$r0*x\33\\");
     ASSERT_STREQ(ask("\33[2*x\33P$q*x\33\\"), "\33P1$r2*x\33\\");
-    ASSERT_STREQ(ask("\33P$q\"p\33\\"), "\33P0$r\33\\");
+    ASSERT_STREQ(ask("\33P$q\"p\33\\"), "\33P1$r64;1\"p\33\\");
+    ASSERT_STREQ(ask("\33P$qt\33\\"), "\33P1$r30t\33\\");
+    ASSERT_STREQ(ask("\33P$q$|\33\\"), "\33P1$r80$|\33\\");
+    ASSERT_STREQ(ask("\33P$q*|\33\\"), "\33P1$r30*|\33\\");
     ASSERT_STREQ(ask("\33P$qz\33\\"), "\33P0$r\33\\");
+}
+
+/* DECSCL sets the level DECRQSS reports, with a soft reset, and takes no
+ * level it has not. Controls stay 7-bit whatever it asks. */
+UTEST(term, decscl_sets_the_level_with_a_soft_reset)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33[61\"p\33P$q\"p\33\\"), "\33P1$r61\"p\33\\");
+    ASSERT_STREQ(ask("\33[62;0\"p\33P$q\"p\33\\"), "\33P1$r62;1\"p\33\\");
+    ASSERT_STREQ(ask("\33[65\"p\33P$q\"p\33\\"), "\33P1$r62;1\"p\33\\");
+    ASSERT_STREQ(ask("\33[5;20r\33[4h\33[1m\33[63\"p\33P$qr\33\\\33P$qm\33\\"),
+                 "\33P1$r1;30r\33\\\33P1$r0m\33\\");
+    ASSERT_STREQ(ask("\33[4$p"), "\33[4;2$y");
+    ASSERT_STREQ(ask("\33[!p\33P$q\"p\33\\"), "\33P1$r63;1\"p\33\\");
+    ASSERT_STREQ(ask("\33c\33P$q\"p\33\\"), "\33P1$r64;1\"p\33\\");
 }
 
 /* Any other DCS string is dropped to its ST, and so is one cut short. */
