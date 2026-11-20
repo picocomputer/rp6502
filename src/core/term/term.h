@@ -133,10 +133,11 @@ typedef enum
     ansi_state_count
 } ansi_state_t;
 
-// The character sets that G0 and G1 can hold.
+// The character sets that G0 to G3 can hold.
 #define TERM_CS_ASCII 0 // ESC ( B, and the null and user maps ESC ( U / K
 #define TERM_CS_DEC 1   // ESC ( 0, DEC Special Graphics
 #define TERM_CS_UK 2    // ESC ( A, ASCII with the pound sign at 0x23
+#define TERM_CS_COUNT 3
 
 // Where a pen's color comes from. A palette color keeps its index, so the
 // cells take a changed palette entry, and the default colors are their own
@@ -168,8 +169,9 @@ typedef struct
     bool conceal; // SGR 8: the cells draw fg as bg
     bool protect; // DECSCA 1 or SPA: the cells it writes are protected
     bool origin_mode;
-    uint8_t g0_charset, g1_charset;
-    bool gl_is_g1;
+    uint8_t g[4]; // the sets G0 to G3 hold, TERM_CS_
+    uint8_t gl;   // the one of them in GL, which the bytes 0x20 to 0x7E draw from
+    uint8_t ss;   // 2 or 3: SS2 or SS3 draws the next of them from G2 or G3
 } term_pen_t;
 
 // Which erases leave the protected cells alone: none, as after a reset;
@@ -391,8 +393,9 @@ static inline unsigned term_cell_height(const term_grid_t *g)
     Y(U8, p.ul.r) Y(U8, p.ul.g) Y(U8, p.ul.b)                          \
     Y(BOOL, p.ul_set) Y(BOOL, p.bold) Y(BOOL, p.faint)                 \
     Y(BOOL, p.reverse) Y(BOOL, p.conceal) Y(BOOL, p.protect)           \
-    Y(BOOL, p.origin_mode) Y(U8, p.g0_charset) Y(U8, p.g1_charset)     \
-    Y(BOOL, p.gl_is_g1)
+    Y(BOOL, p.origin_mode)                                             \
+    Y(U8, p.g[0]) Y(U8, p.g[1]) Y(U8, p.g[2]) Y(U8, p.g[3])            \
+    Y(U8, p.gl) Y(U8, p.ss)
 
 #define TERM_OSC_ASK_SST_ROWS(Y, a) Y(U16, a.which) Y(U16, a.color)
 

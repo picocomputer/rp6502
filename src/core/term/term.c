@@ -941,9 +941,10 @@ static void term_out_DECSET(term_t *t, bool set)
             if (!set)
             {
                 t->vt52 = true;
-                term_pen(t)->g0_charset = TERM_CS_ASCII;
-                term_pen(t)->g1_charset = TERM_CS_ASCII;
-                term_pen(t)->gl_is_g1 = false;
+                term_pen(t)->g[0] = TERM_CS_ASCII;
+                term_pen(t)->g[1] = TERM_CS_ASCII;
+                term_pen(t)->gl = 0;
+                term_pen(t)->ss = 0;
             }
             break;
         case 4: // DECSCLM: smooth scroll
@@ -1281,21 +1282,23 @@ static void term_execute(term_t *t, uint8_t ch)
     case '\r': // CR
         term_grids(t, GRID_C0, ch);
         break;
-    case 0x0E: // SO (Shift Out): activate G1
-        term_pen(t)->gl_is_g1 = true;
+    case 0x0E: // SO (LS1): G1 into GL
+        term_pen(t)->gl = 1;
         break;
-    case 0x0F: // SI (Shift In): activate G0
-        term_pen(t)->gl_is_g1 = false;
+    case 0x0F: // SI (LS0): G0 into GL
+        term_pen(t)->gl = 0;
         break;
     }
 }
 
-// A graphic character from the stream, which REP can repeat.
+// A graphic character from the stream, which REP can repeat. A single
+// shift is spent on it.
 static void term_print(term_t *t, uint8_t byte)
 {
     t->last_glyph = byte;
     t->rep_valid = true;
     term_grids(t, GRID_PRINT, byte);
+    term_pen(t)->ss = 0;
 }
 
 // A byte in the ground state. Bytes 0x20-0x7E and 0x80-0xFF are glyphs. A C0
@@ -1336,9 +1339,10 @@ static bool term_seq_control(term_t *t, uint8_t ch)
     return true;
 }
 
-// ESC ( F and ESC ) F: designate G0 or G1. U and K, Linux's null and user
-// maps, are ASCII here; the national sets and DEC's alternate ROMs are left
-// as they were.
+// ESC ( F, ESC ) F, ESC * F and ESC + F: designate G0, G1, G2 or G3. U and
+// K, Linux's null and user maps, are ASCII here; the national sets, DEC's
+// alternate ROMs and the 96-character sets (ESC - F, ESC . F and ESC / F)
+// are left as they were.
 static void term_designate(uint8_t *g, uint8_t final)
 {
     switch (final)
@@ -1360,16 +1364,14 @@ static void term_designate(uint8_t *g, uint8_t final)
 // The final byte of ESC I... F, a sequence with intermediates: the character
 // set designations, and ESC # for the line sizes and DECALN. With left and
 // right margins allowed (DECLRMM) every line is single size, as on a VT420
-// and xterm. ESC % (UTF-8), ESC SP (7/8-bit controls), G2 and G3 are taken
-// and ignored.
+// and xterm. ESC % (UTF-8) and ESC SP (7/8-bit controls) are taken and
+// ignored.
 static void term_esc_int_final(term_t *t, uint8_t ch)
 {
     t->ansi_state = ansi_state_ground;
     t->rep_valid = false;
-    if (t->csi_intermediate == '(')
-        term_designate(&term_pen(t)->g0_charset, ch);
-    else if (t->csi_intermediate == ')')
-        term_designate(&term_pen(t)->g1_charset, ch);
+    if (t->csi_intermediate >= '(' && t->csi_intermediate <= '+')
+        term_designate(&term_pen(t)->g[t->csi_intermediate - '('], ch);
     else if (t->csi_intermediate == '#' && ch >= '3' && ch <= '8' && ch != '7' &&
              (ch == '8' || !t->lr_margins))
         term_grids(t, GRID_LINE, ch);
@@ -1501,8 +1503,20 @@ static void term_esc_byte(term_t *t, uint8_t ch)
     case '>': // DECKPNM: numeric keypad
         t->app_keypad = false;
         break;
-        // SS2 and SS3 (N, O) have no G2 or G3 to shift to, so the next byte
-        // prints as itself.
+    case 'N': // SS2: the next glyph from G2
+        term_pen(t)->ss = 2;
+        break;
+    case 'O': // SS3: the next glyph from G3
+        term_pen(t)->ss = 3;
+        break;
+    case 'n': // LS2: G2 into GL
+        term_pen(t)->gl = 2;
+        break;
+    case 'o': // LS3: G3 into GL
+        term_pen(t)->gl = 3;
+        break;
+        // LS1R, LS2R and LS3R (ESC ~, ESC } and ESC |) put a set in GR,
+        // which is the code page's here, so they are taken and ignored.
     }
 }
 
@@ -1717,12 +1731,12 @@ static void term_vt52_byte(term_t *t, uint8_t ch)
         term_grids(t, GRID_VT52, ch);
         break;
     case 'F': // graphics mode: DEC Special Graphics, as the VT102 and xterm do
-        term_pen(t)->g0_charset = TERM_CS_DEC;
-        term_pen(t)->gl_is_g1 = false;
+        term_pen(t)->g[0] = TERM_CS_DEC;
+        term_pen(t)->gl = 0;
         break;
     case 'G': // ASCII mode
-        term_pen(t)->g0_charset = TERM_CS_ASCII;
-        term_pen(t)->gl_is_g1 = false;
+        term_pen(t)->g[0] = TERM_CS_ASCII;
+        term_pen(t)->gl = 0;
         break;
     case 'Y': // direct cursor address: row and column, each plus 32
         t->ansi_state = ansi_state_vt52_row;
@@ -1871,10 +1885,19 @@ bool HOST_IN_RAM_FUNC term_holds(const term_t *t, uint8_t ch)
 
 /* Everything that indexes is bounded: the parser's counts their arrays, and
  * osc_len the spec it is filling. */
+static bool term_pen_ok(const term_pen_t *pen)
+{
+    for (int i = 0; i < 4; i++)
+        if (pen->g[i] >= TERM_CS_COUNT)
+            return false;
+    return pen->gl < 4 && (pen->ss == 0 || pen->ss == 2 || pen->ss == 3);
+}
+
 bool term_sst_ok(sst_cursor_t *c, const term_t *t)
 {
     if (t->ansi_state >= ansi_state_count || t->protect_mode > TERM_PROTECT_ISO ||
-        t->level < 61 || t->level > 64 ||
+        t->level < 61 || t->level > 64 || !term_pen_ok(&t->pen[0]) || !term_pen_ok(&t->pen[1]) ||
+        !term_pen_ok(&t->saved[0]) || !term_pen_ok(&t->saved[1]) ||
         t->modify_other_keys > 3 || t->csi_param_count > TERM_CSI_PARAM_MAX_LEN ||
         t->osc_len > TERM_OSC_SPEC_MAX + 1 || t->osc_asks > TERM_OSC_ASK_MAX)
         return sst_refuse(c, "the terminal's parser out of range");

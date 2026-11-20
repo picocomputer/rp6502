@@ -925,6 +925,27 @@ UTEST(term, the_uk_set_has_the_pound)
     ASSERT_TRUE(mode0_glyph_is_dec(cell(4, 0)->glyph));
 }
 
+/* G2 and G3, by a locking shift (LS2, LS3) or a single one (SS2, SS3),
+ * which draws one glyph and is spent. A 96-character set is not taken. */
+UTEST(term, g2_and_g3_shift_in)
+{
+    fresh();
+    feed("\33*0\33+A\33Nq#\33O#q\33nqa\33o#\17q\33-A\33-0\33)A\16#");
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(0, 0)->glyph));
+    ASSERT_EQ(ch(1, 0), '#');
+    ASSERT_EQ(cell(2, 0)->glyph, MODE0_GLYPH_DEC(16, 0x7D));
+    ASSERT_EQ(ch(3, 0), 'q');
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(4, 0)->glyph));
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(5, 0)->glyph));
+    ASSERT_EQ(cell(6, 0)->glyph, MODE0_GLYPH_DEC(16, 0x7D));
+    ASSERT_EQ(ch(7, 0), 'q');
+    ASSERT_EQ(cell(8, 0)->glyph, MODE0_GLYPH_DEC(16, 0x7D));
+    /* DECSC keeps the sets and the shifts, and DECSTR puts them back. */
+    feed("\33[H\33*0\33n\33" "7\17\33" "8q\33[!pq");
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(0, 0)->glyph));
+    ASSERT_EQ(ch(1, 0), 'q');
+}
+
 /* ---- VT52 ---- */
 
 UTEST(term, vt52_mode)

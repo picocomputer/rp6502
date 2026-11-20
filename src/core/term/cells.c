@@ -1125,7 +1125,7 @@ static cells_fill_t cells_glyph_cell(term_t *term, const term_grid_t *g, uint8_t
             attributes |= MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT;
     }
     uint16_t glyph = byte;
-    uint8_t set = pen->gl_is_g1 ? pen->g1_charset : pen->g0_charset;
+    uint8_t set = pen->g[pen->ss ? pen->ss : pen->gl];
     if (set == TERM_CS_DEC && byte >= 0x5F && byte <= 0x7E)
         glyph = MODE0_GLYPH_DEC(rows, byte);
     else if (set == TERM_CS_UK && byte == '#')
