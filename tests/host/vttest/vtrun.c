@@ -634,8 +634,12 @@ static void vt_compare(const char *name)
         {
             const xm_cell_t *a = &ours.cell[y][x], *b = &theirs.cell[y][x];
             const bool t = a->cp != b->cp;
-            /* Past the end of a line xterm printed, only its text is known. */
-            const bool l = b->known && (a->fg != b->fg || a->bg != b->bg || a->attr != b->attr);
+            /* Past the end of a line xterm printed, only its text is known.
+             * A blank's ink shows only in a line through it. */
+            const bool ink = a->cp != ' ' || ((a->attr | b->attr) & (XM_ATTR_UL | XM_ATTR_STRIKE |
+                                                                      XM_ATTR_OVERLINE));
+            const bool l = b->known && ((ink && a->fg != b->fg) || a->bg != b->bg ||
+                                        a->attr != b->attr);
             if (!t && !l)
                 continue;
             text += t;
@@ -896,6 +900,12 @@ static const char *const vt_keypad_keys[] = {
     "f1", "f2", "f3", "f4", "kp7", "kp8", "kp9", "kp-", "kp4", "kp5", "kp6",
     "kp,", "kp1", "kp2", "kp3", "kp0", "kp.", "kpenter", "tab", NULL};
 
+/* The keys of a PC keyboard that a VT220's function and editing keys are. */
+static const char *const vt_function_keys[] = {
+    "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12",
+    "insert", "delete", "home", "end", "pageup", "pagedown",
+    "up", "down", "left", "right", "tab", NULL};
+
 static const char *const vt_control_keys[] = {
     "ctrl-space ctrl-a ctrl-b ctrl-c ctrl-d ctrl-e ctrl-f ctrl-g ctrl-h ctrl-i "
     "ctrl-j ctrl-k ctrl-l ctrl-m ctrl-n ctrl-o ctrl-p ctrl-q ctrl-r ctrl-s "
@@ -924,12 +934,21 @@ static const vt_answer_t vt_answers[] = {
     {"<VT52 Numeric mode>", KEYBOARD_LED_NUMLOCK, vt_keypad_keys},
     {"<VT52 Application mode>", 0, vt_keypad_keys},
     {"Push each CTRL-key TWICE", 0, vt_control_keys},
+    {"Press each function key. Finish with TAB.", 0, vt_function_keys},
+    /* A key a wait, the same one twice to end */
+    {"When you are done, press any key twice to quit.", KEYBOARD_LED_NUMLOCK,
+     VT_STEPS("kp1", "kp1")},
+    {"Press any keys, repeat to quit.", 0, VT_STEPS("a", "a")},
+    {"Press the backspace key", 0, VT_STEPS("backspace")},
 };
 
 static const vt_answer_t *vt_answer; /* the row the walk is in */
 static int vt_step;                  /* and the next step of it */
 
 static int vt_slave = -1;
+
+/* The pipes vtsleep.c's pauses talk to vtrun on, when it is preloaded. */
+static int vt_pause_tell = -1, vt_pause_wait = -1;
 
 /* Whether vttest sleeps: its state in /proc is S, a process waiting for
  * something. One that is running, or waiting only for a processor, is R. */
@@ -983,10 +1002,26 @@ static bool vt_drain(void)
     int quiet = 0;
     for (;;)
     {
-        struct pollfd p = {.fd = vt_master, .events = POLLIN};
-        int k = poll(&p, 1, VT_POLL_MS);
+        struct pollfd p[2] = {{.fd = vt_master, .events = POLLIN},
+                              {.fd = vt_pause_tell, .events = POLLIN}};
+        int k = poll(p, vt_pause_tell < 0 ? 1 : 2, VT_POLL_MS);
         if (k < 0 && errno == EINTR)
             continue;
+        if (k > 0 && !(p[0].revents & (POLLIN | POLLHUP)) && (p[1].revents & POLLIN))
+        {
+            /* vttest pauses, with all it wrote before the pause written:
+             * that is read and answered, and the pause ends. What it wrote
+             * reaches this side of the pseudoterminal a moment after, so a
+             * moment's quiet is waited for first. */
+            struct pollfd again = {.fd = vt_master, .events = POLLIN};
+            if (poll(&again, 1, 1) > 0)
+                continue;
+            char c;
+            (void)!read(vt_pause_tell, &c, 1);
+            (void)!write(vt_pause_wait, &c, 1);
+            quiet = 0;
+            continue;
+        }
         if (k > 0)
         {
             char buf[4096];
@@ -1154,6 +1189,20 @@ static const struct
     {"f2", HID_KEY_F2},
     {"f3", HID_KEY_F3},
     {"f4", HID_KEY_F4},
+    {"f5", HID_KEY_F5},
+    {"f6", HID_KEY_F6},
+    {"f7", HID_KEY_F7},
+    {"f8", HID_KEY_F8},
+    {"f9", HID_KEY_F9},
+    {"f10", HID_KEY_F10},
+    {"f11", HID_KEY_F11},
+    {"f12", HID_KEY_F12},
+    {"insert", HID_KEY_INSERT},
+    {"delete", HID_KEY_DELETE},
+    {"home", HID_KEY_HOME},
+    {"end", HID_KEY_END},
+    {"pageup", HID_KEY_PAGE_UP},
+    {"pagedown", HID_KEY_PAGE_DOWN},
     {"kp-", HID_KEY_KEYPAD_SUBTRACT},
     {"kp,", HID_KEY_KEYPAD_COMMA},
     {"kp.", HID_KEY_KEYPAD_DECIMAL},
@@ -1287,6 +1336,13 @@ int main(int argc, char **argv)
             vt_load_known(getenv("VTXKNOWN"));
     }
     struct winsize ws = {.ws_row = (unsigned short)vt_rows, .ws_col = (unsigned short)vt_cols};
+    int tell[2] = {-1, -1}, wait[2] = {-1, -1};
+    const char *preload = getenv("VTSLEEP");
+    if (preload && (pipe(tell) || pipe(wait)))
+    {
+        perror("vtrun: pipe");
+        return 2;
+    }
     pid_t pid = forkpty(&vt_master, NULL, NULL, &ws);
     if (pid < 0)
     {
@@ -1304,6 +1360,15 @@ int main(int argc, char **argv)
         args[n++] = geometry;
         args[n] = NULL;
         setenv("TERM", "vt102", 1);
+        if (preload)
+        {
+            char fds[32];
+            snprintf(fds, sizeof fds, "%d,%d", tell[1], wait[0]);
+            setenv("VTSLEEP_FDS", fds, 1);
+            setenv("LD_PRELOAD", preload, 1);
+            close(tell[0]);
+            close(wait[1]);
+        }
         const char *vttest = getenv("VTTEST");
         args[0] = (char *)(vttest ? vttest : "vttest");
         execvp(args[0], args);
@@ -1311,6 +1376,13 @@ int main(int argc, char **argv)
     }
 
     vt_pid = pid;
+    if (preload)
+    {
+        close(tell[1]);
+        close(wait[0]);
+        vt_pause_tell = tell[0];
+        vt_pause_wait = wait[1];
+    }
     vt_slave = open(ptsname(vt_master), O_RDWR | O_NOCTTY);
     if (vt_slave < 0)
     {

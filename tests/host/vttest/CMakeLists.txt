@@ -10,6 +10,11 @@ add_executable(vtrun vtrun.c xmirror.c ${RP6502_SRC}/host/sokol/cli/png.c
 target_include_directories(vtrun PRIVATE ${RP6502_SRC} ${RP6502_BENCH})
 target_link_libraries(vtrun PRIVATE emu_core util)
 
+# vttest's pauses, preloaded into it so they end as soon as vtrun has
+# answered what came before them.
+add_library(vtsleep SHARED vtsleep.c)
+target_link_libraries(vtsleep PRIVATE dl)
+
 # vttest is a submodule, pinned so the screens it draws stay the same, and
 # built with its own configure and make.
 rp6502_submodule(vendor/vttest SENTINEL main.c
@@ -27,16 +32,16 @@ ExternalProject_Add(vttest_build
     BUILD_COMMAND make
     INSTALL_COMMAND ""
     BUILD_BYPRODUCTS ${_vttest_bin}/vttest)
-add_dependencies(vtrun vttest_build)
+add_dependencies(vtrun vttest_build vtsleep)
 
-# The walk takes about 45 seconds, most of it vttest's own pauses; vtrun
+# The walk takes about 8 seconds: vtsleep ends vttest's pauses; vtrun
 # gives up after eight minutes. golden.txt holds the approved screens: a CRC
 # of the cells of each and its cursor. A screen that differs, is new or is
 # gone fails the test and is saved in screens/ as text and PNG. To approve a
 # changed walk, look at those, then copy screens/screens.txt to golden.txt.
 set(_golden ${CMAKE_CURRENT_LIST_DIR}/golden.txt)
 set(_screens ${CMAKE_CURRENT_BINARY_DIR}/screens)
-set(_env VTTEST=${_vttest_bin}/vttest)
+set(_env VTTEST=${_vttest_bin}/vttest VTSLEEP=$<TARGET_FILE:vtsleep>)
 if(EXISTS ${_golden})
     list(APPEND _env VTGOLDEN=${_golden})
 endif()

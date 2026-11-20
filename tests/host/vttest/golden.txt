@@ -132,10 +132,9 @@ m04_9-02 8D570223 cursor 13,20 style 0
 11.1.1.1_4-01 1E47832C cursor 13,28 style 0
 11.1.2-menu-01 AE5EAEE6 cursor 39,12 style 0
 11.1.2_1-01 E7B9B2DA cursor 9,2 style 0
-11.1.2_1-02 E7B9B2DA cursor 9,2 style 0
-11.1.2_1-03 C7F49587 cursor 9,10 style 0
-11.1.2_1-04 C7F49587 cursor 0,10 style 0
-11.1.2_1-05 103E2C5B cursor 13,28 style 0
+11.1.2_1-02 C7F49587 cursor 9,10 style 0
+11.1.2_1-03 2C5BB609 cursor 10,10 style 0
+11.1.2_1-04 E523B2A6 cursor 13,28 style 0
 11.1.2_2-01 DF63EA67 cursor 13,1 style 0 hidden
 11.1.2_2-02 539C1B40 cursor 13,3 style 0
 11.1.2_3-01 A493360A cursor 13,28 style 0
