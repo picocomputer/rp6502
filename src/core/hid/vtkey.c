@@ -45,7 +45,8 @@ HOST_IN_RAM static const struct
     {0, 2}, {'[', 'H'}, {0, 5}, {0, 3}, {'[', 'F'},
     {0, 6}, {'[', 'C'}, {'[', 'D'}, {'[', 'B'}, {'[', 'A'}};
 
-/* Enter to Tab, in usage order. Ctrl makes Backspace a BS. */
+/* Enter to Tab, in usage order. Backspace's is DEL, or BS with DECBKM set,
+ * and Ctrl makes it the other. */
 static const char HOST_IN_RAM vtkey_c0_keys[] = {'\r', '\33', 0x7F, '\t'};
 
 // Writes a number below 256 in decimal and returns where it ended.
@@ -231,15 +232,16 @@ int HOST_IN_RAM_FUNC vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t fl
         /* modifyOtherKeys, for the keys that send a control byte. At level
          * 1, Enter and Tab with Shift or Ctrl, but Shift-Tab stays ESC [ Z.
          * At level 2, all four with any modifier; Ctrl on Backspace is what
-         * makes it BS, so it is not one. At level 3, always. A keypad's
+         * swaps BS and DEL, so it is not one. At level 3, always. A keypad's
          * Enter is not one of these keys. */
         const unsigned level = keypad || t->vt52 ? 0 : t->modify_other_keys;
         unsigned mods = flags & VTKEY_MODIFIERS;
         unsigned code = (unsigned char)vtkey_c0_keys[usage - HID_KEY_ENTER];
         bool other = level == 3;
-        if (usage == HID_KEY_BACKSPACE && (mods & VTKEY_CTRL))
+        if (usage == HID_KEY_BACKSPACE)
         {
-            code = '\b';
+            const bool ctrl = (mods & VTKEY_CTRL) != 0;
+            code = t->backarrow_bs != ctrl ? '\b' : 0x7F;
             mods &= ~(unsigned)VTKEY_CTRL;
         }
         if (level == 2)
@@ -263,10 +265,7 @@ int HOST_IN_RAM_FUNC vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t fl
         }
         if (flags & VTKEY_ALT)
             *p++ = '\33';
-        if (usage == HID_KEY_BACKSPACE && (flags & VTKEY_CTRL))
-            *p++ = '\b';
-        else
-            *p++ = vtkey_c0_keys[usage - HID_KEY_ENTER];
+        *p++ = (char)code;
         if (usage == HID_KEY_ENTER && t->newline_mode)
             *p++ = '\n';
         return (int)(p - out);

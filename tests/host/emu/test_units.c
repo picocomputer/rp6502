@@ -718,6 +718,21 @@ UTEST(keyboard, ctrl_and_alt_on_control_keys)
     ASSERT_EQ(0, memcmp(b, "\x1b\x7f\x1b\x08", 4));
 }
 
+/* DECBKM: Backspace sends BS, and Ctrl swaps it back to DEL. */
+UTEST(keyboard, backarrow_key_mode)
+{
+    char b[16];
+
+    com_rx_clear();
+    cells_term.backarrow_bs = true;
+    t_press(HID_KEY_BACKSPACE, 0, 0);
+    t_press(HID_KEY_BACKSPACE, VTKEY_CTRL, 0);
+    t_press(HID_KEY_BACKSPACE, VTKEY_ALT, 0);
+    cells_term.backarrow_bs = false;
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
+    ASSERT_EQ(0, memcmp(b, "\x08\x7f\x1b\x08", 4));
+}
+
 UTEST(keyboard, ctrl_and_alt_on_characters)
 {
     char b[16];

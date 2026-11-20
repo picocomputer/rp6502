@@ -104,6 +104,7 @@ static void term_reset_core(term_t *t)
     t->vt52 = false;
     t->app_cursor = false;
     t->app_keypad = false;
+    t->backarrow_bs = false;
     t->autorepeat = true;
     t->ice_colors = false;
     t->bracketed_paste = false;
@@ -691,6 +692,9 @@ static void term_out_DECRQM(term_t *t, bool private)
         case 66: // DECNKM
             pm = t->app_keypad ? 1 : 2;
             break;
+        case 67: // DECBKM
+            pm = t->backarrow_bs ? 1 : 2;
+            break;
         case 69: // DECLRMM
             pm = t->lr_margins ? 1 : 2;
             break;
@@ -1159,6 +1163,9 @@ static void term_out_DECSET(term_t *t, bool set)
             break;
         case 66: // DECNKM: the keypad mode, as ESC = and ESC >
             t->app_keypad = set;
+            break;
+        case 67: // DECBKM: Backspace sends BS, and Ctrl-Backspace DEL
+            t->backarrow_bs = set;
             break;
         case 69: // DECLRMM: CSI s sets the left and right margins
             t->lr_margins = set;

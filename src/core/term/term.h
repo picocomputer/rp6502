@@ -230,6 +230,7 @@ typedef struct
     bool vt52;            // DECANM reset, ?2 l
     bool app_cursor;      // DECCKM, ?1: the cursor keys send SS3
     bool app_keypad;      // DECKPAM, ESC = or ?66: the keypad sends SS3
+    bool backarrow_bs;    // DECBKM, ?67: Backspace sends BS, not DEL
     bool autorepeat;      // DECARM, ?8
     bool ice_colors;      // ?33: SGR 5/6 means bright bg (the IBM VGA hack), not blink
     bool bracketed_paste; // ?2004: a paste comes between ESC [ 200 ~ and ESC [ 201 ~
@@ -419,6 +420,7 @@ static inline unsigned term_cell_height(const term_grid_t *g)
     X(BOOL, t.vt52)                                                    \
     X(BOOL, t.app_cursor)                                              \
     X(BOOL, t.app_keypad)                                              \
+    X(BOOL, t.backarrow_bs)                                            \
     X(BOOL, t.autorepeat)                                              \
     X(BOOL, t.ice_colors)                                              \
     X(BOOL, t.bracketed_paste)                                         \

@@ -2480,6 +2480,15 @@ UTEST(term, decrqpsr_and_decrsps)
     ASSERT_STREQ(ask("\33[2$w"), "\33P2$u\33\\");
 }
 
+UTEST(term, decbkm_is_a_mode)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33[?67$p"), "\33[?67;2$y");
+    ASSERT_STREQ(ask("\33[?67h\33[?67$p"), "\33[?67;1$y");
+    ASSERT_TRUE(cells_term.backarrow_bs);
+    ASSERT_STREQ(ask("\33c\33[?67$p"), "\33[?67;2$y");
+}
+
 /* DECSCL sets the level DECRQSS reports, with a soft reset, and takes no
  * level it has not. Controls stay 7-bit whatever it asks. */
 UTEST(term, decscl_sets_the_level_with_a_soft_reset)
