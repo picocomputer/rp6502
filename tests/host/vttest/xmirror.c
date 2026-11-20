@@ -411,9 +411,11 @@ static void xm_parse(const unsigned char *d, size_t n, xm_screen_t *s)
     int y = 0, x = 0;
     bool graphics = false; /* SO: xterm prints the line drawing in G1 */
     bool fresh = false;    /* an SGR came right before this cell */
+    /* xterm prints a line's size only before its text, so an empty
+     * line's is not known (0). */
     for (int r = 0; r < XM_MAX_ROWS; r++)
     {
-        s->line[r] = 5;
+        s->line[r] = 0;
         for (int c = 0; c < XM_MAX_COLS; c++)
             s->cell[r][c] = (xm_cell_t){.cp = ' ', .fg = XM_DEFAULT_FG, .bg = XM_DEFAULT_BG};
     }

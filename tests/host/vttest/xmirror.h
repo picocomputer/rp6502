@@ -52,7 +52,7 @@ typedef struct
 {
     int rows, cols;
     xm_cell_t cell[XM_MAX_ROWS][XM_MAX_COLS];
-    uint8_t line[XM_MAX_ROWS]; /* 3, 4, 5 or 6 */
+    uint8_t line[XM_MAX_ROWS]; /* 3, 4, 5 or 6, or 0 for not known */
     int cursor_x, cursor_y;    /* from 0 */
     bool reverse;              /* DECSCNM */
 } xm_screen_t;

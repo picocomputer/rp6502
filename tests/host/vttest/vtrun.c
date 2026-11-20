@@ -598,7 +598,7 @@ static void vt_cell_name(const xm_cell_t *c, bool look, char *out, size_t size)
 /* A row as text, of the cells a line of its size shows. */
 static void vt_xrow(const xm_screen_t *s, int y, char *out, size_t size)
 {
-    int cols = s->line[y] == 5 ? s->cols : s->cols / 2;
+    int cols = s->line[y] == 5 || !s->line[y] ? s->cols : s->cols / 2;
     size_t o = 0;
     for (int x = 0; x < cols && o + 8 < size; x++)
         o += vt_utf8(s->cell[y][x].cp, out + o);
@@ -622,14 +622,17 @@ static void vt_compare(const char *name)
     int details = 0;
     for (int y = 0; y < ours.rows; y++)
     {
-        if (ours.line[y] != theirs.line[y])
+        if (theirs.line[y] && ours.line[y] != theirs.line[y])
         {
             lines++;
             const uint8_t pair[3] = {(uint8_t)y, ours.line[y], theirs.line[y]};
             digest = host_crc32(digest, pair, sizeof pair);
         }
         /* A wide line shows half its cells. */
-        const int cols = ours.line[y] == 5 && theirs.line[y] == 5 ? ours.cols : ours.cols / 2;
+        const int cols = ours.line[y] == 5 && theirs.line[y] != 6 && theirs.line[y] != 3 &&
+                                 theirs.line[y] != 4
+                             ? ours.cols
+                             : ours.cols / 2;
         for (int x = 0; x < cols; x++)
         {
             const xm_cell_t *a = &ours.cell[y][x], *b = &theirs.cell[y][x];
@@ -715,7 +718,7 @@ static void vt_compare(const char *name)
     {
         fprintf(f, "\nline sizes (ESC # n), ours/xterm:");
         for (int y = 0; y < ours.rows; y++)
-            if (ours.line[y] != theirs.line[y])
+            if (theirs.line[y] && ours.line[y] != theirs.line[y])
                 fprintf(f, " row %d %d/%d", y, ours.line[y], theirs.line[y]);
         fprintf(f, "\n");
     }
