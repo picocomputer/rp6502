@@ -1115,9 +1115,11 @@ static void grid_DECFRA(term_t *t, term_grid_t *g)
 }
 
 // DECERA, CSI Pt ; Pl ; Pb ; Pr $ z, erases the rectangle as ED erases the
-// screen, protected cells too. DECSERA, the same with $ {, leaves them, as
-// DECSED does. Neither changes a line's size.
-static void grid_rect_erase(term_t *t, term_grid_t *g, bool selective)
+// screen, protected cells too. DECSERA, $ {, only makes its characters
+// spaces, as xterm does: the cells keep their colors and attributes, and
+// after a DECSCA the protected ones are left. Neither changes a line's
+// size.
+static void grid_rect_erase(term_t *t, term_grid_t *g, bool wipe, bool selective)
 {
     grid_rect_t r;
     if (!grid_rect_parse(t, g, 0, 4, &r))
@@ -1127,10 +1129,15 @@ static void grid_rect_erase(term_t *t, term_grid_t *g, bool selective)
         unsigned end = grid_rect_end(g, &r, (uint8_t)y);
         if (r.left >= end)
             continue;
-        if (grid_rect_whole_row(g, &r, (uint8_t)y, end))
-            cells_erase_rows(t, g, (uint8_t)y, (uint8_t)(y + 1), selective);
+        if (wipe)
+        {
+            cells_touch(t, g, (uint8_t)y);
+            cells_wipe(t, g, (uint8_t)y, r.left, end, selective);
+        }
+        else if (grid_rect_whole_row(g, &r, (uint8_t)y, end))
+            cells_erase_rows(t, g, (uint8_t)y, (uint8_t)(y + 1), false);
         else
-            grid_erase_cols(t, g, (uint8_t)y, r.left, end, selective);
+            grid_erase_cols(t, g, (uint8_t)y, r.left, end, false);
     }
 }
 
@@ -1229,10 +1236,10 @@ static void grid_rect(term_t *t, term_grid_t *g, uint8_t ch)
         grid_DECFRA(t, g);
         break;
     case 'z':
-        grid_rect_erase(t, g, false);
+        grid_rect_erase(t, g, false, false);
         break;
     case '{':
-        grid_rect_erase(t, g, term_erase_selective(t, true));
+        grid_rect_erase(t, g, true, term_erase_selective(t, true));
         break;
     case 'v':
         grid_DECCRA(t, g);

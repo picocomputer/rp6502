@@ -114,6 +114,12 @@ void cells_fill_row(term_t *t, term_grid_t *g, uint8_t y, uint8_t byte);
 void cells_erase(term_t *t, term_grid_t *g, uint8_t y, unsigned from, unsigned to,
                  bool selective);
 
+// DECSERA: the glyphs of columns [from, to) of row y, which the caller has
+// touched, become spaces, and the cells keep their colors and attributes,
+// as xterm has it. A selective one leaves the protected cells.
+void cells_wipe(term_t *t, term_grid_t *g, uint8_t y, unsigned from, unsigned to,
+                bool selective);
+
 // Insert n erased cells at column x of row y, the cells up to column end
 // moving right and off it; or delete n there, the cells up to end moving
 // left and erased cells coming in before it. n is at most end - x.

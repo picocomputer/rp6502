@@ -1971,6 +1971,17 @@ UTEST(term, decera_erases_and_decsera_spares_the_protected)
     ASSERT_STREQ(row(4), "");
 }
 
+/* DECSERA makes the characters spaces and leaves the cells' colors and
+ * attributes, as xterm does, whatever the pen. */
+UTEST(term, decsera_keeps_the_colors)
+{
+    fresh();
+    feed("\33[42;4mabc\33[44;24m\33[1;1;1;2${");
+    ASSERT_STREQ(row(0), "  c");
+    ASSERT_EQ(mode0_color(ink(0, 0)->bg_color), color_256[2]);
+    ASSERT_EQ(cell(1, 0)->attributes & TERM_ATTR_UL_MASK, TERM_ATTR_UL(TERM_UL_SINGLE));
+}
+
 /* DECCRA copies cells, colors and attributes, onto itself too, and loses
  * what would land past the edge. */
 UTEST(term, deccra_copies_a_rectangle)

@@ -157,6 +157,13 @@ void cells_erase(term_t *t, term_grid_t *g, uint8_t y, unsigned from, unsigned t
     cells_rows_erased(t, g, y, y + 1u, !selective && !from && to >= term_cols(g, y));
 }
 
+/* The cells keep their colors, so a row is as used as it was. */
+void cells_wipe(term_t *t, term_grid_t *g, uint8_t y, unsigned from, unsigned to,
+                bool selective)
+{
+    (void)t, (void)g, (void)y, (void)from, (void)to, (void)selective;
+}
+
 void cells_insert(term_t *t, term_grid_t *g, uint8_t y, uint8_t x, unsigned end, unsigned n)
 {
     (void)x, (void)end, (void)n;

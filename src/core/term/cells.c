@@ -1158,6 +1158,18 @@ void cells_glyphs(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, uint8_t by
     cells_run_fill(at, n, e.cell, e.colors);
 }
 
+void cells_wipe(term_t *term, term_grid_t *g, uint8_t y, unsigned from, unsigned to,
+                bool selective)
+{
+    (void)term;
+    if (!cells_settled(g))
+        return;
+    mode0_cell_t *row = cells_row_ptr(cells_of(g), y);
+    for (unsigned x = from; x < to; x++)
+        if (!selective || !(row[x].attributes & MODE0_ATTR_GUARD))
+            row[x].glyph = ' ';
+}
+
 void cells_fill_row(term_t *term, term_grid_t *g, uint8_t y, uint8_t byte)
 {
     if (!cells_settled(g))
