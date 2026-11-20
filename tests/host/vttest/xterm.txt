@@ -1,7 +1,7 @@
 # The screens of the vttest walk that differ from xterm's (patch 412) on
 # purpose: the screen's name, the digest of its differences from
-# screens/xterm.txt, and why. vtrun fails on any other difference, on one of these that has
-# changed, and on one that no longer happens.
+# screens/xterm.txt, and why. vtrun fails on any other difference, on one
+# of these that has changed, and on one that no longer happens.
 
 # Bytes 0x80 to 0xFF are the code page's glyphs, so the sets vttest puts in
 # GR with LS1R, LS2R and LS3R do not show there.
