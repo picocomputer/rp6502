@@ -31,6 +31,7 @@ typedef struct
     uint8_t bs_char;
     uint8_t s_pointer;
     uint8_t net_mode;
+    uint8_t caller_id;
     uint16_t listen_port;
     char tty_type[41];
 } modem_settings_t;
