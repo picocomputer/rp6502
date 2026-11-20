@@ -8,6 +8,7 @@
 #include "core/api/proc.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
+#include "core/com/rln.h"
 #include "core/wdc/cpu.h"
 #include "core/ria/regs.h"
 #include "core/sys/xram.h"
@@ -147,6 +148,17 @@ void ria_break(void)
     regs[0x02] = 0;
 }
 
+/* The TX register feeds a FIFO of 16 bytes, as the Pico's does, and its
+ * bytes wait in the console's output: TX is ready while fewer than 16 wait
+ * there to go out at the line's pace, and a byte written to a full FIFO is
+ * lost. The line editor's reply to a key goes out whole, so the program
+ * waits while one does. */
+#define RIA_TX_FIFO 16
+static bool ria_tx_ready(void)
+{
+    return manifold_tx_len() < RIA_TX_FIFO && manifold_cts() && !rln_replying();
+}
+
 uint8_t ria_reg_read(uint16_t addr)
 {
     switch (addr & 0x1F)
@@ -155,9 +167,7 @@ uint8_t ria_reg_read(uint16_t addr)
     {
         if (!(regs[0x00] & RIA_UART_RX_READY))
             com_rx_stage();
-        /* TX takes a byte while the console's output has room, which it
-         * lacks only while a byte waits for a smooth scroll. */
-        if (manifold_cts())
+        if (ria_tx_ready())
             regs[0x00] |= RIA_UART_TX_READY;
         else
             regs[0x00] &= ~RIA_UART_TX_READY;
@@ -234,8 +244,9 @@ void ria_reg_write(uint16_t addr, uint8_t data)
     switch (addr & 0x1F)
     {
     case 0x01: /* TX */
-        manifold_putchar_raw((char)data);
-        if (!manifold_cts())
+        if (ria_tx_ready())
+            manifold_putchar_raw((char)data);
+        if (!ria_tx_ready())
             regs[0x00] &= ~RIA_UART_TX_READY;
         return;
     case 0x04: /* RW0 */

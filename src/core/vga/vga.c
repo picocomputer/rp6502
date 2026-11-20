@@ -6,6 +6,8 @@
  */
 
 #include "core/aud/mix.h"
+#include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "core/ria/regs.h"
 #include "core/sys/pix.h"
 #include "core/sys/driver.h"
@@ -94,6 +96,18 @@ void vga_stop(void)
     vga_needs_reset = true;
 }
 
+/* A program starting before the reset after the last stop takes it now,
+ * after what was printed before the stop and the session's end, which COM's
+ * RUN ended first, so the reset cannot land in the new program. */
+void vga_run(void)
+{
+    if (!vga_needs_reset)
+        return;
+    manifold_flush();
+    vga_needs_reset = false;
+    vga_console_reset();
+}
+
 void vga_reset(void)
 {
     /* CANVAS_DRIVER's reset, before this one, has put back a console size
@@ -145,7 +159,9 @@ bool vga_run_frame(void)
 
 void vga_task(void)
 {
-    if (vga_needs_reset)
+    /* The reset waits for everything printed before the stop to go out,
+     * and for the session's end after it, as a Pico's does. */
+    if (vga_needs_reset && manifold_drained() && !com_ending())
     {
         vga_needs_reset = false;
         vga_console_reset();

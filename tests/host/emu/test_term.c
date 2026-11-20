@@ -60,6 +60,8 @@ static const char *ask(const char *q)
 static void fresh(void)
 {
     sys_init();
+    /* No frames run, so the console's line keeps no pace. */
+    manifold_set_paced(false);
     feed("\30\33c");
     for (int i = 0; i < TB_SCREEN_SETTLE; i++)
         cells_task();

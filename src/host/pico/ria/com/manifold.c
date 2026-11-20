@@ -14,6 +14,7 @@
 #include "core/sys/ring.h"
 #include "core/term/cells.h"
 #include "ria/com/manifold.h"
+#include "core/com/rln.h"
 #include "ria/com/com_telnet.h"
 #include "rtt.h"
 #include "machine.h"
@@ -158,7 +159,10 @@ static bool manifold_tx_from_ria;
 
 static bool HOST_IN_RAM_FUNC manifold_tx_waiting(void)
 {
-    return manifold_tx_from_ria ? !ria_uart_tx_empty() : manifold_tx_len() != 0;
+    /* The line editor's reply to a key goes out whole, and the 6502's
+     * output waits behind it. */
+    return manifold_tx_from_ria ? !ria_uart_tx_empty() && !rln_replying()
+                                : manifold_tx_len() != 0;
 }
 
 /* A byte for the screen's terminal alone goes over PIX as TERM_TX, never on

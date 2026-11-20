@@ -9,6 +9,8 @@
  */
 
 #include "core/api/xreg.h"
+#include "core/com/com.h"
+#include "core/com/manifold.h"
 #include "mmio.h"
 #include "vga.h"
 #include "vid.h"
@@ -29,14 +31,31 @@ static bool vid_needs_restore;
 #define VID_SST(X) X(BOOL, vid_needs_restore)
 SST_TABLE(vid, VID_SST)
 
+static void vid_restore(void)
+{
+    vid_needs_restore = false;
+    xreg1(0x0F, 0x01, 437);
+    vga_console_reset();
+}
+
+/* The restore waits for everything printed before the stop to go out at the
+ * console line's pace, and for the session's end after it, as the
+ * emulators' and a Pico's do. */
 void vid_task(void)
 {
-    if (vid_needs_restore)
-    {
-        vid_needs_restore = false;
-        xreg1(0x0F, 0x01, 437);
-        vga_console_reset();
-    }
+    if (vid_needs_restore && manifold_drained() && !com_ending())
+        vid_restore();
+}
+
+/* A program starting before the restore after the last stop takes it now,
+ * after what was printed before the stop and the session's end, which COM's
+ * RUN ended first. */
+void vid_run(void)
+{
+    if (!vid_needs_restore)
+        return;
+    manifold_flush();
+    vid_restore();
 }
 
 unsigned long vga_frame_count(void)

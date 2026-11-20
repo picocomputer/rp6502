@@ -206,9 +206,11 @@ bool proc_exec_inflight(void)
     return queued;
 }
 
+/* The session's end waits for the program's output to go out at the
+ * console line's pace, and the program has exited once that is done. */
 bool proc_exited(void)
 {
-    return !sys_running() && !proc_exec_inflight();
+    return !sys_running() && !proc_exec_inflight() && !com_ending();
 }
 
 void proc_exec_task(void)

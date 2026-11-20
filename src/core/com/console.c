@@ -6,6 +6,7 @@
 
 #include "core/com/console.h"
 #include "core/com/manifold.h"
+#include "core/com/rln.h"
 #include "core/term/cells.h"
 #include "core/str/str.h"
 #include "machine.h"
@@ -68,6 +69,9 @@ static std_rw_result console_cooked_read(char *buf, uint32_t count, uint32_t *by
     *bytes_read = 0;
     if (count == 0)
         return STD_OK;
+    /* A line the editor ended is handed over once its echo has gone out. */
+    if (rln_replying())
+        return STD_PENDING;
     if (!console_rln_needs_nl && console_rln_pos >= console_rln_len)
     {
         if (console_closed)
@@ -141,7 +145,9 @@ std_rw_result console_std_write(int desc, const char *buf, uint32_t count, uint3
 {
     (void)err;
     int to = desc == STDERR_FILENO ? STDERR_FILENO : STDOUT_FILENO;
-    *bytes_written = (uint32_t)manifold_write(to, buf, count);
+    /* The line editor's reply to a key goes out whole, and the program's
+     * output waits behind it. */
+    *bytes_written = rln_replying() ? 0 : (uint32_t)manifold_write(to, buf, count);
     return (*bytes_written < count && desc != CONSOLE_NOWAIT) ? STD_PENDING : STD_OK;
 }
 

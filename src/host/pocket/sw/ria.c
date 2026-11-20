@@ -8,6 +8,7 @@
 #include "mmio.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
+#include "core/com/rln.h"
 #include "core/sys/ria.h"
 
 #include <stdint.h>
@@ -44,11 +45,14 @@ int ria_uart_rx_peek(void)
 
 void ria_task(void)
 {
-    /* A byte leaves the fabric's queue only when the console has room for
-     * it. While a byte waits for a smooth scroll, the queue fills and the
-     * fabric clears TX_READY, so the 6502 waits too. */
+    /* The fabric's queue is the TX FIFO, 16 bytes as the Pico's is, so a
+     * byte leaves it only when the console's output is empty, which it
+     * becomes at the line's pace. While the line or a smooth scroll holds
+     * the output, the queue fills and the fabric clears TX_READY, so the
+     * 6502 waits too, as it does while the line editor's reply to a key
+     * goes out whole. */
     uint32_t v;
-    while (manifold_cts() && (v = UART_POP) & 0x100)
+    while (!manifold_tx_len() && !rln_replying() && (v = UART_POP) & 0x100)
         manifold_putchar_raw((char)v);
 
     /* A 6502 read of the UART that finds no byte sets a request, and a byte

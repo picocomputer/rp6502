@@ -5,6 +5,7 @@
  */
 
 #include "core/api/xreg.h"
+#include "core/com/com.h"
 #include "drivers.h"
 
 #include "apf.h"
@@ -46,6 +47,9 @@
 static int main_stdio_putc(char c, FILE *f)
 {
     (void)f;
+    /* A session's end, still waiting for the program's output, goes out
+     * ahead of what the firmware prints. */
+    com_end_now();
     return manifold_putchar((unsigned char)c);
 }
 

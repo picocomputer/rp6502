@@ -152,12 +152,14 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     push(0); push(0); push(0); push(0);
     opn(0x0B, 5);
     opn(0x0A, 5);
-    p.store(TB_RIA_TX, 0x07); /* BEL, muted */
+    p.lda(0x07); /* BEL, muted */
+    p.put_a();
     push(0); push(0); push(0); push(2); /* out of range */
     opn(0x0B, 5);
     push(0); push(0); push(0); push(1);
     opn(0x0B, 5);
-    p.store(TB_RIA_TX, 0x07); /* BEL, rings */
+    p.lda(0x07); /* BEL, rings */
+    p.put_a();
 
     /* Attribute 2 is ATTR_CODE_PAGE. The machine has no page 1252, so that
      * set fails with EINVAL and 850 stays. */

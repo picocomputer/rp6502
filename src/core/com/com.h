@@ -134,14 +134,23 @@ void com_set_bel(bool value);
 void com_clean_line(void);
 
 /* The end of a session: the soft reset and the default cursor shape, then a
- * clean line. */
+ * clean line, the code page restored and the bell on. It waits for what
+ * the program wrote to go out at the line's pace, then goes out at once.
+ * com_end_now ends it at once, and the firmware's prints, a clean line
+ * and a program starting end it first. com_ending is true while it waits. */
 void com_end_reset(void);
+void com_end_now(void);
+extern bool com_end_pending;
+static inline bool com_ending(void) { return com_end_pending; }
+void com_task(void);
+void com_start(void);
 
 extern const sst_table_t com_sst;
 
 #define COM_DRIVER DRIVER(       \
     INIT(com_rx_clear)           \
-    RUN(com_run)                 \
+    TASK_PUMPED(com_task)        \
+    RUN(com_start)               \
     STOP(com_run)                \
     BREAK(com_rx_clear)          \
     RESET(com_reset)             \

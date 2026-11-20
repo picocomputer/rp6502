@@ -324,6 +324,8 @@ UTEST(com, a_stop_drops_what_the_program_never_read)
     ASSERT_TRUE(ria_reg_read(0xFFE0) & 0x40);
     proc_stop();
     ASSERT_FALSE(proc_exec_inflight());
+    /* The chain ended; its end goes out now, as com_task would send it. */
+    com_end_now();
     ASSERT_FALSE(ria_reg_read(0xFFE0) & 0x40);
     ASSERT_EQ(com_rx_peek(COM_SOURCE_KEYBOARD), -1);
 }
@@ -346,6 +348,8 @@ UTEST(com, an_exec_keeps_the_type_ahead)
     arg_clear();
     proc_stop();
     ASSERT_FALSE(proc_exec_inflight());
+    /* The chain ended; its end goes out now, as com_task would send it. */
+    com_end_now();
     ASSERT_EQ(com_rx_peek(COM_SOURCE_KEYBOARD), -1);
 }
 
@@ -365,6 +369,8 @@ UTEST(com, a_paste_goes_only_where_the_type_ahead_goes)
     arg_clear();
     proc_stop();
     ASSERT_FALSE(proc_exec_inflight());
+    /* The chain ended; its end goes out now, as com_task would send it. */
+    com_end_now();
     ASSERT_FALSE(paste_busy());
 }
 
@@ -564,6 +570,7 @@ static bool end_reset_breaks(const char *primary, const char *alternate)
         manifold_putchar(*p);
     tap();
     com_end_reset();
+    com_end_now();
     untap();
     return sent_len >= 2 && !memcmp(&sent[sent_len - 2], "\r\n", 2);
 }
@@ -589,6 +596,7 @@ static const char *end_reset_after(const char *drawn, int *row)
         manifold_putchar(*p);
     tap();
     com_end_reset();
+    com_end_now();
     untap();
     manifold_flush();
     const size_t reset = strlen(STR_TERM_SOFT_RESET);
@@ -649,11 +657,13 @@ UTEST(com, the_end_reset_takes_the_left_and_right_margins_away)
     for (const char *p = "\33[?69h\33[11;20s\33[5;15Htext"; *p; p++)
         manifold_putchar(*p);
     com_end_reset();
+    com_end_now();
     manifold_flush();
     ASSERT_EQ(term_pos(term_shown(&cells_term))->x, 0);
     for (const char *p = "\33[?69h\33[11;20s\33[5;11H"; *p; p++)
         manifold_putchar(*p);
     com_end_reset();
+    com_end_now();
     manifold_flush();
     ASSERT_EQ(term_pos(term_shown(&cells_term))->x, 0);
 }
@@ -719,6 +729,7 @@ UTEST(com, the_end_reset_puts_the_default_shape_on_the_screen_alone)
     screen_len = 0;
     manifold_set_term_out(screen_out);
     com_end_reset();
+    com_end_now();
     ASSERT_EQ(screen_len, sent_len + 5);
     ASSERT_EQ(memcmp(&screen[screen_len - 5], "\33[0 q", 5), 0);
     cells_init();
@@ -784,8 +795,105 @@ UTEST(com, a_bell_inside_an_escape_sequence_does_not_ring)
 }
 
 UTEST_STATE();
+/* The console's line, paced, carries 11520 bytes in a second of the
+ * machine's time each way, 115200 baud at ten bits a byte, and none of it
+ * rounds away: the beam's second is 31500 lines. */
+static size_t paced_count;
+static void paced_tap(const char *buf, int len)
+{
+    (void)buf;
+    paced_count += (size_t)len;
+}
+
+UTEST(com, the_line_carries_11520_bytes_a_second_out)
+{
+    /* A terminal with no smooth scroll left on by another case, which
+     * would hold the line up. */
+    manifold_flush();
+    cells_init();
+    manifold_set_paced(true);
+    paced_count = 0;
+    manifold_set_tx_tap(paced_tap);
+    const uint64_t from = vga_beam_lines();
+    for (int line = 0; line < 31500; line++)
+    {
+        while (manifold_cts())
+            manifold_putchar_raw('x');
+        manifold_task();
+        vga_task();
+    }
+    const uint64_t lines = vga_beam_lines() - from;
+    manifold_set_tx_tap(NULL);
+    manifold_set_paced(false);
+    manifold_flush();
+    ASSERT_EQ(lines, (uint64_t)31500);
+    ASSERT_GE(paced_count, (size_t)11519);
+    ASSERT_LE(paced_count, (size_t)11521);
+}
+
+UTEST(com, the_line_carries_11520_bytes_a_second_in)
+{
+    static char data[12000];
+    memset(data, 'y', sizeof data);
+    com_rx_clear();
+    manifold_set_paced(true);
+    wire(data, sizeof data, true);
+    size_t got = 0;
+    char buf[64];
+    for (int line = 0; line < 31500; line++)
+    {
+        manifold_task();
+        got += manifold_uart_read(buf, sizeof buf);
+        vga_task();
+    }
+    unwire();
+    manifold_set_paced(false);
+    ASSERT_GE(got, (size_t)11519);
+    ASSERT_LE(got, (size_t)11521);
+}
+
+/* A session's end waits for what the program wrote to go out at the line's
+ * pace, then goes out whole, behind it. */
+UTEST(com, a_session_end_waits_for_the_output_then_follows_it)
+{
+    manifold_flush();
+    cells_init();
+    manifold_set_paced(true);
+    tap();
+    for (const char *p = "abcdefghij"; *p; p++)
+        manifold_putchar_raw(*p);
+    com_end_reset();
+    ASSERT_TRUE(com_ending());
+    int lines = 0;
+    for (; com_ending() && lines < 2000; lines++)
+    {
+        manifold_task();
+        com_task();
+        vga_task();
+    }
+    untap();
+    manifold_set_paced(false);
+    ASSERT_FALSE(com_ending());
+    /* Ten bytes at 115200 baud are 868 us, about 27 lines of the beam. */
+    ASSERT_GE(lines, 25);
+    ASSERT_GE(sent_len, (size_t)10 + strlen(STR_TERM_SOFT_RESET));
+    ASSERT_EQ(memcmp(sent, "abcdefghij", 10), 0);
+    ASSERT_EQ(memcmp(sent + 10, STR_TERM_SOFT_RESET, strlen(STR_TERM_SOFT_RESET)), 0);
+}
+
+/* A program starting ends the last session at once. */
+UTEST(com, a_program_starting_ends_the_last_session)
+{
+    com_end_reset();
+    ASSERT_TRUE(com_ending());
+    com_start();
+    ASSERT_FALSE(com_ending());
+}
+
 int main(int argc, const char *const argv[])
 {
     cells_init();
+    /* No frames run, so the console's line keeps no pace. */
+    manifold_set_paced(false);
     return utest_main(argc, argv);
 }

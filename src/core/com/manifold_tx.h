@@ -34,6 +34,9 @@ void manifold_tx_put(uint8_t to, char c);
  * room. manifold_putchar_raw's. */
 bool manifold_tx_try_put(uint8_t to, char c);
 
+/* Bytes that fit before a put would wait. */
+size_t manifold_tx_room(void);
+
 /* What waits, oldest first. */
 size_t manifold_tx_len(void);
 manifold_tx_entry_t manifold_tx_at(size_t i);

@@ -190,10 +190,6 @@ void proc_chain_end(void)
     sys_end();
     com_rx_clear();
     com_end_reset();
-    /* Output reaches the VGA before a code page change clears it. */
-    manifold_flush();
-    oem_restore_code_page();
-    com_set_bel(true);
 }
 
 void proc_exec_failed(void)

@@ -106,8 +106,20 @@ struct tb_asm
         call(op);
     }
 
-    void put_a() { sta(TB_RIA_TX); }
-    void put_x() { stx(TB_RIA_TX); }
+    /* A byte to TX once it is ready, as a program on a real UART waits:
+     * BIT leaves A and X as they are. */
+    void put_a()
+    {
+        bit(TB_RIA_READY);
+        raw({0x10, 0xFB}); /* bpl -5 */
+        sta(TB_RIA_TX);
+    }
+    void put_x()
+    {
+        bit(TB_RIA_READY);
+        raw({0x10, 0xFB}); /* bpl -5 */
+        stx(TB_RIA_TX);
+    }
     void put_ax()
     {
         put_a();

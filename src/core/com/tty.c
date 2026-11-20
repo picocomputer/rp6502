@@ -8,6 +8,7 @@
 #include "core/com/com.h"
 #include "core/com/console.h"
 #include "core/com/manifold.h"
+#include "core/com/rln.h"
 #include "core/str/str.h"
 #include "machine.h"
 #include <strings.h>
@@ -59,7 +60,7 @@ std_rw_result tty_std_write(int desc, const char *buf, uint32_t count, uint32_t 
     (void)desc;
     (void)err;
     uint32_t i = 0;
-    for (; i < count && manifold_cts(); i++)
+    for (; i < count && manifold_cts() && !rln_replying(); i++)
         manifold_putchar_raw(buf[i]);
     *bytes_written = i;
     return STD_OK;

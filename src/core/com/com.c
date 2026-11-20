@@ -32,6 +32,10 @@ static uint8_t com_rx_staged;
 
 static bool com_bel_enabled = true;
 
+/* An end of session waits for what the program wrote to go out at the
+ * line's pace, then its reset goes out at once. */
+bool com_end_pending;
+
 /* The console's terminal's answers, read from the UART's source. The first
  * com_reply_at bytes have been read, and while any have, the rest are read
  * before the UART's queue. A program asks many things at once as it
@@ -66,6 +70,7 @@ static bool com_sst_valid(sst_cursor_t *c)
     X(U16, com_reply_at)                                 \
     X(BYTES, com_reply_buf)                              \
     X(BOOL, com_reply_quiet)                             \
+    X(BOOL, com_end_pending)                             \
     X(VALIDATE, com_sst_valid)                           \
     X(SKIP, com_reply_default, "host wiring")
 SST_TABLE(com, COM_SST_ROWS)
@@ -268,6 +273,7 @@ void com_reset(void)
     com_rx_held = COM_SOURCE_ANY;
     com_rx_staged = COM_SOURCE_KEYBOARD;
     com_bel_enabled = true;
+    com_end_pending = false;
     com_run();
 }
 
@@ -276,6 +282,9 @@ void com_reset(void)
  * what does not fit. */
 int HOST_IN_FLASH_FUNC com_printf(const char *fmt, ...)
 {
+    /* A session's end, still waiting for the program's output, goes out
+     * ahead of what the firmware writes. */
+    com_end_now();
     va_list va;
     va_start(va, fmt);
 #if COM_LIBC_STDOUT
@@ -296,6 +305,7 @@ int HOST_IN_FLASH_FUNC com_printf(const char *fmt, ...)
 int HOST_IN_FLASH_FUNC com_printf_utf8(const char *utf8_fmt, ...)
 {
     char buf[COM_PRINTF_UTF8_SIZE];
+    com_end_now();
     va_list va;
     va_start(va, utf8_fmt);
     oem_vsnprintf(buf, sizeof(buf), utf8_fmt, va);
@@ -326,6 +336,7 @@ static bool com_line_clean(void)
 
 void com_clean_line(void)
 {
+    com_end_now();
     if (!com_line_clean())
     {
         manifold_putchar('\r');
@@ -363,17 +374,42 @@ static void com_clear_line(void)
  * top and bottom ones with the cursor kept where it is, so the line feeds
  * after it move the cursor down the whole screen, at once, and the cursor
  * read after it is the one they move. The default cursor shape goes to
- * the screen alone, because a terminal on the UART or telnet may print it. */
+ * the screen alone, because a terminal on the UART or telnet may print it.
+ * Then the code page comes back, after the output it was printed in, and
+ * the bell rings again. */
 void com_end_reset(void)
 {
+    com_end_pending = true;
+}
+
+void com_end_now(void)
+{
     static const char shape[] = "\33[0 q";
-    /* A smooth scroll still moving snaps into place, the same on every
-     * machine, rather than the end waiting for it. A program that wants its
-     * last lines to finish syncs the console before it exits. */
+    if (!com_end_pending)
+        return;
+    com_end_pending = false;
+    /* A smooth scroll the output started has finished, unless this is
+     * early, and then it snaps into place, the same on every machine. */
     term_release_smooth(&cells_term);
     manifold_flush();
     for (const char *s = STR_TERM_SOFT_RESET; *s; s++)
         manifold_putchar((unsigned char)*s);
     manifold_write_to(COM_TERM_SCREEN, shape, sizeof shape - 1);
     com_clear_line();
+    manifold_flush();
+    oem_restore_code_page();
+    com_set_bel(true);
+}
+
+void com_task(void)
+{
+    if (com_end_pending && manifold_drained())
+        com_end_now();
+}
+
+/* A program starting finds the session before it ended. */
+void com_start(void)
+{
+    com_end_now();
+    com_run();
 }

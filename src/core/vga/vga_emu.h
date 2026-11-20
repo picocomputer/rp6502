@@ -20,6 +20,7 @@
 void vga_init(void);
 
 void vga_stop(void);
+void vga_run(void);
 
 /* The console canvas again, at a size a host gives, with the frame count
  * the beam's. The canvas and the table are put back by the console reset
@@ -70,6 +71,7 @@ extern const sst_table_t vga_sst;
 #define VGA_DRIVER DRIVER(                                  \
     INIT(vga_init)                                          \
     TASK_PUMPED(vga_task)                                   \
+    RUN(vga_run)                                            \
     STOP(vga_stop)                                          \
     RESET(vga_reset)                                        \
     SST("VGA_", vga))

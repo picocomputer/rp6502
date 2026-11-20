@@ -21,6 +21,10 @@
 
 void rln_init(void);
 void rln_task(void);
+
+/* A key's reply is still going out at the console line's pace, or the read
+ * it ended is waiting to be handed its line. */
+bool rln_replying(void);
 void rln_run(void);
 void rln_stop(void);
 void rln_reset(void);

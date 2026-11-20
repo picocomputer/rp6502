@@ -16,6 +16,7 @@ void vid_init(void);
 
 void vid_stop(void);
 void vid_task(void);
+void vid_run(void);
 
 extern const sst_table_t vid_sst;
 
@@ -24,6 +25,7 @@ extern const sst_table_t vid_sst;
 #define VID_DRIVER DRIVER(                                     \
     INIT(vid_init)                                             \
     TASK_FATFS(vid_task)                                       \
+    RUN(vid_run)                                               \
     STOP(vid_stop)                                             \
     RESET(vid_stop)                                            \
     SST("VID_", vid))

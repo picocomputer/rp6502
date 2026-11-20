@@ -60,6 +60,11 @@ void manifold_write_to(uint8_t to, const char *buf, size_t n)
     manifold_tx_wrote();
 }
 
+size_t HOST_IN_RAM_FUNC manifold_tx_room(void)
+{
+    return RING_AVAIL(&manifold_tx);
+}
+
 size_t HOST_IN_RAM_FUNC manifold_tx_len(void)
 {
     return RING_LEN(&manifold_tx);

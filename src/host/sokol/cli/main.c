@@ -6,6 +6,7 @@
  */
 
 #include "core/sys/config.h"
+#include "core/com/manifold.h"
 #include "core/str/oem.h"
 #include "core/sys/sys.h"
 #include "core/str/str.h"
@@ -52,6 +53,9 @@ static void apply_options(const cli_options *o)
     if (o->mute)
         aud_set_enabled(false);
     app_set_unpaced(o->unpaced);
+    /* Run flat out, the machine keeps no pace, its console's line least of
+     * all. */
+    manifold_set_paced(!o->unpaced);
 }
 
 #ifdef EMU_WITH_DEBUGGER

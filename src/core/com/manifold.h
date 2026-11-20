@@ -42,6 +42,11 @@ size_t manifold_write(int fd, const char *buf, size_t n);
  * written after, waiting for room as manifold_putchar does. */
 void manifold_write_to(uint8_t to, const char *buf, size_t n);
 
+/* The console's line runs at 115200 baud, 8N1, each way, on the machine's
+ * clock: a byte goes out to the terminals and comes in from the host's wire
+ * no faster. A machine run flat out, with no pace to keep, turns it off. */
+void manifold_set_paced(bool paced);
+
 /* Returns once every byte queued so far has gone out. */
 void manifold_flush(void);
 
