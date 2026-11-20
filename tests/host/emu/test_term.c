@@ -489,14 +489,18 @@ UTEST(term, the_reset_strings_leave_vt52_mode)
 UTEST(term, the_soft_reset_string_puts_the_keys_back)
 {
     fresh();
-    feed("\33[?1h\33=\33[?8l");
+    feed("\33[?1h\33=\33[?8l\33[?67h\33*0");
     ASSERT_TRUE(cells_term.app_cursor);
     ASSERT_TRUE(cells_term.app_keypad);
     ASSERT_FALSE(cells_term.autorepeat);
+    ASSERT_TRUE(cells_term.backarrow_bs);
     feed(STR_TERM_SOFT_RESET);
     ASSERT_FALSE(cells_term.app_cursor);
     ASSERT_FALSE(cells_term.app_keypad);
     ASSERT_TRUE(cells_term.autorepeat);
+    ASSERT_FALSE(cells_term.backarrow_bs);
+    feed("\33NqA");
+    ASSERT_STREQ(row(0), "qA");
 }
 
 /* Each item of an OSC 4 takes effect as it ends, so the CAN keeps entry 1's
