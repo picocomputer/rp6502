@@ -54,7 +54,7 @@ static bool aud_engines_get(sst_cursor_t *c, unsigned flags)
     X(U32, aud_pcm_ctrl)                                                \
     X(U8, aud_pcm_stage)                                                \
     X(VALIDATE, aud_pcm_check)                                          \
-    X(FN, aud_engines_put, aud_engines_get, AUD_SST_WORDS * 4, 1)
+    X(FN, aud_engines_put, aud_engines_get, AUD_SST_WORDS * 4, 2)
 SST_TABLE(aud_fabric, AUD_FABRIC_SST)
 
 /* The PSG, the OPL, the bell voice and PCM have no reset input, so they
@@ -137,9 +137,12 @@ bool aud_pcm_open(const pcm_fmt_t *fmt)
     return true;
 }
 
+/* The fabric empties its FIFO at the close, a partial frame and bytes
+ * stored and not committed with it, and starts it again at a word. */
 void aud_pcm_close(void)
 {
     aud_pcm_ctrl = 0;
+    aud_pcm_stage = 0;
     AUD_PCM_CTRL = 0;
 }
 

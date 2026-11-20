@@ -171,7 +171,7 @@ static void apply(sim_t &s, const op_t &o)
     case OP_OPEN:
         dut->ctrl_we = 1;
         dut->wdata = 1u | (o.fmt.bits == 16 ? 2u : 0u) | (o.fmt.channels == 2 ? 4u : 0u);
-        shim_pcm_reset(o.fmt.rate, o.fmt.bits, o.fmt.channels);
+        shim_pcm_open(o.fmt.rate, o.fmt.bits, o.fmt.channels);
         s.staged.clear();
         s.opened = true;
         s.open = true;
@@ -180,6 +180,10 @@ static void apply(sim_t &s, const op_t &o)
     case OP_CLOSE:
         dut->ctrl_we = 1;
         dut->wdata = 0;
+        /* The FIFO is emptied, what was stored and not committed with it,
+         * and the player plays on. */
+        shim_pcm_clear();
+        s.staged.clear();
         s.open = false;
         break;
     case OP_DATA:
@@ -270,7 +274,7 @@ static const char *clock(sim_t &s)
         if (dut->rootp->tb_aud__DOT__pcm__DOT__state != S_IDLE)
             return "a tick found the player busy";
         s.want_l = s.want_r = 0;
-        if (s.open)
+        /* The player runs on every tick, open or closed. */
         {
             const uint64_t ph = dut->rootp->tb_aud__DOT__pcm__DOT__rst_pend
                                     ? 1ull << 32
@@ -450,6 +454,9 @@ struct case_t
     /* Ops on edge_c half the time; full-scale samples. */
     bool edges, rails;
     bool rsmp;
+    /* Samples a close lasts at most, with a step written while closed;
+     * 0 for a few. */
+    long closed;
     uint32_t seed;
 };
 
@@ -483,7 +490,12 @@ static const char *run(const case_t &k, int32_t *peak = NULL)
             {
                 fi = (fi + 1) % k.fmts.size();
                 push(s, any_clock(n, k.edges), OP_CLOSE);
-                const long at = s.last + (rr(0, 3) ? rr(1, 20) : rr(1, 3 * F));
+                if (k.closed)
+                    push(s, s.last + rr(1, k.closed * F / 2), OP_STEP, 0,
+                         k.fmts[(fi + 1) % k.fmts.size()]);
+                const long at = s.last + (k.closed ? rr(1, k.closed * F / 2)
+                                          : rr(0, 3) ? rr(1, 20)
+                                                     : rr(1, 3 * F));
                 push(s, at, OP_STEP, 0, k.fmts[fi]);
                 push(s, s.last + rr(1, 20), OP_OPEN, 0, k.fmts[fi]);
             }
@@ -628,6 +640,25 @@ UTEST(pcm_rtl, underrun_and_resume)
     k.pause = 600;
     k.p_reopen = 4000;
     k.seed = 0xD12;
+    ASSERT_OK(run(k));
+}
+
+/* Closes long enough for the player to play its filter out, fade to
+ * silence and stay there, with the step for the next open written while
+ * it does. */
+UTEST(pcm_rtl, a_close_plays_out_to_silence)
+{
+    case_t k = {};
+    k.fmts = {{8000, 8, 1}, {22050, 16, 2}, {44100, 16, 1}};
+    k.frames = 9000;
+    k.chunk = 300;
+    k.burst_frames = 60;
+    k.byte_pct = 30;
+    k.gap_lo = 1;
+    k.gap_hi = 6;
+    k.p_reopen = 1500;
+    k.closed = 4000;
+    k.seed = 0xC105E;
     ASSERT_OK(run(k));
 }
 

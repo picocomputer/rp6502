@@ -65,17 +65,35 @@ uint64_t HOST_IN_RAM_FUNC pcm_step(uint32_t rate)
     return div64((uint64_t)rate << 32, AUD_NATIVE_RATE, NULL);
 }
 
-void HOST_IN_RAM_FUNC pcm_reset(pcm_t *s, const pcm_fmt_t *fmt)
+void HOST_IN_RAM_FUNC pcm_open(pcm_t *s, const pcm_fmt_t *fmt)
 {
     s->fmt = *fmt;
     s->frame = (uint8_t)(fmt->bits / 8 * fmt->channels);
     s->step = pcm_step(fmt->rate);
     /* The first sample takes the first frame. */
     s->phase = (uint64_t)1 << 32;
+    s->underruns = 0;
+}
+
+void HOST_IN_RAM_FUNC pcm_reset(pcm_t *s, const pcm_fmt_t *fmt)
+{
+    pcm_open(s, fmt);
+    RING_RESET(&s->buf);
     s->at = 0;
     memset(s->hist, 0, sizeof s->hist);
-    s->underruns = 0;
-    RING_RESET(&s->buf);
+}
+
+/* Every value the filter holds is zero and no frame is left to take, so
+ * every sample from here on is zero. */
+bool HOST_IN_RAM_FUNC pcm_settled(const pcm_t *s)
+{
+    if (RING_LEN(&s->buf) >= s->frame)
+        return false;
+    for (int ch = 0; ch < 2; ch++)
+        for (int i = 0; i < RSMP_TAPS; i++)
+            if (s->hist[ch][i])
+                return false;
+    return true;
 }
 
 uint32_t HOST_IN_RAM_FUNC pcm_put(pcm_t *s, const uint8_t *src, uint32_t n)

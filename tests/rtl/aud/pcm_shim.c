@@ -37,6 +37,12 @@ void shim_pcm_reset(uint32_t rate, uint8_t bits, uint8_t channels)
     pcm_reset(&shim, &fmt);
 }
 
+void shim_pcm_open(uint32_t rate, uint8_t bits, uint8_t channels)
+{
+    const pcm_fmt_t fmt = {rate, bits, channels};
+    pcm_open(&shim, &fmt);
+}
+
 uint32_t shim_pcm_put(const uint8_t *src, uint32_t n) { return pcm_put(&shim, src, n); }
 void shim_pcm_clear(void) { pcm_clear(&shim); }
 uint16_t shim_pcm_level(void) { return pcm_level(&shim); }

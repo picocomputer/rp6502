@@ -173,7 +173,10 @@ static rsmp_t aud_rs_l, aud_rs_r;
  * moves it holds or catches up and its buffer stays the machine's. due is
  * the machine sample its next step makes, and l and r what the last made. */
 static pcm_t aud_pcm;
+/* The player runs from an open until, closed, it has played out the tail
+ * in its filter. */
 static bool aud_pcm_play;
+static bool aud_pcm_closed;
 static uint32_t aud_pcm_due;
 static int32_t aud_pcm_l, aud_pcm_r;
 
@@ -307,6 +310,8 @@ static void aud_rest(void)
     aud_pm.level = 0;
     aud_pm.underruns = 0;
     aud_pcm_play = false;
+    aud_pcm_closed = false;
+    pcm_reset(&aud_pcm, &(pcm_fmt_t){1, 8, 1});
     aud_off = 0;
     aud_anchored = false;
     aud_carry_n = 0;
@@ -372,10 +377,11 @@ static void aud_apply(const aud_ev_t *e)
     {
         const pcm_fmt_t fmt = {e->addr, (uint8_t)(e->val & 1 ? 16 : 8),
                                (uint8_t)(e->val & 2 ? 2 : 1)};
-        pcm_reset(&aud_pcm, &fmt);
+        pcm_open(&aud_pcm, &fmt);
+        if (!aud_pcm_play)
+            aud_pcm_due = e->at;
         aud_pcm_play = true;
-        aud_pcm_due = e->at;
-        aud_pcm_l = aud_pcm_r = 0;
+        aud_pcm_closed = false;
         return;
     }
     case AUD_EV_PCM_DATA1:
@@ -390,7 +396,10 @@ static void aud_apply(const aud_ev_t *e)
         pcm_clear(&aud_pcm);
         return;
     case AUD_EV_PCM_CLOSE:
-        aud_pcm_play = false;
+        /* A close comes once the buffer holds less than a frame, which it
+         * drops, and the player plays on until its filter has played out. */
+        pcm_clear(&aud_pcm);
+        aud_pcm_closed = true;
         return;
     case AUD_EV_BEL:
         psg_put(PSG_REGS_SIZE + e->addr, e->val);
@@ -443,6 +452,11 @@ static void aud_mix(int32_t *left, int32_t *right)
             for (; (int32_t)(due - aud_pcm_due) >= 0; aud_pcm_due++)
                 pcm_sample(&aud_pcm, &aud_pcm_l, &aud_pcm_r);
             sl += aud_pcm_l, sr += aud_pcm_r;
+            if (aud_pcm_closed && pcm_settled(&aud_pcm))
+            {
+                aud_pcm_play = aud_pcm_closed = false;
+                aud_pcm_l = aud_pcm_r = 0;
+            }
         }
     }
     *left = aud_clip(sl);
@@ -579,7 +593,6 @@ bool aud_pcm_open(const pcm_fmt_t *fmt)
     aud_pm.step = pcm_step(fmt->rate);
     aud_pm.at = at;
     aud_pm.phase = (uint64_t)1 << 32;
-    aud_pm.level = 0;
     aud_pm.underruns = 0;
     aud_push_at(at, AUD_EV_PCM_OPEN, (uint16_t)fmt->rate,
                 (uint8_t)((fmt->bits == 16 ? 1 : 0) | (fmt->channels == 2 ? 2 : 0)));
@@ -588,7 +601,9 @@ bool aud_pcm_open(const pcm_fmt_t *fmt)
 
 void aud_pcm_close(void)
 {
+    aud_pm_step(bus_now(AUD_NATIVE_RATE));
     aud_pm.on = false;
+    aud_pm.level = 0;
     aud_push(AUD_EV_PCM_CLOSE, 0, 0);
 }
 
@@ -940,29 +955,37 @@ void aud_sst_free(bool loaded)
     aud_unlock();
 }
 
-/* The PCM: device: open, its rate, bits and channels, the Q32 phase, both
- * channels' history, the bytes buffered and PCM_BUF_SIZE of them. */
-#define AUD_PCM_HEAD (1 + 4 + 1 + 1 + 8)
+/* The PCM: device: open, the player running, its rate, bits and channels,
+ * the Q32 phase, both channels' history, the bytes buffered and
+ * PCM_BUF_SIZE of them. A closed device's player runs on until it has
+ * played out its filter. */
+#define AUD_PCM_HEAD (1 + 1 + 4 + 1 + 1 + 8)
 #define AUD_PCM_SST_SIZE (AUD_PCM_HEAD + 2 * RSMP_TAPS * 4 + 2 + PCM_BUF_SIZE)
 
 /* From the render, which was saved with the sound taken. The history goes
  * oldest first and the bytes from the oldest, so the load puts both back at
  * the start of their rings. An open the render has yet to take is saved as
- * just opened. */
+ * just opened, with the history it will open on. */
 static void aud_pcm_put(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     pcm_t *p = &aud_pcm;
-    const bool play = aud_pm.on && aud_pcm_play;
-    sst_put_bool(c, aud_pm.on);
-    sst_put_u32(c, aud_pm.on ? aud_pm.fmt.rate : 0);
-    sst_put_u8(c, aud_pm.on ? aud_pm.fmt.bits : 0);
-    sst_put_u8(c, aud_pm.on ? aud_pm.fmt.channels : 0);
-    sst_put_u64(c, play ? p->phase : (uint64_t)1 << 32);
+    const bool open = aud_pm.on;
+    /* A player the device has closed runs on, a close the render has yet
+     * to take included, and the load takes it as closed. */
+    const bool run = open || aud_pcm_play;
+    const bool taken = aud_pcm_play && (!open || !aud_pcm_closed);
+    const pcm_fmt_t fmt = open ? aud_pm.fmt : run ? p->fmt : (pcm_fmt_t){0, 0, 0};
+    sst_put_bool(c, open);
+    sst_put_bool(c, run);
+    sst_put_u32(c, fmt.rate);
+    sst_put_u8(c, fmt.bits);
+    sst_put_u8(c, fmt.channels);
+    sst_put_u64(c, taken ? p->phase : (uint64_t)1 << 32);
     for (int ch = 0; ch < 2; ch++)
         for (int i = 0; i < RSMP_TAPS; i++)
-            sst_put_i32(c, play ? p->hist[ch][p->at + i] : 0);
-    const uint16_t level = play ? pcm_level(p) : 0;
+            sst_put_i32(c, p->hist[ch][p->at + i]);
+    const uint16_t level = open && taken ? pcm_level(p) : 0;
     sst_put_u16(c, level);
     for (unsigned i = 0; i < PCM_BUF_SIZE; i++)
         sst_put_u8(c, i < level ? *RING_AT(&p->buf, i) : 0);
@@ -974,7 +997,8 @@ static void aud_pcm_put(sst_cursor_t *c, unsigned flags)
 static bool aud_pcm_get(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    const bool on = sst_get_bool(c);
+    const bool open = sst_get_bool(c);
+    const bool run = sst_get_bool(c);
     pcm_fmt_t fmt;
     fmt.rate = sst_get_u32(c);
     fmt.bits = sst_get_u8(c);
@@ -982,43 +1006,47 @@ static bool aud_pcm_get(sst_cursor_t *c, unsigned flags)
     const uint64_t phase = sst_get_u64(c);
     if (!sst_ok(c))
         return false;
-    if (on != aud_pm.on)
+    if (open != aud_pm.on)
         return sst_refuse(c, "PCM: is not open as it was saved");
-    if (!on)
-    {
-        if (!sst_view(c, AUD_PCM_SST_SIZE - AUD_PCM_HEAD))
-            return false;
-        aud_pcm_play = false;
-        return true;
-    }
-    if (fmt.rate != aud_pm.fmt.rate || fmt.bits != aud_pm.fmt.bits ||
-        fmt.channels != aud_pm.fmt.channels)
+    if (open && !run)
+        return sst_refuse(c, "PCM: open with its player stopped");
+    if (open && (fmt.rate != aud_pm.fmt.rate || fmt.bits != aud_pm.fmt.bits ||
+                 fmt.channels != aud_pm.fmt.channels))
         return sst_refuse(c, "PCM: was reopened in another format");
-    if (phase > ((uint64_t)1 << 32) + aud_pm.step)
+    if (run && (!fmt.rate || fmt.rate > PCM_RATE_MAX || (fmt.bits != 8 && fmt.bits != 16) ||
+                (fmt.channels != 1 && fmt.channels != 2)))
+        return sst_refuse(c, "PCM: a format no open gives");
+    if (run && phase > ((uint64_t)1 << 32) + pcm_step(fmt.rate))
         return sst_refuse(c, "PCM: phase past one step");
-    pcm_reset(&aud_pcm, &fmt);
+    pcm_reset(&aud_pcm, run ? &fmt : &(pcm_fmt_t){1, 8, 1});
     for (int ch = 0; ch < 2; ch++)
         for (int i = 0; i < RSMP_TAPS; i++)
         {
             const int32_t v = sst_get_i32(c);
             if (v < AUD_SAMPLE_MIN || v > AUD_SAMPLE_MAX)
                 return sst_refuse(c, "PCM: history past sixteen bits");
+            if (v && !run)
+                return sst_refuse(c, "PCM: a stopped player that has not settled");
             aud_pcm.hist[ch][i] = aud_pcm.hist[ch][i + RSMP_TAPS] = v;
         }
     const uint16_t level = sst_get_u16(c);
     const uint8_t *bytes = sst_view(c, PCM_BUF_SIZE);
     if (!bytes)
         return false;
-    if (level > PCM_BUF_SIZE)
+    if (level > (open ? PCM_BUF_SIZE : 0))
         return sst_refuse(c, "PCM: more bytes than the buffer holds");
     pcm_put(&aud_pcm, bytes, level);
-    aud_pcm.phase = phase;
-    aud_pcm_play = true;
+    aud_pcm.phase = run ? phase : (uint64_t)1 << 32;
+    aud_pcm_play = run;
+    aud_pcm_closed = run && !open;
     aud_pcm_due = (uint32_t)aud_made;
     aud_pcm_l = aud_pcm_r = 0;
-    aud_pm.at = aud_made;
-    aud_pm.phase = phase;
-    aud_pm.level = level;
+    if (open)
+    {
+        aud_pm.at = aud_made;
+        aud_pm.phase = phase;
+        aud_pm.level = level;
+    }
     return true;
 }
 
@@ -1060,6 +1088,7 @@ static bool aud_sst_loaded(sst_cursor_t *c)
     X(FN, aud_pcm_put, aud_pcm_get, AUD_PCM_SST_SIZE, 1)        \
     X(IN_FN, aud_pcm)                                           \
     X(IN_FN, aud_pcm_play)                                      \
+    X(IN_FN, aud_pcm_closed)                                    \
     X(VALIDATE, aud_sst_loaded)                                 \
     X(SKIP, aud_pcm_due, "the samples made, on load")           \
     X(SKIP, aud_pcm_l, "made again by the next step")           \
