@@ -57,9 +57,9 @@ typedef struct
     bool reverse;              /* DECSCNM */
 } xm_screen_t;
 
-/* Starts Xvfb and xterm, rows by cols, printing into dir. False with why on
- * stderr if either is missing or will not start. */
-bool xm_start(int rows, int cols, const char *dir);
+/* Starts Xvfb and the xterm program named, rows by cols, printing into
+ * dir. False with why on stderr if either is missing or will not start. */
+bool xm_start(const char *xterm, int rows, int cols, const char *dir);
 
 /* Bytes for xterm, as the console's terminal gets them. */
 void xm_write(const char *buf, size_t n);

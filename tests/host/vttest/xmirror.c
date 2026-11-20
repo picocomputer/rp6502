@@ -105,7 +105,7 @@ static size_t xm_read(char *buf, size_t len, size_t size, int ms)
     return len;
 }
 
-bool xm_start(int rows, int cols, const char *dir)
+bool xm_start(const char *xterm, int rows, int cols, const char *dir)
 {
     if (rows > XM_MAX_ROWS || cols > XM_MAX_COLS)
         return false;
@@ -200,7 +200,7 @@ bool xm_start(int rows, int cols, const char *dir)
          * of what it does but the window cannot grow to 132 columns, as
          * the console's screen does not. The print has each cell's
          * attributes and colors, and a line a row. */
-        execlp("xterm", "xterm", sopt, "+u8", "-fn", "6x13", "-geometry", geometry,
+        execlp(xterm, "xterm", sopt, "+u8", "-fn", "6x13", "-geometry", geometry,
                "-xrm", "*locale: false",
                "-xrm", "*saveLines: 0", "-xrm", printer,
                "-xrm", "*printAttributes: 2", "-xrm", "*printerAutoClose: true",
@@ -277,10 +277,19 @@ void xm_write(const char *buf, size_t n)
         if (xm_state == XM_GROUND)
         {
             /* The media copies (MC, CSI i and CSI ? i) are not passed on:
-             * the console has no printer, and xterm's is the mirror's. */
-            const bool mc = xm_held_len > 2 && xm_held[0] == 0x1B && xm_held[1] == '[' &&
-                            c == 'i';
-            if (!mc)
+             * the console has no printer, and xterm's is the mirror's. Nor
+             * are what changes the size of xterm's screen where the
+             * console's stays as it is: the window operations and DECSLPP
+             * (CSI Ps t), DECSCPP (CSI Ps $ |) and DECSNLS (CSI Ps * |). */
+            bool csi = xm_held_len > 2 && xm_held[0] == 0x1B && xm_held[1] == '[';
+            size_t end = xm_held_len - 1;
+            const char inter = end > 2 ? xm_held[end - 1] : 0;
+            if (c == '|' && (inter == '$' || inter == '*'))
+                end--;
+            bool window = csi && (c == 't' || end < xm_held_len - 1);
+            for (size_t k = 2; window && k < end; k++)
+                window = (xm_held[k] >= '0' && xm_held[k] <= '9') || xm_held[k] == ';';
+            if (!(csi && c == 'i') && !window)
                 xm_put(xm_held, xm_held_len);
             xm_held_len = 0;
         }

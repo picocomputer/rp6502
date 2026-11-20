@@ -52,11 +52,25 @@ endif()
 # one of those that has changed or gone, fails the test and is shown in
 # screens/xterm/. To approve them, look at those, then copy the lines you agree
 # with from screens/xterm.txt, with why, into xterm.txt.
+#
+# The xterm is patch 412 or later, the one xterm.txt was made against; an
+# older one draws a few screens differently. Where the system's is older,
+# build xterm from https://invisible-island.net/xterm/ and name it with
+# -DRP6502_XTERM=/path/to/xterm.
 find_program(RP6502_XTERM xterm)
 find_program(RP6502_XVFB Xvfb)
 set(_xknown ${CMAKE_CURRENT_LIST_DIR}/xterm.txt)
+set(_xterm_ok FALSE)
 if(RP6502_XTERM AND RP6502_XVFB AND EXISTS ${_xknown})
-    list(APPEND _env VTXTERM=1 VTXKNOWN=${_xknown})
+    execute_process(COMMAND ${RP6502_XTERM} -version OUTPUT_VARIABLE _xv
+        ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(_xv MATCHES "XTerm\\(([0-9]+)\\)" AND CMAKE_MATCH_1 GREATER_EQUAL 412)
+        set(_xterm_ok TRUE)
+        list(APPEND _env VTXTERM=${RP6502_XTERM} VTXKNOWN=${_xknown})
+    else()
+        message(STATUS "vttest: ${RP6502_XTERM} is older than patch 412; "
+            "not comparing with xterm")
+    endif()
 endif()
 add_test(NAME vttest
     COMMAND ${CMAKE_COMMAND} -E env ${_env} $<TARGET_FILE:vtrun> ${_screens})
@@ -71,10 +85,10 @@ set_tests_properties(vttest_screens_clean PROPERTIES FIXTURES_SETUP vttest_scree
 # against xterm, where both are installed. Its locale is C, as the console
 # has no UTF-8: in a UTF-8 locale tmux draws its borders in UTF-8.
 find_program(RP6502_TMUX tmux)
-if(RP6502_TMUX AND RP6502_XTERM AND RP6502_XVFB)
+if(RP6502_TMUX AND _xterm_ok)
     set(_tmux_screens ${CMAKE_CURRENT_BINARY_DIR}/tmux)
     add_test(NAME vttest_tmux
-        COMMAND ${CMAKE_COMMAND} -E env VTXTERM=1
+        COMMAND ${CMAKE_COMMAND} -E env VTXTERM=${RP6502_XTERM}
             "VTCMD=LC_ALL=C LANG=C exec ${RP6502_TMUX} -L rp6502-vtrun-$$ -f /dev/null new-session -x 80 -y 30 sh \\; split-window -h sh \\; split-window -v sh"
             "VTKEYS=seq space 1 space 50 return|ctrl-b o|seq space 100 space 160 return|ctrl-b o|ls space -l space / return|clear return|ctrl-b z|ctrl-b z|exit return|exit return|exit return"
             $<TARGET_FILE:vtrun> ${_tmux_screens})

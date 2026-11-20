@@ -32,7 +32,8 @@
  * gone, and only those screens are saved as text and PNG for a person to look
  * at; without it, every screen is.
  *
- * With VTXTERM set, a real xterm is given the same bytes, and every screen
+ * With VTXTERM set, to an xterm's path or to 1 for the one on the PATH, a
+ * real xterm is given the same bytes, and every screen
  * recorded is held against xterm's (xmirror.h). The differences are in
  * OUTDIR/xterm.txt and OUTDIR/xterm/, and VTXKNOWN names those approved.
  *
@@ -1337,7 +1338,9 @@ int main(int argc, char **argv)
     vt_term_init();
     if (getenv("VTXTERM"))
     {
-        if (!xm_start(vt_rows, vt_cols, vt_outdir))
+        /* VTXTERM names the xterm, or is 1 for the one on the PATH. */
+        const char *xterm = getenv("VTXTERM");
+        if (!xm_start(strcmp(xterm, "1") ? xterm : "xterm", vt_rows, vt_cols, vt_outdir))
             return 2;
         vt_xterm = vt_open("xterm.txt");
         vt_stream = vt_open("stream.bin");
