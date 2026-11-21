@@ -726,8 +726,11 @@ void screen_shift(term_t *term, screen_t *sc, uint8_t top, uint8_t bot, unsigned
         }
         else if (owed == SCREEN_OWED_SHIFT)
         {
-            if (n < cols && (left ? s->end < cols && !cell_side_same(&s->right, &side)
-                                  : s->to && !cell_side_same(&s->left, &side)))
+            // A shift owed from when the row had another line size pays
+            // first: its columns are not this shift's.
+            if (s->cols != cols ||
+                (n < cols && (left ? s->end < cols && !cell_side_same(&s->right, &side)
+                                   : s->to && !cell_side_same(&s->left, &side))))
                 screen_pay(buf, m);
             else
                 r = *s;
