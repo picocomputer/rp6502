@@ -1,6 +1,6 @@
-# The RP6502-VGA
-
-rp6502_gen_c()
+# The RP6502-VGA. It includes headers the generators make, so it waits for
+# rp6502_gen_c, which the RIA's directory adds: the C files it compiles are
+# known as generated only in the directory that adds their commands.
 
 set(VGA_SRC ${RP6502_ROOT}/src/host/pico/vga)
 
