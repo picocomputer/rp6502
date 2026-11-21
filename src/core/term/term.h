@@ -19,9 +19,9 @@
  * parsed once, and only what moves the cursor or the rows runs once a grid.
  *
  * The terminal holds no cells and no palette. It changes the screen, and
- * answers queries, through the functions in cells.h, which cells.c defines
- * on a machine that draws the screen; a machine that only follows the
- * terminal's state defines them itself. */
+ * answers queries, through the functions in cells.h, which cells.c and
+ * draw.c define on a machine that draws the screen; a machine that only
+ * follows the terminal's state defines them itself. */
 
 #include "core/sys/sst.h"
 #include "machine.h"
@@ -91,7 +91,7 @@
 // attributes (mode0.h); italics are a cell's font. SGR 5 (slow) and SGR 6
 // (rapid) live at bits 0-1 so they map onto the live blink phase counter
 // directly. A cell carries exactly one of the two; the renderer ANDs it
-// against the phase so each pulses at its own rate. See cells.c's
+// against the phase so each pulses at its own rate. See draw.c's
 // TERM_BLINK_TICK_FRAMES.
 #define TERM_ATTR_BLINK_FAST (1u << 0) // SGR 6 rapid (blink phase bit 0)
 #define TERM_ATTR_BLINK (1u << 1)      // SGR 5 slow  (blink phase bit 1)

@@ -32,7 +32,7 @@ void cells_task(void);
 void cells_restart(void);
 
 /* The console's terminal. On a machine that runs a program and draws its
- * screen in one, it is this file's; the RIA has its own, which follows the
+ * screen in one, it is draw.c's; the RIA has its own, which follows the
  * VGA's (ria/term/cells.c). */
 extern term_t cells_term;
 
@@ -187,12 +187,13 @@ void cells_clear(term_t *t, term_grid_t *g);
 // from the scrollback at the top, a shrink sends the top row to it.
 void cells_height(term_t *t, term_grid_t *g, bool grow, bool top);
 
-// RIS and the system's soft reset: the blinks start again and the alternate
-// screen is erased.
+// RIS and the system's soft reset: the alternate screen is erased.
 void cells_reset(term_t *t, term_grid_t *g);
 
 // RIS and the system's soft reset: the palette and the default and cursor
-// colors start again. Once a terminal, before the grids reset.
+// colors start again, and on a machine that draws the screen the blinks
+// start again and a smooth scroll stops. Once a terminal, before the grids
+// reset.
 void cells_colors_reset(term_t *t);
 
 // The OSC colors. which is a palette entry 0-255, or one of these.

@@ -63,11 +63,11 @@ void manifold_uart_clear(void);
 
 /* Terminal: the terminal emulator's link to the console. */
 
-/* The answer of the terminal in core/term/cells.c to a query: com_reply where
+/* The answer of the terminal in core/term/draw.c to a query: com_reply where
  * that terminal is the console's, dropped where another chip answers. */
 void manifold_reply(const char *s, size_t n);
 
-/* The bell of the terminal in core/term/cells.c: rung where that terminal
+/* The bell of the terminal in core/term/draw.c: rung where that terminal
  * is the console's and the bell is on, and nothing where another chip
  * rings it. */
 void manifold_bell(void);

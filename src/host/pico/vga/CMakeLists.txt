@@ -79,6 +79,7 @@ target_sources(rp6502-vga PRIVATE
     ${RP6502_ROOT}/src/core/term/term.c
     ${RP6502_ROOT}/src/core/term/grid.c
     ${RP6502_ROOT}/src/core/term/cells.c
+    ${RP6502_ROOT}/src/core/term/draw.c
     ${VGA_SRC}/usb/cdc.c
     ${VGA_SRC}/usb/descriptors.c
     ${VGA_SRC}/usb/usb.c

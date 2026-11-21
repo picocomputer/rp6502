@@ -238,7 +238,7 @@ def listing():
     root = Path(__file__).resolve().parents[3] / "src" / "core"
     picks = [("term/term.c", "static bool HOST_IN_RAM_FUNC term_byte_scrolls", "^}"),
              ("term/term.c", "bool HOST_IN_RAM_FUNC term_holds", "^}"),
-             ("term/cells.c", "void cells_smooth(term_t", "^}"),
+             ("term/draw.c", "void cells_smooth(term_t", "^}"),
              ("vga/mode/mode0.h", "static inline unsigned mode0_smooth_moved", "^}")]
     lines = []
     for name, first, last in picks:

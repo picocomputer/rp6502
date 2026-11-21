@@ -7,7 +7,7 @@
 #ifndef _TB_SCREEN_H_
 #define _TB_SCREEN_H_
 
-/* The console as mode 0 draws it, read from what cells.c publishes
+/* The console as mode 0 draws it, read from what draw.c publishes
  * (core/vga/mode/mode0.h), so a test sees what a renderer sees. The grid's
  * width and height are the terminal's own, from the grid showing. */
 

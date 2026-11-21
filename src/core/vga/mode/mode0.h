@@ -9,8 +9,8 @@
 
 /* Mode 0 draws the console's terminal. Everything it draws from is here:
  * the cells and a few words that say which cells make each row, where the
- * cursor is and how the screen looks. cells.c writes them and the renderer
- * reads them: mode0.c on a machine that draws in software, mode0.sv on one
+ * cursor is and how the screen looks. cells.c writes the cells, draw.c the
+ * words and the palette, and the renderer reads them: mode0.c on a machine that draws in software, mode0.sv on one
  * that draws in fabric, where the linker places them on its memories. */
 
 #include "core/sys/sst.h"
@@ -127,7 +127,7 @@ typedef struct
 
 /* The colors a cell can name: the 256 palette entries and the default
  * foreground and background, then all of those again at half brightness,
- * for SGR 2. cells.c writes them. */
+ * for SGR 2. draw.c writes them. */
 #define MODE0_ENTRIES 258
 #define MODE0_DEFAULT_FG 256
 #define MODE0_DEFAULT_BG 257

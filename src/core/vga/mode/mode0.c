@@ -302,7 +302,7 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
     else
         mode0_draw(rgb, cell, pair, width, font_line, line_mask, underline, false, false);
     // DECSCUSR styles 2, 4 and 6 are the steady ones, so they draw whether or
-    // not cursor_lit is set: cells.c toggles cursor_lit on a timer and leaves the
+    // not cursor_lit is set: draw.c toggles cursor_lit on a timer and leaves the
     // style to the renderer.
     const uint8_t cursor_style = MODE0_CURSOR_STYLE(cursor);
     if (logical_row == MODE0_CURSOR_Y(cursor) &&
