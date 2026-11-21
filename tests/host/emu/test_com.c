@@ -633,6 +633,16 @@ UTEST(com, the_end_reset_leaves_a_clear_line)
     /* Nor one with an underlined space on it. */
     ASSERT_STREQ(end_reset_after("\33[3;1H\33[4m \33[0m\33[H", &row), "\r\n\r\n\r\n");
     ASSERT_EQ(row, 3);
+    /* Nor one erased in iCE colors with blink on, to the bright
+     * background. */
+    ASSERT_STREQ(end_reset_after("\33[?33h\33[4;1H\33[5m\33[K\33[0m\33[?33l\33[2;1H", &row),
+                 "\r\n\r\n\r\n");
+    ASSERT_EQ(row, 4);
+    /* Nor one with a space whose colors are swapped, though both are the
+     * default background: concealed, then reversed by DECCARA. */
+    ASSERT_STREQ(end_reset_after("\33[3;1H\33[8m \33[0m\33[3;1;3;1;7$r\33[H", &row),
+                 "\r\n\r\n\r\n");
+    ASSERT_EQ(row, 3);
     /* A row drawn and erased again is clear. */
     ASSERT_STREQ(end_reset_after("\33[3;1Hgone\33[2K\33[H", &row), "");
     ASSERT_EQ(row, 0);

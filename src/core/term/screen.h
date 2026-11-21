@@ -273,8 +273,7 @@ void screen_height(screen_t *s, uint8_t height, bool grow, bool top);
 // something from before they left.
 void screen_fit(screen_t *s, uint8_t height);
 
-// Whether row y has anything on it: a character other than a space, a
-// background that is not the default one, or a line through a cell. A
+// Whether row y has anything on it: a cell that shows (cell_shows). A
 // machine with no cells answers from what it was told as the row was
 // written, and yes where that does not say. No for a screen with no cells.
 bool screen_row_used(screen_t *s, uint8_t y);

@@ -333,14 +333,3 @@ CELL_RUN void cell_strip_move(mode0_cell_t *to, const mode0_cell_t *row, unsigne
             tc[i] = rc[i];
         }
 }
-
-bool cell_used(const mode0_cell_t *row, unsigned n)
-{
-    const mode0_colors_t *colors = cell_colors(row);
-    const uint16_t blank = MODE0_ENTRY(MODE0_DEFAULT_BG, false);
-    for (unsigned x = 0; x < n; x++)
-        if (mode0_glyph_code(row[x].glyph) != ' ' || (row[x].attributes & MODE0_ATTR_LINES) ||
-            colors[x].bg_color != blank)
-            return true;
-    return false;
-}

@@ -44,7 +44,7 @@
  * cell_strip_keep, cell_strip_put, cell_strip_move: the cells either side
  *   of columns [from, end) of a row of width cells kept, put back, or moved
  *   to another row.
- * cell_used(row, n): one of n cells shows something.
+ * cell_shows(cell): the cell shows something on the screen.
  * cell_fill_put, cell_fill_get, cell_side_put, cell_side_get: a fill or a
  *   side in the savestate, in CELL_FILL_SST_SIZE and CELL_SIDE_SST_SIZE
  *   bytes; a get says whether it is one. */

@@ -255,8 +255,15 @@ void cell_strip_move(mode0_cell_t *to, const mode0_cell_t *row, unsigned from, u
                      unsigned width);
 
 // A cell shows something: a character other than a space, a line through
-// it, or a background that is not the default one.
-bool cell_used(const mode0_cell_t *row, unsigned n);
+// it, a background other than the default one, or its colors swapped. The
+// background is the one drawn, iCE colors' bright one included. A swapped
+// cell counts whatever its colors are.
+static inline bool cell_shows(const mode0_cell_t *cell)
+{
+    return mode0_glyph_code(cell->glyph) != ' ' ||
+           (cell->attributes & (MODE0_ATTR_LINES | MODE0_ATTR_REVERSE)) ||
+           cell_colors(cell)->bg_color != MODE0_ENTRY(MODE0_DEFAULT_BG, false);
+}
 
 /* ---- savestate --------------------------------------------------------- */
 

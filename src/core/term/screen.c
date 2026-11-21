@@ -947,7 +947,11 @@ bool screen_row_used(screen_t *s, uint8_t y)
     if (!screen_settled(s))
         return false;
     screen_clean_line(s, y);
-    return cell_used(screen_row(s, y), s->cells->width);
+    const cell_t *row = screen_row(s, y);
+    for (unsigned x = 0; x < s->cells->width; x++)
+        if (cell_shows(&row[x]))
+            return true;
+    return false;
 }
 
 void screen_blank_cells(cell_t *cells, unsigned n)
