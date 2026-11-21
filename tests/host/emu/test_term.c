@@ -2580,6 +2580,119 @@ UTEST(term, a_written_cell_goes_with_its_row)
     ASSERT_EQ(written_end(1), 79);
 }
 
+/* Whether row y of the screen showing wrapped on its own. */
+static bool wrapped(int y)
+{
+    return screen_wrapped(console_shown(&console_term)->shown, (uint8_t)y);
+}
+
+/* n A's from the cursor. */
+static void feed_as(int n)
+{
+    char a[96];
+    memset(a, 'A', (size_t)n);
+    feedn(a, (size_t)n);
+}
+
+/* Each operation leaves the first rows wrapped where xterm 412 does. xterm
+ * prints a row that wrapped on its own with no newline after it (print.c,
+ * printLine, with printerNewLine false), and these are the rows it printed
+ * so for the same bytes. */
+UTEST(term, lines_wrap_where_xterms_do)
+{
+    static const struct
+    {
+        int as; /* A's printed first, from home */
+        const char *seq;
+        bool wrapped[4];
+    } cases[] = {
+        {81, "", {1}},
+        {0, "AB\r\nCD", {0}},
+        {80, "", {0}},
+        {81, "\33[1;11H\33[K", {0}},
+        {81, "\33[1;11H\33[1K", {1}},
+        {81, "\33[1;11H\33[2K", {1}},
+        {81, "\33[1;11H\33[X", {0}},
+        {81, "\33[1;11H\33[P", {0}},
+        {81, "\33[1;11H\33[@", {1}},
+        {81, "\33[2J", {0}},
+        {81, "\33[2;5H\33[1J", {0}},
+        {81, "\33[1;5H\33[J", {0}},
+        {81, "\33[1;5H\33[?K", {0}},
+        {81, "\33[1;5H\33[?2J", {0}},
+        {81, "\33#8", {1}},
+        {81, "\33[1;1H\33#6", {1}},
+        {81, "\33[?69h", {1}},
+        {81, "\33[1 @", {0}},
+        {81, "\33[1 A", {1}},
+        {81, "\33[1;5H\33[1'~", {0}},
+        {81, "\33[1;5H\33[1'}", {1}},
+        {81, "\33[1;80H\33" "9", {0}},
+        {81, "\33[1;1H\33" "6", {1}},
+        {81, "\33[1;1H\33M", {0, 1}},
+        {81, "\33[1;1H\33[L", {0, 1}},
+        {81, "\33[1;1H\33[M", {0}},
+        {81, "\33[1;4r\33[?69h\33[1;40s\33[1;1H\33[S", {1}},
+        {81, "\33[1;5H\33[1;1;1;80$z", {1}},
+        {0, "\33[1\"qP\33[0\"qA\33[79b\33[1;5H\33[?K", {0}},
+        {70, "\33[20b", {1}},
+        {81, "\33[?1049h\33[?1049l", {1}},
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++)
+    {
+        fresh();
+        feed_as(cases[i].as);
+        feed(cases[i].seq);
+        for (int y = 0; y < 4; y++)
+        {
+            if (wrapped(y) != cases[i].wrapped[y])
+                printf("case %u, row %d\n", (unsigned)i, y);
+            ASSERT_EQ((int)wrapped(y), (int)cases[i].wrapped[y]);
+        }
+    }
+}
+
+/* Between left and right margins narrower than the screen no line is
+ * marked, printed or repeated, where xterm marks the row a print leaves:
+ * a run between margins is not a line of text. */
+UTEST(term, a_wrap_between_narrower_margins_marks_no_line)
+{
+    fresh();
+    feed("\33[?69h\33[1;40s\33[1;1H");
+    feed_as(41);
+    ASSERT_FALSE(wrapped(0));
+    ASSERT_STREQ(row(1), "A");
+    feed("\33[3;1HB\33[40b");
+    ASSERT_FALSE(wrapped(2));
+    ASSERT_STREQ(row(3), "B");
+    feed("\33[?69l\33[5;1H");
+    feed_as(81);
+    ASSERT_TRUE(wrapped(4));
+}
+
+/* A wrapped line is wrapped wherever its row goes: into the scrollback and
+ * back, and through a savestate. */
+UTEST(term, a_wrapped_line_goes_with_its_row)
+{
+    fresh();
+    console_set_height(80, 29);
+    feed_as(81);
+    ASSERT_TRUE(wrapped(0));
+    feed("\33[29;1H\n");
+    ASSERT_FALSE(wrapped(0));
+    ASSERT_STREQ(row(0), "A");
+    console_set_height(80, 30);
+    ASSERT_TRUE(wrapped(0));
+    ASSERT_FALSE(wrapped(1));
+    static uint8_t blob[1 << 20];
+    ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
+    feed("\33c");
+    ASSERT_FALSE(wrapped(0));
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_TRUE(wrapped(0));
+    ASSERT_FALSE(wrapped(1));
+}
+
 /* ---- xterm's key options, and columns -------------------------------------- */
 
 /* A program sets modifyOtherKeys and formatOtherKeys and reads them back.
@@ -2984,6 +3097,19 @@ UTEST(term, a_smooth_scroll_moves_out_a_double_size_row_at_its_size)
     ASSERT_STREQ(row(0), "A");
     ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_TOP);
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* DECLRMM's set makes every line single size, the row going out too, so it
+ * ends a smooth scroll, and with it the hold. */
+UTEST(term, declrmm_ends_a_smooth_scroll_and_its_hold)
+{
+    fresh();
+    feed("\33[?4h\33[30;1H\n");
+    ASSERT_TRUE(term_holds(&console_term, '\n'));
+    feed("\33[?69h");
+    ASSERT_FALSE(term_holds(&console_term, '\n'));
+    ASSERT_TRUE(console_smooth_grid() == NULL);
+    feed("\33[?69l");
 }
 
 /* A line feed that would scroll the moving rows again waits for them to

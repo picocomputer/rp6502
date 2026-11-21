@@ -13,15 +13,37 @@
 // The ring a screen's rows are laid out in (screen.h). Every machine keeps
 // it for every screen, with cells or without.
 
-void screen_lines_normal(screen_t *s, unsigned from, unsigned to)
+// Rows [from, to) keep only the line attributes in keep.
+static void screen_lines_keep(screen_t *s, unsigned from, unsigned to, uint8_t keep)
 {
     for (unsigned y = from; y < to; y++)
-        s->line[screen_mem(s, (uint8_t)y)] = TERM_LINE_NORMAL;
+        s->line[screen_mem(s, (uint8_t)y)] &= keep;
+}
+
+void screen_lines_normal(screen_t *s, unsigned from, unsigned to)
+{
+    screen_lines_keep(s, from, to, TERM_LINE_WRAPPED);
+}
+
+void screen_lines_blank(screen_t *s, unsigned from, unsigned to)
+{
+    screen_lines_keep(s, from, to, 0);
+}
+
+void screen_lines_unwrap(screen_t *s, unsigned from, unsigned to)
+{
+    screen_lines_keep(s, from, to, SCREEN_LINE_SIZE);
 }
 
 void screen_all_normal(screen_t *s)
 {
-    memset(s->line, TERM_LINE_NORMAL, s->mem_rows);
+    for (unsigned m = 0; m < s->mem_rows; m++)
+        s->line[m] &= TERM_LINE_WRAPPED;
+}
+
+void screen_all_blank(screen_t *s)
+{
+    memset(s->line, 0, s->mem_rows);
 }
 
 void screen_init(screen_t *s, uint8_t rows, uint8_t *line, uint8_t *row_idx)
@@ -31,7 +53,7 @@ void screen_init(screen_t *s, uint8_t rows, uint8_t *line, uint8_t *row_idx)
     s->line = line;
     s->row_idx = row_idx;
     s->cells = NULL;
-    screen_all_normal(s);
+    screen_all_blank(s);
     screen_ring_clear(s);
 }
 
@@ -111,9 +133,9 @@ uint8_t screen_ring_scroll(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, boo
     const uint8_t edge = (uint8_t)(up ? bot - n + 1 : top + n - 1);
     const uint8_t ghost = screen_keep(s, edge, edge, keep);
     if (up)
-        screen_lines_normal(s, edge, (unsigned)bot + 1);
+        screen_lines_blank(s, edge, (unsigned)bot + 1);
     else
-        screen_lines_normal(s, top, (unsigned)edge + 1);
+        screen_lines_blank(s, top, (unsigned)edge + 1);
     return ghost;
 }
 
@@ -134,7 +156,7 @@ uint8_t screen_ring_index(screen_t *s, uint8_t height, bool up, bool keep)
             s->hidden--;
         ghost = screen_keep(s, in, (uint8_t)(height == s->rows ? 0 : height), keep);
     }
-    screen_lines_normal(s, in, in + 1u);
+    screen_lines_blank(s, in, in + 1u);
     return ghost;
 }
 
@@ -143,7 +165,7 @@ bool screen_ring_height(screen_t *s, uint8_t height, bool grow, bool top)
     if (!top)
     {
         if (grow)
-            screen_lines_normal(s, height - 1u, height);
+            screen_lines_blank(s, height - 1u, height);
         return false;
     }
     screen_turn(s, !grow);
@@ -153,7 +175,7 @@ bool screen_ring_height(screen_t *s, uint8_t height, bool grow, bool top)
         s->hidden--;
     else
     {
-        screen_lines_normal(s, 0, 1);
+        screen_lines_blank(s, 0, 1);
         return true;
     }
     return false;

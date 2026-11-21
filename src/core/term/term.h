@@ -132,6 +132,10 @@
 #define TERM_LINE_TOP 2    // ESC # 3
 #define TERM_LINE_BOTTOM 3 // ESC # 4
 
+// A line that wrapped on its own: a glyph went on to the next row from its
+// last column, as xterm's LINEWRAPPED. A line attribute beside the size.
+#define TERM_LINE_WRAPPED 4
+
 typedef enum
 {
     ansi_state_ground,

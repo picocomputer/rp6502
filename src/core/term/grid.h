@@ -27,8 +27,9 @@
 // cursor's column never reaches the width: writing the last column sets
 // wrap_pending instead, as on a VT102. The left and right margins are the
 // whole width until DECSLRM sets them. cancels goes up at each scroll,
-// index, clear and change of height of the grid, and at nothing else, each
-// of which ends the grid's smooth scroll (console_term.h).
+// index, clear and change of height of the grid, and at DECLRMM's set, and
+// at nothing else, each of which ends the grid's smooth scroll
+// (console_term.h).
 struct term_grid
 {
     uint8_t width;
@@ -119,10 +120,10 @@ typedef enum
     GRID_STAY,    // the cursor where it is, its row touched and its wrap ended
     GRID_ALT_IN,  // the alternate screen's cursor takes the primary's
     GRID_ALT_OUT, // the primary screen's cursor takes the alternate's
-    GRID_CLEAR,   // the screen showing erased, every line single size
+    GRID_CLEAR,   // the screen showing erased, every line blank
     GRID_RESET,   // RIS: the margins, the tabs and the saved positions
     GRID_DECSTR,  // DECSTR: the margins and the saved positions
-    GRID_DECCOLM, // DECCOLM with ?40: the screen erased, single size, full margins, home
+    GRID_DECCOLM, // DECCOLM with ?40: the screen erased, lines blank, full margins, home
 } grid_op_t;
 
 void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch);

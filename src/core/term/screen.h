@@ -69,7 +69,8 @@ static inline uint8_t screen_mem(const screen_t *s, uint8_t y)
     return s->row_idx ? s->row_idx[slot] : slot;
 }
 
-// The line attributes of a row: bits 0-1 its size, TERM_LINE_.
+// The line attributes of a row: bits 0-1 its size, TERM_LINE_, and bit 2
+// TERM_LINE_WRAPPED.
 #define SCREEN_LINE_SIZE 3u
 
 // The line size of row of memory m.
@@ -85,21 +86,47 @@ static inline uint8_t screen_size(const screen_t *s, uint8_t y)
     return screen_mem_size(s, screen_mem(s, y));
 }
 
-// Row y of the screen takes a line size, TERM_LINE_.
+// Row y of the screen takes a line size, TERM_LINE_, and keeps whether it
+// wrapped.
 static inline void screen_set_size(screen_t *s, uint8_t y, uint8_t size)
 {
     uint8_t *line = &s->line[screen_mem(s, y)];
     *line = (uint8_t)((*line & ~SCREEN_LINE_SIZE) | size);
 }
 
-// Rows [from, to) of the screen are single size, as an erase leaves them.
+// Whether row y of the screen wrapped on its own, TERM_LINE_WRAPPED.
+static inline bool screen_wrapped(const screen_t *s, uint8_t y)
+{
+    return s->line[screen_mem(s, y)] & TERM_LINE_WRAPPED;
+}
+
+// Row y of the screen wrapped on its own, or did not, and keeps its size.
+static inline void screen_set_wrapped(screen_t *s, uint8_t y, bool wrapped)
+{
+    uint8_t *line = &s->line[screen_mem(s, y)];
+    *line = (uint8_t)(wrapped ? *line | TERM_LINE_WRAPPED : *line & ~TERM_LINE_WRAPPED);
+}
+
+// Rows [from, to) of the screen are single size and keep whether they
+// wrapped, as DECALN leaves them.
 void screen_lines_normal(screen_t *s, unsigned from, unsigned to);
 
+// Rows [from, to) of the screen come in blank: single size, and not
+// wrapped, as a whole row erased or scrolled in is.
+void screen_lines_blank(screen_t *s, unsigned from, unsigned to);
+
+// Rows [from, to) of the screen are not wrapped and keep their sizes.
+void screen_lines_unwrap(screen_t *s, unsigned from, unsigned to);
+
 // Every row of memory of the screen is single size, the rows above row 0
-// and the spare row too.
+// and the spare row too, and keeps whether it wrapped.
 void screen_all_normal(screen_t *s);
 
-// A screen of rows slots, single size, in order. Its ring is in row_idx,
+// Every row of memory of the screen is blank, single size and not wrapped,
+// the rows above row 0 and the spare row too.
+void screen_all_blank(screen_t *s);
+
+// A screen of rows slots, blank lines, in order. Its ring is in row_idx,
 // rows bytes of the owner's, or NULL for a screen that will have no cells.
 // A screen with a ring has TERM_SPARE_ROWS rows of memory more than slots,
 // because only a ring moves a spare row round, so a ring is for a screen
@@ -127,18 +154,19 @@ void screen_ring_clear(screen_t *s);
 void screen_rotate(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, bool up);
 
 // Rows [top, bot] move n rows up or down, as screen_rotate turns them, and
-// the n rows coming in are single size. Returns the row of memory of the
-// row that went out at the edge, which lands where the rows coming in
-// start. With keep, for a smooth scroll of one row, the spare row of memory
-// takes that slot instead, before anything erases the row coming in, so
-// the row that went keeps its line size, its cells and what it is owed
-// while it still shows going. A screen with no spare row keeps nothing.
+// the n rows coming in are blank lines (screen_lines_blank). Returns the
+// row of memory of the row that went out at the edge, which lands where
+// the rows coming in start. With keep, for a smooth scroll of one row, the
+// spare row of memory takes that slot instead, before anything erases the
+// row coming in, so the row that went keeps its line attributes, its cells
+// and what it is owed while it still shows going. A screen with no spare
+// row keeps nothing.
 uint8_t screen_ring_scroll(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, bool up,
                            bool keep);
 
 // The whole screen of height rows moves a row up, row 0 joining the rows
 // above it, or a row down, the newest of those coming back. The row coming
-// in is the one that was past the other end, and is single size. Returns
+// in is the one that was past the other end, and is a blank line. Returns
 // the row of memory of the row that went: up, the newest row above row 0;
 // down, the row just past the last. With keep, when that is the row coming
 // in, which it is when the ring has no slot to spare, the spare row of
@@ -150,8 +178,8 @@ uint8_t screen_ring_index(screen_t *s, uint8_t height, bool up, bool keep);
 // The height went one row up or down to height, and with top the screen
 // moved instead of the cursor: a grow brings back the newest row above row
 // 0 as it left, a shrink sends row 0 there. A grow at the bottom, or one at
-// the top with no row to bring back, brings in a single-size row. True for
-// the second, where the row that came in holds nothing of the screen's.
+// the top with no row to bring back, brings in a blank line. True for the
+// second, where the row that came in holds nothing of the screen's.
 bool screen_ring_height(screen_t *s, uint8_t height, bool grow, bool top);
 
 // The rows above row 0 are at most what a height of height rows leaves.

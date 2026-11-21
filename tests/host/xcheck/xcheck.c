@@ -11,9 +11,10 @@
  * ria/sys/vga.c replays them, with smooth scrolls moving and holding bytes
  * as on a connected VGA. At points along the way a build prints a digest of
  * what both sizes' two screens hold: the text of each row in view and of
- * each row above them still in the ring, and whether each is used. The text
- * is cell_text's, which is the same for both kinds, so the two print the
- * same digests. xcheck.py runs both and holds them against each other.
+ * each row above them still in the ring, whether each is used, and whether
+ * it wrapped on its own. The text is cell_text's, which is the same for
+ * both kinds, so the two print the same digests. xcheck.py runs both and
+ * holds them against each other.
  *
  *   xcheck fuzz SEED STEPS [POINT]   a seeded stream of sequences
  *   xcheck file PATH SEED [POINT]    the bytes of a file, the seed's changes
@@ -77,14 +78,16 @@ static void xc_print(const char *fmt, ...)
     xc_len += (size_t)n;
 }
 
-// Row y of a screen: its text, a cell_text word a column, and whether it
-// is used. Row y is the screen's slot, so rows - k is the k-th newest row
-// above row 0; label is the row as a person counts it.
+// Row y of a screen: its text, a cell_text word a column, whether it is
+// used, and whether it wrapped on its own. Row y is the screen's slot, so
+// rows - k is the k-th newest row above row 0; label is the row as a person
+// counts it.
 static void xc_row(screen_t *s, uint8_t y, int label)
 {
     uint16_t text[80];
     const unsigned cols = screen_row_text(s, y, text);
-    xc_print("%3d %c", label, screen_row_used(s, y) ? '#' : '.');
+    xc_print("%3d %c%c", label, screen_row_used(s, y) ? '#' : '.',
+             screen_wrapped(s, y) ? '>' : '.');
     for (unsigned x = 0; x < cols; x++)
         xc_print(" %04x", text[x]);
     xc_print("\n");
