@@ -19,7 +19,6 @@
 #include "core/sys/config.h"
 #include "core/str/oem.h"
 #include "core/term/draw.h"
-#include "core/term/font.h"
 #include "core/vga/mode/mode0.h"
 #include "core/term/vterm.h"
 #include "ria.pio.h"
@@ -129,11 +128,6 @@ static inline void vga_pix_backchannel_disable(void)
  * causes it. The console's bytes go to the VGA through the same PIX queue,
  * so the two terminals take them all in the same order. */
 
-/* The code page the VGA's fonts hold, or VGA_CODE_PAGE_UNKNOWN. Choosing a
- * different one resets its terminal. */
-#define VGA_CODE_PAGE_UNKNOWN 0xFFFF
-static uint16_t vga_code_page_sent = VGA_CODE_PAGE_UNKNOWN;
-
 /* The display type the VGA was last sent, which sizes its console. */
 static uint8_t vga_display_sent;
 
@@ -176,12 +170,8 @@ static void HOST_IN_RAM_FUNC vga_pointer_task(void)
 void vga_set_code_page(uint16_t cp)
 {
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x01, cp);
-    if (!vga_connected())
-        return;
-    cp = font_code_page_of(cp);
-    if (cp != vga_code_page_sent)
-        vterm_RIS();
-    vga_code_page_sent = cp;
+    if (vga_connected())
+        vterm_set_code_page(cp);
 }
 
 /* The VGA's console terminal on a display: 32 rows on SXGA (2), otherwise 30. */
@@ -503,7 +493,6 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
     vga_needs_reset = true;
     vga_pointer_shape_dirty = true;
     vga_pointer_where_dirty = true;
-    vga_code_page_sent = VGA_CODE_PAGE_UNKNOWN;
     if (oem_get_code_page_run()) /* at boot oem_init sends it */
         vga_set_code_page(oem_get_code_page_run());
     manifold_write_to(COM_TERM_SCREEN, STR_TERM_HARD_RESET, STR_TERM_HARD_RESET_LEN);

@@ -6,6 +6,7 @@
 
 #include "core/term/draw.h"
 #include "core/term/color.h"
+#include "core/term/font.h"
 #include "core/term/grid.h"
 #include "core/term/screen.h"
 #include "core/term/term.h"
@@ -20,9 +21,11 @@ vterm_smooth_t vterm_smoothing;
 uint16_t vterm_palette[VTERM_PALETTE];
 uint16_t vterm_specials[VTERM_SPECIALS];
 bool vterm_palette_changed;
+static uint16_t vterm_code_page;
 
 /* draw.c's CELL chunk saves the terminal, both sizes, the smooth scroll,
- * the palette and the special colors. */
+ * the palette and the special colors, and font.c's FONT chunk the code
+ * page, with the glyphs it writes. */
 #define VTERM_SST(X)                                             \
     X(SKIP, vterm, "draw.c's CELL chunk saves it")               \
     X(SKIP, vterm_40, "draw.c's CELL chunk saves it")            \
@@ -31,7 +34,8 @@ bool vterm_palette_changed;
     X(SKIP, vterm_palette, "draw.c's CELL chunk saves it")       \
     X(SKIP, vterm_specials, "draw.c's CELL chunk saves it")      \
     X(SKIP, vterm_palette_changed, "draw.c follows every color " \
-                                   "after a load")
+                                   "after a load")               \
+    X(SKIP, vterm_code_page, "font.c's FONT chunk saves it")
 SST_TABLE(vterm, VTERM_SST)
 
 #define VTERM_FG_COLOR_INDEX 7
@@ -75,6 +79,26 @@ void vterm_RIS_no_clear(void)
 void vterm_set_height(uint8_t width, uint8_t height)
 {
     term_set_height(&vterm, width == 40 ? &vterm_40.grid : &vterm_80.grid, height);
+}
+
+uint16_t vterm_get_code_page(void)
+{
+    return vterm_code_page;
+}
+
+void vterm_load_code_page(uint16_t cp)
+{
+    vterm_code_page = font_code_page_of(cp);
+}
+
+bool vterm_set_code_page(uint16_t cp)
+{
+    uint16_t was = vterm_code_page;
+    vterm_load_code_page(cp);
+    if (vterm_code_page == was)
+        return false;
+    vterm_RIS();
+    return true;
 }
 
 term_grid_t *vterm_get_shown(const term_t *t)

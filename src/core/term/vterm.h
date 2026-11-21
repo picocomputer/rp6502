@@ -70,6 +70,20 @@ void vterm_RIS_no_clear(void);
 // The renderer reports its geometry: rows of the 40- or 80-column terminal.
 void vterm_set_height(uint8_t width, uint8_t height);
 
+/* The code page the console's glyphs show, as font_code_page_of gives it:
+ * the fonts' own page on a machine that draws them (font.c), and on the RIA
+ * the page the VGA's fonts hold, followed while the VGA is connected. */
+uint16_t vterm_get_code_page(void);
+
+// Choosing a different page resets the terminal, because a screen of
+// glyphs from one page cannot be read against another. True when the page
+// changed, and the glyphs are to be written.
+bool vterm_set_code_page(uint16_t cp);
+
+// The page without the terminal reset, for a savestate, which has already
+// put the terminal's cells back.
+void vterm_load_code_page(uint16_t cp);
+
 // The grid the cursor reports come from, and the one drawn: the 40 on a
 // 320-wide canvas of a connected VGA, otherwise the 80, which is the
 // console with no VGA too.

@@ -1259,12 +1259,40 @@ UTEST(oem, glyph_store_follows_the_run_page)
     ASSERT_TRUE(oem_set_code_page(850));
     sys_init();
     ASSERT_EQ((uint16_t)850, oem_get_code_page_run());
-    ASSERT_EQ(oem_get_code_page_run(), font_get_code_page());
+    ASSERT_EQ(oem_get_code_page_run(), vterm_get_code_page());
 
     ASSERT_TRUE(oem_set_code_page(0)); /* back to auto */
     str_init();
     sys_init();
-    ASSERT_EQ(oem_get_code_page_run(), font_get_code_page());
+    ASSERT_EQ(oem_get_code_page_run(), vterm_get_code_page());
+}
+
+/* The console's code page is the terminal's: a change resets it, the same
+ * page again does not, and a load, as a savestate makes, never does. A mode
+ * the reset clears shows which happened. */
+UTEST(font, a_page_change_resets_the_terminal_and_a_load_does_not)
+{
+    font_load_code_page(437);
+    vterm.app_cursor = true;
+    font_set_code_page(437);
+    ASSERT_TRUE(vterm.app_cursor);
+
+    font_set_code_page(850);
+    ASSERT_EQ((uint16_t)850, vterm_get_code_page());
+    ASSERT_FALSE(vterm.app_cursor);
+
+    vterm.app_cursor = true;
+    font_load_code_page(437);
+    ASSERT_EQ((uint16_t)437, vterm_get_code_page());
+    ASSERT_TRUE(vterm.app_cursor);
+
+    /* A page the fonts lack is 0, ASCII alone, and a change too. */
+    font_set_code_page(1252);
+    ASSERT_EQ((uint16_t)0, vterm_get_code_page());
+    ASSERT_FALSE(vterm.app_cursor);
+
+    vterm.app_cursor = false;
+    font_load_code_page(oem_get_code_page_run());
 }
 
 UTEST(oem, utf8_string_roundtrip)

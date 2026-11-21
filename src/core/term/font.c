@@ -19,16 +19,15 @@
 alignas(4) uint8_t font8[2 * 2048];
 alignas(4) uint8_t font16[2 * 4096];
 
-static uint16_t font_code_page;
-
-/* The code page is carried here because a program can choose one of its
- * own through xreg, apart from the one the OEM settings give. The load
- * writes its glyphs again without the terminal reset font_set_code_page
- * makes, because the terminal's cells have their own row. */
+/* The code page (vterm_get_code_page) is carried here because a program
+ * can choose one of its own through xreg, apart from the one the OEM
+ * settings give. The load writes its glyphs again without the terminal
+ * reset font_set_code_page makes, because the terminal's cells have their
+ * own row. */
 static void font_sst_put_page(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    sst_put_u16(c, font_code_page);
+    sst_put_u16(c, vterm_get_code_page());
 }
 
 static bool font_sst_get_page(sst_cursor_t *c, unsigned flags)
@@ -45,7 +44,6 @@ static bool font_sst_get_page(sst_cursor_t *c, unsigned flags)
 
 #define FONT_SST(X)                                                    \
     X(FN, font_sst_put_page, font_sst_get_page, 2, 1)                  \
-    X(IN_FN, font_code_page)                                           \
     X(SKIP, font8, "the code page's glyphs, written by its load")      \
     X(SKIP, font16, "the code page's glyphs, written by its load")
 SST_TABLE(font, FONT_SST)
@@ -4083,38 +4081,12 @@ static void font_build(const uint8_t *font8hi, const uint8_t *font16hi)
     font_build_other_high();
 }
 
-void font_init(void)
-{
-    // Clearing font_code_page makes 437 a change, so the tables are written
-    // even when font_init runs a second time with 437 already recorded.
-    font_code_page = 0;
-    font_set_code_page(437);
-}
-
-uint16_t font_get_code_page(void)
-{
-    return font_code_page;
-}
-
-/* Choosing a code page resets the terminal, because a screen of glyphs from
- * one page cannot be read against another. */
-void font_set_code_page(uint16_t cp)
-{
-    cp = font_code_page_of(cp);
-    if (font_code_page == cp)
-        return;
-    font_code_page = cp;
-    vterm_RIS();
-    font_load_code_page(cp);
-}
-
-void font_load_code_page(uint16_t cp)
+static void font_glyphs(uint16_t cp)
 {
     const uint8_t *font8hi = NULL;
     const uint8_t *font16hi = NULL;
 
-    font_code_page = font_code_page_of(cp);
-    switch (font_code_page)
+    switch (cp)
     {
     case 437:
         font8hi = FONT8_CP437;
@@ -4188,4 +4160,24 @@ void font_load_code_page(uint16_t cp)
         break;
     }
     font_build(font8hi, font16hi);
+}
+
+void font_init(void)
+{
+    // The terminal resets and the tables are written even when font_init
+    // runs a second time with 437 already the page.
+    vterm_RIS();
+    font_load_code_page(437);
+}
+
+void font_set_code_page(uint16_t cp)
+{
+    if (vterm_set_code_page(cp))
+        font_glyphs(vterm_get_code_page());
+}
+
+void font_load_code_page(uint16_t cp)
+{
+    vterm_load_code_page(cp);
+    font_glyphs(vterm_get_code_page());
 }

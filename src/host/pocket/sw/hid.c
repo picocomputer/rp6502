@@ -8,12 +8,12 @@
 #include "apf.h"
 #include "core/str/oem.h"
 #include "core/str/unicode.h"
-#include "core/term/font.h"
+#include "core/term/vterm.h"
 #include "core/vga/vga.h"
 
 uint16_t oem_get_code_page_run(void)
 {
-    return font_get_code_page();
+    return vterm_get_code_page();
 }
 
 bool oem_set_code_page_run(uint16_t cp)
