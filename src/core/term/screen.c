@@ -166,8 +166,6 @@ void screen_ring_fit(screen_t *s, uint8_t height)
         s->hidden = room;
 }
 
-#if TERM_CELLS
-
 // The cell store: the cells of a screen that has them, which the grid
 // (grid.c) changes through the screen_ functions, and what each row of them
 // is still owed. draw.c makes the words mode 0 draws the size showing from,
@@ -974,5 +972,3 @@ void screen_blank_cells(cell_t *cells, unsigned n)
     const cell_fill_t e = cell_blank(' ', cell_side_default(), false);
     cell_run_fill(cells, n, &e);
 }
-
-#endif /* TERM_CELLS */

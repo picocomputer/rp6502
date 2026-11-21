@@ -39,14 +39,9 @@ SST_TABLE(console_term, CONSOLE_SST)
  * and rings and given their cells: each size's primary, then its alternate.
  * Without an alternate store, the alternate screen has no cells, and the
  * terminal never switches to it. */
-#if TERM_CELLS
 void console_init(cell_t *cells)
-#else
-void console_init(mode0_cell_t *cells)
-#endif
 {
     console_size_t *const all[] = {&console_40, &console_80};
-#if TERM_CELLS
     screen_blank_cells(cells, CONSOLE_CELLS);
     for (int n = 0; n < 2; n++)
     {
@@ -60,11 +55,6 @@ void console_init(mode0_cell_t *cells)
             screen_set_cells(&all[n]->grid.screen[b], &all[n]->bufs[b]);
         }
     }
-#else
-    (void)cells;
-    for (int n = 0; n < 2; n++)
-        term_grid_init(&all[n]->grid, n ? 80 : 40, all[n]->lines, NULL, TERM_MAX_HEIGHT);
-#endif
     term_grid_t *const grids[] = {&console_40.grid, &console_80.grid};
     term_init(&console_term, grids, 2);
 }
@@ -102,8 +92,8 @@ void console_smooth(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, bool up
     console_smoothing = (console_smooth_t){
         .grid = g,
         .frame = (uint32_t)vga_frame_count() + 1,
-#if TERM_CELLS
         .cancels = g->cancels,
+#if CONSOLE_DRAWN
         .screen = (uint8_t)(g->shown - g->screen),
         .top = top,
         .bot = bot,
@@ -111,7 +101,7 @@ void console_smooth(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, bool up
         .ghost = ghost,
 #endif
     };
-#if !TERM_CELLS
+#if !CONSOLE_DRAWN
     (void)top, (void)bot, (void)up, (void)ghost;
 #endif
 }
@@ -123,10 +113,7 @@ const term_grid_t *HOST_IN_RAM_FUNC console_smooth_grid(void)
 {
     console_smooth_t *sm = &console_smoothing;
     if (sm->grid &&
-        (!vga_connected() ||
-#if TERM_CELLS
-         sm->cancels != sm->grid->cancels ||
-#endif
+        (!vga_connected() || sm->cancels != sm->grid->cancels ||
          (int32_t)((uint32_t)vga_frame_count() - (sm->frame + TERM_SMOOTH_FRAMES - 1)) >= 0))
         sm->grid = NULL;
     return sm->grid;

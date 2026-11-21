@@ -56,14 +56,6 @@
 #endif
 #define TERM_MEM_ROWS (TERM_MAX_HEIGHT + TERM_SPARE_ROWS)
 
-/* TERM_CELLS: the screens keep their cells in the cell store (screen.c),
- * as mode 0 draws them. A machine that only follows the terminal, and
- * keeps no cells, sets it to 0 and defines the store's functions that
- * change cells itself (screen.h). */
-#ifndef TERM_CELLS
-#define TERM_CELLS 1
-#endif
-
 /* TERM_CELL_TEXT: the cells are text cells (cell_text.h), the text of each
  * cell and whether it shows, for a machine that keeps the console's text
  * but draws nothing. 0 is mode 0's cells (cell_mode0.h), as mode 0 draws

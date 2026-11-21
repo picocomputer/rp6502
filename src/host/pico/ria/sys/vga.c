@@ -5,7 +5,6 @@
  */
 
 #include "ria/mon/mon.h"
-#include "core/sys/debug_log.h"
 #include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/com/com.h"
@@ -19,6 +18,7 @@
 #include "ria/sys/vga.h"
 #include "core/sys/config.h"
 #include "core/str/oem.h"
+#include "core/term/cells.h"
 #include "core/term/font.h"
 #include "core/vga/mode/mode0.h"
 #include "core/term/console_term.h"
@@ -498,18 +498,15 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
 
     /* The VGA may have kept its state while the RIA restarted, or started
      * fresh while the RIA ran. DISPLAY and the code page are sent again, and
-     * a hard reset follows them to both terminals, so the two start alike.
-     * A build that logs has its log on that screen, which the hard reset
-     * would erase, so there the screen has only the soft reset the banner
-     * starts with, as every other terminal has. */
+     * a hard reset follows them to both terminals, so the two start alike,
+     * in a build that logs too. */
     vga_needs_reset = true;
     vga_pointer_shape_dirty = true;
     vga_pointer_where_dirty = true;
     vga_code_page_sent = VGA_CODE_PAGE_UNKNOWN;
     if (oem_get_code_page_run()) /* at boot oem_init sends it */
         vga_set_code_page(oem_get_code_page_run());
-    if (!RP6502_LOG_ANY)
-        manifold_write_to(COM_TERM_SCREEN, STR_TERM_HARD_RESET, STR_TERM_HARD_RESET_LEN);
+    manifold_write_to(COM_TERM_SCREEN, STR_TERM_HARD_RESET, STR_TERM_HARD_RESET_LEN);
     com_set_reply_default(false);
     /* A VGA of the firmware before the RIA answered the queries still has
      * its own answers on; this turns them off, so an update of either chip
@@ -517,8 +514,36 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x02, 1);
 }
 
+/* The console's terminal (console_term.h) follows the VGA's in text cells,
+ * fed every byte the VGA's terminal gets. */
+static cell_t vga_console_cells[CONSOLE_CELLS];
+
+static int vga_console_out(const char *buf, int length, bool force)
+{
+    (void)force;
+    for (int i = 0; i < length; i++)
+        term_write(&console_term, (uint8_t)buf[i]);
+    return length;
+}
+
+/* While the RIA rewrites its flash, the console's output path runs from RAM
+ * and the terminal, in flash, is no longer fed. */
+void vga_flashing(void)
+{
+    manifold_set_term_out(NULL);
+}
+
+/* The VGA draws the console, so the RIA has no blinks to start again. */
+void draw_reset(void)
+{
+}
+
 void HOST_IN_FLASH_FUNC vga_init(void)
 {
+    // The terminal first, as connecting resets and sizes it.
+    console_init(vga_console_cells);
+    manifold_set_term_out(vga_console_out);
+
     // Disable backchannel for the case where RIA reboots and VGA doesn't
     vga_pix_backchannel_disable();
 

@@ -4,18 +4,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The RIA's console terminal, which has no cells: which rows it says may
- * have something on them, for the clear line a program's end leaves. */
+/* The RIA's console terminal, which keeps its text in text cells: which
+ * rows have something on them, for the clear line a program's end leaves. */
 
 #include "core/aud/bel.h"
 #include "core/com/com.h"
-#include "core/com/manifold.h"
-#include "core/term/cells.h"
 #include "core/term/console_term.h"
 #include "core/term/grid.h"
 #include "ria/sys/vga.h"
 #include "utest.h"
 #include <string.h>
+
+/* The RIA's machine.h, which a host build cannot include. */
+_Static_assert(TERM_MAX_HEIGHT == 32 && TERM_ALT_SCREEN == 1 && TERM_CELL_TEXT == 1 &&
+                   TERM_SPARE_ROWS == 0,
+               "the RIA's terminal");
 
 /* The console with no VGA, the 80-column terminal, unless a test connects
  * one (ria/sys/vga.c). Its canvas is 640 wide, so the 80 shows either way. */
@@ -23,8 +26,8 @@ static bool connected;
 bool vga_connected(void) { return connected; }
 unsigned long vga_frame_count(void) { return 0; }
 int16_t vga_canvas_width(void) { return 640; }
-void manifold_set_term_out(int (*out)(const char *buf, int len, bool force)) { (void)out; }
 void com_reply(const char *s, size_t n) { (void)s, (void)n; }
+void draw_reset(void) {}
 
 /* The bell's voice is the PSG's ninth, and register 6 is its gate
  * (core/aud/bel.c); the bell sounds while the gate is up. Its deadlines
@@ -54,10 +57,12 @@ static const char *rows(int count)
     return out;
 }
 
+static cell_t cells[CONSOLE_CELLS];
+
 static void fresh(void)
 {
     connected = false;
-    cells_init();
+    console_init(cells);
     console_RIS();
 }
 
@@ -71,6 +76,19 @@ UTEST(cells, ris_ends_a_smooth_scroll_and_its_hold)
     say("\33[?4h\33[99;1H\n");
     ASSERT_TRUE(term_holds(&console_term, '\n'));
     say("\33c");
+    ASSERT_FALSE(term_holds(&console_term, '\n'));
+    connected = false;
+}
+
+/* A scroll of the grid ends its smooth scroll, and the hold with it, as on
+ * the VGA, which draws the rows where they are. */
+UTEST(cells, a_scroll_ends_a_smooth_scroll_and_its_hold)
+{
+    fresh();
+    connected = true;
+    say("\33[?4h\33[99;1H\n");
+    ASSERT_TRUE(term_holds(&console_term, '\n'));
+    say("\33[S");
     ASSERT_FALSE(term_holds(&console_term, '\n'));
     connected = false;
 }
@@ -97,12 +115,12 @@ UTEST(cells, an_erase_of_a_whole_row_clears_it)
     /* EL 2 on row 1, and ED 0 from the start of row 2. */
     say("\33[1;1H\33[2K\33[3;1H\33[J");
     ASSERT_STREQ(rows(5), ".#...");
-    /* Part of a row erased leaves it in use, which is all that is known. */
+    /* A row erased in two parts is clear. */
     say("\33[2;2H\33[K\33[2;1H\33[1K");
-    ASSERT_STREQ(rows(5), ".#...");
+    ASSERT_STREQ(rows(5), ".....");
     /* An erase to a color puts the color on the row. */
     say("\33[4;1H\33[44m\33[2K\33[0m");
-    ASSERT_STREQ(rows(5), ".#.#.");
+    ASSERT_STREQ(rows(5), "...#.");
     say("\33[2J");
     ASSERT_STREQ(rows(5), ".....");
 }

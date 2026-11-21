@@ -26,10 +26,9 @@
 // term_grid_init and term_grid_copy start it, and term_show sets it. The
 // cursor's column never reaches the width: writing the last column sets
 // wrap_pending instead, as on a VT102. The left and right margins are the
-// whole width until DECSLRM sets them. Where the screens keep cells,
-// cancels goes up at each scroll, index, clear and change of height of the
-// grid, and at nothing else, each of which ends the grid's smooth scroll
-// (console_term.h).
+// whole width until DECSLRM sets them. cancels goes up at each scroll,
+// index, clear and change of height of the grid, and at nothing else, each
+// of which ends the grid's smooth scroll (console_term.h).
 struct term_grid
 {
     uint8_t width;
@@ -39,9 +38,7 @@ struct term_grid
     screen_t screen[2]; // the primary, then the alternate
     screen_t *shown;    // the screen showing
     uint8_t tab_stops[TERM_TAB_BITMAP_BYTES]; // 1 bit per column
-#if TERM_CELLS
     uint32_t cancels;
-#endif
 };
 
 /* The cursor of the screen showing.
@@ -197,10 +194,11 @@ void term_set_width(term_t *t, term_grid_t *g, uint8_t width);
  * when not. */
 bool term_grid_sst_ok(sst_cursor_t *c, const term_grid_t *g, uint8_t rows);
 
-/* Whether the line attributes of a grid's screens are ones there are, and
- * each screen's cursor is inside its line's columns. For after the rings
- * and the line attributes are loaded. False, after sst_refuse, when not. */
-bool term_grid_sst_lines_ok(sst_cursor_t *c, const term_grid_t *g);
+/* Whether the line attributes of a grid's first screens, the ones whose
+ * line attributes were loaded, are ones there are, and each such screen's
+ * cursor is inside its line's columns. For after the rings and the line
+ * attributes are loaded. False, after sst_refuse, when not. */
+bool term_grid_sst_lines_ok(sst_cursor_t *c, const term_grid_t *g, unsigned screens);
 
 /* A grid's rows and then, for each screen, its line attributes, its ring's
  * turn and the rows above row 0, for an owner whose grid is not always

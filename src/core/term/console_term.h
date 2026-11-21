@@ -14,7 +14,8 @@
  * hands it mode 0's cells, and mode 0 draws from the palette. The RIA's
  * terminal follows the VGA's: it is fed the bytes the VGA's terminal gets
  * as they are sent, ria/sys/vga.c replays the VGA's resets and size changes
- * in the same order, and it hands in no cells.
+ * in the same order, and it hands in text cells (TERM_CELL_TEXT), which
+ * keep the text and draw nothing.
  *
  * The cell store takes more memory than anything else here, and two things
  * size it: TERM_ALT_SCREEN, and the machine's TERM_MAX_HEIGHT — 32 rows only
@@ -24,24 +25,19 @@
 #include "core/term/grid.h"
 #include "core/term/screen.h"
 #include "core/term/term.h"
-#include "core/vga/mode/mode0.h"
 #include <stdbool.h>
 #include <stdint.h>
 
 // The console's terminal at one size: its grid, and the storage of its
 // screens, the primary's then the alternate's: the line attributes of their
-// rows of memory and, where the screens keep cells, their rings and cells.
-// A build without TERM_ALT_SCREEN gives the alternate screen no cells.
+// rows of memory, their rings and their cells. A build without
+// TERM_ALT_SCREEN gives the alternate screen no cells.
 typedef struct
 {
     term_grid_t grid;
-#if TERM_CELLS
     uint8_t lines[2 * TERM_MEM_ROWS];
     uint8_t row_idx[2 * TERM_MAX_HEIGHT];
     screen_cells_t bufs[2];
-#else
-    uint8_t lines[2 * TERM_MAX_HEIGHT];
-#endif
 } console_size_t;
 
 extern term_t console_term;
@@ -50,18 +46,17 @@ extern console_size_t console_80;
 
 /* The terminal and both sizes as at power-up: new grids at TERM_STD_HEIGHT,
  * and a new terminal on them, whose RIS lays out every screen and sets the
- * palette. Where the screens keep cells (TERM_CELLS), cells are
- * CONSOLE_CELLS cells of the machine's kind (cell.h) for the screens, each
- * size's primary then its alternate, the 40's first, and every one of them
- * is a blank in the default colors at once. Where they keep none, cells is
- * NULL. A program's own grid is dropped. */
-#if TERM_CELLS
+ * palette. cells are CONSOLE_CELLS cells of the machine's kind (cell.h) for
+ * the screens, each size's primary then its alternate, the 40's first, and
+ * every one of them is a blank in the default colors at once. A program's
+ * own grid is dropped. */
 #define CONSOLE_SCREENS (TERM_ALT_SCREEN ? 2 : 1)
 #define CONSOLE_CELLS ((40 + 80) * TERM_MEM_ROWS * CONSOLE_SCREENS)
 void console_init(cell_t *cells);
-#else
-void console_init(mode0_cell_t *cells);
-#endif
+
+/* Mode 0's cells are drawn (draw.c), and text cells are not: a machine
+ * with text cells keeps nothing for drawing. */
+#define CONSOLE_DRAWN (!TERM_CELL_TEXT)
 
 // RIS, and the system's soft reset, which also sets the 40-column terminal
 // back to TERM_STD_HEIGHT: only a mode 0 on a 320-wide canvas sets its
@@ -90,16 +85,16 @@ term_grid_t *console_shown(const term_t *t);
  * (term_holds). A scroll still moving finishes at once. The frames are the
  * VGA's, vga_frame_count. With no VGA the console is a serial port to a
  * terminal of unknown kind, and nothing moves or is held. A machine that
- * draws the console draws the scroll from this record (draw.c). One whose
- * screens keep no cells (TERM_CELLS 0) only holds the bytes, and its record
- * is the grid and the frame alone. */
+ * draws the console draws the scroll from this record (draw.c). One that
+ * draws nothing (CONSOLE_DRAWN 0) only holds the bytes, and its record is
+ * the grid, the frame and the cancels alone. */
 typedef struct
 {
     const term_grid_t *grid; // the grid moving, or NULL for none
     uint32_t frame;          // the first frame that shows the rows on their way
-#if TERM_CELLS
-    uint32_t cancels; // the grid's count of cancels as it started (grid.h)
-    uint8_t screen;   // which of its screens: 0 the primary, 1 the alternate
+    uint32_t cancels;        // the grid's count of cancels as it started (grid.h)
+#if CONSOLE_DRAWN
+    uint8_t screen; // which of its screens: 0 the primary, 1 the alternate
     uint8_t top, bot;
     bool up;
     uint8_t ghost;

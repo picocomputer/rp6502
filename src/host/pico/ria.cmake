@@ -253,7 +253,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/term/grid.c
     ${RP6502_ROOT}/src/core/term/screen.c
     ${RP6502_ROOT}/src/core/term/console_term.c
-    ${RIA_SRC}/term/cells.c
+    ${RP6502_ROOT}/src/core/term/cell_text.c
     ${RP6502_GEN}/unicode_oem.c
     ${RP6502_ROOT}/src/core/api/std.c
     ${RP6502_ROOT}/src/core/com/console.c

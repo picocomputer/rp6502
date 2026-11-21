@@ -14,13 +14,11 @@
  * screen's rows and changes its cells through the functions here, and
  * draw.c reads them for what mode 0 draws. */
 
+#include "core/sys/sst.h"
+#include "core/term/cell.h"
 #include "core/term/term.h"
 #include <stdbool.h>
 #include <stdint.h>
-#if TERM_CELLS
-#include "core/sys/sst.h"
-#include "core/term/cell.h"
-#endif
 
 // A cursor's place in a grid.
 typedef struct
@@ -117,8 +115,7 @@ void screen_set_cells(screen_t *s, struct screen_cells *cells);
 /* ---- the ring -----------------------------------------------------------
  *
  * What every screen's rows do, with cells or without. The store's moves
- * below do these first; a machine with no cells (TERM_CELLS 0) does them
- * from its own. */
+ * below do these first. */
 
 // The ring in order, with no rows above row 0 and the spare row the last.
 // The line attributes stay with their rows of memory.
@@ -174,8 +171,7 @@ static inline void screen_forget(screen_t *s)
  * from the pen, and an erased cell takes the pen's colors, not reversed.
  * A screen with no cells, a program's own size (term_add_grid) for one,
  * has only its ring: a scroll, an index, a clear, a reset and a change of
- * height move it, and the rest leave it be. A machine with no cells
- * (TERM_CELLS 0) defines these itself, and follows what it needs of them. */
+ * height move it, and the rest leave it be. */
 
 // Row y is about to be written or have the cursor on it: a lazy erase still
 // owed to it is done now.
@@ -273,19 +269,16 @@ void screen_height(screen_t *s, uint8_t height, bool grow, bool top);
 // something from before they left.
 void screen_fit(screen_t *s, uint8_t height);
 
-// Whether row y has anything on it: a cell that shows (cell_shows). A
-// machine with no cells answers from what it was told as the row was
-// written, and yes where that does not say. No for a screen with no cells.
+// Whether row y has anything on it: a cell that shows (cell_shows). No for
+// a screen with no cells.
 bool screen_row_used(screen_t *s, uint8_t y);
 
 // The text of row y, a cell_text word (cell.h) for each of its columns,
 // into out, which has room for the screen's width. Returns the columns, the
 // screen's width or half of it on a row of double width; none for a screen
 // with no cells. Row y may be a row above row 0 still in the ring, as row
-// rows - 1 is the newest of them. A machine with no cells does not have it.
+// rows - 1 is the newest of them.
 unsigned screen_row_text(screen_t *s, uint8_t y, uint16_t *out);
-
-#if TERM_CELLS
 
 /* ---- inside the store ---------------------------------------------------
  *
@@ -399,7 +392,5 @@ bool screen_tidy(screen_t *s, uint8_t height);
 #define SCREEN_SST_SIZE (TERM_MAX_HEIGHT + 1 + (2 + SCREEN_SST_RECORD) * TERM_MEM_ROWS + 3)
 void screen_sst_put(sst_cursor_t *c, screen_t *s);
 bool screen_sst_get(sst_cursor_t *c, screen_t *s);
-
-#endif /* TERM_CELLS */
 
 #endif /* _CORE_TERM_SCREEN_H_ */

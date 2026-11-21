@@ -52,6 +52,7 @@ void vga_task(void);
 void vga_run(void);
 void vga_stop(void);
 void vga_break(void);
+void vga_flashing(void);
 
 // Fully connected with backchannel.
 bool vga_connected(void);
@@ -78,13 +79,15 @@ void vga_xreg(uint8_t index, uint16_t word);
 /* VGA_DRIVER comes after RIA_DRIVER and PIX_DRIVER in RP6502_MACH_DRIVERS
  * because vga_init sends PIX messages and waits for the VGA's reply, and the
  * PIX transmitter shifts only on edges of the PHI2 clock that ria_init
- * starts. */
+ * starts. vga_init also starts the console's terminal (console_term.h),
+ * which follows the VGA's. */
 #define VGA_DRIVER DRIVER(   \
     INIT(vga_init)           \
     TASK_PUMPED(vga_task)    \
     RUN(vga_run)             \
     STOP(vga_stop)           \
     BREAK(vga_break)         \
+    FLASHING(vga_flashing)   \
     VGA_CONFIG_DISPLAY_TYPE)
 
 #endif /* _RIA_SYS_VGA_H_ */

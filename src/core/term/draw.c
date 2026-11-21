@@ -153,11 +153,12 @@ static bool cells_sst_grids_ok(sst_cursor_t *c)
            term_grid_sst_ok(c, &console_80.grid, TERM_MAX_HEIGHT);
 }
 
-/* The line attributes, once the layouts below have loaded them. */
+/* The line attributes, once the layouts below have loaded them: those of
+ * the screens that have cells, which are the ones saved. */
 static bool cells_sst_lines_ok(sst_cursor_t *c)
 {
-    return term_grid_sst_lines_ok(c, &console_40.grid) &&
-           term_grid_sst_lines_ok(c, &console_80.grid);
+    return term_grid_sst_lines_ok(c, &console_40.grid, MODE0_SCREENS) &&
+           term_grid_sst_lines_ok(c, &console_80.grid, MODE0_SCREENS);
 }
 
 /* Each screen's layout, as the store puts it: each size's screens that have

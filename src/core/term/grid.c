@@ -84,11 +84,7 @@ static inline HOST_IN_RAM_FUNC bool grid_in_columns(const term_grid_t *g, unsign
 // ends the grid's smooth scroll (grid.h).
 static inline void grid_cancel(term_grid_t *g)
 {
-#if TERM_CELLS
     g->cancels++;
-#else
-    (void)g;
-#endif
 }
 
 void term_grid_init(term_grid_t *g, uint8_t width, uint8_t *lines, uint8_t *row_idx,
@@ -1425,9 +1421,9 @@ bool term_grid_sst_ok(sst_cursor_t *c, const term_grid_t *g, uint8_t rows)
     return true;
 }
 
-bool term_grid_sst_lines_ok(sst_cursor_t *c, const term_grid_t *g)
+bool term_grid_sst_lines_ok(sst_cursor_t *c, const term_grid_t *g, unsigned screens)
 {
-    for (int s = 0; s < 2; s++)
+    for (unsigned s = 0; s < screens; s++)
     {
         const screen_t *sc = &g->screen[s];
         for (unsigned m = 0; m < sc->mem_rows; m++)
@@ -1478,5 +1474,5 @@ bool term_grid_sst_get(sst_cursor_t *c, term_grid_t *g)
         if (sc->y_offset >= rows || sc->hidden > rows - g->height)
             return sst_refuse(c, "a screen's layout out of range");
     }
-    return term_grid_sst_lines_ok(c, g);
+    return term_grid_sst_lines_ok(c, g, 2);
 }
