@@ -1354,8 +1354,8 @@ static bool script_command(const char *line)
             return script_error("type wants a frame budget");
         if (!script_end(p))
             return false;
-        paste_start(text);
-        /* Waiting for the text to drain, because paste_start replaces
+        typed_text(text);
+        /* Waiting for the text to drain, because typed_text replaces
          * whatever is still being delivered and back-to-back type commands
          * would otherwise truncate each other. */
         script_wait = SCRIPT_TYPING;

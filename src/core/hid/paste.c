@@ -17,17 +17,34 @@
 static char *paste_buf;
 static size_t paste_len, paste_pos;
 
-#define PASTE_SST(X)                                        \
-    X(SKIP, paste_buf, "every load cancels the paste")      \
-    X(SKIP, paste_len)                                      \
-    X(SKIP, paste_pos)
-SST_TABLE(paste, PASTE_SST)
-
 void paste_cancel(void)
 {
     free(paste_buf);
     paste_buf = NULL;
 }
+
+/* The text came from outside the machine and is on its way in, so a save
+ * carries none of it and every load ends it. */
+static void paste_sst_nothing(sst_cursor_t *c, unsigned flags)
+{
+    (void)c;
+    (void)flags;
+}
+
+static bool paste_sst_cancel(sst_cursor_t *c, unsigned flags)
+{
+    (void)c;
+    (void)flags;
+    paste_cancel();
+    return true;
+}
+
+#define PASTE_SST(X)                                        \
+    X(FN, paste_sst_nothing, paste_sst_cancel, 0, 1)        \
+    X(SKIP, paste_buf, "every load cancels the paste")      \
+    X(SKIP, paste_len)                                      \
+    X(SKIP, paste_pos)
+SST_TABLE(paste, PASTE_SST)
 
 void paste_clear(void)
 {
@@ -35,40 +52,61 @@ void paste_clear(void)
     typed_clear();
 }
 
+/* End the paste in progress, then make room for n bytes of text and the
+ * extra bytes around them. Empty text starts nothing. */
+static char *paste_alloc(size_t n, size_t extra)
+{
+    paste_cancel();
+    paste_len = paste_pos = 0;
+    if (!n)
+        return NULL;
+    return paste_buf = malloc(n + extra);
+}
+
+void typed_text(const char *utf8)
+{
+    size_t n = utf8 ? strlen(utf8) : 0;
+    if (!paste_alloc(n, 0))
+        return;
+    memcpy(paste_buf, utf8, n);
+    paste_len = n;
+}
+
 /* A program that set bracketed paste (?2004) gets the paste between
  * ESC [ 200 ~ and ESC [ 201 ~, with any ESC of the text left out, so the
- * text cannot end the bracket early. */
+ * text cannot end the bracket early. A line end is pressed as Enter, the way
+ * a terminal pastes: the host's clipboard ends lines in CRLF on Windows and
+ * LF elsewhere. */
 static const char paste_open[] = "\33[200~";
 static const char paste_close[] = "\33[201~";
 
 void paste_start(const char *utf8)
 {
-    paste_cancel();
     size_t n = utf8 ? strlen(utf8) : 0;
-    if (!n)
-        return;
     bool bracket = vterm.bracketed_paste;
-    paste_buf = malloc(n + (bracket ? sizeof paste_open + sizeof paste_close : 0));
-    if (!paste_buf)
+    if (!paste_alloc(n, bracket ? sizeof paste_open + sizeof paste_close : 0))
         return;
     size_t len = 0;
     if (bracket)
     {
         memcpy(paste_buf, paste_open, sizeof paste_open - 1);
         len = sizeof paste_open - 1;
-        for (size_t i = 0; i < n; i++)
-            if (utf8[i] != '\33')
-                paste_buf[len++] = utf8[i];
+    }
+    for (size_t i = 0; i < n; i++)
+    {
+        char ch = utf8[i];
+        if (ch == '\33' && bracket)
+            continue;
+        if (ch == '\r' && utf8[i + 1] == '\n')
+            i++;
+        paste_buf[len++] = ch == '\n' ? '\r' : ch;
+    }
+    if (bracket)
+    {
         memcpy(paste_buf + len, paste_close, sizeof paste_close - 1);
         len += sizeof paste_close - 1;
     }
-    else
-    {
-        memcpy(paste_buf, utf8, n);
-        len = n;
-    }
     paste_len = len;
-    paste_pos = 0;
 }
 
 bool paste_busy(void)

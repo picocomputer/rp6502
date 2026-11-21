@@ -274,6 +274,52 @@ UTEST(com, a_bracketed_paste_is_marked_and_cannot_end_early)
     com_rx_clear();
 }
 
+/* A script's typing is typed as written: under bracketed paste it is not
+ * bracketed, an ESC in it stays, and a CR or LF stays what it is. */
+UTEST(com, typed_text_is_never_bracketed)
+{
+    com_rx_clear();
+    manifold_write_to(COM_TERM_SCREEN, "\33[?2004h", 8);
+    typed_text("a\33[Ab\rc\n");
+    paste_task();
+    char buf[64] = {0};
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, buf, sizeof buf - 1), (size_t)8);
+    ASSERT_STREQ(buf, "a\33[Ab\rc\n");
+    manifold_write_to(COM_TERM_SCREEN, "\33[?2004l", 8);
+    com_rx_clear();
+}
+
+/* A paste presses Enter for each line end, CRLF, CR or LF. */
+UTEST(com, a_pasted_line_end_is_enter)
+{
+    com_rx_clear();
+    paste_start("a\r\nb\nc\rd");
+    paste_task();
+    char buf[64] = {0};
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, buf, sizeof buf - 1), (size_t)7);
+    ASSERT_STREQ(buf, "a\rb\rc\rd");
+    com_rx_clear();
+}
+
+/* New text replaces the paste in progress, and empty text ends it. */
+UTEST(com, empty_text_ends_the_paste_in_progress)
+{
+    com_rx_clear();
+    paste_start("abc");
+    paste_start("");
+    ASSERT_FALSE(paste_busy());
+    typed_text("abc");
+    typed_text("");
+    ASSERT_FALSE(paste_busy());
+    typed_text("abc");
+    paste_start(NULL);
+    ASSERT_FALSE(paste_busy());
+    paste_task();
+    char buf[8];
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, buf, sizeof buf), (size_t)0);
+    com_rx_clear();
+}
+
 /* A key's sequence that does not fit is dropped whole. */
 UTEST(com, a_full_typed_queue_never_cuts_a_push)
 {

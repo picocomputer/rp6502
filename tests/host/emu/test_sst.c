@@ -15,6 +15,8 @@
 #include "core/aud/psg.h"
 #include "core/wdc/sram.h"
 #include "core/com/rln.h"
+#include "core/hid/paste.h"
+#include "core/hid/typed.h"
 #include "core/term/draw.h"
 #include "core/term/grid.h"
 #include "core/term/vterm.h"
@@ -65,8 +67,8 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)242820);
-    ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 41u);
+    ASSERT_EQ(sst_size(), (size_t)242830);
+    ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 42u);
 }
 
 UTEST(sst, a_blob_is_framed)
@@ -240,6 +242,22 @@ UTEST(sst, the_palette_and_its_faint_twins_come_back)
     ASSERT_EQ(mode0_color(MODE0_ENTRY(MODE0_DEFAULT_FG, true)), mode0_faint(color_256[7]));
     vterm_reset_colors(&vterm);
     draw_publish();
+}
+
+/* A paste is host text on its way in: a save carries none of it, and a load
+ * ends it. */
+UTEST(sst, a_load_mid_paste_cancels_it)
+{
+    char big[TYPED_QUEUE_SIZE * 4];
+    memset(big, 'p', sizeof big - 1);
+    big[sizeof big - 1] = 0;
+    paste_start(big);
+    paste_task();
+    ASSERT_TRUE(paste_busy());
+    ASSERT_EQ(take(), (const char *)NULL);
+    ASSERT_TRUE(paste_busy());
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_FALSE(paste_busy());
 }
 
 UTEST(sst, a_program_picks_up_where_it_was)

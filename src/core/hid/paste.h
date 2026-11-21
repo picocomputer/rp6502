@@ -13,13 +13,23 @@
 #include "core/com/com.h"
 #include "core/hid/typed.h"
 #include "core/sys/driver.h"
+#include "core/sys/sst.h"
 #include <stdbool.h>
 
-/* Type a block of UTF-8 as keystrokes. Every control byte, CR and LF
- * included, is sent as written. paste_task paces the delivery against the
- * room left in the queue, so text longer than the queue cannot lose bytes. A
- * new call replaces whatever is still being delivered. */
+/* Two ways into the typed queue for a block of UTF-8, both paced by
+ * paste_task against the room left in the queue, so text longer than the
+ * queue cannot lose bytes. Each replaces whatever is still being delivered,
+ * and every savestate load cancels what is. */
+
+/* Paste the host's text: each line end (CRLF, CR or LF) is pressed as
+ * Enter, CR, and a program that set bracketed paste (?2004) gets it between
+ * ESC [ 200 ~ and ESC [ 201 ~. */
 void paste_start(const char *utf8);
+
+/* Type the text exactly as written, never bracketed and with every byte
+ * sent as it is, as a script types it. */
+void typed_text(const char *utf8);
+
 void paste_cancel(void);
 bool paste_busy(void);
 
@@ -30,6 +40,11 @@ void paste_clear(void);
 
 void paste_task(void);
 
-#define PASTE_DRIVER DRIVER(TASK_PUMPED(paste_task))
+extern const sst_table_t paste_sst;
+
+#define PASTE_DRIVER DRIVER(     \
+    TASK_PUMPED(paste_task)      \
+    RESET(paste_cancel)          \
+    SST("PAST", paste))
 
 #endif /* _CORE_HID_PASTE_H_ */

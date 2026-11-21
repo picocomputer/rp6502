@@ -25,35 +25,12 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
 
 static bool suppress_char;
 
 /* Set from a chord that acted until its key comes up. Windows follows Alt-F4
  * with a close request, which is cancelled while this is set. */
 static bool input_chord_held;
-
-/* A line break in the clipboard is pressed as Enter, which sends CR, the way a
- * terminal pastes. The clipboard ends lines in CRLF on Windows and LF
- * elsewhere. */
-static void input_paste(const char *text)
-{
-    size_t len = strlen(text);
-    char *keys = malloc(len + 1);
-    if (!keys)
-        return;
-    size_t n = 0;
-    for (size_t i = 0; i < len; i++)
-    {
-        if (text[i] == '\r' && text[i + 1] == '\n')
-            i++;
-        keys[n++] = text[i] == '\n' ? '\r' : text[i];
-    }
-    keys[n] = 0;
-    paste_start(keys);
-    free(keys);
-}
 
 /* A sokol keycode as a USB HID keyboard usage id, for the keyboard bitmap.
  * 0 means the key has no usage id and is not reported. */
@@ -426,7 +403,7 @@ void input_event(const sapp_event *e)
             mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(-e->scroll_x));
         break;
     case SAPP_EVENTTYPE_CLIPBOARD_PASTED:
-        input_paste(sapp_get_clipboard_string());
+        paste_start(sapp_get_clipboard_string());
         break;
     case SAPP_EVENTTYPE_QUIT_REQUESTED:
         if (input_chord_held)
