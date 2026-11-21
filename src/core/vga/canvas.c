@@ -19,17 +19,13 @@ static int16_t console_w = 640, console_h = 480;
 
 /* The savestate load puts the canvas back without what vga_canvas_select
  * does to the scanline table and the terminal, because their own rows
- * restore them. */
-static bool canvas_load(uint16_t canvas)
+ * restore them, where mode 0 sits included (vterm_placement). */
+static void canvas_load(uint16_t canvas, int w, int h)
 {
-    int w, h;
-    if (!vga_canvas_geometry(canvas, &w, &h))
-        return false;
     canvas_code = (vga_canvas_t)canvas;
     canvas_w = (int16_t)w;
     canvas_h = (int16_t)h;
     vga_canvas_publish(canvas_code);
-    return true;
 }
 
 /* The console's height is carried because the host chooses it, and a
@@ -52,14 +48,25 @@ static void canvas_sst_put_code(sst_cursor_t *c, unsigned flags)
     sst_put_u16(c, (uint16_t)canvas_code);
 }
 
+/* Where mode 0 sits (vterm_placement) loaded with the cells, before the
+ * canvas, so the canvas is the one to check it is where this canvas puts
+ * it: the size its width shows, the console only on the console canvas,
+ * and placed rows that end inside it. */
 static bool canvas_sst_get_code(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
+    const vterm_placement_t *p = &vterm_placement;
+    int w, h;
     uint16_t canvas = sst_get_u16(c);
     if (!sst_ok(c))
         return false;
-    if (!canvas_load(canvas))
+    if (!vga_canvas_geometry(canvas, &w, &h))
         return sst_refuse(c, "a canvas this build lacks");
+    if (p->cols != vga_term_columns(w) ||
+        p->console != (canvas == vga_canvas_console) ||
+        (p->placed && p->begin + p->rows * p->row_px > h))
+        return sst_refuse(c, "mode 0 where this canvas does not put it");
+    canvas_load(canvas, w, h);
     draw_publish();
     return true;
 }
@@ -112,6 +119,7 @@ bool vga_canvas_select(uint16_t canvas)
     canvas_h = (int16_t)h;
     vga_canvas_reset();
     vga_canvas_publish(canvas_code);
+    vterm_canvas((uint8_t)vga_term_columns(w), canvas_code == vga_canvas_console);
     if (canvas_code == vga_canvas_console)
     {
         uint16_t xregs[8] = {0};

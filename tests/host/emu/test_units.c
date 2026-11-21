@@ -319,6 +319,112 @@ UTEST(vga, a_stop_puts_the_console_back_without_the_display_register)
         ASSERT_EQ(blob[i], 0);
 }
 
+/* Where mode 0 sits, as the record says, and the height of the terminal it
+ * places. */
+static bool placed_at(bool console, uint8_t cols, uint8_t rows, int16_t begin)
+{
+    const vterm_placement_t *p = &vterm_placement;
+    const term_grid_t *g = cols == 40 ? vterm.grids[0] : vterm.grids[1];
+    return p->console == console && p->placed && p->cols == cols &&
+           p->rows == rows && p->begin == begin && p->row_px == (cols == 40 ? 8 : 16) &&
+           g->height == rows && vterm_get_shown(&vterm) == g;
+}
+
+/* Programs mode 0 on plane 0 of the canvas selected, from BEGIN to END. */
+static bool program_mode0(uint16_t begin, uint16_t end)
+{
+    return xreg1(0, 3, begin) && xreg1(0, 4, end) && xreg1(0, 1, 0);
+}
+
+/* The same call again leaves the record as it was. */
+static bool record_is(const vterm_placement_t *was)
+{
+    return !memcmp(was, &vterm_placement, sizeof *was);
+}
+
+/* A canvas places nothing until mode 0 is programmed on it, and the size
+ * showing is the canvas's from the select. Mode 0 places the terminal where
+ * its BEGIN and END put it, and the same program again changes nothing. */
+UTEST(vga, mode_0_places_the_terminal_on_a_canvas)
+{
+    sys_init();
+    ASSERT_TRUE(placed_at(true, 80, 30, 0));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    ASSERT_FALSE(vterm_placement.placed);
+    ASSERT_FALSE(vterm_placement.console);
+    ASSERT_EQ(vterm_placement.cols, 40);
+    ASSERT_TRUE(vterm_get_shown(&vterm) == vterm.grids[0]);
+    ASSERT_TRUE(program_mode0(16, 224));
+    ASSERT_TRUE(placed_at(false, 40, 26, 16));
+    vterm_placement_t was = vterm_placement;
+    ASSERT_TRUE(program_mode0(16, 224));
+    ASSERT_TRUE(record_is(&was));
+    ASSERT_TRUE(placed_at(false, 40, 26, 16));
+    ASSERT_TRUE(program_mode0(0, 0));
+    ASSERT_TRUE(placed_at(false, 40, 30, 0));
+
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_360));
+    ASSERT_FALSE(vterm_placement.placed);
+    ASSERT_EQ(vterm_placement.cols, 80);
+    ASSERT_TRUE(program_mode0(0, 0));
+    ASSERT_TRUE(placed_at(false, 80, 22, 4));
+    ASSERT_TRUE(program_mode0(40, 360));
+    ASSERT_TRUE(placed_at(false, 80, 20, 40));
+    was = vterm_placement;
+    ASSERT_TRUE(program_mode0(40, 360));
+    ASSERT_TRUE(record_is(&was));
+    /* A span that is not whole rows places nothing new. */
+    ASSERT_FALSE(program_mode0(40, 100));
+    ASSERT_TRUE(record_is(&was));
+
+    /* The same canvas again drops what was placed on it. */
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_360));
+    ASSERT_FALSE(vterm_placement.placed);
+    was = vterm_placement;
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_360));
+    ASSERT_TRUE(record_is(&was));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* The console canvas places the console from another canvas; from itself
+ * it keeps the record, and a stop on the console keeps it too. */
+UTEST(vga, the_console_canvas_places_the_console)
+{
+    sys_init();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_180));
+    ASSERT_TRUE(program_mode0(0, 0));
+    ASSERT_TRUE(placed_at(false, 40, 22, 2));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    ASSERT_TRUE(placed_at(true, 80, 30, 0));
+    vterm_placement_t was = vterm_placement;
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    ASSERT_TRUE(record_is(&was));
+    vga_console_reset();
+    ASSERT_TRUE(record_is(&was));
+    /* The console canvas is not programmable. */
+    ASSERT_FALSE(program_mode0(16, 464));
+    ASSERT_TRUE(record_is(&was));
+}
+
+/* A console of another size, which the host chooses, is placed at the
+ * console reset after it, and the same size again changes nothing. */
+UTEST(vga, a_host_console_size_places_the_console_again)
+{
+    sys_init();
+    vga_set_console_size(640, 400);
+    vga_console_reset();
+    ASSERT_TRUE(placed_at(true, 80, 25, 0));
+    vterm_placement_t was = vterm_placement;
+    vga_console_reset();
+    ASSERT_TRUE(record_is(&was));
+    vga_set_console_size(640, 360);
+    vga_console_reset();
+    ASSERT_TRUE(placed_at(true, 80, 22, 4));
+    vga_set_console_size(640, 480);
+    vga_console_reset();
+    ASSERT_TRUE(placed_at(true, 80, 30, 0));
+}
+
 /* Channel 0 has eight registers, as on the VGA chip, so a write to $12 sets
  * nothing rather than register 2. */
 UTEST(vga, channel_0_ignores_registers_it_lacks)

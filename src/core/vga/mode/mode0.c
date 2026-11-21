@@ -391,7 +391,7 @@ bool mode0_prog(uint16_t *xregs)
     if (vga_prog_exclusive(plane, scanline_begin, scanline_end,
                            (uint16_t)scanline_begin, 0, 0))
     {
-        vterm_set_height(cols, rows);
+        vterm_place(cols, rows, scanline_begin, (uint8_t)vga_term_row_px(vga_canvas_width()));
         return true;
     }
     return false;

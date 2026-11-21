@@ -67,7 +67,7 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)242830);
+    ASSERT_EQ(sst_size(), (size_t)242837);
     ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 42u);
 }
 
@@ -213,6 +213,62 @@ UTEST(sst, a_programs_own_size_comes_back)
     rln_set_term_width(60);
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_EQ(vterm.grid_count, TERM_SCREEN_GRIDS);
+}
+
+/* Where mode 0 sits on a canvas comes back with the console's terminal,
+ * though the canvas's load programs nothing, and the console placed since
+ * goes. */
+UTEST(sst, where_mode_0_sits_comes_back)
+{
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    ASSERT_TRUE(xreg1(0, 3, 16) && xreg1(0, 4, 224) && xreg1(0, 1, 0));
+    const vterm_placement_t was = vterm_placement;
+    ASSERT_TRUE(was.placed);
+    ASSERT_EQ(was.rows, 26);
+    ASSERT_EQ(take(), (const char *)NULL);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    ASSERT_TRUE(vterm_placement.console);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(memcmp(&was, &vterm_placement, sizeof was), 0);
+    ASSERT_EQ(vga_get_canvas(), vga_canvas_320_240);
+    ASSERT_EQ(vterm.grids[0]->height, 26);
+    ASSERT_TRUE(vterm_get_shown(&vterm) == vterm.grids[0]);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* Where mode 0 sits must be where the canvas saved beside it puts it: a
+ * record of the 40 on the console canvas, of the console off it, or of rows
+ * running past the canvas's foot is refused, though each could stand on
+ * another canvas. */
+static const char *save_placed(vterm_placement_t p)
+{
+    const vterm_placement_t was = vterm_placement;
+    vterm_placement = p;
+    const char *err = take();
+    vterm_placement = was;
+    return err;
+}
+
+UTEST(sst, mode_0_where_its_canvas_does_not_put_it_is_refused)
+{
+    ASSERT_EQ(save_placed((vterm_placement_t){.cols = 40}), (const char *)NULL);
+    ASSERT_NE(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(save_placed((vterm_placement_t){.cols = 80}), (const char *)NULL);
+    ASSERT_NE(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    const uint8_t rows = vterm.grids[0]->height;
+    ASSERT_EQ(save_placed((vterm_placement_t){.cols = 40, .rows = rows, .row_px = 8,
+                                              .begin = (int16_t)(248 - rows * 8),
+                                              .placed = true}),
+              (const char *)NULL);
+    ASSERT_NE(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    ASSERT_EQ(save_placed((vterm_placement_t){.cols = 40, .rows = rows, .row_px = 8,
+                                              .begin = (int16_t)(240 - rows * 8),
+                                              .placed = true}),
+              (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
 }
 
 /* The console's palette comes back with the console's terminal, the

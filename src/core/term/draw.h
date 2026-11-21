@@ -41,10 +41,11 @@ void draw_publish(void);
 void draw_reset(void);
 
 /* The chunk holds the console's terminal (term.h) and both sizes in full:
- * each one's grid, the layout of its screens' cells (the scroll remap and
- * the fills its rows are owed) and its blinks, then the smooth scroll and
- * the palette (color.h). The cells and their colors are MODE0_DRIVER's
- * (mode0.h), which follows this one in the driver list. */
+ * each one's grid, where mode 0 sits (vterm.h), the layout of its screens'
+ * cells (the scroll remap and the fills its rows are owed) and its blinks,
+ * then the smooth scroll and the palette (color.h). The cells and their
+ * colors are MODE0_DRIVER's (mode0.h), which follows this one in the driver
+ * list. */
 extern const sst_table_t draw_sst;
 
 #define DRAW_DRIVER DRIVER(                                    \

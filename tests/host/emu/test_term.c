@@ -544,9 +544,9 @@ UTEST(term, the_other_screen_grows_blank_rows)
 {
     fresh();
     feed("\33[30;1HOLD\33[H");
-    vterm_set_height(80, 29);
+    vterm_place(80, 29, 0, 16);
     feed("\33[?1049h");
-    vterm_set_height(80, 30);
+    vterm_place(80, 30, 0, 16);
     feed("\33[?1049l");
     ASSERT_STREQ(row(29), "");
 }
@@ -554,22 +554,22 @@ UTEST(term, the_other_screen_grows_blank_rows)
 UTEST(term, ed_3_forgets_the_scrollback)
 {
     fresh();
-    vterm_set_height(80, 29);
+    vterm_place(80, 29, 0, 16);
     feed("one\r\n");
     for (int i = 0; i < 28; i++)
         feed("\r\n");
-    vterm_set_height(80, 30);
+    vterm_place(80, 30, 0, 16);
     ASSERT_STREQ(row(0), "one");
 
     fresh();
-    vterm_set_height(80, 29);
+    vterm_place(80, 29, 0, 16);
     feed("one\r\n");
     for (int i = 0; i < 28; i++)
         feed("\r\n");
     feed("\33[3J");
-    vterm_set_height(80, 30);
+    vterm_place(80, 30, 0, 16);
     ASSERT_STREQ(row(0), "");
-    vterm_set_height(80, 30);
+    vterm_place(80, 30, 0, 16);
 }
 
 /* ---- replies ---- */
@@ -1072,12 +1072,12 @@ UTEST(term, line_sizes_move_with_their_lines)
 UTEST(term, a_line_size_comes_back_from_the_scrollback)
 {
     fresh();
-    vterm_set_height(80, 29);
+    vterm_place(80, 29, 0, 16);
     feed("\33#6one\r\n");
     for (int i = 0; i < 28; i++)
         feed("\r\n");
     ASSERT_STREQ(row(0), "");
-    vterm_set_height(80, 30);
+    vterm_place(80, 30, 0, 16);
     ASSERT_STREQ(row(0), "one");
     ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_WIDE);
     ASSERT_EQ(tb_screen_row_size(1), TERM_LINE_NORMAL);
@@ -1131,9 +1131,10 @@ UTEST(term, a_quiet_terminal_answers_nothing)
 UTEST(term, the_soft_reset_sets_the_40_back_to_30)
 {
     fresh();
-    vterm_set_height(40, 22);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    vterm_place(40, 22, 0, 8);
     ASSERT_EQ(vterm.grids[0]->height, 22);
-    vterm_RIS_no_clear();
+    vga_console_reset();
     ASSERT_EQ(vterm.grids[0]->height, TERM_STD_HEIGHT);
 }
 
@@ -1576,14 +1577,14 @@ static void lazy_run(bool pay_each, uint8_t *screen)
         if (lazy_skip[k])
             continue;
         if (lazy_height[k])
-            vterm_set_height(80, lazy_height[k]);
+            vterm_place(80, lazy_height[k], 0, 16);
         else
             feed(lazy_seq[k]);
         if (pay_each)
             for (int i = 0; i < TB_SCREEN_SETTLE; i++)
                 draw_task();
     }
-    vterm_set_height(80, 30);
+    vterm_place(80, 30, 0, 16);
     for (int i = 0; i < TB_SCREEN_SETTLE; i++)
         draw_task();
     for (int y = 0; y < 30; y++)
@@ -1976,7 +1977,7 @@ UTEST(term, declrmm_has_no_double_size_lines)
 UTEST(term, declrmm_makes_both_screens_single_size)
 {
     fresh();
-    vterm_set_height(80, 29);
+    vterm_place(80, 29, 0, 16);
     feed("\33#6one\r\n");
     for (int i = 0; i < 28; i++)
         feed("\r\n");
@@ -1987,7 +1988,7 @@ UTEST(term, declrmm_makes_both_screens_single_size)
     feed("\33[?1049l");
     ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
     feed("\33[29H");
-    vterm_set_height(80, 30);
+    vterm_place(80, 30, 0, 16);
     ASSERT_STREQ(row(0), "one");
     ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
 }
@@ -2565,10 +2566,10 @@ UTEST(term, written_cells_end_where_xterms_do)
 UTEST(term, a_written_cell_goes_with_its_row)
 {
     fresh();
-    vterm_set_height(80, 29);
+    vterm_place(80, 29, 0, 16);
     feed("AB\33[1;11H\33[1K\33[2;76H\33[4X\33[29;1H\n");
     ASSERT_EQ(written_end(0), 79);
-    vterm_set_height(80, 30);
+    vterm_place(80, 30, 0, 16);
     ASSERT_EQ(written_end(0), 11);
     ASSERT_EQ(written_end(1), 79);
     static uint8_t blob[1 << 20];
@@ -2675,13 +2676,13 @@ UTEST(term, a_wrap_between_narrower_margins_marks_no_line)
 UTEST(term, a_wrapped_line_goes_with_its_row)
 {
     fresh();
-    vterm_set_height(80, 29);
+    vterm_place(80, 29, 0, 16);
     feed_as(81);
     ASSERT_TRUE(wrapped(0));
     feed("\33[29;1H\n");
     ASSERT_FALSE(wrapped(0));
     ASSERT_STREQ(row(0), "A");
-    vterm_set_height(80, 30);
+    vterm_place(80, 30, 0, 16);
     ASSERT_TRUE(wrapped(0));
     ASSERT_FALSE(wrapped(1));
     static uint8_t blob[1 << 20];
@@ -3054,7 +3055,7 @@ UTEST(term, a_smooth_scroll_with_scrollback_keeps_both_sizes_text)
 {
     fresh();
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
-    vterm_set_height(40, TERM_MAX_HEIGHT - 1);
+    vterm_place(40, TERM_MAX_HEIGHT - 1, 0, 8);
     feed("\33[?4h\33[HA\33[2;1HB\33[99;1HZ\n");
     ASSERT_TRUE(mode0_regs.smooth & MODE0_SMOOTH_ON);
     ASSERT_STREQ(ghost(), "A");
@@ -3066,8 +3067,8 @@ UTEST(term, a_smooth_scroll_with_scrollback_keeps_both_sizes_text)
     ASSERT_STREQ(row(0), "B");
     ASSERT_STREQ(row(TERM_MAX_HEIGHT - 2), "Z");
     ASSERT_STREQ(row(TERM_MAX_HEIGHT - 1), "");
-    vterm_set_height(40, TERM_MAX_HEIGHT);
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    vterm_place(40, TERM_MAX_HEIGHT, 0, 8);
     ASSERT_STREQ(row(0), "A");
     ASSERT_STREQ(row(1), "B");
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
@@ -3087,13 +3088,13 @@ UTEST(term, a_smooth_scroll_moves_out_a_double_size_row_at_its_size)
 
     fresh();
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
-    vterm_set_height(40, TERM_MAX_HEIGHT - 1);
+    vterm_place(40, TERM_MAX_HEIGHT - 1, 0, 8);
     feed("\33[?4h\33[H\33#3A\33[99;1HZ\n");
     ASSERT_TRUE(mode0_regs.smooth & MODE0_SMOOTH_ON);
     ASSERT_STREQ(ghost(), "A");
     ASSERT_EQ(MODE0_ROW_SIZE(mode0_regs.smooth_ghost), TERM_LINE_TOP);
     ASSERT_EQ(tb_screen_row_size(TERM_MAX_HEIGHT - 2), TERM_LINE_NORMAL);
-    vterm_set_height(40, TERM_MAX_HEIGHT);
+    vterm_place(40, TERM_MAX_HEIGHT, 0, 8);
     ASSERT_STREQ(row(0), "A");
     ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_TOP);
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));

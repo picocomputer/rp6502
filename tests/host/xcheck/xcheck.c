@@ -41,11 +41,9 @@
 // A VGA is connected, and its frames are counted here: a byte a smooth
 // scroll holds waits for frames to pass.
 static uint32_t xc_frames;
-static bool xc_forty; // the canvas is 320 wide, so the 40 shows
 
 unsigned long vga_frame_count(void) { return xc_frames; }
 bool vga_connected(void) { return true; }
-int16_t vga_canvas_width(void) { return xc_forty ? 320 : 640; }
 void com_reply(const char *s, size_t n) { (void)s, (void)n; }
 void bel_term(void) {}
 void draw_reset(void) {}
@@ -185,25 +183,27 @@ static unsigned xc_count(void)
     return xc_below(4) ? 1 + xc_below(4) : xc_below(40);
 }
 
-/* What ria/sys/vga.c replays of the VGA's: a height, a change of display
- * (the console sized for the old display and the new, then the soft reset),
- * a RIS, or the canvas that chooses the size showing. */
+/* What ria/sys/vga.c replays of the VGA's: mode 0 programmed on the
+ * canvas, a change of display (the console placed for the old display and
+ * the new, then the soft reset), a RIS, or a canvas, which chooses the size
+ * showing. */
 static void xc_replay(void)
 {
+    const bool forty = vterm_placement.cols == 40;
     switch (xc_below(8))
     {
     case 0:
     case 1:
     case 2:
-        vterm_set_height(80, (uint8_t)(1 + xc_below(32)));
-        break;
     case 3:
     case 4:
-        vterm_set_height(40, (uint8_t)(1 + xc_below(30)));
+        vterm_place(forty ? 40 : 80, (uint8_t)(1 + xc_below(forty ? 30 : 32)), 0,
+                    forty ? 8 : 16);
         break;
     case 5:
-        vterm_set_height(80, xc_below(2) ? 30 : 32);
-        vterm_set_height(80, xc_below(2) ? 30 : 32);
+        vterm_canvas(80, true);
+        vterm_place(80, xc_below(2) ? 30 : 32, 0, 16);
+        vterm_place(80, xc_below(2) ? 30 : 32, 0, 16);
         vterm_RIS_no_clear();
         break;
     case 6:
@@ -211,7 +211,7 @@ static void xc_replay(void)
             vterm_RIS();
         break;
     default:
-        xc_forty = !xc_forty;
+        vterm_canvas(forty ? 80 : 40, false);
         break;
     }
 }

@@ -174,35 +174,37 @@ void vga_set_code_page(uint16_t cp)
         vterm_set_code_page(cp);
 }
 
-/* The VGA's console terminal on a display: 32 rows on SXGA (2), otherwise 30. */
-static uint8_t vga_console_rows(uint8_t display)
+/* The VGA's console program on a display, 32 rows on SXGA (2) and
+ * otherwise 30, as the VGA places it. */
+static void vga_place_console(uint8_t display)
 {
     uint16_t xregs[8] = {0};
     int16_t begin, end;
-    uint8_t cols, rows = 0;
-    mode0_place(640, display == 2 ? 512 : 480, xregs, &begin, &end, &cols, &rows);
-    return rows;
+    uint8_t cols, rows;
+    if (mode0_place(640, display == 2 ? 512 : 480, xregs, &begin, &end, &cols, &rows))
+        vterm_place(cols, rows, begin, (uint8_t)vga_term_row_px(640));
 }
 
-/* DISPLAY: the VGA goes back to the console canvas, which sizes the console
- * for the old display, sizes it for the new one, and does the system's soft
- * reset. */
+/* DISPLAY: the VGA goes back to the console canvas, which places the
+ * console for the old display, places it for the new one, and does the
+ * system's soft reset. */
 static void vga_follow_display(uint8_t display)
 {
-    if (vga_canvas_current != vga_canvas_console)
-        vterm_set_height(80, vga_console_rows(vga_display_sent));
-    vterm_set_height(80, vga_console_rows(display));
+    bool to_console = vga_canvas_current != vga_canvas_console;
+    vterm_canvas(80, true);
+    if (to_console)
+        vga_place_console(vga_display_sent);
+    vga_place_console(display);
     vterm_RIS_no_clear();
     vga_display_sent = display;
 }
 
-/* With no VGA the console is a terminal on the UART, taken to be 80x24,
- * and that terminal answers the queries, so the console's terminal is quiet
- * by default. */
+/* With no VGA the console is a terminal on the UART, and that terminal
+ * answers the queries, so the console's terminal is quiet by default. */
 static void vga_follow_none(void)
 {
     vterm_RIS();
-    vterm_set_height(80, 24);
+    vterm_unplace();
     com_set_reply_default(true);
 }
 void vga_load_code_page(uint16_t cp)
@@ -679,8 +681,8 @@ void HOST_IN_RAM_FUNC vga_display_size(int *w, int *h)
 }
 
 /* Channel 0's CANVAS and MODE as the VGA takes them. A canvas the VGA does
- * not know it naks and ignores. Going back to the console sizes the
- * console. Mode 0 sizes the terminal of the canvas's width, when it fits:
+ * not know it naks and ignores. Going back to the console places the
+ * console. Mode 0 places the terminal of the canvas's width, when it fits:
  * the VGA works that out with the same mode0_place. */
 void vga_xreg(uint8_t index, uint16_t word)
 {
@@ -693,8 +695,13 @@ void vga_xreg(uint8_t index, uint16_t word)
             bool to_console = word == vga_canvas_console &&
                               vga_canvas_current != vga_canvas_console;
             vga_canvas_current = (vga_canvas_t)word;
-            if (to_console && vga_connected())
-                vterm_set_height(80, vga_console_rows(vga_display_sent));
+            if (vga_connected())
+            {
+                vterm_canvas((uint8_t)vga_term_columns(vga_canvas_width()),
+                             word == vga_canvas_console);
+                if (to_console)
+                    vga_place_console(vga_display_sent);
+            }
         }
         memset(vga_xregs, 0, sizeof vga_xregs);
     }
@@ -706,7 +713,7 @@ void vga_xreg(uint8_t index, uint16_t word)
         if (word == 0 && vga_connected() && vga_canvas_current != vga_canvas_console &&
             vga_canvas_geometry(vga_canvas_current, &w, &h) &&
             mode0_place((int16_t)w, (int16_t)h, vga_xregs, &begin, &end, &cols, &rows))
-            vterm_set_height(cols, rows);
+            vterm_place(cols, rows, begin, (uint8_t)vga_term_row_px(w));
         memset(vga_xregs, 0, sizeof vga_xregs);
     }
 }

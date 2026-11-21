@@ -13,9 +13,9 @@
  * and the palette (color.h). A machine that draws the console (draw.c)
  * hands it mode 0's cells, and mode 0 draws from the palette. The RIA's
  * terminal follows the VGA's: it is fed the bytes the VGA's terminal gets
- * as they are sent, ria/sys/vga.c replays the VGA's resets and size changes
- * in the same order, and it hands in text cells (TERM_CELL_TEXT), which
- * keep the text and draw nothing.
+ * as they are sent, ria/sys/vga.c replays the VGA's resets, canvases and
+ * mode 0 programs in the same order, and it hands in text cells
+ * (TERM_CELL_TEXT), which keep the text and draw nothing.
  *
  * vterm is the VGA's terminal, kept on every chip. term_ is the engine it
  * runs (term.h), and console_ is CON: (core/com/console.h).
@@ -67,8 +67,45 @@ void vterm_init(cell_t *cells);
 void vterm_RIS(void);
 void vterm_RIS_no_clear(void);
 
-// The renderer reports its geometry: rows of the 40- or 80-column terminal.
-void vterm_set_height(uint8_t width, uint8_t height);
+/* ---- where mode 0 sits --------------------------------------------------
+ *
+ * The canvas the console's terminal is shown on, and where mode 0 draws it
+ * there, kept the same on every chip: the VGA's as it selects canvases and
+ * programs mode 0, and the RIA's as it sends what does. The size showing
+ * is cols, the 40 on a 320-wide canvas and otherwise the 80
+ * (vterm_get_shown). Mode 0 is placed once it is programmed on the canvas
+ * selected, the console's own program on the console canvas included, and
+ * stays placed until a canvas is selected again, whatever is programmed
+ * over it later; only the console canvas selected from itself keeps it.
+ * begin, rows and row_px then say where its rows are; they are 0 while it
+ * is not placed. A call that finds the record as it would leave it changes
+ * nothing in it, so the console canvas selected again from the console
+ * canvas, or mode 0 programmed again where it is, keeps the record as it
+ * was. */
+typedef struct
+{
+    int16_t begin;  // the scanline of the canvas its first row begins on
+    uint8_t cols;   // 40 or 80: the size showing
+    uint8_t rows;   // its rows, the height of the terminal of that size
+    uint8_t row_px; // scanlines a row: 8 at 40 columns, 16 at 80
+    bool console;   // the console canvas is selected
+    bool placed;    // mode 0 is programmed on the canvas
+} vterm_placement_t;
+extern vterm_placement_t vterm_placement;
+
+// A canvas is selected, whose width shows the size of cols. Nothing is
+// placed on it yet, unless it is the console canvas selected again from
+// the console canvas, which keeps the console's mode 0 where it is.
+void vterm_canvas(uint8_t cols, bool is_console);
+
+// Mode 0 is programmed on the canvas: the terminal of cols has rows, the
+// first beginning on scanline begin, row_px scanlines a row. The height is
+// set through term_set_height every time, as a mode 0 program always has.
+void vterm_place(uint8_t cols, uint8_t rows, int16_t begin, uint8_t row_px);
+
+// The RIA with no VGA: nothing is placed, and the console is a terminal on
+// the UART, taken to be 80x24.
+void vterm_unplace(void);
 
 /* The code page the console's glyphs show, as font_code_page_of gives it:
  * the fonts' own page on a machine that draws them (font.c), and on the RIA
@@ -85,8 +122,8 @@ bool vterm_set_code_page(uint16_t cp);
 void vterm_load_code_page(uint16_t cp);
 
 // The grid the cursor reports come from, and the one drawn: the 40 on a
-// 320-wide canvas of a connected VGA, otherwise the 80, which is the
-// console with no VGA too.
+// 320-wide canvas of a connected VGA (vterm_placement), otherwise the 80,
+// which is the console with no VGA too.
 term_grid_t *vterm_get_shown(const term_t *t);
 
 /* ---- smooth scroll ------------------------------------------------------

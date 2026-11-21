@@ -21,11 +21,11 @@ _Static_assert(TERM_MAX_HEIGHT == 32 && TERM_ALT_SCREEN == 1 && TERM_CELL_TEXT =
                "the RIA's terminal");
 
 /* The console with no VGA, the 80-column terminal, unless a test connects
- * one (ria/sys/vga.c). Its canvas is 640 wide, so the 80 shows either way. */
+ * one (ria/sys/vga.c). Its canvas is the console, so the 80 shows either
+ * way. */
 static bool connected;
 bool vga_connected(void) { return connected; }
 unsigned long vga_frame_count(void) { return 0; }
-int16_t vga_canvas_width(void) { return 640; }
 void com_reply(const char *s, size_t n) { (void)s, (void)n; }
 void draw_reset(void) {}
 

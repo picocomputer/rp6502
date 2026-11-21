@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/term/vterm.h"
 #include "core/vga/pointer.h"
 #include "vga/main.h"
 #include "vga/sys/ria.h"
@@ -414,6 +415,7 @@ void vga_xreg_canvas(uint16_t *xregs)
     vga_prog_reset();
     vga_canvas_selected = (vga_canvas_t)canvas;
     vga_scanvideo_update();
+    vterm_canvas((uint8_t)vga_term_columns(vga_canvas_width()), canvas == vga_canvas_console);
     if (canvas == vga_canvas_console)
         vga_reset_console_prog();
     if (xregs)

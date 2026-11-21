@@ -18,25 +18,30 @@ term_t vterm;
 vterm_size_t vterm_40;
 vterm_size_t vterm_80;
 vterm_smooth_t vterm_smoothing;
+vterm_placement_t vterm_placement;
 uint16_t vterm_palette[VTERM_PALETTE];
 uint16_t vterm_specials[VTERM_SPECIALS];
 bool vterm_palette_changed;
 static uint16_t vterm_code_page;
 
 /* draw.c's CELL chunk saves the terminal, both sizes, the smooth scroll,
- * the palette and the special colors, and font.c's FONT chunk the code
- * page, with the glyphs it writes. */
+ * where mode 0 sits, the palette and the special colors, and font.c's FONT
+ * chunk the code page, with the glyphs it writes. */
 #define VTERM_SST(X)                                             \
     X(SKIP, vterm, "draw.c's CELL chunk saves it")               \
     X(SKIP, vterm_40, "draw.c's CELL chunk saves it")            \
     X(SKIP, vterm_80, "draw.c's CELL chunk saves it")            \
     X(SKIP, vterm_smoothing, "draw.c's CELL chunk saves it")     \
+    X(SKIP, vterm_placement, "draw.c's CELL chunk saves it")     \
     X(SKIP, vterm_palette, "draw.c's CELL chunk saves it")       \
     X(SKIP, vterm_specials, "draw.c's CELL chunk saves it")      \
     X(SKIP, vterm_palette_changed, "draw.c follows every color " \
                                    "after a load")               \
     X(SKIP, vterm_code_page, "font.c's FONT chunk saves it")
 SST_TABLE(vterm, VTERM_SST)
+
+/* The terminal a console with no VGA is taken to be on the UART. */
+#define VTERM_SERIAL_ROWS 24
 
 #define VTERM_FG_COLOR_INDEX 7
 #define VTERM_BG_COLOR_INDEX 0
@@ -63,6 +68,7 @@ void vterm_init(cell_t *cells)
     }
     term_grid_t *const grids[] = {&vterm_40.grid, &vterm_80.grid};
     term_init(&vterm, grids, 2);
+    vterm_placement = (vterm_placement_t){.cols = 80, .console = true};
 }
 
 void vterm_RIS(void)
@@ -76,9 +82,30 @@ void vterm_RIS_no_clear(void)
     term_RIS_no_clear(&vterm);
 }
 
-void vterm_set_height(uint8_t width, uint8_t height)
+/* ---- where mode 0 sits ------------------------------------------------- */
+
+void vterm_canvas(uint8_t cols, bool is_console)
 {
-    term_set_height(&vterm, width == 40 ? &vterm_40.grid : &vterm_80.grid, height);
+    if (is_console && vterm_placement.console)
+        return;
+    vterm_placement = (vterm_placement_t){.cols = cols, .console = is_console};
+}
+
+void vterm_place(uint8_t cols, uint8_t rows, int16_t begin, uint8_t row_px)
+{
+    vterm_placement_t *p = &vterm_placement;
+    p->begin = begin;
+    p->cols = cols;
+    p->rows = rows;
+    p->row_px = row_px;
+    p->placed = true;
+    term_set_height(&vterm, cols == 40 ? &vterm_40.grid : &vterm_80.grid, rows);
+}
+
+void vterm_unplace(void)
+{
+    vterm_placement = (vterm_placement_t){.cols = 80};
+    term_set_height(&vterm, &vterm_80.grid, VTERM_SERIAL_ROWS);
 }
 
 uint16_t vterm_get_code_page(void)
@@ -104,7 +131,7 @@ bool vterm_set_code_page(uint16_t cp)
 term_grid_t *vterm_get_shown(const term_t *t)
 {
     (void)t;
-    return vga_connected() && vga_canvas_width() == 320 ? &vterm_40.grid : &vterm_80.grid;
+    return vga_connected() && vterm_placement.cols == 40 ? &vterm_40.grid : &vterm_80.grid;
 }
 
 /* ---- smooth scroll ----------------------------------------------------- */

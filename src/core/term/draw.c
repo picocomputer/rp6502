@@ -155,6 +155,31 @@ static bool draw_sst_grids_ok(sst_cursor_t *c)
            term_grid_sst_ok(c, &vterm_80.grid, TERM_MAX_HEIGHT);
 }
 
+#define DRAW_PLACEMENT_SST_ROWS(Y, s)                                  \
+    Y(I16, s.begin) Y(U8, s.cols) Y(U8, s.rows) Y(U8, s.row_px)        \
+    Y(BOOL, s.console) Y(BOOL, s.placed)
+
+/* Where mode 0 sits is a record the canvas's calls could have left: the
+ * console at 80 columns, and mode 0 placed at the height of its size, in
+ * its rows' scanlines, inside the tallest canvas, or nothing placed. The
+ * canvas loads after this chunk and checks the record against itself
+ * (canvas.c). */
+static bool draw_sst_placement_ok(sst_cursor_t *c)
+{
+    const vterm_placement_t *p = &vterm_placement;
+    const term_grid_t *g = p->cols == 40 ? &vterm_40.grid : &vterm_80.grid;
+    const int w = p->cols == 40 ? 320 : 640;
+    bool ok = (p->cols == 40 || p->cols == 80) && (!p->console || p->cols == 80);
+    if (p->placed)
+        ok = ok && p->rows == g->height && p->row_px == vga_term_row_px(w) &&
+             p->begin >= 0 && p->begin + p->rows * p->row_px <= VGA_PROG_MAX;
+    else
+        ok = ok && !p->begin && !p->rows && !p->row_px;
+    if (!ok)
+        return sst_refuse(c, "mode 0 where no canvas puts it");
+    return true;
+}
+
 /* The line attributes, once the layouts below have loaded them: those of
  * the screens that have cells, which are the ones saved. */
 static bool draw_sst_lines_ok(sst_cursor_t *c)
@@ -252,6 +277,8 @@ static bool draw_sst_palette_ok(sst_cursor_t *c)
     X(STRUCT, vterm_40.grid, TERM_GRID_SST_ROWS)                       \
     X(STRUCT, vterm_80.grid, TERM_GRID_SST_ROWS)                       \
     X(VALIDATE, draw_sst_grids_ok)                                     \
+    X(STRUCT, vterm_placement, DRAW_PLACEMENT_SST_ROWS)                \
+    X(VALIDATE, draw_sst_placement_ok)                                 \
     X(FN, draw_sst_put_bufs, draw_sst_get_bufs,                        \
       2 * MODE0_SCREENS * SCREEN_SST_SIZE, 4)                          \
     X(IN_FN, vterm_40.lines)                                           \
