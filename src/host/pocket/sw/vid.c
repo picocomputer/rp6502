@@ -5,7 +5,7 @@
  *
  * The console's canvas and code page, and the frame count. mode0.sv draws
  * the console from core/vga/mode/mode0.c's cells and words, which
- * core/term/cells.c and draw.c write and link.ld places on its memories.
+ * core/term/screen.c and draw.c write and link.ld places on its memories.
  */
 
 #include "core/api/xreg.h"

@@ -65,20 +65,12 @@ extern const sst_table_t cells_sst;
     RESET(cells_restart)                                        \
     SST("CELL", cells))
 
-/* ---- what the terminal asks of the screen ------------------------------
+/* ---- what the terminal asks of the console -----------------------------
  *
  * term.c and grid.c call these. A machine that only follows the terminal's
  * state, with no screen, defines them itself: replies its own way, and the
- * rest as nothing.
- *
- * The terminal has already changed its own state when it calls one, so the
- * cursor, the margins and the line sizes are the new ones. Colors come from
- * the pen, and an erased cell takes the pen's colors, not reversed. All but
- * the colors and the replies are for one grid, and for the screen of it
- * showing unless they say otherwise; the cells are the screen's own. A
- * program's own size (term_add_grid) is a grid whose screens have no cells:
- * a scroll, an index, a clear, a reset, ED 3 and a change of height move
- * their rings (screen.h), and the rest ignore them. */
+ * rest as it needs. Each grid changes its screens' rows and cells through
+ * the cell store (screen.h). */
 
 // An answer to a query.
 void cells_reply(const term_t *t, const char *s, size_t n);
@@ -90,95 +82,10 @@ void cells_bell(const term_t *t);
 // The grid the cursor reports come from: the one showing.
 term_grid_t *cells_shown(const term_t *t);
 
-// Whether row y of a grid's screen has anything on it: a character other
-// than a space, a background that is not the default one, or a line through
-// a cell. A machine with no cells answers from what it was told as the row
-// was written, and yes where that does not say. No for a grid with no
-// cells.
-bool cells_row_used(term_t *t, term_grid_t *g, uint8_t y);
-
-// Row y is about to be written or have the cursor on it: a lazy erase still
-// owed to it is done now.
-void cells_touch(term_t *t, term_grid_t *g, uint8_t y);
-
-// n copies of the glyph at row y from column x, in the pen and the active
-// character set. n never runs past the row's columns, and the row is the
-// cursor's or one the caller has touched.
-void cells_glyphs(term_t *t, term_grid_t *g, uint8_t y, uint8_t x, uint8_t byte, unsigned n);
-
-// Every cell of row y becomes the glyph, in the pen and the active character
-// set, when the row is next touched or the task reaches it. The cursor's
-// row is never left owing one.
-void cells_fill_row(term_t *t, term_grid_t *g, uint8_t y, uint8_t byte);
-
-// Erase columns [from, to) of row y, which is the cursor's or one the
-// caller has touched. A selective erase leaves the protected cells.
-void cells_erase(term_t *t, term_grid_t *g, uint8_t y, unsigned from, unsigned to,
-                 bool selective);
-
-// DECSERA: the glyphs of columns [from, to) of row y, which the caller has
-// touched, become spaces, and the cells keep their colors and attributes,
-// as xterm has it. A selective one leaves the protected cells.
-void cells_wipe(term_t *t, term_grid_t *g, uint8_t y, unsigned from, unsigned to,
-                bool selective);
-
-// Insert n erased cells at column x of row y, the cells up to column end
-// moving right and off it; or delete n there, the cells up to end moving
-// left and erased cells coming in before it. n is at most end - x.
-void cells_insert(term_t *t, term_grid_t *g, uint8_t y, uint8_t x, unsigned end, unsigned n);
-void cells_delete(term_t *t, term_grid_t *g, uint8_t y, uint8_t x, unsigned end, unsigned n);
-
-// SL and SR: columns [from, end) of rows [top, bot] move n columns left or
-// right, erased cells coming in at the other side.
-void cells_shift(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, unsigned from,
-                 unsigned end, unsigned n, bool left);
-
-// n cells of row sy from column sx are copied to row dy from column dx,
-// colors, attributes and all. The two runs may overlap.
-void cells_copy(term_t *t, term_grid_t *g, uint8_t sy, unsigned sx, uint8_t dy, unsigned dx,
-                unsigned n);
-
-// DECCARA and DECRARA: columns [from, to) of row y have these attributes
-// set, cleared, then reversed, whatever else the cells hold, when the row
-// is next touched or the task reaches it.
-#define CELLS_MARK_BOLD 1u
-#define CELLS_MARK_UNDERLINE 2u
-#define CELLS_MARK_BLINK 4u
-#define CELLS_MARK_REVERSE 8u
-#define CELLS_MARK_ALL 15u
-void cells_attrs(term_t *t, term_grid_t *g, uint8_t y, unsigned from, unsigned to,
-                 unsigned set, unsigned clear, unsigned toggle);
-
-// Lazy-erase rows [from, to), selectively or not.
-void cells_erase_rows(term_t *t, term_grid_t *g, uint8_t from, uint8_t to,
-                      bool selective);
-
-// DECALN: every row lazy-erased to E's in the default colors.
-void cells_align(term_t *t, term_grid_t *g);
-
-// Rows [top, bot] move n rows up or down, erased rows coming in. Returns
-// the row of memory the row that went out at the edge is in. With keep, a
-// smooth scroll of one row, that row keeps its cells while it still shows
-// going, in a row of memory no slot of the screen has, when the screen has
-// one to spare (screen_scroll).
-uint8_t cells_scroll(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, uint8_t n, bool up,
-                     bool keep);
-
-// The same for only columns [from, end) of those rows, which are not the
-// whole width: a scroll between left and right margins.
-void cells_scroll_cols(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, unsigned from,
-                       unsigned end, uint8_t n, bool up);
-
-// The whole screen moves a row up, the top row joining the scrollback, or a
-// row down, the newest row of the scrollback lost. Returns the row of
-// memory the row that went is in, which keep keeps as for cells_scroll
-// (screen_index).
-uint8_t cells_index(term_t *t, term_grid_t *g, bool up, bool keep);
-
 // Under DECSCLM, rows [top, bot] just scrolled a row up or down by an index
 // or a reverse index, and the screen shows them move there a scanline a
 // frame from the next frame, over TERM_SMOOTH_FRAMES. ghost is the row of
-// memory the row that went is in, which cells_scroll or cells_index kept
+// memory the row that went is in, which screen_scroll or screen_index kept
 // with its line size; it shows until it is gone. Nothing writes the
 // ghost until the next scroll, index, clear or change of height of the
 // grid, each of which ends the smooth scroll, and the terminal holds a byte
@@ -189,20 +96,6 @@ void cells_smooth(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, bool up, 
 
 // A smooth scroll of g is still moving.
 bool cells_smooth_busy(const term_grid_t *g);
-
-// ED 3: the scrollback is forgotten.
-void cells_forget(term_t *t, term_grid_t *g);
-
-// The screen showing lazy-erased and its scrollback forgotten.
-void cells_clear(term_t *t, term_grid_t *g);
-
-// The height went one row up or down. With top, the cursor was on the bottom
-// row and the screen moved instead of the cursor: a grow brings a row back
-// from the scrollback at the top, a shrink sends the top row to it.
-void cells_height(term_t *t, term_grid_t *g, bool grow, bool top);
-
-// RIS and the system's soft reset: the alternate screen is erased.
-void cells_reset(term_t *t, term_grid_t *g);
 
 // RIS and the system's soft reset: the palette and the default and cursor
 // colors start again, and on a machine that draws the screen the blinks

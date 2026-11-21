@@ -34,7 +34,7 @@ static inline uint16_t grid_param(const term_t *t, uint8_t i, uint16_t dflt)
 // Move the cursor, 0-indexed, clamped to the screen and to the columns of its
 // row. Every move ends a pending wrap, and the destination row is touched so a
 // glyph can land on it.
-static void grid_goto(term_t *t, term_grid_t *g, unsigned x, unsigned y)
+static void grid_goto(term_grid_t *g, unsigned x, unsigned y)
 {
     term_pos_t *pos = term_pos(g);
     if (y >= g->height)
@@ -45,7 +45,7 @@ static void grid_goto(term_t *t, term_grid_t *g, unsigned x, unsigned y)
     pos->x = (uint8_t)x;
     pos->y = (uint8_t)y;
     pos->wrap_pending = false;
-    cells_touch(t, g, (uint8_t)y);
+    screen_touch(g->shown, (uint8_t)y);
 }
 
 static void grid_reset_tabs(term_grid_t *g)
@@ -138,8 +138,18 @@ void term_set_width(term_t *t, term_grid_t *g, uint8_t width)
 
 /* ---- height ------------------------------------------------------------ */
 
+// The height just went a row up or down: the screen showing moves, and the
+// scrollback of each screen is at most what the new height leaves.
+static void grid_height_step(term_grid_t *g, bool grow, bool top)
+{
+    screen_height(g->shown, g->height, grow, top);
+    for (int s = 0; s < 2; s++)
+        screen_fit(&g->screen[s], g->height);
+}
+
 void term_set_height(term_t *t, term_grid_t *g, uint8_t height)
 {
+    (void)t;
     assert(height >= 1 && height <= grid_rows(g));
     term_pos_t *pos = term_pos(g);
     while (height != g->height)
@@ -153,11 +163,11 @@ void term_set_height(term_t *t, term_grid_t *g, uint8_t height)
                 // top: everything moves down a row and the row above comes
                 // into view.
                 pos->y++;
-                cells_height(t, g, true, true);
+                grid_height_step(g, true, true);
             }
             else
                 // A fresh row at the bottom.
-                cells_height(t, g, true, false);
+                grid_height_step(g, true, false);
         }
         else
         {
@@ -167,11 +177,11 @@ void term_set_height(term_t *t, term_grid_t *g, uint8_t height)
                 // The cursor is on the bottom row, so the top row goes out of
                 // view and joins the scrollback.
                 pos->y--;
-                cells_height(t, g, false, true);
+                grid_height_step(g, false, true);
             }
             else
                 // The bottom row is no longer visible.
-                cells_height(t, g, false, false);
+                grid_height_step(g, false, false);
         }
     }
     grid_full_margins(g);
@@ -197,8 +207,8 @@ void term_set_height(term_t *t, term_grid_t *g, uint8_t height)
 static void grid_erase_cols(term_t *t, term_grid_t *g, uint8_t y, unsigned from,
                             unsigned to, bool selective)
 {
-    cells_touch(t, g, y);
-    cells_erase(t, g, y, from, to, selective);
+    screen_touch(g->shown, y);
+    screen_erase(t, g->shown, y, from, to, selective);
 }
 
 // Copy the h rows of w columns at (sy, sx) to (dy, dx). The two may overlap:
@@ -218,7 +228,7 @@ static void grid_copy(term_t *t, term_grid_t *g, unsigned sy, unsigned sx,
             n = from - sx;
         if (n > to - dx)
             n = to - dx;
-        cells_copy(t, g, (uint8_t)(sy + k), sx, (uint8_t)(dy + k), dx, n);
+        screen_copy_cells(t, g->shown, (uint8_t)(sy + k), sx, (uint8_t)(dy + k), dx, n);
     }
 }
 
@@ -226,7 +236,7 @@ static void grid_copy(term_t *t, term_grid_t *g, unsigned sy, unsigned sx,
 // coming in. The caller places the cursor and touches its row. Between left
 // and right margins only the cells between them move. A scroll of all the
 // columns returns the row of memory the row that went out at the edge is
-// in, which keep keeps (cells_scroll); between margins nothing is kept, and
+// in, which keep keeps (screen_scroll); between margins nothing is kept, and
 // the 0 returned names no row.
 static uint8_t grid_scroll(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot,
                            uint16_t count, bool up, bool keep)
@@ -236,17 +246,18 @@ static uint8_t grid_scroll(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot,
     uint8_t region_h = (uint8_t)(bot - top + 1);
     uint8_t n = count > region_h ? region_h : (uint8_t)count;
     if (grid_all_columns(g))
-        return cells_scroll(t, g, top, bot, n, up, keep);
-    cells_scroll_cols(t, g, top, bot, g->margin_left, (unsigned)g->margin_right + 1, n, up);
+        return screen_scroll(t, g->shown, top, bot, n, up, keep);
+    screen_scroll_cols(t, g->shown, top, bot, g->margin_left, (unsigned)g->margin_right + 1, n,
+                       up);
     return 0;
 }
 
 // A scroll can bring a double-size line under the cursor: the cursor's row
 // is touched and the cursor kept inside the line's columns.
-static void grid_after_scroll(term_t *t, term_grid_t *g)
+static void grid_after_scroll(term_grid_t *g)
 {
     term_pos_t *pos = term_pos(g);
-    cells_touch(t, g, pos->y);
+    screen_touch(g->shown, pos->y);
     unsigned cols = term_cols(g, pos->y);
     if (pos->x >= cols)
         pos->x = (uint8_t)(cols - 1);
@@ -292,10 +303,10 @@ static void grid_scroll_one(term_t *t, term_grid_t *g, bool up)
     const uint8_t edge = up ? top : bot;
     const bool keep = grid_smooths(t, g);
     if (keep)
-        cells_touch(t, g, edge);
+        screen_touch(g->shown, edge);
     uint8_t ghost;
     if (grid_full_region(g))
-        ghost = cells_index(t, g, up, keep);
+        ghost = screen_index(t, g->shown, g->height, up, keep);
     else
         ghost = grid_scroll(t, g, top, bot, 1, up, keep);
     if (keep)
@@ -325,7 +336,7 @@ static void grid_index_move(term_t *t, term_grid_t *g)
 static void grid_index(term_t *t, term_grid_t *g)
 {
     grid_index_move(t, g);
-    grid_after_scroll(t, g);
+    grid_after_scroll(g);
 }
 
 // Reverse Index (ESC M), the dual of IND. At margin_top it scrolls the region
@@ -344,7 +355,7 @@ static void grid_reverse_index(term_t *t, term_grid_t *g)
         ;
     else
         grid_scroll_one(t, g, false);
-    grid_after_scroll(t, g);
+    grid_after_scroll(g);
 }
 
 // Carriage return: to the left margin, or to the first column for a cursor
@@ -398,8 +409,8 @@ static void grid_put_glyph(term_t *t, term_grid_t *g, uint8_t byte)
     grid_wrap(t, g);
     unsigned stop = term_right_stop(g);
     if (grid_inserting(t) && grid_in_columns(g, pos->x))
-        cells_insert(t, g, pos->y, pos->x, stop + 1, 1);
-    cells_glyphs(t, g, pos->y, pos->x, byte, 1);
+        screen_insert(t, g->shown, pos->y, pos->x, stop + 1, 1);
+    screen_glyphs(t, g->shown, pos->y, pos->x, byte, 1);
     if (pos->x < stop)
         pos->x++;
     else if (t->autowrap)
@@ -452,16 +463,16 @@ static unsigned grid_rep_pass(term_t *t, term_grid_t *g, unsigned n, bool write,
                 out = end;
             if (out > x)
             {
-                cells_touch(t, g, pos->y);
-                cells_glyphs(t, g, pos->y, (uint8_t)x, t->last_glyph, out - x);
+                screen_touch(g->shown, pos->y);
+                screen_glyphs(t, g->shown, pos->y, (uint8_t)x, t->last_glyph, out - x);
             }
             int y = pos->y;
             if (y >= g->margin_top && y <= g->margin_bot)
                 y -= (int)(total - done);
             if (end > out && (y >= g->margin_top || pos->y < g->margin_top))
             {
-                cells_touch(t, g, (uint8_t)y);
-                cells_glyphs(t, g, (uint8_t)y, (uint8_t)out, t->last_glyph, end - out);
+                screen_touch(g->shown, (uint8_t)y);
+                screen_glyphs(t, g->shown, (uint8_t)y, (uint8_t)out, t->last_glyph, end - out);
             }
         }
         n -= run;
@@ -517,7 +528,7 @@ static void grid_REP(term_t *t, term_grid_t *g)
         *pos = from;
         grid_scroll(t, g, g->margin_top, g->margin_bot, (uint16_t)scrolls, true, false);
         grid_rep_pass(t, g, n, true, scrolls);
-        cells_touch(t, g, pos->y);
+        screen_touch(g->shown, pos->y);
         return;
     }
     while (n)
@@ -545,12 +556,12 @@ static void grid_REP(term_t *t, term_grid_t *g)
             // A whole row, with more to come: the row is owed the glyph,
             // whatever it was owed, and the cursor goes on from it. Not a
             // double-size row, whose far half keeps what it holds.
-            cells_fill_row(t, g, pos->y, t->last_glyph);
+            screen_fill_row(t, g->shown, pos->y, t->last_glyph);
         else
         {
             if (moved)
-                cells_touch(t, g, pos->y);
-            cells_glyphs(t, g, pos->y, pos->x, t->last_glyph, run);
+                screen_touch(g->shown, pos->y);
+            screen_glyphs(t, g->shown, pos->y, pos->x, t->last_glyph, run);
         }
         n -= run;
         if (pos->x + run < cols)
@@ -623,40 +634,40 @@ void grid_set_tabs(term_grid_t *g, const uint16_t *cols)
 
 // Up n rows. A cursor inside the region stops at its top margin; above it, at
 // the top row.
-static void grid_cursor_up(term_t *t, term_grid_t *g, uint16_t n)
+static void grid_cursor_up(term_grid_t *g, uint16_t n)
 {
     term_pos_t *pos = term_pos(g);
     uint8_t fence = (pos->y >= g->margin_top) ? g->margin_top : 0;
     uint16_t room = (uint16_t)(pos->y - fence);
-    grid_goto(t, g, pos->x, (unsigned)(pos->y - (n < room ? n : room)));
+    grid_goto(g, pos->x, (unsigned)(pos->y - (n < room ? n : room)));
 }
 
 // Down n rows. A cursor inside the region stops at its bottom margin; below
 // it, at the last row.
-static void grid_cursor_down(term_t *t, term_grid_t *g, uint16_t n)
+static void grid_cursor_down(term_grid_t *g, uint16_t n)
 {
     term_pos_t *pos = term_pos(g);
     uint8_t fence = (pos->y <= g->margin_bot) ? g->margin_bot
                                               : (uint8_t)(g->height - 1);
     uint16_t room = (uint16_t)(fence - pos->y);
-    grid_goto(t, g, pos->x, (unsigned)(pos->y + (n < room ? n : room)));
+    grid_goto(g, pos->x, (unsigned)(pos->y + (n < room ? n : room)));
 }
 
 // Right n columns: a cursor at or left of the right margin stops at it.
-static void grid_cursor_forward(term_t *t, term_grid_t *g, uint16_t n)
+static void grid_cursor_forward(term_grid_t *g, uint16_t n)
 {
     term_pos_t *pos = term_pos(g);
     unsigned stop = term_right_stop(g);
     unsigned room = stop - (pos->x < stop ? pos->x : stop);
-    grid_goto(t, g, (unsigned)pos->x + (n < room ? n : room), pos->y);
+    grid_goto(g, (unsigned)pos->x + (n < room ? n : room), pos->y);
 }
 
 // Left n columns: a cursor at or right of the left margin stops at it.
-static void grid_cursor_back(term_t *t, term_grid_t *g, uint16_t n)
+static void grid_cursor_back(term_grid_t *g, uint16_t n)
 {
     term_pos_t *pos = term_pos(g);
     unsigned room = pos->x - term_left_stop(g);
-    grid_goto(t, g, (unsigned)pos->x - (n < room ? n : room), pos->y);
+    grid_goto(g, (unsigned)pos->x - (n < room ? n : room), pos->y);
 }
 
 // Translate a 1-indexed row from a CSI parameter into an absolute 0-indexed
@@ -701,7 +712,7 @@ static uint16_t grid_relative(term_t *t, const term_grid_t *g, bool row, unsigne
 static void grid_home(term_t *t, term_grid_t *g)
 {
     bool origin = term_pen(t)->origin_mode;
-    grid_goto(t, g, origin ? g->margin_left : 0, origin ? g->margin_top : 0);
+    grid_goto(g, origin ? g->margin_left : 0, origin ? g->margin_top : 0);
 }
 
 /* ---- erasing and editing ----------------------------------------------- */
@@ -719,7 +730,7 @@ static void grid_erase_line(term_t *t, term_grid_t *g, uint16_t mode, bool selec
         to = (unsigned)pos->x + 1u;
     else if (mode != 2)
         return;
-    cells_erase(t, g, pos->y, from, to, selective);
+    screen_erase(t, g->shown, pos->y, from, to, selective);
 }
 
 // Lazy-erase rows [from, to), which become single size unless the erase is
@@ -729,7 +740,7 @@ static void grid_erase_rows(term_t *t, term_grid_t *g, uint8_t from, uint8_t to,
 {
     if (!selective)
         screen_lines_normal(g->shown, from, to);
-    cells_erase_rows(t, g, from, to, selective);
+    screen_erase_rows(t, g->shown, from, to, selective);
 }
 
 // Erase Display. ED 0 and ED 1 erase the cursor's row like EL 0 and EL 1 and
@@ -752,11 +763,11 @@ static void grid_erase_display(term_t *t, term_grid_t *g, uint16_t mode, bool se
     case 2:
         pos->wrap_pending = false;
         grid_erase_rows(t, g, 0, g->height, selective);
-        cells_touch(t, g, pos->y);
+        screen_touch(g->shown, pos->y);
         break;
     case 3:
         pos->wrap_pending = false;
-        cells_forget(t, g);
+        screen_forget(g->shown);
         break;
     }
 }
@@ -788,14 +799,14 @@ static void grid_IL_DL(term_t *t, term_grid_t *g, bool insert)
     if (!grid_cursor_in_margins(g))
         return;
     grid_scroll(t, g, y, g->margin_bot, grid_param(t, 0, 1), !insert, false);
-    grid_goto(t, g, g->margin_left, y);
+    grid_goto(g, g->margin_left, y);
 }
 
 // Scroll the region up (SU) or down (SD) by Pn rows. The cursor stays.
 static void grid_SU_SD(term_t *t, term_grid_t *g, bool up)
 {
     grid_scroll(t, g, g->margin_top, g->margin_bot, grid_param(t, 0, 1), up, false);
-    grid_after_scroll(t, g);
+    grid_after_scroll(g);
 }
 
 // Set Top and Bottom Margins (CSI Pt ; Pb r). The cursor goes home. Each
@@ -832,11 +843,11 @@ static void grid_DECSLRM(term_t *t, term_grid_t *g)
 // at once, text already on it included. Going double size, the columns past
 // the middle are kept out of sight, and come back when the line is single
 // size again, as in xterm; vttest counts losing them as a VT100 bug.
-static void grid_line_size(term_t *t, term_grid_t *g, uint8_t size)
+static void grid_line_size(term_grid_t *g, uint8_t size)
 {
     term_pos_t *pos = term_pos(g);
     screen_set_size(g->shown, pos->y, size);
-    grid_goto(t, g, pos->x, pos->y);
+    grid_goto(g, pos->x, pos->y);
 }
 
 // DECALN, ESC # 8: the screen full of E's, for lining up a monitor. The
@@ -846,8 +857,8 @@ static void grid_DECALN(term_t *t, term_grid_t *g)
 {
     grid_full_margins(g);
     screen_lines_normal(g->shown, 0, g->height);
-    cells_align(t, g);
-    grid_goto(t, g, 0, 0);
+    screen_align(t, g->shown, g->height);
+    grid_goto(g, 0, 0);
 }
 
 /* ---- the sequences ----------------------------------------------------- */
@@ -864,41 +875,41 @@ static void grid_csi(term_t *t, term_grid_t *g, uint8_t ch)
             break;
         end = term_right_stop(g) + 1;
         n = grid_edit_count(t, g, end);
-        cells_insert(t, g, pos->y, pos->x, end, n);
+        screen_insert(t, g->shown, pos->y, pos->x, end, n);
         break;
     case 'A':
-        grid_cursor_up(t, g, grid_param(t, 0, 1));
+        grid_cursor_up(g, grid_param(t, 0, 1));
         break;
     case 'B':
-        grid_cursor_down(t, g, grid_param(t, 0, 1));
+        grid_cursor_down(g, grid_param(t, 0, 1));
         break;
     case 'e': // VPR: as VPA to the row Pn below, past the margins, as in xterm
-        grid_goto(t, g, pos->x, grid_origin_row(t, g, grid_relative(t, g, true, grid_param(t, 0, 1))));
+        grid_goto(g, pos->x, grid_origin_row(t, g, grid_relative(t, g, true, grid_param(t, 0, 1))));
         break;
     case 'C':
-        grid_cursor_forward(t, g, grid_param(t, 0, 1));
+        grid_cursor_forward(g, grid_param(t, 0, 1));
         break;
     case 'a': // HPR: as HPA to the column Pn right, past the margins, as in xterm
-        grid_goto(t, g, grid_origin_col(t, g, grid_relative(t, g, false, grid_param(t, 0, 1))), pos->y);
+        grid_goto(g, grid_origin_col(t, g, grid_relative(t, g, false, grid_param(t, 0, 1))), pos->y);
         break;
     case 'D':
-        grid_cursor_back(t, g, grid_param(t, 0, 1));
+        grid_cursor_back(g, grid_param(t, 0, 1));
         break;
     case 'E': // CNL
-        grid_cursor_down(t, g, grid_param(t, 0, 1));
+        grid_cursor_down(g, grid_param(t, 0, 1));
         grid_CR(t, g);
         break;
     case 'F': // CPL
-        grid_cursor_up(t, g, grid_param(t, 0, 1));
+        grid_cursor_up(g, grid_param(t, 0, 1));
         grid_CR(t, g);
         break;
     case 'G':
     case '`': // HPA -- alias of CHA
-        grid_goto(t, g, grid_origin_col(t, g, grid_param(t, 0, 1)), pos->y);
+        grid_goto(g, grid_origin_col(t, g, grid_param(t, 0, 1)), pos->y);
         break;
     case 'H':
     case 'f': // HVP -- alias of CUP
-        grid_goto(t, g, grid_origin_col(t, g, grid_param(t, 1, 1)),
+        grid_goto(g, grid_origin_col(t, g, grid_param(t, 1, 1)),
                   grid_origin_row(t, g, grid_param(t, 0, 1)));
         break;
     case 'I': // CHT
@@ -921,7 +932,7 @@ static void grid_csi(term_t *t, term_grid_t *g, uint8_t ch)
             break;
         end = term_right_stop(g) + 1;
         n = grid_edit_count(t, g, end);
-        cells_delete(t, g, pos->y, pos->x, end, n);
+        screen_delete(t, g->shown, pos->y, pos->x, end, n);
         break;
     case 'S':
         grid_SU_SD(t, g, true);
@@ -931,13 +942,13 @@ static void grid_csi(term_t *t, term_grid_t *g, uint8_t ch)
         break;
     case 'X': // ECH: Pn cells erased; the cursor doesn't move
         n = grid_edit_count(t, g, term_cols(g, pos->y));
-        cells_erase(t, g, pos->y, pos->x, pos->x + n, term_erase_selective(t, false));
+        screen_erase(t, g->shown, pos->y, pos->x, pos->x + n, term_erase_selective(t, false));
         break;
     case 'Z': // CBT
         grid_tab_back(t, g, grid_param(t, 0, 1));
         break;
     case 'd': // VPA
-        grid_goto(t, g, pos->x, grid_origin_row(t, g, grid_param(t, 0, 1)));
+        grid_goto(g, pos->x, grid_origin_row(t, g, grid_param(t, 0, 1)));
         break;
     case 'g':
         grid_TBC(t, g);
@@ -957,19 +968,19 @@ static void grid_vt52(term_t *t, term_grid_t *g, uint8_t ch)
     switch (ch)
     {
     case 'A': // cursor up
-        grid_cursor_up(t, g, 1);
+        grid_cursor_up(g, 1);
         break;
     case 'B': // cursor down
-        grid_cursor_down(t, g, 1);
+        grid_cursor_down(g, 1);
         break;
     case 'C': // cursor right
-        grid_cursor_forward(t, g, 1);
+        grid_cursor_forward(g, 1);
         break;
     case 'D': // cursor left
-        grid_cursor_back(t, g, 1);
+        grid_cursor_back(g, 1);
         break;
     case 'H': // home
-        grid_goto(t, g, 0, 0);
+        grid_goto(g, 0, 0);
         break;
     case 'I': // reverse line feed
         grid_reverse_index(t, g);
@@ -1053,11 +1064,11 @@ static void grid_DECFRA(term_t *t, term_grid_t *g)
         if (r.left >= end)
             continue;
         if (grid_rect_whole_row(g, &r, (uint8_t)y, end))
-            cells_fill_row(t, g, (uint8_t)y, (uint8_t)ch);
+            screen_fill_row(t, g->shown, (uint8_t)y, (uint8_t)ch);
         else
         {
-            cells_touch(t, g, (uint8_t)y);
-            cells_glyphs(t, g, (uint8_t)y, r.left, (uint8_t)ch, end - r.left);
+            screen_touch(g->shown, (uint8_t)y);
+            screen_glyphs(t, g->shown, (uint8_t)y, r.left, (uint8_t)ch, end - r.left);
         }
     }
 }
@@ -1079,11 +1090,11 @@ static void grid_rect_erase(term_t *t, term_grid_t *g, bool wipe, bool selective
             continue;
         if (wipe)
         {
-            cells_touch(t, g, (uint8_t)y);
-            cells_wipe(t, g, (uint8_t)y, r.left, end, selective);
+            screen_touch(g->shown, (uint8_t)y);
+            screen_wipe(t, g->shown, (uint8_t)y, r.left, end, selective);
         }
         else if (grid_rect_whole_row(g, &r, (uint8_t)y, end))
-            cells_erase_rows(t, g, (uint8_t)y, (uint8_t)(y + 1), false);
+            screen_erase_rows(t, g->shown, (uint8_t)y, (uint8_t)(y + 1), false);
         else
             grid_erase_cols(t, g, (uint8_t)y, r.left, end, false);
     }
@@ -1127,23 +1138,23 @@ static void grid_rect_attrs(term_t *t, term_grid_t *g, bool reverse)
         switch (p)
         {
         case 0:
-            bit = CELLS_MARK_ALL;
+            bit = SCREEN_MARK_ALL;
             break;
         case 1:
         case 22:
-            bit = CELLS_MARK_BOLD;
+            bit = SCREEN_MARK_BOLD;
             break;
         case 4:
         case 24:
-            bit = CELLS_MARK_UNDERLINE;
+            bit = SCREEN_MARK_UNDERLINE;
             break;
         case 5:
         case 25:
-            bit = CELLS_MARK_BLINK;
+            bit = SCREEN_MARK_BLINK;
             break;
         case 7:
         case 27:
-            bit = CELLS_MARK_REVERSE;
+            bit = SCREEN_MARK_REVERSE;
             break;
         }
         if (reverse)
@@ -1172,7 +1183,7 @@ static void grid_rect_attrs(term_t *t, term_grid_t *g, bool reverse)
         unsigned end = grid_rect_end(g, &row, (uint8_t)y);
         if (row.left >= end)
             continue;
-        cells_attrs(t, g, (uint8_t)y, row.left, end, set, clear, toggle);
+        screen_attrs(t, g->shown, (uint8_t)y, row.left, end, set, clear, toggle);
     }
 }
 
@@ -1242,16 +1253,16 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
         // region moves Pn columns between the left and right margins, for
         // a cursor inside them, as on xterm. The cursor stays.
         if (grid_cursor_in_margins(g))
-            cells_shift(t, g, g->margin_top, g->margin_bot, g->margin_left,
-                        (unsigned)g->margin_right + 1, grid_param(t, 0, 1), ch == '@');
+            screen_shift(t, g->shown, g->margin_top, g->margin_bot, g->margin_left,
+                         (unsigned)g->margin_right + 1, grid_param(t, 0, 1), ch == '@');
         break;
     case GRID_COLUMNS:
         // DECIC and DECDC, CSI Pn ' } and CSI Pn ' ~: Pn columns inserted
         // or deleted at the cursor's column, on every line of the scroll
         // region, up to the right margin. For a cursor inside the margins.
         if (grid_cursor_in_margins(g))
-            cells_shift(t, g, g->margin_top, g->margin_bot, pos->x,
-                        (unsigned)g->margin_right + 1, grid_param(t, 0, 1), ch == '~');
+            screen_shift(t, g->shown, g->margin_top, g->margin_bot, pos->x,
+                         (unsigned)g->margin_right + 1, grid_param(t, 0, 1), ch == '~');
         break;
     case GRID_RECT:
         grid_rect(t, g, ch);
@@ -1284,13 +1295,13 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
             if (grid_in_columns(g, pos->x) && pos->x == (back ? g->margin_left : g->margin_right))
             {
                 if (grid_cursor_in_margins(g))
-                    cells_shift(t, g, g->margin_top, g->margin_bot, g->margin_left,
-                                (unsigned)g->margin_right + 1, 1, !back);
+                    screen_shift(t, g->shown, g->margin_top, g->margin_bot, g->margin_left,
+                                 (unsigned)g->margin_right + 1, 1, !back);
             }
             else if (back)
-                grid_cursor_back(t, g, 1);
+                grid_cursor_back(g, 1);
             else
-                grid_cursor_forward(t, g, 1);
+                grid_cursor_forward(g, 1);
         }
         else // RI
             grid_reverse_index(t, g);
@@ -1299,7 +1310,7 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
         if (ch == '8')
             grid_DECALN(t, g);
         else
-            grid_line_size(t, g, ch == '3'   ? TERM_LINE_TOP
+            grid_line_size(g, ch == '3'   ? TERM_LINE_TOP
                                  : ch == '4' ? TERM_LINE_BOTTOM
                                  : ch == '6' ? TERM_LINE_WIDE
                                              : TERM_LINE_NORMAL);
@@ -1314,7 +1325,7 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
         unsigned row = (unsigned)(t->csi_param[0] - 32);
         if (row >= g->height)
             row = pos->y;
-        grid_goto(t, g, (unsigned)(ch - 32), row);
+        grid_goto(g, (unsigned)(ch - 32), row);
         break;
     }
     case GRID_SAVE:
@@ -1325,7 +1336,7 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
         // With nothing saved the slot holds home.
         *pos = g->shown->saved;
         bool pending = pos->wrap_pending;
-        grid_goto(t, g, pos->x, pos->y);
+        grid_goto(g, pos->x, pos->y);
         pos->wrap_pending = pending;
         break;
     }
@@ -1333,7 +1344,7 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
         grid_home(t, g);
         break;
     case GRID_STAY:
-        grid_goto(t, g, pos->x, pos->y);
+        grid_goto(g, pos->x, pos->y);
         break;
     case GRID_ALT_IN:
         g->screen[1].pos = g->screen[0].pos;
@@ -1343,7 +1354,7 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
         break;
     case GRID_CLEAR:
         screen_all_normal(g->shown);
-        cells_clear(t, g);
+        screen_clear(t, g->shown, g->height);
         break;
     case GRID_RESET:
         grid_full_margins(g);
@@ -1354,19 +1365,19 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
             memset(&g->screen[s].saved, 0, sizeof g->screen[s].saved);
         }
         screen_all_normal(&g->screen[1]);
-        cells_reset(t, g);
+        screen_reset(&g->screen[1], g->height);
         break;
     case GRID_DECCOLM:
         grid_full_margins(g);
         screen_all_normal(g->shown);
-        cells_clear(t, g);
+        screen_clear(t, g->shown, g->height);
         grid_home(t, g);
         break;
     case GRID_DECSTR:
         grid_full_margins(g);
         for (int s = 0; s < 2; s++)
             memset(&g->screen[s].saved, 0, sizeof g->screen[s].saved);
-        grid_goto(t, g, pos->x, pos->y);
+        grid_goto(g, pos->x, pos->y);
         break;
     }
 }

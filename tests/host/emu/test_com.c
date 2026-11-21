@@ -646,8 +646,8 @@ UTEST(com, the_end_reset_scrolls_for_a_clear_line)
     snprintf(drawn, sizeof drawn, "\33[%d;1Hlast\33[%d;1H", bottom + 1, bottom);
     ASSERT_STREQ(end_reset_after(drawn, &row), "\r\n\r\n");
     ASSERT_EQ(row, bottom);
-    ASSERT_FALSE(cells_row_used(&cells_term, cells_shown(&cells_term), (uint8_t)bottom));
-    ASSERT_TRUE(cells_row_used(&cells_term, cells_shown(&cells_term), (uint8_t)(bottom - 1)));
+    ASSERT_FALSE(screen_row_used(cells_shown(&cells_term)->shown, (uint8_t)bottom));
+    ASSERT_TRUE(screen_row_used(cells_shown(&cells_term)->shown, (uint8_t)(bottom - 1)));
 }
 
 /* A program that ends with a left margin set leaves the prompt on the

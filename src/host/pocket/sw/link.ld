@@ -14,7 +14,7 @@
  *
  * VIDCELLS, VIDCOLORS and VIDPALETTE are the memories of mode0.sv and
  * VIDREGS its registers. core/vga/mode/mode0.c's cells, colors, palette
- * and words go there, so cells.c and draw.c write them where they are
+ * and words go there, so screen.c and draw.c write them where they are
  * drawn from.
  * The lengths are the memories' in mode0.sv, which hold 30 rows of the
  * 40- and 80-column terminals, each with a primary and an alternate

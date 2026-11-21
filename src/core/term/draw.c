@@ -6,9 +6,9 @@
 
 #include "core/com/manifold.h"
 #include "core/term/cells.h"
-#include "core/term/cells_store.h"
 #include "core/term/color.h"
 #include "core/term/grid.h"
+#include "core/term/screen.h"
 #include "core/term/term.h"
 #include "core/vga/mode/mode0.h"
 #include "core/vga/vga.h"
@@ -16,10 +16,11 @@
 #include <string.h>
 
 // The console's screen on a machine that draws it: the terminal (term.c),
-// followed at 40 and 80 columns in the cell store (cells.c), and what mode 0
-// draws the size showing from. This file writes mode 0's words, keeps the
-// palette and the colors a program sets, the blinks and the smooth scrolls,
-// feeds the console's bytes to the terminal, and saves all of it.
+// followed at 40 and 80 columns, each size's screens keeping their cells in
+// the cell store (screen.c), and what mode 0 draws the size showing from.
+// This file gives the screens mode 0's cells, writes mode 0's words, keeps
+// the palette and the colors a program sets, the blinks and the smooth
+// scrolls, feeds the console's bytes to the terminal, and saves all of it.
 
 #define CELLS_FG_COLOR_INDEX 7
 #define CELLS_BG_COLOR_INDEX 0
@@ -60,8 +61,8 @@ static inline uint32_t cells_frame(void)
 // A smooth scroll moving on one of a size's screens (DECSCLM): rows top to
 // bot, one way, the row of memory that went out (ghost), and the first frame
 // it shows moving. The ghost keeps its line size in its row of memory. The
-// store ends it when the screen's count of cancels moves on from the one the
-// scroll started at.
+// store ends it when the count of cancels of either screen of its size
+// moves on from the one the scroll started at.
 typedef struct
 {
     bool on;
@@ -83,7 +84,21 @@ typedef struct
     uint8_t cell_blink_phase;
 } cells_draw_t;
 
+// The terminal at one size, the rings of its screens and the line
+// attributes of their rows of memory, and their cells: the primary's, then
+// the alternate's, which a build without TERM_ALT_SCREEN does not give its
+// screen.
+typedef struct
+{
+    term_grid_t grid;
+    uint8_t lines[2 * TERM_MEM_ROWS];
+    uint8_t row_idx[2 * TERM_MAX_HEIGHT];
+    screen_cells_t bufs[2];
+} cells_t;
+
 term_t cells_term;
+static cells_t cells_40;
+static cells_t cells_80;
 static cells_draw_t draw_40;
 static cells_draw_t draw_80;
 /* Something mode 0 draws changed outside a batch of the console's bytes,
@@ -117,10 +132,11 @@ static inline cells_t *cells_size(const term_grid_t *g)
     return g == &cells_80.grid ? &cells_80 : g == &cells_40.grid ? &cells_40 : NULL;
 }
 
-// The store's count of cancels of the screen a size's smooth scroll is on.
+// The store's count of cancels of a size's screens: a scroll, an index, a
+// clear or a change of height of either moves it on.
 static inline uint32_t cells_smooth_cancels(const cells_t *cells)
 {
-    return cells->bufs[cells_draw(cells)->smooth.buf].cancels;
+    return cells->bufs[0].cancels + cells->bufs[1].cancels;
 }
 
 // A smooth scroll is moving on the size: it started and the store has not
@@ -191,7 +207,7 @@ static bool cells_sst_lines_ok(sst_cursor_t *c)
  * that MODE0_DRIVER saves after this row. The counts of cancels are not
  * saved: a smooth scroll the store ended is put away before the save, and a
  * load starts the ones it brings back from the store's count as it is,
- * once the smooth scroll's row below has said which screen it is on. */
+ * in the smooth scroll's row below. */
 static void cells_sst_put_bufs(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
@@ -200,7 +216,7 @@ static void cells_sst_put_bufs(sst_cursor_t *c, unsigned flags)
     {
         cells_smooth_ended(all[n]);
         for (int b = 0; b < MODE0_SCREENS; b++)
-            cells_put_buf(c, &all[n]->grid.screen[b]);
+            screen_sst_put(c, &all[n]->grid.screen[b]);
     }
 }
 
@@ -210,7 +226,7 @@ static bool cells_sst_get_bufs(sst_cursor_t *c, unsigned flags)
     cells_t *const all[] = {&cells_40, &cells_80};
     for (int n = 0; n < 2; n++)
         for (int b = 0; b < MODE0_SCREENS; b++)
-            if (!cells_get_buf(c, &all[n]->grid.screen[b]))
+            if (!screen_sst_get(c, &all[n]->grid.screen[b]))
                 return false;
     return true;
 }
@@ -252,7 +268,7 @@ static bool cells_sst_smooth_ok(sst_cursor_t *c)
     X(STRUCT, cells_80.grid, TERM_GRID_SST_ROWS)                       \
     X(VALIDATE, cells_sst_grids_ok)                                    \
     X(FN, cells_sst_put_bufs, cells_sst_get_bufs,                      \
-      2 * MODE0_SCREENS * CELLS_BUF_SST_SIZE, 2)                       \
+      2 * MODE0_SCREENS * SCREEN_SST_SIZE, 2)                       \
     X(IN_FN, cells_40.lines)                                           \
     X(IN_FN, cells_40.row_idx)                                         \
     X(IN_FN, cells_40.bufs)                                            \
@@ -289,7 +305,7 @@ static void cells_restart_blinks(cells_draw_t *d)
 
 static cells_t *cells_visible(void);
 
-// The store kept the row that went (cells_scroll, cells_index), so a smooth
+// The store kept the row that went (screen_scroll, screen_index), so a smooth
 // scroll is only recorded, for the size showing. Without a spare row of
 // memory a region's row going out is erased as it goes, so nothing is drawn
 // moving.
@@ -309,7 +325,7 @@ void cells_smooth(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, bool u
         .up = up,
         .ghost = ghost,
         .frame = cells_frame() + 1,
-        .cancels = cells->bufs[buf].cancels,
+        .cancels = cells_smooth_cancels(cells),
     };
 }
 
@@ -419,7 +435,7 @@ void cells_publish(void)
         memcpy(cells_published.row_idx, s->row_idx, TERM_MAX_HEIGHT);
         memcpy(cells_published.line, s->line, TERM_MEM_ROWS);
         for (uint8_t y = 0; y < cells->grid.height; y++)
-            mode0_regs.row[y] = MODE0_ROW(cells_row(s, y) - mode0_cells, screen_size(s, y));
+            mode0_regs.row[y] = MODE0_ROW(screen_row(s, y) - mode0_cells, screen_size(s, y));
     }
     const term_pos_t *pos = term_pos(&cells->grid);
     // A cursor with a wrap pending is on the column it wrote, as on a VT100.
@@ -445,7 +461,7 @@ void cells_publish(void)
     // The words now describe one picture.
     mode0_regs.publish = 1;
     cells_stale = false;
-    cells_moved = false;
+    screen_moved = false;
     // A fabric that met a frame start part way through the publish kept the
     // last frame's words for that frame, and reads the publish word back 0.
     // When that frame was a smooth scroll's first, no frame has shown the
@@ -507,9 +523,38 @@ static int cells_out_chars(const char *buf, int length, bool force)
     return i;
 }
 
+// The cells are mode 0's: each size's primary, then its alternate.
+static void cells_give_cells(void)
+{
+    mode0_cell_t *mem = mode0_cells;
+    cells_t *const all[] = {&cells_40, &cells_80};
+    for (int n = 0; n < 2; n++)
+        for (int b = 0; b < MODE0_SCREENS; b++)
+        {
+            all[n]->bufs[b].mem = mem;
+            all[n]->bufs[b].width = n ? 80 : 40;
+            mem += all[n]->bufs[b].width * TERM_MEM_ROWS;
+        }
+}
+
+/* New grids at both sizes, their screens laid out in this file's line sizes
+ * and rings and given their cells. Without an alternate store, the
+ * alternate screen has no cells, and the terminal never switches to it. */
+static void cells_new_grids(void)
+{
+    cells_t *const all[] = {&cells_40, &cells_80};
+    for (int n = 0; n < 2; n++)
+    {
+        term_grid_init(&all[n]->grid, n ? 80 : 40, all[n]->lines, all[n]->row_idx,
+                       TERM_MAX_HEIGHT);
+        for (int b = 0; b < MODE0_SCREENS; b++)
+            screen_set_cells(&all[n]->grid.screen[b], &all[n]->bufs[b]);
+    }
+}
+
 void cells_init(void)
 {
-    cells_store_init();
+    cells_give_cells();
     cells_restart();
     // become part of stdout
     manifold_set_term_out(cells_out_chars);
@@ -519,11 +564,11 @@ void cells_restart(void)
 {
     /* Every cell is a blank in the default colors at once, the scrollback
      * too, so no glyph or color a load left can reach the renderer. */
-    cells_store_blank();
+    screen_blank_cells(mode0_cells, MODE0_CELLS);
     /* New grids, and a new terminal on them, whose RIS lays out every
      * screen's cells again, stops a smooth scroll, restarts the blinks and
      * resets the palette. A program's own grid is dropped with the rest. */
-    cells_store_grids();
+    cells_new_grids();
     term_grid_t *const grids[] = {&cells_40.grid, &cells_80.grid};
     term_init(&cells_term, grids, 2);
     cells_stale = true;
@@ -576,6 +621,27 @@ static bool cells_smooth_task(cells_t *cells)
     return true;
 }
 
+// Do a scroll between left and right margins either screen of a size is
+// owed, or else pay one row at most what it is owed: the screen showing
+// first, and the other only once the one showing is clean. The cursor's row
+// of the screen showing never owes anything (the terminal touches every row
+// it puts the cursor on), so this never changes the cell under the cursor
+// and never has to restart its blink.
+static void cells_tidy(term_grid_t *g)
+{
+    for (int b = 0; b < 2; b++)
+        if (g->screen[b].cells && g->screen[b].cells->later.n)
+        {
+            screen_settle(&g->screen[b]);
+            return;
+        }
+    if (screen_tidy(g->shown, g->height))
+        return;
+    screen_t *other = &g->screen[g->shown == &g->screen[0] ? 1 : 0];
+    if (other->cells)
+        screen_tidy(other, g->height);
+}
+
 void cells_task(void)
 {
     cells_stale |= cells_smooth_task(&cells_40);
@@ -584,10 +650,10 @@ void cells_task(void)
     cells_stale |= cells_blink_cursor(&draw_80);
     cells_stale |= cells_cell_blink_phase_task(&draw_40);
     cells_stale |= cells_cell_blink_phase_task(&draw_80);
-    if (cells_stale || cells_moved)
+    if (cells_stale || screen_moved)
         cells_publish();
-    cells_clean_task(&cells_40.grid);
-    cells_clean_task(&cells_80.grid);
+    cells_tidy(&cells_40.grid);
+    cells_tidy(&cells_80.grid);
 }
 
 void cells_RIS(void)

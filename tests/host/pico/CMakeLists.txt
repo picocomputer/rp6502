@@ -51,5 +51,5 @@ rp6502_add_test(ria_cells
     INCLUDES ${CMAKE_CURRENT_LIST_DIR}/stub ${RP6502_SRC}/host/pico/ria
         ${RP6502_SRC}/host/pico ${RP6502_SRC} ${RP6502_GEN}
     DEFS PICO_PROGRAM_NAME="RP6502-RIA" RP6502_LOCALE=EN
-        TERM_MAX_HEIGHT=32 TERM_ALT_SCREEN=1)
+        TERM_MAX_HEIGHT=32 TERM_ALT_SCREEN=1 TERM_CELLS=0)
 add_dependencies(test_ria_cells rp6502_gen_c)

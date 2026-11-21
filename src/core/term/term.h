@@ -18,10 +18,11 @@
  * saved pens, the character sets and which screen is showing. So a byte is
  * parsed once, and only what moves the cursor or the rows runs once a grid.
  *
- * The terminal holds no cells and no palette. It changes the screen, and
- * answers queries, through the functions in cells.h, which cells.c and
- * draw.c define on a machine that draws the screen; a machine that only
- * follows the terminal's state defines them itself. */
+ * The terminal holds no cells and no palette. Each grid changes its
+ * screens' rows and cells through the cell store (screen.h). The terminal
+ * answers queries, rings the bell and sets colors through the functions in
+ * cells.h, which draw.c defines on a machine that draws the screen; a
+ * machine that only follows the terminal's state defines them itself. */
 
 #include "core/sys/sst.h"
 #include "machine.h"
@@ -54,6 +55,14 @@
 #define TERM_SPARE_ROWS 1
 #endif
 #define TERM_MEM_ROWS (TERM_MAX_HEIGHT + TERM_SPARE_ROWS)
+
+/* TERM_CELLS: the screens keep their cells in the cell store (screen.c),
+ * as mode 0 draws them. A machine that only follows the terminal, and
+ * keeps no cells, sets it to 0 and defines the store's functions that
+ * change cells itself (screen.h). */
+#ifndef TERM_CELLS
+#define TERM_CELLS 1
+#endif
 
 /* A smooth scroll moves a row in this many frames: one scanline a frame on
  * the 16-scanline rows, one every second frame on the 8-scanline rows of

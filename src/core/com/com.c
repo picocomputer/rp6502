@@ -356,7 +356,7 @@ static void com_clear_line(void)
     term_grid_t *g = cells_shown(&cells_term);
     const uint8_t y = term_pos(g)->y;
     uint8_t last = g->height;
-    while (last > y && !cells_row_used(&cells_term, g, last - 1))
+    while (last > y && !screen_row_used(g->shown, (uint8_t)(last - 1)))
         last--;
     if (last <= y)
     {

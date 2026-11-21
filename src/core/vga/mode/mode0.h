@@ -9,8 +9,9 @@
 
 /* Mode 0 draws the console's terminal. Everything it draws from is here:
  * the cells and a few words that say which cells make each row, where the
- * cursor is and how the screen looks. cells.c writes the cells, draw.c the
- * words and the palette, and the renderer reads them: mode0.c on a machine that draws in software, mode0.sv on one
+ * cursor is and how the screen looks. The cell store (core/term/screen.c)
+ * writes the cells, draw.c the words and the palette, and the renderer
+ * reads them: mode0.c on a machine that draws in software, mode0.sv on one
  * that draws in fabric, where the linker places them on its memories. */
 
 #include "core/sys/sst.h"
@@ -25,7 +26,7 @@
 /* A cell is in two tables, indexed alike. mode0_cells has its glyph and
  * its attributes in one word, which is all a scanline reads. mode0_colors
  * has its three colors, which are read when a row's pixel pairs are built.
- * cells.c takes both from the pen as the cell is written.
+ * The cell store takes both from the pen as the cell is written.
  *
  * The glyph is its place in a row of the font (core/term/font.h), so a
  * scanline draws any cell with one lookup. A character of the code page is
