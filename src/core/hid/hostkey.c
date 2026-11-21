@@ -14,7 +14,7 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/hid/vtkey.h"
-#include "core/api/proc.h"
+#include "core/hid/key.h"
 #include "core/hid/typed.h"
 #include "core/str/oem.h"
 #include "core/str/unicode.h"
@@ -51,12 +51,14 @@ uint8_t hostkey_us_key(char ch, bool *shift)
     return 0;
 }
 
-hostkey_result_t hostkey_press(uint8_t usage, uint8_t flags, bool guess)
+hostkey_result_t hostkey_press(uint8_t usage, uint8_t modifier, bool repeat, bool guess)
 {
-    const bool ctrl = flags & VTKEY_CTRL;
-    const bool alt = flags & VTKEY_ALT;
-    if (proc_key_chord(usage, ctrl, alt))
+    if (key_chord(usage, modifier, repeat))
         return HOSTKEY_CHORD;
+    const uint8_t flags = (uint8_t)(
+        ((modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT)) ? VTKEY_SHIFT : 0) |
+        ((modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT)) ? VTKEY_ALT : 0) |
+        ((modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL)) ? VTKEY_CTRL : 0));
     char out[VTKEY_MAX];
     int n = vtkey_encode(out, usage, flags);
     if (n == VTKEY_CHAR)

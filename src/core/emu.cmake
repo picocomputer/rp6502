@@ -25,6 +25,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/dap/dbg.c
     ${RP6502_SRC}/core/hid/hid.c
     ${RP6502_SRC}/core/hid/keyboard.c
+    ${RP6502_SRC}/core/hid/key.c
     ${RP6502_SRC}/core/hid/mouse.c
     ${RP6502_SRC}/core/hid/gamepad.c
     ${RP6502_SRC}/core/hid/tablet.c

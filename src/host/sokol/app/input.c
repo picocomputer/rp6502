@@ -29,7 +29,8 @@
 static bool suppress_char;
 
 /* Set from a chord that acted until its key comes up. Windows follows Alt-F4
- * with a close request, which is cancelled while this is set. */
+ * with a close request, which is cancelled while this is set. Repeats of the
+ * chord's key are core/hid/key.h's to drop. */
 static bool input_chord_held;
 
 /* A sokol keycode as a USB HID keyboard usage id, for the keyboard bitmap.
@@ -154,8 +155,6 @@ static void input_key(const sapp_event *e)
         bool alt = (e->modifiers & SAPP_MODIFIER_ALT) != 0;
         uint8_t hid = sokol_to_hid(e->key_code);
         suppress_char = false;
-        if (e->key_repeat && input_chord_held)
-            break;
         /* The system gives no text for a Ctrl or Alt chord, so its
          * character is guessed. Any other key's text arrives through the
          * CHAR case above. */
@@ -186,9 +185,13 @@ static void input_key(const sapp_event *e)
          * character arrives through the CHAR case above. */
         else if (alt && !(ALTGR_IS_CTRL_ALT && ctrl))
             guess = true;
-        uint8_t flags = (uint8_t)((shift ? VTKEY_SHIFT : 0) | (alt ? VTKEY_ALT : 0) |
-                                  (ctrl ? VTKEY_CTRL : 0));
-        hostkey_result_t result = hostkey_press(hid, flags, guess);
+        /* Sokol says which modifiers are held but not which side, so the left
+         * one stands for both. */
+        uint8_t modifier = (uint8_t)(
+            (shift ? KEYBOARD_MODIFIER_LEFTSHIFT : 0) | (alt ? KEYBOARD_MODIFIER_LEFTALT : 0) |
+            (ctrl ? KEYBOARD_MODIFIER_LEFTCTRL : 0) |
+            ((e->modifiers & SAPP_MODIFIER_SUPER) ? KEYBOARD_MODIFIER_LEFTGUI : 0));
+        hostkey_result_t result = hostkey_press(hid, modifier, e->key_repeat, guess);
         if (result == HOSTKEY_CHORD)
             input_chord_held = true;
         /* A key that typed with no character from here must not type

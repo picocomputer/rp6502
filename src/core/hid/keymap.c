@@ -15,10 +15,10 @@
 #include "machine.h"
 #include "core/str/oem.h"
 #include "core/str/unicode.h"
-#include "core/api/proc.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/vtkey.h"
 #include "core/hid/layout.h"
+#include "core/hid/key.h"
 #include "core/hid/keymap.h"
 #include "core/hid/typed.h"
 #include "core/hid/usage.h"
@@ -326,7 +326,8 @@ static void HOST_IN_RAM_FUNC keymap_compose(char ch)
 }
 
 /* Chords and lock keys, which do something other than type. True when one of
- * them acted. */
+ * them acted. GUI-Space and the locks are this driver's; the rest are every
+ * machine's. Only a first press asks, so it has no repeat to pass. */
 static bool HOST_IN_RAM_FUNC keymap_chord(const keymap_press_t *k)
 {
     if (k->keycode == HID_KEY_SPACE && k->gui)
@@ -334,7 +335,7 @@ static bool HOST_IN_RAM_FUNC keymap_chord(const keymap_press_t *k)
         layout_list_cycle();
         return true;
     }
-    return proc_key_chord(k->keycode, k->ctrl, k->alt) ||
+    return key_chord(k->keycode, k->mod, false) ||
            keymap_lock_key(k->keycode);
 }
 

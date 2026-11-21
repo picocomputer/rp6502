@@ -21,7 +21,6 @@
 #include "core/sys/random.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
-#include "core/hid/vtkey.h"
 #include "core/hid/hostkey.h"
 #include "core/hid/paste.h"
 #include "core/hid/mouse.h"
@@ -1369,17 +1368,19 @@ static bool script_command(const char *line)
         char *name = script_word(&p);
         if (!name)
             return script_error("key wants a key name");
-        bool ctrl = false, shift = false, alt = false;
+        uint8_t modifier = 0;
         char *plus;
         while ((plus = strrchr(name, '+')) != NULL)
         {
             *plus = 0;
             if (!strcasecmp(plus + 1, "ctrl"))
-                ctrl = true;
+                modifier |= KEYBOARD_MODIFIER_LEFTCTRL;
             else if (!strcasecmp(plus + 1, "shift"))
-                shift = true;
+                modifier |= KEYBOARD_MODIFIER_LEFTSHIFT;
             else if (!strcasecmp(plus + 1, "alt"))
-                alt = true;
+                modifier |= KEYBOARD_MODIFIER_LEFTALT;
+            else if (!strcasecmp(plus + 1, "cmd"))
+                modifier |= KEYBOARD_MODIFIER_LEFTGUI;
             else
                 return script_error("unknown modifier '%s'", plus + 1);
         }
@@ -1390,9 +1391,7 @@ static bool script_command(const char *line)
             return false;
         /* A script has no system to give the key's character, so every key
          * is a US keyboard's. */
-        uint8_t flags = (uint8_t)((shift ? VTKEY_SHIFT : 0) |
-                                  (alt ? VTKEY_ALT : 0) | (ctrl ? VTKEY_CTRL : 0));
-        if (hostkey_press(hid, flags, true) != HOSTKEY_NONE)
+        if (hostkey_press(hid, modifier, false, true) != HOSTKEY_NONE)
             return true;
         return script_error("'%s' sends nothing", name);
     }
@@ -1905,7 +1904,8 @@ void script_usage(FILE *out)
             "  wait [xram:]<addr> <byte> [frames]  run until that byte reads that value\n"
             "  wait exit [frames]        run until the program exits\n"
             "  type \"text\" [frames]      type it (\\r = Enter, \\t = Tab)\n"
-            "  key <key>[+ctrl][+shift][+alt]    send what a terminal sends\n"
+            "  key <key>[+ctrl][+shift][+alt][+cmd]\n"
+            "                                      send what a terminal sends\n"
             "  press/release <key>...    the direct HID bitmap, by name or 0xNN\n"
             "  lock num|caps|scroll [on|off]     set a lock, or toggle it; all\n"
             "                                      three start off\n"

@@ -140,9 +140,13 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
      * then the byte, so neither is the character the frontend composed, and
      * several frontends send no character at all. Those are guessed. */
     bool composed = !ctrl && !alt && character >= 32 && character != 127;
-    uint8_t flags = (uint8_t)((shift ? VTKEY_SHIFT : 0) | (alt ? VTKEY_ALT : 0) |
-                              (ctrl ? VTKEY_CTRL : 0));
-    if (hostkey_press(hid, flags, !composed) == HOSTKEY_NONE && composed)
+    /* The frontend says which modifiers are held but not which side, so the
+     * left one stands for both. Meta is the GUI key. */
+    uint8_t modifier = (uint8_t)(
+        (shift ? KEYBOARD_MODIFIER_LEFTSHIFT : 0) | (alt ? KEYBOARD_MODIFIER_LEFTALT : 0) |
+        (ctrl ? KEYBOARD_MODIFIER_LEFTCTRL : 0) |
+        ((key_modifiers & RETROKMOD_META) ? KEYBOARD_MODIFIER_LEFTGUI : 0));
+    if (hostkey_press(hid, modifier, repeat, !composed) == HOSTKEY_NONE && composed)
         hostkey_char(character);
 }
 

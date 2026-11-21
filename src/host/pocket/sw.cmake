@@ -62,6 +62,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_GEN}/unicode_oem.c
         ${RP6502_SRC}/core/hid/hid.c
         ${RP6502_SRC}/core/hid/keyboard.c
+        ${RP6502_SRC}/core/hid/key.c
         ${RP6502_SRC}/core/hid/layout.c
         ${RP6502_GEN}/layout_db.c
         ${RP6502_SRC}/core/hid/keymap.c

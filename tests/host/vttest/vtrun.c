@@ -1224,15 +1224,16 @@ static const struct
 };
 
 /* The key last pressed, which is the one that repeats. */
-static uint8_t vt_held_usage, vt_held_flags;
+static uint8_t vt_held_usage, vt_held_modifier;
 
-/* Presses a key of a US keyboard, and what it sends goes to vttest as it
- * would from the console. */
-static void vt_press(uint8_t usage, uint8_t flags)
+/* Presses a key of a US keyboard, or repeats the held one, and what it sends
+ * goes to vttest as it would from the console. modifier is a HID modifier
+ * byte. */
+static void vt_press(uint8_t usage, uint8_t modifier, bool repeat)
 {
     vt_held_usage = usage;
-    vt_held_flags = flags;
-    hostkey_press(usage, flags, true);
+    vt_held_modifier = modifier;
+    hostkey_press(usage, modifier, repeat, true);
     char buf[64];
     size_t n;
     while ((n = com_read(COM_SOURCE_KEYBOARD, buf, sizeof buf)) > 0)
@@ -1260,20 +1261,20 @@ static void vt_type(const char *keys, uint8_t locks)
         if (len == 5 && !memcmp(word, "again", 5))
         {
             if (vtkey_repeats())
-                vt_press(vt_held_usage, vt_held_flags);
+                vt_press(vt_held_usage, vt_held_modifier, true);
             continue;
         }
         uint8_t held = 0;
         if (len > 5 && !memcmp(word, "ctrl-", 5))
         {
-            held |= VTKEY_CTRL;
+            held |= KEYBOARD_MODIFIER_LEFTCTRL;
             word += 5;
             len -= 5;
         }
         if (len == 3 && !memcmp(word, "kp", 2) && word[2] >= '0' && word[2] <= '9')
         {
             vt_press(word[2] == '0' ? HID_KEY_KEYPAD_0 : (uint8_t)(HID_KEY_KEYPAD_1 + word[2] - '1'),
-                     held);
+                     held, false);
             continue;
         }
         size_t i = 0;
@@ -1282,7 +1283,7 @@ static void vt_type(const char *keys, uint8_t locks)
             i++;
         if (i < sizeof vt_named / sizeof vt_named[0])
         {
-            vt_press(vt_named[i].usage, held);
+            vt_press(vt_named[i].usage, held, false);
             continue;
         }
         for (i = 0; i < len; i++)
@@ -1294,7 +1295,7 @@ static void vt_type(const char *keys, uint8_t locks)
                 fprintf(stderr, "vtrun: no key types '%c'\n", word[i]);
                 exit(2);
             }
-            vt_press(usage, shift ? held | VTKEY_SHIFT : held);
+            vt_press(usage, shift ? held | KEYBOARD_MODIFIER_LEFTSHIFT : held, false);
         }
     }
 }

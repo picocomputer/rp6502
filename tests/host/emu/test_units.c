@@ -8,6 +8,8 @@
 #include "core/sys/random.h"
 #include "host/host.h"
 #include "core/api/xreg.h"
+#include "core/api/arg.h"
+#include "core/api/proc.h"
 #include "core/str/oem.h"
 #include "core/term/font.h"
 #include "core/str/str.h"
@@ -43,10 +45,15 @@ static int t_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t flags)
     return vtkey_encode(out, usage, flags & VTKEY_MODIFIERS);
 }
 
+/* A first press, its VTKEY_ flags held as the left modifiers of a HID
+ * modifier byte. */
 static hostkey_result_t t_press(uint8_t usage, uint8_t flags, char ch)
 {
     keyboard_set_locks(flags & NUM ? KEYBOARD_LED_NUMLOCK : 0);
-    return hostkey_press(usage, flags & VTKEY_MODIFIERS, ch != 0);
+    uint8_t modifier = (uint8_t)((flags & VTKEY_SHIFT ? KEYBOARD_MODIFIER_LEFTSHIFT : 0) |
+                                 (flags & VTKEY_ALT ? KEYBOARD_MODIFIER_LEFTALT : 0) |
+                                 (flags & VTKEY_CTRL ? KEYBOARD_MODIFIER_LEFTCTRL : 0));
+    return hostkey_press(usage, modifier, false, ch != 0);
 }
 
 UTEST(crc32, known_vectors)
@@ -1152,6 +1159,45 @@ UTEST(keyboard, hostkey_types_what_the_encoder_says)
     key_modes(0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 8);
     ASSERT_EQ(0, memcmp(b, "\33?\33\r\33?\33\r", 8));
+}
+
+/* Alt-F4 in a launcher's child quits it, and its key held repeats as
+ * nothing: it neither quits again nor types. A new press asks again, and
+ * with the program stopping Alt-F4 is an ordinary key, which repeats. */
+UTEST(keyboard, a_held_chord_acts_once)
+{
+    const uint8_t alt = KEYBOARD_MODIFIER_LEFTALT;
+    char b[16];
+    com_rx_clear();
+    sys_run();
+    sys_commit();
+    arg_clear();
+    arg_append("launcher.rp6502");
+    proc_run();
+    proc_set_launcher(true);
+    arg_clear();
+    arg_append("child.rp6502");
+    proc_run();
+    proc_set_exit_code(0);
+
+    ASSERT_EQ(hostkey_press(HID_KEY_F4, alt, false, true), HOSTKEY_CHORD);
+    ASSERT_EQ(proc_get_exit_code(), -1);
+    proc_set_exit_code(0);
+    ASSERT_EQ(hostkey_press(HID_KEY_F4, alt, true, true), HOSTKEY_CHORD);
+    ASSERT_EQ(hostkey_press(HID_KEY_F4, alt, true, true), HOSTKEY_CHORD);
+    ASSERT_EQ(proc_get_exit_code(), 0);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 0);
+
+    ASSERT_EQ(hostkey_press(HID_KEY_F4, alt, false, true), HOSTKEY_TYPED);
+    ASSERT_EQ(hostkey_press(HID_KEY_F4, alt, true, true), HOSTKEY_TYPED);
+    ASSERT_EQ(proc_get_exit_code(), 0);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 12);
+    ASSERT_EQ(0, memcmp(b, "\33[1;3S\33[1;3S", 12));
+
+    /* The launcher goes first, so the stop relaunches nothing. */
+    proc_chain_reset();
+    sys_commit();
+    ASSERT_FALSE(sys_active());
 }
 
 /* A machine asks this before it types a repeat. */
