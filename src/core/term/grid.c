@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/term/console_term.h"
 #include "core/term/grid.h"
 #include "core/term/term.h"
+#include "core/term/vterm.h"
 #include "machine.h"
 #include <assert.h>
 #include <string.h>
@@ -330,7 +330,7 @@ static void grid_scroll_one(term_t *t, term_grid_t *g, bool up)
     else
         ghost = grid_scroll(t, g, top, bot, 1, up, keep);
     if (keep)
-        console_smooth(t, g, top, bot, up, ghost);
+        vterm_smooth(t, g, top, bot, up, ghost);
 }
 
 // Index: down a row, scrolling the region at its bottom margin. The core of

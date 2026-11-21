@@ -21,7 +21,7 @@ void vid_run(void);
 extern const sst_table_t vid_sst;
 
 /* VID_DRIVER follows DRAW_DRIVER in the driver list because vid_init
- * selects the console canvas, which calls console_set_height. */
+ * selects the console canvas, which calls vterm_set_height. */
 #define VID_DRIVER DRIVER(                                     \
     INIT(vid_init)                                             \
     TASK_FATFS(vid_task)                                       \

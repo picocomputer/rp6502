@@ -10,7 +10,7 @@
 #include "core/hid/hid.h"
 #include "core/api/proc.h"
 #include "core/sys/sys.h"
-#include "core/term/console_term.h"
+#include "core/term/vterm.h"
 #include "core/vga/vga.h"
 #include "osal/os.h"
 
@@ -19,7 +19,7 @@
 volatile uint8_t xram[0x10000];
 
 /* The console's terminal, whose key modes the test sets by hand. */
-term_t console_term = {.autorepeat = true};
+term_t vterm = {.autorepeat = true};
 
 bool hid_boot_enumerating(void)
 {

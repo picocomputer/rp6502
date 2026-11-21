@@ -16,8 +16,8 @@
 #include "core/wdc/sram.h"
 #include "core/com/rln.h"
 #include "core/term/draw.h"
-#include "core/term/console_term.h"
 #include "core/term/grid.h"
+#include "core/term/vterm.h"
 #include "core/vga/canvas.h"
 #include "tb_screen.h"
 #include "host/host.h"
@@ -197,20 +197,20 @@ UTEST(sst, what_a_row_carries_comes_back)
 UTEST(sst, a_programs_own_size_comes_back)
 {
     rln_set_term_width(132);
-    term_grid_t *g = console_term.grids[TERM_SCREEN_GRIDS];
+    term_grid_t *g = vterm.grids[TERM_SCREEN_GRIDS];
     g->screen[0].pos.x = 100;
     ASSERT_EQ(take(), (const char *)NULL);
     rln_set_term_width(0);
-    ASSERT_EQ(console_term.grid_count, TERM_SCREEN_GRIDS);
+    ASSERT_EQ(vterm.grid_count, TERM_SCREEN_GRIDS);
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
-    ASSERT_EQ(console_term.grid_count, TERM_SCREEN_GRIDS + 1);
-    ASSERT_EQ(console_term.grids[TERM_SCREEN_GRIDS]->width, 132);
-    ASSERT_EQ(term_pos(console_term.grids[TERM_SCREEN_GRIDS])->x, 100);
+    ASSERT_EQ(vterm.grid_count, TERM_SCREEN_GRIDS + 1);
+    ASSERT_EQ(vterm.grids[TERM_SCREEN_GRIDS]->width, 132);
+    ASSERT_EQ(term_pos(vterm.grids[TERM_SCREEN_GRIDS])->x, 100);
     rln_set_term_width(0);
     ASSERT_EQ(take(), (const char *)NULL);
     rln_set_term_width(60);
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
-    ASSERT_EQ(console_term.grid_count, TERM_SCREEN_GRIDS);
+    ASSERT_EQ(vterm.grid_count, TERM_SCREEN_GRIDS);
 }
 
 /* The console's palette comes back with the console's terminal, the
@@ -221,24 +221,24 @@ UTEST(sst, the_palette_and_its_faint_twins_come_back)
     const uint16_t red = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(200, 100, 40);
     const uint16_t cursor = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(0, 80, 160);
     const uint16_t paper = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(240, 230, 200);
-    console_color(&console_term, 1, red);
-    console_color(&console_term, CONSOLE_COLOR_CURSOR, cursor);
-    console_color(&console_term, CONSOLE_COLOR_BG, paper);
+    vterm_set_color(&vterm, 1, red);
+    vterm_set_color(&vterm, VTERM_COLOR_CURSOR, cursor);
+    vterm_set_color(&vterm, VTERM_COLOR_BG, paper);
     draw_publish();
     ASSERT_EQ(take(), (const char *)NULL);
-    console_colors_reset(&console_term);
+    vterm_reset_colors(&vterm);
     draw_publish();
     ASSERT_EQ(mode0_color(MODE0_ENTRY(1, true)), mode0_faint(color_256[1]));
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
-    ASSERT_EQ(console_palette[1], red);
-    ASSERT_EQ(console_color_get(&console_term, CONSOLE_COLOR_CURSOR), cursor);
-    ASSERT_EQ(console_color_get(&console_term, CONSOLE_COLOR_BG), paper);
+    ASSERT_EQ(vterm_palette[1], red);
+    ASSERT_EQ(vterm_get_color(&vterm, VTERM_COLOR_CURSOR), cursor);
+    ASSERT_EQ(vterm_get_color(&vterm, VTERM_COLOR_BG), paper);
     ASSERT_EQ(mode0_color(MODE0_ENTRY(1, false)), red);
     ASSERT_EQ(mode0_color(MODE0_ENTRY(1, true)), mode0_faint(red));
     ASSERT_EQ(mode0_color(MODE0_ENTRY(MODE0_DEFAULT_BG, false)), paper);
     ASSERT_EQ(mode0_color(MODE0_ENTRY(MODE0_DEFAULT_BG, true)), mode0_faint(paper));
     ASSERT_EQ(mode0_color(MODE0_ENTRY(MODE0_DEFAULT_FG, true)), mode0_faint(color_256[7]));
-    console_colors_reset(&console_term);
+    vterm_reset_colors(&vterm);
     draw_publish();
 }
 
@@ -815,7 +815,7 @@ static bool boot_fixture(boot_text_t *t)
 {
     static const char fence[] = "\r\n" FENCE "\r\n";
     for (const char *s = fence; *s; s++)
-        term_write(&console_term, (uint8_t)*s);
+        term_write(&vterm, (uint8_t)*s);
     if (!emu_restart(TEST_FIXTURE))
         return false;
     for (int i = 0; i < 100; i++)

@@ -21,7 +21,7 @@
  * The terminal holds no cells and no palette. Each grid changes its
  * screens' rows and cells through the cell store (screen.h). The terminal
  * answers queries through com_reply, rings the bell through bel_term
- * (bel.h), and asks the console's terminal (console_term.h) for the size
+ * (bel.h), and asks the console's terminal (vterm.h) for the size
  * showing, its smooth scrolls and its colors, the same on every machine. */
 
 #include "core/sys/sst.h"
@@ -260,7 +260,7 @@ typedef struct
     uint8_t osc_asks;         // the colors this OSC has asked for so far
     struct
     {
-        uint16_t which; // a palette entry, or CONSOLE_COLOR_
+        uint16_t which; // a palette entry, or VTERM_COLOR_
         uint16_t color; // what it was when it was asked for
     } osc_ask[TERM_OSC_ASK_MAX];
     /* The sizes it is followed at. */

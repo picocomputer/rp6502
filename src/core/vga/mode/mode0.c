@@ -8,12 +8,12 @@
 #include "core/vga/mode/mode.h"
 #include "core/vga/vga.h"
 #include "core/term/font.h"
-#include "core/term/console_term.h"
+#include "core/term/vterm.h"
 
 /* On a word, so the console can write and move cells a word at a time. */
 mode0_cell_t mode0_cells[MODE0_CELLS] __attribute__((aligned(4)));
 mode0_colors_t mode0_colors[MODE0_CELLS] __attribute__((aligned(4)));
-uint16_t mode0_faint_palette[CONSOLE_PALETTE];
+uint16_t mode0_faint_palette[VTERM_PALETTE];
 uint16_t mode0_faint_defaults[MODE0_DEFAULTS];
 volatile mode0_regs_t mode0_regs;
 
@@ -80,9 +80,9 @@ const uint8_t mode0_underline8[4][8] = {
  * loops and a faint color is the rarest. */
 __attribute__((noinline)) uint16_t mode0_faint_color(unsigned entry)
 {
-    if (entry < CONSOLE_PALETTE)
+    if (entry < VTERM_PALETTE)
         return mode0_faint_palette[entry];
-    return mode0_faint_defaults[entry - CONSOLE_PALETTE];
+    return mode0_faint_defaults[entry - VTERM_PALETTE];
 }
 
 #ifndef RP6502_VGA_FABRIC
@@ -391,7 +391,7 @@ bool mode0_prog(uint16_t *xregs)
     if (vga_prog_exclusive(plane, scanline_begin, scanline_end,
                            (uint16_t)scanline_begin, 0, 0))
     {
-        console_set_height(cols, rows);
+        vterm_set_height(cols, rows);
         return true;
     }
     return false;

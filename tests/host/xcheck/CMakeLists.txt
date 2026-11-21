@@ -7,7 +7,7 @@ foreach(_kind text mode0)
     set(_target xcheck_${_kind})
     add_executable(${_target} xcheck.c
         ${RP6502_SRC}/core/term/term.c ${RP6502_SRC}/core/term/grid.c
-        ${RP6502_SRC}/core/term/screen.c ${RP6502_SRC}/core/term/console_term.c
+        ${RP6502_SRC}/core/term/screen.c ${RP6502_SRC}/core/term/vterm.c
         ${RP6502_SRC}/core/term/color.c ${RP6502_SRC}/core/term/cell_${_kind}.c
         ${RP6502_SRC}/core/sys/crc32.c ${RP6502_BENCH}/tb_version.c)
     if(COMMAND rp6502_msvc_dialect)

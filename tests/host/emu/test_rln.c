@@ -12,8 +12,8 @@
 #include "core/ria/regs.h"
 #include "core/com/rln.h"
 #include "core/term/draw.h"
-#include "core/term/console_term.h"
 #include "core/term/grid.h"
+#include "core/term/vterm.h"
 #include "tb_screen.h"
 #include "core/sys/timer.h"
 #include "core/vga/vga_emu.h"
@@ -220,8 +220,8 @@ static void capture(void)
  * has pinned one, otherwise the screen. */
 static term_grid_t *rln_view(void)
 {
-    return console_term.grid_count > TERM_SCREEN_GRIDS ? console_term.grids[TERM_SCREEN_GRIDS]
-                                                     : console_shown(&console_term);
+    return vterm.grid_count > TERM_SCREEN_GRIDS ? vterm.grids[TERM_SCREEN_GRIDS]
+                                                     : vterm_get_shown(&vterm);
 }
 
 /* Its cursor. */
@@ -415,7 +415,7 @@ UTEST(rln, a_row_breaks_with_cr_lf_right_after_column_80)
     wire("b");
     manifold_set_tx_tap(NULL);
     ASSERT_FALSE(probed());
-    ASSERT_FALSE(console_term.autowrap);
+    ASSERT_FALSE(vterm.autowrap);
     ASSERT_EQ(tb_screen_row(0)[79].glyph, 'a');
     ASSERT_EQ(tb_screen_row(1)[0].glyph, 'b');
     ASSERT_EQ(pos()->x, 1);
@@ -734,7 +734,7 @@ static int screen_out(const char *buf, int len, bool force)
     (void)force;
     strncat(screen, buf, (size_t)len);
     for (int i = 0; i < len; i++)
-        term_write(&console_term, (uint8_t)buf[i]);
+        term_write(&vterm, (uint8_t)buf[i]);
     draw_publish();
     return len;
 }
@@ -878,7 +878,7 @@ UTEST(rln, a_read_in_vt52_mode_is_laid_out_in_vt52_commands)
     manifold_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(shown, "\33K") != NULL || strchr(shown, ' ') != NULL);
     ASSERT_TRUE(strstr(shown, "\33[") == NULL);
-    ASSERT_TRUE(console_term.vt52);
+    ASSERT_TRUE(vterm.vt52);
     wire("\r");
     ASSERT_EQ(lines, 1);
     ASSERT_EQ(strlen(last), (size_t)101);

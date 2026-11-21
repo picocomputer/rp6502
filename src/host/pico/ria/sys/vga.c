@@ -21,7 +21,7 @@
 #include "core/term/draw.h"
 #include "core/term/font.h"
 #include "core/vga/mode/mode0.h"
-#include "core/term/console_term.h"
+#include "core/term/vterm.h"
 #include "ria.pio.h"
 #include "machine.h"
 #include <pico/stdlib.h>
@@ -124,7 +124,7 @@ static inline void vga_pix_backchannel_disable(void)
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x04, 0);
 }
 
-/* The console's terminal follows the VGA's (console_term.h). Every change
+/* The console's terminal follows the VGA's (vterm.h). Every change
  * the VGA makes to its terminal is made here at the moment the RIA sends what
  * causes it. The console's bytes go to the VGA through the same PIX queue,
  * so the two terminals take them all in the same order. */
@@ -180,7 +180,7 @@ void vga_set_code_page(uint16_t cp)
         return;
     cp = font_code_page_of(cp);
     if (cp != vga_code_page_sent)
-        console_RIS();
+        vterm_RIS();
     vga_code_page_sent = cp;
 }
 
@@ -200,9 +200,9 @@ static uint8_t vga_console_rows(uint8_t display)
 static void vga_follow_display(uint8_t display)
 {
     if (vga_canvas_current != vga_canvas_console)
-        console_set_height(80, vga_console_rows(vga_display_sent));
-    console_set_height(80, vga_console_rows(display));
-    console_RIS_no_clear();
+        vterm_set_height(80, vga_console_rows(vga_display_sent));
+    vterm_set_height(80, vga_console_rows(display));
+    vterm_RIS_no_clear();
     vga_display_sent = display;
 }
 
@@ -211,8 +211,8 @@ static void vga_follow_display(uint8_t display)
  * by default. */
 static void vga_follow_none(void)
 {
-    console_RIS();
-    console_set_height(80, 24);
+    vterm_RIS();
+    vterm_set_height(80, 24);
     com_set_reply_default(true);
 }
 void vga_load_code_page(uint16_t cp)
@@ -514,15 +514,15 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x02, 1);
 }
 
-/* The console's terminal (console_term.h) follows the VGA's in text cells,
+/* The console's terminal (vterm.h) follows the VGA's in text cells,
  * fed every byte the VGA's terminal gets. */
-static cell_t vga_console_cells[CONSOLE_CELLS];
+static cell_t vga_console_cells[VTERM_CELLS];
 
 static int vga_console_out(const char *buf, int length, bool force)
 {
     (void)force;
     for (int i = 0; i < length; i++)
-        term_write(&console_term, (uint8_t)buf[i]);
+        term_write(&vterm, (uint8_t)buf[i]);
     return length;
 }
 
@@ -541,7 +541,7 @@ void draw_reset(void)
 void HOST_IN_FLASH_FUNC vga_init(void)
 {
     // The terminal first, as connecting resets and sizes it.
-    console_init(vga_console_cells);
+    vterm_init(vga_console_cells);
     manifold_set_term_out(vga_console_out);
 
     // Disable backchannel for the case where RIA reboots and VGA doesn't
@@ -705,7 +705,7 @@ void vga_xreg(uint8_t index, uint16_t word)
                               vga_canvas_current != vga_canvas_console;
             vga_canvas_current = (vga_canvas_t)word;
             if (to_console && vga_connected())
-                console_set_height(80, vga_console_rows(vga_display_sent));
+                vterm_set_height(80, vga_console_rows(vga_display_sent));
         }
         memset(vga_xregs, 0, sizeof vga_xregs);
     }
@@ -717,7 +717,7 @@ void vga_xreg(uint8_t index, uint16_t word)
         if (word == 0 && vga_connected() && vga_canvas_current != vga_canvas_console &&
             vga_canvas_geometry(vga_canvas_current, &w, &h) &&
             mode0_place((int16_t)w, (int16_t)h, vga_xregs, &begin, &end, &cols, &rows))
-            console_set_height(cols, rows);
+            vterm_set_height(cols, rows);
         memset(vga_xregs, 0, sizeof vga_xregs);
     }
 }

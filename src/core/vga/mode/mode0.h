@@ -134,23 +134,23 @@ typedef struct
 } mode0_colors_t;
 
 /* The colors a cell can name: the 256 entries of the console's palette
- * (console_palette), then the default foreground and background, which are
- * two of the console's special colors (console_specials), then all of
+ * (vterm_palette), then the default foreground and background, which are
+ * two of the console's special colors (vterm_specials), then all of
  * those again at half brightness, for SGR 2, which are mode 0's: the faint
  * palette (mode0_faint_palette) and the faint defaults
  * (mode0_faint_defaults). draw.c makes the faint ones from the console's. */
 #define MODE0_ENTRIES 258
 #define MODE0_DEFAULT_FG 256
 #define MODE0_DEFAULT_BG 257
-#define MODE0_DEFAULTS (MODE0_ENTRIES - CONSOLE_PALETTE)
+#define MODE0_DEFAULTS (MODE0_ENTRIES - VTERM_PALETTE)
 #define MODE0_ENTRY_SHIFT 6
 #define MODE0_ENTRY(entry, faint) \
     ((uint16_t)(((unsigned)(entry) + ((faint) ? MODE0_ENTRIES : 0u)) << MODE0_ENTRY_SHIFT))
-extern uint16_t mode0_faint_palette[CONSOLE_PALETTE];
+extern uint16_t mode0_faint_palette[VTERM_PALETTE];
 extern uint16_t mode0_faint_defaults[MODE0_DEFAULTS];
 
-_Static_assert(MODE0_DEFAULT_FG == CONSOLE_COLOR_FG && MODE0_DEFAULT_BG == CONSOLE_COLOR_BG &&
-                   MODE0_ENTRIES == CONSOLE_COLOR_BG + 1,
+_Static_assert(MODE0_DEFAULT_FG == VTERM_COLOR_FG && MODE0_DEFAULT_BG == VTERM_COLOR_BG &&
+                   MODE0_ENTRIES == VTERM_COLOR_BG + 1,
                "mode 0's entries are the console's palette and its default colors");
 
 _Static_assert(MODE0_ENTRY_SHIFT == SCANVIDEO_ALPHA_PIN + 1,
@@ -169,10 +169,10 @@ static inline uint16_t mode0_color(uint16_t color)
     if (color & SCANVIDEO_ALPHA_MASK)
         return color;
     const unsigned entry = color >> MODE0_ENTRY_SHIFT;
-    if (MODE_LIKELY(entry < CONSOLE_PALETTE))
-        return console_palette[entry];
+    if (MODE_LIKELY(entry < VTERM_PALETTE))
+        return vterm_palette[entry];
     if (entry < MODE0_ENTRIES)
-        return console_specials[entry - CONSOLE_PALETTE];
+        return vterm_specials[entry - VTERM_PALETTE];
     return mode0_faint_color(entry - MODE0_ENTRIES);
 }
 

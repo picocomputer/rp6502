@@ -79,7 +79,7 @@ void vga_xreg(uint8_t index, uint16_t word);
 /* VGA_DRIVER comes after RIA_DRIVER and PIX_DRIVER in RP6502_MACH_DRIVERS
  * because vga_init sends PIX messages and waits for the VGA's reply, and the
  * PIX transmitter shifts only on edges of the PHI2 clock that ria_init
- * starts. vga_init also starts the console's terminal (console_term.h),
+ * starts. vga_init also starts the console's terminal (vterm.h),
  * which follows the VGA's. */
 #define VGA_DRIVER DRIVER(   \
     INIT(vga_init)           \

@@ -19,7 +19,7 @@
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/com/rln.h"
-#include "core/term/console_term.h"
+#include "core/term/vterm.h"
 #include "tb_screen.h"
 #include "core/vga/vga_emu.h"
 #include "core/vga/mode/mode0.h"
@@ -794,11 +794,11 @@ UTEST(keyboard, backarrow_key_mode)
     char b[16];
 
     com_rx_clear();
-    console_term.backarrow_bs = true;
+    vterm.backarrow_bs = true;
     t_press(HID_KEY_BACKSPACE, 0, 0);
     t_press(HID_KEY_BACKSPACE, VTKEY_CTRL, 0);
     t_press(HID_KEY_BACKSPACE, VTKEY_ALT, 0);
-    console_term.backarrow_bs = false;
+    vterm.backarrow_bs = false;
     ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
     ASSERT_EQ(0, memcmp(b, "\x08\x7f\x1b\x08", 4));
 }
@@ -842,10 +842,10 @@ UTEST(keyboard, ctrl_and_alt_on_characters)
 
 static void key_modes(unsigned modes)
 {
-    console_term.app_cursor = modes & M_CKM;
-    console_term.app_keypad = modes & M_KPAM;
-    console_term.newline_mode = modes & M_LNM;
-    console_term.vt52 = modes & M_VT52;
+    vterm.app_cursor = modes & M_CKM;
+    vterm.app_keypad = modes & M_KPAM;
+    vterm.newline_mode = modes & M_LNM;
+    vterm.vt52 = modes & M_VT52;
 }
 
 #define SH VTKEY_SHIFT
@@ -1074,9 +1074,9 @@ UTEST(keyboard, modify_other_keys_at_every_level)
             for (int k = 0; k < want_n; k++)
                 if (want[k] == '\200')
                     want[k] = 0;
-            console_term.modify_other_keys = (uint8_t)level;
+            vterm.modify_other_keys = (uint8_t)level;
             const int n = other_send(out, i);
-            console_term.modify_other_keys = 0;
+            vterm.modify_other_keys = 0;
             if (n != want_n || memcmp(out, want, (size_t)n))
             {
                 printf("other_table[%d] level %u\n", (int)i, level);
@@ -1090,19 +1090,19 @@ UTEST(keyboard, modify_other_keys_at_every_level)
 UTEST(keyboard, format_other_keys_and_vt52)
 {
     char out[VTKEY_MAX];
-    console_term.modify_other_keys = 2;
-    console_term.format_other_keys = true;
+    vterm.modify_other_keys = 2;
+    vterm.format_other_keys = true;
     ASSERT_EQ(vtkey_char(out, 0x04, 'a', VTKEY_CTRL), 7);
     ASSERT_EQ(0, memcmp(out, "\33[97;5u", 7));
     ASSERT_EQ(t_encode(out, HID_KEY_ENTER, SH), 7);
     ASSERT_EQ(0, memcmp(out, "\33[13;2u", 7));
-    console_term.format_other_keys = false;
-    console_term.vt52 = true;
+    vterm.format_other_keys = false;
+    vterm.vt52 = true;
     ASSERT_EQ(vtkey_char(out, 0x04, 'a', VTKEY_CTRL), 1);
     ASSERT_EQ(out[0], 1);
     ASSERT_EQ(t_encode(out, HID_KEY_ENTER, SH), 1);
-    console_term.vt52 = false;
-    console_term.modify_other_keys = 0;
+    vterm.vt52 = false;
+    vterm.modify_other_keys = 0;
 }
 
 UTEST(keyboard, hostkey_types_what_the_encoder_says)
@@ -1157,9 +1157,9 @@ UTEST(keyboard, hostkey_types_what_the_encoder_says)
 /* A machine asks this before it types a repeat. */
 UTEST(keyboard, repeat_follows_the_terminal)
 {
-    console_term.autorepeat = false;
+    vterm.autorepeat = false;
     ASSERT_FALSE(vtkey_repeats());
-    console_term.autorepeat = true;
+    vterm.autorepeat = true;
     ASSERT_TRUE(vtkey_repeats());
 }
 

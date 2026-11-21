@@ -5,7 +5,7 @@
  */
 
 #include "core/term/font.h"
-#include "core/term/console_term.h"
+#include "core/term/vterm.h"
 #include "machine.h"
 #include <stdalign.h>
 
@@ -4104,7 +4104,7 @@ void font_set_code_page(uint16_t cp)
     if (font_code_page == cp)
         return;
     font_code_page = cp;
-    console_RIS();
+    vterm_RIS();
     font_load_code_page(cp);
 }
 

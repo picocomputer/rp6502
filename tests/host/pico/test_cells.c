@@ -9,8 +9,8 @@
 
 #include "core/aud/bel.h"
 #include "core/com/com.h"
-#include "core/term/console_term.h"
 #include "core/term/grid.h"
+#include "core/term/vterm.h"
 #include "ria/sys/vga.h"
 #include "utest.h"
 #include <string.h>
@@ -43,27 +43,27 @@ uint64_t host_clock_us(void) { return 1; }
 static void say(const char *s)
 {
     while (*s)
-        term_write(&console_term, (uint8_t)*s++);
+        term_write(&vterm, (uint8_t)*s++);
 }
 
 /* The rows in use, as a string of a character a row: # in use, . clear. */
 static const char *rows(int count)
 {
     static char out[40];
-    term_grid_t *g = console_shown(&console_term);
+    term_grid_t *g = vterm_get_shown(&vterm);
     for (int y = 0; y < count; y++)
         out[y] = screen_row_used(g->shown, (uint8_t)y) ? '#' : '.';
     out[count] = 0;
     return out;
 }
 
-static cell_t cells[CONSOLE_CELLS];
+static cell_t cells[VTERM_CELLS];
 
 static void fresh(void)
 {
     connected = false;
-    console_init(cells);
-    console_RIS();
+    vterm_init(cells);
+    vterm_RIS();
 }
 
 /* With a VGA, a line feed under DECSCLM holds the next one while the rows
@@ -74,9 +74,9 @@ UTEST(cells, ris_ends_a_smooth_scroll_and_its_hold)
     fresh();
     connected = true;
     say("\33[?4h\33[99;1H\n");
-    ASSERT_TRUE(term_holds(&console_term, '\n'));
+    ASSERT_TRUE(term_holds(&vterm, '\n'));
     say("\33c");
-    ASSERT_FALSE(term_holds(&console_term, '\n'));
+    ASSERT_FALSE(term_holds(&vterm, '\n'));
     connected = false;
 }
 
@@ -87,9 +87,9 @@ UTEST(cells, a_scroll_ends_a_smooth_scroll_and_its_hold)
     fresh();
     connected = true;
     say("\33[?4h\33[99;1H\n");
-    ASSERT_TRUE(term_holds(&console_term, '\n'));
+    ASSERT_TRUE(term_holds(&vterm, '\n'));
     say("\33[S");
-    ASSERT_FALSE(term_holds(&console_term, '\n'));
+    ASSERT_FALSE(term_holds(&vterm, '\n'));
     connected = false;
 }
 
@@ -139,14 +139,14 @@ UTEST(cells, the_rows_move_with_a_scroll)
     ASSERT_STREQ(rows(7), "....#..");
     /* A line feed on the bottom row moves everything up. */
     fresh();
-    const int bottom = console_shown(&console_term)->height - 1;
+    const int bottom = vterm_get_shown(&vterm)->height - 1;
     say("top\33[99;1Hbottom");
-    ASSERT_TRUE(screen_row_used(console_shown(&console_term)->shown, 0));
-    ASSERT_TRUE(screen_row_used(console_shown(&console_term)->shown, (uint8_t)bottom));
+    ASSERT_TRUE(screen_row_used(vterm_get_shown(&vterm)->shown, 0));
+    ASSERT_TRUE(screen_row_used(vterm_get_shown(&vterm)->shown, (uint8_t)bottom));
     say("\n");
-    ASSERT_FALSE(screen_row_used(console_shown(&console_term)->shown, 0));
-    ASSERT_TRUE(screen_row_used(console_shown(&console_term)->shown, (uint8_t)(bottom - 1)));
-    ASSERT_FALSE(screen_row_used(console_shown(&console_term)->shown, (uint8_t)bottom));
+    ASSERT_FALSE(screen_row_used(vterm_get_shown(&vterm)->shown, 0));
+    ASSERT_TRUE(screen_row_used(vterm_get_shown(&vterm)->shown, (uint8_t)(bottom - 1)));
+    ASSERT_FALSE(screen_row_used(vterm_get_shown(&vterm)->shown, (uint8_t)bottom));
 }
 
 UTEST(cells, each_screen_has_its_own_rows)

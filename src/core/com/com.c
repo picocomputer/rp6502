@@ -10,8 +10,8 @@
 #include "core/str/str.h"
 #include "core/sys/ria.h"
 #include "core/sys/timer.h"
-#include "core/term/console_term.h"
 #include "core/term/grid.h"
+#include "core/term/vterm.h"
 #include "core/com/manifold.h"
 #include "machine.h"
 #include "drivers.h"
@@ -319,7 +319,7 @@ int HOST_IN_FLASH_FUNC com_printf_utf8(const char *utf8_fmt, ...)
 static bool com_line_clean(void)
 {
     manifold_flush();
-    return term_pos(console_shown(&console_term))->x == 0;
+    return term_pos(vterm_get_shown(&vterm))->x == 0;
 }
 
 void com_clean_line(void)
@@ -340,7 +340,7 @@ void com_clean_line(void)
 static void com_clear_line(void)
 {
     manifold_flush();
-    term_grid_t *g = console_shown(&console_term);
+    term_grid_t *g = vterm_get_shown(&vterm);
     const uint8_t y = term_pos(g)->y;
     uint8_t last = g->height;
     while (last > y && !screen_row_used(g->shown, (uint8_t)(last - 1)))
@@ -378,7 +378,7 @@ void com_end_now(void)
     com_end_pending = false;
     /* A smooth scroll the output started has finished, unless this is
      * early, and then it snaps into place, the same on every machine. */
-    term_release_smooth(&console_term);
+    term_release_smooth(&vterm);
     manifold_flush();
     for (const char *s = STR_TERM_SOFT_RESET; *s; s++)
         manifold_putchar((unsigned char)*s);

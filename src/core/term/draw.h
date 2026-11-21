@@ -8,7 +8,7 @@
 #define _CORE_TERM_DRAW_H_
 
 /* The console's screen on a machine that draws it: the console's terminal
- * (console_term.h) over mode 0's cells, fed every byte of the console, the
+ * (vterm.h) over mode 0's cells, fed every byte of the console, the
  * blinks of both sizes, the drawing of the console's one smooth scroll, and
  * the save state of all of it. It writes what mode 0 draws
  * (core/vga/mode/mode0.h) for the size showing. */
@@ -23,7 +23,7 @@ void draw_init(void);
 void draw_task(void);
 
 /* The console's terminal and the cells of both sizes as at power-up
- * (console_init). It is the RESET hook, because a load that fails leaves
+ * (vterm_init). It is the RESET hook, because a load that fails leaves
  * any value in all of them. The renderer's RESET, which runs first, leaves
  * setting the heights again to its next task. */
 void draw_restart(void);
@@ -35,7 +35,7 @@ void draw_restart(void);
  * back, or a test that feeds term_write directly. */
 void draw_publish(void);
 
-/* RIS and the system's soft reset (console_term_reset): the blinks start
+/* RIS and the system's soft reset (vterm_reset): the blinks start
  * again, and everything is published. A machine that draws nothing has it
  * do nothing. */
 void draw_reset(void);

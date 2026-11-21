@@ -26,9 +26,9 @@
 #include "core/aud/bel.h"
 #include "core/com/com.h"
 #include "core/term/draw.h"
-#include "core/term/console_term.h"
 #include "core/term/grid.h"
 #include "core/term/screen.h"
+#include "core/term/vterm.h"
 #include "core/vga/vga.h"
 #include "host/host.h"
 #include <stdarg.h>
@@ -52,7 +52,7 @@ void draw_reset(void) {}
 bool host_minimized(void) { return false; }
 
 #if TERM_CELL_TEXT
-static cell_t xc_cells[CONSOLE_CELLS];
+static cell_t xc_cells[VTERM_CELLS];
 #else
 mode0_cell_t mode0_cells[MODE0_CELLS];
 mode0_colors_t mode0_colors[MODE0_CELLS];
@@ -96,7 +96,7 @@ static void xc_row(screen_t *s, uint8_t y, int label)
 static void xc_point(void)
 {
     xc_len = 0;
-    const console_size_t *const sizes[] = {&console_40, &console_80};
+    const vterm_size_t *const sizes[] = {&vterm_40, &vterm_80};
     for (int n = 0; n < 2; n++)
     {
         term_grid_t *g = (term_grid_t *)&sizes[n]->grid;
@@ -152,9 +152,9 @@ static unsigned xc_below(unsigned n)
 // frames that land it.
 static void xc_byte(uint8_t b)
 {
-    while (term_holds(&console_term, b))
+    while (term_holds(&vterm, b))
         xc_frames++;
-    term_write(&console_term, b);
+    term_write(&vterm, b);
 }
 
 static void xc_say(const char *fmt, ...)
@@ -195,20 +195,20 @@ static void xc_replay(void)
     case 0:
     case 1:
     case 2:
-        console_set_height(80, (uint8_t)(1 + xc_below(32)));
+        vterm_set_height(80, (uint8_t)(1 + xc_below(32)));
         break;
     case 3:
     case 4:
-        console_set_height(40, (uint8_t)(1 + xc_below(30)));
+        vterm_set_height(40, (uint8_t)(1 + xc_below(30)));
         break;
     case 5:
-        console_set_height(80, xc_below(2) ? 30 : 32);
-        console_set_height(80, xc_below(2) ? 30 : 32);
-        console_RIS_no_clear();
+        vterm_set_height(80, xc_below(2) ? 30 : 32);
+        vterm_set_height(80, xc_below(2) ? 30 : 32);
+        vterm_RIS_no_clear();
         break;
     case 6:
         if (!xc_below(4))
-            console_RIS();
+            vterm_RIS();
         break;
     default:
         xc_forty = !xc_forty;
@@ -404,7 +404,7 @@ int main(int argc, char **argv)
     xc_seed = strtoull(argv[fuzz ? 2 : 3], NULL, 0) * 0x9E3779B97F4A7C15ull | 1;
     if (argc > 4)
         xc_want = strtol(argv[4], NULL, 0);
-    console_init(xc_cells);
+    vterm_init(xc_cells);
     if (fuzz)
         xc_fuzz((unsigned)strtoul(argv[3], NULL, 0));
     else

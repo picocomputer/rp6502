@@ -13,8 +13,8 @@
 #include "core/com/manifold.h"
 #include "core/com/tio.h"
 #include "core/sys/driver.h"
-#include "core/term/console_term.h"
 #include "core/term/grid.h"
+#include "core/term/vterm.h"
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
@@ -132,7 +132,7 @@ static bool rln_laying_out;
 
 static bool rln_has_grid(void)
 {
-    return console_term.grid_count > TERM_SCREEN_GRIDS;
+    return vterm.grid_count > TERM_SCREEN_GRIDS;
 }
 
 // The terminal the line editor lays its line out on: the program's own size
@@ -140,7 +140,7 @@ static bool rln_has_grid(void)
 // uses the pinned size; the terminal answers queries from the screen.
 static term_grid_t *rln_term(void)
 {
-    return rln_has_grid() ? &rln_grid : console_shown(&console_term);
+    return rln_has_grid() ? &rln_grid : vterm_get_shown(&vterm);
 }
 
 /* ----- The reply -----
@@ -360,10 +360,10 @@ static bool rln_sst_get_grid(sst_cursor_t *c, unsigned flags)
     if (!sst_ok(c))
         return false;
     if (grid && !rln_has_grid())
-        term_add_grid(&console_term, &rln_grid, console_shown(&console_term),
+        term_add_grid(&vterm, &rln_grid, vterm_get_shown(&vterm),
                       rln_grid_lines, RLN_GRID_ROWS);
     else if (!grid && rln_has_grid())
-        term_drop_grid(&console_term, &rln_grid);
+        term_drop_grid(&vterm, &rln_grid);
     return term_grid_sst_get(c, &rln_grid);
 }
 
@@ -480,7 +480,7 @@ static void rln_emit_move(char way, unsigned n)
 {
     if (!n)
         return;
-    if (!console_term.vt52)
+    if (!vterm.vt52)
     {
         char seq[12];
         snprintf(seq, sizeof seq, "\33[%u%c", n, way);
@@ -507,7 +507,7 @@ static void rln_emit_erase(uint16_t col)
 {
     if (rln_erase_el)
     {
-        rln_out_s(console_term.vt52 ? "\33K" : "\33[K");
+        rln_out_s(vterm.vt52 ? "\33K" : "\33[K");
         return;
     }
     if (col <= rln_width)
@@ -664,7 +664,7 @@ static void rln_clear_rows_below(uint8_t rows, uint16_t col)
 {
     for (uint8_t k = 0; k < rows; k++)
     {
-        rln_out_s(console_term.vt52 ? "\33B\r" : "\33[B\r");
+        rln_out_s(vterm.vt52 ? "\33B\r" : "\33[B\r");
         rln_emit_erase(1);
     }
     rln_emit_move('A', rows);
@@ -792,7 +792,7 @@ static void rln_history_add(void)
 // CSI.
 static void rln_cursor_shape(uint8_t ps)
 {
-    if (!rln_prompt_col || console_term.vt52)
+    if (!rln_prompt_col || vterm.vt52)
         return;
     char seq[] = "\33[0 q";
     seq[2] = (char)('0' + ps);
@@ -1323,7 +1323,7 @@ static void rln_item(com_source_t src, const char *item, size_t len)
 // The line starts where the console's terminal has its cursor, and is laid
 // out at that row's columns, half the width on a double-size row, and those
 // between the left and right margins for a cursor between them. Everything
-// already printed reaches the terminals and console_term first, then the modes
+// already printed reaches the terminals and vterm first, then the modes
 // go to every terminal. A cursor in a pending wrap gets a CR LF, so the line
 // starts in column 1 of the next row. A terminal in VT52 mode has no insert
 // mode to turn off, and is sent a VT52's form of every move and erase.
@@ -1364,7 +1364,7 @@ static bool rln_lay_out_now(void)
 static void rln_place(void)
 {
     bool plain = rln_plain;
-    if (!plain && !console_term.vt52)
+    if (!plain && !vterm.vt52)
         rln_out_s(RLN_MODES);
     /* The line has the columns the terminal gives the cursor: from where a
      * CR lands to where a row of text ends, which are the left and right
@@ -1534,7 +1534,7 @@ void rln_stop(void)
 void rln_reset(void)
 {
     if (rln_has_grid())
-        term_drop_grid(&console_term, &rln_grid);
+        term_drop_grid(&vterm, &rln_grid);
     rln_out_len = rln_out_lit_len = rln_out_at = 0;
     rln_out_sent = 0;
     rln_out_then = NULL;
@@ -1562,14 +1562,14 @@ uint16_t rln_get_term_height(void)
  * are 0 again, when it is dropped. The screen's grids are never touched. */
 static void rln_size_grid(void)
 {
-    term_t *t = &console_term;
+    term_t *t = &vterm;
     if (!rln_pinned_width && !rln_pinned_height)
     {
         if (rln_has_grid())
             term_drop_grid(t, &rln_grid);
         return;
     }
-    const term_grid_t *shown = console_shown(t);
+    const term_grid_t *shown = vterm_get_shown(t);
     if (!rln_has_grid())
         term_add_grid(t, &rln_grid, shown, rln_grid_lines, RLN_GRID_ROWS);
     term_set_width(t, &rln_grid, (uint8_t)(rln_pinned_width ? rln_pinned_width : shown->width));

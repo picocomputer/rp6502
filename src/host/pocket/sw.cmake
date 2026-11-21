@@ -85,7 +85,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/term/grid.c
         ${RP6502_SRC}/core/term/screen.c
         ${RP6502_SRC}/core/term/cell_mode0.c
-        ${RP6502_SRC}/core/term/console_term.c
+        ${RP6502_SRC}/core/term/vterm.c
         ${RP6502_SRC}/core/term/draw.c
         ${RP6502_SRC}/core/sys/version.c)
     rp6502_log_flags(SW_LOG_FLAGS)

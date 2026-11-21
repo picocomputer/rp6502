@@ -6,17 +6,17 @@
 
 #include "core/com/manifold.h"
 #include "core/term/draw.h"
-#include "core/term/console_term.h"
 #include "core/term/grid.h"
 #include "core/term/screen.h"
 #include "core/term/term.h"
+#include "core/term/vterm.h"
 #include "core/vga/mode/mode0.h"
 #include "core/vga/vga.h"
 #include "machine.h"
 #include <string.h>
 
 // The console's screen on a machine that draws it: the console's terminal
-// (console_term.c), each size's screens keeping their cells in the cell
+// (vterm.c), each size's screens keeping their cells in the cell
 // store (screen.c), and what mode 0 draws the size showing from. This file
 // hands the console mode 0's cells, writes mode 0's words and the faint
 // twins of the console's colors, keeps the blinks, draws the smooth
@@ -88,7 +88,7 @@ static struct
 // What a size of the console shows besides its cells.
 static inline draw_blinks_t *draw_blinks(const term_grid_t *g)
 {
-    return g == &console_80.grid ? &draw_80 : &draw_40;
+    return g == &vterm_80.grid ? &draw_80 : &draw_40;
 }
 
 // The smooth scroll moving on the screen showing of g, drawn where a screen
@@ -96,8 +96,8 @@ static inline draw_blinks_t *draw_blinks(const term_grid_t *g)
 // going out is erased as it goes, so nothing is drawn moving.
 static bool draw_smooth_shows(const term_grid_t *g)
 {
-    return console_smooth_busy(g) && TERM_SPARE_ROWS &&
-           console_smoothing.screen == (uint8_t)(g->shown - g->screen);
+    return vterm_smooth_busy(g) && TERM_SPARE_ROWS &&
+           vterm_smoothing.screen == (uint8_t)(g->shown - g->screen);
 }
 
 /* Mode 0's faint twins of the console's palette and default colors
@@ -105,13 +105,13 @@ static bool draw_smooth_shows(const term_grid_t *g)
  * change is rare and a reset or a load changes them all. */
 static void draw_follow_palette(void)
 {
-    if (!console_palette_changed)
+    if (!vterm_palette_changed)
         return;
-    console_palette_changed = false;
-    for (unsigned i = 0; i < CONSOLE_PALETTE; i++)
-        mode0_faint_palette[i] = mode0_faint(console_palette[i]);
+    vterm_palette_changed = false;
+    for (unsigned i = 0; i < VTERM_PALETTE; i++)
+        mode0_faint_palette[i] = mode0_faint(vterm_palette[i]);
     for (unsigned i = 0; i < MODE0_DEFAULTS; i++)
-        mode0_faint_defaults[i] = mode0_faint(console_specials[i]);
+        mode0_faint_defaults[i] = mode0_faint(vterm_specials[i]);
 }
 
 /* ---- savestate ----------------------------------------------------------
@@ -124,13 +124,13 @@ static void draw_follow_palette(void)
 
 static bool draw_sst_term_ok(sst_cursor_t *c)
 {
-    return term_sst_ok(c, &console_term);
+    return term_sst_ok(c, &vterm);
 }
 
 static void draw_sst_put_alt(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    sst_put_bool(c, console_term.alt_active);
+    sst_put_bool(c, vterm.alt_active);
 }
 
 /* The alternate screen only exists in a build that has one. */
@@ -142,25 +142,25 @@ static bool draw_sst_get_alt(sst_cursor_t *c, unsigned flags)
         return false;
     if (alt && !TERM_ALT_SCREEN)
         return sst_refuse(c, "the alternate screen, which this build lacks");
-    term_show(&console_term, alt);
+    term_show(&vterm, alt);
     return true;
 }
 
 /* A grid keeps its rows and its width, which are the console's. */
 static bool draw_sst_grids_ok(sst_cursor_t *c)
 {
-    if (console_40.grid.width != 40 || console_80.grid.width != 80)
+    if (vterm_40.grid.width != 40 || vterm_80.grid.width != 80)
         return sst_refuse(c, "a screen of other columns");
-    return term_grid_sst_ok(c, &console_40.grid, TERM_MAX_HEIGHT) &&
-           term_grid_sst_ok(c, &console_80.grid, TERM_MAX_HEIGHT);
+    return term_grid_sst_ok(c, &vterm_40.grid, TERM_MAX_HEIGHT) &&
+           term_grid_sst_ok(c, &vterm_80.grid, TERM_MAX_HEIGHT);
 }
 
 /* The line attributes, once the layouts below have loaded them: those of
  * the screens that have cells, which are the ones saved. */
 static bool draw_sst_lines_ok(sst_cursor_t *c)
 {
-    return term_grid_sst_lines_ok(c, &console_40.grid, MODE0_SCREENS) &&
-           term_grid_sst_lines_ok(c, &console_80.grid, MODE0_SCREENS);
+    return term_grid_sst_lines_ok(c, &vterm_40.grid, MODE0_SCREENS) &&
+           term_grid_sst_lines_ok(c, &vterm_80.grid, MODE0_SCREENS);
 }
 
 /* Each screen's layout, as the store puts it: each size's screens that have
@@ -169,7 +169,7 @@ static bool draw_sst_lines_ok(sst_cursor_t *c)
 static void draw_sst_put_bufs(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    console_size_t *const all[] = {&console_40, &console_80};
+    vterm_size_t *const all[] = {&vterm_40, &vterm_80};
     for (int n = 0; n < 2; n++)
         for (int b = 0; b < MODE0_SCREENS; b++)
             screen_sst_put(c, &all[n]->grid.screen[b]);
@@ -178,7 +178,7 @@ static void draw_sst_put_bufs(sst_cursor_t *c, unsigned flags)
 static bool draw_sst_get_bufs(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    console_size_t *const all[] = {&console_40, &console_80};
+    vterm_size_t *const all[] = {&vterm_40, &vterm_80};
     for (int n = 0; n < 2; n++)
         for (int b = 0; b < MODE0_SCREENS; b++)
             if (!screen_sst_get(c, &all[n]->grid.screen[b]))
@@ -191,15 +191,15 @@ static bool draw_sst_get_bufs(sst_cursor_t *c, unsigned flags)
     Y(U32, s.cell_blink_frame) Y(U8, s.cell_blink_phase)
 
 /* The smooth scroll's grid, as 0 for none, 1 for the 40 and 2 for the 80.
- * Its count of cancels is not saved: console_smooth_grid puts away one that
+ * Its count of cancels is not saved: vterm_smooth_grid puts away one that
  * has landed or that its grid ended, so only one still moving is saved, and
  * a load starts the one it brings back from the grid's count as it is,
  * below. */
 static void draw_sst_put_smooth(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    const term_grid_t *g = console_smooth_grid();
-    sst_put_u8(c, g == &console_40.grid ? 1 : g == &console_80.grid ? 2 : 0);
+    const term_grid_t *g = vterm_smooth_grid();
+    sst_put_u8(c, g == &vterm_40.grid ? 1 : g == &vterm_80.grid ? 2 : 0);
 }
 
 static bool draw_sst_get_smooth(sst_cursor_t *c, unsigned flags)
@@ -210,7 +210,7 @@ static bool draw_sst_get_smooth(sst_cursor_t *c, unsigned flags)
         return false;
     if (n > 2)
         return sst_refuse(c, "a smooth scroll of no size");
-    console_smoothing.grid = n == 1 ? &console_40.grid : n == 2 ? &console_80.grid : NULL;
+    vterm_smoothing.grid = n == 1 ? &vterm_40.grid : n == 2 ? &vterm_80.grid : NULL;
     return true;
 }
 
@@ -223,7 +223,7 @@ static bool draw_sst_get_smooth(sst_cursor_t *c, unsigned flags)
  * words. It counts its cancels from its grid's count as it is. */
 static bool draw_sst_smooth_ok(sst_cursor_t *c)
 {
-    console_smooth_t *sm = &console_smoothing;
+    vterm_smooth_t *sm = &vterm_smoothing;
     if (sm->screen >= MODE0_SCREENS ||
         (sm->grid && (sm->top > sm->bot || sm->bot >= TERM_MAX_HEIGHT ||
                       sm->ghost >= TERM_MEM_ROWS)))
@@ -238,37 +238,37 @@ static bool draw_sst_smooth_ok(sst_cursor_t *c)
 static bool draw_sst_palette_ok(sst_cursor_t *c)
 {
     (void)c;
-    console_palette_changed = true;
+    vterm_palette_changed = true;
     draw_follow_palette();
     return true;
 }
 
 #define DRAW_SST(X)                                                    \
-    TERM_SST_ROWS(X, console_term)                                     \
+    TERM_SST_ROWS(X, vterm)                                            \
     X(VALIDATE, draw_sst_term_ok)                                      \
     X(FN, draw_sst_put_alt, draw_sst_get_alt, 1, 1)                    \
-    X(IN_FN, console_term.alt_active)                                  \
-    X(SKIP, console_term.grids, "the sizes it is followed at")         \
-    X(STRUCT, console_40.grid, TERM_GRID_SST_ROWS)                     \
-    X(STRUCT, console_80.grid, TERM_GRID_SST_ROWS)                     \
+    X(IN_FN, vterm.alt_active)                                         \
+    X(SKIP, vterm.grids, "the sizes it is followed at")                \
+    X(STRUCT, vterm_40.grid, TERM_GRID_SST_ROWS)                       \
+    X(STRUCT, vterm_80.grid, TERM_GRID_SST_ROWS)                       \
     X(VALIDATE, draw_sst_grids_ok)                                     \
     X(FN, draw_sst_put_bufs, draw_sst_get_bufs,                        \
       2 * MODE0_SCREENS * SCREEN_SST_SIZE, 4)                          \
-    X(IN_FN, console_40.lines)                                         \
-    X(IN_FN, console_40.row_idx)                                       \
-    X(IN_FN, console_40.bufs)                                          \
-    X(IN_FN, console_80.lines)                                         \
-    X(IN_FN, console_80.row_idx)                                       \
-    X(IN_FN, console_80.bufs)                                          \
+    X(IN_FN, vterm_40.lines)                                           \
+    X(IN_FN, vterm_40.row_idx)                                         \
+    X(IN_FN, vterm_40.bufs)                                            \
+    X(IN_FN, vterm_80.lines)                                           \
+    X(IN_FN, vterm_80.row_idx)                                         \
+    X(IN_FN, vterm_80.bufs)                                            \
     X(VALIDATE, draw_sst_lines_ok)                                     \
     X(STRUCT, draw_40, DRAW_BLINK_SST_ROWS)                            \
     X(STRUCT, draw_80, DRAW_BLINK_SST_ROWS)                            \
     X(FN, draw_sst_put_smooth, draw_sst_get_smooth, 1, 1)              \
-    X(IN_FN, console_smoothing.grid)                                   \
-    X(STRUCT, console_smoothing, DRAW_SMOOTH_SST_ROWS)                 \
+    X(IN_FN, vterm_smoothing.grid)                                     \
+    X(STRUCT, vterm_smoothing, DRAW_SMOOTH_SST_ROWS)                   \
     X(VALIDATE, draw_sst_smooth_ok)                                    \
-    X(U16S, console_palette)                                           \
-    X(U16S, console_specials)                                          \
+    X(U16S, vterm_palette)                                             \
+    X(U16S, vterm_specials)                                            \
     X(VALIDATE, draw_sst_palette_ok)                                   \
     X(SKIP, draw_stale, "the canvas's load publishes everything")      \
     X(SKIP, draw_published, "what the row words were last written "    \
@@ -326,7 +326,7 @@ static inline bool draw_bytes_differ(const uint8_t *a, const uint8_t *b, unsigne
 void draw_publish(void)
 {
     draw_follow_palette();
-    const term_grid_t *g = console_shown(&console_term);
+    const term_grid_t *g = vterm_get_shown(&vterm);
     draw_blinks_t *d = draw_blinks(g);
     const screen_t *s = g->shown;
     if (draw_published.screen != s || draw_published.y_offset != s->y_offset ||
@@ -344,13 +344,13 @@ void draw_publish(void)
     }
     const term_pos_t *pos = term_pos(g);
     // A cursor with a wrap pending is on the column it wrote, as on a VT100.
-    mode0_regs.cursor = MODE0_CURSOR(pos->x, pos->y, console_term.cursor_style) |
-                        (console_term.cursor_enabled ? MODE0_CURSOR_ENABLED : 0) |
+    mode0_regs.cursor = MODE0_CURSOR(pos->x, pos->y, vterm.cursor_style) |
+                        (vterm.cursor_enabled ? MODE0_CURSOR_ENABLED : 0) |
                         (d->cursor_lit ? MODE0_CURSOR_LIT : 0);
-    mode0_regs.cursor_color = console_specials[CONSOLE_COLOR_CURSOR - CONSOLE_PALETTE];
+    mode0_regs.cursor_color = vterm_specials[VTERM_COLOR_CURSOR - VTERM_PALETTE];
     mode0_regs.screen = d->cell_blink_phase |
-                        (console_term.reverse_screen ? MODE0_SCREEN_REVERSE : 0);
-    console_smooth_t *sm = &console_smoothing;
+                        (vterm.reverse_screen ? MODE0_SCREEN_REVERSE : 0);
+    vterm_smooth_t *sm = &vterm_smoothing;
     const bool smooth = draw_smooth_shows(g);
     if (smooth)
     {
@@ -385,8 +385,8 @@ void draw_publish(void)
 // moves it or changes how it looks: its style, or it coming back on.
 static int draw_out_chars(const char *buf, int length, bool force)
 {
-    term_t *term = &console_term;
-    const term_grid_t *const all[2] = {&console_40.grid, &console_80.grid};
+    term_t *term = &vterm;
+    const term_grid_t *const all[2] = {&vterm_40.grid, &vterm_80.grid};
     int i = 0;
     for (; i < length; i++)
     {
@@ -418,13 +418,13 @@ void draw_init(void)
     manifold_set_term_out(draw_out_chars);
 }
 
-_Static_assert(MODE0_CELLS == CONSOLE_CELLS, "mode 0's cells are the console's");
+_Static_assert(MODE0_CELLS == VTERM_CELLS, "mode 0's cells are the console's");
 
 /* The console as at power-up over mode 0's cells: it is the RESET hook,
  * because a load that fails leaves any value in all of them. */
 void draw_restart(void)
 {
-    console_init(mode0_cells);
+    vterm_init(mode0_cells);
     draw_stale = true;
 }
 
@@ -436,7 +436,7 @@ void draw_restart(void)
 static bool draw_blink_cursor(draw_blinks_t *d)
 {
     bool was = d->cursor_lit;
-    if (!console_term.cursor_enabled)
+    if (!vterm.cursor_enabled)
         d->cursor_lit = false;
     else if ((int32_t)(draw_frame() - d->cursor_frame) >= 0)
     {
@@ -465,10 +465,10 @@ static bool draw_cell_blink_phase_task(draw_blinks_t *d)
 // The words show a smooth scroll that has landed or was ended, so they are
 // written again without it: the frame count wrapping round long after can
 // never show it again. Asking puts away a record that has landed
-// (console_smooth_grid), so it never shows again either.
+// (vterm_smooth_grid), so it never shows again either.
 static bool draw_smooth_task(void)
 {
-    const bool shows = draw_smooth_shows(console_shown(&console_term));
+    const bool shows = draw_smooth_shows(vterm_get_shown(&vterm));
     return draw_published.smooth && !shows;
 }
 
@@ -501,9 +501,9 @@ void draw_task(void)
     draw_stale |= draw_cell_blink_phase_task(&draw_40);
     draw_stale |= draw_cell_blink_phase_task(&draw_80);
     // Another size or screen showing is published too, and a color changed.
-    if (draw_stale || screen_moved || console_palette_changed ||
-        draw_published.screen != console_shown(&console_term)->shown)
+    if (draw_stale || screen_moved || vterm_palette_changed ||
+        draw_published.screen != vterm_get_shown(&vterm)->shown)
         draw_publish();
-    draw_tidy(&console_40.grid);
-    draw_tidy(&console_80.grid);
+    draw_tidy(&vterm_40.grid);
+    draw_tidy(&vterm_80.grid);
 }
