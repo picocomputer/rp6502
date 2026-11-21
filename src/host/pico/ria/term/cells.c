@@ -257,16 +257,19 @@ void cells_fill_row(term_t *t, term_grid_t *g, uint8_t y, uint8_t byte)
         *rows &= ~(1u << y);
 }
 
-void cells_scroll(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, uint8_t n, bool up)
+uint8_t cells_scroll(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, uint8_t n, bool up,
+                     bool keep)
 {
-    screen_rotate(g->shown, top, bot, n, up);
+    const uint8_t ghost = screen_scroll(g->shown, top, bot, n, up, keep);
     cells_rows_scroll(t, g, top, bot, n, up, true);
+    return ghost;
 }
 
-void cells_index(term_t *t, term_grid_t *g, bool up)
+uint8_t cells_index(term_t *t, term_grid_t *g, bool up, bool keep)
 {
-    screen_index(g->shown, g->height, up);
+    const uint8_t ghost = screen_index(g->shown, g->height, up, keep);
     cells_rows_scroll(t, g, 0, g->height - 1u, 1, up, true);
+    return ghost;
 }
 
 /* The VGA draws a smooth scroll from the next frame after its byte reaches
@@ -282,9 +285,10 @@ static struct
     uint32_t frame;
 } cells_smoothing;
 
-void cells_smooth(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, bool up, uint8_t out)
+void cells_smooth(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, bool up, uint8_t ghost,
+                  uint8_t out)
 {
-    (void)top, (void)bot, (void)up, (void)out;
+    (void)top, (void)bot, (void)up, (void)ghost, (void)out;
     if (!vga_connected() || g != cells_shown(t))
         return;
     cells_smoothing.on = true;

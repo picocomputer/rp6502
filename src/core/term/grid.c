@@ -259,21 +259,24 @@ static void grid_copy(term_t *t, term_grid_t *g, unsigned sy, unsigned sx,
 
 // Scroll the inclusive region [top, bot] up or down by count rows, erased rows
 // coming in. The caller places the cursor and touches its row. Between left
-// and right margins only the cells between them move.
-static void grid_scroll(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot,
-                        uint16_t count, bool up)
+// and right margins only the cells between them move. A scroll of all the
+// columns returns the row of memory the row that went out at the edge is
+// in, which keep keeps (cells_scroll); between margins nothing is kept, and
+// the 0 returned names no row.
+static uint8_t grid_scroll(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot,
+                           uint16_t count, bool up, bool keep)
 {
     if (top > bot || count == 0)
-        return;
+        return 0;
     uint8_t region_h = (uint8_t)(bot - top + 1);
     uint8_t n = count > region_h ? region_h : (uint8_t)count;
     if (grid_all_columns(g))
     {
         grid_lines_scroll(g, top, bot, n, up);
-        cells_scroll(t, g, top, bot, n, up);
-        return;
+        return cells_scroll(t, g, top, bot, n, up, keep);
     }
     cells_scroll_cols(t, g, top, bot, g->margin_left, (unsigned)g->margin_right + 1, n, up);
+    return 0;
 }
 
 // A scroll can bring a double-size line under the cursor: the cursor's row
@@ -317,21 +320,28 @@ static bool grid_smooths(const term_t *t, const term_grid_t *g)
     return t->smooth_scroll && grid_all_columns(g);
 }
 
-// Before such a scroll, the row going out is paid what it is owed, such as
-// an erase, because it still shows while it goes.
-static void grid_smooth_out(term_t *t, term_grid_t *g, uint8_t y)
+// An index or a reverse index on its margin scrolls the region a row up or
+// down. A smooth one pays the row going out what it is owed first, such as
+// an erase, and keeps it as it is, because it still shows while it goes;
+// then the rows [top, bot] start moving.
+static void grid_scroll_one(term_t *t, term_grid_t *g, bool up)
 {
-    if (grid_smooths(t, g))
-        cells_touch(t, g, y);
-}
-
-// After it, the rows [top, bot] start moving. out is the line size of the
-// row that left.
-static void grid_smooth(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, bool up,
-                        uint8_t out)
-{
-    if (grid_smooths(t, g))
-        cells_smooth(t, g, top, bot, up, out);
+    const uint8_t top = g->margin_top, bot = g->margin_bot;
+    const uint8_t edge = up ? top : bot;
+    const uint8_t out = term_lines(g)[edge];
+    const bool keep = grid_smooths(t, g);
+    if (keep)
+        cells_touch(t, g, edge);
+    uint8_t ghost;
+    if (grid_full_region(g))
+    {
+        grid_lines_scroll(g, 0, (uint8_t)(g->height - 1), 1, up);
+        ghost = cells_index(t, g, up, keep);
+    }
+    else
+        ghost = grid_scroll(t, g, top, bot, 1, up, keep);
+    if (keep)
+        cells_smooth(t, g, top, bot, up, ghost, out);
 }
 
 // Index: down a row, scrolling the region at its bottom margin. The core of
@@ -351,19 +361,7 @@ static void grid_index_move(term_t *t, term_grid_t *g)
     else if (!grid_in_columns(g, pos->x))
         ;
     else
-    {
-        uint8_t top = g->margin_top, bot = g->margin_bot;
-        uint8_t out = term_lines(g)[top];
-        grid_smooth_out(t, g, top);
-        if (grid_full_region(g))
-        {
-            grid_lines_scroll(g, 0, (uint8_t)(g->height - 1), 1, true);
-            cells_index(t, g, true);
-        }
-        else
-            grid_scroll(t, g, top, bot, 1, true);
-        grid_smooth(t, g, top, bot, true, out);
-    }
+        grid_scroll_one(t, g, true);
 }
 
 static void grid_index(term_t *t, term_grid_t *g)
@@ -387,19 +385,7 @@ static void grid_reverse_index(term_t *t, term_grid_t *g)
     else if (!grid_in_columns(g, pos->x))
         ;
     else
-    {
-        uint8_t top = g->margin_top, bot = g->margin_bot;
-        uint8_t out = term_lines(g)[bot];
-        grid_smooth_out(t, g, bot);
-        if (grid_full_region(g))
-        {
-            grid_lines_scroll(g, 0, (uint8_t)(g->height - 1), 1, false);
-            cells_index(t, g, false);
-        }
-        else
-            grid_scroll(t, g, top, bot, 1, false);
-        grid_smooth(t, g, top, bot, false, out);
-    }
+        grid_scroll_one(t, g, false);
     grid_after_scroll(t, g);
 }
 
@@ -571,7 +557,7 @@ static void grid_REP(term_t *t, term_grid_t *g)
         const term_pos_t from = *pos;
         const unsigned scrolls = grid_rep_pass(t, g, n, false, 0);
         *pos = from;
-        grid_scroll(t, g, g->margin_top, g->margin_bot, (uint16_t)scrolls, true);
+        grid_scroll(t, g, g->margin_top, g->margin_bot, (uint16_t)scrolls, true, false);
         grid_rep_pass(t, g, n, true, scrolls);
         cells_touch(t, g, pos->y);
         return;
@@ -843,14 +829,14 @@ static void grid_IL_DL(term_t *t, term_grid_t *g, bool insert)
     uint8_t y = term_pos(g)->y;
     if (!grid_cursor_in_margins(g))
         return;
-    grid_scroll(t, g, y, g->margin_bot, grid_param(t, 0, 1), !insert);
+    grid_scroll(t, g, y, g->margin_bot, grid_param(t, 0, 1), !insert, false);
     grid_goto(t, g, g->margin_left, y);
 }
 
 // Scroll the region up (SU) or down (SD) by Pn rows. The cursor stays.
 static void grid_SU_SD(term_t *t, term_grid_t *g, bool up)
 {
-    grid_scroll(t, g, g->margin_top, g->margin_bot, grid_param(t, 0, 1), up);
+    grid_scroll(t, g, g->margin_top, g->margin_bot, grid_param(t, 0, 1), up, false);
     grid_after_scroll(t, g);
 }
 

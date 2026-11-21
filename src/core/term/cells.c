@@ -1062,21 +1062,21 @@ void cells_align(term_t *term, term_grid_t *g)
 
 // The rows move round the ring, which takes what each row of memory is
 // owed with it, and the n rows coming in are lazy-erased in the pen's
-// colors. A screen with no cells has only its ring.
-void cells_scroll(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, uint8_t n, bool up)
+// colors, after the ring has kept the row going out. A screen with no cells
+// has only its ring.
+uint8_t cells_scroll(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, uint8_t n,
+                     bool up, bool keep)
 {
     screen_t *s = cells_settled(g);
     if (!s)
-    {
-        screen_rotate(g->shown, top, bot, n, up);
-        return;
-    }
+        return screen_scroll(g->shown, top, bot, n, up, keep);
     cells_cancel(g);
-    screen_rotate(s, top, bot, n, up);
+    const uint8_t ghost = screen_scroll(s, top, bot, n, up, keep);
     if (up)
         cells_mark_rows_erase(term, s, (uint8_t)(bot - n + 1), (uint8_t)(bot + 1), false);
     else
         cells_mark_rows_erase(term, s, top, (uint8_t)(top + n), false);
+    return ghost;
 }
 
 // The cells of a row either side of columns [from, end), kept while the
@@ -1176,7 +1176,7 @@ static void cells_settle(screen_t *s)
     }
     else if (n < h)
     {
-        screen_rotate(s, (uint8_t)top, (uint8_t)bot, (uint8_t)n, l.up);
+        screen_scroll(s, (uint8_t)top, (uint8_t)bot, (uint8_t)n, l.up, false);
         // Row j of the region now has the cells either side that belong
         // on row j + step, counted round the region.
         const unsigned step = l.up ? n : h - n;
@@ -1231,21 +1231,20 @@ void cells_scroll_cols(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, u
 }
 
 // The fast scroll: the viewport rotates through y_offset, and the row
-// coming in is lazy-erased in the pen's colors.
-void cells_index(term_t *term, term_grid_t *g, bool up)
+// coming in is lazy-erased in the pen's colors, after the ring has kept the
+// row going out.
+uint8_t cells_index(term_t *term, term_grid_t *g, bool up, bool keep)
 {
     screen_t *s = cells_settled(g);
     if (!s)
-    {
-        screen_index(g->shown, g->height, up);
-        return;
-    }
+        return screen_index(g->shown, g->height, up, keep);
     cells_cancel(g);
-    screen_index(s, g->height, up);
+    const uint8_t ghost = screen_index(s, g->height, up, keep);
     if (up)
         cells_mark_rows_erase(term, s, (uint8_t)(g->height - 1), g->height, false);
     else
         cells_mark_rows_erase(term, s, 0, 1, false);
+    return ghost;
 }
 
 void cells_forget(term_t *term, term_grid_t *g)

@@ -156,8 +156,13 @@ void cells_erase_rows(term_t *t, term_grid_t *g, uint8_t from, uint8_t to,
 // DECALN: every row lazy-erased to E's in the default colors.
 void cells_align(term_t *t, term_grid_t *g);
 
-// Rows [top, bot] move n rows up or down, erased rows coming in.
-void cells_scroll(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, uint8_t n, bool up);
+// Rows [top, bot] move n rows up or down, erased rows coming in. Returns
+// the row of memory the row that went out at the edge is in. With keep, a
+// smooth scroll of one row, that row keeps its cells while it still shows
+// going, in a row of memory no slot of the screen has, when the screen has
+// one to spare (screen_scroll).
+uint8_t cells_scroll(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, uint8_t n, bool up,
+                     bool keep);
 
 // The same for only columns [from, end) of those rows, which are not the
 // whole width: a scroll between left and right margins.
@@ -165,15 +170,23 @@ void cells_scroll_cols(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, unsi
                        unsigned end, uint8_t n, bool up);
 
 // The whole screen moves a row up, the top row joining the scrollback, or a
-// row down, the newest row of the scrollback lost.
-void cells_index(term_t *t, term_grid_t *g, bool up);
+// row down, the newest row of the scrollback lost. Returns the row of
+// memory the row that went is in, which keep keeps as for cells_scroll
+// (screen_index).
+uint8_t cells_index(term_t *t, term_grid_t *g, bool up, bool keep);
 
 // Under DECSCLM, rows [top, bot] just scrolled a row up or down by an index
 // or a reverse index, and the screen shows them move there a scanline a
-// frame from the next frame, over TERM_SMOOTH_FRAMES. out is the line size
-// of the row that went, which shows until it is gone. A scroll still
-// moving finishes at once.
-void cells_smooth(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, bool up, uint8_t out);
+// frame from the next frame, over TERM_SMOOTH_FRAMES. ghost is the row of
+// memory the row that went is in, which cells_scroll or cells_index kept,
+// and out its line size; it shows until it is gone. Nothing writes the
+// ghost until the next scroll, index, clear or change of height of the
+// grid, each of which ends the smooth scroll, and the terminal holds a byte
+// that would scroll the rows until they land (term_holds). A scroll still
+// moving finishes at once. A machine that draws records it for the size
+// showing; one that only follows holds the console's bytes for it.
+void cells_smooth(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, bool up, uint8_t ghost,
+                  uint8_t out);
 
 // A smooth scroll of g is still moving.
 bool cells_smooth_busy(const term_grid_t *g);

@@ -54,7 +54,7 @@ static void screen_reverse(screen_t *s, unsigned lo, unsigned hi)
 // The rows turn k places toward the top: the first k reversed, the rest
 // reversed, then all of them reversed. No row needs keeping aside, so a
 // ring of any size turns in place.
-void screen_rotate(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, bool up)
+static void screen_rotate(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, bool up)
 {
     if (!s->row_idx)
         return;
@@ -77,16 +77,40 @@ static void screen_turn(screen_t *s, bool up)
         s->y_offset = (uint8_t)(s->y_offset ? s->y_offset - 1u : s->rows - 1u);
 }
 
-void screen_index(screen_t *s, uint8_t height, bool up)
+// The row of memory of row gone, which just went out, is the one a smooth
+// scroll draws going. With keep, when row in, which comes in, is in the
+// same slot, the spare row of memory takes that slot.
+static uint8_t screen_keep(screen_t *s, uint8_t in, uint8_t gone, bool keep)
+{
+    const uint8_t slot = screen_slot(s, gone);
+    const uint8_t ghost = s->row_idx ? s->row_idx[slot] : slot;
+    if (keep && in == gone && s->spare != s->mem_rows)
+    {
+        s->row_idx[slot] = s->spare;
+        s->spare = ghost;
+    }
+    return ghost;
+}
+
+uint8_t screen_scroll(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, bool up, bool keep)
+{
+    screen_rotate(s, top, bot, n, up);
+    const uint8_t edge = (uint8_t)(up ? bot - n + 1 : top + n - 1);
+    return screen_keep(s, edge, edge, keep);
+}
+
+uint8_t screen_index(screen_t *s, uint8_t height, bool up, bool keep)
 {
     screen_turn(s, up);
     if (up)
     {
         if (s->hidden < s->rows - height)
             s->hidden++;
+        return screen_keep(s, (uint8_t)(height - 1), (uint8_t)(s->rows - 1), keep);
     }
-    else if (s->hidden)
+    if (s->hidden)
         s->hidden--;
+    return screen_keep(s, 0, (uint8_t)(height == s->rows ? 0 : height), keep);
 }
 
 bool screen_height(screen_t *s, bool grow, bool top)

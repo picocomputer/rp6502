@@ -281,40 +281,18 @@ static void cells_restart_blinks(cells_draw_t *d)
 
 static cells_t *cells_visible(void);
 
-// The row coming in takes the spare row of memory when its row of memory is
-// the one going out, which a scroll of a region and a scroll of the whole
-// screen with no scrollback to spare both give it, so the row going out
-// keeps its cells while it still shows. What the row coming in is owed
-// goes with it.
-void cells_smooth(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, bool up, uint8_t out)
+// The store kept the row that went (cells_scroll, cells_index), so a smooth
+// scroll is only recorded, for the size showing. Without a spare row of
+// memory a region's row going out is erased as it goes, so nothing is drawn
+// moving.
+void cells_smooth(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, bool up,
+                  uint8_t ghost, uint8_t out)
 {
     (void)term;
     cells_t *cells = cells_size(g);
     if (!TERM_SPARE_ROWS || !cells || cells != cells_visible())
         return;
-    screen_t *s = g->shown;
-    screen_cells_t *b = s->cells;
-    const uint8_t in_row = up ? bot : top;
-    const uint8_t in_slot = screen_slot(s, in_row);
-    uint8_t ghost = s->row_idx[in_slot];
-    if (top == 0 && bot == g->height - 1)
-    {
-        // The whole screen rotated through y_offset: the row that went is
-        // the slot just past the edge it left by.
-        uint8_t slot = up ? screen_slot(s, s->rows - 1)
-                          : screen_slot(s, g->height % s->rows);
-        ghost = s->row_idx[slot];
-    }
-    if (ghost == s->row_idx[in_slot])
-    {
-        const uint8_t spare = s->spare;
-        s->row_idx[in_slot] = spare;
-        b->owed[spare] = b->owed[ghost];
-        b->what[spare] = b->what[ghost];
-        b->owed[ghost] = CELLS_OWED_NONE;
-        s->spare = ghost;
-    }
-    const uint8_t buf = (uint8_t)(s - g->screen);
+    const uint8_t buf = (uint8_t)(g->shown - g->screen);
     cells_draw(cells)->smooth = (cells_smooth_t){
         .on = true,
         .buf = buf,

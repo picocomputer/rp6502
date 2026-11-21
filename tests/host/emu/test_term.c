@@ -2692,8 +2692,10 @@ static const char *ghost(void)
 {
     static char text[96];
     const mode0_cell_t *c = &mode0_cells[MODE0_ROW_CELL(mode0_regs.smooth_ghost)];
+    tb_screen_t v;
+    tb_screen(&v);
     int last = 0;
-    for (int x = 0; x < 80; x++)
+    for (int x = 0; x < v.width; x++)
     {
         text[x] = (char)mode0_glyph_code(c[x].glyph);
         if (text[x] != ' ')
@@ -2728,6 +2730,33 @@ UTEST(term, a_smooth_reverse_index_moves_out_the_bottom_row_as_it_is)
     ASSERT_FALSE(mode0_regs.smooth & MODE0_SMOOTH_UP);
     ASSERT_STREQ(ghost(), "");
     feed("\33[r");
+}
+
+/* A smooth line feed on a screen shorter than its ring moves out the top
+ * row, which joins the scrollback as it is and comes back with a grow. The
+ * 80-column size, not showing, at its full height with no slot to spare,
+ * scrolls the same line feed with its spare row and keeps its text. */
+UTEST(term, a_smooth_scroll_with_scrollback_keeps_both_sizes_text)
+{
+    fresh();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    cells_set_height(40, TERM_MAX_HEIGHT - 1);
+    feed("\33[?4h\33[HA\33[2;1HB\33[99;1HZ\n");
+    ASSERT_TRUE(mode0_regs.smooth & MODE0_SMOOTH_ON);
+    ASSERT_STREQ(ghost(), "A");
+    ASSERT_STREQ(row(0), "B");
+    ASSERT_STREQ(row(TERM_MAX_HEIGHT - 3), "Z");
+    ASSERT_STREQ(row(TERM_MAX_HEIGHT - 2), "");
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    ASSERT_EQ(cells_term.grids[1]->height, TERM_MAX_HEIGHT);
+    ASSERT_STREQ(row(0), "B");
+    ASSERT_STREQ(row(TERM_MAX_HEIGHT - 2), "Z");
+    ASSERT_STREQ(row(TERM_MAX_HEIGHT - 1), "");
+    cells_set_height(40, TERM_MAX_HEIGHT);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    ASSERT_STREQ(row(0), "A");
+    ASSERT_STREQ(row(1), "B");
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
 }
 
 /* A line feed that would scroll the moving rows again waits for them to

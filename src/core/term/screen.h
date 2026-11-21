@@ -77,12 +77,23 @@ void screen_clear(screen_t *s);
 
 // Rows [top, bot] move n rows up or down round row_idx: each takes the row
 // of memory n rows below it, or above it, and the n at the end go round.
-void screen_rotate(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, bool up);
+// Returns the row of memory of the row that went out at the edge, which
+// lands where the rows coming in start. With keep, for a smooth scroll of
+// one row, the spare row of memory takes that slot instead, before anything
+// erases the row coming in, so the row that went keeps its cells and what
+// it is owed while it still shows going. A screen with no spare row keeps
+// nothing.
+uint8_t screen_scroll(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, bool up, bool keep);
 
 // The whole screen of height rows moves a row up, row 0 joining the rows
 // above it, or a row down, the newest of those coming back. The row coming
-// in is the one that was past the other end.
-void screen_index(screen_t *s, uint8_t height, bool up);
+// in is the one that was past the other end. Returns the row of memory of
+// the row that went: up, the newest row above row 0; down, the row just
+// past the last. With keep, when that is the row coming in, which it is
+// when the ring has no slot to spare, the spare row of memory takes its
+// slot, as in screen_scroll. Otherwise the row that went is in a slot past
+// the screen's rows, which nothing writes until the next move of the ring.
+uint8_t screen_index(screen_t *s, uint8_t height, bool up, bool keep);
 
 // The height went one row up or down, and with top the screen moved instead
 // of the cursor: a grow brings back the newest row above row 0, a shrink
