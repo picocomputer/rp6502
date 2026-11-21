@@ -7,7 +7,7 @@
 #include "core/com/console.h"
 #include "core/com/manifold.h"
 #include "core/com/rln.h"
-#include "core/term/cells.h"
+#include "core/term/console_term.h"
 #include "core/str/str.h"
 #include "machine.h"
 #include <string.h>
@@ -122,7 +122,7 @@ std_rw_result console_std_close(int desc, api_errno *err)
 
 bool console_rendered(void)
 {
-    return manifold_drained() && !cells_smooth_busy(cells_shown(&cells_term));
+    return manifold_drained() && !console_smooth_busy(console_shown(&console_term));
 }
 
 /* A sync waits until what was written shows: a program that wants its last

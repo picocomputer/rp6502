@@ -7,7 +7,7 @@
 #include "core/aud/bel.h"
 #include "core/com/com.h"
 #include "core/sys/version.h"
-#include "core/term/cells.h"
+#include "core/term/console_term.h"
 #include "core/term/grid.h"
 #include "core/term/term.h"
 #include "core/vga/pixel_format.h"
@@ -129,7 +129,7 @@ static void term_reset_core(term_t *t)
         term_default_pen(&t->saved[s]);
         t->has_saved[s] = false;
     }
-    cells_colors_reset(t);
+    console_term_reset(t);
     term_grids(t, GRID_RESET, 0);
 }
 
@@ -552,7 +552,7 @@ static void term_out_DSR(term_t *t, bool private)
         break;
     case 6:
     {
-        const term_grid_t *g = cells_shown(t);
+        const term_grid_t *g = console_shown(t);
         const term_pos_t *pos = term_pos(g);
         unsigned y = pos->y, x = pos->x;
         // Relative to the margins under DECOM, guarded so a cursor outside
@@ -616,9 +616,9 @@ static void term_out_window(term_t *t)
 {
     if (t->csi_param_count > 1)
         return;
-    const term_grid_t *g = cells_shown(t);
+    const term_grid_t *g = console_shown(t);
     // The cell is the screen's font, whatever size the program set.
-    unsigned cell = term_cell_height(cells_shown(t));
+    unsigned cell = term_cell_height(console_shown(t));
     switch (t->csi_param[0])
     {
     case 11: // minimized? only an emulator's window can be
@@ -661,7 +661,7 @@ static void term_out_DECRQM(term_t *t, bool private)
             break;
         case 3: // DECCOLM: 80 columns, and never 132. The 40-column screen is
                 // neither of DECCOLM's two, so the mode is not reported there.
-            pm = cells_shown(t)->width == 80 ? 4 : 0;
+            pm = console_shown(t)->width == 80 ? 4 : 0;
             break;
         case 4: // DECSCLM
             pm = t->smooth_scroll ? 1 : 2;
@@ -801,7 +801,7 @@ static void term_out_DECRQSS(term_t *t, const char *pt, unsigned len)
     char buf[TERM_REPLY_MAX];
     const size_t size = sizeof(buf) - 2; // room for ST
     const term_pen_t *pen = term_pen(t);
-    const term_grid_t *g = cells_shown(t);
+    const term_grid_t *g = console_shown(t);
     int n = snprintf(buf, size, "\33P1$r");
     if (len == 1 && pt[0] == 'm')
     {
@@ -882,7 +882,7 @@ static char term_cs_final(uint8_t set)
 // DECTABSR is DCS 2 $ u and the tab stops' columns with / between.
 static void term_out_DECRQPSR(term_t *t)
 {
-    const term_grid_t *g = cells_shown(t);
+    const term_grid_t *g = console_shown(t);
     const term_pos_t *pos = term_pos(g);
     const term_pen_t *pen = term_pen(t);
     if (t->csi_param[0] == 1)
@@ -976,7 +976,7 @@ static void term_cir_byte(term_t *t, uint8_t ch)
 static void term_restore_DECCIR(term_t *t)
 {
     const uint16_t *f = t->csi_param;
-    const term_grid_t *g = cells_shown(t);
+    const term_grid_t *g = console_shown(t);
     if (t->csi_colon || t->csi_param_count != 13 || !f[0] || f[0] > g->height || !f[1] ||
         f[1] > g->width || f[2] != 1 || (f[3] & 0xF0) != 0x40 || (f[4] & 0xFE) != 0x40 ||
         (f[5] & 0xF0) != 0x40 || f[6] > 3 || f[7] > 3 || (f[5] & 6) == 6)
@@ -1306,7 +1306,7 @@ static void term_osc_ask(term_t *t, unsigned which)
     if (t->osc_asks < TERM_OSC_ASK_MAX)
     {
         t->osc_ask[t->osc_asks].which = (uint16_t)which;
-        t->osc_ask[t->osc_asks].color = cells_color_get(t, which);
+        t->osc_ask[t->osc_asks].color = console_color_get(t, which);
         t->osc_asks++;
     }
 }
@@ -1317,7 +1317,7 @@ static void term_osc_ask(term_t *t, unsigned which)
 static void term_reply_color(unsigned which, uint16_t color, const char *end)
 {
     char buf[TERM_REPLY_MAX];
-    const unsigned number = which < 256 ? 4 : 10 + which - CELLS_COLOR_FG;
+    const unsigned number = which < 256 ? 4 : 10 + which - CONSOLE_COLOR_FG;
     const int entry = which < 256 ? (int)which : -1;
     const unsigned r = SCANVIDEO_R5_FROM_PIXEL(color) * 0xFFFFu / 31u;
     const unsigned g = SCANVIDEO_G5_FROM_PIXEL(color) * 0xFFFFu / 31u;
@@ -1355,13 +1355,13 @@ static void term_osc_item(term_t *t)
         else if (t->osc_index < 256 && ask)
             term_osc_ask(t, t->osc_index);
         else if (t->osc_index < 256 && term_parse_color(s, len, &color))
-            cells_color(t, t->osc_index, color);
+            console_color(t, t->osc_index, color);
         break;
     case 104:
     {
         int idx = term_parse_index(s, len);
         if (idx >= 0)
-            cells_color_reset(t, (unsigned)idx);
+            console_color_reset(t, (unsigned)idx);
         break;
     }
     case 10:
@@ -1371,13 +1371,13 @@ static void term_osc_item(term_t *t)
         const unsigned number = t->osc_ps + t->osc_item;
         if (number > 12)
             break;
-        const unsigned which = number == 10   ? CELLS_COLOR_FG
-                               : number == 11 ? CELLS_COLOR_BG
-                                              : CELLS_COLOR_CURSOR;
+        const unsigned which = number == 10   ? CONSOLE_COLOR_FG
+                               : number == 11 ? CONSOLE_COLOR_BG
+                                              : CONSOLE_COLOR_CURSOR;
         if (ask)
             term_osc_ask(t, which);
         else if (term_parse_color(s, len, &color))
-            cells_color(t, which, color);
+            console_color(t, which, color);
         break;
     }
     }
@@ -1404,16 +1404,16 @@ static void term_osc_end(term_t *t, const char *end)
         {
         case 104:
             for (unsigned i = 0; i < 256; i++)
-                cells_color_reset(t, i);
+                console_color_reset(t, i);
             break;
         case 110:
-            cells_color_reset(t, CELLS_COLOR_FG);
+            console_color_reset(t, CONSOLE_COLOR_FG);
             break;
         case 111:
-            cells_color_reset(t, CELLS_COLOR_BG);
+            console_color_reset(t, CONSOLE_COLOR_BG);
             break;
         case 112:
-            cells_color_reset(t, CELLS_COLOR_CURSOR);
+            console_color_reset(t, CONSOLE_COLOR_CURSOR);
             break;
         }
     }
@@ -2120,7 +2120,7 @@ bool HOST_IN_RAM_FUNC term_holds(const term_t *t, uint8_t ch)
     if (t->smooth_released)
         return false;
     for (uint8_t i = 0; i < t->grid_count; i++)
-        if (cells_smooth_busy(t->grids[i]) && term_byte_scrolls(t, t->grids[i], ch))
+        if (console_smooth_busy(t->grids[i]) && term_byte_scrolls(t, t->grids[i], ch))
             return true;
     return false;
 }
@@ -2147,7 +2147,7 @@ bool term_sst_ok(sst_cursor_t *c, const term_t *t)
         t->osc_len > TERM_OSC_SPEC_MAX + 1 || t->osc_asks > TERM_OSC_ASK_MAX)
         return sst_refuse(c, "the terminal's parser out of range");
     for (int i = 0; i < TERM_OSC_ASK_MAX; i++)
-        if (t->osc_ask[i].which > CELLS_COLOR_CURSOR)
+        if (t->osc_ask[i].which > CONSOLE_COLOR_CURSOR)
             return sst_refuse(c, "an OSC answer for no color");
     return true;
 }

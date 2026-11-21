@@ -7,7 +7,7 @@
 #include "core/hid/paste.h"
 #include "core/str/oem.h"
 #include "core/sys/sst.h"
-#include "core/term/cells.h"
+#include "core/term/console_term.h"
 #include "machine.h"
 #include <stdlib.h>
 #include <string.h>
@@ -46,7 +46,7 @@ void paste_start(const char *utf8)
     size_t n = utf8 ? strlen(utf8) : 0;
     if (!n)
         return;
-    bool bracket = cells_term.bracketed_paste;
+    bool bracket = console_term.bracketed_paste;
     paste_buf = malloc(n + (bracket ? sizeof paste_open + sizeof paste_close : 0));
     if (!paste_buf)
         return;

@@ -5,34 +5,24 @@
  */
 
 #include "core/com/manifold.h"
-#include "core/term/color.h"
+#include "core/term/console_term.h"
 #include "core/term/grid.h"
 #include "ria/sys/vga.h"
 #include "ria/term/cells.h"
 #include "machine.h"
 
-/* The console's terminal on the RIA, at the VGA's two sizes. Each grid keeps
- * only its screens' rings (screen.h), which with no cells need no row_idx,
- * and the line attributes of their rows, a byte a row for each screen. */
-term_t cells_term;
-static term_grid_t cells_40, cells_80;
-static uint8_t cells_40_lines[2 * TERM_MAX_HEIGHT];
-static uint8_t cells_80_lines[2 * TERM_MAX_HEIGHT];
-
+/* The console's terminal on the RIA (console_term.h), handed no cells. */
 static int cells_out_chars(const char *buf, int length, bool force)
 {
     (void)force;
     for (int i = 0; i < length; i++)
-        term_write(&cells_term, (uint8_t)buf[i]);
+        term_write(&console_term, (uint8_t)buf[i]);
     return length;
 }
 
 void cells_init(void)
 {
-    term_grid_init(&cells_40, 40, cells_40_lines, NULL, TERM_MAX_HEIGHT);
-    term_grid_init(&cells_80, 80, cells_80_lines, NULL, TERM_MAX_HEIGHT);
-    term_grid_t *const grids[] = {&cells_40, &cells_80};
-    term_init(&cells_term, grids, 2);
+    console_init(NULL);
     manifold_set_term_out(cells_out_chars);
 }
 
@@ -41,30 +31,9 @@ void cells_flashing(void)
     manifold_set_term_out(NULL);
 }
 
-void cells_RIS(void)
+/* Nothing is drawn, so there are no blinks to start again. */
+void draw_reset(void)
 {
-    term_RIS(&cells_term);
-}
-
-void cells_RIS_no_clear(void)
-{
-    term_set_height(&cells_term, &cells_40, TERM_STD_HEIGHT);
-    term_RIS_no_clear(&cells_term);
-}
-
-void cells_set_height(uint8_t width, uint8_t height)
-{
-    term_set_height(&cells_term, width == 40 ? &cells_40 : &cells_80, height);
-}
-
-/* The 40 on a 320-wide canvas of a connected VGA; otherwise the 80, which is
- * the console with no VGA too. */
-term_grid_t *cells_shown(const term_t *t)
-{
-    (void)t;
-    int w, h;
-    vga_canvas_size(&w, &h);
-    return vga_connected() && w == 320 ? &cells_40 : &cells_80;
 }
 
 /* Nothing is drawn, and no cell is kept (TERM_CELLS 0): this file defines
@@ -82,10 +51,10 @@ _Static_assert(TERM_MAX_HEIGHT <= 32, "a bit for every row");
  * VGA's: a program's own size. */
 static term_grid_t *cells_grid(const screen_t *s)
 {
-    if (s == &cells_40.screen[0] || s == &cells_40.screen[1])
-        return &cells_40;
-    if (s == &cells_80.screen[0] || s == &cells_80.screen[1])
-        return &cells_80;
+    if (s == &console_40.grid.screen[0] || s == &console_40.grid.screen[1])
+        return &console_40.grid;
+    if (s == &console_80.grid.screen[0] || s == &console_80.grid.screen[1])
+        return &console_80.grid;
     return NULL;
 }
 
@@ -95,7 +64,7 @@ static uint32_t *cells_rows(const screen_t *s)
     const term_grid_t *g = cells_grid(s);
     if (!g)
         return NULL;
-    return &cells_used[g == &cells_80][s - g->screen];
+    return &cells_used[g == &console_80.grid][s - g->screen];
 }
 
 static uint32_t cells_bits(unsigned from, unsigned to) /* rows [from, to) */
@@ -274,42 +243,6 @@ uint8_t screen_index(term_t *t, screen_t *s, uint8_t height, bool up, bool keep)
     return ghost;
 }
 
-/* The VGA draws a smooth scroll from the next frame after its byte reaches
- * it, and the RIA holds the next byte that would scroll that region until
- * the VGA's frames, counted from its VSYNCs, say the scroll has landed. The
- * byte goes out early in the frame it lands, so the VGA has it before its
- * next frame starts and the rows never stop. With no VGA the console is a
- * serial port to a terminal of unknown kind, and nothing is held. */
-static struct
-{
-    bool on;
-    const term_grid_t *grid;
-    uint32_t frame;
-} cells_smoothing;
-
-void cells_smooth(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, bool up, uint8_t ghost)
-{
-    (void)top, (void)bot, (void)up, (void)ghost;
-    if (!vga_connected() || g != cells_shown(t))
-        return;
-    cells_smoothing.on = true;
-    cells_smoothing.grid = g;
-    cells_smoothing.frame = vga_frames() + 1;
-}
-
-bool HOST_IN_RAM_FUNC cells_smooth_busy(const term_grid_t *g)
-{
-    if (!cells_smoothing.on)
-        return false;
-    if (!vga_connected() ||
-        (int32_t)(vga_frames() - (cells_smoothing.frame + TERM_SMOOTH_FRAMES - 1)) >= 0)
-    {
-        cells_smoothing.on = false;
-        return false;
-    }
-    return g == cells_smoothing.grid;
-}
-
 void screen_clear(term_t *t, screen_t *s, uint8_t height)
 {
     (void)height;
@@ -328,7 +261,7 @@ void screen_height(screen_t *s, uint8_t height, bool grow, bool top)
         return;
     for (int screen = 0; screen < 2; screen++)
     {
-        uint32_t *rows = &cells_used[g == &cells_80][screen];
+        uint32_t *rows = &cells_used[g == &console_80.grid][screen];
         if (top)
             *rows = grow ? *rows << 1 | 1 : *rows >> 1;
         *rows &= cells_bits(0, height);
@@ -348,37 +281,4 @@ void screen_reset(screen_t *s, uint8_t height)
     uint32_t *rows = cells_rows(s);
     if (rows)
         *rows = 0;
-}
-
-/* The colors are followed, for a program that asks what one is: the
- * palette, then the default foreground, the default background and the
- * cursor's. */
-#define CELLS_FG_COLOR_INDEX 7
-#define CELLS_BG_COLOR_INDEX 0
-static uint16_t cells_colors[256 + 3];
-
-void cells_color(term_t *t, unsigned which, uint16_t color)
-{
-    (void)t;
-    if (which < sizeof cells_colors / sizeof cells_colors[0])
-        cells_colors[which] = color;
-}
-
-void cells_color_reset(term_t *t, unsigned which)
-{
-    cells_color(t, which, color_256[which < 256                 ? which
-                                    : which == CELLS_COLOR_BG ? CELLS_BG_COLOR_INDEX
-                                                              : CELLS_FG_COLOR_INDEX]);
-}
-
-void cells_colors_reset(term_t *t)
-{
-    for (unsigned i = 0; i < sizeof cells_colors / sizeof cells_colors[0]; i++)
-        cells_color_reset(t, i);
-}
-
-uint16_t cells_color_get(const term_t *t, unsigned which)
-{
-    (void)t;
-    return which < sizeof cells_colors / sizeof cells_colors[0] ? cells_colors[which] : 0;
 }

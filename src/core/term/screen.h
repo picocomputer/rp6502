@@ -378,8 +378,8 @@ typedef struct screen_cells
 } screen_cells_t;
 
 /* The store moved cells in a way that may change what shows, outside the
- * functions that change a cell: a scroll it was owed is done. draw.c
- * publishes and clears it. */
+ * functions that change a cell: a scroll it was owed is done, or the height
+ * changed. draw.c publishes and clears it. */
 extern bool screen_moved;
 
 // The cells of row y of a screen that has them.

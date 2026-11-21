@@ -24,6 +24,7 @@ rp6502_pico_memory(rp6502-vga)
 rp6502_linker_named(rp6502-vga
     ${RP6502_ROOT}/src/core/term/font.c
     ${RP6502_ROOT}/src/core/term/color.c
+    ${RP6502_ROOT}/src/core/term/console_term.c
     ${RP6502_ROOT}/src/core/vga/mode/mode0.c)
 
 set_target_properties(rp6502-vga PROPERTIES
@@ -81,6 +82,7 @@ target_sources(rp6502-vga PRIVATE
     ${RP6502_ROOT}/src/core/term/term.c
     ${RP6502_ROOT}/src/core/term/grid.c
     ${RP6502_ROOT}/src/core/term/screen.c
+    ${RP6502_ROOT}/src/core/term/console_term.c
     ${RP6502_ROOT}/src/core/term/draw.c
     ${VGA_SRC}/usb/cdc.c
     ${VGA_SRC}/usb/descriptors.c

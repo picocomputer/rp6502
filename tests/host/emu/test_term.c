@@ -18,6 +18,7 @@
 #include "core/sys/version.h"
 #include "core/term/color.h"
 #include "core/term/cells.h"
+#include "core/term/console_term.h"
 #include "core/term/grid.h"
 #include "tb_screen.h"
 #include "core/vga/vga.h"
@@ -391,7 +392,7 @@ UTEST(term, insert_mode_is_suspended_in_vt52_mode)
     fresh();
     feed("abc\r\33[4h\33[?2lX");
     ASSERT_STREQ(row(0), "Xbc");
-    ASSERT_TRUE(cells_term.insert_mode);
+    ASSERT_TRUE(console_term.insert_mode);
     feed("\33<X");
     ASSERT_STREQ(row(0), "XXbc");
     feed("\33[3b");
@@ -466,7 +467,7 @@ UTEST(term, the_system_soft_reset_keeps_the_screen)
 {
     fresh();
     feed("hello\33[?1049hALT\33]4;1;#123456\7\33[4h");
-    cells_RIS_no_clear();
+    console_RIS_no_clear();
     ASSERT_STREQ(row(0), "hello");
     ASSERT_EQ(cx(), 5);
     feed("\33[31mX\33[4$p");
@@ -491,15 +492,15 @@ UTEST(term, the_soft_reset_string_puts_the_keys_back)
 {
     fresh();
     feed("\33[?1h\33=\33[?8l\33[?67h\33*0");
-    ASSERT_TRUE(cells_term.app_cursor);
-    ASSERT_TRUE(cells_term.app_keypad);
-    ASSERT_FALSE(cells_term.autorepeat);
-    ASSERT_TRUE(cells_term.backarrow_bs);
+    ASSERT_TRUE(console_term.app_cursor);
+    ASSERT_TRUE(console_term.app_keypad);
+    ASSERT_FALSE(console_term.autorepeat);
+    ASSERT_TRUE(console_term.backarrow_bs);
     feed(STR_TERM_SOFT_RESET);
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_FALSE(cells_term.app_keypad);
-    ASSERT_TRUE(cells_term.autorepeat);
-    ASSERT_FALSE(cells_term.backarrow_bs);
+    ASSERT_FALSE(console_term.app_cursor);
+    ASSERT_FALSE(console_term.app_keypad);
+    ASSERT_TRUE(console_term.autorepeat);
+    ASSERT_FALSE(console_term.backarrow_bs);
     feed("\33NqA");
     ASSERT_STREQ(row(0), "qA");
 }
@@ -528,22 +529,22 @@ UTEST(term, alt_1049_off_restores_on_the_primary_too)
 UTEST(term, ed_3_forgets_the_scrollback)
 {
     fresh();
-    cells_set_height(80, 29);
+    console_set_height(80, 29);
     feed("one\r\n");
     for (int i = 0; i < 28; i++)
         feed("\r\n");
-    cells_set_height(80, 30);
+    console_set_height(80, 30);
     ASSERT_STREQ(row(0), "one");
 
     fresh();
-    cells_set_height(80, 29);
+    console_set_height(80, 29);
     feed("one\r\n");
     for (int i = 0; i < 28; i++)
         feed("\r\n");
     feed("\33[3J");
-    cells_set_height(80, 30);
+    console_set_height(80, 30);
     ASSERT_STREQ(row(0), "");
-    cells_set_height(80, 30);
+    console_set_height(80, 30);
 }
 
 /* ---- replies ---- */
@@ -641,15 +642,15 @@ UTEST(term, the_keyboard_modes_set_reset_and_report)
     fresh();
     ASSERT_STREQ(ask("\33[?1$p\33[?8$p\33[?66$p"),
                  "\33[?1;2$y\33[?8;1$y\33[?66;2$y");
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_TRUE(cells_term.autorepeat);
-    ASSERT_FALSE(cells_term.app_keypad);
+    ASSERT_FALSE(console_term.app_cursor);
+    ASSERT_TRUE(console_term.autorepeat);
+    ASSERT_FALSE(console_term.app_keypad);
     feed("\33[?1;66h\33[?8l");
     ASSERT_STREQ(ask("\33[?1$p\33[?8$p\33[?66$p"),
                  "\33[?1;1$y\33[?8;2$y\33[?66;1$y");
-    ASSERT_TRUE(cells_term.app_cursor);
-    ASSERT_FALSE(cells_term.autorepeat);
-    ASSERT_TRUE(cells_term.app_keypad);
+    ASSERT_TRUE(console_term.app_cursor);
+    ASSERT_FALSE(console_term.autorepeat);
+    ASSERT_TRUE(console_term.app_keypad);
     feed("\33[?1;66l\33[?8h");
     ASSERT_STREQ(ask("\33[?1$p\33[?8$p\33[?66$p"),
                  "\33[?1;2$y\33[?8;1$y\33[?66;2$y");
@@ -663,11 +664,11 @@ UTEST(term, the_keypad_mode_escapes_work_in_both_modes)
     feed("\33>");
     ASSERT_STREQ(ask("\33[?66$p"), "\33[?66;2$y");
     feed("\33[?2l\33=");
-    ASSERT_TRUE(cells_term.app_keypad);
+    ASSERT_TRUE(console_term.app_keypad);
     feed("\33>");
-    ASSERT_FALSE(cells_term.app_keypad);
+    ASSERT_FALSE(console_term.app_keypad);
     feed("\33=\33<x");
-    ASSERT_TRUE(cells_term.app_keypad); /* leaving VT52 mode keeps it */
+    ASSERT_TRUE(console_term.app_keypad); /* leaving VT52 mode keeps it */
     ASSERT_STREQ(row(0), "x");
 }
 
@@ -677,18 +678,18 @@ UTEST(term, the_resets_and_the_keyboard_modes)
 {
     fresh();
     feed("\33[?1;66h\33[?8l\33[!p");
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_FALSE(cells_term.app_keypad);
-    ASSERT_FALSE(cells_term.autorepeat);
+    ASSERT_FALSE(console_term.app_cursor);
+    ASSERT_FALSE(console_term.app_keypad);
+    ASSERT_FALSE(console_term.autorepeat);
     feed("\33[?1h\33=\33c");
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_FALSE(cells_term.app_keypad);
-    ASSERT_TRUE(cells_term.autorepeat);
+    ASSERT_FALSE(console_term.app_cursor);
+    ASSERT_FALSE(console_term.app_keypad);
+    ASSERT_TRUE(console_term.autorepeat);
     feed("\33[?1h\33=\33[?8l");
-    cells_RIS_no_clear();
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_FALSE(cells_term.app_keypad);
-    ASSERT_TRUE(cells_term.autorepeat);
+    console_RIS_no_clear();
+    ASSERT_FALSE(console_term.app_cursor);
+    ASSERT_FALSE(console_term.app_keypad);
+    ASSERT_TRUE(console_term.autorepeat);
 }
 
 /* A saved cursor and the alternate screen carry none of them. */
@@ -696,12 +697,12 @@ UTEST(term, the_keyboard_modes_belong_to_no_screen)
 {
     fresh();
     feed("\0337\33[?1h\33=\33[?8l\0338\33[?1049h");
-    ASSERT_TRUE(cells_term.app_cursor);
-    ASSERT_TRUE(cells_term.app_keypad);
-    ASSERT_FALSE(cells_term.autorepeat);
+    ASSERT_TRUE(console_term.app_cursor);
+    ASSERT_TRUE(console_term.app_keypad);
+    ASSERT_FALSE(console_term.autorepeat);
     feed("\33[?1l\33[?1049l");
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_TRUE(cells_term.app_keypad);
+    ASSERT_FALSE(console_term.app_cursor);
+    ASSERT_TRUE(console_term.app_keypad);
 }
 
 UTEST(term, a_savestate_carries_the_keyboard_modes)
@@ -717,18 +718,18 @@ UTEST(term, a_savestate_carries_the_keyboard_modes)
     c = (sst_cursor_t){blob, blob + cells_sst.size, false, NULL};
     ASSERT_TRUE(cells_sst.load(&c, 0));
     ASSERT_TRUE(sst_ok(&c));
-    ASSERT_TRUE(cells_term.app_cursor);
-    ASSERT_TRUE(cells_term.app_keypad);
-    ASSERT_FALSE(cells_term.autorepeat);
+    ASSERT_TRUE(console_term.app_cursor);
+    ASSERT_TRUE(console_term.app_keypad);
+    ASSERT_FALSE(console_term.autorepeat);
     feed("\33[?1l\33[?8h");
     c = (sst_cursor_t){blob, blob + cells_sst.size, false, NULL};
     cells_sst.save(&c, 0);
     feed("\33[?1h\33[?8l");
     c = (sst_cursor_t){blob, blob + cells_sst.size, false, NULL};
     ASSERT_TRUE(cells_sst.load(&c, 0));
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_TRUE(cells_term.app_keypad);
-    ASSERT_TRUE(cells_term.autorepeat);
+    ASSERT_FALSE(console_term.app_cursor);
+    ASSERT_TRUE(console_term.app_keypad);
+    ASSERT_TRUE(console_term.autorepeat);
 }
 
 UTEST(term, rep_repeats_the_last_glyph)
@@ -1046,12 +1047,12 @@ UTEST(term, line_sizes_move_with_their_lines)
 UTEST(term, a_line_size_comes_back_from_the_scrollback)
 {
     fresh();
-    cells_set_height(80, 29);
+    console_set_height(80, 29);
     feed("\33#6one\r\n");
     for (int i = 0; i < 28; i++)
         feed("\r\n");
     ASSERT_STREQ(row(0), "");
-    cells_set_height(80, 30);
+    console_set_height(80, 30);
     ASSERT_STREQ(row(0), "one");
     ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_WIDE);
     ASSERT_EQ(tb_screen_row_size(1), TERM_LINE_NORMAL);
@@ -1063,7 +1064,7 @@ UTEST(term, a_255_row_size_keeps_its_line_sizes_through_its_ring)
 {
     fresh();
     rln_set_term_height(255);
-    term_grid_t *g = cells_term.grids[TERM_SCREEN_GRIDS];
+    term_grid_t *g = console_term.grids[TERM_SCREEN_GRIDS];
     ASSERT_EQ(g->height, 255);
     feed("\33[255;1H\33#6");
     ASSERT_EQ(screen_size(g->shown, 254), TERM_LINE_WIDE);
@@ -1105,10 +1106,10 @@ UTEST(term, a_quiet_terminal_answers_nothing)
 UTEST(term, the_soft_reset_sets_the_40_back_to_30)
 {
     fresh();
-    cells_set_height(40, 22);
-    ASSERT_EQ(cells_term.grids[0]->height, 22);
-    cells_RIS_no_clear();
-    ASSERT_EQ(cells_term.grids[0]->height, TERM_STD_HEIGHT);
+    console_set_height(40, 22);
+    ASSERT_EQ(console_term.grids[0]->height, 22);
+    console_RIS_no_clear();
+    ASSERT_EQ(console_term.grids[0]->height, TERM_STD_HEIGHT);
 }
 
 /* A program's own size for the line editor is a third grid the terminal
@@ -1117,15 +1118,15 @@ UTEST(term, a_pinned_width_is_the_line_editors_alone)
 {
     fresh();
     rln_set_term_width(132);
-    ASSERT_EQ(cells_term.grid_count, 3);
-    ASSERT_EQ(cells_term.grids[TERM_SCREEN_GRIDS]->width, 132);
+    ASSERT_EQ(console_term.grid_count, 3);
+    ASSERT_EQ(console_term.grids[TERM_SCREEN_GRIDS]->width, 132);
     ASSERT_STREQ(ask("\33[18t"), "\33[8;30;80t");
     feed("\33[1;100H");
     ASSERT_STREQ(ask("\33[6n"), "\33[1;80R");
-    ASSERT_EQ(term_pos(cells_term.grids[TERM_SCREEN_GRIDS])->x, 99);
+    ASSERT_EQ(term_pos(console_term.grids[TERM_SCREEN_GRIDS])->x, 99);
     ASSERT_STREQ(ask("\33P$q$|\33\\"), "\33P1$r80$|\33\\");
     rln_set_term_width(0);
-    ASSERT_EQ(cells_term.grid_count, 2);
+    ASSERT_EQ(console_term.grid_count, 2);
     ASSERT_STREQ(ask("\33[6n"), "\33[1;80R");
 }
 
@@ -1135,14 +1136,14 @@ UTEST(term, a_pinned_height_fixes_the_width_and_stops_with_the_program)
 {
     fresh();
     rln_set_term_height(20);
-    ASSERT_EQ(cells_term.grids[TERM_SCREEN_GRIDS]->height, 20);
-    ASSERT_EQ(cells_term.grids[TERM_SCREEN_GRIDS]->width, 80);
+    ASSERT_EQ(console_term.grids[TERM_SCREEN_GRIDS]->height, 20);
+    ASSERT_EQ(console_term.grids[TERM_SCREEN_GRIDS]->width, 80);
     ASSERT_STREQ(ask("\33[18t"), "\33[8;30;80t");
     rln_set_term_width(132);
     feed("\33[1;81H\t");
-    ASSERT_EQ(term_pos(cells_term.grids[TERM_SCREEN_GRIDS])->x, 88);
+    ASSERT_EQ(term_pos(console_term.grids[TERM_SCREEN_GRIDS])->x, 88);
     rln_stop();
-    ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS);
+    ASSERT_EQ(console_term.grid_count, TERM_SCREEN_GRIDS);
 }
 
 UTEST(term, scroll_left_and_right)
@@ -1533,14 +1534,14 @@ static void lazy_run(bool pay_each, uint8_t *screen)
         if (lazy_skip[k])
             continue;
         if (lazy_height[k])
-            cells_set_height(80, lazy_height[k]);
+            console_set_height(80, lazy_height[k]);
         else
             feed(lazy_seq[k]);
         if (pay_each)
             for (int i = 0; i < TB_SCREEN_SETTLE; i++)
                 cells_task();
     }
-    cells_set_height(80, 30);
+    console_set_height(80, 30);
     for (int i = 0; i < TB_SCREEN_SETTLE; i++)
         cells_task();
     for (int y = 0; y < 30; y++)
@@ -1933,7 +1934,7 @@ UTEST(term, declrmm_has_no_double_size_lines)
 UTEST(term, declrmm_makes_both_screens_single_size)
 {
     fresh();
-    cells_set_height(80, 29);
+    console_set_height(80, 29);
     feed("\33#6one\r\n");
     for (int i = 0; i < 28; i++)
         feed("\r\n");
@@ -1944,7 +1945,7 @@ UTEST(term, declrmm_makes_both_screens_single_size)
     feed("\33[?1049l");
     ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
     feed("\33[29H");
-    cells_set_height(80, 30);
+    console_set_height(80, 30);
     ASSERT_STREQ(row(0), "one");
     ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
 }
@@ -2629,7 +2630,7 @@ UTEST(term, decbkm_is_a_mode)
     fresh();
     ASSERT_STREQ(ask("\33[?67$p"), "\33[?67;2$y");
     ASSERT_STREQ(ask("\33[?67h\33[?67$p"), "\33[?67;1$y");
-    ASSERT_TRUE(cells_term.backarrow_bs);
+    ASSERT_TRUE(console_term.backarrow_bs);
     ASSERT_STREQ(ask("\33c\33[?67$p"), "\33[?67;2$y");
 }
 
@@ -2801,7 +2802,7 @@ UTEST(term, a_smooth_scroll_with_scrollback_keeps_both_sizes_text)
 {
     fresh();
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
-    cells_set_height(40, TERM_MAX_HEIGHT - 1);
+    console_set_height(40, TERM_MAX_HEIGHT - 1);
     feed("\33[?4h\33[HA\33[2;1HB\33[99;1HZ\n");
     ASSERT_TRUE(mode0_regs.smooth & MODE0_SMOOTH_ON);
     ASSERT_STREQ(ghost(), "A");
@@ -2809,11 +2810,11 @@ UTEST(term, a_smooth_scroll_with_scrollback_keeps_both_sizes_text)
     ASSERT_STREQ(row(TERM_MAX_HEIGHT - 3), "Z");
     ASSERT_STREQ(row(TERM_MAX_HEIGHT - 2), "");
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
-    ASSERT_EQ(cells_term.grids[1]->height, TERM_MAX_HEIGHT);
+    ASSERT_EQ(console_term.grids[1]->height, TERM_MAX_HEIGHT);
     ASSERT_STREQ(row(0), "B");
     ASSERT_STREQ(row(TERM_MAX_HEIGHT - 2), "Z");
     ASSERT_STREQ(row(TERM_MAX_HEIGHT - 1), "");
-    cells_set_height(40, TERM_MAX_HEIGHT);
+    console_set_height(40, TERM_MAX_HEIGHT);
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
     ASSERT_STREQ(row(0), "A");
     ASSERT_STREQ(row(1), "B");
@@ -2834,13 +2835,13 @@ UTEST(term, a_smooth_scroll_moves_out_a_double_size_row_at_its_size)
 
     fresh();
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
-    cells_set_height(40, TERM_MAX_HEIGHT - 1);
+    console_set_height(40, TERM_MAX_HEIGHT - 1);
     feed("\33[?4h\33[H\33#3A\33[99;1HZ\n");
     ASSERT_TRUE(mode0_regs.smooth & MODE0_SMOOTH_ON);
     ASSERT_STREQ(ghost(), "A");
     ASSERT_EQ(MODE0_ROW_SIZE(mode0_regs.smooth_ghost), TERM_LINE_TOP);
     ASSERT_EQ(tb_screen_row_size(TERM_MAX_HEIGHT - 2), TERM_LINE_NORMAL);
-    cells_set_height(40, TERM_MAX_HEIGHT);
+    console_set_height(40, TERM_MAX_HEIGHT);
     ASSERT_STREQ(row(0), "A");
     ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_TOP);
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
@@ -2853,15 +2854,28 @@ UTEST(term, a_smooth_scroll_holds_the_next_line_feed)
 {
     fresh();
     feed("\33[?4h\33[30;1H\n");
-    ASSERT_TRUE(term_holds(&cells_term, '\n'));
-    ASSERT_FALSE(term_holds(&cells_term, 'A'));
+    ASSERT_TRUE(term_holds(&console_term, '\n'));
+    ASSERT_FALSE(term_holds(&console_term, 'A'));
     int frames = 0;
-    while (term_holds(&cells_term, '\n') && frames < 100)
+    while (term_holds(&console_term, '\n') && frames < 100)
     {
         vga_run_frame();
         frames++;
     }
     ASSERT_EQ(frames, TERM_SMOOTH_FRAMES);
+}
+
+/* RIS ends a smooth scroll on every machine, and with it the hold: the
+ * next line feed goes at once. */
+UTEST(term, ris_ends_a_smooth_scroll_and_its_hold)
+{
+    fresh();
+    feed("\33[?4h\33[30;1H\n");
+    ASSERT_TRUE(console_smoothing.grid == console_shown(&console_term));
+    ASSERT_TRUE(term_holds(&console_term, '\n'));
+    feed("\33c");
+    ASSERT_TRUE(console_smoothing.grid == NULL);
+    ASSERT_FALSE(term_holds(&console_term, '\n'));
 }
 
 /* A line feed that has to wait, behind one that is scrolling: what the
@@ -2894,7 +2908,7 @@ UTEST(term, a_console_sync_waits_for_the_scroll)
 UTEST(term, the_end_of_a_chain_releases_a_held_line)
 {
     ASSERT_TRUE(held_line_feed());
-    term_release_smooth(&cells_term);
+    term_release_smooth(&console_term);
     manifold_task();
     ASSERT_TRUE(manifold_drained());
     /* DECSCLM set again holds again. */

@@ -21,7 +21,7 @@
 #include "core/str/oem.h"
 #include "core/term/font.h"
 #include "core/vga/mode/mode0.h"
-#include "ria/term/cells.h"
+#include "core/term/console_term.h"
 #include "ria.pio.h"
 #include "machine.h"
 #include <pico/stdlib.h>
@@ -78,7 +78,7 @@ static uint32_t vga_pointer_frame;
 static volatile uint32_t vga_vsync_deadline;
 static uint8_t vga_vsync_frame;
 /* The frames counted from the VSYNCs, with no 8-bit wrap, and when the last
- * one came: vga_frames. */
+ * one came: vga_frame_count. */
 static volatile uint32_t vga_vsync_frames;
 static volatile uint32_t vga_vsync_at_us;
 
@@ -97,7 +97,7 @@ static __force_inline void vga_vsync_set(uint8_t frame)
  * still sees them go by. The count and its time are read as a pair no VSYNC
  * came between, and the clock after them: a wait that came out negative
  * would read as a VGA silent for an hour. */
-uint32_t HOST_IN_RAM_FUNC vga_frames(void)
+unsigned long HOST_IN_RAM_FUNC vga_frame_count(void)
 {
     uint32_t frames, at;
     do
@@ -124,7 +124,7 @@ static inline void vga_pix_backchannel_disable(void)
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x04, 0);
 }
 
-/* The console's terminal follows the VGA's (ria/term/cells.c). Every change
+/* The console's terminal follows the VGA's (console_term.h). Every change
  * the VGA makes to its terminal is made here at the moment the RIA sends what
  * causes it. The console's bytes go to the VGA through the same PIX queue,
  * so the two terminals take them all in the same order. */
@@ -159,10 +159,10 @@ static void HOST_IN_RAM_FUNC vga_pointer_task(void)
 {
     if (!vga_connected())
         return;
-    if (vga_pointer_where_dirty && vga_frames() != vga_pointer_frame)
+    if (vga_pointer_where_dirty && vga_frame_count() != vga_pointer_frame)
     {
         vga_pointer_where_dirty = false;
-        vga_pointer_frame = vga_frames();
+        vga_pointer_frame = (uint32_t)vga_frame_count();
         pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x09, (uint16_t)vga_pointer_x);
         pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x0A, (uint16_t)vga_pointer_y);
     }
@@ -180,7 +180,7 @@ void vga_set_code_page(uint16_t cp)
         return;
     cp = font_code_page_of(cp);
     if (cp != vga_code_page_sent)
-        cells_RIS();
+        console_RIS();
     vga_code_page_sent = cp;
 }
 
@@ -200,9 +200,9 @@ static uint8_t vga_console_rows(uint8_t display)
 static void vga_follow_display(uint8_t display)
 {
     if (vga_canvas_current != vga_canvas_console)
-        cells_set_height(80, vga_console_rows(vga_display_sent));
-    cells_set_height(80, vga_console_rows(display));
-    cells_RIS_no_clear();
+        console_set_height(80, vga_console_rows(vga_display_sent));
+    console_set_height(80, vga_console_rows(display));
+    console_RIS_no_clear();
     vga_display_sent = display;
 }
 
@@ -211,8 +211,8 @@ static void vga_follow_display(uint8_t display)
  * by default. */
 static void vga_follow_none(void)
 {
-    cells_RIS();
-    cells_set_height(80, 24);
+    console_RIS();
+    console_set_height(80, 24);
     com_set_reply_default(true);
 }
 void vga_load_code_page(uint16_t cp)
@@ -626,6 +626,13 @@ void HOST_IN_RAM_FUNC vga_canvas_size(int *w, int *h)
     vga_canvas_geometry(vga_canvas_current, w, h);
 }
 
+int16_t vga_canvas_width(void)
+{
+    int w, h;
+    vga_canvas_size(&w, &h);
+    return (int16_t)w;
+}
+
 // The VGA draws the console on a 1280x1024 display as a 640x512 view, and on
 // every other display as 640x480.
 void HOST_IN_RAM_FUNC vga_console_size(int *w, int *h)
@@ -673,7 +680,7 @@ void vga_xreg(uint8_t index, uint16_t word)
                               vga_canvas_current != vga_canvas_console;
             vga_canvas_current = (vga_canvas_t)word;
             if (to_console && vga_connected())
-                cells_set_height(80, vga_console_rows(vga_display_sent));
+                console_set_height(80, vga_console_rows(vga_display_sent));
         }
         memset(vga_xregs, 0, sizeof vga_xregs);
     }
@@ -685,7 +692,7 @@ void vga_xreg(uint8_t index, uint16_t word)
         if (word == 0 && vga_connected() && vga_canvas_current != vga_canvas_console &&
             vga_canvas_geometry(vga_canvas_current, &w, &h) &&
             mode0_place((int16_t)w, (int16_t)h, vga_xregs, &begin, &end, &cols, &rows))
-            cells_set_height(cols, rows);
+            console_set_height(cols, rows);
         memset(vga_xregs, 0, sizeof vga_xregs);
     }
 }

@@ -57,7 +57,7 @@
  *
  * VID_DRIVER follows CELLS_DRIVER because vid_init selects the console canvas
  * through vga_canvas_select, and vga_canvas_select then calls mode0_prog,
- * which calls cells_set_height on the terminals that cells_init sets up.
+ * which calls console_set_height on the terminals that cells_init sets up.
  *
  * AUD_FABRIC_DRIVER follows STD_DRIVER because END and RESET hooks run in
  * reverse, so aud_end and aud_reset empty PCM before std_reset closes it,

@@ -275,6 +275,12 @@ unsigned long vga_frame_count(void)
     return __atomic_load_n(&vga_frames, __ATOMIC_RELAXED);
 }
 
+/* The VGA is the display's, so it is always there. */
+bool vga_connected(void)
+{
+    return true;
+}
+
 /* Both cores render lines at once, so each keeps its own fill caches. They
  * are in the VIDEO region with the other data the renderers read, which the
  * boot code does not zero, so vga_init does; see ld/. */

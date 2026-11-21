@@ -184,8 +184,8 @@ C_KEYWORDS = {"if", "else", "for", "while", "do", "return", "break",
               "union", "enum", "typedef"}
 C_TYPES = {"void", "bool", "char", "int", "unsigned", "long", "short",
            "uint8_t", "uint16_t", "uint32_t", "int32_t", "size_t",
-           "term_t", "term_grid_t", "term_pos_t", "cells_t", "screen_t",
-           "screen_cells_t", "cells_smooth_t", "ansi_state_t", "mode0_cell_t"}
+           "term_t", "term_grid_t", "term_pos_t", "console_size_t", "screen_t",
+           "screen_cells_t", "console_smooth_t", "ansi_state_t", "mode0_cell_t"}
 C_TOKEN = re.compile(r"""
     (?P<comment>//.*|/\*.*?(\*/|$))
   | (?P<string>"(\\.|[^"\\])*"|'(\\.|[^'\\])*')
@@ -238,7 +238,7 @@ def listing():
     root = Path(__file__).resolve().parents[3] / "src" / "core"
     picks = [("term/term.c", "static bool HOST_IN_RAM_FUNC term_byte_scrolls", "^}"),
              ("term/term.c", "bool HOST_IN_RAM_FUNC term_holds", "^}"),
-             ("term/draw.c", "void cells_smooth(term_t", "^}"),
+             ("term/console_term.c", "void console_smooth(term_t", "^}"),
              ("vga/mode/mode0.h", "static inline unsigned mode0_smooth_moved", "^}")]
     lines = []
     for name, first, last in picks:

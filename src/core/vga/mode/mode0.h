@@ -15,7 +15,9 @@
  * that draws in fabric, where the linker places them on its memories. */
 
 #include "core/sys/sst.h"
+#include "core/term/color.h"
 #include "core/term/term.h"
+#include "core/vga/mode/mode.h"
 #include "core/vga/pixel_format.h"
 #include "core/vga/prog.h"
 #include "core/vga/vga.h"
@@ -116,7 +118,7 @@ extern const uint8_t mode0_underline8[4][8];
  *
  * A color is one of two things, told apart by the pixel format's opaque
  * bit. Set, it is a pixel, drawn as it is: an RGB color. Clear, it is an
- * entry of mode0_palette, in bits 15:6, so a cell drawn in a palette color
+ * entry of the palette, in bits 15:6, so a cell drawn in a palette color
  * or a default color takes a change to that color with no one touching the
  * cell. Whether such a color is transparent is the entry's to say. */
 typedef struct
@@ -127,23 +129,34 @@ typedef struct
 } mode0_colors_t;
 
 /* The colors a cell can name: the 256 palette entries and the default
- * foreground and background, then all of those again at half brightness,
- * for SGR 2. draw.c writes them. */
+ * foreground and background, which are the console's (console_palette),
+ * then all of those again at half brightness, for SGR 2, which are mode 0's
+ * (mode0_faint_palette). draw.c makes the faint ones from the console's. */
 #define MODE0_ENTRIES 258
 #define MODE0_DEFAULT_FG 256
 #define MODE0_DEFAULT_BG 257
 #define MODE0_ENTRY_SHIFT 6
 #define MODE0_ENTRY(entry, faint) \
     ((uint16_t)(((unsigned)(entry) + ((faint) ? MODE0_ENTRIES : 0u)) << MODE0_ENTRY_SHIFT))
-extern uint16_t mode0_palette[2 * MODE0_ENTRIES];
+extern uint16_t mode0_faint_palette[MODE0_ENTRIES];
+
+_Static_assert(MODE0_DEFAULT_FG == CONSOLE_COLOR_FG && MODE0_DEFAULT_BG == CONSOLE_COLOR_BG &&
+                   MODE0_ENTRIES <= CONSOLE_COLORS,
+               "mode 0's entries are the console's palette");
 
 _Static_assert(MODE0_ENTRY_SHIFT == SCANVIDEO_ALPHA_PIN + 1,
                "an entry sits above the opaque bit, which is clear for one");
 
-/* The pixel a cell's color is drawn as. */
+/* The pixel a cell's color is drawn as. A faint one is the rarest, so the
+ * renderer's common path falls through to the console's palette. */
 static inline uint16_t mode0_color(uint16_t color)
 {
-    return (color & SCANVIDEO_ALPHA_MASK) ? color : mode0_palette[color >> MODE0_ENTRY_SHIFT];
+    if (color & SCANVIDEO_ALPHA_MASK)
+        return color;
+    const unsigned entry = color >> MODE0_ENTRY_SHIFT;
+    if (MODE_LIKELY(entry < MODE0_ENTRIES))
+        return console_palette[entry];
+    return mode0_faint_palette[entry - MODE0_ENTRIES];
 }
 
 /* Whether a color names an entry the palette has, as every RGB color does. */
@@ -159,13 +172,6 @@ static inline uint16_t mode0_faint(uint16_t c)
     uint16_t g = SCANVIDEO_G5_FROM_PIXEL(c) >> 1;
     uint16_t b = SCANVIDEO_B5_FROM_PIXEL(c) >> 1;
     return SCANVIDEO_PIXEL_FROM_RGB5(r, g, b) | (c & SCANVIDEO_ALPHA_MASK);
-}
-
-/* Sets a palette entry or default color, and its faint twin. */
-static inline void mode0_set_color(unsigned entry, uint16_t color)
-{
-    mode0_palette[entry] = color;
-    mode0_palette[MODE0_ENTRIES + entry] = mode0_faint(color);
 }
 
 _Static_assert(sizeof(mode0_cell_t) == 4, "a cell is a word");
@@ -298,10 +304,11 @@ static inline bool mode0_place(int16_t w, int16_t h, const uint16_t *xregs,
            *begin >= 0 && *end <= h && *end - *begin >= 1;
 }
 
-/* The savestate carries the cells, their colors and the first half of the
- * palette, from which the faint half follows. The cells and colors are
- * written as they lie in memory, in this build's byte order. The words are
- * not carried: the canvas's load publishes the console again.
+/* The savestate carries the cells and their colors, written as they lie in
+ * memory, in this build's byte order. The palette is the console's
+ * terminal's, which CELLS_DRIVER saves, and draw.c makes the faint half
+ * from it again. The words are not carried: the canvas's load publishes the
+ * console again.
  *
  * MODE0_DRIVER follows CELLS_DRIVER in the driver list, because the cells'
  * save first does the scrolls the screens are owed, which moves cells. */

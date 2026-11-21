@@ -16,6 +16,7 @@
 #include "core/wdc/sram.h"
 #include "core/com/rln.h"
 #include "core/term/cells.h"
+#include "core/term/console_term.h"
 #include "core/term/grid.h"
 #include "core/vga/canvas.h"
 #include "tb_screen.h"
@@ -64,7 +65,7 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)242820);
+    ASSERT_EQ(sst_size(), (size_t)242810);
     ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 40u);
 }
 
@@ -196,20 +197,42 @@ UTEST(sst, what_a_row_carries_comes_back)
 UTEST(sst, a_programs_own_size_comes_back)
 {
     rln_set_term_width(132);
-    term_grid_t *g = cells_term.grids[TERM_SCREEN_GRIDS];
+    term_grid_t *g = console_term.grids[TERM_SCREEN_GRIDS];
     g->screen[0].pos.x = 100;
     ASSERT_EQ(take(), (const char *)NULL);
     rln_set_term_width(0);
-    ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS);
+    ASSERT_EQ(console_term.grid_count, TERM_SCREEN_GRIDS);
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
-    ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS + 1);
-    ASSERT_EQ(cells_term.grids[TERM_SCREEN_GRIDS]->width, 132);
-    ASSERT_EQ(term_pos(cells_term.grids[TERM_SCREEN_GRIDS])->x, 100);
+    ASSERT_EQ(console_term.grid_count, TERM_SCREEN_GRIDS + 1);
+    ASSERT_EQ(console_term.grids[TERM_SCREEN_GRIDS]->width, 132);
+    ASSERT_EQ(term_pos(console_term.grids[TERM_SCREEN_GRIDS])->x, 100);
     rln_set_term_width(0);
     ASSERT_EQ(take(), (const char *)NULL);
     rln_set_term_width(60);
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
-    ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS);
+    ASSERT_EQ(console_term.grid_count, TERM_SCREEN_GRIDS);
+}
+
+/* The console's palette comes back with the console's terminal, the
+ * cursor's color with it, and mode 0's faint twins are made from it again. */
+UTEST(sst, the_palette_and_its_faint_twins_come_back)
+{
+    const uint16_t red = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(200, 100, 40);
+    const uint16_t cursor = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(0, 80, 160);
+    console_color(&console_term, 1, red);
+    console_color(&console_term, CONSOLE_COLOR_CURSOR, cursor);
+    cells_publish();
+    ASSERT_EQ(take(), (const char *)NULL);
+    console_colors_reset(&console_term);
+    cells_publish();
+    ASSERT_EQ(mode0_color(MODE0_ENTRY(1, true)), mode0_faint(color_256[1]));
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(console_palette[1], red);
+    ASSERT_EQ(console_palette[CONSOLE_COLOR_CURSOR], cursor);
+    ASSERT_EQ(mode0_color(MODE0_ENTRY(1, false)), red);
+    ASSERT_EQ(mode0_color(MODE0_ENTRY(1, true)), mode0_faint(red));
+    console_colors_reset(&console_term);
+    cells_publish();
 }
 
 UTEST(sst, a_program_picks_up_where_it_was)
@@ -785,7 +808,7 @@ static bool boot_fixture(boot_text_t *t)
 {
     static const char fence[] = "\r\n" FENCE "\r\n";
     for (const char *s = fence; *s; s++)
-        term_write(&cells_term, (uint8_t)*s);
+        term_write(&console_term, (uint8_t)*s);
     if (!emu_restart(TEST_FIXTURE))
         return false;
     for (int i = 0; i < 100; i++)

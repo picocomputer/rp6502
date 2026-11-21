@@ -17,7 +17,7 @@
 #include "vga/usb/cdc.h"
 #include "vga/usb/usb.h"
 #include "core/term/font.h"
-#include "core/term/cells.h"
+#include "core/term/console_term.h"
 #include <pico/stdlib.h>
 #include <hardware/dma.h>
 #include <hardware/watchdog.h>
@@ -68,7 +68,7 @@ static bool pix_ch15_xreg(uint8_t index, uint16_t word)
         // Also performs a reset.
         vga_xreg_canvas(NULL);
         vga_set_display(word);
-        cells_RIS_no_clear();
+        console_RIS_no_clear();
         memset(xregs, 0, sizeof(xregs));
         return true;
     case 0x01: // CODE_PAGE

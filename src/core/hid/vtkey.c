@@ -7,7 +7,7 @@
 #include "core/hid/vtkey.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
-#include "core/term/cells.h"
+#include "core/term/console_term.h"
 #include "machine.h"
 
 /* Keypad 1 to Keypad Decimal, in usage order: what they navigate to. Keypad 5
@@ -100,7 +100,7 @@ static int HOST_IN_RAM_FUNC vtkey_other(char *out, unsigned code, unsigned mods)
     char *p = out;
     *p++ = '\33';
     *p++ = '[';
-    if (cells_term.format_other_keys)
+    if (console_term.format_other_keys)
     {
         p = vtkey_number(p, code);
         *p++ = ';';
@@ -164,7 +164,7 @@ int HOST_IN_RAM_FUNC vtkey_char(char out[VTKEY_MAX], uint8_t usage, char ch, uin
         return 0;
     if (!vtkey_is_keypad(usage))
     {
-        const unsigned level = cells_term.vt52 ? 0 : cells_term.modify_other_keys;
+        const unsigned level = console_term.vt52 ? 0 : console_term.modify_other_keys;
         unsigned mods = flags & VTKEY_MODIFIERS;
         if (level && vtkey_other_char(level, (unsigned char)ch, &mods))
         {
@@ -184,7 +184,7 @@ int HOST_IN_RAM_FUNC vtkey_char(char out[VTKEY_MAX], uint8_t usage, char ch, uin
 
 int HOST_IN_RAM_FUNC vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t flags)
 {
-    const term_t *t = &cells_term;
+    const term_t *t = &console_term;
     char *p = out;
     const bool keypad = vtkey_is_keypad(usage);
     if (keypad)
@@ -324,5 +324,5 @@ int HOST_IN_RAM_FUNC vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t fl
 
 bool HOST_IN_RAM_FUNC vtkey_repeats(void)
 {
-    return cells_term.autorepeat;
+    return console_term.autorepeat;
 }

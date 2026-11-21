@@ -44,7 +44,7 @@ struct term_grid
  * ring, the line attributes or anything in another file: term_pos, and
  * grid.c's grid_in_columns, which reads only the margins, run in the RIA's
  * HOST_IN_RAM_FUNC drain path (grid_*_scrolls, term_holds,
- * term_byte_scrolls and the smooth-busy hook), where a call to a function in
+ * term_byte_scrolls and console_smooth_grid), where a call to a function in
  * flash cannot go. term_pos carries the annotation too, for when it is not
  * inlined. */
 static inline HOST_IN_RAM_FUNC term_pos_t *term_pos(const term_grid_t *g)

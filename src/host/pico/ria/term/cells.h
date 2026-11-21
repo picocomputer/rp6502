@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* core/term/cells.h on the RIA, which has no screen. Its terminal follows the
- * VGA's: it is fed the bytes the VGA's terminal gets as they are sent, and
- * ria/sys/vga.c replays the VGA's resets and size changes in the same order.
- * It answers the program's queries, and nothing is drawn. */
+/* The console's terminal on the RIA, which has no screen (console_term.h):
+ * it answers the program's queries, and nothing is drawn. This file feeds it
+ * the console's bytes and keeps the cell store's functions that change
+ * cells (screen.h), with no cells. */
 
 #ifndef _RIA_TERM_CELLS_H_
 #define _RIA_TERM_CELLS_H_

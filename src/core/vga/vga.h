@@ -23,6 +23,8 @@ typedef enum
     VGA_CANVAS_COUNT,
 } vga_canvas_t;
 
+/* The frames the VGA has shown since it started. A Pico RIA counts the
+ * VGA's from its VSYNCs. */
 unsigned long vga_frame_count(void);
 
 /* False where no display is attached. Always true where the display cannot be

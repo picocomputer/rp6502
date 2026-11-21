@@ -1388,6 +1388,7 @@ void screen_height(screen_t *s, uint8_t height, bool grow, bool top)
         return;
     }
     screen_cancel(s);
+    screen_moved = true;
     // Other rows are in view now, and one of them may be owed a fill from
     // before it left.
     s->cells->all_clean = false;

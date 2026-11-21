@@ -12,6 +12,7 @@
  * width and height are the terminal's own, from the grid showing. */
 
 #include "core/term/cells.h"
+#include "core/term/console_term.h"
 #include "core/term/grid.h"
 #include "core/vga/mode/mode0.h"
 #include <stdbool.h>
@@ -35,7 +36,7 @@ typedef struct
 
 static inline void tb_screen(tb_screen_t *v)
 {
-    const term_grid_t *g = cells_shown(&cells_term);
+    const term_grid_t *g = console_shown(&console_term);
     const uint32_t cursor = mode0_regs.cursor;
     const uint32_t screen = mode0_regs.screen;
     v->width = g->width;
