@@ -148,3 +148,9 @@ endif()
 
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
+# GCC's objects carry machine code beside the LTO bytecode, so the tests,
+# which link without LTO (rp6502_add_test), link them as they are. The
+# emulators link with LTO and use the bytecode.
+if(RP6502_EMU_IPO AND CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(emu_core PRIVATE -ffat-lto-objects)
+endif()
