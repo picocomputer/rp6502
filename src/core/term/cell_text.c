@@ -34,13 +34,14 @@ void cell_wipe(cell_t *row, unsigned from, unsigned to, bool selective)
 {
     for (unsigned x = from; x < to; x++)
         if (!selective || !cell_guarded(&row[x]))
-            row[x] = (cell_t)((row[x] & ~(CELL_TEXT_CODE | CELL_TEXT_SET)) | ' ');
+            row[x] = (cell_t)((row[x] & ~(CELL_TEXT_CODE | CELL_TEXT_SET)) | ' ' |
+                              CELL_TEXT_WRITTEN);
 }
 
 // Only the underline and the swap show on a text cell: bold and the blinks
 // change its colors and its drawing, which it has none of. An underline
 // that is set or cleared leaves the strike and the overline, and a swap
-// leaves the paper (cell_text.h).
+// leaves the paper (cell_text.h). Whether it was written is the cell's too.
 void cell_marks(cell_t *row, unsigned from, unsigned to, unsigned set, unsigned clear,
                 unsigned toggle)
 {
@@ -48,13 +49,16 @@ void cell_marks(cell_t *row, unsigned from, unsigned to, unsigned set, unsigned 
     {
         const unsigned cell = row[i];
         const unsigned has = ((cell & CELL_TEXT_UNDERLINE) ? SCREEN_MARK_UNDERLINE : 0) |
-                             ((cell & CELL_TEXT_REVERSE) ? SCREEN_MARK_REVERSE : 0);
+                             ((cell & CELL_TEXT_REVERSE) ? SCREEN_MARK_REVERSE : 0) |
+                             ((cell & CELL_TEXT_WRITTEN) ? SCREEN_MARK_WRITTEN : 0);
         const unsigned want = ((has | set) & ~clear) ^ toggle;
-        unsigned next = cell & ~(CELL_TEXT_UNDERLINE | CELL_TEXT_REVERSE);
+        unsigned next = cell & ~(CELL_TEXT_UNDERLINE | CELL_TEXT_REVERSE | CELL_TEXT_WRITTEN);
         if (want & SCREEN_MARK_UNDERLINE)
             next |= CELL_TEXT_UNDERLINE;
         if (want & SCREEN_MARK_REVERSE)
             next |= CELL_TEXT_REVERSE;
+        if (want & SCREEN_MARK_WRITTEN)
+            next |= CELL_TEXT_WRITTEN;
         row[i] = (cell_t)next;
     }
 }

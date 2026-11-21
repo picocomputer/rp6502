@@ -215,12 +215,13 @@ void term_set_height(term_t *t, term_grid_t *g, uint8_t height)
 
 /* ---- scrolling --------------------------------------------------------- */
 
-// Erase columns [from, to) of a row that may still be owed something.
+// DECERA's erase of columns [from, to) of a row that may still be owed
+// something: written blanks, as xterm's, which fills the rectangle.
 static void grid_erase_cols(term_t *t, term_grid_t *g, uint8_t y, unsigned from,
-                            unsigned to, bool selective)
+                            unsigned to)
 {
     screen_touch(g->shown, y);
-    screen_erase(t, g->shown, y, from, to, selective);
+    screen_erase(t, g->shown, y, from, to, false, true);
 }
 
 // Copy the h rows of w columns at (sy, sx) to (dy, dx). The two may overlap:
@@ -736,7 +737,9 @@ static void grid_home(term_t *t, term_grid_t *g)
 /* ---- erasing and editing ----------------------------------------------- */
 
 // Erase Line: 0 cursor to end, 1 start to cursor, 2 the whole line. A
-// selective erase leaves the protected cells.
+// selective erase leaves the protected cells. As in xterm, the blanks of an
+// erase that ends short of the screen's last column are written, whatever
+// the line's size, so only EL 1's may be.
 static void grid_erase_line(term_t *t, term_grid_t *g, uint16_t mode, bool selective)
 {
     term_pos_t *pos = term_pos(g);
@@ -748,17 +751,19 @@ static void grid_erase_line(term_t *t, term_grid_t *g, uint16_t mode, bool selec
         to = (unsigned)pos->x + 1u;
     else if (mode != 2)
         return;
-    screen_erase(t, g->shown, pos->y, from, to, selective);
+    screen_erase(t, g->shown, pos->y, from, to, selective,
+                 mode == 1 && (unsigned)pos->x + 1u < g->width);
 }
 
 // Lazy-erase rows [from, to), which become single size unless the erase is
 // selective: a row whose protected cells stay keeps its size, as on xterm.
+// Whole rows erased are never written.
 static void grid_erase_rows(term_t *t, term_grid_t *g, uint8_t from, uint8_t to,
                             bool selective)
 {
     if (!selective)
         screen_lines_normal(g->shown, from, to);
-    screen_erase_rows(t, g->shown, from, to, selective);
+    screen_erase_rows(t, g->shown, from, to, selective, false);
 }
 
 // Erase Display. ED 0 and ED 1 erase the cursor's row like EL 0 and EL 1 and
@@ -959,8 +964,10 @@ static void grid_csi(term_t *t, term_grid_t *g, uint8_t ch)
         grid_SU_SD(t, g, false);
         break;
     case 'X': // ECH: Pn cells erased; the cursor doesn't move
+        // Written when Pn ends short of the screen's last column, as EL 1's.
         n = grid_edit_count(t, g, term_cols(g, pos->y));
-        screen_erase(t, g->shown, pos->y, pos->x, pos->x + n, term_erase_selective(t, false));
+        screen_erase(t, g->shown, pos->y, pos->x, pos->x + n, term_erase_selective(t, false),
+                     (unsigned)pos->x + grid_param(t, 0, 1) < g->width);
         break;
     case 'Z': // CBT
         grid_tab_back(t, g, grid_param(t, 0, 1));
@@ -1095,7 +1102,7 @@ static void grid_DECFRA(term_t *t, term_grid_t *g)
 // screen, protected cells too. DECSERA, $ {, only makes its characters
 // spaces, as xterm does: the cells keep their colors and attributes, and
 // after a DECSCA the protected ones are left. Neither changes a line's
-// size.
+// size, and both leave the cells written, as xterm's do.
 static void grid_rect_erase(term_t *t, term_grid_t *g, bool wipe, bool selective)
 {
     grid_rect_t r;
@@ -1112,9 +1119,9 @@ static void grid_rect_erase(term_t *t, term_grid_t *g, bool wipe, bool selective
             screen_wipe(t, g->shown, (uint8_t)y, r.left, end, selective);
         }
         else if (grid_rect_whole_row(g, &r, (uint8_t)y, end))
-            screen_erase_rows(t, g->shown, (uint8_t)y, (uint8_t)(y + 1), false);
+            screen_erase_rows(t, g->shown, (uint8_t)y, (uint8_t)(y + 1), false, true);
         else
-            grid_erase_cols(t, g, (uint8_t)y, r.left, end, false);
+            grid_erase_cols(t, g, (uint8_t)y, r.left, end);
     }
 }
 
@@ -1139,9 +1146,10 @@ static void grid_DECCRA(term_t *t, term_grid_t *g)
 // the cells already there: 1, 4, 5 and 7 set bold, underline, blink and
 // reverse, 22, 24, 25 and 27 clear them, and 0 clears all four. DECRARA,
 // the same with $ t, reverses 1, 4, 5 and 7, or all four with 0. With
-// DECSACE 2 they change the rectangle. Without, they change the stream of
-// cells from its top left to its bottom right: the rows between those two
-// are changed from the first column to the last.
+// DECSACE 2 they change the rectangle, and its cells are written, as
+// xterm's are. Without, they change the stream of cells from its top left
+// to its bottom right: the rows between those two are changed from the
+// first column to the last.
 static void grid_rect_attrs(term_t *t, term_grid_t *g, bool reverse)
 {
     grid_rect_t r;
@@ -1188,6 +1196,8 @@ static void grid_rect_attrs(term_t *t, term_grid_t *g, bool reverse)
             clear &= ~bit;
         }
     } while (++i < t->csi_param_count);
+    if (t->rect_attrs)
+        set |= SCREEN_MARK_WRITTEN;
     for (unsigned y = r.top; y <= r.bot; y++)
     {
         grid_rect_t row = r;

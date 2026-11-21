@@ -92,12 +92,15 @@ static inline bool cell_side_same(const cell_side_t *a, const cell_side_t *b)
     return a->cell == b->cell;
 }
 
-static inline cell_fill_t cell_blank(uint8_t code, cell_side_t side, bool selective)
+static inline cell_fill_t cell_blank(uint8_t code, cell_side_t side, bool selective,
+                                     bool written)
 {
-    const cell_fill_t e = {(cell_t)(side.cell | code), selective};
+    const cell_fill_t e = {(cell_t)(side.cell | code | (written ? CELL_TEXT_WRITTEN : 0)),
+                           selective};
     return e;
 }
 
+// The cell holds whether it is written.
 static inline bool cell_fill_same(const cell_fill_t *a, const cell_fill_t *b)
 {
     return a->selective == b->selective && a->cell == b->cell;
@@ -107,13 +110,15 @@ static inline bool cell_fill_same(const cell_fill_t *a, const cell_fill_t *b)
 // paper. A concealed cell draws its foreground as its background, so with
 // its colors swapped its paper is the pen's foreground, which is never the
 // default background. A cell written while DECSCA or SPA protects is
-// guarded. The width does not change the cell.
+// guarded, and every one is written (cell.h). The width does not change the
+// cell.
 static inline cell_fill_t cell_from_pen(const term_t *term, uint8_t width, uint8_t code,
                                         unsigned set)
 {
     (void)width;
     const term_pen_t *pen = term_pen(term);
-    unsigned cell = code | (set == CELL_SET_ITALIC ? CELL_SET_PAGE : set) << CELL_TEXT_SET_SHIFT;
+    unsigned cell = code | (set == CELL_SET_ITALIC ? CELL_SET_PAGE : set) << CELL_TEXT_SET_SHIFT |
+                    CELL_TEXT_WRITTEN;
     if (pen->sgr_attr & TERM_ATTR_UL_MASK)
         cell |= CELL_TEXT_UNDERLINE;
     if (pen->sgr_attr & (TERM_ATTR_STRIKE | TERM_ATTR_OVERLINE))

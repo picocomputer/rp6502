@@ -28,9 +28,10 @@
  *   of width columns in the pen, code in the set (CELL_SET_).
  * cell_side_pen(t), cell_side_default(): the pen's blank and the default
  *   colors' blank.
- * cell_blank(code, side, selective): the fill of a blank, a space or
- *   DECALN's E, as side has it.
- * cell_fill_same, cell_side_same: two that leave a row the same.
+ * cell_blank(code, side, selective, written): the fill of a blank, a space
+ *   or DECALN's E, as side has it, written or not (CELL_TEXT_WRITTEN).
+ * cell_fill_same, cell_side_same: two that leave a row the same, whether
+ *   the cells are written included.
  * cell_guarded(cell): DECSCA or SPA guards it.
  * cell_put1(at, fill): one cell written.
  * cell_run_fill(at, n, fill): n cells become the fill's cell, guarded or
@@ -38,9 +39,11 @@
  * cell_run_fill_sel(row, from, to, fill): columns [from, to) of a row
  *   written but for the guarded cells.
  * cell_run_move(to, from, n): n cells moved; the two may overlap.
- * cell_wipe(row, from, to, selective): the glyphs a space and the rest kept.
+ * cell_wipe(row, from, to, selective): the glyphs a space and the rest
+ *   kept, and the cells written.
  * cell_marks(row, from, to, set, clear, toggle): DECCARA's and DECRARA's
- *   SCREEN_MARK_ attributes changed.
+ *   SCREEN_MARK_ attributes changed, and with SCREEN_MARK_WRITTEN set the
+ *   cells written.
  * cell_strip_keep, cell_strip_put, cell_strip_move: the cells either side
  *   of columns [from, end) of a row of width cells kept, put back, or moved
  *   to another row.
@@ -67,7 +70,20 @@ enum
 // A cell's text (cell_text): the character in bits 0-7, its set in bits
 // 8-9, a CELL_SET_ other than CELL_SET_ITALIC, which is the code page's
 // character drawn otherwise, whether the cell was written, and whether
-// DECSCA or SPA guards it. No kind marks a cell written yet.
+// DECSCA or SPA guards it.
+//
+// A cell is written as xterm's CHARDRAWN has it, so a copy of a row ends at
+// its last written cell, as xterm's does. A character makes its cell
+// written: a glyph, REP, DECFRA and DECALN's E. So do DECERA and DECSERA,
+// a DECCRA on every cell it copies to, a DECCARA or DECRARA that changes a
+// rectangle (DECSACE 2), and the blanks that ICH, IRM, SR, DECIC and DECBI
+// bring in. An erase that ends short of the screen's last column, as EL 1
+// and ECH may, makes its blanks written; one to the end of the row, EL 0
+// and EL 2, does not. Nothing else does: the blanks that DCH, SL, DECDC and
+// DECFI bring in, the rows a scroll or an erase of whole rows brings in,
+// and a clear or a reset all leave cells that were never written. A
+// selective erase is the erase it is, because a guarded cell is a written
+// one and a copy only reads where a row's written cells end.
 #define CELL_TEXT_CODE 0xFFu
 #define CELL_TEXT_SET_SHIFT 8
 #define CELL_TEXT_SET (3u << CELL_TEXT_SET_SHIFT)

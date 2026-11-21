@@ -53,9 +53,13 @@
  * MODE0_ATTR_REVERSE: the colors are swapped, so the ink is the
  * background.
  *
+ * MODE0_ATTR_WRITTEN: the cell was written, as xterm's CHARDRAWN has it,
+ * not only erased (core/term/cell.h).
+ *
  * The guard, the bolds and the reverse are the console's own, for the
  * sequences that change the attributes of cells already written (DECCARA
- * and DECRARA). No renderer draws them: the colors already show them.
+ * and DECRARA), and the written bit for a copy of the text. No renderer
+ * draws them: the colors already show the bolds and the reverse.
  *
  * Only the underlines, the strike and the overline change what a scanline
  * draws, and only on their own rows of the glyph. On every other row a
@@ -74,6 +78,7 @@ typedef struct
 #define MODE0_ATTR_BOLD (1u << 10)
 #define MODE0_ATTR_BOLD_DEFAULT (1u << 11)
 #define MODE0_ATTR_REVERSE (1u << 12)
+#define MODE0_ATTR_WRITTEN (1u << 13)
 /* The attributes that put a line through a cell. */
 #define MODE0_ATTR_LINES (TERM_ATTR_UL_MASK | TERM_ATTR_STRIKE | TERM_ATTR_OVERLINE)
 

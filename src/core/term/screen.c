@@ -360,22 +360,24 @@ static void fill_glyph(cell_t *row, unsigned start, unsigned end, const cell_fil
     cell_run_fill_sel(row, start, end, e);
 }
 
-// An erase in the pen's colors, selective or not.
-static cell_fill_t screen_pen_erase(const term_t *term, bool selective)
+// An erase in the pen's colors, selective or not, written or not.
+static cell_fill_t screen_pen_erase(const term_t *term, bool selective, bool written)
 {
-    return cell_blank(' ', cell_side_pen(term), selective);
+    return cell_blank(' ', cell_side_pen(term), selective, written);
 }
 
 // Erase [start, end) of `row` in the pen's colors.
 static void screen_fill_erased(term_t *term, cell_t *row, unsigned start, unsigned end,
-                               bool selective)
+                               bool selective, bool written)
 {
-    const cell_fill_t e = screen_pen_erase(term, selective);
+    const cell_fill_t e = screen_pen_erase(term, selective, written);
     fill_glyph(row, start, end, &e);
 }
 
 // Pay row m of memory what it is owed. A shift moves the survivors, then
-// blanks the columns either side of where they landed.
+// blanks the columns either side of where they landed: those on the left
+// came in with a shift right, so are written, and those on the right are
+// not (screen_shift).
 static void screen_pay(screen_cells_t *buf, uint8_t m)
 {
     cell_t *row = buf->mem + (uint32_t)m * buf->width;
@@ -394,12 +396,12 @@ static void screen_pay(screen_cells_t *buf, uint8_t m)
         cell_run_move(row + s->to, row + s->from, (unsigned)(s->end - s->to));
         if (s->to)
         {
-            const cell_fill_t e = cell_blank(' ', s->left, false);
+            const cell_fill_t e = cell_blank(' ', s->left, false, true);
             cell_run_fill(row, s->to, &e);
         }
         if (s->end < s->cols)
         {
-            const cell_fill_t e = cell_blank(' ', s->right, false);
+            const cell_fill_t e = cell_blank(' ', s->right, false, false);
             cell_run_fill(row + s->end, (unsigned)(s->cols - s->end), &e);
         }
     }
@@ -469,15 +471,15 @@ static void screen_mark_rows_with(screen_t *s, uint8_t from, uint8_t to,
 // Lazy-erase rows [from, to) to spaces in the default colors.
 static void screen_mark_rows_default(screen_t *s, uint8_t from, uint8_t to)
 {
-    const cell_fill_t e = cell_blank(' ', cell_side_default(), false);
+    const cell_fill_t e = cell_blank(' ', cell_side_default(), false, false);
     screen_mark_rows_with(s, from, to, &e);
 }
 
 // Lazy-erase rows [from, to) of a screen in the pen's colors.
 static void screen_mark_rows_erase(term_t *term, screen_t *s, uint8_t from, uint8_t to,
-                                   bool selective)
+                                   bool selective, bool written)
 {
-    const cell_fill_t e = screen_pen_erase(term, selective);
+    const cell_fill_t e = screen_pen_erase(term, selective, written);
     screen_mark_rows_with(s, from, to, &e);
 }
 
@@ -561,27 +563,27 @@ void screen_fill_row(term_t *term, screen_t *s, uint8_t y, uint8_t byte)
 }
 
 void screen_erase(term_t *term, screen_t *s, uint8_t y, unsigned from, unsigned to,
-                  bool selective)
+                  bool selective, bool written)
 {
     if (!screen_settled(s))
         return;
-    screen_fill_erased(term, screen_row(s, y), from, to, selective);
+    screen_fill_erased(term, screen_row(s, y), from, to, selective, written);
 }
 
-// Columns [x, end) of a row move n right, erased cells coming in at x; or n
-// left, erased cells coming in before end.
+// Columns [x, end) of a row move n right, written erased cells coming in
+// at x; or n left, erased cells never written coming in before end.
 static void screen_row_insert(term_t *term, cell_t *row, unsigned x, unsigned end,
                               unsigned n)
 {
     cell_run_move(&row[x + n], &row[x], end - x - n);
-    screen_fill_erased(term, row, x, x + n, false);
+    screen_fill_erased(term, row, x, x + n, false, true);
 }
 
 static void screen_row_delete(term_t *term, cell_t *row, unsigned x, unsigned end,
                               unsigned n)
 {
     cell_run_move(&row[x], &row[x + n], end - x - n);
-    screen_fill_erased(term, row, end - n, end, false);
+    screen_fill_erased(term, row, end - n, end, false, false);
 }
 
 void screen_insert(term_t *term, screen_t *s, uint8_t y, uint8_t x, unsigned end, unsigned n)
@@ -606,7 +608,9 @@ void screen_copy_cells(term_t *term, screen_t *s, uint8_t sy, unsigned sx, uint8
         return;
     screen_clean_line(s, sy);
     screen_clean_line(s, dy);
-    cell_run_move(screen_row(s, dy) + dx, screen_row(s, sy) + sx, n);
+    cell_t *row = screen_row(s, dy);
+    cell_run_move(row + dx, screen_row(s, sy) + sx, n);
+    cell_marks(row, dx, dx + n, SCREEN_MARK_WRITTEN, 0, 0);
 }
 
 // The row is only owed the change, after whatever it was owed before: no
@@ -696,7 +700,7 @@ void screen_shift(term_t *term, screen_t *sc, uint8_t top, uint8_t bot, unsigned
         return;
     }
     const cell_side_t side = cell_side_pen(term);
-    const cell_fill_t in = cell_blank(' ', side, false);
+    const cell_fill_t in = cell_blank(' ', side, false, !left);
     const uint8_t width = buf->width;
     screen_shift_t whole = {0, 0, width, width, side, side};
     screen_shift_add(&whole, width, count < width ? (uint8_t)count : width, left, side);
@@ -743,11 +747,12 @@ void screen_shift(term_t *term, screen_t *sc, uint8_t top, uint8_t bot, unsigned
     screen_clean_line(sc, sc->pos.y);
 }
 
-void screen_erase_rows(term_t *term, screen_t *s, uint8_t from, uint8_t to, bool selective)
+void screen_erase_rows(term_t *term, screen_t *s, uint8_t from, uint8_t to, bool selective,
+                       bool written)
 {
     if (!screen_settled(s))
         return;
-    screen_mark_rows_erase(term, s, from, to, selective);
+    screen_mark_rows_erase(term, s, from, to, selective, written);
 }
 
 void screen_align(term_t *term, screen_t *s, uint8_t height)
@@ -755,7 +760,7 @@ void screen_align(term_t *term, screen_t *s, uint8_t height)
     (void)term;
     if (!screen_settled(s))
         return;
-    const cell_fill_t e = cell_blank('E', cell_side_default(), false);
+    const cell_fill_t e = cell_blank('E', cell_side_default(), false, true);
     screen_mark_rows_with(s, 0, height, &e);
 }
 
@@ -770,9 +775,10 @@ uint8_t screen_scroll(term_t *term, screen_t *s, uint8_t top, uint8_t bot, uint8
         return screen_ring_scroll(s, top, bot, n, up, keep);
     const uint8_t ghost = screen_ring_scroll(s, top, bot, n, up, keep);
     if (up)
-        screen_mark_rows_erase(term, s, (uint8_t)(bot - n + 1), (uint8_t)(bot + 1), false);
+        screen_mark_rows_erase(term, s, (uint8_t)(bot - n + 1), (uint8_t)(bot + 1), false,
+                               false);
     else
-        screen_mark_rows_erase(term, s, top, (uint8_t)(top + n), false);
+        screen_mark_rows_erase(term, s, top, (uint8_t)(top + n), false, false);
     return ghost;
 }
 
@@ -851,7 +857,7 @@ void screen_scroll_cols(term_t *term, screen_t *s, uint8_t top, uint8_t bot, uns
     if (!s->cells)
         return;
     screen_later_t *l = &s->cells->later;
-    const cell_fill_t in = screen_pen_erase(term, false);
+    const cell_fill_t in = screen_pen_erase(term, false, false);
     const unsigned h = (unsigned)bot - top + 1;
     if (l->n && l->top == top && l->bot == bot && l->from == from && l->end == end &&
         l->up == up && cell_fill_same(&l->in, &in))
@@ -875,9 +881,9 @@ uint8_t screen_index(term_t *term, screen_t *s, uint8_t height, bool up, bool ke
         return screen_ring_index(s, height, up, keep);
     const uint8_t ghost = screen_ring_index(s, height, up, keep);
     if (up)
-        screen_mark_rows_erase(term, s, (uint8_t)(height - 1), height, false);
+        screen_mark_rows_erase(term, s, (uint8_t)(height - 1), height, false, false);
     else
-        screen_mark_rows_erase(term, s, 0, 1, false);
+        screen_mark_rows_erase(term, s, 0, 1, false, false);
     return ghost;
 }
 
@@ -888,7 +894,7 @@ void screen_clear(term_t *term, screen_t *s, uint8_t height)
         screen_ring_clear(s);
         return;
     }
-    const cell_fill_t e = screen_pen_erase(term, false);
+    const cell_fill_t e = screen_pen_erase(term, false, false);
     screen_mark_erased(s, height, &e);
 }
 
@@ -939,7 +945,7 @@ void screen_reset(screen_t *s, uint8_t height)
         screen_ring_clear(s);
         return;
     }
-    const cell_fill_t e = cell_blank(' ', cell_side_default(), false);
+    const cell_fill_t e = cell_blank(' ', cell_side_default(), false, false);
     screen_mark_erased(s, height, &e);
 }
 
@@ -969,6 +975,6 @@ unsigned screen_row_text(screen_t *s, uint8_t y, uint16_t *out)
 
 void screen_blank_cells(cell_t *cells, unsigned n)
 {
-    const cell_fill_t e = cell_blank(' ', cell_side_default(), false);
+    const cell_fill_t e = cell_blank(' ', cell_side_default(), false, false);
     cell_run_fill(cells, n, &e);
 }

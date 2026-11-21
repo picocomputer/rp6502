@@ -137,15 +137,19 @@ static inline bool cell_side_same(const cell_side_t *a, const cell_side_t *b)
     return a->fg == b->fg && a->bg == b->bg;
 }
 
-// A blank cell in these colors, with no attributes and no guard. The
-// foreground matters too, because the cursor is drawn from the cell it sits
-// on.
-static inline cell_fill_t cell_blank(uint8_t code, cell_side_t side, bool selective)
+// A blank cell in these colors, with no attributes and no guard, written
+// or not. The foreground matters too, because the cursor is drawn from the
+// cell it sits on.
+static inline cell_fill_t cell_blank(uint8_t code, cell_side_t side, bool selective,
+                                     bool written)
 {
-    const cell_fill_t e = {{code, 0}, {side.fg, side.bg, side.fg}, selective};
+    const cell_fill_t e = {{code, written ? MODE0_ATTR_WRITTEN : 0},
+                           {side.fg, side.bg, side.fg},
+                           selective};
     return e;
 }
 
+// The attributes hold whether the cells are written.
 static inline bool cell_fill_same(const cell_fill_t *a, const cell_fill_t *b)
 {
     return a->selective == b->selective && a->cell.glyph == b->cell.glyph &&
@@ -162,9 +166,10 @@ static inline bool cell_fill_same(const cell_fill_t *a, const cell_fill_t *b)
 // iCE colors mode (?33) the blink bits are left off the cell: the bright
 // background is the blink. An underline SGR 58 colored is flagged, so the
 // renderer reads its color; any other holds the foreground's color. A cell
-// written while DECSCA or SPA protects is guarded. The cell says when bold
-// brightened its ink and when its colors are swapped, so DECCARA and
-// DECRARA can undo either; a concealed cell has no ink to say it of.
+// written while DECSCA or SPA protects is guarded, and every one is
+// written (cell.h). The cell says when bold brightened its ink and when its
+// colors are swapped, so DECCARA and DECRARA can undo either; a concealed
+// cell has no ink to say it of.
 static inline cell_fill_t cell_from_pen(const term_t *term, uint8_t width, uint8_t code,
                                         unsigned set)
 {
@@ -186,7 +191,7 @@ static inline cell_fill_t cell_from_pen(const term_t *term, uint8_t width, uint8
     uint16_t cell_mask = TERM_ATTR_CELL_MASK;
     if (term->ice_colors)
         cell_mask &= (uint16_t)~TERM_ATTR_ANY_BLINK;
-    uint16_t attributes = (uint16_t)(pen->sgr_attr & cell_mask);
+    uint16_t attributes = (uint16_t)((pen->sgr_attr & cell_mask) | MODE0_ATTR_WRITTEN);
     if (pen->ul_set && (attributes & TERM_ATTR_UL_MASK))
         attributes |= MODE0_ATTR_UL_COLOR;
     if (term_protecting(term))
@@ -266,7 +271,9 @@ static inline bool cell_shows(const mode0_cell_t *cell)
 }
 
 // The character the glyph is and the set it is in, the italics' the code
-// page's.
+// page's, whether it was written and its guard.
+_Static_assert(MODE0_ATTR_WRITTEN == CELL_TEXT_WRITTEN,
+               "the written bit is where the text has it");
 static inline uint16_t cell_text(const mode0_cell_t *cell)
 {
     const uint16_t glyph = cell->glyph;
@@ -274,6 +281,7 @@ static inline uint16_t cell_text(const mode0_cell_t *cell)
                          : mode0_glyph_is_tech(glyph) ? CELL_SET_TECH
                                                       : CELL_SET_PAGE;
     return (uint16_t)(mode0_glyph_code(glyph) | set << CELL_TEXT_SET_SHIFT |
+                      (cell->attributes & MODE0_ATTR_WRITTEN) |
                       (cell_guarded(cell) ? CELL_TEXT_GUARD : 0));
 }
 

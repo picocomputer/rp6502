@@ -77,6 +77,18 @@ static const mode0_cell_t *cell(int x, int y)
     return tb_screen_row((uint8_t)y) + x;
 }
 
+/* The attributes of a cell, but for whether it was written, which
+ * written() says. */
+static unsigned attrs(int x, int y)
+{
+    return cell(x, y)->attributes & ~MODE0_ATTR_WRITTEN;
+}
+
+static bool written(int x, int y)
+{
+    return cell(x, y)->attributes & MODE0_ATTR_WRITTEN;
+}
+
 /* The colors of a cell. */
 static const mode0_colors_t *ink(int x, int y)
 {
@@ -219,7 +231,7 @@ UTEST(term, esc_starts_over)
     feed("\33\33[1mB\33]0;title\33[4mC");
     ASSERT_TRUE(cell(0, 0)->glyph == 'B');
     ASSERT_STREQ(row(0), "BC");
-    ASSERT_TRUE(cell(1, 0)->attributes & TERM_ATTR_UL_MASK);
+    ASSERT_TRUE(attrs(1, 0) & TERM_ATTR_UL_MASK);
 }
 
 UTEST(term, esc_intermediates_print_nothing)
@@ -791,7 +803,7 @@ UTEST(term, erase_takes_the_background_and_no_attributes)
     feed("\33[4;7;5;41;32mx\33[2K");
     const mode0_cell_t *c = cell(0, 0);
     ASSERT_EQ(c->glyph, ' ');
-    ASSERT_EQ(c->attributes, 0);
+    ASSERT_EQ(attrs(0, 0), 0);
     ASSERT_EQ(mode0_color(ink(0, 0)->bg_color), color_256[1]);
     ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), color_256[2]);
 }
@@ -857,7 +869,7 @@ UTEST(term, extended_colors_check_their_numbers)
     ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), color_256[2]);
     ASSERT_EQ(mode0_color(ink(1, 0)->fg_color), color_256[2]);
     ASSERT_EQ(mode0_color(ink(2, 0)->fg_color), color_256[2]);
-    ASSERT_EQ(cell(2, 0)->attributes & TERM_ATTR_ANY_BLINK, 0);
+    ASSERT_EQ(attrs(2, 0) & TERM_ATTR_ANY_BLINK, 0);
     feed("\33[38:2::1:2:3mD\33[38:2:4:5:6mE\33[48:5:3mF");
     ASSERT_EQ(mode0_color(ink(3, 0)->fg_color), rgb(1, 2, 3));
     ASSERT_EQ(mode0_color(ink(4, 0)->fg_color), rgb(4, 5, 6));
@@ -877,22 +889,22 @@ UTEST(term, underline_styles)
 {
     fresh();
     feed("\33[4:3mA\33[4:2mB\33[4:0mC\33[1:5mD");
-    ASSERT_EQ(cell(0, 0)->attributes, TERM_ATTR_UL(TERM_UL_CURLY));
-    ASSERT_EQ(cell(1, 0)->attributes, TERM_ATTR_UL(TERM_UL_DOUBLE));
-    ASSERT_EQ(cell(2, 0)->attributes, 0);
+    ASSERT_EQ(attrs(0, 0), TERM_ATTR_UL(TERM_UL_CURLY));
+    ASSERT_EQ(attrs(1, 0), TERM_ATTR_UL(TERM_UL_DOUBLE));
+    ASSERT_EQ(attrs(2, 0), 0);
     /* 1:5 is bold, not blink */
-    ASSERT_EQ(cell(3, 0)->attributes, MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT);
+    ASSERT_EQ(attrs(3, 0), MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT);
     ASSERT_EQ(mode0_color(ink(3, 0)->fg_color), color_256[15]);
     /* Every style, the last one set standing; a style past the last is
      * none; SGR 21 is the double one and SGR 24 ends them all. */
     feed("\33[H\33[m\33[4mA\33[4:1mB\33[4:4mC\33[4:5mD\33[4:6mE\33[4;21mF\33[24mG");
-    ASSERT_EQ(cell(0, 0)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
-    ASSERT_EQ(cell(1, 0)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
-    ASSERT_EQ(cell(2, 0)->attributes, TERM_ATTR_UL(TERM_UL_DOTTED));
-    ASSERT_EQ(cell(3, 0)->attributes, TERM_ATTR_UL(TERM_UL_DASHED));
-    ASSERT_EQ(cell(4, 0)->attributes, 0);
-    ASSERT_EQ(cell(5, 0)->attributes, TERM_ATTR_UL(TERM_UL_DOUBLE));
-    ASSERT_EQ(cell(6, 0)->attributes, 0);
+    ASSERT_EQ(attrs(0, 0), TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(attrs(1, 0), TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(attrs(2, 0), TERM_ATTR_UL(TERM_UL_DOTTED));
+    ASSERT_EQ(attrs(3, 0), TERM_ATTR_UL(TERM_UL_DASHED));
+    ASSERT_EQ(attrs(4, 0), 0);
+    ASSERT_EQ(attrs(5, 0), TERM_ATTR_UL(TERM_UL_DOUBLE));
+    ASSERT_EQ(attrs(6, 0), 0);
 }
 
 /* SGR 58 colors the underline and SGR 59 gives it back to the foreground.
@@ -902,14 +914,14 @@ UTEST(term, an_underline_says_when_its_color_is_its_own)
 {
     fresh();
     feed("\33[58;2;1;2;3mA\33[4:3mB\33[59mC\33[58;5;2;4mD\33[mE");
-    ASSERT_EQ(cell(0, 0)->attributes, 0);
-    ASSERT_EQ(cell(1, 0)->attributes, TERM_ATTR_UL(TERM_UL_CURLY) | MODE0_ATTR_UL_COLOR);
+    ASSERT_EQ(attrs(0, 0), 0);
+    ASSERT_EQ(attrs(1, 0), TERM_ATTR_UL(TERM_UL_CURLY) | MODE0_ATTR_UL_COLOR);
     ASSERT_EQ(mode0_color(ink(1, 0)->ul_color), rgb(1, 2, 3));
-    ASSERT_EQ(cell(2, 0)->attributes, TERM_ATTR_UL(TERM_UL_CURLY));
+    ASSERT_EQ(attrs(2, 0), TERM_ATTR_UL(TERM_UL_CURLY));
     ASSERT_EQ(ink(2, 0)->ul_color, ink(2, 0)->fg_color);
-    ASSERT_EQ(cell(3, 0)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE) | MODE0_ATTR_UL_COLOR);
+    ASSERT_EQ(attrs(3, 0), TERM_ATTR_UL(TERM_UL_SINGLE) | MODE0_ATTR_UL_COLOR);
     ASSERT_EQ(mode0_color(ink(3, 0)->ul_color), color_256[2]);
-    ASSERT_EQ(cell(4, 0)->attributes, 0);
+    ASSERT_EQ(attrs(4, 0), 0);
 }
 
 /* A cell holds where the font has its glyph. SGR 3 is the italics for
@@ -927,7 +939,7 @@ UTEST(term, a_cell_names_its_glyph_in_the_font)
     ASSERT_EQ(cell(5, 0)->glyph, MODE0_GLYPH_ITALIC(16, 'q'));
     ASSERT_EQ(cell(6, 0)->glyph, 'q');
     for (int x = 0; x < 7; x++)
-        ASSERT_EQ(cell(x, 0)->attributes, 0);
+        ASSERT_EQ(attrs(x, 0), 0);
     ASSERT_STREQ(row(0), "AA\xC4qaqq");
 }
 
@@ -940,7 +952,7 @@ UTEST(term, the_uk_set_has_the_pound)
     ASSERT_EQ(cell(0, 0)->glyph, MODE0_GLYPH_DEC(16, 0x7D));
     ASSERT_EQ(ch(1, 0), 'a');
     ASSERT_EQ(ch(2, 0), '#');
-    ASSERT_EQ(cell(3, 0)->attributes, 0);
+    ASSERT_EQ(attrs(3, 0), 0);
     ASSERT_TRUE(mode0_glyph_is_dec(cell(4, 0)->glyph));
 }
 
@@ -996,7 +1008,7 @@ UTEST(term, vt52_mode)
     ASSERT_EQ(ch(10, 5), 'Z');
     ASSERT_STREQ(answer(), "\33/Z");
     ASSERT_TRUE(mode0_glyph_is_dec(cell(11, 5)->glyph));
-    ASSERT_EQ(cell(12, 5)->attributes, 0);
+    ASSERT_EQ(attrs(12, 5), 0);
     ASSERT_EQ(ch(15, 5), 'x');
 }
 
@@ -1467,9 +1479,9 @@ UTEST(term, a_run_of_cells_moves_whole_at_every_length)
 
 /* What a row is owed is never seen once it is paid. The same bytes are fed
  * twice: once with every owed fill paid after each sequence, and once with
- * them left owing until the end, through every scroll, insert, erase, shift
- * and change of height that comes meanwhile. The two screens are the same,
- * cell for cell, with the guards beside them. */
+ * them left owing until the end, through every scroll, insert, erase, shift,
+ * rectangle and change of height that comes meanwhile. The two screens are
+ * the same, cell for cell, written or not, with the guards beside them. */
 static uint32_t lazy_state;
 static unsigned lazy_rand(unsigned n)
 {
@@ -1479,7 +1491,7 @@ static unsigned lazy_rand(unsigned n)
 
 static void lazy_op(char *out, size_t size)
 {
-    switch (lazy_rand(27))
+    switch (lazy_rand(31))
     {
     case 0:
     case 1:
@@ -1519,6 +1531,23 @@ static void lazy_op(char *out, size_t size)
     case 23: snprintf(out, size, "\33#%c", "3456"[lazy_rand(4)]); break;
     case 24: snprintf(out, size, "\33[4%c", lazy_rand(2) ? 'h' : 'l'); break;
     case 25: snprintf(out, size, "\33[?7%c", lazy_rand(4) ? 'h' : 'l'); break;
+    case 26:
+        snprintf(out, size, "\33[%u;%u;%u;%u$z", 1 + lazy_rand(30), 1 + lazy_rand(80),
+                 1 + lazy_rand(30), 1 + lazy_rand(80));
+        break;
+    case 27:
+        snprintf(out, size, "\33[%u;%u;%u;%u;%u$x", 'a' + lazy_rand(26), 1 + lazy_rand(30),
+                 1 + lazy_rand(80), 1 + lazy_rand(30), 1 + lazy_rand(80));
+        break;
+    case 28:
+        snprintf(out, size, "\33[%u*x\33[%u;%u;%u;%u;%u$%c", lazy_rand(2) ? 2 : 0,
+                 1 + lazy_rand(30), 1 + lazy_rand(80), 1 + lazy_rand(30), 1 + lazy_rand(80),
+                 (unsigned[]){0, 1, 4, 5, 7, 24}[lazy_rand(6)], lazy_rand(2) ? 'r' : 't');
+        break;
+    case 29:
+        snprintf(out, size, "\33[%u;%u;%u;%u;1;%u;%u$v", 1 + lazy_rand(30), 1 + lazy_rand(80),
+                 1 + lazy_rand(30), 1 + lazy_rand(80), 1 + lazy_rand(30), 1 + lazy_rand(80));
+        break;
     default: out[0] = 0; break; /* a change of height, which the caller makes */
     }
 }
@@ -1990,7 +2019,7 @@ UTEST(term, decfra_fills_a_rectangle_in_the_pen)
     ASSERT_STREQ(row(3), "  XXXX");
     ASSERT_STREQ(row(4), "");
     ASSERT_EQ(mode0_color(ink(2, 1)->fg_color), color_256[1]);
-    ASSERT_EQ(cell(5, 3)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(attrs(5, 3), TERM_ATTR_UL(TERM_UL_SINGLE));
     ASSERT_EQ(cx(), 0);
     ASSERT_EQ(cy(), 0);
     feed("\33[45;1;1;3;80$x");
@@ -2065,7 +2094,7 @@ UTEST(term, decsera_keeps_the_colors)
     feed("\33[42;4mabc\33[44;24m\33[1;1;1;2${");
     ASSERT_STREQ(row(0), "  c");
     ASSERT_EQ(mode0_color(ink(0, 0)->bg_color), color_256[2]);
-    ASSERT_EQ(cell(1, 0)->attributes & TERM_ATTR_UL_MASK, TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(attrs(1, 0) & TERM_ATTR_UL_MASK, TERM_ATTR_UL(TERM_UL_SINGLE));
 }
 
 /* DECCRA copies cells, colors and attributes, onto itself too, and loses
@@ -2077,7 +2106,7 @@ UTEST(term, deccra_copies_a_rectangle)
     feed("\33[1;1;1;3;1;3;10;1$v");
     ASSERT_STREQ(row(2), "         abc");
     ASSERT_EQ(mode0_color(ink(9, 2)->fg_color), color_256[1]);
-    ASSERT_EQ(cell(11, 2)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(attrs(11, 2), TERM_ATTR_UL(TERM_UL_SINGLE));
     ASSERT_STREQ(row(0), "abcde");
     /* Onto itself, a column right and then a row down. */
     feed("\33[1;1;1;5;1;1;2;1$v");
@@ -2106,16 +2135,16 @@ UTEST(term, deccara_changes_the_attributes_of_cells)
     const uint16_t fg = MODE0_ENTRY(MODE0_DEFAULT_FG, false);
     const uint16_t bg = MODE0_ENTRY(MODE0_DEFAULT_BG, false);
     feed("\33[2*xhello\33[1;1;1;4;1;4;5;7$r");
-    ASSERT_EQ(cell(0, 0)->attributes,
+    ASSERT_EQ(attrs(0, 0),
               TERM_ATTR_UL(TERM_UL_SINGLE) | TERM_ATTR_BLINK | MODE0_ATTR_BOLD |
                   MODE0_ATTR_BOLD_DEFAULT | MODE0_ATTR_REVERSE);
     ASSERT_EQ(ink(0, 0)->fg_color, bg);
     ASSERT_EQ(ink(0, 0)->bg_color, MODE0_ENTRY(15, false));
     ASSERT_EQ(ink(0, 0)->ul_color, bg);
-    ASSERT_EQ(cell(4, 0)->attributes, 0);
+    ASSERT_EQ(attrs(4, 0), 0);
     /* The same cells as the pen writes them. */
     feed("\33[2;1H\33[1;4;5;7mhell\33[0m");
-    ASSERT_EQ(cell(0, 1)->attributes, cell(0, 0)->attributes);
+    ASSERT_EQ(attrs(0, 1), attrs(0, 0));
     ASSERT_EQ(ink(0, 1)->fg_color, ink(0, 0)->fg_color);
     ASSERT_EQ(ink(0, 1)->bg_color, ink(0, 0)->bg_color);
     /* One at a time off, on either row. */
@@ -2124,15 +2153,15 @@ UTEST(term, deccara_changes_the_attributes_of_cells)
     ASSERT_EQ(ink(1, 1)->bg_color, bg);
     feed("\33[1;1;2;4;22;24$r");
     ASSERT_EQ(ink(1, 1)->fg_color, fg);
-    ASSERT_EQ(cell(1, 1)->attributes, TERM_ATTR_BLINK);
+    ASSERT_EQ(attrs(1, 1), TERM_ATTR_BLINK);
     feed("\33[1;1;2;4;25$r");
-    ASSERT_EQ(cell(1, 0)->attributes, 0);
-    ASSERT_EQ(cell(1, 1)->attributes, 0);
+    ASSERT_EQ(attrs(1, 0), 0);
+    ASSERT_EQ(attrs(1, 1), 0);
     /* 0 clears the four, and no parameter is 0. */
     feed("\33[1;1;1;4;1;7$r\33[1;1;1;2;0$r\33[1;3;1;4$r");
     for (int x = 0; x < 4; x++)
     {
-        ASSERT_EQ(cell(x, 0)->attributes, 0);
+        ASSERT_EQ(attrs(x, 0), 0);
         ASSERT_EQ(ink(x, 0)->fg_color, fg);
         ASSERT_EQ(ink(x, 0)->bg_color, bg);
     }
@@ -2160,7 +2189,7 @@ UTEST(term, deccara_bold_is_the_pens_bold)
     ASSERT_EQ(ink(0, 1)->bg_color, MODE0_ENTRY(10, false));
     feed("\33[2;1;2;1;0$r");
     ASSERT_EQ(ink(0, 1)->fg_color, MODE0_ENTRY(2, false));
-    ASSERT_EQ(cell(0, 1)->attributes, 0);
+    ASSERT_EQ(attrs(0, 1), 0);
 }
 
 /* An underline DECCARA takes off takes its color with it, and blink is not
@@ -2169,13 +2198,13 @@ UTEST(term, deccara_underline_and_blink)
 {
     fresh();
     feed("\33[2*x\33[4:3;58;5;2mA\33[0mB\33[1;1;1;2;24$r\33[1;1;1;2;4$r");
-    ASSERT_EQ(cell(0, 0)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
-    ASSERT_EQ(cell(1, 0)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(attrs(0, 0), TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(attrs(1, 0), TERM_ATTR_UL(TERM_UL_SINGLE));
     ASSERT_EQ(ink(0, 0)->ul_color, ink(0, 0)->fg_color);
     feed("\33[1;1;1;2;4$r");
-    ASSERT_EQ(cell(0, 0)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(attrs(0, 0), TERM_ATTR_UL(TERM_UL_SINGLE));
     feed("\33[?33h\33[1;1;1;2;5$r");
-    ASSERT_EQ(cell(0, 0)->attributes & TERM_ATTR_ANY_BLINK, 0);
+    ASSERT_EQ(attrs(0, 0) & TERM_ATTR_ANY_BLINK, 0);
 }
 
 /* DECRARA reverses the attributes, and twice is as it was. */
@@ -2183,22 +2212,22 @@ UTEST(term, decrara_reverses_the_attributes)
 {
     fresh();
     feed("\33[2*x\33[1mA\33[0mB\33[1;1;1;2;1;7$t");
-    ASSERT_EQ(cell(0, 0)->attributes, MODE0_ATTR_REVERSE);
+    ASSERT_EQ(attrs(0, 0), MODE0_ATTR_REVERSE);
     ASSERT_EQ(ink(0, 0)->bg_color, MODE0_ENTRY(MODE0_DEFAULT_FG, false));
-    ASSERT_EQ(cell(1, 0)->attributes,
+    ASSERT_EQ(attrs(1, 0),
               MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT | MODE0_ATTR_REVERSE);
     ASSERT_EQ(ink(1, 0)->bg_color, MODE0_ENTRY(15, false));
     feed("\33[1;1;1;2;1;7$t");
-    ASSERT_EQ(cell(0, 0)->attributes, MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT);
-    ASSERT_EQ(cell(1, 0)->attributes, 0);
+    ASSERT_EQ(attrs(0, 0), MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT);
+    ASSERT_EQ(attrs(1, 0), 0);
     ASSERT_EQ(ink(1, 0)->fg_color, MODE0_ENTRY(MODE0_DEFAULT_FG, false));
     /* 0 is all four. */
     feed("\33[1;2;1;2;0$t");
-    ASSERT_EQ(cell(1, 0)->attributes,
+    ASSERT_EQ(attrs(1, 0),
               TERM_ATTR_UL(TERM_UL_SINGLE) | TERM_ATTR_BLINK | MODE0_ATTR_BOLD |
                   MODE0_ATTR_BOLD_DEFAULT | MODE0_ATTR_REVERSE);
     feed("\33[1;2;1;2$t");
-    ASSERT_EQ(cell(1, 0)->attributes, 0);
+    ASSERT_EQ(attrs(1, 0), 0);
 }
 
 /* Without DECSACE 2 the attributes change in the stream of cells from the
@@ -2207,20 +2236,20 @@ UTEST(term, decsace_chooses_the_stream_or_the_rectangle)
 {
     fresh();
     feed("\33[1;3;3;5;4$r");
-    ASSERT_EQ(cell(1, 0)->attributes, 0);
-    ASSERT_NE(cell(2, 0)->attributes, 0);
-    ASSERT_NE(cell(79, 0)->attributes, 0);
-    ASSERT_NE(cell(0, 1)->attributes, 0);
-    ASSERT_NE(cell(79, 1)->attributes, 0);
-    ASSERT_NE(cell(4, 2)->attributes, 0);
-    ASSERT_EQ(cell(5, 2)->attributes, 0);
+    ASSERT_EQ(attrs(1, 0), 0);
+    ASSERT_NE(attrs(2, 0), 0);
+    ASSERT_NE(attrs(79, 0), 0);
+    ASSERT_NE(attrs(0, 1), 0);
+    ASSERT_NE(attrs(79, 1), 0);
+    ASSERT_NE(attrs(4, 2), 0);
+    ASSERT_EQ(attrs(5, 2), 0);
     feed("\33[2*x\33[5;3;7;5;4$r");
-    ASSERT_EQ(cell(1, 5)->attributes, 0);
-    ASSERT_NE(cell(2, 5)->attributes, 0);
-    ASSERT_NE(cell(4, 5)->attributes, 0);
-    ASSERT_EQ(cell(5, 5)->attributes, 0);
+    ASSERT_EQ(attrs(1, 5), 0);
+    ASSERT_NE(attrs(2, 5), 0);
+    ASSERT_NE(attrs(4, 5), 0);
+    ASSERT_EQ(attrs(5, 5), 0);
     feed("\33c\33[1;3;2;5;4$r");
-    ASSERT_NE(cell(79, 0)->attributes, 0);
+    ASSERT_NE(attrs(79, 0), 0);
 }
 
 /* Under DECOM a rectangle counts from the margins and stays inside them. */
@@ -2351,10 +2380,10 @@ UTEST(term, attributes_still_owed_come_back)
     ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
     feed("\33c");
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
-    ASSERT_EQ(cell(0, 2)->attributes, 0);
-    ASSERT_EQ(cell(1, 2)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE) | MODE0_ATTR_REVERSE);
-    ASSERT_EQ(cell(3, 2)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE) | MODE0_ATTR_REVERSE);
-    ASSERT_EQ(cell(4, 2)->attributes, 0);
+    ASSERT_EQ(attrs(0, 2), 0);
+    ASSERT_EQ(attrs(1, 2), TERM_ATTR_UL(TERM_UL_SINGLE) | MODE0_ATTR_REVERSE);
+    ASSERT_EQ(attrs(3, 2), TERM_ATTR_UL(TERM_UL_SINGLE) | MODE0_ATTR_REVERSE);
+    ASSERT_EQ(attrs(4, 2), 0);
 }
 
 /* What a row is owed is paid in order: a change of attributes, then a
@@ -2365,13 +2394,13 @@ UTEST(term, attributes_owed_are_paid_before_what_comes_after)
     feed("\33[3;1HABCDEF\33[4;1H\33[1\"qGH\33[0\"qIJ\33[5;1HKLMN\33[10;1H\33[2*x");
     feed("\33[3;1;5;6;7$r\33[2 A\33[4;1;4;80${\33[5;1;5;80$z\33[5;1;5;2;4$r");
     ASSERT_STREQ(row(2), "  ABCDEF");
-    ASSERT_EQ(cell(1, 2)->attributes, 0);
-    ASSERT_EQ(cell(2, 2)->attributes, MODE0_ATTR_REVERSE);
+    ASSERT_EQ(attrs(1, 2), 0);
+    ASSERT_EQ(attrs(2, 2), MODE0_ATTR_REVERSE);
     ASSERT_STREQ(row(3), "  GH");
-    ASSERT_EQ(cell(2, 3)->attributes, MODE0_ATTR_REVERSE | MODE0_ATTR_GUARD);
+    ASSERT_EQ(attrs(2, 3), MODE0_ATTR_REVERSE | MODE0_ATTR_GUARD);
     ASSERT_STREQ(row(4), "");
-    ASSERT_EQ(cell(0, 4)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
-    ASSERT_EQ(cell(2, 4)->attributes, 0);
+    ASSERT_EQ(attrs(0, 4), TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(attrs(2, 4), 0);
 }
 
 /* REP between margins draws what printing draws, wherever the cursor starts
@@ -2452,6 +2481,103 @@ UTEST(term, line_feeds_between_margins_add_up)
     ASSERT_STREQ(row(1), "bbb    bbb");
     ASSERT_STREQ(row(2), "ccc z  ccc");
     ASSERT_STREQ(row(0), "aaaaaaaaaa");
+}
+
+/* ---- written cells -------------------------------------------------------- */
+
+/* Where row y's written cells end: one past the last, or 0 for none. */
+static int written_end(int y)
+{
+    tb_screen_t v;
+    tb_screen(&v);
+    for (int x = v.width; x > 0; x--)
+        if (written(x - 1, y))
+            return x;
+    return 0;
+}
+
+/* Each operation leaves its rows' written cells ending where xterm 412's
+ * do. xterm prints a row up to its last written cell (print.c, printLine),
+ * and these are the lengths it printed for the same bytes (xmirror). */
+UTEST(term, written_cells_end_where_xterms_do)
+{
+    static const struct
+    {
+        const char *seq;
+        int end[4];
+    } cases[] = {
+        {"AB", {2}},
+        {"A\33[4b", {5}},
+        {"\33[4h\33[1;5HX", {5}},
+        {"\33[1;11H\33[5X", {15}},
+        {"\33[1;76H\33[10X", {0}},
+        {"\33[1;76H\33[5X", {0}},
+        {"\33[1;76H\33[4X", {79}},
+        {"\33[1;11H\33[K", {0}},
+        {"\33[1;11H\33[1K", {11}},
+        {"\33[1;80H\33[1K", {0}},
+        {"\33[1;11H\33[2K", {0}},
+        {"AB\r\nCD\33[2;11H\33[1J", {0, 11}},
+        {"AB\r\nCD\33[1;2H\33[J", {1, 0}},
+        {"\33[1;11H\33[3@", {13}},
+        {"ABCDE\33[1;1H\33[P", {4}},
+        {"\33[?69h\33[1;20sABCDE\33[1;1H\33[P", {4}},
+        {"\33[?69h\33[1;20s\33[1;2r\33[1;1H\33[2 A", {2, 2}},
+        {"\33[?69h\33[1;20s\33[1;2rAB\33[1;1H\33[2 @", {0}},
+        {"\33[1;2rABCDE\r\nABCDE\33[1;1H\33[2 @", {3, 3}},
+        {"\33[1;2r\33[1;1H\33[2 A", {2, 2}},
+        {"\33[1;2r\33[1;5H\33[2'}", {6, 6}},
+        {"\33[?69h\33[1;20s\33[1;2rABCDE\33[1;1H\33[2'~", {3}},
+        {"\33[1;2r\33[1;1H\0336", {1, 1}},
+        {"\33[?69h\33[1;20s\33[1;2rAB\33[1;20H\0339", {1}},
+        {"\33[3;1;3;80$z", {0, 0, 80}},
+        {"\33[3;1;3;5$z", {0, 0, 5}},
+        {"\33[3;1;3;5${", {0, 0, 5}},
+        {"\33[120;3;1;3;5$x", {0, 0, 5}},
+        {"\33[3;1;3;5;1;4;1;1$v", {0, 0, 0, 5}},
+        {"\33[3;1;3;10;1$r", {0}},
+        {"\33[2*x\33[3;1;3;10;1$r", {0, 0, 10}},
+        {"\33[2*x\33[3;1;3;10;7$t", {0, 0, 10}},
+        {"\33#8", {80, 80, 80, 80}},
+        {"AB\r\nCD\33[1;1H\33[L", {0, 2, 2}},
+        {"AB\r\nCD\33[1;1H\33[S", {2}},
+        {"\33[?69h\33[1;20s\33[1;2rAB\r\nCD\33[2;1H\n", {2, 0}},
+        {"\33[?69h\33[1;20s\33[1;3rAB\r\nCD\33[1;1H\33[L", {0, 2, 2}},
+        {"\33[1\"qP\33[0\"q\33[1;1H\33[?2K", {1}},
+        {"\33[1\"qP\33[0\"q\r\nQ\33[3;1H\33[?2J", {1, 0}},
+        {"\33[1;5H\33VP\33W\33[1;1H\33[K", {5}},
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++)
+    {
+        fresh();
+        feed(cases[i].seq);
+        for (int y = 0; y < 4; y++)
+        {
+            if (written_end(y) != cases[i].end[y])
+                printf("case %u, row %d\n", (unsigned)i, y);
+            ASSERT_EQ(written_end(y), cases[i].end[y]);
+        }
+    }
+}
+
+/* A written cell is written wherever its row goes: into the scrollback and
+ * back, and through a savestate. */
+UTEST(term, a_written_cell_goes_with_its_row)
+{
+    fresh();
+    console_set_height(80, 29);
+    feed("AB\33[1;11H\33[1K\33[2;76H\33[4X\33[29;1H\n");
+    ASSERT_EQ(written_end(0), 79);
+    console_set_height(80, 30);
+    ASSERT_EQ(written_end(0), 11);
+    ASSERT_EQ(written_end(1), 79);
+    static uint8_t blob[1 << 20];
+    ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
+    feed("\33c");
+    ASSERT_EQ(written_end(0), 0);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(written_end(0), 11);
+    ASSERT_EQ(written_end(1), 79);
 }
 
 /* ---- xterm's key options, and columns -------------------------------------- */

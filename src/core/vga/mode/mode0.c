@@ -45,7 +45,7 @@ static bool mode0_sst_cells_ok(sst_cursor_t *c)
 
 #define MODE0_SST(X)                                                   \
     X(FN, mode0_sst_put_cells, mode0_sst_get_cells,                    \
-      sizeof mode0_cells + sizeof mode0_colors, 1)                     \
+      sizeof mode0_cells + sizeof mode0_colors, 2)                     \
     X(IN_FN, mode0_cells)                                              \
     X(IN_FN, mode0_colors)                                             \
     X(VALIDATE, mode0_sst_cells_ok)                                    \

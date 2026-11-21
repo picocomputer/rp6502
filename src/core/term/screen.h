@@ -168,7 +168,9 @@ static inline void screen_forget(screen_t *s)
  * What the grid asks of the screen showing, or of the one it names. The
  * terminal has already changed its own state when the grid calls one, so
  * the cursor, the margins and the line sizes are the new ones. Colors come
- * from the pen, and an erased cell takes the pen's colors, not reversed.
+ * from the pen, and an erased cell takes the pen's colors, not reversed. An
+ * erased cell is one never written (cell.h) unless the function says it
+ * is.
  * A screen with no cells, a program's own size (term_add_grid) for one,
  * has only its ring: a scroll, an index, a clear, a reset and a change of
  * height move it, and the rest leave it be. */
@@ -188,47 +190,57 @@ void screen_glyphs(term_t *t, screen_t *s, uint8_t y, uint8_t x, uint8_t byte, u
 void screen_fill_row(term_t *t, screen_t *s, uint8_t y, uint8_t byte);
 
 // Erase columns [from, to) of row y, which is the cursor's or one the
-// caller has touched. A selective erase leaves the protected cells.
+// caller has touched, to blanks written or not (cell.h). A selective erase
+// leaves the protected cells.
 void screen_erase(term_t *t, screen_t *s, uint8_t y, unsigned from, unsigned to,
-                  bool selective);
+                  bool selective, bool written);
 
 // DECSERA: the glyphs of columns [from, to) of row y, which the caller has
 // touched, become spaces, and the cells keep their colors and attributes,
-// as xterm has it. A selective one leaves the protected cells.
+// as xterm has it, and are written. A selective one leaves the protected
+// cells.
 void screen_wipe(term_t *t, screen_t *s, uint8_t y, unsigned from, unsigned to,
                  bool selective);
 
 // Insert n erased cells at column x of row y, the cells up to column end
 // moving right and off it; or delete n there, the cells up to end moving
-// left and erased cells coming in before it. n is at most end - x.
+// left and erased cells coming in before it. n is at most end - x. As in
+// xterm, the cells an insert brings in are written and those a delete
+// brings in are not.
 void screen_insert(term_t *t, screen_t *s, uint8_t y, uint8_t x, unsigned end, unsigned n);
 void screen_delete(term_t *t, screen_t *s, uint8_t y, uint8_t x, unsigned end, unsigned n);
 
 // SL and SR: columns [from, end) of rows [top, bot] move n columns left or
-// right, erased cells coming in at the other side.
+// right, erased cells coming in at the other side, written when they come
+// in at the left, as screen_insert's are, and not at the right.
 void screen_shift(term_t *t, screen_t *s, uint8_t top, uint8_t bot, unsigned from,
                   unsigned end, unsigned n, bool left);
 
 // n cells of row sy from column sx are copied to row dy from column dx,
-// colors, attributes and all. The two runs may overlap.
+// colors, attributes and all, and every cell copied to is written, as
+// xterm has it. The two runs may overlap.
 void screen_copy_cells(term_t *t, screen_t *s, uint8_t sy, unsigned sx, uint8_t dy,
                        unsigned dx, unsigned n);
 
 // DECCARA and DECRARA: columns [from, to) of row y have these attributes
 // set, cleared, then reversed, whatever else the cells hold, when the row
-// is next touched or the store gets to it.
+// is next touched or the store gets to it. SCREEN_MARK_WRITTEN set makes
+// the cells written; SCREEN_MARK_ALL does not include it.
 #define SCREEN_MARK_BOLD 1u
 #define SCREEN_MARK_UNDERLINE 2u
 #define SCREEN_MARK_BLINK 4u
 #define SCREEN_MARK_REVERSE 8u
 #define SCREEN_MARK_ALL 15u
+#define SCREEN_MARK_WRITTEN 16u
 void screen_attrs(term_t *t, screen_t *s, uint8_t y, unsigned from, unsigned to,
                   unsigned set, unsigned clear, unsigned toggle);
 
-// Lazy-erase rows [from, to), selectively or not.
-void screen_erase_rows(term_t *t, screen_t *s, uint8_t from, uint8_t to, bool selective);
+// Lazy-erase rows [from, to), selectively or not, to blanks written or not.
+void screen_erase_rows(term_t *t, screen_t *s, uint8_t from, uint8_t to, bool selective,
+                       bool written);
 
-// DECALN: the screen's height rows lazy-erased to E's in the default colors.
+// DECALN: the screen's height rows lazy-erased to written E's in the
+// default colors.
 void screen_align(term_t *t, screen_t *s, uint8_t height);
 
 // Rows [top, bot] move n rows up or down, erased rows coming in. Returns

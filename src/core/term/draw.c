@@ -250,7 +250,7 @@ static bool cells_sst_palette_ok(sst_cursor_t *c)
     X(STRUCT, console_80.grid, TERM_GRID_SST_ROWS)                     \
     X(VALIDATE, cells_sst_grids_ok)                                    \
     X(FN, cells_sst_put_bufs, cells_sst_get_bufs,                      \
-      2 * MODE0_SCREENS * SCREEN_SST_SIZE, 2)                          \
+      2 * MODE0_SCREENS * SCREEN_SST_SIZE, 3)                          \
     X(IN_FN, console_40.lines)                                         \
     X(IN_FN, console_40.row_idx)                                       \
     X(IN_FN, console_40.bufs)                                          \

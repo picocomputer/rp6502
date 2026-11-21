@@ -188,7 +188,10 @@ void cell_wipe(mode0_cell_t *row, unsigned from, unsigned to, bool selective)
 {
     for (unsigned x = from; x < to; x++)
         if (!selective || !cell_guarded(&row[x]))
+        {
             row[x].glyph = ' ';
+            row[x].attributes |= MODE0_ATTR_WRITTEN;
+        }
 }
 
 // Bold on or off for a cell's ink, which is a palette entry it can be told
@@ -232,7 +235,8 @@ static uint16_t cell_ink_bold(uint16_t *ink, uint16_t attributes, bool on)
 // Each cell's attributes are worked out from what it has, so a cell that
 // already has what is asked is left alone. A cell whose two colors are the
 // same, a concealed one for one, is not made bold, which would show it. An
-// underline set here is a single one in the foreground's color.
+// underline set here is a single one in the foreground's color. A cell
+// only made written keeps its colors as they are.
 void cell_marks(mode0_cell_t *row, unsigned from, unsigned to, unsigned set, unsigned clear,
                 unsigned toggle)
 {
@@ -244,11 +248,14 @@ void cell_marks(mode0_cell_t *row, unsigned from, unsigned to, unsigned set, uns
         const unsigned has = ((a & MODE0_ATTR_BOLD) ? SCREEN_MARK_BOLD : 0) |
                              ((a & TERM_ATTR_UL_MASK) ? SCREEN_MARK_UNDERLINE : 0) |
                              ((a & TERM_ATTR_ANY_BLINK) ? SCREEN_MARK_BLINK : 0) |
-                             ((a & MODE0_ATTR_REVERSE) ? SCREEN_MARK_REVERSE : 0);
+                             ((a & MODE0_ATTR_REVERSE) ? SCREEN_MARK_REVERSE : 0) |
+                             ((a & MODE0_ATTR_WRITTEN) ? SCREEN_MARK_WRITTEN : 0);
         const unsigned want = ((has | set) & ~clear) ^ toggle;
         const unsigned change = has ^ want;
         if (!change)
             continue;
+        if (change & SCREEN_MARK_WRITTEN)
+            a ^= MODE0_ATTR_WRITTEN;
         if (change & SCREEN_MARK_REVERSE)
         {
             const uint16_t fg = c->fg_color;
@@ -271,7 +278,7 @@ void cell_marks(mode0_cell_t *row, unsigned from, unsigned to, unsigned set, uns
             if (want & SCREEN_MARK_BLINK)
                 a |= TERM_ATTR_BLINK;
         }
-        if (!(a & MODE0_ATTR_UL_COLOR))
+        if ((change & ~SCREEN_MARK_WRITTEN) && !(a & MODE0_ATTR_UL_COLOR))
             c->ul_color = c->fg_color;
         row[i].attributes = a;
     }
