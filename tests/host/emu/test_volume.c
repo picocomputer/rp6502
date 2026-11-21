@@ -77,7 +77,7 @@ static double expect(int db)
     return LEVEL * (double)vol_gain[-db] / 32768.0;
 }
 
-UTEST(vol, the_gain_table_falls_a_db_a_step)
+UTEST(volume, the_gain_table_falls_a_db_a_step)
 {
     ASSERT_EQ(vol_gain[0], AUD_GAIN_UNITY);
     ASSERT_EQ(vol_gain[-VOL_DB_MUTE], 0);
@@ -85,7 +85,7 @@ UTEST(vol, the_gain_table_falls_a_db_a_step)
         ASSERT_LT(fabs(vol_gain[db] - 32768.0 * pow(10.0, -db / 20.0)), 0.51);
 }
 
-UTEST(vol, unity_leaves_the_sound_as_it_was)
+UTEST(volume, unity_leaves_the_sound_as_it_was)
 {
     fresh();
     double l, r;
@@ -94,7 +94,7 @@ UTEST(vol, unity_leaves_the_sound_as_it_was)
     ASSERT_TRUE(near(r, LEVEL));
 }
 
-UTEST(vol, the_users_and_the_programs_add)
+UTEST(volume, the_users_and_the_programs_add)
 {
     fresh();
     ASSERT_TRUE(vol_set_volume(-10));
@@ -109,7 +109,7 @@ UTEST(vol, the_users_and_the_programs_add)
     ASSERT_EQ(r, 0.0);
 }
 
-UTEST(vol, a_positive_balance_turns_the_left_down)
+UTEST(volume, a_positive_balance_turns_the_left_down)
 {
     fresh();
     ASSERT_TRUE(vol_set_balance(9));
@@ -123,7 +123,7 @@ UTEST(vol, a_positive_balance_turns_the_left_down)
     ASSERT_TRUE(near(r, expect(-3)));
 }
 
-UTEST(vol, out_of_range_is_refused_and_changes_nothing)
+UTEST(volume, out_of_range_is_refused_and_changes_nothing)
 {
     fresh();
     ASSERT_FALSE(vol_set_volume(1));
@@ -140,7 +140,7 @@ UTEST(vol, out_of_range_is_refused_and_changes_nothing)
     ASSERT_TRUE(near(r, LEVEL));
 }
 
-UTEST(vol, a_stop_gives_back_the_programs_but_keeps_the_users)
+UTEST(volume, a_stop_gives_back_the_programs_but_keeps_the_users)
 {
     fresh();
     ASSERT_TRUE(vol_set_volume(-6));
@@ -153,7 +153,7 @@ UTEST(vol, a_stop_gives_back_the_programs_but_keeps_the_users)
     ASSERT_TRUE(near(r, expect(-6)));
 }
 
-UTEST(vol, the_bell_hears_only_the_user)
+UTEST(volume, the_bell_hears_only_the_user)
 {
     fresh();
     aud_setup_probe(NULL);
@@ -172,7 +172,7 @@ UTEST(vol, the_bell_hears_only_the_user)
     vol_set_volume(0);
 }
 
-UTEST(vol, the_keys_step_and_mute)
+UTEST(volume, the_keys_step_and_mute)
 {
     fresh();
     vol_key(HID_KEY_VOLUME_DOWN);
@@ -196,7 +196,7 @@ UTEST(vol, the_keys_step_and_mute)
     ASSERT_TRUE(near(l, LEVEL));
 }
 
-UTEST(vol, a_signed_setting_parses_and_round_trips)
+UTEST(volume, a_signed_setting_parses_and_round_trips)
 {
     const char *s = "-12";
     int32_t v;
