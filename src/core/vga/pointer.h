@@ -16,8 +16,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* The pointer, shape 0 for none, with its hot spot at x,y in canvas pixels.
- * The scanlines drawn after it shows it there. */
+/* The pointer's shape, 0 for none. */
+void pointer_set_shape(uint8_t shape);
+
+/* The pointer's hot spot, at x,y in canvas pixels. */
+void pointer_move(int16_t x, int16_t y);
+
+/* Both at once. The scanlines drawn after either show it. */
 void pointer_set(uint8_t shape, int16_t x, int16_t y);
 
 /* Draws the pointer's part of scanline y, width pixels wide, into pixels,

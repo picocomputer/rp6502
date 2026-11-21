@@ -67,11 +67,21 @@ static void pointer_copy(pointer_image_t *to, const pointer_shape_t *from)
     memcpy(to->data, &POINTER_DATA[from->offset], (size_t)((from->width + 1) / 2) * from->height);
 }
 
+void pointer_move(int16_t x, int16_t y)
+{
+    pointer_where = (uint16_t)x | (uint32_t)(uint16_t)y << 16;
+}
+
 void pointer_set(uint8_t shape, int16_t x, int16_t y)
+{
+    pointer_move(x, y);
+    pointer_set_shape(shape);
+}
+
+void pointer_set_shape(uint8_t shape)
 {
     if (shape >= POINTER_SHAPE_COUNT)
         shape = 0;
-    pointer_where = (uint16_t)x | (uint32_t)(uint16_t)y << 16;
     const uint32_t now = pointer_showing;
     if ((now & 0xFF) == shape)
         return;

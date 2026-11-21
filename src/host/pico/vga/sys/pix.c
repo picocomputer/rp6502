@@ -52,8 +52,8 @@ static bool pix_ch0_xreg(uint8_t index, uint16_t word)
     return false;
 }
 
-/* The pointer's x and shape, until its y says where it goes. */
-static uint16_t pix_pointer_x;
+/* The pointer's x, until its y says where it goes. */
+static int16_t pix_pointer_x;
 
 static bool pix_ch15_xreg(uint8_t index, uint16_t word)
 {
@@ -103,12 +103,14 @@ static bool pix_ch15_xreg(uint8_t index, uint16_t word)
         if (!flash_program_request(word))
             ria_nak();
         return true;
-    case 0x08: // POINTER_X: x in bits 0-11, the shape in 12-15
-        pix_pointer_x = word;
+    case 0x08: // POINTER_SHAPE
+        pointer_set_shape((uint8_t)word);
         return false;
-    case 0x09: // POINTER_Y: y, and the pointer moves to it and the x before
-        pointer_set((uint8_t)(pix_pointer_x >> 12), (int16_t)(pix_pointer_x & 0x0FFF),
-                    (int16_t)word);
+    case 0x09: // POINTER_X, until POINTER_Y moves the pointer
+        pix_pointer_x = (int16_t)word;
+        return false;
+    case 0x0A: // POINTER_Y: the pointer moves to it and to POINTER_X
+        pointer_move(pix_pointer_x, (int16_t)word);
         return false;
     }
     return false;
