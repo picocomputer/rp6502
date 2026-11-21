@@ -9,6 +9,7 @@
 #include "core/aud/bel.h"
 #include "core/com/manifold.h"
 #include "core/hid/paste.h"
+#include "core/hid/typed.h"
 #include "core/ria/ria.h"
 #include "core/com/com.h"
 #include "core/com/tio.h"
@@ -63,7 +64,7 @@ static void drain(void)
 UTEST(com, a_source_keeps_the_reader_until_it_runs_dry_and_a_dwell_past)
 {
     com_rx_clear();
-    manifold_keyboard_push("abc", 3);
+    typed_push("abc", 3);
     char one[1];
     ASSERT_EQ(com_stdin_read(one, 1), (size_t)1);
     ASSERT_EQ(one[0], 'a');
@@ -82,7 +83,7 @@ UTEST(com, a_source_keeps_the_reader_until_it_runs_dry_and_a_dwell_past)
 UTEST(com, one_read_is_one_source_and_the_keyboard_goes_first)
 {
     com_rx_clear();
-    manifold_keyboard_push("ab", 2);
+    typed_push("ab", 2);
     manifold_uart_push("XY", 2);
     char buf[8];
     ASSERT_EQ(com_stdin_read(buf, sizeof buf), (size_t)2);
@@ -118,7 +119,7 @@ UTEST(com, a_held_answer_is_read_by_the_source_that_owes_it)
 
 UTEST(com, each_row_says_how_much_its_queue_holds)
 {
-    ASSERT_EQ(com_queue_size(COM_SOURCE_KEYBOARD), (size_t)MANIFOLD_RING_SIZE);
+    ASSERT_EQ(com_queue_size(COM_SOURCE_KEYBOARD), (size_t)TYPED_QUEUE_SIZE);
     ASSERT_EQ(com_queue_size(COM_SOURCE_UART), (size_t)MANIFOLD_RING_SIZE);
     ASSERT_EQ(com_queue_size(COM_SOURCE_TEL), (size_t)0);
 }
@@ -126,7 +127,7 @@ UTEST(com, each_row_says_how_much_its_queue_holds)
 UTEST(com, a_peek_at_an_offset_takes_nothing)
 {
     com_rx_clear();
-    manifold_keyboard_push("abc", 3);
+    typed_push("abc", 3);
     ASSERT_EQ(com_peek(COM_SOURCE_KEYBOARD, 0), 'a');
     ASSERT_EQ(com_peek(COM_SOURCE_KEYBOARD, 2), 'c');
     ASSERT_EQ(com_peek(COM_SOURCE_KEYBOARD, 3), -1);
@@ -156,7 +157,7 @@ UTEST(com, a_uart_peek_sees_a_held_answer_after_the_ring)
 UTEST(com, a_staged_byte_is_offset_zero_of_its_own_source)
 {
     com_rx_clear();
-    manifold_keyboard_push("kl", 2);
+    typed_push("kl", 2);
     ASSERT_TRUE(ria_reg_read(0xFFE0) & 0x40);
     ASSERT_EQ(com_peek(COM_SOURCE_KEYBOARD, 0), 'k');
     ASSERT_EQ(com_peek(COM_SOURCE_KEYBOARD, 1), 'l');
@@ -171,7 +172,7 @@ UTEST(com, a_staged_byte_is_offset_zero_of_its_own_source)
 UTEST(com, a_named_read_leaves_the_other_sources_queued)
 {
     com_rx_clear();
-    manifold_keyboard_push("ab", 2);
+    typed_push("ab", 2);
     manifold_uart_push("XYZ", 3);
     char buf[8];
     ASSERT_EQ(com_read(COM_SOURCE_UART, buf, 2), (size_t)2);
@@ -245,7 +246,7 @@ UTEST(com, tio_is_idle_with_a_lone_esc_until_an_answer_is_held_behind_it)
 UTEST(com, a_break_during_a_paste_cancels_the_drip_too)
 {
     com_rx_clear();
-    char big[MANIFOLD_RING_SIZE * 4];
+    char big[TYPED_QUEUE_SIZE * 4];
     memset(big, 'p', sizeof big - 1);
     big[sizeof big - 1] = 0;
     paste_start(big);
@@ -274,24 +275,24 @@ UTEST(com, a_bracketed_paste_is_marked_and_cannot_end_early)
 }
 
 /* A key's sequence that does not fit is dropped whole. */
-UTEST(com, a_full_keyboard_ring_never_cuts_a_push)
+UTEST(com, a_full_typed_queue_never_cuts_a_push)
 {
     com_rx_clear();
-    char fill[MANIFOLD_RING_SIZE - 2];
+    char fill[TYPED_QUEUE_SIZE - 2];
     memset(fill, 'f', sizeof fill);
-    manifold_keyboard_push(fill, sizeof fill);
-    ASSERT_EQ(manifold_keyboard_free(), (size_t)2);
-    manifold_keyboard_push("\33[A", 3);
-    ASSERT_EQ(manifold_keyboard_free(), (size_t)2);
-    manifold_keyboard_push("ab", 2);
-    ASSERT_EQ(manifold_keyboard_free(), (size_t)0);
+    typed_push(fill, sizeof fill);
+    ASSERT_EQ(typed_free(), (size_t)2);
+    typed_push("\33[A", 3);
+    ASSERT_EQ(typed_free(), (size_t)2);
+    typed_push("ab", 2);
+    ASSERT_EQ(typed_free(), (size_t)0);
     com_rx_clear();
 }
 
 UTEST(com, a_byte_the_window_staged_comes_back_to_its_own_source)
 {
     com_rx_clear();
-    manifold_keyboard_push("k", 1);
+    typed_push("k", 1);
     /* When bit 6 is clear and a console byte is waiting, reading $FFE0 stages
      * that byte in $FFE2 and sets bit 6. */
     ASSERT_TRUE(ria_reg_read(0xFFE0) & 0x40);
@@ -309,7 +310,7 @@ UTEST(com, a_byte_the_window_staged_comes_back_to_its_own_source)
 UTEST(com, a_break_drops_what_the_window_staged)
 {
     com_rx_clear();
-    manifold_keyboard_push("k", 1);
+    typed_push("k", 1);
     ASSERT_TRUE(ria_reg_read(0xFFE0) & 0x40);
     ria_break();
     ASSERT_FALSE(ria_reg_read(0xFFE0) & 0x40);
@@ -322,7 +323,7 @@ UTEST(com, a_break_drops_what_the_window_staged)
 UTEST(com, a_stop_drops_what_the_program_never_read)
 {
     com_rx_clear();
-    manifold_keyboard_push("\33[A", 3);
+    typed_push("\33[A", 3);
     ASSERT_TRUE(ria_reg_read(0xFFE0) & 0x40);
     proc_stop();
     ASSERT_FALSE(proc_exec_inflight());
@@ -336,7 +337,7 @@ UTEST(com, a_stop_drops_what_the_program_never_read)
 UTEST(com, an_exec_keeps_the_type_ahead)
 {
     com_rx_clear();
-    manifold_keyboard_push("ab", 2);
+    typed_push("ab", 2);
     ASSERT_TRUE(ria_reg_read(0xFFE0) & 0x40);
     arg_clear();
     arg_append("next.rp6502");

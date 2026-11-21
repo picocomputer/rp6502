@@ -20,7 +20,6 @@
 
 typedef RING(uint8_t, MANIFOLD_RING_SIZE) manifold_ring_t;
 
-static manifold_ring_t manifold_keyboard_ring;
 static manifold_ring_t manifold_uart_ring;
 
 static char manifold_crlf_last;
@@ -48,11 +47,10 @@ static bool manifold_wire_stream;
 static bool manifold_wire_held;
 static timer_mach_t manifold_wire_hold;
 
-/* A ring's counters may be anything that holds no more than the ring. */
+/* The ring's counters may be anything that holds no more than the ring. */
 static bool manifold_sst_valid(sst_cursor_t *c)
 {
-    if (RING_LEN(&manifold_keyboard_ring) > MANIFOLD_RING_SIZE ||
-        RING_LEN(&manifold_uart_ring) > MANIFOLD_RING_SIZE)
+    if (RING_LEN(&manifold_uart_ring) > MANIFOLD_RING_SIZE)
         return sst_refuse(c, "a ring holding more than it can");
     return true;
 }
@@ -60,7 +58,6 @@ static bool manifold_sst_valid(sst_cursor_t *c)
 #define MANIFOLD_RING_ROWS(Y, r) \
     Y(U32, r.idx.wr) Y(U32, r.idx.rd) Y(BYTES, r.buf)
 #define MANIFOLD_SST_ROWS(X)                                   \
-    X(STRUCT, manifold_keyboard_ring, MANIFOLD_RING_ROWS)      \
     X(STRUCT, manifold_uart_ring, MANIFOLD_RING_ROWS)          \
     X(VALIDATE, manifold_sst_valid)                            \
     X(U8, manifold_crlf_last)                                  \
@@ -80,12 +77,11 @@ SST_TABLE(manifold, MANIFOLD_SST_ROWS)
 
 static void manifold_line_idle(uint64_t *free);
 
-/* A failed load can leave a ring's counters holding more than the ring. The
+/* A failed load can leave the ring's counters holding more than the ring. The
  * input waiting is dropped, as COM's RESET drops it, and both lines start
  * idle. */
 void manifold_reset(void)
 {
-    RING_RESET(&manifold_keyboard_ring);
     RING_RESET(&manifold_uart_ring);
     manifold_line_idle(&manifold_tx_free);
     manifold_line_idle(&manifold_rx_free);
@@ -119,23 +115,6 @@ static void manifold_line_idle(uint64_t *free)
     const uint64_t now = host_clock_us() * MANIFOLD_BYTES_PER_S;
     if (*free < now)
         *free = now;
-}
-
-size_t manifold_keyboard_read(char *buf, size_t length)
-{
-    return RING_OUT(&manifold_keyboard_ring, buf, (uint32_t)length);
-}
-
-int manifold_keyboard_peek(size_t offset)
-{
-    return offset < RING_LEN(&manifold_keyboard_ring)
-               ? *RING_AT(&manifold_keyboard_ring, offset)
-               : -1;
-}
-
-void manifold_keyboard_clear(void)
-{
-    RING_SKIP(&manifold_keyboard_ring, RING_LEN(&manifold_keyboard_ring));
 }
 
 size_t manifold_uart_read(char *buf, size_t length)
@@ -321,22 +300,10 @@ static void manifold_scan_break(const char *s, size_t n)
             ria_trigger_sigint();
 }
 
-void manifold_keyboard_push(const char *s, size_t n)
-{
-    manifold_scan_break(s, n);
-    if (n <= RING_AVAIL(&manifold_keyboard_ring))
-        RING_IN(&manifold_keyboard_ring, s, (uint32_t)n);
-}
-
 void manifold_uart_push(const char *s, size_t n)
 {
     manifold_scan_break(s, n);
     RING_IN(&manifold_uart_ring, s, (uint32_t)n);
-}
-
-size_t manifold_keyboard_free(void)
-{
-    return RING_AVAIL(&manifold_keyboard_ring);
 }
 
 /* A stream wire is not read while the ring is full. A console wire is left for

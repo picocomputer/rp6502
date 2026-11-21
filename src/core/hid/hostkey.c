@@ -15,7 +15,7 @@
 #include "core/hid/usage.h"
 #include "core/hid/vtkey.h"
 #include "core/api/proc.h"
-#include "core/com/manifold.h"
+#include "core/hid/typed.h"
 #include "core/str/oem.h"
 #include "core/str/unicode.h"
 #include <stdbool.h>
@@ -74,7 +74,7 @@ hostkey_result_t hostkey_press(uint8_t usage, uint8_t flags, bool guess)
     }
     if (!n)
         return HOSTKEY_NONE;
-    manifold_keyboard_push(out, (size_t)n);
+    typed_push(out, (size_t)n);
     return HOSTKEY_TYPED;
 }
 
@@ -92,5 +92,5 @@ void hostkey_char(uint32_t codepoint)
         if (oem == 0x7F)
             oem = '?';
     }
-    manifold_keyboard_push(&oem, 1);
+    typed_push(&oem, 1);
 }

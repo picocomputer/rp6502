@@ -5,7 +5,7 @@
  */
 
 /* Typing on a machine whose OS has already decoded the key. What a host types
- * goes into the manifold's keyboard ring; see core/com/manifold.h.
+ * goes into the typed queue; see core/hid/typed.h.
  *
  * Which keys are down is core/hid/keyboard.h. A block of text is
  * core/hid/paste.h.

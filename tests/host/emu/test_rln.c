@@ -8,6 +8,7 @@
 #include "core/api/xreg.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
+#include "core/hid/typed.h"
 #include "core/com/tio.h"
 #include "core/ria/regs.h"
 #include "core/com/rln.h"
@@ -1042,14 +1043,14 @@ UTEST(rln, the_line_source_is_the_source_of_the_enter)
     fresh();
     lines = 0;
     rln_read_line_script(got_script_line, 1000);
-    manifold_keyboard_push("ab", 2);
+    typed_push("ab", 2);
     tasks();
     wire("\r");
     ASSERT_EQ(lines, 1);
     ASSERT_STREQ(last, "ab");
     ASSERT_EQ(line_src, COM_SOURCE_UART);
     rln_read_line_script(got_script_line, 1000);
-    manifold_keyboard_push("cd\r", 3);
+    typed_push("cd\r", 3);
     tasks();
     ASSERT_EQ(lines, 2);
     ASSERT_EQ(line_src, COM_SOURCE_KEYBOARD);

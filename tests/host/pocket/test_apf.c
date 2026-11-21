@@ -241,12 +241,12 @@ UTEST(apf, a_keyboard_types_through_its_layout)
 
     char buf[8];
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0x04000000u, 0x0000, false); /* a */
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)1);
     ASSERT_EQ(buf[0], 'a');
 
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0, 0, false);
     feed(2, APF_TYPE_KEYBOARD, 0x40000200u, 0x04000000u, 0x0000, false);
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)1);
     ASSERT_EQ(buf[0], 'A');
 
     /* HID usage 0x1C is the Y key of a US keyboard, and the German
@@ -254,7 +254,7 @@ UTEST(apf, a_keyboard_types_through_its_layout)
     layout_set_list("DE");
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0, 0, false);
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0x1C000000u, 0x0000, false);
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)1);
     ASSERT_EQ(buf[0], 'z');
 }
 
@@ -272,7 +272,7 @@ UTEST(apf, ctrl_types_what_xterm_types)
     feed(2, APF_TYPE_KEYBOARD, 0x40000100u, 0x2C000000u, 0x0000, false); /* Ctrl+Space */
     feed(2, APF_TYPE_KEYBOARD, 0x40000100u, 0, 0, false);
     feed(2, APF_TYPE_KEYBOARD, 0x40000100u, 0x20000000u, 0x0000, false); /* Ctrl+3 */
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)3);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)3);
     ASSERT_EQ(memcmp(buf, "\0\0\x1B", 3), 0);
 }
 
@@ -285,11 +285,11 @@ UTEST(apf, a_keymap_peek_at_an_offset_takes_nothing)
     feed(2, APF_TYPE_KEYBOARD, 0x40000100u, 0x20000000u, 0x0000, false); /* Ctrl+3 */
     feed(2, APF_TYPE_KEYBOARD, 0x40000100u, 0, 0, false);
     feed(2, APF_TYPE_KEYBOARD, 0x40000100u, 0x2C000000u, 0x0000, false); /* Ctrl+Space */
-    ASSERT_EQ(keymap_in_peek(0), 0x1B);
-    ASSERT_EQ(keymap_in_peek(1), 0);
-    ASSERT_EQ(keymap_in_peek(2), -1);
+    ASSERT_EQ(typed_peek(0), 0x1B);
+    ASSERT_EQ(typed_peek(1), 0);
+    ASSERT_EQ(typed_peek(2), -1);
     char buf[8];
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)2);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)2);
     ASSERT_EQ(memcmp(buf, "\x1B\0", 2), 0);
 }
 
@@ -308,10 +308,10 @@ UTEST(apf, dead_keys_follow_a_code_page_change)
     feed(2, APF_TYPE_KEYBOARD, 0x40000200u, 0x35000000u, 0x0000, false);
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0, 0, false);
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0x04000000u, 0x0000, false); /* a */
-    size_t n437 = keymap_in_chars(buf, sizeof buf);
+    size_t n437 = typed_read(buf, sizeof buf);
     for (size_t i = 0; i < n437; i++)
         ASSERT_NE((unsigned char)buf[i], 0xC6);
-    while (keymap_in_chars(buf, sizeof buf))
+    while (typed_read(buf, sizeof buf))
         ;
 
     oem_set_code_page_run(850);
@@ -319,7 +319,7 @@ UTEST(apf, dead_keys_follow_a_code_page_change)
     feed(2, APF_TYPE_KEYBOARD, 0x40000200u, 0x35000000u, 0x0000, false);
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0, 0, false);
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0x04000000u, 0x0000, false); /* a */
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)1);
     ASSERT_EQ((unsigned char)buf[0], 0xC6);
 }
 
@@ -434,11 +434,11 @@ static void keyboard_start(const char *layouts)
 #define ASSERT_TYPES(mod, usage, want)                               \
     do                                                               \
     {                                                                \
-        char typed_[KEYMAP_KEY_QUEUE_SIZE];                          \
+        char typed_[TYPED_QUEUE_SIZE];                          \
         keys(mod, 0);                                                \
         keys(mod, usage);                                            \
         keys(mod, 0);                                                \
-        size_t n_ = keymap_in_chars(typed_, sizeof typed_);          \
+        size_t n_ = typed_read(typed_, sizeof typed_);          \
         ASSERT_EQ(n_, sizeof(want) - 1);                             \
         ASSERT_EQ(memcmp(typed_, want, n_), 0);                      \
     } while (0)
@@ -582,18 +582,18 @@ UTEST(apf, alt_over_the_keypad_types_a_character_code)
     keys(LALT, 0);
     keys(LALT, HID_KEY_KEYPAD_5);
     keys(LALT, 0);
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)0);
     keys(0, 0);
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)1);
     ASSERT_EQ(buf[0], 'A');
 
     /* Enter while a code is being typed belongs to the code and sends
      * nothing. */
     keys(LALT, HID_KEY_KEYPAD_6);
     keys(LALT, HID_KEY_ENTER);
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)0);
     keys(0, 0);
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)1);
     ASSERT_EQ(buf[0], 6);
 }
 
@@ -632,36 +632,36 @@ UTEST(apf, a_held_key_repeats_until_it_is_let_go)
     keyboard_start("US");
     char buf[8];
     keys(0, 0x04); /* a */
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)1);
     apf_host_ns += 499 * 1000000ull;
     keymap_task();
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)0);
     apf_host_ns += 1000000ull;
     keymap_task();
     keymap_task();
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)1);
     ASSERT_EQ(buf[0], 'a');
     apf_host_ns += 30 * 1000000ull;
     keymap_task();
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)1);
 
     /* Shift going down ends the repeat, because the key that was repeating
      * is no longer the key held. */
     keys(LSHIFT, 0x04);
     apf_host_ns += 1000 * 1000000ull;
     keymap_task();
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)0);
 
     keys(0, HID_KEY_ARROW_UP);
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)3);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)3);
     apf_host_ns += 500 * 1000000ull;
     keymap_task();
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)3);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)3);
     ASSERT_EQ(memcmp(buf, "\x1B[A", 3), 0);
     keys(0, 0);
     apf_host_ns += 1000 * 1000000ull;
     keymap_task();
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)0);
 }
 
 /* DECARM off: the first press is typed and nothing follows it. Turning it
@@ -672,26 +672,26 @@ UTEST(apf, nothing_repeats_with_autorepeat_off)
     char buf[8];
     vterm.autorepeat = false;
     keys(0, 0x04); /* a */
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)1);
     apf_host_ns += 1000 * 1000000ull;
     keymap_task();
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)0);
     vterm.autorepeat = true;
     apf_host_ns += 1000 * 1000000ull;
     keymap_task();
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)0);
 
     /* Turned off while a key repeats, the repeat ends. */
     keys(0, 0);
     keys(0, HID_KEY_ARROW_UP);
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)3);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)3);
     apf_host_ns += 500 * 1000000ull;
     keymap_task();
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)3);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)3);
     vterm.autorepeat = false;
     apf_host_ns += 30 * 1000000ull;
     keymap_task();
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)0);
     vterm.autorepeat = true;
     keys(0, 0);
 }
@@ -713,7 +713,7 @@ UTEST(apf, lock_keys_and_chords_act_once)
     keys(LGUI, HID_KEY_SPACE);
     apf_host_ns += 1000 * 1000000ull;
     keymap_task();
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)0);
     ASSERT_TYPES(0, 0x1C, "Z");
     ASSERT_TYPES(LGUI, HID_KEY_SPACE, "");
     ASSERT_TYPES(0, 0x1C, "Y");
@@ -723,7 +723,7 @@ UTEST(apf, lock_keys_and_chords_act_once)
     apf_host_ns += 1000 * 1000000ull;
     keymap_task();
     ASSERT_EQ(apf_host_chords, 1);
-    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
+    ASSERT_EQ(typed_read(buf, sizeof buf), (size_t)0);
 }
 
 UTEST_MAIN();

@@ -68,21 +68,12 @@ void manifold_uart_clear(void);
  * has to wait for a smooth scroll still moving, unless force. */
 void manifold_set_term_out(int (*out_chars)(const char *buf, int len, bool force));
 
-/* Software console: the keyboard and UART rings of a machine with no serial
- * port, the host terminal that feeds the UART ring, and the taps that see the
- * console's output. */
+/* Software console: the UART ring of a machine with no serial port, the host
+ * terminal that feeds it, and the taps that see the console's output. */
 
 /* A Ctrl-C in what is pushed raises the SIGINT, even when the ring is full and
- * the bytes are dropped. The keyboard ring takes all of a push or none of it,
- * so a key's sequence is never cut. The UART ring takes what fits. */
-void manifold_keyboard_push(const char *s, size_t n);
+ * the bytes are dropped. The ring takes what fits. */
 void manifold_uart_push(const char *s, size_t n);
-
-size_t manifold_keyboard_free(void);
-
-size_t manifold_keyboard_read(char *buf, size_t length);
-int manifold_keyboard_peek(size_t offset);
-void manifold_keyboard_clear(void);
 
 /* The host terminal: tx is given every byte the console sends to the UART, and
  * manifold_task reads rx into the UART ring. A console wire is a person

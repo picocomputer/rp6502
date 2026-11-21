@@ -4,6 +4,7 @@ rp6502_add_test(apf
         ${RP6502_SRC}/core/hid/keyboard.c
         ${RP6502_SRC}/core/hid/layout.c
         ${RP6502_SRC}/core/hid/keymap.c
+        ${RP6502_SRC}/core/hid/typed.c
         ${RP6502_SRC}/core/hid/vtkey.c
         ${RP6502_SRC}/core/sys/div64.c
         ${RP6502_SRC}/core/sys/ring.c

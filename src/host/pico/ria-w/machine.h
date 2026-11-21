@@ -31,6 +31,8 @@
 #define COM_LIBC_STDOUT 1
 /* The size of the UART's input ring. */
 #define MANIFOLD_RING_SIZE 32
+/* The size of the typed queue. */
+#define TYPED_QUEUE_SIZE 16
 
 /* The console's terminal follows the VGA's, which is this tall. */
 #define TERM_MAX_HEIGHT 32

@@ -20,6 +20,7 @@
 #include "core/api/xreg.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
+#include "core/hid/typed.h"
 #include "core/com/tio.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/keyboard.h"
@@ -83,7 +84,7 @@
     ARG_DRIVER, PROC_CHAIN_DRIVER, PROC_DRIVER,         \
     ASSET_DRIVER, XREG_DRIVER,                          \
     RANDOM_DRIVER, STR_DRIVER,                          \
-    MANIFOLD_DRIVER, MANIFOLD_TX_DRIVER,                \
+    MANIFOLD_DRIVER, TYPED_DRIVER, MANIFOLD_TX_DRIVER,  \
     RIA_DRIVER, COM_DRIVER,                             \
     STD_DRIVER, CONSOLE_DRIVER, TTY_DRIVER,             \
     FS_POCKET_DRIVER,                                   \

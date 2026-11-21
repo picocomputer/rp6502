@@ -25,6 +25,7 @@
 #include "core/aud/psg.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
+#include "core/hid/typed.h"
 #include "core/com/tio.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/paste.h"
@@ -62,7 +63,8 @@
 #define RP6502_MACH_DRIVERS                                    \
     RIA_DRIVER, REGS_DRIVER, SRAM_DRIVER, XRAM_DRIVER,         \
     ARG_DRIVER, PROC_CHAIN_DRIVER, PROC_DRIVER, STR_DRIVER,    \
-    ASSET_DRIVER, MANIFOLD_DRIVER, MANIFOLD_TX_DRIVER,         \
+    ASSET_DRIVER, MANIFOLD_DRIVER, TYPED_DRIVER,               \
+    MANIFOLD_TX_DRIVER,                                        \
     COM_DRIVER, STD_DRIVER, CONSOLE_DRIVER, TTY_DRIVER,        \
     TIO_DRIVER, RLN_DRIVER, API_DRIVER, XREG_DRIVER,           \
     DRAW_DRIVER, MODE0_DRIVER, KEYBOARD_DRIVER, MOUSE_DRIVER,  \

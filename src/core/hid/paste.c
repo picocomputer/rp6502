@@ -5,6 +5,7 @@
  */
 
 #include "core/hid/paste.h"
+#include "core/hid/typed.h"
 #include "core/str/oem.h"
 #include "core/sys/sst.h"
 #include "core/term/vterm.h"
@@ -12,7 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Text still being delivered to the keyboard ring, NULL when idle. */
+/* Text still being delivered to the typed queue, NULL when idle. */
 static char *paste_buf;
 static size_t paste_len, paste_pos;
 
@@ -31,7 +32,7 @@ void paste_cancel(void)
 void paste_clear(void)
 {
     paste_cancel();
-    manifold_keyboard_clear();
+    typed_clear();
 }
 
 /* A program that set bracketed paste (?2004) gets the paste between
@@ -79,12 +80,12 @@ void paste_task(void)
 {
     if (!paste_buf)
         return;
-    /* A quarter of the ring is left free so that live typing still fits
+    /* A quarter of the queue is left free so that live typing still fits
      * during a long paste. */
-    while (paste_pos < paste_len && manifold_keyboard_free() > MANIFOLD_RING_SIZE / 4)
+    while (paste_pos < paste_len && typed_free() > TYPED_QUEUE_SIZE / 4)
     {
         char out[16];
-        size_t room = manifold_keyboard_free() - MANIFOLD_RING_SIZE / 4;
+        size_t room = typed_free() - TYPED_QUEUE_SIZE / 4;
         if (room > sizeof out)
             room = sizeof out;
         size_t taken = 0;
@@ -93,7 +94,7 @@ void paste_task(void)
                                      true, out, room, &taken);
         if (!taken)
             break;
-        manifold_keyboard_push(out, n);
+        typed_push(out, n);
         paste_pos += taken;
     }
     if (paste_pos >= paste_len)

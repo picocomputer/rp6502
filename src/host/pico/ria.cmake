@@ -268,6 +268,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/hid/keyboard.c
     ${RP6502_ROOT}/src/core/hid/layout.c
     ${RP6502_ROOT}/src/core/hid/keymap.c
+    ${RP6502_ROOT}/src/core/hid/typed.c
     ${RP6502_ROOT}/src/core/hid/vtkey.c
     ${RP6502_GEN}/layout_db.c
     ${RP6502_ROOT}/src/core/hid/mouse.c

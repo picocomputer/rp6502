@@ -20,10 +20,12 @@
 /* A program that ends returns the machine to its monitor. */
 #define RP6502_HAS_MONITOR 0
 #define TERM_MAX_HEIGHT 30
-/* Terminal replies are the only bytes pushed into the console rings on
+/* Terminal replies are the only bytes pushed into the UART ring on
  * this machine. core/com/manifold.c queues at most 32 bytes of them, so a
  * ring of 32 takes a full one. */
 #define MANIFOLD_RING_SIZE 32
+/* The size of the typed queue. */
+#define TYPED_QUEUE_SIZE 16
 /* The C library's stdout is the console, so com_printf formats straight to
  * it. */
 #define COM_LIBC_STDOUT 1

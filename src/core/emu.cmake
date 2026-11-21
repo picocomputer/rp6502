@@ -31,6 +31,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/vtkey.c
     ${RP6502_SRC}/core/hid/hostkey.c
     ${RP6502_SRC}/core/hid/paste.c
+    ${RP6502_SRC}/core/hid/typed.c
     ${RP6502_SRC}/core/rom/alias.c
     ${RP6502_SRC}/core/rom/rom.c
     ${RP6502_SRC}/core/rom/asset.c
