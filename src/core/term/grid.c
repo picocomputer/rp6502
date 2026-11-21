@@ -182,13 +182,13 @@ void term_set_height(term_t *t, term_grid_t *g, uint8_t height)
                 for (int i = g->height - 1; i > 0; i--)
                     ls[i] = ls[i - 1];
                 ls[0] = TERM_LINE_NORMAL;
-                cells_height(g, true, true);
+                cells_height(t, g, true, true);
             }
             else
             {
                 // A fresh row at the bottom.
                 ls[g->height - 1] = TERM_LINE_NORMAL;
-                cells_height(g, true, false);
+                cells_height(t, g, true, false);
             }
         }
         else
@@ -201,11 +201,11 @@ void term_set_height(term_t *t, term_grid_t *g, uint8_t height)
                 pos->y--;
                 for (unsigned i = 0; i < g->height; i++)
                     ls[i] = ls[i + 1];
-                cells_height(g, false, true);
+                cells_height(t, g, false, true);
             }
             else
                 // The bottom row is no longer visible.
-                cells_height(g, false, false);
+                cells_height(t, g, false, false);
         }
     }
     grid_full_margins(g);
@@ -622,11 +622,6 @@ static void grid_REP(term_t *t, term_grid_t *g)
 
 /* ---- tabs -------------------------------------------------------------- */
 
-static inline bool grid_tab_is_set(const term_grid_t *g, uint8_t col)
-{
-    return (g->tab_stops[col >> 3] & (1u << (col & 7))) != 0;
-}
-
 // Forward to the next tab stop, or the last column or the right margin when
 // there is none (Linux and xterm: HT stops at the edge, it doesn't wrap). A
 // pending wrap stays pending, as in Linux and xterm: the cursor is already
@@ -667,6 +662,14 @@ static void grid_TBC(term_t *t, term_grid_t *g)
         memset(g->tab_stops, 0, sizeof(g->tab_stops));
     else if (ps == 0)
         g->tab_stops[x >> 3] &= (uint8_t)~(1u << (x & 7));
+}
+
+void grid_set_tabs(term_grid_t *g, const uint16_t *cols)
+{
+    memset(g->tab_stops, 0, sizeof g->tab_stops);
+    for (unsigned x = 0; x < g->width; x++)
+        if (cols[x >> 4] & (1u << (x & 15)))
+            g->tab_stops[x >> 3] |= (uint8_t)(1u << (x & 7));
 }
 
 /* ---- cursor movement --------------------------------------------------- */

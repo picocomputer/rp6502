@@ -83,6 +83,12 @@ static inline unsigned term_left_stop(const term_grid_t *g)
     return term_pos(g)->x >= g->margin_left ? g->margin_left : 0;
 }
 
+// Whether col is a tab stop.
+static inline bool grid_tab_is_set(const term_grid_t *g, uint8_t col)
+{
+    return (g->tab_stops[col >> 3] & (1u << (col & 7))) != 0;
+}
+
 // The pixel height of one character cell: 8x8 on the 320-wide canvases, where
 // the 40-column terminal is drawn, 8x16 on the others.
 static inline unsigned term_cell_height(const term_grid_t *g)
@@ -127,6 +133,17 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch);
 bool grid_index_scrolls(const term_grid_t *g);
 bool grid_ri_scrolls(const term_grid_t *g);
 bool grid_glyph_scrolls(const term_t *t, const term_grid_t *g);
+
+// DECCIR's restore: the showing screen's cursor has a wrap pending, or not.
+static inline void grid_restore_wrap(term_grid_t *g, bool on)
+{
+    term_pos(g)->wrap_pending = on;
+}
+
+// DECTABSR's restore: the tab stops are the columns set in cols, a bit a
+// column from bit 0 of cols[0], as the parser gathers them; those past the
+// width are left out.
+void grid_set_tabs(term_grid_t *g, const uint16_t *cols);
 
 /* g becomes a copy of from, with its own line sizes in lines, rows a
  * screen. The caller points its cur and ls at the screen showing. */

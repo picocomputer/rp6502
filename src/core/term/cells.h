@@ -185,7 +185,7 @@ void cells_clear(term_t *t, term_grid_t *g);
 // The height went one row up or down. With top, the cursor was on the bottom
 // row and the screen moved instead of the cursor: a grow brings a row back
 // from the scrollback at the top, a shrink sends the top row to it.
-void cells_height(term_grid_t *g, bool grow, bool top);
+void cells_height(term_t *t, term_grid_t *g, bool grow, bool top);
 
 // RIS and the system's soft reset: the blinks start again and the alternate
 // screen is erased.

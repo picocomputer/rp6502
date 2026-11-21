@@ -315,8 +315,9 @@ void cells_clear(term_t *t, term_grid_t *g)
 /* A row that comes back from the scrollback has what it had, which is not
  * known here. One that goes there, or a new one at the bottom, leaves the
  * rest as they were. */
-void cells_height(term_grid_t *g, bool grow, bool top)
+void cells_height(term_t *t, term_grid_t *g, bool grow, bool top)
 {
+    (void)t;
     if (g != &cells_40 && g != &cells_80)
         return;
     for (int screen = 0; screen < 2; screen++)

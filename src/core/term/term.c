@@ -554,7 +554,7 @@ static void term_out_DSR(term_t *t, bool private)
     case 6:
     {
         const term_grid_t *g = cells_shown(t);
-        const term_pos_t *pos = &g->pos[t->alt_active];
+        const term_pos_t *pos = term_pos(g);
         unsigned y = pos->y, x = pos->x;
         // Relative to the margins under DECOM, guarded so a cursor outside
         // them reports 1 rather than underflowing.
@@ -884,7 +884,7 @@ static char term_cs_final(uint8_t set)
 static void term_out_DECRQPSR(term_t *t)
 {
     const term_grid_t *g = cells_shown(t);
-    const term_pos_t *pos = &g->pos[t->alt_active];
+    const term_pos_t *pos = term_pos(g);
     const term_pen_t *pen = term_pen(t);
     if (t->csi_param[0] == 1)
     {
@@ -912,7 +912,7 @@ static void term_out_DECRQPSR(term_t *t)
         TERM_REPLY(t, "\33P2$u");
         bool first = true;
         for (unsigned x = 0; x < g->width; x++)
-            if (g->tab_stops[x >> 3] & (1u << (x & 7)))
+            if (grid_tab_is_set(g, (uint8_t)x))
             {
                 int n = snprintf(buf, sizeof buf, first ? "%u" : "/%u", x + 1u);
                 cells_reply(t, buf, (size_t)n);
@@ -993,7 +993,7 @@ static void term_restore_DECCIR(term_t *t)
     term_grids(t, GRID_CSI, 'H');
     pen->origin_mode = flag & 1;
     for (uint8_t i = 0; i < t->grid_count; i++)
-        term_pos(t->grids[i])->wrap_pending = (flag & 8) != 0;
+        grid_restore_wrap(t->grids[i], (flag & 8) != 0);
     pen->reverse = (rend & 8) != 0;
     pen->bold = (rend & 1) != 0;
     pen->sgr_attr &= (uint8_t)~TERM_ATTR_ANY_BLINK;
@@ -1041,13 +1041,7 @@ static void term_restore_DECTABSR(term_t *t)
     if (t->csi_colon)
         return;
     for (uint8_t i = 0; i < t->grid_count; i++)
-    {
-        term_grid_t *g = t->grids[i];
-        memset(g->tab_stops, 0, sizeof g->tab_stops);
-        for (unsigned x = 0; x < g->width; x++)
-            if (t->csi_param[x >> 4] & (1u << (x & 15)))
-                g->tab_stops[x >> 3] |= (uint8_t)(1u << (x & 7));
-    }
+        grid_set_tabs(t->grids[i], t->csi_param);
 }
 
 // xterm's key modifier options, of which the console has the one for the

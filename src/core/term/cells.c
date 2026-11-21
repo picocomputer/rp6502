@@ -1669,8 +1669,9 @@ void cells_clear(term_t *term, term_grid_t *g)
     cells_mark_buf_erased(cells_buf(cells_of(g)), g->height, &e);
 }
 
-void cells_height(term_grid_t *g, bool grow, bool top)
+void cells_height(term_t *t, term_grid_t *g, bool grow, bool top)
 {
+    (void)t;
     if (!cells_settled(g))
         return;
     cells_t *cells = cells_of(g);
