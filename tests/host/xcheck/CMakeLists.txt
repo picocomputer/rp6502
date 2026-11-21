@@ -10,6 +10,9 @@ foreach(_kind text mode0)
         ${RP6502_SRC}/core/term/screen.c ${RP6502_SRC}/core/term/console_term.c
         ${RP6502_SRC}/core/term/color.c ${RP6502_SRC}/core/term/cell_${_kind}.c
         ${RP6502_SRC}/core/sys/crc32.c ${RP6502_BENCH}/tb_version.c)
+    if(COMMAND rp6502_msvc_dialect)
+        rp6502_msvc_dialect(${_target})
+    endif()
     target_include_directories(${_target} PRIVATE
         ${CMAKE_CURRENT_LIST_DIR} ${RP6502_SRC} ${RP6502_GEN})
     if(_kind STREQUAL text)
