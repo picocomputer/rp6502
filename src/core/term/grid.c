@@ -29,37 +29,6 @@ static inline uint16_t grid_param(const term_t *t, uint8_t i, uint16_t dflt)
     return v ? v : dflt;
 }
 
-/* ---- line sizes -------------------------------------------------------- */
-
-// Rows [from, to) of the screen showing single size again, as an erase
-// leaves them.
-static void grid_lines_normal(term_grid_t *g, unsigned from, unsigned to)
-{
-    uint8_t *ls = term_lines(g);
-    for (unsigned i = from; i < to; i++)
-        ls[i] = TERM_LINE_NORMAL;
-}
-
-// The line sizes of rows [top, bot] move n rows up or down with the rows,
-// single-size rows coming in.
-static void grid_lines_scroll(term_grid_t *g, uint8_t top, uint8_t bot, uint8_t n,
-                              bool up)
-{
-    uint8_t *ls = term_lines(g);
-    if (up)
-    {
-        for (unsigned i = top; i + n <= bot; i++)
-            ls[i] = ls[i + n];
-        grid_lines_normal(g, (unsigned)(bot - n + 1), (unsigned)bot + 1);
-    }
-    else
-    {
-        for (int i = (int)bot; i - (int)n >= (int)top; i--)
-            ls[i] = ls[i - n];
-        grid_lines_normal(g, top, (unsigned)top + n);
-    }
-}
-
 /* ---- the cursor -------------------------------------------------------- */
 
 // Move the cursor, 0-indexed, clamped to the screen and to the columns of its
@@ -118,7 +87,10 @@ void term_grid_init(term_grid_t *g, uint8_t width, uint8_t *lines, uint8_t *row_
     g->width = width;
     g->height = rows < TERM_STD_HEIGHT ? rows : TERM_STD_HEIGHT;
     for (int s = 0; s < 2; s++)
-        screen_init(&g->screen[s], rows, lines + s * rows, row_idx ? row_idx + s * rows : NULL);
+    {
+        screen_init(&g->screen[s], rows, lines, row_idx ? row_idx + s * rows : NULL);
+        lines += g->screen[s].mem_rows;
+    }
     g->shown = &g->screen[0];
     grid_full_margins(g);
     grid_reset_tabs(g);
@@ -131,8 +103,10 @@ void term_grid_copy(term_grid_t *g, const term_grid_t *from, uint8_t *lines, uin
     unsigned n = grid_rows(from) < rows ? grid_rows(from) : rows;
     for (int s = 0; s < 2; s++)
     {
-        screen_init(&g->screen[s], rows, lines + s * rows, NULL);
-        memcpy(g->screen[s].line, from->screen[s].line, n);
+        screen_t *sc = &g->screen[s];
+        screen_init(sc, rows, lines + s * rows, NULL);
+        for (unsigned y = 0; y < n; y++)
+            sc->line[y] = from->screen[s].line[screen_mem(&from->screen[s], (uint8_t)y)];
     }
     if (g->height > rows)
         g->height = rows;
@@ -153,7 +127,7 @@ void term_set_width(term_t *t, term_grid_t *g, uint8_t width)
         for (int i = 0; i < 2; i++)
         {
             term_pos_t *p = ps[i];
-            unsigned cols = sc->line[p->y] ? width / 2u : width;
+            unsigned cols = screen_size(sc, p->y) ? width / 2u : width;
             if (p->x >= cols)
                 p->x = (uint8_t)(cols ? cols - 1 : 0);
             p->wrap_pending = false;
@@ -168,7 +142,6 @@ void term_set_height(term_t *t, term_grid_t *g, uint8_t height)
 {
     assert(height >= 1 && height <= grid_rows(g));
     term_pos_t *pos = term_pos(g);
-    uint8_t *ls = term_lines(g);
     while (height != g->height)
     {
         if (height > g->height)
@@ -180,17 +153,11 @@ void term_set_height(term_t *t, term_grid_t *g, uint8_t height)
                 // top: everything moves down a row and the row above comes
                 // into view.
                 pos->y++;
-                for (int i = g->height - 1; i > 0; i--)
-                    ls[i] = ls[i - 1];
-                ls[0] = TERM_LINE_NORMAL;
                 cells_height(t, g, true, true);
             }
             else
-            {
                 // A fresh row at the bottom.
-                ls[g->height - 1] = TERM_LINE_NORMAL;
                 cells_height(t, g, true, false);
-            }
         }
         else
         {
@@ -200,8 +167,6 @@ void term_set_height(term_t *t, term_grid_t *g, uint8_t height)
                 // The cursor is on the bottom row, so the top row goes out of
                 // view and joins the scrollback.
                 pos->y--;
-                for (unsigned i = 0; i < g->height; i++)
-                    ls[i] = ls[i + 1];
                 cells_height(t, g, false, true);
             }
             else
@@ -271,10 +236,7 @@ static uint8_t grid_scroll(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot,
     uint8_t region_h = (uint8_t)(bot - top + 1);
     uint8_t n = count > region_h ? region_h : (uint8_t)count;
     if (grid_all_columns(g))
-    {
-        grid_lines_scroll(g, top, bot, n, up);
         return cells_scroll(t, g, top, bot, n, up, keep);
-    }
     cells_scroll_cols(t, g, top, bot, g->margin_left, (unsigned)g->margin_right + 1, n, up);
     return 0;
 }
@@ -328,20 +290,16 @@ static void grid_scroll_one(term_t *t, term_grid_t *g, bool up)
 {
     const uint8_t top = g->margin_top, bot = g->margin_bot;
     const uint8_t edge = up ? top : bot;
-    const uint8_t out = term_lines(g)[edge];
     const bool keep = grid_smooths(t, g);
     if (keep)
         cells_touch(t, g, edge);
     uint8_t ghost;
     if (grid_full_region(g))
-    {
-        grid_lines_scroll(g, 0, (uint8_t)(g->height - 1), 1, up);
         ghost = cells_index(t, g, up, keep);
-    }
     else
         ghost = grid_scroll(t, g, top, bot, 1, up, keep);
     if (keep)
-        cells_smooth(t, g, top, bot, up, ghost, out);
+        cells_smooth(t, g, top, bot, up, ghost);
 }
 
 // Index: down a row, scrolling the region at its bottom margin. The core of
@@ -770,7 +728,7 @@ static void grid_erase_rows(term_t *t, term_grid_t *g, uint8_t from, uint8_t to,
                             bool selective)
 {
     if (!selective)
-        grid_lines_normal(g, from, to);
+        screen_lines_normal(g->shown, from, to);
     cells_erase_rows(t, g, from, to, selective);
 }
 
@@ -877,7 +835,7 @@ static void grid_DECSLRM(term_t *t, term_grid_t *g)
 static void grid_line_size(term_t *t, term_grid_t *g, uint8_t size)
 {
     term_pos_t *pos = term_pos(g);
-    term_lines(g)[pos->y] = size;
+    screen_set_size(g->shown, pos->y, size);
     grid_goto(t, g, pos->x, pos->y);
 }
 
@@ -887,7 +845,7 @@ static void grid_line_size(term_t *t, term_grid_t *g, uint8_t size)
 static void grid_DECALN(term_t *t, term_grid_t *g)
 {
     grid_full_margins(g);
-    grid_lines_normal(g, 0, g->height);
+    screen_lines_normal(g->shown, 0, g->height);
     cells_align(t, g);
     grid_goto(t, g, 0, 0);
 }
@@ -1303,7 +1261,7 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
         // xterm; reset, the left and right margins are the whole width.
         if (ch)
             for (int s = 0; s < 2; s++)
-                memset(g->screen[s].line, TERM_LINE_NORMAL, g->screen[s].rows);
+                screen_all_normal(&g->screen[s]);
         else
             grid_full_columns(g);
         break;
@@ -1384,7 +1342,7 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
         g->screen[0].pos = g->screen[1].pos;
         break;
     case GRID_CLEAR:
-        grid_lines_normal(g, 0, grid_rows(g));
+        screen_all_normal(g->shown);
         cells_clear(t, g);
         break;
     case GRID_RESET:
@@ -1395,12 +1353,12 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
             g->screen[s].pos.wrap_pending = false;
             memset(&g->screen[s].saved, 0, sizeof g->screen[s].saved);
         }
-        memset(g->screen[1].line, TERM_LINE_NORMAL, g->screen[1].rows);
+        screen_all_normal(&g->screen[1]);
         cells_reset(t, g);
         break;
     case GRID_DECCOLM:
         grid_full_margins(g);
-        grid_lines_normal(g, 0, grid_rows(g));
+        screen_all_normal(g->shown);
         cells_clear(t, g);
         grid_home(t, g);
         break;
@@ -1429,32 +1387,61 @@ bool term_grid_sst_ok(sst_cursor_t *c, const term_grid_t *g, uint8_t rows)
     for (int s = 0; s < 2; s++)
         if (sc[s].pos.x >= w || sc[s].pos.y >= h || sc[s].saved.x >= w || sc[s].saved.y >= h)
             return sst_refuse(c, "a cursor off its grid");
+    return true;
+}
+
+bool term_grid_sst_lines_ok(sst_cursor_t *c, const term_grid_t *g)
+{
     for (int s = 0; s < 2; s++)
-        for (unsigned i = 0; i < rows; i++)
-            if (sc[s].line[i] > TERM_LINE_BOTTOM)
-                return sst_refuse(c, "a line size out of range");
-    /* The cursor sits inside its own line's columns. */
-    for (int s = 0; s < 2; s++)
-        if (sc[s].line[sc[s].pos.y] && sc[s].pos.x >= w / 2)
+    {
+        const screen_t *sc = &g->screen[s];
+        for (unsigned m = 0; m < sc->mem_rows; m++)
+            if (sc->line[m] & ~SCREEN_LINE_SIZE)
+                return sst_refuse(c, "a line attribute out of range");
+        /* The cursor sits inside its own line's columns. */
+        if (screen_size(sc, sc->pos.y) && sc->pos.x >= g->width / 2)
             return sst_refuse(c, "a cursor past its line's columns");
+    }
     return true;
 }
 
 void term_grid_sst_put(sst_cursor_t *c, const term_grid_t *g)
 {
+    const uint8_t *const start = c->at;
     TERM_GRID_SST_ROWS(SST_ROW_PUT2, (*g))
     for (int s = 0; s < 2; s++)
-        sst_put(c, g->screen[s].line, g->screen[s].rows);
+    {
+        const screen_t *sc = &g->screen[s];
+        sst_put(c, sc->line, sc->mem_rows);
+        sst_put_u8(c, sc->y_offset);
+        sst_put_u8(c, sc->hidden);
+    }
+    assert(!sst_ok(c) || c->at - start == TERM_GRID_SST_SIZE(grid_rows(g)));
+    (void)start;
 }
 
+/* The screens have no ring, so their rows of memory are their slots: the
+ * ring's turn and the rows above row 0 index the line attributes, and the
+ * rows above row 0 are no more than the height leaves. */
 bool term_grid_sst_get(sst_cursor_t *c, term_grid_t *g)
 {
     const uint8_t rows = grid_rows(g);
     TERM_GRID_SST_ROWS(SST_ROW_GET2, (*g))
     for (int s = 0; s < 2; s++)
     {
-        sst_get(c, g->screen[s].line, rows);
-        screen_clear(&g->screen[s]);
+        screen_t *sc = &g->screen[s];
+        sst_get(c, sc->line, sc->mem_rows);
+        sc->y_offset = sst_get_u8(c);
+        sc->hidden = sst_get_u8(c);
+        sc->spare = sc->mem_rows;
     }
-    return sst_ok(c) && term_grid_sst_ok(c, g, rows);
+    if (!sst_ok(c) || !term_grid_sst_ok(c, g, rows))
+        return false;
+    for (int s = 0; s < 2; s++)
+    {
+        const screen_t *sc = &g->screen[s];
+        if (sc->y_offset >= rows || sc->hidden > rows - g->height)
+            return sst_refuse(c, "a screen's layout out of range");
+    }
+    return term_grid_sst_lines_ok(c, g);
 }

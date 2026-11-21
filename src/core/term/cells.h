@@ -178,15 +178,14 @@ uint8_t cells_index(term_t *t, term_grid_t *g, bool up, bool keep);
 // Under DECSCLM, rows [top, bot] just scrolled a row up or down by an index
 // or a reverse index, and the screen shows them move there a scanline a
 // frame from the next frame, over TERM_SMOOTH_FRAMES. ghost is the row of
-// memory the row that went is in, which cells_scroll or cells_index kept,
-// and out its line size; it shows until it is gone. Nothing writes the
+// memory the row that went is in, which cells_scroll or cells_index kept
+// with its line size; it shows until it is gone. Nothing writes the
 // ghost until the next scroll, index, clear or change of height of the
 // grid, each of which ends the smooth scroll, and the terminal holds a byte
 // that would scroll the rows until they land (term_holds). A scroll still
 // moving finishes at once. A machine that draws records it for the size
 // showing; one that only follows holds the console's bytes for it.
-void cells_smooth(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, bool up, uint8_t ghost,
-                  uint8_t out);
+void cells_smooth(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, bool up, uint8_t ghost);
 
 // A smooth scroll of g is still moving.
 bool cells_smooth_busy(const term_grid_t *g);

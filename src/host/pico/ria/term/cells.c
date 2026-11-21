@@ -14,8 +14,8 @@
 #include "machine.h"
 
 /* The console's terminal on the RIA, at the VGA's two sizes. Each grid keeps
- * only its line sizes, a byte a row for each screen, and its screens' rings
- * (screen.h), which with no cells need no row_idx. */
+ * only its screens' rings (screen.h), which with no cells need no row_idx,
+ * and the line attributes of their rows, a byte a row for each screen. */
 term_t cells_term;
 static term_grid_t cells_40, cells_80;
 static uint8_t cells_40_lines[2 * TERM_MAX_HEIGHT];
@@ -285,10 +285,9 @@ static struct
     uint32_t frame;
 } cells_smoothing;
 
-void cells_smooth(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, bool up, uint8_t ghost,
-                  uint8_t out)
+void cells_smooth(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, bool up, uint8_t ghost)
 {
-    (void)top, (void)bot, (void)up, (void)ghost, (void)out;
+    (void)top, (void)bot, (void)up, (void)ghost;
     if (!vga_connected() || g != cells_shown(t))
         return;
     cells_smoothing.on = true;
@@ -327,7 +326,7 @@ void cells_clear(term_t *t, term_grid_t *g)
 void cells_height(term_t *t, term_grid_t *g, bool grow, bool top)
 {
     (void)t;
-    screen_height(g->shown, grow, top);
+    screen_height(g->shown, g->height, grow, top);
     for (int s = 0; s < 2; s++)
         screen_fit(&g->screen[s], g->height);
     if (g != &cells_40 && g != &cells_80)

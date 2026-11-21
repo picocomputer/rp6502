@@ -242,6 +242,7 @@ void cells_put_buf(sst_cursor_t *c, screen_t *s)
     for (int i = 0; i < s->rows; i++)
         sst_put_u8(c, s->row_idx[i]);
     sst_put_u8(c, s->spare);
+    sst_put(c, s->line, s->mem_rows);
     /* What each row of memory is owed, and its record in 12 bytes. */
     for (int i = 0; i < s->mem_rows; i++)
     {
@@ -298,6 +299,7 @@ bool cells_get_buf(sst_cursor_t *c, screen_t *s)
     for (int i = 0; i < s->rows; i++)
         s->row_idx[i] = sst_get_u8(c);
     s->spare = sst_get_u8(c);
+    sst_get(c, s->line, s->mem_rows);
     for (int i = 0; i < s->mem_rows; i++)
     {
         b->owed[i] = sst_get_u8(c);
@@ -998,7 +1000,6 @@ void cells_shift(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigne
     const cells_fill_t in = cells_pen_erase(term, false);
     const uint16_t fg = in.colors.fg_color, bg = in.colors.bg_color;
     const uint8_t width = buf->width;
-    const uint8_t *lines = term_lines(g);
     cells_shift_t whole = {0, 0, width, width, fg, bg, fg, bg};
     cells_shift_add(&whole, width, count < width ? (uint8_t)count : width, left, fg, bg);
     for (uint8_t y = top; y <= bot; y++)
@@ -1006,13 +1007,14 @@ void cells_shift(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigne
         const uint8_t m = screen_mem(sc, y);
         cells_shift_t *s = &buf->what[m].shift;
         const uint8_t owed = buf->owed[m];
-        if (owed == CELLS_OWED_NONE && !lines[y])
+        const uint8_t size = screen_size(sc, y);
+        if (owed == CELLS_OWED_NONE && !size)
         {
             buf->owed[m] = CELLS_OWED_SHIFT;
             *s = whole;
             continue;
         }
-        const uint8_t cols = lines[y] ? width / 2u : width;
+        const uint8_t cols = size ? width / 2u : width;
         const uint8_t n = count < cols ? (uint8_t)count : cols;
         cells_shift_t r = {0, 0, cols, cols, fg, bg, fg, bg};
         if (owed == CELLS_OWED_FILL)
@@ -1150,8 +1152,9 @@ static CELLS_RUN void cells_strip_move(mode0_cell_t *to, const mode0_cell_t *row
 // of whole rows, without taking the cells either side of the columns with
 // it. So the cells between the columns are copied up or down a row at a
 // time; or, when there are fewer cells either side, the rows move and the
-// cells either side go back to the rows they were on, each row's to the
-// next round the region. No row of the region is owed anything: they were
+// cells either side, and the line attributes, go back to the rows they were
+// on, each row's to the next round the region. No row of the region is owed
+// anything: they were
 // paid when the scroll came to be owed, and everything that changes a cell
 // does the scroll first.
 static void cells_settle(screen_t *s)
@@ -1176,14 +1179,16 @@ static void cells_settle(screen_t *s)
     }
     else if (n < h)
     {
-        screen_scroll(s, (uint8_t)top, (uint8_t)bot, (uint8_t)n, l.up, false);
-        // Row j of the region now has the cells either side that belong
-        // on row j + step, counted round the region.
+        screen_rotate(s, (uint8_t)top, (uint8_t)bot, (uint8_t)n, l.up);
+        // Row j of the region now has the cells either side, and the line
+        // attributes, that belong on row j + step, counted round the region.
         const unsigned step = l.up ? n : h - n;
         cells_strip_t strip;
         for (unsigned first = 0, moved = 0; moved < h; first++)
         {
             mode0_cell_t *row = cells_row(s, (uint8_t)(top + first));
+            uint8_t *line = &s->line[screen_mem(s, (uint8_t)(top + first))];
+            const uint8_t kept = *line;
             cells_strip_keep(&strip, row, from, end, width);
             for (unsigned j = first;;)
             {
@@ -1192,10 +1197,14 @@ static void cells_settle(screen_t *s)
                 if (src == first)
                 {
                     cells_strip_put(&strip, row, from, end, width);
+                    *line = kept;
                     break;
                 }
+                const uint8_t m = screen_mem(s, (uint8_t)(top + src));
                 mode0_cell_t *other = cells_row(s, (uint8_t)(top + src));
                 cells_strip_move(row, other, from, end, width);
+                *line = s->line[m];
+                line = &s->line[m];
                 row = other;
                 j = src;
             }
@@ -1272,7 +1281,7 @@ void cells_height(term_t *t, term_grid_t *g, bool grow, bool top)
     screen_t *s = cells_settled(g);
     if (!s)
     {
-        screen_height(g->shown, grow, top);
+        screen_height(g->shown, g->height, grow, top);
         for (int b = 0; b < 2; b++)
             screen_fit(&g->screen[b], g->height);
         return;
@@ -1288,7 +1297,7 @@ void cells_height(term_t *t, term_grid_t *g, bool grow, bool top)
     // into view: a row of scrollback, which comes back as it left with the
     // fill it was still owed, or else a blank one. A shrink sends the top
     // row out of view to join the scrollback.
-    if (screen_height(s, grow, top))
+    if (screen_height(s, h, grow, top))
         cells_mark_rows_default(s, 0, 1);
     if (top)
         // The cursor's row is another row now, and is never owed a fill.

@@ -11,20 +11,31 @@
 // The ring a screen's rows are laid out in (screen.h). Every machine keeps
 // it for every screen, with cells or without.
 
+void screen_lines_normal(screen_t *s, unsigned from, unsigned to)
+{
+    for (unsigned y = from; y < to; y++)
+        s->line[screen_mem(s, (uint8_t)y)] = TERM_LINE_NORMAL;
+}
+
+void screen_all_normal(screen_t *s)
+{
+    memset(s->line, TERM_LINE_NORMAL, s->mem_rows);
+}
+
 void screen_init(screen_t *s, uint8_t rows, uint8_t *line, uint8_t *row_idx)
 {
-    s->rows = s->mem_rows = rows;
+    s->rows = rows;
+    s->mem_rows = (uint8_t)(row_idx ? rows + TERM_SPARE_ROWS : rows);
     s->line = line;
     s->row_idx = row_idx;
     s->cells = NULL;
-    memset(line, TERM_LINE_NORMAL, rows);
+    screen_all_normal(s);
     screen_clear(s);
 }
 
 void screen_set_cells(screen_t *s, struct screen_cells *cells)
 {
     s->cells = cells;
-    s->mem_rows = (uint8_t)(s->rows + TERM_SPARE_ROWS);
 }
 
 void screen_clear(screen_t *s)
@@ -37,10 +48,12 @@ void screen_clear(screen_t *s)
             s->row_idx[y] = (uint8_t)y;
 }
 
-// Rows [lo, hi] of the screen swap their rows of memory end for end.
+// Rows [lo, hi] of the screen swap their rows of memory end for end. With
+// no ring, a slot's row of memory is the slot's own, so the rows' line
+// attributes swap instead.
 static void screen_reverse(screen_t *s, unsigned lo, unsigned hi)
 {
-    uint8_t *const ring = s->row_idx;
+    uint8_t *const ring = s->row_idx ? s->row_idx : s->line;
     for (; lo < hi; lo++, hi--)
     {
         uint8_t *a = &ring[screen_slot(s, (uint8_t)lo)];
@@ -54,10 +67,8 @@ static void screen_reverse(screen_t *s, unsigned lo, unsigned hi)
 // The rows turn k places toward the top: the first k reversed, the rest
 // reversed, then all of them reversed. No row needs keeping aside, so a
 // ring of any size turns in place.
-static void screen_rotate(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, bool up)
+void screen_rotate(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, bool up)
 {
-    if (!s->row_idx)
-        return;
     const unsigned h = (unsigned)bot - top + 1;
     const unsigned k = up ? n : h - n;
     if (!k || k >= h)
@@ -96,34 +107,53 @@ uint8_t screen_scroll(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, bool up,
 {
     screen_rotate(s, top, bot, n, up);
     const uint8_t edge = (uint8_t)(up ? bot - n + 1 : top + n - 1);
-    return screen_keep(s, edge, edge, keep);
+    const uint8_t ghost = screen_keep(s, edge, edge, keep);
+    if (up)
+        screen_lines_normal(s, edge, (unsigned)bot + 1);
+    else
+        screen_lines_normal(s, top, (unsigned)edge + 1);
+    return ghost;
 }
 
 uint8_t screen_index(screen_t *s, uint8_t height, bool up, bool keep)
 {
     screen_turn(s, up);
+    const uint8_t in = (uint8_t)(up ? height - 1 : 0);
+    uint8_t ghost;
     if (up)
     {
         if (s->hidden < s->rows - height)
             s->hidden++;
-        return screen_keep(s, (uint8_t)(height - 1), (uint8_t)(s->rows - 1), keep);
+        ghost = screen_keep(s, in, (uint8_t)(s->rows - 1), keep);
     }
-    if (s->hidden)
-        s->hidden--;
-    return screen_keep(s, 0, (uint8_t)(height == s->rows ? 0 : height), keep);
+    else
+    {
+        if (s->hidden)
+            s->hidden--;
+        ghost = screen_keep(s, in, (uint8_t)(height == s->rows ? 0 : height), keep);
+    }
+    screen_lines_normal(s, in, in + 1u);
+    return ghost;
 }
 
-bool screen_height(screen_t *s, bool grow, bool top)
+bool screen_height(screen_t *s, uint8_t height, bool grow, bool top)
 {
     if (!top)
+    {
+        if (grow)
+            screen_lines_normal(s, height - 1u, height);
         return false;
+    }
     screen_turn(s, !grow);
     if (!grow)
         s->hidden++;
     else if (s->hidden)
         s->hidden--;
     else
+    {
+        screen_lines_normal(s, 0, 1);
         return true;
+    }
     return false;
 }
 

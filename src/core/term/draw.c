@@ -58,9 +58,10 @@ static inline uint32_t cells_frame(void)
 #define CELLS_CURSOR_INPUT_GAP_FRAMES 1
 
 // A smooth scroll moving on one of a size's screens (DECSCLM): rows top to
-// bot, one way, the row of memory that went out (ghost) and its line size,
-// and the first frame it shows moving. The store ends it when the screen's
-// count of cancels moves on from the one the scroll started at.
+// bot, one way, the row of memory that went out (ghost), and the first frame
+// it shows moving. The ghost keeps its line size in its row of memory. The
+// store ends it when the screen's count of cancels moves on from the one the
+// scroll started at.
 typedef struct
 {
     bool on;
@@ -68,7 +69,6 @@ typedef struct
     uint8_t top, bot;
     bool up;
     uint8_t ghost;
-    uint8_t ghost_size;
     uint32_t frame;
     uint32_t cancels;
 } cells_smooth_t;
@@ -91,17 +91,17 @@ static cells_draw_t draw_80;
 static bool cells_stale;
 static uint16_t cells_cursor_color; // OSC 12
 
-// The layout the row words were last written from: the screen showing, and
-// which row of memory and what line size each of its rows has. Only a
-// scroll, a line size, a change of height, or another screen showing
-// changes it, so most bytes leave the row words as they are.
+// The layout the row words were last written from: the screen showing,
+// which row of memory each of its rows has, and the line size of each row
+// of memory. Only a scroll, a line size, a change of height, or another
+// screen showing changes it, so most bytes leave the row words as they are.
 static struct
 {
     const screen_t *screen;
     uint8_t y_offset;
     uint8_t height;
     uint8_t row_idx[TERM_MAX_HEIGHT];
-    uint8_t lines[TERM_MAX_HEIGHT];
+    uint8_t line[TERM_MEM_ROWS];
 } cells_published;
 
 // What a size of the store shows besides its cells.
@@ -179,6 +179,13 @@ static bool cells_sst_grids_ok(sst_cursor_t *c)
            term_grid_sst_ok(c, &cells_80.grid, TERM_MAX_HEIGHT);
 }
 
+/* The line attributes, once the layouts below have loaded them. */
+static bool cells_sst_lines_ok(sst_cursor_t *c)
+{
+    return term_grid_sst_lines_ok(c, &cells_40.grid) &&
+           term_grid_sst_lines_ok(c, &cells_80.grid);
+}
+
 /* Each screen's layout, as the store puts it: each size's screens that have
  * cells. A put does a scroll the screen is owed first, which moves cells
  * that MODE0_DRIVER saves after this row. The counts of cancels are not
@@ -213,7 +220,7 @@ static bool cells_sst_get_bufs(sst_cursor_t *c, unsigned flags)
     Y(U32, s.cell_blink_frame) Y(U8, s.cell_blink_phase)               \
     Y(BOOL, s.smooth.on) Y(U8, s.smooth.buf)                           \
     Y(U8, s.smooth.top) Y(U8, s.smooth.bot) Y(BOOL, s.smooth.up)       \
-    Y(U8, s.smooth.ghost) Y(U8, s.smooth.ghost_size)                   \
+    Y(U8, s.smooth.ghost)                                              \
     Y(U32, s.smooth.frame)
 
 /* The screen of a smooth scroll, on or not, indexes the store's screens,
@@ -228,7 +235,7 @@ static bool cells_sst_smooth_ok(sst_cursor_t *c)
         cells_smooth_t *sm = all[n];
         if (sm->buf >= MODE0_SCREENS ||
             (sm->on && (sm->top > sm->bot || sm->bot >= TERM_MAX_HEIGHT ||
-                        sm->ghost >= TERM_MEM_ROWS || sm->ghost_size > TERM_LINE_BOTTOM)))
+                        sm->ghost >= TERM_MEM_ROWS)))
             return sst_refuse(c, "a smooth scroll out of range");
         sm->cancels = cells_smooth_cancels(sizes[n]);
     }
@@ -242,16 +249,17 @@ static bool cells_sst_smooth_ok(sst_cursor_t *c)
     X(IN_FN, cells_term.alt_active)                                    \
     X(SKIP, cells_term.grids, "the sizes it is followed at")           \
     X(STRUCT, cells_40.grid, TERM_GRID_SST_ROWS)                       \
-    X(BYTES, cells_40.lines)                                           \
     X(STRUCT, cells_80.grid, TERM_GRID_SST_ROWS)                       \
-    X(BYTES, cells_80.lines)                                           \
     X(VALIDATE, cells_sst_grids_ok)                                    \
     X(FN, cells_sst_put_bufs, cells_sst_get_bufs,                      \
-      2 * MODE0_SCREENS * CELLS_BUF_SST_SIZE, 1)                       \
+      2 * MODE0_SCREENS * CELLS_BUF_SST_SIZE, 2)                       \
+    X(IN_FN, cells_40.lines)                                           \
     X(IN_FN, cells_40.row_idx)                                         \
     X(IN_FN, cells_40.bufs)                                            \
+    X(IN_FN, cells_80.lines)                                           \
     X(IN_FN, cells_80.row_idx)                                         \
     X(IN_FN, cells_80.bufs)                                            \
+    X(VALIDATE, cells_sst_lines_ok)                                    \
     X(STRUCT, draw_40, CELLS_BLINK_SST_ROWS)                           \
     X(STRUCT, draw_80, CELLS_BLINK_SST_ROWS)                           \
     X(VALIDATE, cells_sst_smooth_ok)                                   \
@@ -286,7 +294,7 @@ static cells_t *cells_visible(void);
 // memory a region's row going out is erased as it goes, so nothing is drawn
 // moving.
 void cells_smooth(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, bool up,
-                  uint8_t ghost, uint8_t out)
+                  uint8_t ghost)
 {
     (void)term;
     cells_t *cells = cells_size(g);
@@ -300,7 +308,6 @@ void cells_smooth(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, bool u
         .bot = bot,
         .up = up,
         .ghost = ghost,
-        .ghost_size = out,
         .frame = cells_frame() + 1,
         .cancels = cells->bufs[buf].cancels,
     };
@@ -377,20 +384,22 @@ static cells_t *cells_visible(void)
     return vga_canvas_width() == 320 ? &cells_40 : &cells_80;
 }
 
-// TERM_MAX_HEIGHT bytes compared a word at a time.
-static inline bool cells_rows_differ(const uint8_t *a, const uint8_t *b)
+// n bytes compared a word at a time, only the bits of each byte in mask.
+static inline bool cells_bytes_differ(const uint8_t *a, const uint8_t *b, unsigned n,
+                                      uint8_t mask)
 {
     uint32_t diff = 0;
     unsigned i = 0;
-    for (; i + 4 <= TERM_MAX_HEIGHT; i += 4)
+    for (; i + 4 <= n; i += 4)
     {
         uint32_t x, y;
         memcpy(&x, a + i, 4);
         memcpy(&y, b + i, 4);
         diff |= x ^ y;
     }
-    for (; i < TERM_MAX_HEIGHT; i++)
-        diff |= (uint32_t)(a[i] ^ b[i]);
+    diff &= mask * 0x01010101u;
+    for (; i < n; i++)
+        diff |= (uint32_t)((a[i] ^ b[i]) & mask);
     return diff != 0;
 }
 
@@ -399,19 +408,18 @@ void cells_publish(void)
     cells_t *cells = cells_visible();
     cells_draw_t *d = cells_draw(cells);
     const screen_t *s = cells->grid.shown;
-    const uint8_t *ls = term_lines(&cells->grid);
     if (cells_published.screen != s || cells_published.y_offset != s->y_offset ||
         cells_published.height != cells->grid.height ||
-        cells_rows_differ(cells_published.row_idx, s->row_idx) ||
-        cells_rows_differ(cells_published.lines, ls))
+        cells_bytes_differ(cells_published.row_idx, s->row_idx, TERM_MAX_HEIGHT, 0xFF) ||
+        cells_bytes_differ(cells_published.line, s->line, TERM_MEM_ROWS, SCREEN_LINE_SIZE))
     {
         cells_published.screen = s;
         cells_published.y_offset = s->y_offset;
         cells_published.height = cells->grid.height;
         memcpy(cells_published.row_idx, s->row_idx, TERM_MAX_HEIGHT);
-        memcpy(cells_published.lines, ls, TERM_MAX_HEIGHT);
+        memcpy(cells_published.line, s->line, TERM_MEM_ROWS);
         for (uint8_t y = 0; y < cells->grid.height; y++)
-            mode0_regs.row[y] = MODE0_ROW(cells_row(s, y) - mode0_cells, ls[y]);
+            mode0_regs.row[y] = MODE0_ROW(cells_row(s, y) - mode0_cells, screen_size(s, y));
     }
     const term_pos_t *pos = term_pos(&cells->grid);
     // A cursor with a wrap pending is on the column it wrote, as on a VT100.
@@ -427,7 +435,8 @@ void cells_publish(void)
     {
         const screen_cells_t *b = s->cells;
         mode0_regs.smooth_ghost =
-            MODE0_ROW(b->mem + (uint32_t)sm->ghost * b->width - mode0_cells, sm->ghost_size);
+            MODE0_ROW(b->mem + (uint32_t)sm->ghost * b->width - mode0_cells,
+                      screen_mem_size(s, sm->ghost));
         mode0_regs.smooth_frame = (uint32_t)sm->frame;
         mode0_regs.smooth = MODE0_SMOOTH(sm->top, sm->bot, sm->up);
     }

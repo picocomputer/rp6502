@@ -439,7 +439,7 @@ static bool rln_sst_valid(sst_cursor_t *c)
     X(U16, rln_pinned_height)                                           \
     X(VALIDATE, rln_sst_valid)                                          \
     X(FN, rln_sst_put_grid, rln_sst_get_grid,                           \
-      1 + TERM_GRID_SST_SIZE(RLN_GRID_ROWS), 1)                         \
+      1 + TERM_GRID_SST_SIZE(RLN_GRID_ROWS), 2)                         \
     X(IN_FN, rln_grid)                                                  \
     X(IN_FN, rln_grid_lines)                                            \
     X(SKIP, rln_line_src, "read only inside the read's callback")       \

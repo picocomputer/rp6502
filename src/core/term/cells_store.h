@@ -111,13 +111,14 @@ typedef struct screen_cells
     uint32_t cancels;
 } screen_cells_t;
 
-// The terminal at one size, the line sizes and rings of its screens, and
-// their cells: the primary's, then the alternate's, which a build without
-// TERM_ALT_SCREEN does not give its screen.
+// The terminal at one size, the rings of its screens and the line
+// attributes of their rows of memory, and their cells: the primary's, then
+// the alternate's, which a build without TERM_ALT_SCREEN does not give its
+// screen.
 typedef struct
 {
     term_grid_t grid;
-    uint8_t lines[2 * TERM_MAX_HEIGHT];
+    uint8_t lines[2 * TERM_MEM_ROWS];
     uint8_t row_idx[2 * TERM_MAX_HEIGHT];
     screen_cells_t bufs[2];
 } cells_t;
@@ -153,11 +154,12 @@ void cells_store_blank(void);
 // showing first.
 void cells_clean_task(term_grid_t *g);
 
-/* A screen's layout in the savestate: its ring and spare row, what each row
- * of memory is owed in a record of 12 bytes, and the rest. A put first does
+/* A screen's layout in the savestate: its ring and spare row, the line
+ * attributes of each row of memory, what each row of memory is owed in a
+ * record of 12 bytes, and the rest. A put first does
  * a scroll the screen is owed, so the layout saved is the layout the cells
  * are in. For a screen of the store's, with cells. */
-#define CELLS_BUF_SST_SIZE (TERM_MAX_HEIGHT + 1 + 13 * TERM_MEM_ROWS + 3)
+#define CELLS_BUF_SST_SIZE (TERM_MAX_HEIGHT + 1 + 14 * TERM_MEM_ROWS + 3)
 void cells_put_buf(sst_cursor_t *c, screen_t *s);
 bool cells_get_buf(sst_cursor_t *c, screen_t *s);
 

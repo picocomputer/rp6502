@@ -1041,6 +1041,46 @@ UTEST(term, line_sizes_move_with_their_lines)
     ASSERT_EQ(tb_screen_row_size(1), TERM_LINE_NORMAL);
 }
 
+/* A line's size is its row's, so a double-width row that a line feed sends
+ * into the scrollback comes back double width when a grow brings it back. */
+UTEST(term, a_line_size_comes_back_from_the_scrollback)
+{
+    fresh();
+    cells_set_height(80, 29);
+    feed("\33#6one\r\n");
+    for (int i = 0; i < 28; i++)
+        feed("\r\n");
+    ASSERT_STREQ(row(0), "");
+    cells_set_height(80, 30);
+    ASSERT_STREQ(row(0), "one");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_WIDE);
+    ASSERT_EQ(tb_screen_row_size(1), TERM_LINE_NORMAL);
+}
+
+/* A program's own size of 255 rows turns its ring past every slot. Its
+ * line sizes go with their rows, and the cursor keeps to its row's columns. */
+UTEST(term, a_255_row_size_keeps_its_line_sizes_through_its_ring)
+{
+    fresh();
+    rln_set_term_height(255);
+    term_grid_t *g = cells_term.grids[TERM_SCREEN_GRIDS];
+    ASSERT_EQ(g->height, 255);
+    feed("\33[255;1H\33#6");
+    ASSERT_EQ(screen_size(g->shown, 254), TERM_LINE_WIDE);
+    for (int i = 0; i < 200; i++)
+        feed("\n");
+    ASSERT_EQ(screen_size(g->shown, 54), TERM_LINE_WIDE);
+    for (unsigned y = 0; y < 255; y++)
+        if (y != 54)
+            ASSERT_EQ(screen_size(g->shown, (uint8_t)y), TERM_LINE_NORMAL);
+    feed("\33[55;70H");
+    ASSERT_EQ(term_pos(g)->y, 54);
+    ASSERT_EQ(term_pos(g)->x, 39);
+    feed("\33[56;70H");
+    ASSERT_EQ(term_pos(g)->x, 69);
+    rln_set_term_height(0);
+}
+
 UTEST(term, a_scroll_keeps_the_cursor_on_its_line)
 {
     fresh();
@@ -1886,6 +1926,27 @@ UTEST(term, declrmm_has_no_double_size_lines)
     ASSERT_STREQ(ask("\33[?69$p"), "\33[?69;2$y");
     feed("\33[2J\33[1;9Hxyz");
     ASSERT_EQ(ch(10, 0), 'z');
+}
+
+/* DECLRMM set makes every line single size: both screens', and the rows in
+ * the scrollback, which come back single size. */
+UTEST(term, declrmm_makes_both_screens_single_size)
+{
+    fresh();
+    cells_set_height(80, 29);
+    feed("\33#6one\r\n");
+    for (int i = 0; i < 28; i++)
+        feed("\r\n");
+    feed("\33[H\33#6\33[?1049h\33#3");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_TOP);
+    feed("\33[?69h\33[?69l");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
+    feed("\33[?1049l");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
+    feed("\33[29H");
+    cells_set_height(80, 30);
+    ASSERT_STREQ(row(0), "one");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
 }
 
 /* The margins are part of a savestate. */
@@ -2756,6 +2817,32 @@ UTEST(term, a_smooth_scroll_with_scrollback_keeps_both_sizes_text)
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
     ASSERT_STREQ(row(0), "A");
     ASSERT_STREQ(row(1), "B");
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* The row a smooth scroll moves out is drawn at its own size: from the
+ * spare row on a screen with no slot to spare, and from the scrollback on
+ * one shorter than its ring, where it comes back at that size too. */
+UTEST(term, a_smooth_scroll_moves_out_a_double_size_row_at_its_size)
+{
+    fresh();
+    feed("\33[?4h\33[H\33#3A\33[30;1H\n");
+    ASSERT_TRUE(mode0_regs.smooth & MODE0_SMOOTH_ON);
+    ASSERT_STREQ(ghost(), "A");
+    ASSERT_EQ(MODE0_ROW_SIZE(mode0_regs.smooth_ghost), TERM_LINE_TOP);
+    ASSERT_EQ(tb_screen_row_size(TERM_MAX_HEIGHT - 1), TERM_LINE_NORMAL);
+
+    fresh();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    cells_set_height(40, TERM_MAX_HEIGHT - 1);
+    feed("\33[?4h\33[H\33#3A\33[99;1HZ\n");
+    ASSERT_TRUE(mode0_regs.smooth & MODE0_SMOOTH_ON);
+    ASSERT_STREQ(ghost(), "A");
+    ASSERT_EQ(MODE0_ROW_SIZE(mode0_regs.smooth_ghost), TERM_LINE_TOP);
+    ASSERT_EQ(tb_screen_row_size(TERM_MAX_HEIGHT - 2), TERM_LINE_NORMAL);
+    cells_set_height(40, TERM_MAX_HEIGHT);
+    ASSERT_STREQ(row(0), "A");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_TOP);
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
 }
 
