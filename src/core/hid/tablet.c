@@ -49,12 +49,19 @@ static tablet_connection_t tablet_connections[TABLET_MAX_MICE];
 static int16_t tablet_cw;
 static int16_t tablet_ch;
 
+/* The wheel and pan counters and contact 0, as the last tablet_commit left
+ * them. They are one run of the block, from the wheel to contact 0's end. */
+#define TABLET_COMMITTED_SIZE (TABLET_OFF_CONTACTS + TABLET_CONTACT_SIZE - TABLET_OFF_WHEEL)
+static uint8_t tablet_committed[TABLET_COMMITTED_SIZE];
+
 /* An address that would put the block past the end of XRAM would have the
- * next write of it go past it. */
-static bool tablet_xram_check(sst_cursor_t *c)
+ * next write of it go past it. A load is committed as it stands, so the next
+ * change is measured from the loaded block. */
+static bool tablet_sst_valid(sst_cursor_t *c)
 {
     if (tablet_xram > 0x10000 - TABLET_BLOCK_SIZE && tablet_xram != 0xFFFF)
         return sst_refuse(c, "tablet block past the end of XRAM");
+    memcpy(tablet_committed, &tablet_state[TABLET_OFF_WHEEL], TABLET_COMMITTED_SIZE);
     return true;
 }
 
@@ -65,7 +72,7 @@ static bool tablet_xram_check(sst_cursor_t *c)
     X(U16, tablet_xram)                                     \
     X(BYTES, tablet_state)                                  \
     X(BOOL, tablet_host_cursor)                             \
-    X(VALIDATE, tablet_xram_check)                          \
+    X(VALIDATE, tablet_sst_valid)                           \
     X(SKIP, tablet_x)                                       \
     X(SKIP, tablet_y)                                       \
     X(SKIP, tablet_ref_x)                                   \
@@ -74,6 +81,7 @@ static bool tablet_xram_check(sst_cursor_t *c)
     X(SKIP, tablet_sub_y)                                   \
     X(SKIP, tablet_cw)                                      \
     X(SKIP, tablet_ch)                                      \
+    X(SKIP, tablet_committed, "rebuilt from tablet_state")  \
     X(SKIP, tablet_connections, "nothing mounts on a machine that saves")
 SST_TABLE(tablet, TABLET_SST)
 
@@ -110,14 +118,17 @@ static void tablet_clear_contact(int i)
     tablet_state[TABLET_OFF_CONTACTS + i * TABLET_CONTACT_SIZE] = 0;
 }
 
-/* A 6502 reading the block during this memcpy can get bytes from two reports,
- * so a program reads the block until two reads match. */
-static void HOST_IN_RAM_FUNC tablet_write_xram(void)
+/* Every change to the tablet ends here, mapped or not. by_user is false for a
+ * pointer the firmware moved, as onto a new canvas. A 6502 reading the block
+ * during this memcpy can get bytes from two reports, so a program reads the
+ * block until two reads match. */
+static void HOST_IN_RAM_FUNC tablet_commit(bool by_user)
 {
-    if (tablet_xram == 0xFFFF)
-        return;
-    memcpy((uint8_t *)&xram[tablet_xram + TABLET_OFF_STATUS], &tablet_state[TABLET_OFF_STATUS],
-            TABLET_BLOCK_SIZE - TABLET_OFF_STATUS);
+    (void)by_user;
+    memcpy(tablet_committed, &tablet_state[TABLET_OFF_WHEEL], TABLET_COMMITTED_SIZE);
+    if (tablet_xram != 0xFFFF)
+        memcpy((uint8_t *)&xram[tablet_xram + TABLET_OFF_STATUS], &tablet_state[TABLET_OFF_STATUS],
+               TABLET_BLOCK_SIZE - TABLET_OFF_STATUS);
 }
 
 void HOST_IN_FLASH_FUNC tablet_init(void)
@@ -171,7 +182,7 @@ bool tablet_mount(int slot, const tablet_connection_t *desc)
                            (desc->tip_offset == HID_ABSENT && desc->inrange_offset == HID_ABSENT);
         tablet_connections[i].flags = hover ? TABLET_FLAG_HOVER : 0;
         tablet_merge_flags();
-        tablet_write_xram();
+        tablet_commit(true);
         RP6502_LOG(hid, INFO, "tablet mount slot=%d, x_rel=%d, tip=%d", slot, desc->x_relative,
                    desc->tip_offset != HID_ABSENT);
         return true;
@@ -188,7 +199,7 @@ bool tablet_umount(int slot)
     /* A button held at unplug is let go at once, and the pointers still
      * plugged in keep theirs. */
     tablet_merge_flags();
-    tablet_write_xram();
+    tablet_commit(true);
     return true;
 }
 
@@ -342,7 +353,7 @@ void HOST_IN_RAM_FUNC tablet_report(int slot, uint8_t const *data, size_t size)
     {
         conn->flags = 0;
         tablet_merge_flags();
-        tablet_write_xram();
+        tablet_commit(true);
         return;
     }
     if (tablet_x < 0)
@@ -384,7 +395,7 @@ void HOST_IN_RAM_FUNC tablet_report(int slot, uint8_t const *data, size_t size)
     conn->flags = (uint8_t)(buttons | (hover ? TABLET_FLAG_HOVER : 0));
     tablet_put_contact(0, 0, tablet_x, tablet_y);
     tablet_merge_flags();
-    tablet_write_xram();
+    tablet_commit(true);
 }
 
 bool tablet_is_mapped(void)
@@ -408,7 +419,7 @@ void tablet_host_pointer(int x, int y, uint8_t buttons, bool host_cursor)
     tablet_put_contact(0, (uint8_t)(buttons | TABLET_FLAG_HOVER), tablet_x, tablet_y);
     for (int i = 1; i < TABLET_MAX_CONTACTS; ++i)
         tablet_clear_contact(i);
-    tablet_write_xram();
+    tablet_commit(true);
 }
 
 void tablet_host_touch(const tablet_point_t *pts, int n)
@@ -420,14 +431,14 @@ void tablet_host_touch(const tablet_point_t *pts, int n)
         tablet_put_contact(i, TABLET_FLAG_LEFT, pts[i].x, pts[i].y); // tip down, no hover
     for (int i = n; i < TABLET_MAX_CONTACTS; ++i)
         tablet_clear_contact(i);
-    tablet_write_xram();
+    tablet_commit(true);
 }
 
 void tablet_host_clear(void)
 {
     for (int i = 0; i < TABLET_MAX_CONTACTS; ++i)
         tablet_clear_contact(i);
-    tablet_write_xram();
+    tablet_commit(true);
 }
 
 void tablet_host_wheel(int dwheel, int dpan)
@@ -436,7 +447,7 @@ void tablet_host_wheel(int dwheel, int dpan)
         return;
     tablet_state[TABLET_OFF_WHEEL] = (uint8_t)(tablet_state[TABLET_OFF_WHEEL] + dwheel);
     tablet_state[TABLET_OFF_PAN] = (uint8_t)(tablet_state[TABLET_OFF_PAN] + dpan);
-    tablet_write_xram();
+    tablet_commit(true);
 }
 
 void tablet_task(void)
@@ -456,7 +467,7 @@ void tablet_task(void)
         tablet_ref_y = ref_y;
         uint8_t *c0 = &tablet_state[TABLET_OFF_CONTACTS];
         tablet_put_contact(0, c0[0], tablet_x, tablet_y);
-        tablet_write_xram();
+        tablet_commit(false);
     }
     const uint8_t *c = &tablet_state[TABLET_OFF_CONTACTS];
     uint8_t shape = tablet_shape();
