@@ -111,16 +111,15 @@ static inline HOST_IN_RAM_FUNC bool grid_in_columns(const term_grid_t *g, unsign
     return x >= g->margin_left && x <= g->margin_right;
 }
 
-void term_grid_init(term_grid_t *g, uint8_t width, uint8_t *lines, uint8_t rows)
+void term_grid_init(term_grid_t *g, uint8_t width, uint8_t *lines, uint8_t *row_idx,
+                    uint8_t rows)
 {
     memset(g, 0, sizeof *g);
     g->width = width;
-    g->rows = rows;
     g->height = rows < TERM_STD_HEIGHT ? rows : TERM_STD_HEIGHT;
-    g->screen[0].line = lines;
-    g->screen[1].line = lines + rows;
+    for (int s = 0; s < 2; s++)
+        screen_init(&g->screen[s], rows, lines + s * rows, row_idx ? row_idx + s * rows : NULL);
     g->shown = &g->screen[0];
-    memset(lines, TERM_LINE_NORMAL, 2u * rows);
     grid_full_margins(g);
     grid_reset_tabs(g);
 }
@@ -128,13 +127,11 @@ void term_grid_init(term_grid_t *g, uint8_t width, uint8_t *lines, uint8_t rows)
 void term_grid_copy(term_grid_t *g, const term_grid_t *from, uint8_t *lines, uint8_t rows)
 {
     *g = *from;
-    g->rows = rows;
     g->shown = &g->screen[from->shown - from->screen];
-    memset(lines, TERM_LINE_NORMAL, 2u * rows);
-    unsigned n = from->rows < rows ? from->rows : rows;
+    unsigned n = grid_rows(from) < rows ? grid_rows(from) : rows;
     for (int s = 0; s < 2; s++)
     {
-        g->screen[s].line = lines + s * rows;
+        screen_init(&g->screen[s], rows, lines + s * rows, NULL);
         memcpy(g->screen[s].line, from->screen[s].line, n);
     }
     if (g->height > rows)
@@ -169,7 +166,7 @@ void term_set_width(term_t *t, term_grid_t *g, uint8_t width)
 
 void term_set_height(term_t *t, term_grid_t *g, uint8_t height)
 {
-    assert(height >= 1 && height <= g->rows);
+    assert(height >= 1 && height <= grid_rows(g));
     term_pos_t *pos = term_pos(g);
     uint8_t *ls = term_lines(g);
     while (height != g->height)
@@ -554,11 +551,11 @@ static void grid_REP(term_t *t, term_grid_t *g)
 {
     unsigned n = grid_param(t, 0, 1);
     unsigned run = (g->width & 1) && g->width > 1 ? g->width * (g->width / 2u) : g->width;
-    unsigned most = run * (g->rows + 1u);
+    unsigned most = run * (grid_rows(g) + 1u);
     if (!grid_all_columns(g))
     {
         run = (unsigned)g->margin_right + 1 - g->margin_left;
-        most = g->width + run * (g->rows + 1u);
+        most = g->width + run * (grid_rows(g) + 1u);
     }
     if (n > most)
         n = most + (n - most) % run;
@@ -1320,7 +1317,7 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
         // xterm; reset, the left and right margins are the whole width.
         if (ch)
             for (int s = 0; s < 2; s++)
-                memset(g->screen[s].line, TERM_LINE_NORMAL, g->rows);
+                memset(g->screen[s].line, TERM_LINE_NORMAL, g->screen[s].rows);
         else
             grid_full_columns(g);
         break;
@@ -1401,7 +1398,7 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
         g->screen[0].pos = g->screen[1].pos;
         break;
     case GRID_CLEAR:
-        grid_lines_normal(g, 0, g->rows);
+        grid_lines_normal(g, 0, grid_rows(g));
         cells_clear(t, g);
         break;
     case GRID_RESET:
@@ -1412,12 +1409,12 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
             g->screen[s].pos.wrap_pending = false;
             memset(&g->screen[s].saved, 0, sizeof g->screen[s].saved);
         }
-        memset(g->screen[1].line, TERM_LINE_NORMAL, g->rows);
+        memset(g->screen[1].line, TERM_LINE_NORMAL, g->screen[1].rows);
         cells_reset(t, g);
         break;
     case GRID_DECCOLM:
         grid_full_margins(g);
-        grid_lines_normal(g, 0, g->rows);
+        grid_lines_normal(g, 0, grid_rows(g));
         cells_clear(t, g);
         grid_home(t, g);
         break;
@@ -1437,7 +1434,7 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
 bool term_grid_sst_ok(sst_cursor_t *c, const term_grid_t *g, uint8_t rows)
 {
     const uint8_t w = g->width, h = g->height;
-    if (g->rows != rows)
+    if (grid_rows(g) != rows)
         return sst_refuse(c, "a grid of other rows");
     if (w < 1 || h < 1 || h > rows || g->margin_top > g->margin_bot ||
         g->margin_bot >= h || g->margin_left > g->margin_right || g->margin_right >= w)
@@ -1461,14 +1458,17 @@ void term_grid_sst_put(sst_cursor_t *c, const term_grid_t *g)
 {
     TERM_GRID_SST_ROWS(SST_ROW_PUT2, (*g))
     for (int s = 0; s < 2; s++)
-        sst_put(c, g->screen[s].line, g->rows);
+        sst_put(c, g->screen[s].line, g->screen[s].rows);
 }
 
 bool term_grid_sst_get(sst_cursor_t *c, term_grid_t *g)
 {
-    const uint8_t rows = g->rows;
+    const uint8_t rows = grid_rows(g);
     TERM_GRID_SST_ROWS(SST_ROW_GET2, (*g))
     for (int s = 0; s < 2; s++)
+    {
         sst_get(c, g->screen[s].line, rows);
+        screen_clear(&g->screen[s]);
+    }
     return sst_ok(c) && term_grid_sst_ok(c, g, rows);
 }

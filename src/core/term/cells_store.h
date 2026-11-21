@@ -10,7 +10,8 @@
 /* The cell store (cells.c) as draw.c sees it: each size's grid and the cells
  * of its screens, laid out as mode 0 draws them. Only the two files that make
  * the console's screen include this. Everything else reaches the store
- * through the hooks in cells.h. */
+ * through the hooks in cells.h. A screen's rows are laid out in its ring
+ * (screen.h), and the store reaches a screen's cells through the screen. */
 
 #include "core/sys/sst.h"
 #include "core/term/cells.h"
@@ -90,38 +91,35 @@ typedef struct
     cells_fill_t in;
 } cells_later_t;
 
-// The cells of a screen and how its rows are laid out: the scroll remap and
-// what the rows are still owed. A row of the screen is in a row of memory,
-// which row_idx gives by slot. A fill or a shift is owed to the row of
-// memory, so it goes where the row goes and a scroll moves none of them.
-// The screen has TERM_SPARE_ROWS more rows of memory than slots: spare is
-// the one in no slot, which a smooth scroll gives the row coming in while
-// the row going out still shows.
-typedef struct
+// The cells of a screen and what its rows are still owed. A row of the
+// screen is in a row of memory, which the screen's ring gives (screen.h). A
+// fill or a shift is owed to the row of memory, so it goes where the row
+// goes and a scroll moves none of them. The screen has TERM_SPARE_ROWS more
+// rows of memory than slots: the ring's spare is the one in no slot, which
+// a smooth scroll gives the row coming in while the row going out still
+// shows. cancels goes up, on both screens of a grid, at each scroll, index,
+// clear and change of height, which end a smooth scroll of the grid, and at
+// nothing else.
+typedef struct screen_cells
 {
     mode0_cell_t *mem;
     uint8_t width;
-    uint8_t row_idx[TERM_MAX_HEIGHT];
-    uint8_t spare;
     uint8_t owed[TERM_MEM_ROWS];
     cells_owed_t what[TERM_MEM_ROWS];
     cells_later_t later;
-    uint8_t y_offset;
-    /* The rows scrolled off the top that are still in the cell store, the
-     * newest first. A taller view shows them again; ED 3 forgets them. */
-    uint8_t hidden;
     bool all_clean;
-} screen_buf_t;
+    uint32_t cancels;
+} screen_cells_t;
 
-// The terminal at one size and its screens' cells. cancels goes up at each
-// scroll, index, clear and change of height, which end a smooth scroll of
-// the size, and at nothing else.
+// The terminal at one size, the line sizes and rings of its screens, and
+// their cells: the primary's, then the alternate's, which a build without
+// TERM_ALT_SCREEN does not give its screen.
 typedef struct
 {
     term_grid_t grid;
     uint8_t lines[2 * TERM_MAX_HEIGHT];
-    screen_buf_t bufs[2]; /* [0] = primary, [1] = alt, as the terminal's screens */
-    uint32_t cancels;
+    uint8_t row_idx[2 * TERM_MAX_HEIGHT];
+    screen_cells_t bufs[2];
 } cells_t;
 
 extern cells_t cells_40;
@@ -132,60 +130,35 @@ extern cells_t cells_80;
  * and clears it. */
 extern bool cells_moved;
 
-/* A grid of the store's, or NULL for one with no cells: a program's own size
- * (term_add_grid), which the screen does not draw. */
-static inline cells_t *cells_of(term_grid_t *g)
+// The cells of row y of a screen that has them.
+static inline mode0_cell_t *cells_row(const screen_t *s, uint8_t y)
 {
-    return g == &cells_80.grid ? &cells_80 : g == &cells_40.grid ? &cells_40 : NULL;
-}
-
-// The screen showing, which the terminal chooses.
-static inline screen_buf_t *cells_buf(cells_t *cells)
-{
-    return &cells->bufs[cells_term.alt_active ? 1 : 0];
-}
-
-// Add `row` to `y_offset` and wrap into [0, TERM_MAX_HEIGHT). Used to
-// translate a logical row into a physical row_idx[] slot. Inputs are
-// constrained to [0, TERM_MAX_HEIGHT), so the sum can't exceed 2*MAX-1
-// (=63), which fits in uint8_t.
-static inline uint8_t cells_buf_slot(uint8_t y_offset, uint8_t row)
-{
-    uint8_t slot = (uint8_t)(y_offset + row);
-    if (slot >= TERM_MAX_HEIGHT)
-        slot -= TERM_MAX_HEIGHT;
-    return slot;
-}
-
-// The row of memory that row y of the screen is in.
-static inline uint8_t cells_buf_mem(const screen_buf_t *buf, uint8_t y)
-{
-    return buf->row_idx[cells_buf_slot(buf->y_offset, y)];
-}
-
-static inline mode0_cell_t *cells_buf_row(const screen_buf_t *buf, uint8_t y)
-{
-    return buf->mem + (uint32_t)cells_buf_mem(buf, y) * buf->width;
+    const screen_cells_t *c = s->cells;
+    return c->mem + (uint32_t)screen_mem(s, y) * c->width;
 }
 
 // Each screen's cells are mode 0's, and each size's width is set.
 void cells_store_init(void);
 
+// New grids at both sizes, their screens laid out in the store's line sizes
+// and rings and given its cells.
+void cells_store_grids(void);
+
 // Every cell of the store, the scrollback too, is a blank in the default
 // colors at once.
 void cells_store_blank(void);
 
-// Do a scroll of between left and right margins that a screen is owed,
-// or else pay one row of a screen what it is owed, the screen showing
-// first.
-void cells_clean_task(cells_t *cells);
+// Do a scroll of between left and right margins that a screen of the grid
+// is owed, or else pay one row of a screen what it is owed, the screen
+// showing first.
+void cells_clean_task(term_grid_t *g);
 
-/* A screen's layout in the savestate: its scroll remap and spare row, what
- * each row of memory is owed in a record of 12 bytes, and the rest. A put
- * first does a scroll the screen is owed, so the layout saved is the layout
- * the cells are in. */
+/* A screen's layout in the savestate: its ring and spare row, what each row
+ * of memory is owed in a record of 12 bytes, and the rest. A put first does
+ * a scroll the screen is owed, so the layout saved is the layout the cells
+ * are in. For a screen of the store's, with cells. */
 #define CELLS_BUF_SST_SIZE (TERM_MAX_HEIGHT + 1 + 13 * TERM_MEM_ROWS + 3)
-void cells_put_buf(sst_cursor_t *c, screen_buf_t *b);
-bool cells_get_buf(sst_cursor_t *c, screen_buf_t *b);
+void cells_put_buf(sst_cursor_t *c, screen_t *s);
+bool cells_get_buf(sst_cursor_t *c, screen_t *s);
 
 #endif /* _CORE_TERM_CELLS_STORE_H_ */

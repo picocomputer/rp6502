@@ -184,8 +184,8 @@ C_KEYWORDS = {"if", "else", "for", "while", "do", "return", "break",
               "union", "enum", "typedef"}
 C_TYPES = {"void", "bool", "char", "int", "unsigned", "long", "short",
            "uint8_t", "uint16_t", "uint32_t", "int32_t", "size_t",
-           "term_t", "term_grid_t", "term_pos_t", "cells_t", "screen_buf_t",
-           "cells_smooth_t", "ansi_state_t", "mode0_cell_t"}
+           "term_t", "term_grid_t", "term_pos_t", "cells_t", "screen_t",
+           "screen_cells_t", "cells_smooth_t", "ansi_state_t", "mode0_cell_t"}
 C_TOKEN = re.compile(r"""
     (?P<comment>//.*|/\*.*?(\*/|$))
   | (?P<string>"(\\.|[^"\\])*"|'(\\.|[^'\\])*')

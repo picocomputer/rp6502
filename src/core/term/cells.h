@@ -73,10 +73,12 @@ extern const sst_table_t cells_sst;
  *
  * The terminal has already changed its own state when it calls one, so the
  * cursor, the margins and the line sizes are the new ones. Colors come from
- * the pen, and an erased cell takes the pen's colors, not reversed. The cells follow t->alt_active for which screen is showing. All
- * but the colors and the replies are for one grid; the cells find their own
- * from it. A program's own size (term_add_grid) is a grid with no cells,
- * which these ignore. */
+ * the pen, and an erased cell takes the pen's colors, not reversed. All but
+ * the colors and the replies are for one grid, and for the screen of it
+ * showing unless they say otherwise; the cells are the screen's own. A
+ * program's own size (term_add_grid) is a grid whose screens have no cells:
+ * a scroll, an index, a clear, a reset, ED 3 and a change of height move
+ * their rings (screen.h), and the rest ignore them. */
 
 // An answer to a query.
 void cells_reply(const term_t *t, const char *s, size_t n);

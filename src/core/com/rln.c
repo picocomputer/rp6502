@@ -1501,7 +1501,7 @@ void HOST_IN_FLASH_FUNC rln_init(void)
     rln_overwrite = false;
     rln_pinned_width = 0;
     rln_pinned_height = 0;
-    term_grid_init(&rln_grid, 80, rln_grid_lines, RLN_GRID_ROWS);
+    term_grid_init(&rln_grid, 80, rln_grid_lines, NULL, RLN_GRID_ROWS);
 }
 
 void rln_run(void)

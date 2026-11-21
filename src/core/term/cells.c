@@ -11,6 +11,7 @@
 #include "core/vga/mode/mode.h"
 #include "core/vga/pixel_format.h"
 #include "machine.h"
+#include <assert.h>
 #include <string.h>
 
 // The cell store of the console's screen on a machine that draws it: the
@@ -23,8 +24,8 @@
 // The logic herein will make more sense if you remember this:
 
 // 1. The screen data doesn't move when scrolling. Instead, the rows
-//    are remapped through y_offset and row_idx, and mode 0's row words
-//    say where each row's cells are.
+//    are remapped through each screen's ring, y_offset and row_idx
+//    (screen.h), and mode 0's row words say where each row's cells are.
 // 2. The screen doesn't fully clear immediately. To keep the UART
 //    buffer from overflowing, lines are cleared in a background task
 //    and checked as the cursor moves into them. Nothing fills more
@@ -221,39 +222,41 @@ cells_t cells_80;
 bool cells_moved;
 
 /* draw.c's CELL chunk saves the store: each size's grid and its screens'
- * layout. The cells and their colors are mode 0's (mode0.h). The count of
- * cancels is not saved: a load re-arms the smooth scroll against it. */
+ * layout. The cells and their colors are mode 0's (mode0.h). The counts of
+ * cancels are not saved: a load re-arms the smooth scroll against them. */
 #define CELLS_STORE_SST(X)                                             \
     X(SKIP, cells_40, "draw.c's CELL chunk saves all but cancels")     \
     X(SKIP, cells_80, "draw.c's CELL chunk saves all but cancels")     \
     X(SKIP, cells_moved, "the canvas's load publishes everything")
 SST_TABLE(cells_store, CELLS_STORE_SST)
 
-static void cells_settle(screen_buf_t *buf);
+static void cells_settle(screen_t *s);
 
 /* The cells' addresses are never written, because they are mode 0's, the
  * same in every build of a machine. */
-void cells_put_buf(sst_cursor_t *c, screen_buf_t *b)
+void cells_put_buf(sst_cursor_t *c, screen_t *s)
 {
-    cells_settle(b);
-    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
-        sst_put_u8(c, b->row_idx[i]);
-    sst_put_u8(c, b->spare);
+    const uint8_t *const start = c->at;
+    screen_cells_t *b = s->cells;
+    cells_settle(s);
+    for (int i = 0; i < s->rows; i++)
+        sst_put_u8(c, s->row_idx[i]);
+    sst_put_u8(c, s->spare);
     /* What each row of memory is owed, and its record in 12 bytes. */
-    for (int i = 0; i < TERM_MEM_ROWS; i++)
+    for (int i = 0; i < s->mem_rows; i++)
     {
         sst_put_u8(c, b->owed[i]);
         if (b->owed[i] == CELLS_OWED_SHIFT)
         {
-            const cells_shift_t *s = &b->what[i].shift;
-            sst_put_u8(c, s->from);
-            sst_put_u8(c, s->to);
-            sst_put_u8(c, s->end);
-            sst_put_u8(c, s->cols);
-            sst_put_u16(c, s->left_fg);
-            sst_put_u16(c, s->left_bg);
-            sst_put_u16(c, s->right_fg);
-            sst_put_u16(c, s->right_bg);
+            const cells_shift_t *h = &b->what[i].shift;
+            sst_put_u8(c, h->from);
+            sst_put_u8(c, h->to);
+            sst_put_u8(c, h->end);
+            sst_put_u8(c, h->cols);
+            sst_put_u16(c, h->left_fg);
+            sst_put_u16(c, h->left_bg);
+            sst_put_u16(c, h->right_fg);
+            sst_put_u16(c, h->right_bg);
         }
         else if (b->owed[i] == CELLS_OWED_MARKS)
         {
@@ -281,37 +284,40 @@ void cells_put_buf(sst_cursor_t *c, screen_buf_t *b)
             for (int k = 0; k < 12; k++)
                 sst_put_u8(c, 0);
     }
-    sst_put_u8(c, b->y_offset);
-    sst_put_u8(c, b->hidden);
+    sst_put_u8(c, s->y_offset);
+    sst_put_u8(c, s->hidden);
     sst_put_bool(c, b->all_clean);
+    assert(!sst_ok(c) || c->at - start == CELLS_BUF_SST_SIZE);
+    (void)start;
 }
 
-bool cells_get_buf(sst_cursor_t *c, screen_buf_t *b)
+bool cells_get_buf(sst_cursor_t *c, screen_t *s)
 {
+    screen_cells_t *b = s->cells;
     bool ok = true;
-    for (int i = 0; i < TERM_MAX_HEIGHT; i++)
-        b->row_idx[i] = sst_get_u8(c);
-    b->spare = sst_get_u8(c);
-    for (int i = 0; i < TERM_MEM_ROWS; i++)
+    for (int i = 0; i < s->rows; i++)
+        s->row_idx[i] = sst_get_u8(c);
+    s->spare = sst_get_u8(c);
+    for (int i = 0; i < s->mem_rows; i++)
     {
         b->owed[i] = sst_get_u8(c);
         memset(&b->what[i], 0, sizeof(b->what[i]));
         if (b->owed[i] == CELLS_OWED_SHIFT)
         {
-            cells_shift_t *s = &b->what[i].shift;
-            s->from = sst_get_u8(c);
-            s->to = sst_get_u8(c);
-            s->end = sst_get_u8(c);
-            s->cols = sst_get_u8(c);
-            s->left_fg = sst_get_u16(c);
-            s->left_bg = sst_get_u16(c);
-            s->right_fg = sst_get_u16(c);
-            s->right_bg = sst_get_u16(c);
+            cells_shift_t *h = &b->what[i].shift;
+            h->from = sst_get_u8(c);
+            h->to = sst_get_u8(c);
+            h->end = sst_get_u8(c);
+            h->cols = sst_get_u8(c);
+            h->left_fg = sst_get_u16(c);
+            h->left_bg = sst_get_u16(c);
+            h->right_fg = sst_get_u16(c);
+            h->right_bg = sst_get_u16(c);
             /* The record indexes the row's cells. */
-            ok &= s->cols <= b->width && s->end <= s->cols && s->to <= s->end &&
-                  s->from + s->end - s->to <= s->cols &&
-                  mode0_color_ok(s->left_fg) && mode0_color_ok(s->left_bg) &&
-                  mode0_color_ok(s->right_fg) && mode0_color_ok(s->right_bg);
+            ok &= h->cols <= b->width && h->end <= h->cols && h->to <= h->end &&
+                  h->from + h->end - h->to <= h->cols &&
+                  mode0_color_ok(h->left_fg) && mode0_color_ok(h->left_bg) &&
+                  mode0_color_ok(h->right_fg) && mode0_color_ok(h->right_bg);
         }
         else if (b->owed[i] == CELLS_OWED_MARKS)
         {
@@ -347,45 +353,50 @@ bool cells_get_buf(sst_cursor_t *c, screen_buf_t *b)
                 sst_get_u8(c);
         }
     }
-    b->y_offset = sst_get_u8(c);
-    b->hidden = sst_get_u8(c);
+    s->y_offset = sst_get_u8(c);
+    s->hidden = sst_get_u8(c);
     b->all_clean = sst_get_bool(c);
     b->later.n = 0;
-    /* Everything here indexes the cell array. row_idx is the scroll remap and
+    /* Everything here indexes the cell array. row_idx is the ring and
      * y_offset is added to it before the lookup, so both are bounded, and
-     * the slots and the spare name every row of memory once. */
+     * the slots and the spare name every row of memory once. With no spare
+     * row, the spare is none. */
     if (!sst_ok(c))
         return false;
-    if (!ok || b->y_offset >= TERM_MAX_HEIGHT || b->hidden >= TERM_MAX_HEIGHT)
+    if (!ok || s->y_offset >= s->rows || s->hidden >= s->rows)
         return sst_refuse(c, "a screen's layout out of range");
     bool seen[TERM_MEM_ROWS] = {false};
-    for (int i = 0; i <= TERM_MAX_HEIGHT; i++)
+    for (int i = 0; i < s->mem_rows; i++)
     {
-        uint8_t m = i < TERM_MAX_HEIGHT ? b->row_idx[i] : b->spare;
-        if (i == TERM_MAX_HEIGHT && !TERM_SPARE_ROWS)
-            break;
-        if (m >= TERM_MEM_ROWS || seen[m])
+        uint8_t m = i < s->rows ? s->row_idx[i] : s->spare;
+        if (m >= s->mem_rows || seen[m])
             return sst_refuse(c, "a screen's rows out of order");
         seen[m] = true;
     }
+    if (s->mem_rows == s->rows && s->spare != s->mem_rows)
+        return sst_refuse(c, "a screen's rows out of order");
     return true;
 }
 
-// The cells of a grid, with the scroll its screen is owed done: for
-// everything that changes a cell.
-static inline cells_t *cells_settled(term_grid_t *g)
+// The screen showing, with the scroll it is owed done, or NULL for a screen
+// with no cells: for everything that changes a cell.
+static inline screen_t *cells_settled(term_grid_t *g)
 {
-    cells_t *cells = cells_of(g);
-    if (cells && cells_buf(cells)->later.n)
-        cells_settle(cells_buf(cells));
-    return cells;
+    screen_t *s = g->shown;
+    if (!s->cells)
+        return NULL;
+    if (s->cells->later.n)
+        cells_settle(s);
+    return s;
 }
 
-// Translate a logical row (0..height-1) into the start of its physical
-// cell row.
-static inline mode0_cell_t *cells_row_ptr(cells_t *cells, uint8_t y)
+// A scroll, an index, a clear or a change of height of the grid ends its
+// smooth scroll.
+static void cells_cancel(term_grid_t *g)
 {
-    return cells_buf_row(cells_buf(cells), y);
+    for (int b = 0; b < 2; b++)
+        if (g->screen[b].cells)
+            g->screen[b].cells->cancels++;
 }
 
 /* ---- colors ------------------------------------------------------------ */
@@ -587,7 +598,7 @@ static void cells_row_marks(mode0_cell_t *row, unsigned from, unsigned to,
 
 // Pay row m of memory what it is owed. A shift moves the survivors, then
 // blanks the columns either side of where they landed.
-static void cells_pay(screen_buf_t *buf, uint8_t m)
+static void cells_pay(screen_cells_t *buf, uint8_t m)
 {
     mode0_cell_t *row = buf->mem + (uint32_t)m * buf->width;
     const uint8_t owed = buf->owed[m];
@@ -618,26 +629,26 @@ static void cells_pay(screen_buf_t *buf, uint8_t m)
 
 // Make sure you call this any time you change rows.
 // It pays the row what it is still owed.
-static void cells_clean_line(cells_t *cells, uint8_t y)
+static void cells_clean_line(screen_t *s, uint8_t y)
 {
-    screen_buf_t *buf = cells_buf(cells);
-    const uint8_t m = cells_buf_mem(buf, y);
-    if (buf->owed[m])
-        cells_pay(buf, m);
+    const uint8_t m = screen_mem(s, y);
+    if (s->cells->owed[m])
+        cells_pay(s->cells, m);
 }
 
-// Clean one dirty row in `buf`. Returns true if a row was cleaned this
-// call, false if the buffer was already fully clean. Operates on an
-// explicit buffer so the task path can drain the inactive (alt) buffer
+// Clean one dirty row of a screen. Returns true if a row was cleaned this
+// call, false if the screen was already fully clean. Operates on an
+// explicit screen so the task path can drain the inactive (alt) screen
 // too -- otherwise the lazy mark on RIS would leave alt dirty until ?47
 // swaps it in.
-static bool cells_clean_one_dirty(screen_buf_t *buf, uint8_t height)
+static bool cells_clean_one_dirty(screen_t *s, uint8_t height)
 {
+    screen_cells_t *buf = s->cells;
     if (buf->all_clean)
         return false;
     for (uint8_t i = 0; i < height; i++)
     {
-        const uint8_t m = cells_buf_mem(buf, i);
+        const uint8_t m = screen_mem(s, i);
         if (buf->owed[m])
         {
             cells_pay(buf, m);
@@ -654,19 +665,19 @@ static bool cells_clean_one_dirty(screen_buf_t *buf, uint8_t height)
 // row is never dirty on the active buffer (the terminal touches every row it
 // puts the cursor on), so the cursor cell is never affected by this task and
 // it never has to call cells_cursor_restart_blink.
-void cells_clean_task(cells_t *cells)
+void cells_clean_task(term_grid_t *g)
 {
     for (int b = 0; b < 2; b++)
-        if (cells->bufs[b].later.n)
+        if (g->screen[b].cells && g->screen[b].cells->later.n)
         {
-            cells_settle(&cells->bufs[b]);
+            cells_settle(&g->screen[b]);
             return;
         }
-    if (cells_clean_one_dirty(cells_buf(cells), cells->grid.height))
+    if (cells_clean_one_dirty(g->shown, g->height))
         return;
-    screen_buf_t *other = &cells->bufs[cells_term.alt_active ? 0 : 1];
-    if (other->mem)
-        cells_clean_one_dirty(other, cells->grid.height);
+    screen_t *other = &g->screen[g->shown == &g->screen[0] ? 1 : 0];
+    if (other->cells)
+        cells_clean_one_dirty(other, g->height);
 }
 
 // Rows [from, to) of the screen are owed this fill, in place of whatever
@@ -674,16 +685,17 @@ void cells_clean_task(cells_t *cells)
 // so a selective erase of it spares all of that fill or lands whole. A row
 // owed a shift or a change of attributes is paid before a selective erase,
 // which goes by its guards.
-static void cells_mark_rows_with(screen_buf_t *s, uint8_t from, uint8_t to,
+static void cells_mark_rows_with(screen_t *s, uint8_t from, uint8_t to,
                                  const cells_fill_t *e)
 {
+    screen_cells_t *b = s->cells;
     for (uint8_t i = from; i < to; i++)
     {
-        const uint8_t m = cells_buf_mem(s, i);
-        cells_fill_t *fill = &s->what[m].fill;
-        if (e->selective && s->owed[m] >= CELLS_OWED_SHIFT)
-            cells_pay(s, m);
-        else if (e->selective && s->owed[m] == CELLS_OWED_FILL && !fill->selective)
+        const uint8_t m = screen_mem(s, i);
+        cells_fill_t *fill = &b->what[m].fill;
+        if (e->selective && b->owed[m] >= CELLS_OWED_SHIFT)
+            cells_pay(b, m);
+        else if (e->selective && b->owed[m] == CELLS_OWED_FILL && !fill->selective)
         {
             if (fill->cell.attributes & MODE0_ATTR_GUARD)
                 continue;
@@ -691,56 +703,51 @@ static void cells_mark_rows_with(screen_buf_t *s, uint8_t from, uint8_t to,
             fill->selective = false;
             continue;
         }
-        s->owed[m] = CELLS_OWED_FILL;
+        b->owed[m] = CELLS_OWED_FILL;
         *fill = *e;
     }
-    s->all_clean = false;
+    b->all_clean = false;
 }
 
 // Lazy-erase rows [from, to) to spaces in the default colors.
-static void cells_mark_rows_default(screen_buf_t *s, uint8_t from, uint8_t to)
+static void cells_mark_rows_default(screen_t *s, uint8_t from, uint8_t to)
 {
     const cells_fill_t e = cells_blank(' ', MODE0_ENTRY(MODE0_DEFAULT_FG, false),
                                        MODE0_ENTRY(MODE0_DEFAULT_BG, false), false);
     cells_mark_rows_with(s, from, to, &e);
 }
 
-// Lazy-erase rows [from, to) of the active screen in the pen's colors.
-static void cells_mark_rows_erase(term_t *term, cells_t *cells, uint8_t from, uint8_t to,
+// Lazy-erase rows [from, to) of a screen in the pen's colors.
+static void cells_mark_rows_erase(term_t *term, screen_t *s, uint8_t from, uint8_t to,
                                   bool selective)
 {
     const cells_fill_t e = cells_pen_erase(term, selective);
-    cells_mark_rows_with(cells_buf(cells), from, to, &e);
+    cells_mark_rows_with(s, from, to, &e);
 }
 
-// Lazy clear of the given screen buffer: resets y_offset / row_idx to
-// identity and marks every visible row dirty with the given erase. A scroll
-// the screen was owed is forgotten with the cells it would have moved.
-// No cell memory is touched here -- cells_clean_task drains dirty rows in
-// the background (one row per tick, on both buffers), and the active
-// buffer's cursor row is also cleaned synchronously when the terminal
-// touches it.
-static void cells_mark_buf_erased(screen_buf_t *buf, uint8_t height, const cells_fill_t *e)
+// Lazy clear of the given screen: its ring in order, and every visible row
+// marked dirty with the given erase. A scroll the screen was owed is
+// forgotten with the cells it would have moved. No cell memory is touched
+// here -- cells_clean_task drains dirty rows in the background (one row per
+// tick, on both screens), and the active screen's cursor row is also
+// cleaned synchronously when the terminal touches it.
+static void cells_mark_buf_erased(screen_t *s, uint8_t height, const cells_fill_t *e)
 {
-    buf->y_offset = 0;
-    buf->hidden = 0;
-    buf->later.n = 0;
-    buf->spare = TERM_MAX_HEIGHT;
-    for (uint8_t y = 0; y < TERM_MAX_HEIGHT; y++)
-        buf->row_idx[y] = y;
-    for (uint8_t m = 0; m < TERM_MEM_ROWS; m++)
-        buf->owed[m] = CELLS_OWED_NONE;
-    cells_mark_rows_with(buf, 0, height, e);
+    screen_cells_t *b = s->cells;
+    screen_clear(s);
+    b->later.n = 0;
+    for (uint8_t m = 0; m < s->mem_rows; m++)
+        b->owed[m] = CELLS_OWED_NONE;
+    cells_mark_rows_with(s, 0, height, e);
 }
 
 /* ---- what the terminal asks of the cells ------------------------------- */
 
 void cells_touch(term_t *term, term_grid_t *g, uint8_t y)
 {
-    if (!cells_of(g))
-        return;
     (void)term;
-    cells_clean_line(cells_of(g), y);
+    if (g->shown->cells)
+        cells_clean_line(g->shown, y);
 }
 
 // The cell a glyph lands as on a grid: the pen's colors and attributes,
@@ -808,10 +815,11 @@ static cells_fill_t cells_glyph_cell(term_t *term, const term_grid_t *g, uint8_t
 
 void cells_glyphs(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, uint8_t byte, unsigned n)
 {
-    if (!cells_settled(g))
+    screen_t *s = cells_settled(g);
+    if (!s)
         return;
     const cells_fill_t e = cells_glyph_cell(term, g, byte);
-    mode0_cell_t *at = cells_row_ptr(cells_of(g), y) + x;
+    mode0_cell_t *at = cells_row(s, y) + x;
     if (n == 1)
     {
         // A character: its word and its three colors.
@@ -826,9 +834,10 @@ void cells_wipe(term_t *term, term_grid_t *g, uint8_t y, unsigned from, unsigned
                 bool selective)
 {
     (void)term;
-    if (!cells_settled(g))
+    screen_t *s = cells_settled(g);
+    if (!s)
         return;
-    mode0_cell_t *row = cells_row_ptr(cells_of(g), y);
+    mode0_cell_t *row = cells_row(s, y);
     for (unsigned x = from; x < to; x++)
         if (!selective || !(row[x].attributes & MODE0_ATTR_GUARD))
             row[x].glyph = ' ';
@@ -836,18 +845,20 @@ void cells_wipe(term_t *term, term_grid_t *g, uint8_t y, unsigned from, unsigned
 
 void cells_fill_row(term_t *term, term_grid_t *g, uint8_t y, uint8_t byte)
 {
-    if (!cells_settled(g))
+    screen_t *s = cells_settled(g);
+    if (!s)
         return;
     const cells_fill_t e = cells_glyph_cell(term, g, byte);
-    cells_mark_rows_with(cells_buf(cells_of(g)), y, (uint8_t)(y + 1), &e);
+    cells_mark_rows_with(s, y, (uint8_t)(y + 1), &e);
 }
 
 void cells_erase(term_t *term, term_grid_t *g, uint8_t y, unsigned from, unsigned to,
                  bool selective)
 {
-    if (!cells_settled(g))
+    screen_t *s = cells_settled(g);
+    if (!s)
         return;
-    cells_fill_erased(term, cells_row_ptr(cells_of(g), y), from, to, selective);
+    cells_fill_erased(term, cells_row(s, y), from, to, selective);
 }
 
 // Columns [x, end) of a row move n right, erased cells coming in at x; or n
@@ -868,28 +879,30 @@ static void cells_row_delete(term_t *term, mode0_cell_t *row, unsigned x, unsign
 
 void cells_insert(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, unsigned end, unsigned n)
 {
-    if (!cells_settled(g))
+    screen_t *s = cells_settled(g);
+    if (!s)
         return;
-    cells_row_insert(term, cells_row_ptr(cells_of(g), y), x, end, n);
+    cells_row_insert(term, cells_row(s, y), x, end, n);
 }
 
 void cells_delete(term_t *term, term_grid_t *g, uint8_t y, uint8_t x, unsigned end, unsigned n)
 {
-    if (!cells_settled(g))
+    screen_t *s = cells_settled(g);
+    if (!s)
         return;
-    cells_row_delete(term, cells_row_ptr(cells_of(g), y), x, end, n);
+    cells_row_delete(term, cells_row(s, y), x, end, n);
 }
 
 void cells_copy(term_t *term, term_grid_t *g, uint8_t sy, unsigned sx, uint8_t dy, unsigned dx,
                 unsigned n)
 {
-    if (!cells_settled(g))
-        return;
     (void)term;
-    cells_t *cells = cells_of(g);
-    cells_clean_line(cells, sy);
-    cells_clean_line(cells, dy);
-    cells_run_move(cells_row_ptr(cells, dy) + dx, cells_row_ptr(cells, sy) + sx, n);
+    screen_t *s = cells_settled(g);
+    if (!s)
+        return;
+    cells_clean_line(s, sy);
+    cells_clean_line(s, dy);
+    cells_run_move(cells_row(s, dy) + dx, cells_row(s, sy) + sx, n);
 }
 
 // The row is only owed the change, after whatever it was owed before: no
@@ -898,11 +911,11 @@ void cells_copy(term_t *term, term_grid_t *g, uint8_t sy, unsigned sx, uint8_t d
 void cells_attrs(term_t *term, term_grid_t *g, uint8_t y, unsigned from, unsigned to,
                  unsigned set, unsigned clear, unsigned toggle)
 {
-    if (!cells_settled(g))
+    screen_t *s = cells_settled(g);
+    if (!s)
         return;
-    cells_t *cells = cells_of(g);
-    screen_buf_t *buf = cells_buf(cells);
-    const uint8_t m = cells_buf_mem(buf, y);
+    screen_cells_t *buf = s->cells;
+    const uint8_t m = screen_mem(s, y);
     if (term->ice_colors)
     {
         set &= ~CELLS_MARK_BLINK;
@@ -961,10 +974,10 @@ static inline void cells_shift_add(cells_shift_t *s, uint8_t cols, uint8_t n, bo
 void cells_shift(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigned from,
                  unsigned end, unsigned count, bool left)
 {
-    if (!cells_settled(g))
+    screen_t *sc = cells_settled(g);
+    if (!sc)
         return;
-    cells_t *cells = cells_of(g);
-    screen_buf_t *buf = cells_buf(cells);
+    screen_cells_t *buf = sc->cells;
     if (from || end != buf->width)
     {
         for (uint8_t y = top; y <= bot; y++)
@@ -974,11 +987,11 @@ void cells_shift(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigne
             if (from >= e)
                 continue;
             const unsigned n = count < e - from ? count : e - from;
-            cells_clean_line(cells, y);
+            cells_clean_line(sc, y);
             if (left)
-                cells_row_delete(term, cells_row_ptr(cells, y), from, e, n);
+                cells_row_delete(term, cells_row(sc, y), from, e, n);
             else
-                cells_row_insert(term, cells_row_ptr(cells, y), from, e, n);
+                cells_row_insert(term, cells_row(sc, y), from, e, n);
         }
         return;
     }
@@ -990,7 +1003,7 @@ void cells_shift(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigne
     cells_shift_add(&whole, width, count < width ? (uint8_t)count : width, left, fg, bg);
     for (uint8_t y = top; y <= bot; y++)
     {
-        const uint8_t m = cells_buf_mem(buf, y);
+        const uint8_t m = screen_mem(sc, y);
         cells_shift_t *s = &buf->what[m].shift;
         const uint8_t owed = buf->owed[m];
         if (owed == CELLS_OWED_NONE && !lines[y])
@@ -1024,67 +1037,46 @@ void cells_shift(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigne
         *s = r;
     }
     buf->all_clean = false;
-    cells_clean_line(cells, term_pos(g)->y);
+    cells_clean_line(sc, term_pos(g)->y);
 }
 
 void cells_erase_rows(term_t *term, term_grid_t *g, uint8_t from, uint8_t to,
                       bool selective)
 {
-    if (!cells_settled(g))
+    screen_t *s = cells_settled(g);
+    if (!s)
         return;
-    cells_mark_rows_erase(term, cells_of(g), from, to, selective);
+    cells_mark_rows_erase(term, s, from, to, selective);
 }
 
 void cells_align(term_t *term, term_grid_t *g)
 {
-    if (!cells_settled(g))
-        return;
     (void)term;
+    screen_t *s = cells_settled(g);
+    if (!s)
+        return;
     const cells_fill_t e = cells_blank('E', MODE0_ENTRY(MODE0_DEFAULT_FG, false),
                                        MODE0_ENTRY(MODE0_DEFAULT_BG, false), false);
-    cells_mark_rows_with(cells_buf(cells_of(g)), 0, g->height, &e);
+    cells_mark_rows_with(s, 0, g->height, &e);
 }
 
-// Rotate row_idx within rows [top, bot] by n: each row takes the row of
-// memory n rows below it, or above it, and the n at the end go round. What
-// a row is owed is its row of memory's, so it goes with it.
-static void cells_rows_rotate(screen_buf_t *s, uint8_t top, uint8_t bot, uint8_t n, bool up)
-{
-    uint8_t y_off = s->y_offset;
-    uint8_t saved[TERM_MAX_HEIGHT];
-    if (up)
-    {
-        for (uint8_t i = 0; i < n; i++)
-            saved[i] = s->row_idx[cells_buf_slot(y_off, (uint8_t)(top + i))];
-        for (uint8_t i = top; (uint8_t)(i + n) <= bot; i++)
-            s->row_idx[cells_buf_slot(y_off, i)] = s->row_idx[cells_buf_slot(y_off, (uint8_t)(i + n))];
-        for (uint8_t i = 0; i < n; i++)
-            s->row_idx[cells_buf_slot(y_off, (uint8_t)(bot - n + 1 + i))] = saved[i];
-    }
-    else
-    {
-        for (uint8_t i = 0; i < n; i++)
-            saved[i] = s->row_idx[cells_buf_slot(y_off, (uint8_t)(bot - n + 1 + i))];
-        for (int i = (int)bot; i - (int)n >= (int)top; i--)
-            s->row_idx[cells_buf_slot(y_off, (uint8_t)i)] = s->row_idx[cells_buf_slot(y_off, (uint8_t)(i - n))];
-        for (uint8_t i = 0; i < n; i++)
-            s->row_idx[cells_buf_slot(y_off, (uint8_t)(top + i))] = saved[i];
-    }
-}
-
-// The rows move, and the n rows coming in are lazy-erased in the pen's
-// colors.
+// The rows move round the ring, which takes what each row of memory is
+// owed with it, and the n rows coming in are lazy-erased in the pen's
+// colors. A screen with no cells has only its ring.
 void cells_scroll(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, uint8_t n, bool up)
 {
-    if (!cells_settled(g))
+    screen_t *s = cells_settled(g);
+    if (!s)
+    {
+        screen_rotate(g->shown, top, bot, n, up);
         return;
-    cells_t *cells = cells_of(g);
-    cells->cancels++;
-    cells_rows_rotate(cells_buf(cells), top, bot, n, up);
+    }
+    cells_cancel(g);
+    screen_rotate(s, top, bot, n, up);
     if (up)
-        cells_mark_rows_erase(term, cells, (uint8_t)(bot - n + 1), (uint8_t)(bot + 1), false);
+        cells_mark_rows_erase(term, s, (uint8_t)(bot - n + 1), (uint8_t)(bot + 1), false);
     else
-        cells_mark_rows_erase(term, cells, top, (uint8_t)(top + n), false);
+        cells_mark_rows_erase(term, s, top, (uint8_t)(top + n), false);
 }
 
 // The cells of a row either side of columns [from, end), kept while the
@@ -1162,8 +1154,9 @@ static CELLS_RUN void cells_strip_move(mode0_cell_t *to, const mode0_cell_t *row
 // next round the region. No row of the region is owed anything: they were
 // paid when the scroll came to be owed, and everything that changes a cell
 // does the scroll first.
-static void cells_settle(screen_buf_t *buf)
+static void cells_settle(screen_t *s)
 {
+    screen_cells_t *buf = s->cells;
     const cells_later_t l = buf->later;
     if (!l.n)
         return;
@@ -1177,20 +1170,20 @@ static void cells_settle(screen_buf_t *buf)
         for (unsigned i = 0; i < h - n; i++)
         {
             const unsigned to = l.up ? top + i : bot - i;
-            cells_run_move(cells_buf_row(buf, (uint8_t)to) + from,
-                           cells_buf_row(buf, (uint8_t)(l.up ? to + n : to - n)) + from, inside);
+            cells_run_move(cells_row(s, (uint8_t)to) + from,
+                           cells_row(s, (uint8_t)(l.up ? to + n : to - n)) + from, inside);
         }
     }
     else if (n < h)
     {
-        cells_rows_rotate(buf, (uint8_t)top, (uint8_t)bot, (uint8_t)n, l.up);
+        screen_rotate(s, (uint8_t)top, (uint8_t)bot, (uint8_t)n, l.up);
         // Row j of the region now has the cells either side that belong
         // on row j + step, counted round the region.
         const unsigned step = l.up ? n : h - n;
         cells_strip_t strip;
         for (unsigned first = 0, moved = 0; moved < h; first++)
         {
-            mode0_cell_t *row = cells_buf_row(buf, (uint8_t)(top + first));
+            mode0_cell_t *row = cells_row(s, (uint8_t)(top + first));
             cells_strip_keep(&strip, row, from, end, width);
             for (unsigned j = first;;)
             {
@@ -1201,7 +1194,7 @@ static void cells_settle(screen_buf_t *buf)
                     cells_strip_put(&strip, row, from, end, width);
                     break;
                 }
-                mode0_cell_t *other = cells_buf_row(buf, (uint8_t)(top + src));
+                mode0_cell_t *other = cells_row(s, (uint8_t)(top + src));
                 cells_strip_move(row, other, from, end, width);
                 row = other;
                 j = src;
@@ -1209,7 +1202,7 @@ static void cells_settle(screen_buf_t *buf)
         }
     }
     for (unsigned i = 0; i < n; i++)
-        fill_glyph(cells_buf_row(buf, (uint8_t)(l.up ? bot - i : top + i)), from, end, &l.in);
+        fill_glyph(cells_row(s, (uint8_t)(l.up ? bot - i : top + i)), from, end, &l.in);
 }
 
 // The screen is only owed the scroll. One of the same columns the same way
@@ -1218,11 +1211,10 @@ static void cells_settle(screen_buf_t *buf)
 void cells_scroll_cols(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, unsigned from,
                        unsigned end, uint8_t n, bool up)
 {
-    if (!cells_of(g))
+    screen_t *s = g->shown;
+    if (!s->cells)
         return;
-    cells_t *cells = cells_of(g);
-    screen_buf_t *buf = cells_buf(cells);
-    cells_later_t *l = &buf->later;
+    cells_later_t *l = &s->cells->later;
     const cells_fill_t in = cells_pen_erase(term, false);
     const unsigned h = (unsigned)bot - top + 1;
     if (l->n && l->top == top && l->bot == bot && l->from == from && l->end == end &&
@@ -1231,132 +1223,114 @@ void cells_scroll_cols(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, u
         l->n = (uint8_t)(l->n + n < h ? l->n + n : h);
         return;
     }
-    cells_settle(buf);
+    cells_settle(s);
     for (unsigned y = top; y <= bot; y++)
-        cells_clean_line(cells, (uint8_t)y);
+        cells_clean_line(s, (uint8_t)y);
     const cells_later_t later = {top, bot, (uint8_t)from, (uint8_t)end, n, up, in};
     *l = later;
 }
 
-// The fast scroll: the viewport rotates through y_offset.
+// The fast scroll: the viewport rotates through y_offset, and the row
+// coming in is lazy-erased in the pen's colors.
 void cells_index(term_t *term, term_grid_t *g, bool up)
 {
-    if (!cells_settled(g))
+    screen_t *s = cells_settled(g);
+    if (!s)
+    {
+        screen_index(g->shown, g->height, up);
         return;
-    cells_t *cells = cells_of(g);
-    cells->cancels++;
-    screen_buf_t *s = cells_buf(cells);
-    uint8_t last = (uint8_t)(g->height - 1);
+    }
+    cells_cancel(g);
+    screen_index(s, g->height, up);
     if (up)
-    {
-        if (++s->y_offset == TERM_MAX_HEIGHT)
-            s->y_offset = 0;
-        if (s->hidden < TERM_MAX_HEIGHT - g->height)
-            s->hidden++;
-        cells_mark_rows_erase(term, cells, last, g->height, false);
-    }
+        cells_mark_rows_erase(term, s, (uint8_t)(g->height - 1), g->height, false);
     else
-    {
-        s->y_offset = s->y_offset ? (uint8_t)(s->y_offset - 1) : (uint8_t)(TERM_MAX_HEIGHT - 1);
-        if (s->hidden)
-            s->hidden--;
-        cells_mark_rows_erase(term, cells, 0, 1, false);
-    }
+        cells_mark_rows_erase(term, s, 0, 1, false);
 }
 
 void cells_forget(term_t *term, term_grid_t *g)
 {
-    if (!cells_of(g))
-        return;
     (void)term;
-    cells_buf(cells_of(g))->hidden = 0;
+    screen_forget(g->shown);
 }
 
 void cells_clear(term_t *term, term_grid_t *g)
 {
-    if (!cells_of(g))
+    screen_t *s = g->shown;
+    if (!s->cells)
+    {
+        screen_clear(s);
         return;
+    }
     const cells_fill_t e = cells_pen_erase(term, false);
-    cells_of(g)->cancels++;
-    cells_mark_buf_erased(cells_buf(cells_of(g)), g->height, &e);
+    cells_cancel(g);
+    cells_mark_buf_erased(s, g->height, &e);
 }
 
 void cells_height(term_t *t, term_grid_t *g, bool grow, bool top)
 {
     (void)t;
-    if (!cells_settled(g))
+    screen_t *s = cells_settled(g);
+    if (!s)
+    {
+        screen_height(g->shown, grow, top);
+        for (int b = 0; b < 2; b++)
+            screen_fit(&g->screen[b], g->height);
         return;
-    cells_t *cells = cells_of(g);
-    cells->cancels++;
-    screen_buf_t *s = cells_buf(cells);
+    }
+    cells_cancel(g);
     uint8_t h = g->height;
     // Other rows are in view now, and one of them may be owed a fill from
     // before it left.
-    cells->bufs[0].all_clean = cells->bufs[1].all_clean = false;
-    if (grow && top)
-    {
-        // Everything moves down a row and the row above comes into view. It
-        // is a row of scrollback when there is one, otherwise a blank one.
-        if (!s->y_offset)
-            s->y_offset = TERM_MAX_HEIGHT - 1;
-        else
-            s->y_offset--;
-        // A row of scrollback comes back as it left, with the fill it was
-        // still owed.
-        if (s->hidden)
-            s->hidden--;
-        else
-            cells_mark_rows_default(s, 0, 1);
+    for (int b = 0; b < 2; b++)
+        if (g->screen[b].cells)
+            g->screen[b].cells->all_clean = false;
+    // With top, a grow moves everything down a row and the row above comes
+    // into view: a row of scrollback, which comes back as it left with the
+    // fill it was still owed, or else a blank one. A shrink sends the top
+    // row out of view to join the scrollback.
+    if (screen_height(s, grow, top))
+        cells_mark_rows_default(s, 0, 1);
+    if (top)
         // The cursor's row is another row now, and is never owed a fill.
-        cells_clean_line(cells, term_pos(g)->y);
-    }
+        cells_clean_line(s, term_pos(g)->y);
     else if (grow)
         // Expose one fresh row at the bottom. The cleaner task drains it in
         // the background; the worst case is one row of stale content for a
         // frame or two.
         cells_mark_rows_default(s, (uint8_t)(h - 1), h);
-    else if (top)
-    {
-        // The top row goes out of view and joins the scrollback.
-        if (++s->y_offset >= TERM_MAX_HEIGHT)
-            s->y_offset -= TERM_MAX_HEIGHT;
-        s->hidden++;
-        cells_clean_line(cells, term_pos(g)->y);
-    }
     // Otherwise the bottom row is no longer visible; the cleaner only drains
     // visible rows. Leave it -- a later grow that re-exposes the row will
     // mark it dirty.
 
     // The rows above the view and the rows below it share the ring, so the
     // scrollback is at most what the view leaves over.
-    uint8_t room = (uint8_t)(TERM_MAX_HEIGHT - h);
     for (int b = 0; b < 2; b++)
-        if (cells->bufs[b].hidden > room)
-            cells->bufs[b].hidden = room;
+        screen_fit(&g->screen[b], h);
 }
 
 void cells_reset(term_t *term, term_grid_t *g)
 {
-    if (!cells_of(g))
-        return;
     (void)term;
-    cells_t *cells = cells_of(g);
-    if (cells->bufs[1].mem)
+    screen_t *alt = &g->screen[1];
+    if (!alt->cells)
     {
-        const cells_fill_t e = cells_blank(' ', MODE0_ENTRY(MODE0_DEFAULT_FG, false),
-                                           MODE0_ENTRY(MODE0_DEFAULT_BG, false), false);
-        cells_mark_buf_erased(&cells->bufs[1], g->height, &e);
+        screen_clear(alt);
+        return;
     }
+    const cells_fill_t e = cells_blank(' ', MODE0_ENTRY(MODE0_DEFAULT_FG, false),
+                                       MODE0_ENTRY(MODE0_DEFAULT_BG, false), false);
+    cells_mark_buf_erased(alt, g->height, &e);
 }
 
 bool cells_row_used(term_t *term, term_grid_t *g, uint8_t y)
 {
     (void)term;
-    cells_t *cells = cells_settled(g);
-    if (!cells)
+    screen_t *s = cells_settled(g);
+    if (!s)
         return false;
-    cells_clean_line(cells, y);
-    const mode0_cell_t *row = cells_row_ptr(cells, y);
+    cells_clean_line(s, y);
+    const mode0_cell_t *row = cells_row(s, y);
     const mode0_colors_t *colors = cells_colors(row);
     const uint16_t blank = MODE0_ENTRY(MODE0_DEFAULT_BG, false);
     for (unsigned x = 0; x < g->width; x++)
@@ -1371,21 +1345,28 @@ void cells_store_init(void)
 {
     // The cells are mode 0's: each size's primary, then its alternate.
     mode0_cell_t *mem = mode0_cells;
-    cells_40.bufs[0].mem = mem;
-    mem += 40 * TERM_MEM_ROWS;
-#if TERM_ALT_SCREEN
-    cells_40.bufs[1].mem = mem;
-    mem += 40 * TERM_MEM_ROWS;
-#endif
-    cells_80.bufs[0].mem = mem;
-#if TERM_ALT_SCREEN
-    mem += 80 * TERM_MEM_ROWS;
-    cells_80.bufs[1].mem = mem;
-#endif
-    /* Without an alt store, bufs[1] never has cells, and the terminal never
-     * switches to it. */
-    cells_40.bufs[0].width = cells_40.bufs[1].width = 40;
-    cells_80.bufs[0].width = cells_80.bufs[1].width = 80;
+    cells_t *const all[] = {&cells_40, &cells_80};
+    for (int n = 0; n < 2; n++)
+        for (int b = 0; b < MODE0_SCREENS; b++)
+        {
+            all[n]->bufs[b].mem = mem;
+            all[n]->bufs[b].width = n ? 80 : 40;
+            mem += all[n]->bufs[b].width * TERM_MEM_ROWS;
+        }
+}
+
+/* Without an alternate store, the alternate screen has no cells, and the
+ * terminal never switches to it. */
+void cells_store_grids(void)
+{
+    cells_t *const all[] = {&cells_40, &cells_80};
+    for (int n = 0; n < 2; n++)
+    {
+        term_grid_init(&all[n]->grid, n ? 80 : 40, all[n]->lines, all[n]->row_idx,
+                       TERM_MAX_HEIGHT);
+        for (int b = 0; b < MODE0_SCREENS; b++)
+            screen_set_cells(&all[n]->grid.screen[b], &all[n]->bufs[b]);
+    }
 }
 
 void cells_store_blank(void)

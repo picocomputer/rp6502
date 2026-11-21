@@ -14,7 +14,8 @@
 #include "machine.h"
 
 /* The console's terminal on the RIA, at the VGA's two sizes. Each grid keeps
- * only its line sizes, a byte a row for each screen. */
+ * only its line sizes, a byte a row for each screen, and its screens' rings
+ * (screen.h), which with no cells need no row_idx. */
 term_t cells_term;
 static term_grid_t cells_40, cells_80;
 static uint8_t cells_40_lines[2 * TERM_MAX_HEIGHT];
@@ -30,8 +31,8 @@ static int cells_out_chars(const char *buf, int length, bool force)
 
 void cells_init(void)
 {
-    term_grid_init(&cells_40, 40, cells_40_lines, TERM_MAX_HEIGHT);
-    term_grid_init(&cells_80, 80, cells_80_lines, TERM_MAX_HEIGHT);
+    term_grid_init(&cells_40, 40, cells_40_lines, NULL, TERM_MAX_HEIGHT);
+    term_grid_init(&cells_80, 80, cells_80_lines, NULL, TERM_MAX_HEIGHT);
     term_grid_t *const grids[] = {&cells_40, &cells_80};
     term_init(&cells_term, grids, 2);
     manifold_set_term_out(cells_out_chars);
@@ -258,11 +259,13 @@ void cells_fill_row(term_t *t, term_grid_t *g, uint8_t y, uint8_t byte)
 
 void cells_scroll(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, uint8_t n, bool up)
 {
+    screen_rotate(g->shown, top, bot, n, up);
     cells_rows_scroll(t, g, top, bot, n, up, true);
 }
 
 void cells_index(term_t *t, term_grid_t *g, bool up)
 {
+    screen_index(g->shown, g->height, up);
     cells_rows_scroll(t, g, 0, g->height - 1u, 1, up, true);
 }
 
@@ -304,11 +307,13 @@ bool HOST_IN_RAM_FUNC cells_smooth_busy(const term_grid_t *g)
 
 void cells_forget(term_t *t, term_grid_t *g)
 {
-    (void)t, (void)g;
+    (void)t;
+    screen_forget(g->shown);
 }
 
 void cells_clear(term_t *t, term_grid_t *g)
 {
+    screen_clear(g->shown);
     cells_rows_erased(t, g, 0, 32, true);
 }
 
@@ -318,6 +323,9 @@ void cells_clear(term_t *t, term_grid_t *g)
 void cells_height(term_t *t, term_grid_t *g, bool grow, bool top)
 {
     (void)t;
+    screen_height(g->shown, grow, top);
+    for (int s = 0; s < 2; s++)
+        screen_fit(&g->screen[s], g->height);
     if (g != &cells_40 && g != &cells_80)
         return;
     for (int screen = 0; screen < 2; screen++)
@@ -333,6 +341,7 @@ void cells_height(term_t *t, term_grid_t *g, bool grow, bool top)
 void cells_reset(term_t *t, term_grid_t *g)
 {
     (void)t;
+    screen_clear(&g->screen[1]);
     if (g == &cells_40 || g == &cells_80)
         cells_used[g == &cells_80][1] = 0;
 }

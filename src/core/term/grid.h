@@ -20,8 +20,8 @@
 #include <stdint.h>
 
 // The terminal at one size. Each screen, primary and alternate, has its own
-// cursor position, saved position and line sizes; the margins and the tab
-// stops belong to the grid. shown points at the screen showing:
+// cursor position, saved position, line sizes and ring of rows; the margins
+// and the tab stops belong to the grid. shown points at the screen showing:
 // term_grid_init and term_grid_copy start it, and term_show sets it. The
 // cursor's column never reaches the width: writing the last column sets
 // wrap_pending instead, as on a VT102. The left and right margins are the
@@ -30,7 +30,6 @@ struct term_grid
 {
     uint8_t width;
     uint8_t height;
-    uint8_t rows; // the most rows: each screen's line holds this many
     uint8_t margin_top, margin_bot;
     uint8_t margin_left, margin_right;
     screen_t screen[2]; // the primary, then the alternate
@@ -41,11 +40,12 @@ struct term_grid
 /* The cursor and the line sizes of the screen showing.
  *
  * These stay static inline and read only the grid's fields and the shown
- * screen's pos and line, never anything in another file: term_pos, and
- * grid.c's grid_in_columns, run in the RIA's HOST_IN_RAM_FUNC drain path
- * (grid_*_scrolls, term_holds, term_byte_scrolls and the smooth-busy hook),
- * where a call to a function in flash cannot go. term_pos carries the
- * annotation too, for when it is not inlined. */
+ * screen's pos and line, never the ring or anything in another file:
+ * term_pos, and grid.c's grid_in_columns, which reads only the margins, run
+ * in the RIA's HOST_IN_RAM_FUNC drain path (grid_*_scrolls, term_holds,
+ * term_byte_scrolls and the smooth-busy hook), where a call to a function in
+ * flash cannot go. term_pos carries the annotation too, for when it is not
+ * inlined. */
 static inline HOST_IN_RAM_FUNC term_pos_t *term_pos(const term_grid_t *g)
 {
     return &g->shown->pos;
@@ -53,6 +53,12 @@ static inline HOST_IN_RAM_FUNC term_pos_t *term_pos(const term_grid_t *g)
 static inline uint8_t *term_lines(const term_grid_t *g)
 {
     return g->shown->line;
+}
+
+// The most rows the grid has: the slots of each screen's ring.
+static inline uint8_t grid_rows(const term_grid_t *g)
+{
+    return g->screen[0].rows;
 }
 
 // The columns of row y: half the width on a double-size line.
@@ -141,12 +147,16 @@ static inline void grid_restore_wrap(term_grid_t *g, bool on)
 void grid_set_tabs(term_grid_t *g, const uint16_t *cols);
 
 /* g becomes a copy of from, showing the same screen, with its own line sizes
- * in lines, rows a screen. */
+ * in lines, rows a screen, and no cells. Its rings start in order. */
 void term_grid_copy(term_grid_t *g, const term_grid_t *from, uint8_t *lines, uint8_t rows);
 
-// A grid of width columns by 30 rows (fewer if it holds fewer), its line
-// sizes in lines, which holds rows bytes for each of the two screens.
-void term_grid_init(term_grid_t *g, uint8_t width, uint8_t *lines, uint8_t rows);
+// A grid of width columns by 30 rows (fewer if it holds fewer), with rows
+// rows a screen: its line sizes in lines and its rings in row_idx, each
+// holding rows bytes for each of the two screens. row_idx may be NULL, for
+// screens that will have no cells. The screens have none until their owner
+// gives them theirs (screen_set_cells).
+void term_grid_init(term_grid_t *g, uint8_t width, uint8_t *lines, uint8_t *row_idx,
+                    uint8_t rows);
 
 // A grid's rows, one at a time, as the view grows or shrinks. A grow or
 // shrink with the cursor on the bottom row moves the screen, not the cursor.
@@ -160,14 +170,15 @@ void term_set_width(term_t *t, term_grid_t *g, uint8_t width);
 /* ---- savestate ----------------------------------------------------------
  *
  * The rows of a grid for its owner's SST_TABLE (sst.h), field by field, so
- * no padding reaches the blob. They leave out its line sizes, which are the
- * owner's array. */
+ * no padding reaches the blob. They leave out its line sizes and its rings,
+ * which are the owner's arrays. The screens' rows, which are the same for
+ * both, are saved once, the primary's. */
 
 #define TERM_POS_SST_ROWS(Y, p)                                        \
     Y(U8, p.x) Y(U8, p.y) Y(BOOL, p.wrap_pending)
 
 #define TERM_GRID_SST_ROWS(Y, g)                                       \
-    Y(U8, g.width) Y(U8, g.height) Y(U8, g.rows)                       \
+    Y(U8, g.width) Y(U8, g.height) Y(U8, g.screen[0].rows)                     \
     Y(U8, g.margin_top) Y(U8, g.margin_bot)                            \
     Y(U8, g.margin_left) Y(U8, g.margin_right)                         \
     TERM_POS_SST_ROWS(Y, g.screen[0].pos)                              \
@@ -182,8 +193,9 @@ void term_set_width(term_t *t, term_grid_t *g, uint8_t width);
 bool term_grid_sst_ok(sst_cursor_t *c, const term_grid_t *g, uint8_t rows);
 
 /* A grid's rows and then its line sizes, for an owner whose grid is not
- * always followed and so needs an FN row of its own. A grid of other rows
- * than g has is refused. */
+ * always followed and so needs an FN row of its own, and whose screens have
+ * no cells: a load lays their rings out in order, which for such a screen
+ * leaves nothing out of place. A grid of other rows than g has is refused. */
 #define TERM_GRID_SST_SIZE(rows) (19 + TERM_TAB_BITMAP_BYTES + 2 * (rows))
 void term_grid_sst_put(sst_cursor_t *c, const term_grid_t *g);
 bool term_grid_sst_get(sst_cursor_t *c, term_grid_t *g);

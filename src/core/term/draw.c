@@ -59,8 +59,8 @@ static inline uint32_t cells_frame(void)
 
 // A smooth scroll moving on one of a size's screens (DECSCLM): rows top to
 // bot, one way, the row of memory that went out (ghost) and its line size,
-// and the first frame it shows moving. The store ends it when its count of
-// cancels moves on from the one the scroll started at.
+// and the first frame it shows moving. The store ends it when the screen's
+// count of cancels moves on from the one the scroll started at.
 typedef struct
 {
     bool on;
@@ -97,7 +97,7 @@ static uint16_t cells_cursor_color; // OSC 12
 // changes it, so most bytes leave the row words as they are.
 static struct
 {
-    const screen_buf_t *buf;
+    const screen_t *screen;
     uint8_t y_offset;
     uint8_t height;
     uint8_t row_idx[TERM_MAX_HEIGHT];
@@ -110,19 +110,32 @@ static inline cells_draw_t *cells_draw(const cells_t *cells)
     return cells == &cells_80 ? &draw_80 : &draw_40;
 }
 
+// The size of the store a grid is, or NULL for a program's own size
+// (term_add_grid), which is not drawn.
+static inline cells_t *cells_size(const term_grid_t *g)
+{
+    return g == &cells_80.grid ? &cells_80 : g == &cells_40.grid ? &cells_40 : NULL;
+}
+
+// The store's count of cancels of the screen a size's smooth scroll is on.
+static inline uint32_t cells_smooth_cancels(const cells_t *cells)
+{
+    return cells->bufs[cells_draw(cells)->smooth.buf].cancels;
+}
+
 // A smooth scroll is moving on the size: it started and the store has not
 // ended it since.
 static inline bool cells_smoothing(const cells_t *cells)
 {
     const cells_smooth_t *sm = &cells_draw(cells)->smooth;
-    return sm->on && sm->cancels == cells->cancels;
+    return sm->on && sm->cancels == cells_smooth_cancels(cells);
 }
 
 // A smooth scroll the store ended is put away.
 static void cells_smooth_ended(const cells_t *cells)
 {
     cells_smooth_t *sm = &cells_draw(cells)->smooth;
-    if (sm->cancels != cells->cancels)
+    if (sm->cancels != cells_smooth_cancels(cells))
         sm->on = false;
 }
 
@@ -166,11 +179,12 @@ static bool cells_sst_grids_ok(sst_cursor_t *c)
            term_grid_sst_ok(c, &cells_80.grid, TERM_MAX_HEIGHT);
 }
 
-/* Each screen's layout, as the store puts it. A put does a scroll the
- * screen is owed first, which moves cells that MODE0_DRIVER saves after this
- * row. The count of cancels is not saved: a smooth scroll the store ended is
- * put away before the save, and a load starts the ones it brings back from
- * the store's count as it is. */
+/* Each screen's layout, as the store puts it: each size's screens that have
+ * cells. A put does a scroll the screen is owed first, which moves cells
+ * that MODE0_DRIVER saves after this row. The counts of cancels are not
+ * saved: a smooth scroll the store ended is put away before the save, and a
+ * load starts the ones it brings back from the store's count as it is,
+ * once the smooth scroll's row below has said which screen it is on. */
 static void cells_sst_put_bufs(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
@@ -178,8 +192,8 @@ static void cells_sst_put_bufs(sst_cursor_t *c, unsigned flags)
     for (int n = 0; n < 2; n++)
     {
         cells_smooth_ended(all[n]);
-        for (int b = 0; b < 2; b++)
-            cells_put_buf(c, &all[n]->bufs[b]);
+        for (int b = 0; b < MODE0_SCREENS; b++)
+            cells_put_buf(c, &all[n]->grid.screen[b]);
     }
 }
 
@@ -188,12 +202,9 @@ static bool cells_sst_get_bufs(sst_cursor_t *c, unsigned flags)
     (void)flags;
     cells_t *const all[] = {&cells_40, &cells_80};
     for (int n = 0; n < 2; n++)
-    {
-        for (int b = 0; b < 2; b++)
-            if (!cells_get_buf(c, &all[n]->bufs[b]))
+        for (int b = 0; b < MODE0_SCREENS; b++)
+            if (!cells_get_buf(c, &all[n]->grid.screen[b]))
                 return false;
-        cells_draw(all[n])->smooth.cancels = all[n]->cancels;
-    }
     return true;
 }
 
@@ -205,17 +216,21 @@ static bool cells_sst_get_bufs(sst_cursor_t *c, unsigned flags)
     Y(U8, s.smooth.ghost) Y(U8, s.smooth.ghost_size)                   \
     Y(U32, s.smooth.frame)
 
-/* The ghost and the rows of a smooth scroll index the cells and the row
- * words. */
+/* The screen of a smooth scroll, on or not, indexes the store's screens,
+ * and the ghost and the rows of one that is on index the cells and the row
+ * words. It counts its cancels from the store's count as it is. */
 static bool cells_sst_smooth_ok(sst_cursor_t *c)
 {
-    const cells_smooth_t *const all[] = {&draw_40.smooth, &draw_80.smooth};
+    cells_smooth_t *const all[] = {&draw_40.smooth, &draw_80.smooth};
+    cells_t *const sizes[] = {&cells_40, &cells_80};
     for (int n = 0; n < 2; n++)
     {
-        const cells_smooth_t *sm = all[n];
-        if (sm->on && (sm->buf > 1 || sm->top > sm->bot || sm->bot >= TERM_MAX_HEIGHT ||
-                       sm->ghost >= TERM_MEM_ROWS || sm->ghost_size > TERM_LINE_BOTTOM))
+        cells_smooth_t *sm = all[n];
+        if (sm->buf >= MODE0_SCREENS ||
+            (sm->on && (sm->top > sm->bot || sm->bot >= TERM_MAX_HEIGHT ||
+                        sm->ghost >= TERM_MEM_ROWS || sm->ghost_size > TERM_LINE_BOTTOM)))
             return sst_refuse(c, "a smooth scroll out of range");
+        sm->cancels = cells_smooth_cancels(sizes[n]);
     }
     return true;
 }
@@ -232,8 +247,10 @@ static bool cells_sst_smooth_ok(sst_cursor_t *c)
     X(BYTES, cells_80.lines)                                           \
     X(VALIDATE, cells_sst_grids_ok)                                    \
     X(FN, cells_sst_put_bufs, cells_sst_get_bufs,                      \
-      4 * CELLS_BUF_SST_SIZE, 1)                                       \
+      2 * MODE0_SCREENS * CELLS_BUF_SST_SIZE, 1)                       \
+    X(IN_FN, cells_40.row_idx)                                         \
     X(IN_FN, cells_40.bufs)                                            \
+    X(IN_FN, cells_80.row_idx)                                         \
     X(IN_FN, cells_80.bufs)                                            \
     X(STRUCT, draw_40, CELLS_BLINK_SST_ROWS)                           \
     X(STRUCT, draw_80, CELLS_BLINK_SST_ROWS)                           \
@@ -272,46 +289,48 @@ static cells_t *cells_visible(void);
 void cells_smooth(term_t *term, term_grid_t *g, uint8_t top, uint8_t bot, bool up, uint8_t out)
 {
     (void)term;
-    cells_t *cells = cells_of(g);
+    cells_t *cells = cells_size(g);
     if (!TERM_SPARE_ROWS || !cells || cells != cells_visible())
         return;
-    screen_buf_t *s = cells_buf(cells);
+    screen_t *s = g->shown;
+    screen_cells_t *b = s->cells;
     const uint8_t in_row = up ? bot : top;
-    const uint8_t in_slot = cells_buf_slot(s->y_offset, in_row);
+    const uint8_t in_slot = screen_slot(s, in_row);
     uint8_t ghost = s->row_idx[in_slot];
     if (top == 0 && bot == g->height - 1)
     {
         // The whole screen rotated through y_offset: the row that went is
         // the slot just past the edge it left by.
-        uint8_t slot = up ? cells_buf_slot(s->y_offset, TERM_MAX_HEIGHT - 1)
-                          : cells_buf_slot(s->y_offset, g->height % TERM_MAX_HEIGHT);
+        uint8_t slot = up ? screen_slot(s, s->rows - 1)
+                          : screen_slot(s, g->height % s->rows);
         ghost = s->row_idx[slot];
     }
     if (ghost == s->row_idx[in_slot])
     {
         const uint8_t spare = s->spare;
         s->row_idx[in_slot] = spare;
-        s->owed[spare] = s->owed[ghost];
-        s->what[spare] = s->what[ghost];
-        s->owed[ghost] = CELLS_OWED_NONE;
+        b->owed[spare] = b->owed[ghost];
+        b->what[spare] = b->what[ghost];
+        b->owed[ghost] = CELLS_OWED_NONE;
         s->spare = ghost;
     }
+    const uint8_t buf = (uint8_t)(s - g->screen);
     cells_draw(cells)->smooth = (cells_smooth_t){
         .on = true,
-        .buf = (uint8_t)(s - cells->bufs),
+        .buf = buf,
         .top = top,
         .bot = bot,
         .up = up,
         .ghost = ghost,
         .ghost_size = out,
         .frame = cells_frame() + 1,
-        .cancels = cells->cancels,
+        .cancels = cells->bufs[buf].cancels,
     };
 }
 
 bool cells_smooth_busy(const term_grid_t *g)
 {
-    const cells_t *cells = cells_of((term_grid_t *)g);
+    const cells_t *cells = cells_size(g);
     return cells && cells_smoothing(cells) &&
            (int32_t)(cells_frame() - (cells_draw(cells)->smooth.frame + TERM_SMOOTH_FRAMES -
                                       1)) < 0;
@@ -401,20 +420,20 @@ void cells_publish(void)
 {
     cells_t *cells = cells_visible();
     cells_draw_t *d = cells_draw(cells);
-    const screen_buf_t *buf = cells_buf(cells);
+    const screen_t *s = cells->grid.shown;
     const uint8_t *ls = term_lines(&cells->grid);
-    if (cells_published.buf != buf || cells_published.y_offset != buf->y_offset ||
+    if (cells_published.screen != s || cells_published.y_offset != s->y_offset ||
         cells_published.height != cells->grid.height ||
-        cells_rows_differ(cells_published.row_idx, buf->row_idx) ||
+        cells_rows_differ(cells_published.row_idx, s->row_idx) ||
         cells_rows_differ(cells_published.lines, ls))
     {
-        cells_published.buf = buf;
-        cells_published.y_offset = buf->y_offset;
+        cells_published.screen = s;
+        cells_published.y_offset = s->y_offset;
         cells_published.height = cells->grid.height;
-        memcpy(cells_published.row_idx, buf->row_idx, TERM_MAX_HEIGHT);
+        memcpy(cells_published.row_idx, s->row_idx, TERM_MAX_HEIGHT);
         memcpy(cells_published.lines, ls, TERM_MAX_HEIGHT);
         for (uint8_t y = 0; y < cells->grid.height; y++)
-            mode0_regs.row[y] = MODE0_ROW(cells_buf_row(buf, y) - mode0_cells, ls[y]);
+            mode0_regs.row[y] = MODE0_ROW(cells_row(s, y) - mode0_cells, ls[y]);
     }
     const term_pos_t *pos = term_pos(&cells->grid);
     // A cursor with a wrap pending is on the column it wrote, as on a VT100.
@@ -425,11 +444,12 @@ void cells_publish(void)
     mode0_regs.screen = d->cell_blink_phase |
                         (cells_term.reverse_screen ? MODE0_SCREEN_REVERSE : 0);
     cells_smooth_t *sm = &d->smooth;
-    const bool smooth = cells_smoothing(cells) && sm->buf == (uint8_t)(buf - cells->bufs);
+    const bool smooth = cells_smoothing(cells) && sm->buf == (uint8_t)(s - cells->grid.screen);
     if (smooth)
     {
+        const screen_cells_t *b = s->cells;
         mode0_regs.smooth_ghost =
-            MODE0_ROW(buf->mem + (uint32_t)sm->ghost * buf->width - mode0_cells, sm->ghost_size);
+            MODE0_ROW(b->mem + (uint32_t)sm->ghost * b->width - mode0_cells, sm->ghost_size);
         mode0_regs.smooth_frame = (uint32_t)sm->frame;
         mode0_regs.smooth = MODE0_SMOOTH(sm->top, sm->bot, sm->up);
     }
@@ -516,8 +536,7 @@ void cells_restart(void)
     /* New grids, and a new terminal on them, whose RIS lays out every
      * screen's cells again, stops a smooth scroll, restarts the blinks and
      * resets the palette. A program's own grid is dropped with the rest. */
-    term_grid_init(&cells_40.grid, 40, cells_40.lines, TERM_MAX_HEIGHT);
-    term_grid_init(&cells_80.grid, 80, cells_80.lines, TERM_MAX_HEIGHT);
+    cells_store_grids();
     term_grid_t *const grids[] = {&cells_40.grid, &cells_80.grid};
     term_init(&cells_term, grids, 2);
     cells_stale = true;
@@ -580,8 +599,8 @@ void cells_task(void)
     cells_stale |= cells_cell_blink_phase_task(&draw_80);
     if (cells_stale || cells_moved)
         cells_publish();
-    cells_clean_task(&cells_40);
-    cells_clean_task(&cells_80);
+    cells_clean_task(&cells_40.grid);
+    cells_clean_task(&cells_80.grid);
 }
 
 void cells_RIS(void)
