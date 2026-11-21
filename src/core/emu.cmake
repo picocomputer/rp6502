@@ -94,6 +94,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/term/term.c
     ${RP6502_SRC}/core/term/grid.c
     ${RP6502_SRC}/core/term/screen.c
+    ${RP6502_SRC}/core/term/cell_mode0.c
     ${RP6502_SRC}/core/term/console_term.c
     ${RP6502_SRC}/core/term/draw.c
 )

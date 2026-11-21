@@ -80,6 +80,17 @@ static inline HOST_IN_RAM_FUNC bool grid_in_columns(const term_grid_t *g, unsign
     return x >= g->margin_left && x <= g->margin_right;
 }
 
+// A scroll, an index, a clear or a change of height of the screen showing
+// ends the grid's smooth scroll (grid.h).
+static inline void grid_cancel(term_grid_t *g)
+{
+#if TERM_CELLS
+    g->cancels++;
+#else
+    (void)g;
+#endif
+}
+
 void term_grid_init(term_grid_t *g, uint8_t width, uint8_t *lines, uint8_t *row_idx,
                     uint8_t rows)
 {
@@ -142,6 +153,7 @@ void term_set_width(term_t *t, term_grid_t *g, uint8_t width)
 // scrollback of each screen is at most what the new height leaves.
 static void grid_height_step(term_grid_t *g, bool grow, bool top)
 {
+    grid_cancel(g);
     screen_height(g->shown, g->height, grow, top);
     for (int s = 0; s < 2; s++)
         screen_fit(&g->screen[s], g->height);
@@ -246,7 +258,10 @@ static uint8_t grid_scroll(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot,
     uint8_t region_h = (uint8_t)(bot - top + 1);
     uint8_t n = count > region_h ? region_h : (uint8_t)count;
     if (grid_all_columns(g))
+    {
+        grid_cancel(g);
         return screen_scroll(t, g->shown, top, bot, n, up, keep);
+    }
     screen_scroll_cols(t, g->shown, top, bot, g->margin_left, (unsigned)g->margin_right + 1, n,
                        up);
     return 0;
@@ -306,7 +321,10 @@ static void grid_scroll_one(term_t *t, term_grid_t *g, bool up)
         screen_touch(g->shown, edge);
     uint8_t ghost;
     if (grid_full_region(g))
+    {
+        grid_cancel(g);
         ghost = screen_index(t, g->shown, g->height, up, keep);
+    }
     else
         ghost = grid_scroll(t, g, top, bot, 1, up, keep);
     if (keep)
@@ -1354,6 +1372,7 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
         break;
     case GRID_CLEAR:
         screen_all_normal(g->shown);
+        grid_cancel(g);
         screen_clear(t, g->shown, g->height);
         break;
     case GRID_RESET:
@@ -1370,6 +1389,7 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
     case GRID_DECCOLM:
         grid_full_margins(g);
         screen_all_normal(g->shown);
+        grid_cancel(g);
         screen_clear(t, g->shown, g->height);
         grid_home(t, g);
         break;

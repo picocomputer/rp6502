@@ -89,17 +89,6 @@ term_grid_t *console_shown(const term_t *t)
 
 /* ---- smooth scroll ----------------------------------------------------- */
 
-uint32_t HOST_IN_RAM_FUNC console_cancels(const term_grid_t *g)
-{
-#if TERM_CELLS
-    const console_size_t *size = g == &console_80.grid ? &console_80 : &console_40;
-    return size->bufs[0].cancels + size->bufs[1].cancels;
-#else
-    (void)g;
-    return 0;
-#endif
-}
-
 // Only the size showing moves.
 void console_smooth(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, bool up,
                     uint8_t ghost)
@@ -110,7 +99,7 @@ void console_smooth(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, bool up
         .grid = g,
         .frame = (uint32_t)vga_frame_count() + 1,
 #if TERM_CELLS
-        .cancels = console_cancels(g),
+        .cancels = g->cancels,
         .screen = (uint8_t)(g->shown - g->screen),
         .top = top,
         .bot = bot,
@@ -132,7 +121,7 @@ const term_grid_t *HOST_IN_RAM_FUNC console_smooth_grid(void)
     if (sm->grid &&
         (!vga_connected() ||
 #if TERM_CELLS
-         sm->cancels != console_cancels(sm->grid) ||
+         sm->cancels != sm->grid->cancels ||
 #endif
          (int32_t)((uint32_t)vga_frame_count() - (sm->frame + TERM_SMOOTH_FRAMES - 1)) >= 0))
         sm->grid = NULL;

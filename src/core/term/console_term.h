@@ -91,7 +91,7 @@ typedef struct
     const term_grid_t *grid; // the grid moving, or NULL for none
     uint32_t frame;          // the first frame that shows the rows on their way
 #if TERM_CELLS
-    uint32_t cancels; // the store's count of the grid's cancels as it started
+    uint32_t cancels; // the grid's count of cancels as it started (grid.h)
     uint8_t screen;   // which of its screens: 0 the primary, 1 the alternate
     uint8_t top, bot;
     bool up;
@@ -104,7 +104,7 @@ void console_smooth(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot, bool up
                     uint8_t ghost);
 
 // The grid a smooth scroll is still moving, or NULL for none. One that has
-// landed, or that the store ended, is put away first, as it is when the VGA
+// landed, or that its grid ended, is put away first, as it is when the VGA
 // is gone, so the record holds only a scroll still moving. It runs on the
 // RIA's drain path from RAM.
 const term_grid_t *console_smooth_grid(void);
@@ -115,10 +115,6 @@ static inline HOST_IN_RAM_FUNC bool console_smooth_busy(const term_grid_t *g)
 {
     return console_smooth_grid() == g;
 }
-
-// The store's count of the cancels of g's screens (screen.h), for a record
-// that starts again from it.
-uint32_t console_cancels(const term_grid_t *g);
 
 /* ---- resets and colors -------------------------------------------------
  *

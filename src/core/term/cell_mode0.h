@@ -1,0 +1,300 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+#ifndef _CORE_TERM_CELL_MODE0_H_
+#define _CORE_TERM_CELL_MODE0_H_
+
+/* Mode 0's kind of cell (cell.h), which includes this: the cell as mode 0
+ * draws it (core/vga/mode/mode0.h), with its colors.
+ *
+ * A cell's glyph and attributes are one word. The glyph is where the font
+ * has it, so a scanline draws any cell with one lookup. The attributes
+ * hold the lines through a cell (underline, strike, overline), which a
+ * scanline reads only on the rows of the glyph where a line can be, and
+ * there it branches once per cell on the word being a bare glyph.
+ *
+ * A cell's colors are in a table beside the cells, mode0_colors, at the
+ * same index, so they go wherever the cell goes. A cell names its colors: a
+ * palette entry or a default color as an entry of mode 0's palette, an RGB
+ * color as the pixel. The pen chooses which as each cell is written, and a
+ * palette or default color that changes afterwards is one write to the
+ * palette, which every cell drawn with it shows on the next frame. */
+
+#include "core/sys/sst.h"
+#include "core/term/term.h"
+#include "core/vga/mode/mode0.h"
+#include "core/vga/pixel_format.h"
+#include <stdbool.h>
+#include <stdint.h>
+
+typedef mode0_cell_t cell_t;
+
+// A fill: the cell and its colors. An erase is a fill with a blank cell,
+// DECALN's is a fill with an E, and REP's is a fill with its glyph as the
+// pen draws it.
+typedef struct
+{
+    mode0_cell_t cell;
+    mode0_colors_t colors;
+    bool selective;
+} cell_fill_t;
+
+// The blank a shift brings in: a space in these colors.
+typedef struct
+{
+    uint16_t fg;
+    uint16_t bg;
+} cell_side_t;
+
+typedef struct
+{
+    mode0_cell_t cell[CELL_STRIP_MAX];
+    mode0_colors_t colors[CELL_STRIP_MAX];
+} cell_strip_t;
+
+// A fill in the savestate: the cell, its colors, and whether it is
+// selective. A side: its two colors.
+#define CELL_FILL_SST_SIZE 11
+#define CELL_SIDE_SST_SIZE 4
+
+/* ---- colors ------------------------------------------------------------ */
+
+// A cell's color at half brightness: an RGB pixel halved, or the faint twin
+// of an entry.
+static inline uint16_t cell_faint(uint16_t color)
+{
+    if (color & SCANVIDEO_ALPHA_MASK)
+        return mode0_faint(color);
+    return (uint16_t)(color + MODE0_ENTRY(MODE0_ENTRIES, false));
+}
+
+// A pen color before bold, faint and iCE colors, as a cell holds it: the
+// palette entry, the RGB pixel, or the default (dflt, MODE0_DEFAULT_FG or
+// _BG).
+static inline uint16_t cell_base(const term_color_t *c, unsigned dflt)
+{
+    switch (c->kind)
+    {
+    case TERM_COLOR_INDEX:
+        return MODE0_ENTRY(c->index, false);
+    case TERM_COLOR_RGB:
+        return c->rgb | SCANVIDEO_ALPHA_MASK;
+    default:
+        return MODE0_ENTRY(dflt, false);
+    }
+}
+
+// The colors the pen draws in. Bold brightens palette colors 0-7 and the
+// default foreground (to 15, as Linux does); faint halves each channel. In
+// iCE colors mode (?33) SGR 5/6 brightens a background of 0-7 or the default
+// instead of blinking -- the IBM-VGA hack the BBS scene relies on. A
+// brightened color is the entry it was brightened to.
+static inline uint16_t cell_pen_fg(const term_pen_t *pen)
+{
+    uint16_t fg;
+    if (pen->bold && pen->fg.kind == TERM_COLOR_INDEX && pen->fg.index < 8)
+        fg = MODE0_ENTRY(pen->fg.index + 8, false);
+    else if (pen->bold && pen->fg.kind == TERM_COLOR_DEFAULT)
+        fg = MODE0_ENTRY(15, false);
+    else
+        fg = cell_base(&pen->fg, MODE0_DEFAULT_FG);
+    return pen->faint ? cell_faint(fg) : fg;
+}
+
+static inline uint16_t cell_pen_bg(const term_t *term, const term_pen_t *pen)
+{
+    bool bright = term->ice_colors && (pen->sgr_attr & TERM_ATTR_ANY_BLINK);
+    if (bright && pen->bg.kind == TERM_COLOR_INDEX && pen->bg.index < 8)
+        return MODE0_ENTRY(pen->bg.index + 8, false);
+    if (bright && pen->bg.kind == TERM_COLOR_DEFAULT)
+        return MODE0_ENTRY(8, false);
+    return cell_base(&pen->bg, MODE0_DEFAULT_BG);
+}
+
+/* ---- fills and sides --------------------------------------------------- */
+
+// An erase takes the pen's colors, not reversed, and none of its
+// attributes, as xterm and Linux do.
+static inline cell_side_t cell_side_pen(const term_t *term)
+{
+    const term_pen_t *pen = term_pen(term);
+    const cell_side_t side = {cell_pen_fg(pen), cell_pen_bg(term, pen)};
+    return side;
+}
+
+static inline cell_side_t cell_side_default(void)
+{
+    const cell_side_t side = {MODE0_ENTRY(MODE0_DEFAULT_FG, false),
+                              MODE0_ENTRY(MODE0_DEFAULT_BG, false)};
+    return side;
+}
+
+static inline bool cell_side_same(const cell_side_t *a, const cell_side_t *b)
+{
+    return a->fg == b->fg && a->bg == b->bg;
+}
+
+// A blank cell in these colors, with no attributes and no guard. The
+// foreground matters too, because the cursor is drawn from the cell it sits
+// on.
+static inline cell_fill_t cell_blank(uint8_t code, cell_side_t side, bool selective)
+{
+    const cell_fill_t e = {{code, 0}, {side.fg, side.bg, side.fg}, selective};
+    return e;
+}
+
+static inline bool cell_fill_same(const cell_fill_t *a, const cell_fill_t *b)
+{
+    return a->selective == b->selective && a->cell.glyph == b->cell.glyph &&
+           a->cell.attributes == b->cell.attributes &&
+           a->colors.fg_color == b->colors.fg_color &&
+           a->colors.bg_color == b->colors.bg_color &&
+           a->colors.ul_color == b->colors.ul_color;
+}
+
+// The cell a character lands as: the pen's colors and attributes, and the
+// glyph where the font has it (mode0.h), in the font's rows for the
+// screen's width: 8 on the 40-column screen, drawn on the 320-wide
+// canvases, and 16 on the 80. SGR 7 and 8 swap and hide at the cell, and in
+// iCE colors mode (?33) the blink bits are left off the cell: the bright
+// background is the blink. An underline SGR 58 colored is flagged, so the
+// renderer reads its color; any other holds the foreground's color. A cell
+// written while DECSCA or SPA protects is guarded. The cell says when bold
+// brightened its ink and when its colors are swapped, so DECCARA and
+// DECRARA can undo either; a concealed cell has no ink to say it of.
+static inline cell_fill_t cell_from_pen(const term_t *term, uint8_t width, uint8_t code,
+                                        unsigned set)
+{
+    const term_pen_t *pen = term_pen(term);
+    const unsigned rows = width == 40 ? 8 : 16;
+    cell_fill_t e;
+    uint16_t f = cell_pen_fg(pen);
+    uint16_t b = cell_pen_bg(term, pen);
+    if (pen->reverse)
+    {
+        uint16_t tmp = f;
+        f = b;
+        b = tmp;
+    }
+    if (pen->conceal)
+        f = b;
+    e.colors.fg_color = f;
+    e.colors.bg_color = b;
+    uint16_t cell_mask = TERM_ATTR_CELL_MASK;
+    if (term->ice_colors)
+        cell_mask &= (uint16_t)~TERM_ATTR_ANY_BLINK;
+    uint16_t attributes = (uint16_t)(pen->sgr_attr & cell_mask);
+    if (pen->ul_set && (attributes & TERM_ATTR_UL_MASK))
+        attributes |= MODE0_ATTR_UL_COLOR;
+    if (term_protecting(term))
+        attributes |= MODE0_ATTR_GUARD;
+    if (pen->reverse)
+        attributes |= MODE0_ATTR_REVERSE;
+    if (pen->bold && !pen->conceal)
+    {
+        if (pen->fg.kind == TERM_COLOR_INDEX && pen->fg.index < 8)
+            attributes |= MODE0_ATTR_BOLD;
+        else if (pen->fg.kind == TERM_COLOR_DEFAULT)
+            attributes |= MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT;
+    }
+    uint16_t glyph = code;
+    if (set == CELL_SET_DEC)
+        glyph = MODE0_GLYPH_DEC(rows, code);
+    else if (set == CELL_SET_TECH)
+        glyph = MODE0_GLYPH_TECH(rows, code);
+    else if (set == CELL_SET_ITALIC)
+        glyph = MODE0_GLYPH_ITALIC(rows, code);
+    e.cell.glyph = glyph;
+    e.cell.attributes = attributes;
+    e.colors.ul_color = pen->ul_set ? cell_base(&pen->ul, MODE0_DEFAULT_FG) : f;
+    e.selective = false;
+    return e;
+}
+
+/* ---- cells ------------------------------------------------------------- */
+
+// Where a cell is in mode 0's cells, and so its colors in mode0_colors.
+static inline uint32_t cell_at(const mode0_cell_t *cell)
+{
+    return (uint32_t)(cell - mode0_cells);
+}
+
+static inline mode0_colors_t *cell_colors(const mode0_cell_t *cell)
+{
+    return &mode0_colors[cell_at(cell)];
+}
+
+static inline bool cell_guarded(const mode0_cell_t *cell)
+{
+    return cell->attributes & MODE0_ATTR_GUARD;
+}
+
+// A character: its word and its three colors.
+static inline void cell_put1(mode0_cell_t *at, const cell_fill_t *e)
+{
+    *at = e->cell;
+    *cell_colors(at) = e->colors;
+}
+
+// Runs of cells, out of line (cell_mode0.c). Everything that writes or
+// moves more than a cell does it there.
+void cell_run_fill(mode0_cell_t *dst, unsigned n, const cell_fill_t *e);
+void cell_run_fill_sel(mode0_cell_t *row, unsigned from, unsigned to, const cell_fill_t *e);
+void cell_run_move(mode0_cell_t *dst, const mode0_cell_t *src, unsigned n);
+void cell_wipe(mode0_cell_t *row, unsigned from, unsigned to, bool selective);
+void cell_marks(mode0_cell_t *row, unsigned from, unsigned to, unsigned set, unsigned clear,
+                unsigned toggle);
+void cell_strip_keep(cell_strip_t *strip, const mode0_cell_t *row, unsigned from,
+                     unsigned end, unsigned width);
+void cell_strip_put(const cell_strip_t *strip, mode0_cell_t *row, unsigned from,
+                    unsigned end, unsigned width);
+void cell_strip_move(mode0_cell_t *to, const mode0_cell_t *row, unsigned from, unsigned end,
+                     unsigned width);
+
+// A cell shows something: a character other than a space, a line through
+// it, or a background that is not the default one.
+bool cell_used(const mode0_cell_t *row, unsigned n);
+
+/* ---- savestate --------------------------------------------------------- */
+
+static inline void cell_fill_put(sst_cursor_t *c, const cell_fill_t *e)
+{
+    sst_put_u16(c, e->cell.glyph);
+    sst_put_u16(c, e->cell.attributes);
+    sst_put_u16(c, e->colors.fg_color);
+    sst_put_u16(c, e->colors.bg_color);
+    sst_put_u16(c, e->colors.ul_color);
+    sst_put_bool(c, e->selective);
+}
+
+// A fill of a screen of width columns: its glyph is in that screen's font.
+static inline bool cell_fill_get(sst_cursor_t *c, cell_fill_t *e, uint8_t width)
+{
+    e->cell.glyph = sst_get_u16(c);
+    e->cell.attributes = sst_get_u16(c);
+    e->colors.fg_color = sst_get_u16(c);
+    e->colors.bg_color = sst_get_u16(c);
+    e->colors.ul_color = sst_get_u16(c);
+    e->selective = sst_get_bool(c);
+    return mode0_glyph_ok(e->cell.glyph, width == 40 ? 8 : 16) &&
+           mode0_color_ok(e->colors.fg_color) && mode0_color_ok(e->colors.bg_color) &&
+           mode0_color_ok(e->colors.ul_color);
+}
+
+static inline void cell_side_put(sst_cursor_t *c, const cell_side_t *side)
+{
+    sst_put_u16(c, side->fg);
+    sst_put_u16(c, side->bg);
+}
+
+static inline bool cell_side_get(sst_cursor_t *c, cell_side_t *side)
+{
+    side->fg = sst_get_u16(c);
+    side->bg = sst_get_u16(c);
+    return mode0_color_ok(side->fg) && mode0_color_ok(side->bg);
+}
+
+#endif /* _CORE_TERM_CELL_MODE0_H_ */

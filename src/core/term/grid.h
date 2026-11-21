@@ -26,7 +26,10 @@
 // term_grid_init and term_grid_copy start it, and term_show sets it. The
 // cursor's column never reaches the width: writing the last column sets
 // wrap_pending instead, as on a VT102. The left and right margins are the
-// whole width until DECSLRM sets them.
+// whole width until DECSLRM sets them. Where the screens keep cells,
+// cancels goes up at each scroll, index, clear and change of height of the
+// grid, and at nothing else, each of which ends the grid's smooth scroll
+// (console_term.h).
 struct term_grid
 {
     uint8_t width;
@@ -36,6 +39,9 @@ struct term_grid
     screen_t screen[2]; // the primary, then the alternate
     screen_t *shown;    // the screen showing
     uint8_t tab_stops[TERM_TAB_BITMAP_BYTES]; // 1 bit per column
+#if TERM_CELLS
+    uint32_t cancels;
+#endif
 };
 
 /* The cursor of the screen showing.

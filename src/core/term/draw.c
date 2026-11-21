@@ -189,8 +189,8 @@ static bool cells_sst_get_bufs(sst_cursor_t *c, unsigned flags)
 
 /* The smooth scroll's grid, as 0 for none, 1 for the 40 and 2 for the 80.
  * Its count of cancels is not saved: console_smooth_grid puts away one that
- * has landed or that the store ended, so only one still moving is saved, and
- * a load starts the one it brings back from the store's count as it is,
+ * has landed or that its grid ended, so only one still moving is saved, and
+ * a load starts the one it brings back from the grid's count as it is,
  * below. */
 static void cells_sst_put_smooth(sst_cursor_t *c, unsigned flags)
 {
@@ -217,7 +217,7 @@ static bool cells_sst_get_smooth(sst_cursor_t *c, unsigned flags)
 
 /* The screen of a smooth scroll, on or not, indexes the store's screens,
  * and the ghost and the rows of one that is on index the cells and the row
- * words. It counts its cancels from the store's count as it is. */
+ * words. It counts its cancels from its grid's count as it is. */
 static bool cells_sst_smooth_ok(sst_cursor_t *c)
 {
     console_smooth_t *sm = &console_smoothing;
@@ -226,7 +226,7 @@ static bool cells_sst_smooth_ok(sst_cursor_t *c)
                       sm->ghost >= TERM_MEM_ROWS)))
         return sst_refuse(c, "a smooth scroll out of range");
     if (sm->grid)
-        sm->cancels = console_cancels(sm->grid);
+        sm->cancels = sm->grid->cancels;
     return true;
 }
 

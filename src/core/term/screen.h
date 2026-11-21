@@ -19,7 +19,7 @@
 #include <stdint.h>
 #if TERM_CELLS
 #include "core/sys/sst.h"
-#include "core/vga/mode/mode0.h"
+#include "core/term/cell.h"
 #endif
 
 // A cursor's place in a grid.
@@ -283,26 +283,15 @@ bool screen_row_used(screen_t *s, uint8_t y);
 
 /* ---- inside the store ---------------------------------------------------
  *
- * The cells of a screen, laid out as mode 0 draws them, for screen.c and
+ * The cells of a screen, of the machine's kind (cell.h), for screen.c and
  * for draw.c, which makes what mode 0 draws from them and saves them. */
-
-// A fill owed to a row: the cell every cell of the row becomes, and its
-// colors. An erase is a fill with a blank cell, DECALN's is a fill with an
-// E, and REP's is a fill with its glyph as the pen draws it. A selective
-// erase leaves the guarded cells alone.
-typedef struct
-{
-    mode0_cell_t cell;
-    mode0_colors_t colors;
-    bool selective;
-} screen_fill_t;
 
 // A shift owed to a row, SL's and SR's: the cells that survive it, where
 // they land, and the blanks either side of them. The survivors are the
 // cells that land on columns [to, end), and the first of them is at column
-// from until the row is paid. The columns left of to are blank in the left
-// colors and those from end to cols in the right colors. Another shift of
-// the row only changes the record.
+// from until the row is paid. The columns left of to are the left blank
+// and those from end to cols the right one. Another shift of the row only
+// changes the record.
 typedef struct
 {
     /* On a word, so the record is copied a word at a time. */
@@ -310,10 +299,8 @@ typedef struct
     uint8_t to;
     uint8_t end;
     uint8_t cols;
-    uint16_t left_fg;
-    uint16_t left_bg;
-    uint16_t right_fg;
-    uint16_t right_bg;
+    cell_side_t left;
+    cell_side_t right;
 } screen_shift_t;
 
 // A change of attributes owed to a row, DECCARA's and DECRARA's: the
@@ -329,6 +316,7 @@ typedef struct
 } screen_marks_t;
 
 // What a row is owed: nothing, a fill, a shift, or a change of attributes.
+// A selective fill leaves the guarded cells alone.
 enum
 {
     SCREEN_OWED_NONE,
@@ -339,7 +327,7 @@ enum
 
 typedef union
 {
-    screen_fill_t fill;
+    cell_fill_t fill;
     screen_shift_t shift;
     screen_marks_t marks;
 } screen_owed_t;
@@ -354,7 +342,7 @@ typedef struct
     uint8_t top, bot, from, end;
     uint8_t n;
     bool up;
-    screen_fill_t in;
+    cell_fill_t in;
 } screen_later_t;
 
 // The cells of a screen and what its rows are still owed. A row of the
@@ -363,18 +351,14 @@ typedef struct
 // scroll moves none of them. The screen has TERM_SPARE_ROWS more rows of
 // memory than slots: the ring's spare is the one in no slot, which a smooth
 // scroll gives the row coming in while the row going out still shows.
-// cancels goes up at each scroll, index, clear and change of height of the
-// screen, and at nothing else. Any of them on either screen of a grid ends
-// the grid's smooth scroll.
 typedef struct screen_cells
 {
-    mode0_cell_t *mem;
+    cell_t *mem;
     uint8_t width;
     uint8_t owed[TERM_MEM_ROWS];
     screen_owed_t what[TERM_MEM_ROWS];
     screen_later_t later;
     bool all_clean;
-    uint32_t cancels;
 } screen_cells_t;
 
 /* The store moved cells in a way that may change what shows, outside the
@@ -383,14 +367,14 @@ typedef struct screen_cells
 extern bool screen_moved;
 
 // The cells of row y of a screen that has them.
-static inline mode0_cell_t *screen_row(const screen_t *s, uint8_t y)
+static inline cell_t *screen_row(const screen_t *s, uint8_t y)
 {
     const screen_cells_t *c = s->cells;
     return c->mem + (uint32_t)screen_mem(s, y) * c->width;
 }
 
 // n cells from cells are blanks in the default colors.
-void screen_blank_cells(mode0_cell_t *cells, unsigned n);
+void screen_blank_cells(cell_t *cells, unsigned n);
 
 // Do the scroll between left and right margins the screen is owed, if it
 // is owed one.
@@ -402,10 +386,11 @@ bool screen_tidy(screen_t *s, uint8_t height);
 
 /* A screen's layout in the savestate: its ring and spare row, the line
  * attributes of each row of memory, what each row of memory is owed in a
- * record of 12 bytes, and the rest. A put first does
- * a scroll the screen is owed, so the layout saved is the layout the cells
+ * record of SCREEN_SST_RECORD bytes, and the rest. A put first does a
+ * scroll the screen is owed, so the layout saved is the layout the cells
  * are in. For a screen with cells. */
-#define SCREEN_SST_SIZE (TERM_MAX_HEIGHT + 1 + 14 * TERM_MEM_ROWS + 3)
+#define SCREEN_SST_RECORD 12
+#define SCREEN_SST_SIZE (TERM_MAX_HEIGHT + 1 + (2 + SCREEN_SST_RECORD) * TERM_MEM_ROWS + 3)
 void screen_sst_put(sst_cursor_t *c, screen_t *s);
 bool screen_sst_get(sst_cursor_t *c, screen_t *s);
 
