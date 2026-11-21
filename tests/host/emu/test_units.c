@@ -19,7 +19,7 @@
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/com/rln.h"
-#include "core/term/cells.h"
+#include "core/term/console_term.h"
 #include "tb_screen.h"
 #include "core/vga/vga_emu.h"
 #include "core/vga/mode/mode0.h"
@@ -371,16 +371,23 @@ UTEST(tablet, host_wheel_encoding)
 
     ASSERT_TRUE(xreg0(0, 3, 0xFF00)); /* xreg_ria_tablet(0xFF00) */
     ASSERT_TRUE(tablet_is_mapped());
-    ASSERT_EQ(xram[0xFF00 + 2], 0x00); /* wheel default 0 */
-    ASSERT_EQ(xram[0xFF00 + 3], 0x00); /* pan default 0 */
+    /* Counters, read by subtracting the previous value. */
+    const uint8_t wheel = xram[0xFF00 + 2], pan = xram[0xFF00 + 3];
 
     tablet_host_wheel(3, -2);
-    ASSERT_EQ(xram[0xFF00 + 2], (uint8_t)3);
-    ASSERT_EQ(xram[0xFF00 + 3], (uint8_t)-2);
+    ASSERT_EQ(xram[0xFF00 + 2], (uint8_t)(wheel + 3));
+    ASSERT_EQ(xram[0xFF00 + 3], (uint8_t)(pan - 2));
 
     tablet_host_wheel(-4, 5);
-    ASSERT_EQ(xram[0xFF00 + 2], (uint8_t)-1); /* 3 + (-4) wraps */
-    ASSERT_EQ(xram[0xFF00 + 3], (uint8_t)3);  /* -2 + 5 */
+    ASSERT_EQ(xram[0xFF00 + 2], (uint8_t)(wheel - 1)); /* 3 + (-4) */
+    ASSERT_EQ(xram[0xFF00 + 3], (uint8_t)(pan + 3));   /* -2 + 5 */
+
+    /* Mapping again keeps the counts, as the mouse's are kept. */
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+    tablet_host_wheel(1, 1);
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    ASSERT_EQ(xram[0xFF00 + 2], (uint8_t)wheel);
+    ASSERT_EQ(xram[0xFF00 + 3], (uint8_t)(pan + 4));
 
     ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
     ASSERT_FALSE(tablet_is_mapped());
@@ -452,6 +459,69 @@ UTEST(tablet, a_mouse_leaves_the_bottom_of_a_wide_canvas_at_once)
     ASSERT_TRUE(tablet_umount(7));
     ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
     vga_set_console_size(640, 480);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* A mouse moved before a program maps the tablet is found hovering where it
+ * is, and a new canvas puts it on that canvas, in the same place. */
+UTEST(tablet, a_program_finds_the_mouse_where_it_is)
+{
+    static const tablet_connection_t mouse = {
+        .valid = true,
+        .button_offsets = {HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT},
+        .x_relative = true,
+        .x_offset = 0, .x_size = 8,
+        .y_offset = 8, .y_size = 8,
+        .tip_offset = HID_ABSENT,
+        .inrange_offset = HID_ABSENT,
+    };
+    sys_init();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_480));
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    ASSERT_TRUE(tablet_mount(7, &mouse));
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER); /* before it moves */
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+    /* Home in the corner, then 200 counts right and 100 down: 100 and 50
+     * reference pixels. */
+    const uint8_t home[] = {(uint8_t)-128, (uint8_t)-128};
+    for (int n = 0; n < 20; n++)
+        tablet_report(7, home, sizeof home);
+    const uint8_t move[] = {100, 50};
+    tablet_report(7, move, sizeof move);
+    tablet_report(7, move, sizeof move);
+    tablet_task();
+
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    ASSERT_EQ(xram[0xFF00 + TABLET_OFF_CONTROL], TABLET_CURSOR_ARROW);
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER);
+    ASSERT_EQ(tablet_contact_x(), 100);
+    ASSERT_EQ(tablet_contact_y(), 50);
+
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    tablet_task();
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER);
+    ASSERT_EQ(tablet_contact_x(), 50);
+    ASSERT_EQ(tablet_contact_y(), 25);
+
+    /* Low on a 512-line console, held at the bottom of a 480-line canvas,
+     * and back where it was on the console. */
+    vga_set_console_size(640, 512);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    const uint8_t down[] = {0, 126}; /* 63 reference lines */
+    for (int n = 0; n < 7; n++)
+        tablet_report(7, down, sizeof down);
+    ASSERT_EQ(tablet_contact_y(), 50 + 7 * 63);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_480));
+    tablet_task();
+    ASSERT_EQ(tablet_contact_x(), 100);
+    ASSERT_EQ(tablet_contact_y(), 479);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    tablet_task();
+    ASSERT_EQ(tablet_contact_y(), 50 + 7 * 63);
+    vga_set_console_size(640, 480);
+
+    ASSERT_TRUE(tablet_umount(7));
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
 }
 
@@ -718,6 +788,21 @@ UTEST(keyboard, ctrl_and_alt_on_control_keys)
     ASSERT_EQ(0, memcmp(b, "\x1b\x7f\x1b\x08", 4));
 }
 
+/* DECBKM: Backspace sends BS, and Ctrl swaps it back to DEL. */
+UTEST(keyboard, backarrow_key_mode)
+{
+    char b[16];
+
+    com_rx_clear();
+    console_term.backarrow_bs = true;
+    t_press(HID_KEY_BACKSPACE, 0, 0);
+    t_press(HID_KEY_BACKSPACE, VTKEY_CTRL, 0);
+    t_press(HID_KEY_BACKSPACE, VTKEY_ALT, 0);
+    console_term.backarrow_bs = false;
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
+    ASSERT_EQ(0, memcmp(b, "\x08\x7f\x1b\x08", 4));
+}
+
 UTEST(keyboard, ctrl_and_alt_on_characters)
 {
     char b[16];
@@ -757,10 +842,10 @@ UTEST(keyboard, ctrl_and_alt_on_characters)
 
 static void key_modes(unsigned modes)
 {
-    cells_term.app_cursor = modes & M_CKM;
-    cells_term.app_keypad = modes & M_KPAM;
-    cells_term.newline_mode = modes & M_LNM;
-    cells_term.vt52 = modes & M_VT52;
+    console_term.app_cursor = modes & M_CKM;
+    console_term.app_keypad = modes & M_KPAM;
+    console_term.newline_mode = modes & M_LNM;
+    console_term.vt52 = modes & M_VT52;
 }
 
 #define SH VTKEY_SHIFT
@@ -989,9 +1074,9 @@ UTEST(keyboard, modify_other_keys_at_every_level)
             for (int k = 0; k < want_n; k++)
                 if (want[k] == '\200')
                     want[k] = 0;
-            cells_term.modify_other_keys = (uint8_t)level;
+            console_term.modify_other_keys = (uint8_t)level;
             const int n = other_send(out, i);
-            cells_term.modify_other_keys = 0;
+            console_term.modify_other_keys = 0;
             if (n != want_n || memcmp(out, want, (size_t)n))
             {
                 printf("other_table[%d] level %u\n", (int)i, level);
@@ -1005,19 +1090,19 @@ UTEST(keyboard, modify_other_keys_at_every_level)
 UTEST(keyboard, format_other_keys_and_vt52)
 {
     char out[VTKEY_MAX];
-    cells_term.modify_other_keys = 2;
-    cells_term.format_other_keys = true;
+    console_term.modify_other_keys = 2;
+    console_term.format_other_keys = true;
     ASSERT_EQ(vtkey_char(out, 0x04, 'a', VTKEY_CTRL), 7);
     ASSERT_EQ(0, memcmp(out, "\33[97;5u", 7));
     ASSERT_EQ(t_encode(out, HID_KEY_ENTER, SH), 7);
     ASSERT_EQ(0, memcmp(out, "\33[13;2u", 7));
-    cells_term.format_other_keys = false;
-    cells_term.vt52 = true;
+    console_term.format_other_keys = false;
+    console_term.vt52 = true;
     ASSERT_EQ(vtkey_char(out, 0x04, 'a', VTKEY_CTRL), 1);
     ASSERT_EQ(out[0], 1);
     ASSERT_EQ(t_encode(out, HID_KEY_ENTER, SH), 1);
-    cells_term.vt52 = false;
-    cells_term.modify_other_keys = 0;
+    console_term.vt52 = false;
+    console_term.modify_other_keys = 0;
 }
 
 UTEST(keyboard, hostkey_types_what_the_encoder_says)
@@ -1072,9 +1157,9 @@ UTEST(keyboard, hostkey_types_what_the_encoder_says)
 /* A machine asks this before it types a repeat. */
 UTEST(keyboard, repeat_follows_the_terminal)
 {
-    cells_term.autorepeat = false;
+    console_term.autorepeat = false;
     ASSERT_FALSE(vtkey_repeats());
-    cells_term.autorepeat = true;
+    console_term.autorepeat = true;
     ASSERT_TRUE(vtkey_repeats());
 }
 

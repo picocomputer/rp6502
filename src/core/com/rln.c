@@ -13,7 +13,8 @@
 #include "core/com/manifold.h"
 #include "core/com/tio.h"
 #include "core/sys/driver.h"
-#include "core/term/cells.h"
+#include "core/term/console_term.h"
+#include "core/term/grid.h"
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
@@ -105,7 +106,7 @@ static uint8_t rln_last_render_buflen; // buflen as of the last render
 static bool rln_erase_el;
 
 // A program's own size for the console's terminal, while either is pinned:
-// a third grid, which the line editor and the terminal's answers use.
+// a third grid the terminal also follows, which only the line editor uses.
 static uint16_t rln_pinned_width;
 static uint16_t rln_pinned_height;
 static term_grid_t rln_grid;
@@ -131,7 +132,15 @@ static bool rln_laying_out;
 
 static bool rln_has_grid(void)
 {
-    return cells_term.grid_count > TERM_SCREEN_GRIDS;
+    return console_term.grid_count > TERM_SCREEN_GRIDS;
+}
+
+// The terminal the line editor lays its line out on: the program's own size
+// while it has pinned one, otherwise the screen's. Only the line editor
+// uses the pinned size; the terminal answers queries from the screen.
+static term_grid_t *rln_term(void)
+{
+    return rln_has_grid() ? &rln_grid : console_shown(&console_term);
 }
 
 /* ----- The reply -----
@@ -351,10 +360,10 @@ static bool rln_sst_get_grid(sst_cursor_t *c, unsigned flags)
     if (!sst_ok(c))
         return false;
     if (grid && !rln_has_grid())
-        term_add_grid(&cells_term, &rln_grid, cells_shown(&cells_term),
+        term_add_grid(&console_term, &rln_grid, console_shown(&console_term),
                       rln_grid_lines, RLN_GRID_ROWS);
     else if (!grid && rln_has_grid())
-        term_drop_grid(&cells_term, &rln_grid);
+        term_drop_grid(&console_term, &rln_grid);
     return term_grid_sst_get(c, &rln_grid);
 }
 
@@ -430,7 +439,7 @@ static bool rln_sst_valid(sst_cursor_t *c)
     X(U16, rln_pinned_height)                                           \
     X(VALIDATE, rln_sst_valid)                                          \
     X(FN, rln_sst_put_grid, rln_sst_get_grid,                           \
-      1 + TERM_GRID_SST_SIZE(RLN_GRID_ROWS), 1)                         \
+      1 + TERM_GRID_SST_SIZE(RLN_GRID_ROWS), 2)                         \
     X(IN_FN, rln_grid)                                                  \
     X(IN_FN, rln_grid_lines)                                            \
     X(SKIP, rln_line_src, "read only inside the read's callback")       \
@@ -471,7 +480,7 @@ static void rln_emit_move(char way, unsigned n)
 {
     if (!n)
         return;
-    if (!cells_term.vt52)
+    if (!console_term.vt52)
     {
         char seq[12];
         snprintf(seq, sizeof seq, "\33[%u%c", n, way);
@@ -498,7 +507,7 @@ static void rln_emit_erase(uint16_t col)
 {
     if (rln_erase_el)
     {
-        rln_out_s(cells_term.vt52 ? "\33K" : "\33[K");
+        rln_out_s(console_term.vt52 ? "\33K" : "\33[K");
         return;
     }
     if (col <= rln_width)
@@ -655,7 +664,7 @@ static void rln_clear_rows_below(uint8_t rows, uint16_t col)
 {
     for (uint8_t k = 0; k < rows; k++)
     {
-        rln_out_s(cells_term.vt52 ? "\33B\r" : "\33[B\r");
+        rln_out_s(console_term.vt52 ? "\33B\r" : "\33[B\r");
         rln_emit_erase(1);
     }
     rln_emit_move('A', rows);
@@ -783,7 +792,7 @@ static void rln_history_add(void)
 // CSI.
 static void rln_cursor_shape(uint8_t ps)
 {
-    if (!rln_prompt_col || cells_term.vt52)
+    if (!rln_prompt_col || console_term.vt52)
         return;
     char seq[] = "\33[0 q";
     seq[2] = (char)('0' + ps);
@@ -1314,7 +1323,7 @@ static void rln_item(com_source_t src, const char *item, size_t len)
 // The line starts where the console's terminal has its cursor, and is laid
 // out at that row's columns, half the width on a double-size row, and those
 // between the left and right margins for a cursor between them. Everything
-// already printed reaches the terminals and cells_term first, then the modes
+// already printed reaches the terminals and console_term first, then the modes
 // go to every terminal. A cursor in a pending wrap gets a CR LF, so the line
 // starts in column 1 of the next row. A terminal in VT52 mode has no insert
 // mode to turn off, and is sent a VT52's form of every move and erase.
@@ -1323,7 +1332,7 @@ static void rln_place(void);
 static void rln_lay_out(void)
 {
     manifold_flush();
-    if (term_pos(term_shown(&cells_term))->wrap_pending)
+    if (term_pos(rln_term())->wrap_pending)
     {
         manifold_putchar('\r');
         manifold_putchar('\n');
@@ -1340,7 +1349,7 @@ static bool rln_lay_out_now(void)
 {
     if (!manifold_drained())
         return false;
-    if (term_pos(term_shown(&cells_term))->wrap_pending)
+    if (term_pos(rln_term())->wrap_pending)
     {
         manifold_putchar('\r');
         manifold_putchar('\n');
@@ -1355,14 +1364,14 @@ static bool rln_lay_out_now(void)
 static void rln_place(void)
 {
     bool plain = rln_plain;
-    if (!plain && !cells_term.vt52)
+    if (!plain && !console_term.vt52)
         rln_out_s(RLN_MODES);
     /* The line has the columns the terminal gives the cursor: from where a
      * CR lands to where a row of text ends, which are the left and right
      * margins for a cursor between them. Its columns are counted from the
      * first of those. It has no more rows than the scroll region the
      * cursor is in, where its row breaks scroll. */
-    const term_grid_t *g = term_shown(&cells_term);
+    const term_grid_t *g = rln_term();
     const term_pos_t *p = term_pos(g);
     const unsigned first = term_left_stop(g);
     rln_prompt_col = plain ? 0 : (uint16_t)(p->x - first + 1);
@@ -1492,7 +1501,7 @@ void HOST_IN_FLASH_FUNC rln_init(void)
     rln_overwrite = false;
     rln_pinned_width = 0;
     rln_pinned_height = 0;
-    term_grid_init(&rln_grid, 80, rln_grid_lines, RLN_GRID_ROWS);
+    term_grid_init(&rln_grid, 80, rln_grid_lines, NULL, RLN_GRID_ROWS);
 }
 
 void rln_run(void)
@@ -1525,7 +1534,7 @@ void rln_stop(void)
 void rln_reset(void)
 {
     if (rln_has_grid())
-        term_drop_grid(&cells_term, &rln_grid);
+        term_drop_grid(&console_term, &rln_grid);
     rln_out_len = rln_out_lit_len = rln_out_at = 0;
     rln_out_sent = 0;
     rln_out_then = NULL;
@@ -1539,12 +1548,12 @@ void rln_set_plain(bool plain)
 
 uint16_t rln_get_term_width(void)
 {
-    return term_shown(&cells_term)->width;
+    return rln_term()->width;
 }
 
 uint16_t rln_get_term_height(void)
 {
-    return term_shown(&cells_term)->height;
+    return rln_term()->height;
 }
 
 /* The third grid starts as a copy of the showing one and takes the pinned
@@ -1553,14 +1562,14 @@ uint16_t rln_get_term_height(void)
  * are 0 again, when it is dropped. The screen's grids are never touched. */
 static void rln_size_grid(void)
 {
-    term_t *t = &cells_term;
+    term_t *t = &console_term;
     if (!rln_pinned_width && !rln_pinned_height)
     {
         if (rln_has_grid())
             term_drop_grid(t, &rln_grid);
         return;
     }
-    const term_grid_t *shown = cells_shown(t);
+    const term_grid_t *shown = console_shown(t);
     if (!rln_has_grid())
         term_add_grid(t, &rln_grid, shown, rln_grid_lines, RLN_GRID_ROWS);
     term_set_width(t, &rln_grid, (uint8_t)(rln_pinned_width ? rln_pinned_width : shown->width));

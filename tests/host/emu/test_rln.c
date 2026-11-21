@@ -12,6 +12,8 @@
 #include "core/ria/regs.h"
 #include "core/com/rln.h"
 #include "core/term/cells.h"
+#include "core/term/console_term.h"
+#include "core/term/grid.h"
 #include "tb_screen.h"
 #include "core/sys/timer.h"
 #include "core/vga/vga_emu.h"
@@ -214,10 +216,18 @@ static void capture(void)
     manifold_set_tx_tap(show);
 }
 
-/* The console's terminal's cursor. */
+/* The terminal the line editor lays out on: a program's own size while it
+ * has pinned one, otherwise the screen. */
+static term_grid_t *rln_view(void)
+{
+    return console_term.grid_count > TERM_SCREEN_GRIDS ? console_term.grids[TERM_SCREEN_GRIDS]
+                                                     : console_shown(&console_term);
+}
+
+/* Its cursor. */
 static const term_pos_t *pos(void)
 {
-    return term_pos(term_shown(&cells_term));
+    return term_pos(rln_view());
 }
 
 /* The monitor and console.c start the next read after the callback returns. */
@@ -306,7 +316,7 @@ UTEST(rln, a_pending_wrap_gives_a_cr_lf_then_column_1)
     reading();
     manifold_set_tx_tap(NULL);
     ASSERT_STREQ(shown, "\r\n\33[4l");
-    const term_pos_t *p = term_pos(term_shown(&cells_term));
+    const term_pos_t *p = term_pos(rln_view());
     ASSERT_EQ(p->x, 0);
     ASSERT_EQ(p->y, 1);
     ASSERT_FALSE(p->wrap_pending);
@@ -359,7 +369,7 @@ UTEST(rln, a_new_width_draws_the_line_again)
     tasks();
     manifold_set_tx_tap(NULL);
     ASSERT_STREQ(shown, "\r\n\33[4labc");
-    ASSERT_EQ(term_shown(&cells_term)->width, 40);
+    ASSERT_EQ(rln_view()->width, 40);
     ASSERT_EQ(pos()->x, 3);
     shown_len = 0;
     shown[0] = 0;
@@ -405,7 +415,7 @@ UTEST(rln, a_row_breaks_with_cr_lf_right_after_column_80)
     wire("b");
     manifold_set_tx_tap(NULL);
     ASSERT_FALSE(probed());
-    ASSERT_FALSE(cells_term.autowrap);
+    ASSERT_FALSE(console_term.autowrap);
     ASSERT_EQ(tb_screen_row(0)[79].glyph, 'a');
     ASSERT_EQ(tb_screen_row(1)[0].glyph, 'b');
     ASSERT_EQ(pos()->x, 1);
@@ -724,7 +734,7 @@ static int screen_out(const char *buf, int len, bool force)
     (void)force;
     strncat(screen, buf, (size_t)len);
     for (int i = 0; i < len; i++)
-        term_write(&cells_term, (uint8_t)buf[i]);
+        term_write(&console_term, (uint8_t)buf[i]);
     cells_publish();
     return len;
 }
@@ -868,7 +878,7 @@ UTEST(rln, a_read_in_vt52_mode_is_laid_out_in_vt52_commands)
     manifold_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(shown, "\33K") != NULL || strchr(shown, ' ') != NULL);
     ASSERT_TRUE(strstr(shown, "\33[") == NULL);
-    ASSERT_TRUE(cells_term.vt52);
+    ASSERT_TRUE(console_term.vt52);
     wire("\r");
     ASSERT_EQ(lines, 1);
     ASSERT_EQ(strlen(last), (size_t)101);

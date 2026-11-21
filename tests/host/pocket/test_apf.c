@@ -11,7 +11,7 @@
 #include "core/str/oem.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
-#include "core/term/cells.h"
+#include "core/term/console_term.h"
 #include "core/hid/layout.h"
 #include "core/hid/usage.h"
 #include "core/hid/mouse.h"
@@ -517,23 +517,23 @@ UTEST(apf, the_keypad_follows_num_lock)
 UTEST(apf, the_keys_follow_the_terminal_modes)
 {
     keyboard_start("US");
-    cells_term.app_cursor = true;
+    console_term.app_cursor = true;
     ASSERT_TYPES(0, HID_KEY_ARROW_UP, "\x1BOA");
     ASSERT_TYPES(LSHIFT, HID_KEY_ARROW_UP, "\x1B[1;2A");
     ASSERT_TYPES(LSHIFT, HID_KEY_KEYPAD_8, "\x1BOA");
-    cells_term.app_cursor = false;
+    console_term.app_cursor = false;
 
-    cells_term.newline_mode = true;
+    console_term.newline_mode = true;
     ASSERT_TYPES(0, HID_KEY_ENTER, "\r\n");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_ENTER, "\r\n");
     ASSERT_TYPES(LALT, HID_KEY_ENTER, "\x1B\r\n");
     /* Ctrl-M is a character, not the Return key. */
     ASSERT_TYPES(LCTRL, 0x10, "\r");
-    cells_term.newline_mode = false;
+    console_term.newline_mode = false;
 
     /* The application keypad waits for NumLock to go off, or for Shift,
      * which is then used up. */
-    cells_term.app_keypad = true;
+    console_term.app_keypad = true;
     ASSERT_TYPES(0, HID_KEY_KEYPAD_8, "8");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_ADD, "+");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_ENTER, "\r");
@@ -549,7 +549,7 @@ UTEST(apf, the_keys_follow_the_terminal_modes)
     ASSERT_TYPES(0, HID_KEY_KEYPAD_SUBTRACT, "\x1BOm");
     ASSERT_TYPES(0, HID_KEY_KEYPAD_ENTER, "\x1BOM");
     /* VT52 mode changes only a VT52's keys. */
-    cells_term.vt52 = true;
+    console_term.vt52 = true;
     ASSERT_TYPES(0, HID_KEY_KEYPAD_8, "\x1B?x");
     ASSERT_TYPES(LCTRL, HID_KEY_KEYPAD_ADD, "\x1B?k");
     ASSERT_TYPES(0, HID_KEY_ARROW_UP, "\x1B" "A");
@@ -558,8 +558,8 @@ UTEST(apf, the_keys_follow_the_terminal_modes)
     ASSERT_TYPES(LCTRL, HID_KEY_DELETE, "\x1B[3~");
     ASSERT_TYPES(LALT, 0x04, "\x1B" "a");
     ASSERT_TYPES(LSHIFT, HID_KEY_TAB, "\x1B[Z");
-    cells_term.vt52 = false;
-    cells_term.app_keypad = false;
+    console_term.vt52 = false;
+    console_term.app_keypad = false;
 }
 
 /* Ctrl-Alt-Delete takes either Delete key, wherever NumLock is. */
@@ -621,9 +621,9 @@ UTEST(apf, a_dead_key_ends_at_a_key_the_layout_does_not_type)
     ASSERT_TYPES(0, 0x34, "");
     ASSERT_TYPES(0, HID_KEY_ARROW_LEFT, "'\x1B[D");
     ASSERT_TYPES(0, 0x34, "");
-    cells_term.newline_mode = true;
+    console_term.newline_mode = true;
     ASSERT_TYPES(0, HID_KEY_ENTER, "'\r\n");
-    cells_term.newline_mode = false;
+    console_term.newline_mode = false;
     ASSERT_TYPES(0, 0x08, "e");
 }
 
@@ -670,13 +670,13 @@ UTEST(apf, nothing_repeats_with_autorepeat_off)
 {
     keyboard_start("US");
     char buf[8];
-    cells_term.autorepeat = false;
+    console_term.autorepeat = false;
     keys(0, 0x04); /* a */
     ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
     apf_host_ns += 1000 * 1000000ull;
     keymap_task();
     ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
-    cells_term.autorepeat = true;
+    console_term.autorepeat = true;
     apf_host_ns += 1000 * 1000000ull;
     keymap_task();
     ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
@@ -688,11 +688,11 @@ UTEST(apf, nothing_repeats_with_autorepeat_off)
     apf_host_ns += 500 * 1000000ull;
     keymap_task();
     ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)3);
-    cells_term.autorepeat = false;
+    console_term.autorepeat = false;
     apf_host_ns += 30 * 1000000ull;
     keymap_task();
     ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)0);
-    cells_term.autorepeat = true;
+    console_term.autorepeat = true;
     keys(0, 0);
 }
 

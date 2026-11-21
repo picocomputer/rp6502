@@ -23,6 +23,8 @@ typedef enum
     VGA_CANVAS_COUNT,
 } vga_canvas_t;
 
+/* The frames the VGA has shown since it started. A Pico RIA counts the
+ * VGA's from its VSYNCs. */
 unsigned long vga_frame_count(void);
 
 /* False where no display is attached. Always true where the display cannot be
@@ -61,6 +63,12 @@ void vga_display_size(int *w, int *h);
 bool vga_canvas_is_console(void);
 
 void vga_set_code_page(uint16_t cp);
+
+/* The pointer the system draws over the canvas for the tablet: one of the
+ * tablet's cursor shapes, or 0 for none, with its hot spot at x,y in canvas
+ * pixels. A machine that draws its own canvas draws it at once; a Pico RIA
+ * sends it to the VGA, once a frame at most. */
+void vga_set_pointer(uint8_t shape, int16_t x, int16_t y);
 
 void vga_load_code_page(uint16_t cp);
 

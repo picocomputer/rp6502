@@ -175,6 +175,12 @@ void vga_canvas_publish(vga_canvas_t canvas)
 }
 
 /* font.c's tables are linked onto the font memories, so these write them. */
+/* The fabric draws no pointer yet. */
+void vga_set_pointer(uint8_t shape, int16_t x, int16_t y)
+{
+    (void)shape, (void)x, (void)y;
+}
+
 void vga_set_code_page(uint16_t cp)
 {
     font_set_code_page(cp);

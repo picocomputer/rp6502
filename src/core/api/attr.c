@@ -5,6 +5,7 @@
  */
 
 #include "core/sys/ria.h"
+#include "core/aud/bel.h"
 #include "core/aud/mix.h"
 #include "core/api/api.h"
 #include "core/api/attr.h"
@@ -72,7 +73,7 @@ static uint32_t HOST_IN_RAM_FUNC attr_get_lrand(void)
 
 static uint32_t HOST_IN_FLASH_FUNC attr_get_bel(void)
 {
-    return com_get_bel();
+    return bel_get_term();
 }
 
 static uint32_t HOST_IN_FLASH_FUNC attr_get_launcher(void)
@@ -155,7 +156,7 @@ static bool HOST_IN_FLASH_FUNC attr_set_bel(uint32_t value)
 {
     if (value > 1)
         return false;
-    com_set_bel(value);
+    bel_set_term(value);
     return true;
 }
 

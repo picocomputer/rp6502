@@ -7,8 +7,8 @@
 #ifndef _CORE_TERM_TERM_H_
 #define _CORE_TERM_TERM_H_
 
-/* The terminal: a VT102 with most of what xterm adds. Bytes go in
- * with term_write and answers to queries come out through cells_reply (cells.h).
+/* The terminal: a VT420 with most of what xterm adds. Bytes go in
+ * with term_write and answers to queries go to com_reply (com.h).
  *
  * One terminal follows one stream, and it can be followed at several sizes
  * at once: the console's 40 and 80 columns, and on the RIA a program's own
@@ -18,10 +18,11 @@
  * saved pens, the character sets and which screen is showing. So a byte is
  * parsed once, and only what moves the cursor or the rows runs once a grid.
  *
- * The terminal holds no cells and no palette. It changes the screen, and
- * answers queries, through the functions in cells.h, which cells.c defines
- * on a machine that draws the screen; a machine that only follows the
- * terminal's state defines them itself. */
+ * The terminal holds no cells and no palette. Each grid changes its
+ * screens' rows and cells through the cell store (screen.h). The terminal
+ * answers queries through com_reply, rings the bell through bel_term
+ * (bel.h), and asks the console's terminal (console_term.h) for the size
+ * showing, its smooth scrolls and its colors, the same on every machine. */
 
 #include "core/sys/sst.h"
 #include "machine.h"
@@ -55,6 +56,22 @@
 #endif
 #define TERM_MEM_ROWS (TERM_MAX_HEIGHT + TERM_SPARE_ROWS)
 
+/* TERM_CELLS: the screens keep their cells in the cell store (screen.c),
+ * as mode 0 draws them. A machine that only follows the terminal, and
+ * keeps no cells, sets it to 0 and defines the store's functions that
+ * change cells itself (screen.h). */
+#ifndef TERM_CELLS
+#define TERM_CELLS 1
+#endif
+
+/* TERM_CELL_TEXT: the cells are text cells (cell_text.h), the text of each
+ * cell and whether it shows, for a machine that keeps the console's text
+ * but draws nothing. 0 is mode 0's cells (cell_mode0.h), as mode 0 draws
+ * them. */
+#ifndef TERM_CELL_TEXT
+#define TERM_CELL_TEXT 0
+#endif
+
 /* A smooth scroll moves a row in this many frames: one scanline a frame on
  * the 16-scanline rows, one every second frame on the 8-scanline rows of
  * the 40-column terminal, so both move a line in the same time. */
@@ -81,11 +98,17 @@
 #define TERM_OSC_ASK_MAX 6
 #define TERM_OSC_SPEC_MAX 20
 
+// What a DCS string is, in osc_stage: one kept in osc_spec, or DECRSPS's
+// DECCIR or DECTABSR, taken a byte at a time.
+#define TERM_DCS_KEEP 0
+#define TERM_DCS_CIR 1
+#define TERM_DCS_TABS 2
+
 // The SGR attributes. All but the italics are also the low bits of a cell's
 // attributes (mode0.h); italics are a cell's font. SGR 5 (slow) and SGR 6
 // (rapid) live at bits 0-1 so they map onto the live blink phase counter
 // directly. A cell carries exactly one of the two; the renderer ANDs it
-// against the phase so each pulses at its own rate. See cells.c's
+// against the phase so each pulses at its own rate. See draw.c's
 // TERM_BLINK_TICK_FRAMES.
 #define TERM_ATTR_BLINK_FAST (1u << 0) // SGR 6 rapid (blink phase bit 0)
 #define TERM_ATTR_BLINK (1u << 1)      // SGR 5 slow  (blink phase bit 1)
@@ -133,10 +156,12 @@ typedef enum
     ansi_state_count
 } ansi_state_t;
 
-// The character sets that G0 and G1 can hold.
+// The character sets that G0 to G3 can hold.
 #define TERM_CS_ASCII 0 // ESC ( B, and the null and user maps ESC ( U / K
 #define TERM_CS_DEC 1   // ESC ( 0, DEC Special Graphics
 #define TERM_CS_UK 2    // ESC ( A, ASCII with the pound sign at 0x23
+#define TERM_CS_TECH 3  // ESC ( >, DEC Technical
+#define TERM_CS_COUNT 4
 
 // Where a pen's color comes from. A palette color keeps its index, so the
 // cells take a changed palette entry, and the default colors are their own
@@ -168,8 +193,9 @@ typedef struct
     bool conceal; // SGR 8: the cells draw fg as bg
     bool protect; // DECSCA 1 or SPA: the cells it writes are protected
     bool origin_mode;
-    uint8_t g0_charset, g1_charset;
-    bool gl_is_g1;
+    uint8_t g[4]; // the sets G0 to G3 hold, TERM_CS_
+    uint8_t gl;   // the one of them in GL, which the bytes 0x20 to 0x7E draw from
+    uint8_t ss;   // 2 or 3: SS2 or SS3 draws the next of them from G2 or G3
 } term_pen_t;
 
 // Which erases leave the protected cells alone: none, as after a reset;
@@ -181,32 +207,8 @@ typedef struct
 #define TERM_PROTECT_DEC 1
 #define TERM_PROTECT_ISO 2
 
-// A cursor's place in a grid.
-typedef struct
-{
-    uint8_t x, y;
-    bool wrap_pending; // the last column was written; the next glyph wraps
-} term_pos_t;
-
-// The terminal at one size. Each screen, primary and alternate, has its own
-// cursor position, saved position and line sizes; the margins and the tab
-// stops belong to the grid. The cursor's column never reaches the width:
-// writing the last column sets wrap_pending instead, as on a VT102. The
-// left and right margins are the whole width until DECSLRM sets them.
-typedef struct
-{
-    uint8_t width;
-    uint8_t height;
-    uint8_t rows; // the most rows: lines holds this many for each screen
-    uint8_t margin_top, margin_bot;
-    uint8_t margin_left, margin_right;
-    term_pos_t pos[2];   // the cursor on each screen
-    term_pos_t saved[2]; // DECSC's position on each screen
-    uint8_t *lines;      // TERM_LINE_ for each row: rows for the primary, then the alternate
-    term_pos_t *cur;     // the showing screen's pos
-    uint8_t *ls;         // the showing screen's lines
-    uint8_t tab_stops[TERM_TAB_BITMAP_BYTES]; // 1 bit per column
-} term_grid_t;
+// One size the terminal is followed at (grid.h).
+typedef struct term_grid term_grid_t;
 
 typedef struct
 {
@@ -222,6 +224,8 @@ typedef struct
     bool vt52;            // DECANM reset, ?2 l
     bool app_cursor;      // DECCKM, ?1: the cursor keys send SS3
     bool app_keypad;      // DECKPAM, ESC = or ?66: the keypad sends SS3
+    bool backarrow_bs;    // DECBKM, ?67: Backspace sends BS, not DEL
+    bool allow_deccolm;   // xterm's ?40: DECCOLM erases and homes, as a width change would
     bool autorepeat;      // DECARM, ?8
     bool ice_colors;      // ?33: SGR 5/6 means bright bg (the IBM VGA hack), not blink
     bool bracketed_paste; // ?2004: a paste comes between ESC [ 200 ~ and ESC [ 201 ~
@@ -229,6 +233,7 @@ typedef struct
     bool format_other_keys;    // xterm's formatOtherKeys: CSI > 4 ; 1 f
     bool lr_margins;      // DECLRMM, ?69: CSI s sets the left and right margins
     bool rect_attrs;      // DECSACE 2: DECCARA and DECRARA change a rectangle, not a stream
+    uint8_t level;        // DECSCL's conformance level, 61 (VT100) to 64 (VT420)
     uint8_t protect_mode; // TERM_PROTECT_
     bool erase_all;       // ERM, CSI 6 h: ED, EL and ECH erase the protected cells too
     bool reverse_screen;  // DECSCNM, ?5: every cell's colors swapped
@@ -237,6 +242,7 @@ typedef struct
     bool cursor_enabled;  // DECTCEM, ?25
     uint8_t cursor_style; // DECSCUSR Ps: 0/1/2 block, 3/4 underline, 5/6 bar
     uint8_t last_glyph;   // for REP
+    uint8_t last_ss;      // and the single shift it was drawn with, 0, 2 or 3
     bool rep_valid;       // the last thing written was a glyph
     /* The parser. */
     uint8_t ansi_state; // an ansi_state_t
@@ -258,17 +264,13 @@ typedef struct
     uint8_t osc_asks;         // the colors this OSC has asked for so far
     struct
     {
-        uint16_t which; // a palette entry, or CELLS_COLOR_
+        uint16_t which; // a palette entry, or CONSOLE_COLOR_
         uint16_t color; // what it was when it was asked for
     } osc_ask[TERM_OSC_ASK_MAX];
     /* The sizes it is followed at. */
     term_grid_t *grids[TERM_MAX_GRIDS];
     uint8_t grid_count;
 } term_t;
-
-// A grid of width columns by 30 rows (fewer if it holds fewer), its line
-// sizes in lines, which holds rows bytes for each of the two screens.
-void term_grid_init(term_grid_t *g, uint8_t width, uint8_t *lines, uint8_t rows);
 
 // A new terminal followed at the given grids, after a RIS.
 void term_init(term_t *t, term_grid_t *const *grids, uint8_t count);
@@ -293,15 +295,6 @@ void term_release_smooth(term_t *t);
 void term_RIS(term_t *t);
 void term_RIS_no_clear(term_t *t);
 
-// A grid's rows, one at a time, as the view grows or shrinks. A grow or
-// shrink with the cursor on the bottom row moves the screen, not the cursor.
-void term_set_height(term_t *t, term_grid_t *g, uint8_t height);
-
-// A grid's columns, as a program sets them: the cursors stay inside the
-// rows, a pending wrap ends, the tab stops past the old width are the
-// default ones, and the margins reset.
-void term_set_width(term_t *t, term_grid_t *g, uint8_t width);
-
 // Follow the terminal at one more grid, after the screen's: a copy of from,
 // its cursors, margins, tab stops and line sizes, with its own line sizes in
 // lines, rows for each screen. Dropping it leaves the others as they are.
@@ -309,22 +302,10 @@ void term_add_grid(term_t *t, term_grid_t *g, const term_grid_t *from,
                    uint8_t *lines, uint8_t rows);
 void term_drop_grid(term_t *t, term_grid_t *g);
 
-// The grid the queries are answered from: a program's own while it has one,
-// otherwise the screen's showing grid (cells_shown).
-term_grid_t *term_shown(term_t *t);
-
-// The pen, the cursor and the line sizes of the screen showing.
+// The pen of the screen showing.
 static inline term_pen_t *term_pen(const term_t *t)
 {
     return t->cur;
-}
-static inline term_pos_t *term_pos(const term_grid_t *g)
-{
-    return g->cur;
-}
-static inline uint8_t *term_lines(const term_grid_t *g)
-{
-    return g->ls;
 }
 
 // Whether the cells the pen writes are protected.
@@ -342,43 +323,12 @@ static inline bool term_erase_selective(const term_t *t, bool dec)
     return t->protect_mode == TERM_PROTECT_ISO && !t->erase_all;
 }
 
-// The columns of row y: half the width on a double-size line.
-static inline unsigned term_cols(const term_grid_t *g, uint8_t y)
-{
-    return term_lines(g)[y] ? g->width / 2u : g->width;
-}
-
-// The last column a glyph or a move to the right reaches from the cursor:
-// the right margin for a cursor at or left of it, otherwise the last column
-// of its row.
-static inline unsigned term_right_stop(const term_grid_t *g)
-{
-    const term_pos_t *pos = term_pos(g);
-    unsigned last = term_cols(g, pos->y) - 1;
-    return pos->x <= g->margin_right && g->margin_right < last ? g->margin_right : last;
-}
-
-// The first column a CR or a move to the left reaches: the left margin for
-// a cursor at or right of it, otherwise the first column.
-static inline unsigned term_left_stop(const term_grid_t *g)
-{
-    return term_pos(g)->x >= g->margin_left ? g->margin_left : 0;
-}
-
-// The pixel height of one character cell: 8x8 on the 320-wide canvases, where
-// the 40-column terminal is drawn, 8x16 on the others.
-static inline unsigned term_cell_height(const term_grid_t *g)
-{
-    return g->width == 40 ? 8 : 16;
-}
-
 /* ---- savestate ----------------------------------------------------------
  *
- * The rows of a terminal and of a grid for their owner's SST_TABLE (sst.h),
- * field by field, so no padding reaches the blob. The owner carries
- * alt_active, whose load is term_show, and the sizes a terminal is followed
- * at, which are its own. A grid's rows leave out its line sizes, which are
- * the owner's array. */
+ * The rows of a terminal for its owner's SST_TABLE (sst.h), field by
+ * field, so no padding reaches the blob. The owner carries alt_active,
+ * whose load is term_show, and the sizes a terminal is followed at, which
+ * are its own. A grid's rows are in grid.h. */
 
 #define TERM_PEN_SST_ROWS(Y, p)                                        \
     Y(U8, p.sgr_attr)                                                  \
@@ -390,8 +340,9 @@ static inline unsigned term_cell_height(const term_grid_t *g)
     Y(U8, p.ul.r) Y(U8, p.ul.g) Y(U8, p.ul.b)                          \
     Y(BOOL, p.ul_set) Y(BOOL, p.bold) Y(BOOL, p.faint)                 \
     Y(BOOL, p.reverse) Y(BOOL, p.conceal) Y(BOOL, p.protect)           \
-    Y(BOOL, p.origin_mode) Y(U8, p.g0_charset) Y(U8, p.g1_charset)     \
-    Y(BOOL, p.gl_is_g1)
+    Y(BOOL, p.origin_mode)                                             \
+    Y(U8, p.g[0]) Y(U8, p.g[1]) Y(U8, p.g[2]) Y(U8, p.g[3])            \
+    Y(U8, p.gl) Y(U8, p.ss)
 
 #define TERM_OSC_ASK_SST_ROWS(Y, a) Y(U16, a.which) Y(U16, a.color)
 
@@ -409,6 +360,8 @@ static inline unsigned term_cell_height(const term_grid_t *g)
     X(BOOL, t.vt52)                                                    \
     X(BOOL, t.app_cursor)                                              \
     X(BOOL, t.app_keypad)                                              \
+    X(BOOL, t.backarrow_bs)                                            \
+    X(BOOL, t.allow_deccolm)                                           \
     X(BOOL, t.autorepeat)                                              \
     X(BOOL, t.ice_colors)                                              \
     X(BOOL, t.bracketed_paste)                                         \
@@ -416,6 +369,7 @@ static inline unsigned term_cell_height(const term_grid_t *g)
     X(BOOL, t.format_other_keys)                                       \
     X(BOOL, t.lr_margins)                                              \
     X(BOOL, t.rect_attrs)                                              \
+    X(U8, t.level)                                                     \
     X(U8, t.protect_mode)                                              \
     X(BOOL, t.erase_all)                                               \
     X(BOOL, t.reverse_screen)                                          \
@@ -424,6 +378,7 @@ static inline unsigned term_cell_height(const term_grid_t *g)
     X(BOOL, t.cursor_enabled)                                          \
     X(U8, t.cursor_style)                                              \
     X(U8, t.last_glyph)                                                \
+    X(U8, t.last_ss)                                                   \
     X(BOOL, t.rep_valid)                                               \
     X(U8, t.ansi_state)                                                \
     X(U16S, t.csi_param)                                               \
@@ -453,28 +408,5 @@ bool term_sst_ok(sst_cursor_t *c, const term_t *t);
  * line sizes follow. A savestate load calls it with the alt_active it
  * carries. */
 void term_show(term_t *t, bool alt);
-
-#define TERM_POS_SST_ROWS(Y, p)                                        \
-    Y(U8, p.x) Y(U8, p.y) Y(BOOL, p.wrap_pending)
-
-#define TERM_GRID_SST_ROWS(Y, g)                                       \
-    Y(U8, g.width) Y(U8, g.height) Y(U8, g.rows)                       \
-    Y(U8, g.margin_top) Y(U8, g.margin_bot)                            \
-    Y(U8, g.margin_left) Y(U8, g.margin_right)                         \
-    TERM_POS_SST_ROWS(Y, g.pos[0]) TERM_POS_SST_ROWS(Y, g.saved[0])    \
-    TERM_POS_SST_ROWS(Y, g.pos[1]) TERM_POS_SST_ROWS(Y, g.saved[1])    \
-    Y(BYTES, g.tab_stops)
-
-/* Whether a grid TERM_GRID_SST_ROWS loaded, and its line sizes, fit
- * storage for rows rows, and everything that indexes the cells is in
- * range. False, after sst_refuse, when not. */
-bool term_grid_sst_ok(sst_cursor_t *c, const term_grid_t *g, uint8_t rows);
-
-/* A grid's rows and then its line sizes, for an owner whose grid is not
- * always followed and so needs an FN row of its own. A grid of other rows
- * than g has is refused. */
-#define TERM_GRID_SST_SIZE(rows) (19 + TERM_TAB_BITMAP_BYTES + 2 * (rows))
-void term_grid_sst_put(sst_cursor_t *c, const term_grid_t *g);
-bool term_grid_sst_get(sst_cursor_t *c, term_grid_t *g);
 
 #endif /* _CORE_TERM_TERM_H_ */

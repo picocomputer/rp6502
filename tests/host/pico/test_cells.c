@@ -11,41 +11,68 @@
 #include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/term/cells.h"
+#include "core/term/console_term.h"
+#include "core/term/grid.h"
 #include "ria/sys/vga.h"
 #include "utest.h"
 #include <string.h>
 
-/* The console with no VGA: the 80-column terminal. */
-bool vga_connected(void) { return false; }
-uint32_t vga_frames(void) { return 0; }
-void vga_canvas_size(int *w, int *h) { *w = 640, *h = 480; }
+/* The console with no VGA, the 80-column terminal, unless a test connects
+ * one (ria/sys/vga.c). Its canvas is 640 wide, so the 80 shows either way. */
+static bool connected;
+bool vga_connected(void) { return connected; }
+unsigned long vga_frame_count(void) { return 0; }
+int16_t vga_canvas_width(void) { return 640; }
 void manifold_set_term_out(int (*out)(const char *buf, int len, bool force)) { (void)out; }
 void com_reply(const char *s, size_t n) { (void)s, (void)n; }
-bool com_get_bel(void) { return false; }
-void bel_add(const bel_sound_t *sound) { (void)sound; }
-const bel_sound_t bel_teletype;
+
+/* The bell's voice is the PSG's ninth, and register 6 is its gate
+ * (core/aud/bel.c); the bell sounds while the gate is up. Its deadlines
+ * never fall due, as the clock stands still. */
+static uint8_t gate;
+void aud_bel_put(unsigned i, uint8_t val)
+{
+    if (i == 6)
+        gate = val;
+}
+uint64_t host_clock_us(void) { return 1; }
 
 static void say(const char *s)
 {
     while (*s)
-        term_write(&cells_term, (uint8_t)*s++);
+        term_write(&console_term, (uint8_t)*s++);
 }
 
 /* The rows in use, as a string of a character a row: # in use, . clear. */
 static const char *rows(int count)
 {
     static char out[40];
-    term_grid_t *g = term_shown(&cells_term);
+    term_grid_t *g = console_shown(&console_term);
     for (int y = 0; y < count; y++)
-        out[y] = cells_row_used(&cells_term, g, (uint8_t)y) ? '#' : '.';
+        out[y] = screen_row_used(g->shown, (uint8_t)y) ? '#' : '.';
     out[count] = 0;
     return out;
 }
 
 static void fresh(void)
 {
+    connected = false;
     cells_init();
-    cells_RIS();
+    console_RIS();
+}
+
+/* With a VGA, a line feed under DECSCLM holds the next one while the rows
+ * move (here they never land, as the frames stand still), and RIS ends the
+ * scroll and the hold, as it does on the VGA. */
+UTEST(cells, ris_ends_a_smooth_scroll_and_its_hold)
+{
+    fresh();
+    connected = true;
+    say("\33[?4h\33[99;1H\n");
+    ASSERT_TRUE(term_holds(&console_term, '\n'));
+    say("\33c");
+    ASSERT_FALSE(term_holds(&console_term, '\n'));
+    connected = false;
 }
 
 UTEST(cells, a_row_written_is_in_use)
@@ -94,14 +121,14 @@ UTEST(cells, the_rows_move_with_a_scroll)
     ASSERT_STREQ(rows(7), "....#..");
     /* A line feed on the bottom row moves everything up. */
     fresh();
-    const int bottom = term_shown(&cells_term)->height - 1;
+    const int bottom = console_shown(&console_term)->height - 1;
     say("top\33[99;1Hbottom");
-    ASSERT_TRUE(cells_row_used(&cells_term, term_shown(&cells_term), 0));
-    ASSERT_TRUE(cells_row_used(&cells_term, term_shown(&cells_term), (uint8_t)bottom));
+    ASSERT_TRUE(screen_row_used(console_shown(&console_term)->shown, 0));
+    ASSERT_TRUE(screen_row_used(console_shown(&console_term)->shown, (uint8_t)bottom));
     say("\n");
-    ASSERT_FALSE(cells_row_used(&cells_term, term_shown(&cells_term), 0));
-    ASSERT_TRUE(cells_row_used(&cells_term, term_shown(&cells_term), (uint8_t)(bottom - 1)));
-    ASSERT_FALSE(cells_row_used(&cells_term, term_shown(&cells_term), (uint8_t)bottom));
+    ASSERT_FALSE(screen_row_used(console_shown(&console_term)->shown, 0));
+    ASSERT_TRUE(screen_row_used(console_shown(&console_term)->shown, (uint8_t)(bottom - 1)));
+    ASSERT_FALSE(screen_row_used(console_shown(&console_term)->shown, (uint8_t)bottom));
 }
 
 UTEST(cells, each_screen_has_its_own_rows)
@@ -112,6 +139,29 @@ UTEST(cells, each_screen_has_its_own_rows)
     ASSERT_STREQ(rows(4), "..#.");
     say("\33[?47l");
     ASSERT_STREQ(rows(4), "#...");
+}
+
+/* The bell is the VGA terminal's: with no VGA, the terminal the user sees
+ * is another, which rings its own. */
+UTEST(cells, a_bell_rings_only_with_a_vga)
+{
+    fresh();
+    bel_reset();
+    bel_init();
+    say("\a");
+    ASSERT_FALSE(gate);
+    connected = true;
+    say("\a");
+    ASSERT_TRUE(gate);
+    /* And none rings with the bell turned off. */
+    bel_init();
+    bel_set_term(false);
+    say("\a");
+    ASSERT_FALSE(gate);
+    bel_reset();
+    say("\a");
+    ASSERT_TRUE(gate);
+    bel_init();
 }
 
 UTEST_MAIN();

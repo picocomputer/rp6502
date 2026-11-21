@@ -1,5 +1,7 @@
 # The RP6502-VGA
 
+rp6502_gen_c()
+
 set(VGA_SRC ${RP6502_ROOT}/src/host/pico/vga)
 
 add_executable(rp6502-vga)
@@ -10,6 +12,7 @@ target_compile_definitions(rp6502-vga PRIVATE ${RP6502_PROJECT_DEFINITIONS}
 rp6502_log_definitions(rp6502-vga PRIVATE)
 pico_add_extra_outputs(rp6502-vga)
 pico_set_program_name(rp6502-vga "RP6502-VGA")
+add_dependencies(rp6502-vga rp6502_gen_c)
 pico_set_binary_type(rp6502-vga copy_to_ram)
 rp6502_pico_rtt(rp6502-vga)
 # The VGA's own linker files come first, so its memory_ram.incl takes the
@@ -21,6 +24,7 @@ rp6502_pico_memory(rp6502-vga)
 rp6502_linker_named(rp6502-vga
     ${RP6502_ROOT}/src/core/term/font.c
     ${RP6502_ROOT}/src/core/term/color.c
+    ${RP6502_ROOT}/src/core/term/console_term.c
     ${RP6502_ROOT}/src/core/vga/mode/mode0.c)
 
 set_target_properties(rp6502-vga PROPERTIES
@@ -36,6 +40,7 @@ target_compile_options(rp6502-vga PRIVATE
 )
 
 target_include_directories(rp6502-vga PRIVATE
+    ${RP6502_GEN}
     ${RP6502_ROOT}/src/host/pico
     ${VGA_SRC}
     ${RP6502_ROOT}/src
@@ -52,6 +57,7 @@ target_sources(rp6502-vga PRIVATE
     ${VGA_SRC}/main.c
     ${RP6502_ROOT}/src/host/pico/host.c
     ${RP6502_ROOT}/src/core/vga/prog.c
+    ${RP6502_ROOT}/src/core/vga/pointer.c
     ${RP6502_ROOT}/src/core/vga/mode/mode.c
     ${RP6502_ROOT}/src/core/vga/mode/mode0.c
     ${RP6502_ROOT}/src/core/vga/mode/mode1.c
@@ -61,6 +67,8 @@ target_sources(rp6502-vga PRIVATE
     ${RP6502_ROOT}/src/core/vga/mode/mode5.c
     ${VGA_SRC}/scanvideo/scanvideo.c
     ${RP6502_ROOT}/src/core/sys/version.c
+    ${VGA_SRC}/aud/bel.c
+    ${VGA_SRC}/com/com.c
     ${VGA_SRC}/com/manifold.c
     ${VGA_SRC}/sys/flash.c
     ${VGA_SRC}/sys/led.c
@@ -73,7 +81,10 @@ target_sources(rp6502-vga PRIVATE
     ${RP6502_ROOT}/src/core/term/font.c
     ${RP6502_ROOT}/src/core/term/term.c
     ${RP6502_ROOT}/src/core/term/grid.c
-    ${RP6502_ROOT}/src/core/term/cells.c
+    ${RP6502_ROOT}/src/core/term/screen.c
+    ${RP6502_ROOT}/src/core/term/cell_mode0.c
+    ${RP6502_ROOT}/src/core/term/console_term.c
+    ${RP6502_ROOT}/src/core/term/draw.c
     ${VGA_SRC}/usb/cdc.c
     ${VGA_SRC}/usb/descriptors.c
     ${VGA_SRC}/usb/usb.c

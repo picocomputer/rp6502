@@ -57,6 +57,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/api/xreg1.c
     ${RP6502_SRC}/core/ria/ria.c
     ${RP6502_SRC}/core/vga/vga.c
+    ${RP6502_SRC}/core/vga/pointer.c
     ${RP6502_SRC}/core/wdc/via.c
     ${RP6502_SRC}/core/wdc/cpu.c
     ${RP6502_SRC}/core/sys/sys.c
@@ -92,7 +93,10 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/term/font.c
     ${RP6502_SRC}/core/term/term.c
     ${RP6502_SRC}/core/term/grid.c
-    ${RP6502_SRC}/core/term/cells.c
+    ${RP6502_SRC}/core/term/screen.c
+    ${RP6502_SRC}/core/term/cell_mode0.c
+    ${RP6502_SRC}/core/term/console_term.c
+    ${RP6502_SRC}/core/term/draw.c
 )
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
@@ -144,3 +148,9 @@ endif()
 
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
+# GCC's objects carry machine code beside the LTO bytecode, so the tests,
+# which link without LTO (rp6502_add_test), link them as they are. The
+# emulators link with LTO and use the bytecode.
+if(RP6502_EMU_IPO AND CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(emu_core PRIVATE -ffat-lto-objects)
+endif()

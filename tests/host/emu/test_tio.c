@@ -11,7 +11,7 @@
 
 #include "core/com/tio.h"
 #include "core/sys/timer.h"
-#include "core/term/cells.h"
+#include "core/term/console_term.h"
 #include "utest.h"
 #include <string.h>
 
@@ -40,7 +40,7 @@ static void stage(com_source_t src, char c)
 
 static uint64_t fake_now;
 
-term_t cells_term;
+term_t console_term;
 
 static void sources(size_t keyboard, size_t uart)
 {
@@ -49,7 +49,7 @@ static void sources(size_t keyboard, size_t uart)
     fake[COM_SOURCE_UART].size = uart;
     fake[COM_SOURCE_TEL].size = 32;
     fake_staged_src = COM_SOURCE_ANY;
-    cells_term.vt52 = false;
+    console_term.vt52 = false;
     tio_init();
 }
 
@@ -289,7 +289,7 @@ UTEST(tio, esc_question_takes_one_more_byte_only_in_vt52_mode)
     ASSERT_STREQ(next(), "\33?");
     ASSERT_STREQ(next(), "p");
     ASSERT_STREQ(next(), "q");
-    cells_term.vt52 = true;
+    console_term.vt52 = true;
     push(COM_SOURCE_UART, "\33?pq\33A\33?");
     ASSERT_STREQ(next(), "\33?p");
     ASSERT_STREQ(next(), "q");
@@ -301,7 +301,7 @@ UTEST(tio, esc_question_takes_one_more_byte_only_in_vt52_mode)
     ASSERT_STREQ(next(), "a");
     ASSERT_STREQ(next(), "\33?n");
     ASSERT_STREQ(next(), "");
-    cells_term.vt52 = false;
+    console_term.vt52 = false;
 }
 
 /* Alt+[ is ESC '[', which would otherwise take the next key as its final. */

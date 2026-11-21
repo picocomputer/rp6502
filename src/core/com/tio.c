@@ -6,7 +6,7 @@
 
 #include "core/com/tio.h"
 #include "core/sys/timer.h"
-#include "core/term/cells.h"
+#include "core/term/console_term.h"
 #include "machine.h"
 #include <ctype.h>
 #include <string.h>
@@ -91,7 +91,7 @@ static tio_step_t HOST_IN_RAM_FUNC tio_frame_in(uint8_t was, uint8_t *frame, uin
             *frame = TIO_FRAME_CSI;
         else if (ch == 'O')
             *frame = TIO_FRAME_SS3;
-        else if (ch == 'N' || (ch == '?' && cells_term.vt52))
+        else if (ch == 'N' || (ch == '?' && console_term.vt52))
             *frame = TIO_FRAME_ONE;
         break;
     case TIO_FRAME_CSI:

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/vga/pointer.h"
 #include "vga/main.h"
 #include "core/com/manifold.h"
 #include "vga.pio.h"
@@ -16,7 +17,7 @@
 #include "vga/usb/cdc.h"
 #include "vga/usb/usb.h"
 #include "core/term/font.h"
-#include "core/term/cells.h"
+#include "core/term/console_term.h"
 #include <pico/stdlib.h>
 #include <hardware/dma.h>
 #include <hardware/watchdog.h>
@@ -51,6 +52,9 @@ static bool pix_ch0_xreg(uint8_t index, uint16_t word)
     return false;
 }
 
+/* The pointer's x, until its y says where it goes. */
+static int16_t pix_pointer_x;
+
 static bool pix_ch15_xreg(uint8_t index, uint16_t word)
 {
     switch (index)
@@ -64,7 +68,7 @@ static bool pix_ch15_xreg(uint8_t index, uint16_t word)
         // Also performs a reset.
         vga_xreg_canvas(NULL);
         vga_set_display(word);
-        cells_RIS_no_clear();
+        console_RIS_no_clear();
         memset(xregs, 0, sizeof(xregs));
         return true;
     case 0x01: // CODE_PAGE
@@ -99,6 +103,15 @@ static bool pix_ch15_xreg(uint8_t index, uint16_t word)
         if (!flash_program_request(word))
             ria_nak();
         return true;
+    case 0x08: // POINTER_SHAPE
+        pointer_set_shape((uint8_t)word);
+        return false;
+    case 0x09: // POINTER_X, until POINTER_Y moves the pointer
+        pix_pointer_x = (int16_t)word;
+        return false;
+    case 0x0A: // POINTER_Y: the pointer moves to it and to POINTER_X
+        pointer_move(pix_pointer_x, (int16_t)word);
+        return false;
     }
     return false;
 }

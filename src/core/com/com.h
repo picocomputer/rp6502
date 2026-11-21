@@ -6,7 +6,7 @@
 
 /* The console, as the rest of the machine sees it: the sources it reads, the
  * byte staged in the 6502's receive register, its terminal's answers, its
- * output, the bell, and starting a clean line. */
+ * output, and starting a clean line. */
 
 #ifndef _CORE_COM_COM_H_
 #define _CORE_COM_COM_H_
@@ -124,10 +124,6 @@ __printflike(1, 2) int com_printf(const char *fmt, ...);
 
 /* com_printf for a UTF-8 format, its output converted to the code page. */
 __printflike(1, 2) int com_printf_utf8(const char *utf8_fmt, ...);
-
-/* Whether a BEL the console sends rings the bell. */
-bool com_get_bel(void);
-void com_set_bel(bool value);
 
 /* Flushes, then CR LF unless the console's terminal has its cursor in
  * column 1. */

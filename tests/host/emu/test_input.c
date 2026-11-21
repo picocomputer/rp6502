@@ -10,7 +10,7 @@
 #include "core/com/com.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
-#include "core/term/cells.h"
+#include "core/term/console_term.h"
 #include "sokol/sokol_app.h"
 
 #include "utest.h"
@@ -72,7 +72,7 @@ static const char *typed(void)
 static void start(uint8_t locks)
 {
     fake_locks = locks;
-    cells_term.app_keypad = false;
+    console_term.app_keypad = false;
     com_rx_clear();
 }
 
@@ -161,7 +161,7 @@ UTEST(input, keypad_with_numlock_off)
 UTEST(input, the_application_keypad)
 {
     start(0);
-    cells_term.app_keypad = true;
+    console_term.app_keypad = true;
     key(SAPP_KEYCODE_KP_5, 0, 0);
     key(SAPP_KEYCODE_KP_SUBTRACT, 0, '-');
     key(SAPP_KEYCODE_KP_ENTER, 0, '\r');
@@ -174,7 +174,7 @@ UTEST(input, the_application_keypad)
     ASSERT_STREQ(typed(), "5-");
     key(SAPP_KEYCODE_KP_5, SAPP_MODIFIER_SHIFT, 0);
     ASSERT_STREQ(typed(), "\33Ou");
-    cells_term.app_keypad = false;
+    console_term.app_keypad = false;
 }
 
 /* The system sends no character with Ctrl or Alt held, or one this drops. */

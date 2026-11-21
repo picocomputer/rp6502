@@ -12,7 +12,7 @@
 #include "ria/sys/ria.h"
 #include "ria/sys/vga.h"
 #include "core/sys/ring.h"
-#include "core/term/cells.h"
+#include "core/term/console_term.h"
 #include "ria/com/manifold.h"
 #include "core/com/rln.h"
 #include "ria/com/com_telnet.h"
@@ -130,7 +130,7 @@ static void HOST_IN_RAM_FUNC manifold_uart_drain_tx(void)
         char ch = (char)*RING_AT(&manifold_uart_tx, 0);
         /* A byte that would scroll a region the VGA is still moving waits,
          * and everything behind it. */
-        if (vga && manifold_term_out && term_holds(&cells_term, (uint8_t)ch))
+        if (vga && manifold_term_out && term_holds(&console_term, (uint8_t)ch))
             break;
         RING_SKIP(&manifold_uart_tx, 1);
         if (vga)
@@ -177,7 +177,7 @@ static bool HOST_IN_RAM_FUNC manifold_screen_writable(void)
 /* The same wait for a byte to the screen alone, which is never the 6502's. */
 static bool HOST_IN_RAM_FUNC manifold_screen_holds(uint8_t ch)
 {
-    return vga_connected() && manifold_term_out && term_holds(&cells_term, ch);
+    return vga_connected() && manifold_term_out && term_holds(&console_term, ch);
 }
 
 static void HOST_IN_RAM_FUNC manifold_screen_write(char ch)

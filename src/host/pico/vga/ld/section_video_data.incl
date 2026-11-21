@@ -29,12 +29,14 @@
 } > VIDEO AT> RAM_STORE
 __video_rodata_source__ = LOADADDR(.video_rodata);
 
-/* The console's cells and mode 0's words, which C expects zeroed. The boot
- * code zeroes only .bss, so init() in main.c zeroes these. */
+/* The console's cells and palette and mode 0's words and faint palette,
+ * which C expects zeroed. The boot code zeroes only .bss, so init() in
+ * main.c zeroes these. */
 .video_bss (NOLOAD) : {
     __video_bss_start__ = .;
     *(.bss.mode0_regs)
-    *(.bss.mode0_palette)
+    *(.bss.console_palette)
+    *(.bss.mode0_faint_palette)
     *(.bss.mode0_colors)
     *(.bss.mode0_cells)
     . = ALIGN(4);
@@ -51,8 +53,11 @@ ASSERT(color_2 >= ADDR(.video_rodata) && color_2 < ADDR(.video_rodata) + SIZEOF(
        "color_2 is not in .video_rodata")
 ASSERT(mode0_regs >= ADDR(.video_bss) && mode0_regs < ADDR(.video_bss) + SIZEOF(.video_bss),
        "mode0_regs is not in .video_bss")
-ASSERT(mode0_palette >= ADDR(.video_bss) && mode0_palette < ADDR(.video_bss) + SIZEOF(.video_bss),
-       "mode0_palette is not in .video_bss")
+ASSERT(console_palette >= ADDR(.video_bss) && console_palette < ADDR(.video_bss) + SIZEOF(.video_bss),
+       "console_palette is not in .video_bss")
+ASSERT(mode0_faint_palette >= ADDR(.video_bss) &&
+       mode0_faint_palette < ADDR(.video_bss) + SIZEOF(.video_bss),
+       "mode0_faint_palette is not in .video_bss")
 ASSERT(mode0_colors >= ADDR(.video_bss) && mode0_colors < ADDR(.video_bss) + SIZEOF(.video_bss),
        "mode0_colors is not in .video_bss")
 ASSERT(mode0_cells >= ADDR(.video_bss) && mode0_cells < ADDR(.video_bss) + SIZEOF(.video_bss),

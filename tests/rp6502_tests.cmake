@@ -174,6 +174,8 @@ function(rp6502_add_test name)
     endif()
 
     add_executable(test_${name} ${T_SOURCES})
+    # A test links in seconds without LTO, which buys a test nothing.
+    set_property(TARGET test_${name} PROPERTY INTERPROCEDURAL_OPTIMIZATION OFF)
     if(COMMAND rp6502_msvc_dialect)
         rp6502_msvc_dialect(test_${name})
     endif()

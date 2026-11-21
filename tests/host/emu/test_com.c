@@ -18,6 +18,8 @@
 #include "core/sys/sys.h"
 #include "core/sys/timer.h"
 #include "core/term/cells.h"
+#include "core/term/console_term.h"
+#include "core/term/grid.h"
 #include "core/vga/vga_emu.h"
 #include "machine.h"
 #include "utest.h"
@@ -604,7 +606,7 @@ static const char *end_reset_after(const char *drawn, int *row)
     memcpy(tail, sent + reset, n < sizeof tail - 1 ? n : sizeof tail - 1);
     tail[n < sizeof tail - 1 ? n : sizeof tail - 1] = 0;
     /* A cursor not in the first column is a row past any there is. */
-    *row = term_pos(term_shown(&cells_term))->x ? 99 : term_pos(term_shown(&cells_term))->y;
+    *row = term_pos(console_shown(&console_term))->x ? 99 : term_pos(console_shown(&console_term))->y;
     return tail;
 }
 
@@ -631,6 +633,16 @@ UTEST(com, the_end_reset_leaves_a_clear_line)
     /* Nor one with an underlined space on it. */
     ASSERT_STREQ(end_reset_after("\33[3;1H\33[4m \33[0m\33[H", &row), "\r\n\r\n\r\n");
     ASSERT_EQ(row, 3);
+    /* Nor one erased in iCE colors with blink on, to the bright
+     * background. */
+    ASSERT_STREQ(end_reset_after("\33[?33h\33[4;1H\33[5m\33[K\33[0m\33[?33l\33[2;1H", &row),
+                 "\r\n\r\n\r\n");
+    ASSERT_EQ(row, 4);
+    /* Nor one with a space whose colors are swapped, though both are the
+     * default background: concealed, then reversed by DECCARA. */
+    ASSERT_STREQ(end_reset_after("\33[3;1H\33[8m \33[0m\33[3;1;3;1;7$r\33[H", &row),
+                 "\r\n\r\n\r\n");
+    ASSERT_EQ(row, 3);
     /* A row drawn and erased again is clear. */
     ASSERT_STREQ(end_reset_after("\33[3;1Hgone\33[2K\33[H", &row), "");
     ASSERT_EQ(row, 0);
@@ -640,13 +652,13 @@ UTEST(com, the_end_reset_leaves_a_clear_line)
 UTEST(com, the_end_reset_scrolls_for_a_clear_line)
 {
     int row;
-    const int bottom = term_shown(&cells_term)->height - 1;
+    const int bottom = console_shown(&console_term)->height - 1;
     char drawn[32];
     snprintf(drawn, sizeof drawn, "\33[%d;1Hlast\33[%d;1H", bottom + 1, bottom);
     ASSERT_STREQ(end_reset_after(drawn, &row), "\r\n\r\n");
     ASSERT_EQ(row, bottom);
-    ASSERT_FALSE(cells_row_used(&cells_term, term_shown(&cells_term), (uint8_t)bottom));
-    ASSERT_TRUE(cells_row_used(&cells_term, term_shown(&cells_term), (uint8_t)(bottom - 1)));
+    ASSERT_FALSE(screen_row_used(console_shown(&console_term)->shown, (uint8_t)bottom));
+    ASSERT_TRUE(screen_row_used(console_shown(&console_term)->shown, (uint8_t)(bottom - 1)));
 }
 
 /* A program that ends with a left margin set leaves the prompt on the
@@ -659,13 +671,13 @@ UTEST(com, the_end_reset_takes_the_left_and_right_margins_away)
     com_end_reset();
     com_end_now();
     manifold_flush();
-    ASSERT_EQ(term_pos(term_shown(&cells_term))->x, 0);
+    ASSERT_EQ(term_pos(console_shown(&console_term))->x, 0);
     for (const char *p = "\33[?69h\33[11;20s\33[5;11H"; *p; p++)
         manifold_putchar(*p);
     com_end_reset();
     com_end_now();
     manifold_flush();
-    ASSERT_EQ(term_pos(term_shown(&cells_term))->x, 0);
+    ASSERT_EQ(term_pos(console_shown(&console_term))->x, 0);
 }
 
 UTEST(com, a_write_to_one_terminal_lands_between_the_output_around_it)
@@ -771,7 +783,7 @@ static void say(const char *s)
 /* A BEL that ends an OSC is the end of a string and no bell. */
 UTEST(com, a_bell_inside_an_escape_sequence_does_not_ring)
 {
-    com_set_bel(true);
+    bel_set_term(true);
     bel_init();
     ASSERT_FALSE(bell_rings());
     say("\33]0;a title\a");
@@ -787,10 +799,10 @@ UTEST(com, a_bell_inside_an_escape_sequence_does_not_ring)
     ASSERT_TRUE(bell_rings());
     /* And none rings with the bell turned off. */
     bel_init();
-    com_set_bel(false);
+    bel_set_term(false);
     say("\a");
     ASSERT_FALSE(bell_rings());
-    com_set_bel(true);
+    bel_set_term(true);
     bel_init();
 }
 

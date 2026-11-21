@@ -8,12 +8,12 @@
 #include "core/vga/mode/mode.h"
 #include "core/vga/vga.h"
 #include "core/term/font.h"
-#include "core/term/cells.h"
+#include "core/term/console_term.h"
 
 /* On a word, so the console can write and move cells a word at a time. */
 mode0_cell_t mode0_cells[MODE0_CELLS] __attribute__((aligned(4)));
 mode0_colors_t mode0_colors[MODE0_CELLS] __attribute__((aligned(4)));
-uint16_t mode0_palette[2 * MODE0_ENTRIES];
+uint16_t mode0_faint_palette[MODE0_ENTRIES];
 volatile mode0_regs_t mode0_regs;
 
 static void mode0_sst_put_cells(sst_cursor_t *c, unsigned flags)
@@ -43,30 +43,14 @@ static bool mode0_sst_cells_ok(sst_cursor_t *c)
     return true;
 }
 
-static void mode0_sst_put_palette(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    for (unsigned i = 0; i < MODE0_ENTRIES; i++)
-        sst_put_u16(c, mode0_palette[i]);
-}
-
-static bool mode0_sst_get_palette(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    for (unsigned i = 0; i < MODE0_ENTRIES; i++)
-        mode0_set_color(i, sst_get_u16(c));
-    return sst_ok(c);
-}
-
 #define MODE0_SST(X)                                                   \
     X(FN, mode0_sst_put_cells, mode0_sst_get_cells,                    \
       sizeof mode0_cells + sizeof mode0_colors, 1)                     \
     X(IN_FN, mode0_cells)                                              \
     X(IN_FN, mode0_colors)                                             \
     X(VALIDATE, mode0_sst_cells_ok)                                    \
-    X(FN, mode0_sst_put_palette, mode0_sst_get_palette,                \
-      2 * MODE0_ENTRIES, 1)                                            \
-    X(IN_FN, mode0_palette)                                            \
+    X(SKIP, mode0_faint_palette, "draw.c makes it from the console's " \
+                                 "palette after a load")               \
     X(SKIP, mode0_regs, "published again by the canvas's load")
 SST_TABLE(mode0, MODE0_SST)
 
@@ -302,7 +286,7 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
     else
         mode0_draw(rgb, cell, pair, width, font_line, line_mask, underline, false, false);
     // DECSCUSR styles 2, 4 and 6 are the steady ones, so they draw whether or
-    // not cursor_lit is set: cells.c toggles cursor_lit on a timer and leaves the
+    // not cursor_lit is set: draw.c toggles cursor_lit on a timer and leaves the
     // style to the renderer.
     const uint8_t cursor_style = MODE0_CURSOR_STYLE(cursor);
     if (logical_row == MODE0_CURSOR_Y(cursor) &&
@@ -395,7 +379,7 @@ bool mode0_prog(uint16_t *xregs)
     if (vga_prog_exclusive(plane, scanline_begin, scanline_end,
                            (uint16_t)scanline_begin, 0, 0))
     {
-        cells_set_height(cols, rows);
+        console_set_height(cols, rows);
         return true;
     }
     return false;

@@ -18,6 +18,8 @@
 #include "core/sys/version.h"
 #include "core/term/color.h"
 #include "core/term/cells.h"
+#include "core/term/console_term.h"
+#include "core/term/grid.h"
 #include "tb_screen.h"
 #include "core/vga/vga.h"
 #include "core/vga/vga_emu.h"
@@ -390,7 +392,7 @@ UTEST(term, insert_mode_is_suspended_in_vt52_mode)
     fresh();
     feed("abc\r\33[4h\33[?2lX");
     ASSERT_STREQ(row(0), "Xbc");
-    ASSERT_TRUE(cells_term.insert_mode);
+    ASSERT_TRUE(console_term.insert_mode);
     feed("\33<X");
     ASSERT_STREQ(row(0), "XXbc");
     feed("\33[3b");
@@ -465,7 +467,7 @@ UTEST(term, the_system_soft_reset_keeps_the_screen)
 {
     fresh();
     feed("hello\33[?1049hALT\33]4;1;#123456\7\33[4h");
-    cells_RIS_no_clear();
+    console_RIS_no_clear();
     ASSERT_STREQ(row(0), "hello");
     ASSERT_EQ(cx(), 5);
     feed("\33[31mX\33[4$p");
@@ -489,14 +491,18 @@ UTEST(term, the_reset_strings_leave_vt52_mode)
 UTEST(term, the_soft_reset_string_puts_the_keys_back)
 {
     fresh();
-    feed("\33[?1h\33=\33[?8l");
-    ASSERT_TRUE(cells_term.app_cursor);
-    ASSERT_TRUE(cells_term.app_keypad);
-    ASSERT_FALSE(cells_term.autorepeat);
+    feed("\33[?1h\33=\33[?8l\33[?67h\33*0");
+    ASSERT_TRUE(console_term.app_cursor);
+    ASSERT_TRUE(console_term.app_keypad);
+    ASSERT_FALSE(console_term.autorepeat);
+    ASSERT_TRUE(console_term.backarrow_bs);
     feed(STR_TERM_SOFT_RESET);
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_FALSE(cells_term.app_keypad);
-    ASSERT_TRUE(cells_term.autorepeat);
+    ASSERT_FALSE(console_term.app_cursor);
+    ASSERT_FALSE(console_term.app_keypad);
+    ASSERT_TRUE(console_term.autorepeat);
+    ASSERT_FALSE(console_term.backarrow_bs);
+    feed("\33NqA");
+    ASSERT_STREQ(row(0), "qA");
 }
 
 /* Each item of an OSC 4 takes effect as it ends, so the CAN keeps entry 1's
@@ -520,25 +526,38 @@ UTEST(term, alt_1049_off_restores_on_the_primary_too)
     ASSERT_EQ(ch(2, 2), 'A');
 }
 
+/* A row the grid gains while the other screen shows comes in blank on the
+ * screen not showing too, as on xterm, not with what its memory held. */
+UTEST(term, the_other_screen_grows_blank_rows)
+{
+    fresh();
+    feed("\33[30;1HOLD\33[H");
+    console_set_height(80, 29);
+    feed("\33[?1049h");
+    console_set_height(80, 30);
+    feed("\33[?1049l");
+    ASSERT_STREQ(row(29), "");
+}
+
 UTEST(term, ed_3_forgets_the_scrollback)
 {
     fresh();
-    cells_set_height(80, 29);
+    console_set_height(80, 29);
     feed("one\r\n");
     for (int i = 0; i < 28; i++)
         feed("\r\n");
-    cells_set_height(80, 30);
+    console_set_height(80, 30);
     ASSERT_STREQ(row(0), "one");
 
     fresh();
-    cells_set_height(80, 29);
+    console_set_height(80, 29);
     feed("one\r\n");
     for (int i = 0; i < 28; i++)
         feed("\r\n");
     feed("\33[3J");
-    cells_set_height(80, 30);
+    console_set_height(80, 30);
     ASSERT_STREQ(row(0), "");
-    cells_set_height(80, 30);
+    console_set_height(80, 30);
 }
 
 /* ---- replies ---- */
@@ -546,11 +565,11 @@ UTEST(term, ed_3_forgets_the_scrollback)
 UTEST(term, device_attributes)
 {
     fresh();
-    ASSERT_STREQ(ask("\33[c"), "\33[?6c");
-    ASSERT_STREQ(ask("\33[0c"), "\33[?6c");
+    ASSERT_STREQ(ask("\33[c"), "\33[?64;6;21;22;28c");
+    ASSERT_STREQ(ask("\33[0c"), "\33[?64;6;21;22;28c");
     ASSERT_STREQ(ask("\33[1c"), "");
-    ASSERT_STREQ(ask("\33Z"), "\33[?6c");
-    ASSERT_STREQ(ask("\33[>c"), "\33[>0;1;0c");
+    ASSERT_STREQ(ask("\33Z"), "\33[?64;6;21;22;28c");
+    ASSERT_STREQ(ask("\33[>c"), "\33[>41;10;0c");
     ASSERT_STREQ(ask("\33[>1c"), "");
     ASSERT_STREQ(ask("\33[=c"), "\33P!|00000000\33\\");
 }
@@ -558,9 +577,29 @@ UTEST(term, device_attributes)
 UTEST(term, decreqtparm)
 {
     fresh();
-    ASSERT_STREQ(ask("\33[x"), "\33[2;1;1;112;112;1;0x");
-    ASSERT_STREQ(ask("\33[1x"), "\33[3;1;1;112;112;1;0x");
+    ASSERT_STREQ(ask("\33[x"), "\33[2;1;1;128;128;1;0x");
+    ASSERT_STREQ(ask("\33[1x"), "\33[3;1;1;128;128;1;0x");
     ASSERT_STREQ(ask("\33[2x"), "");
+}
+
+/* The DEC status reports, CSI ? Ps n, as xterm's VT420 answers them. */
+UTEST(term, dec_status_reports)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33[?5n"), "\33[?0n");
+    ASSERT_STREQ(ask("\33[3;7H\33[?6n"), "\33[?3;7;1R");
+    ASSERT_STREQ(ask("\33[2;20r\33[?6h\33[2;4H\33[?6n\33[?6l\33[r"), "\33[?2;4;1R");
+    ASSERT_STREQ(ask("\33[?15n"), "\33[?13n");
+    ASSERT_STREQ(ask("\33[?25n"), "\33[?20n");
+    ASSERT_STREQ(ask("\33[?26n"), "\33[?27;1;0;0n");
+    ASSERT_STREQ(ask("\33[?55n"), "\33[?53n");
+    ASSERT_STREQ(ask("\33[?56n"), "\33[?57;0n");
+    ASSERT_STREQ(ask("\33[?62n"), "\33[0000*{");
+    ASSERT_STREQ(ask("\33[?63;7n"), "\33P7!~0000\33\\");
+    ASSERT_STREQ(ask("\33[?75n"), "\33[?70n");
+    ASSERT_STREQ(ask("\33[?85n"), "\33[?83n");
+    ASSERT_STREQ(ask("\33[?99n"), "");
+    ASSERT_STREQ(ask("\33[15n"), "");
 }
 
 /* XTVERSION: the console's name and the firmware's version. */
@@ -616,15 +655,15 @@ UTEST(term, the_keyboard_modes_set_reset_and_report)
     fresh();
     ASSERT_STREQ(ask("\33[?1$p\33[?8$p\33[?66$p"),
                  "\33[?1;2$y\33[?8;1$y\33[?66;2$y");
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_TRUE(cells_term.autorepeat);
-    ASSERT_FALSE(cells_term.app_keypad);
+    ASSERT_FALSE(console_term.app_cursor);
+    ASSERT_TRUE(console_term.autorepeat);
+    ASSERT_FALSE(console_term.app_keypad);
     feed("\33[?1;66h\33[?8l");
     ASSERT_STREQ(ask("\33[?1$p\33[?8$p\33[?66$p"),
                  "\33[?1;1$y\33[?8;2$y\33[?66;1$y");
-    ASSERT_TRUE(cells_term.app_cursor);
-    ASSERT_FALSE(cells_term.autorepeat);
-    ASSERT_TRUE(cells_term.app_keypad);
+    ASSERT_TRUE(console_term.app_cursor);
+    ASSERT_FALSE(console_term.autorepeat);
+    ASSERT_TRUE(console_term.app_keypad);
     feed("\33[?1;66l\33[?8h");
     ASSERT_STREQ(ask("\33[?1$p\33[?8$p\33[?66$p"),
                  "\33[?1;2$y\33[?8;1$y\33[?66;2$y");
@@ -638,11 +677,11 @@ UTEST(term, the_keypad_mode_escapes_work_in_both_modes)
     feed("\33>");
     ASSERT_STREQ(ask("\33[?66$p"), "\33[?66;2$y");
     feed("\33[?2l\33=");
-    ASSERT_TRUE(cells_term.app_keypad);
+    ASSERT_TRUE(console_term.app_keypad);
     feed("\33>");
-    ASSERT_FALSE(cells_term.app_keypad);
+    ASSERT_FALSE(console_term.app_keypad);
     feed("\33=\33<x");
-    ASSERT_TRUE(cells_term.app_keypad); /* leaving VT52 mode keeps it */
+    ASSERT_TRUE(console_term.app_keypad); /* leaving VT52 mode keeps it */
     ASSERT_STREQ(row(0), "x");
 }
 
@@ -652,18 +691,18 @@ UTEST(term, the_resets_and_the_keyboard_modes)
 {
     fresh();
     feed("\33[?1;66h\33[?8l\33[!p");
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_FALSE(cells_term.app_keypad);
-    ASSERT_FALSE(cells_term.autorepeat);
+    ASSERT_FALSE(console_term.app_cursor);
+    ASSERT_FALSE(console_term.app_keypad);
+    ASSERT_FALSE(console_term.autorepeat);
     feed("\33[?1h\33=\33c");
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_FALSE(cells_term.app_keypad);
-    ASSERT_TRUE(cells_term.autorepeat);
+    ASSERT_FALSE(console_term.app_cursor);
+    ASSERT_FALSE(console_term.app_keypad);
+    ASSERT_TRUE(console_term.autorepeat);
     feed("\33[?1h\33=\33[?8l");
-    cells_RIS_no_clear();
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_FALSE(cells_term.app_keypad);
-    ASSERT_TRUE(cells_term.autorepeat);
+    console_RIS_no_clear();
+    ASSERT_FALSE(console_term.app_cursor);
+    ASSERT_FALSE(console_term.app_keypad);
+    ASSERT_TRUE(console_term.autorepeat);
 }
 
 /* A saved cursor and the alternate screen carry none of them. */
@@ -671,12 +710,12 @@ UTEST(term, the_keyboard_modes_belong_to_no_screen)
 {
     fresh();
     feed("\0337\33[?1h\33=\33[?8l\0338\33[?1049h");
-    ASSERT_TRUE(cells_term.app_cursor);
-    ASSERT_TRUE(cells_term.app_keypad);
-    ASSERT_FALSE(cells_term.autorepeat);
+    ASSERT_TRUE(console_term.app_cursor);
+    ASSERT_TRUE(console_term.app_keypad);
+    ASSERT_FALSE(console_term.autorepeat);
     feed("\33[?1l\33[?1049l");
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_TRUE(cells_term.app_keypad);
+    ASSERT_FALSE(console_term.app_cursor);
+    ASSERT_TRUE(console_term.app_keypad);
 }
 
 UTEST(term, a_savestate_carries_the_keyboard_modes)
@@ -692,18 +731,18 @@ UTEST(term, a_savestate_carries_the_keyboard_modes)
     c = (sst_cursor_t){blob, blob + cells_sst.size, false, NULL};
     ASSERT_TRUE(cells_sst.load(&c, 0));
     ASSERT_TRUE(sst_ok(&c));
-    ASSERT_TRUE(cells_term.app_cursor);
-    ASSERT_TRUE(cells_term.app_keypad);
-    ASSERT_FALSE(cells_term.autorepeat);
+    ASSERT_TRUE(console_term.app_cursor);
+    ASSERT_TRUE(console_term.app_keypad);
+    ASSERT_FALSE(console_term.autorepeat);
     feed("\33[?1l\33[?8h");
     c = (sst_cursor_t){blob, blob + cells_sst.size, false, NULL};
     cells_sst.save(&c, 0);
     feed("\33[?1h\33[?8l");
     c = (sst_cursor_t){blob, blob + cells_sst.size, false, NULL};
     ASSERT_TRUE(cells_sst.load(&c, 0));
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_TRUE(cells_term.app_keypad);
-    ASSERT_TRUE(cells_term.autorepeat);
+    ASSERT_FALSE(console_term.app_cursor);
+    ASSERT_TRUE(console_term.app_keypad);
+    ASSERT_TRUE(console_term.autorepeat);
 }
 
 UTEST(term, rep_repeats_the_last_glyph)
@@ -905,6 +944,49 @@ UTEST(term, the_uk_set_has_the_pound)
     ASSERT_TRUE(mode0_glyph_is_dec(cell(4, 0)->glyph));
 }
 
+/* G2 and G3, by a locking shift (LS2, LS3) or a single one (SS2, SS3),
+ * which draws one glyph and is spent. A 96-character set is not taken. */
+UTEST(term, g2_and_g3_shift_in)
+{
+    fresh();
+    feed("\33*0\33+A\33Nq#\33O#q\33nqa\33o#\17q\33-A\33-0\33)A\16#");
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(0, 0)->glyph));
+    ASSERT_EQ(ch(1, 0), '#');
+    ASSERT_EQ(cell(2, 0)->glyph, MODE0_GLYPH_DEC(16, 0x7D));
+    ASSERT_EQ(ch(3, 0), 'q');
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(4, 0)->glyph));
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(5, 0)->glyph));
+    ASSERT_EQ(cell(6, 0)->glyph, MODE0_GLYPH_DEC(16, 0x7D));
+    ASSERT_EQ(ch(7, 0), 'q');
+    ASSERT_EQ(cell(8, 0)->glyph, MODE0_GLYPH_DEC(16, 0x7D));
+    /* DECSC keeps the sets and the shifts, and DECSTR puts them back. */
+    feed("\33[H\33*0\33n\33" "7\17\33" "8q\33[!pq");
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(0, 0)->glyph));
+    ASSERT_EQ(ch(1, 0), 'q');
+    /* REP draws the glyph again from the set it came from. */
+    feed("\33[2;1H\33*0\33Nq\33[2bq");
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(0, 1)->glyph));
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(2, 1)->glyph));
+    ASSERT_EQ(ch(3, 1), 'q');
+}
+
+/* DEC Technical: 0x21 to 0x7E from the second table, the space and DEL as
+ * they are. */
+UTEST(term, the_technical_set)
+{
+    fresh();
+    feed("\33(>!~ \33(Ba\33+>\33O<");
+    ASSERT_EQ(cell(0, 0)->glyph, MODE0_GLYPH_TECH(16, '!'));
+    ASSERT_EQ(cell(1, 0)->glyph, MODE0_GLYPH_TECH(16, '~'));
+    ASSERT_TRUE(mode0_glyph_is_tech(cell(1, 0)->glyph));
+    ASSERT_FALSE(mode0_glyph_is_dec(cell(1, 0)->glyph));
+    ASSERT_EQ(mode0_glyph_code(cell(1, 0)->glyph), '~');
+    ASSERT_EQ(ch(2, 0), ' ');
+    ASSERT_EQ(ch(3, 0), 'a');
+    ASSERT_EQ(cell(4, 0)->glyph, MODE0_GLYPH_TECH(16, '<'));
+    ASSERT_STREQ(ask("\33[1$w"), "\33P1$u1;6;1;@;@;@;0;2;@;BBB>\33\\");
+}
+
 /* ---- VT52 ---- */
 
 UTEST(term, vt52_mode)
@@ -944,7 +1026,7 @@ UTEST(term, a_double_width_line_has_forty_columns)
     feed("\33#6");
     ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_WIDE);
     ASSERT_EQ(ch(39, 0), 'a');
-    ASSERT_EQ(ch(40, 0), ' '); /* the right half is lost */
+    ASSERT_EQ(ch(40, 0), 'b'); /* the right half is kept, out of sight */
     ASSERT_EQ(cx(), 39);
     feed("\33[1;70Hz");
     ASSERT_EQ(ch(39, 0), 'z');
@@ -954,6 +1036,7 @@ UTEST(term, a_double_width_line_has_forty_columns)
     ASSERT_EQ(ch(0, 1), 'y');
     feed("\33#5\33[1;1H\33#5");
     ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
+    ASSERT_EQ(ch(40, 0), 'b'); /* and comes back */
     feed("\33[1;60Hq");
     ASSERT_EQ(ch(59, 0), 'q');
 }
@@ -970,6 +1053,46 @@ UTEST(term, line_sizes_move_with_their_lines)
     ASSERT_EQ(tb_screen_row_size(2), TERM_LINE_BOTTOM);
     feed("\33[2J");
     ASSERT_EQ(tb_screen_row_size(1), TERM_LINE_NORMAL);
+}
+
+/* A line's size is its row's, so a double-width row that a line feed sends
+ * into the scrollback comes back double width when a grow brings it back. */
+UTEST(term, a_line_size_comes_back_from_the_scrollback)
+{
+    fresh();
+    console_set_height(80, 29);
+    feed("\33#6one\r\n");
+    for (int i = 0; i < 28; i++)
+        feed("\r\n");
+    ASSERT_STREQ(row(0), "");
+    console_set_height(80, 30);
+    ASSERT_STREQ(row(0), "one");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_WIDE);
+    ASSERT_EQ(tb_screen_row_size(1), TERM_LINE_NORMAL);
+}
+
+/* A program's own size of 255 rows turns its ring past every slot. Its
+ * line sizes go with their rows, and the cursor keeps to its row's columns. */
+UTEST(term, a_255_row_size_keeps_its_line_sizes_through_its_ring)
+{
+    fresh();
+    rln_set_term_height(255);
+    term_grid_t *g = console_term.grids[TERM_SCREEN_GRIDS];
+    ASSERT_EQ(g->height, 255);
+    feed("\33[255;1H\33#6");
+    ASSERT_EQ(screen_size(g->shown, 254), TERM_LINE_WIDE);
+    for (int i = 0; i < 200; i++)
+        feed("\n");
+    ASSERT_EQ(screen_size(g->shown, 54), TERM_LINE_WIDE);
+    for (unsigned y = 0; y < 255; y++)
+        if (y != 54)
+            ASSERT_EQ(screen_size(g->shown, (uint8_t)y), TERM_LINE_NORMAL);
+    feed("\33[55;70H");
+    ASSERT_EQ(term_pos(g)->y, 54);
+    ASSERT_EQ(term_pos(g)->x, 39);
+    feed("\33[56;70H");
+    ASSERT_EQ(term_pos(g)->x, 69);
+    rln_set_term_height(0);
 }
 
 UTEST(term, a_scroll_keeps_the_cursor_on_its_line)
@@ -996,25 +1119,27 @@ UTEST(term, a_quiet_terminal_answers_nothing)
 UTEST(term, the_soft_reset_sets_the_40_back_to_30)
 {
     fresh();
-    cells_set_height(40, 22);
-    ASSERT_EQ(cells_term.grids[0]->height, 22);
-    cells_RIS_no_clear();
-    ASSERT_EQ(cells_term.grids[0]->height, TERM_STD_HEIGHT);
+    console_set_height(40, 22);
+    ASSERT_EQ(console_term.grids[0]->height, 22);
+    console_RIS_no_clear();
+    ASSERT_EQ(console_term.grids[0]->height, TERM_STD_HEIGHT);
 }
 
-/* A program's own size is a third grid: the answers come from it, and the
- * screen's 80 columns go on as they were. */
-UTEST(term, a_pinned_width_answers_from_its_own_grid)
+/* A program's own size for the line editor is a third grid the terminal
+ * follows, but the terminal answers from the screen: its size, its cursor. */
+UTEST(term, a_pinned_width_is_the_line_editors_alone)
 {
     fresh();
     rln_set_term_width(132);
-    ASSERT_EQ(cells_term.grid_count, 3);
-    ASSERT_STREQ(ask("\33[18t"), "\33[8;30;132t");
+    ASSERT_EQ(console_term.grid_count, 3);
+    ASSERT_EQ(console_term.grids[TERM_SCREEN_GRIDS]->width, 132);
+    ASSERT_STREQ(ask("\33[18t"), "\33[8;30;80t");
     feed("\33[1;100H");
-    ASSERT_STREQ(ask("\33[6n"), "\33[1;100R");
-    ASSERT_EQ(cx(), 79); /* the screen's terminal stops at its edge */
+    ASSERT_STREQ(ask("\33[6n"), "\33[1;80R");
+    ASSERT_EQ(term_pos(console_term.grids[TERM_SCREEN_GRIDS])->x, 99);
+    ASSERT_STREQ(ask("\33P$q$|\33\\"), "\33P1$r80$|\33\\");
     rln_set_term_width(0);
-    ASSERT_EQ(cells_term.grid_count, 2);
+    ASSERT_EQ(console_term.grid_count, 2);
     ASSERT_STREQ(ask("\33[6n"), "\33[1;80R");
 }
 
@@ -1024,12 +1149,14 @@ UTEST(term, a_pinned_height_fixes_the_width_and_stops_with_the_program)
 {
     fresh();
     rln_set_term_height(20);
-    ASSERT_STREQ(ask("\33[18t"), "\33[8;20;80t");
+    ASSERT_EQ(console_term.grids[TERM_SCREEN_GRIDS]->height, 20);
+    ASSERT_EQ(console_term.grids[TERM_SCREEN_GRIDS]->width, 80);
+    ASSERT_STREQ(ask("\33[18t"), "\33[8;30;80t");
     rln_set_term_width(132);
     feed("\33[1;81H\t");
-    ASSERT_STREQ(ask("\33[6n"), "\33[1;89R");
+    ASSERT_EQ(term_pos(console_term.grids[TERM_SCREEN_GRIDS])->x, 88);
     rln_stop();
-    ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS);
+    ASSERT_EQ(console_term.grid_count, TERM_SCREEN_GRIDS);
 }
 
 UTEST(term, scroll_left_and_right)
@@ -1420,14 +1547,14 @@ static void lazy_run(bool pay_each, uint8_t *screen)
         if (lazy_skip[k])
             continue;
         if (lazy_height[k])
-            cells_set_height(80, lazy_height[k]);
+            console_set_height(80, lazy_height[k]);
         else
             feed(lazy_seq[k]);
         if (pay_each)
             for (int i = 0; i < TB_SCREEN_SETTLE; i++)
                 cells_task();
     }
-    cells_set_height(80, 30);
+    console_set_height(80, 30);
     for (int i = 0; i < TB_SCREEN_SETTLE; i++)
         cells_task();
     for (int y = 0; y < 30; y++)
@@ -1815,6 +1942,27 @@ UTEST(term, declrmm_has_no_double_size_lines)
     ASSERT_EQ(ch(10, 0), 'z');
 }
 
+/* DECLRMM set makes every line single size: both screens', and the rows in
+ * the scrollback, which come back single size. */
+UTEST(term, declrmm_makes_both_screens_single_size)
+{
+    fresh();
+    console_set_height(80, 29);
+    feed("\33#6one\r\n");
+    for (int i = 0; i < 28; i++)
+        feed("\r\n");
+    feed("\33[H\33#6\33[?1049h\33#3");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_TOP);
+    feed("\33[?69h\33[?69l");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
+    feed("\33[?1049l");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
+    feed("\33[29H");
+    console_set_height(80, 30);
+    ASSERT_STREQ(row(0), "one");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
+}
+
 /* The margins are part of a savestate. */
 UTEST(term, the_left_and_right_margins_come_back)
 {
@@ -1872,6 +2020,24 @@ UTEST(term, a_rectangle_lands_on_a_row_as_it_is_owed)
     ASSERT_EQ(mode0_color(ink(4, 4)->bg_color), color_256[0]);
 }
 
+/* VPR and HPR go where VPA and HPA would, past the margins, as in xterm;
+ * under DECOM, as far as the margins. */
+UTEST(term, vpr_and_hpr_position)
+{
+    fresh();
+    feed("\33[5;10r\33[?69h\33[5;20s\33[7;8H\33[10e");
+    ASSERT_EQ(cy(), 16);
+    ASSERT_EQ(cx(), 7);
+    feed("\33[30a");
+    ASSERT_EQ(cx(), 37);
+    feed("\33[99e\33[99a");
+    ASSERT_EQ(cy(), 29);
+    ASSERT_EQ(cx(), 79);
+    feed("\33[?6h\33[2;3H\33[99e\33[99a");
+    ASSERT_EQ(cy(), 9);
+    ASSERT_EQ(cx(), 19);
+}
+
 /* DECERA erases protected cells too; DECSERA leaves them. */
 UTEST(term, decera_erases_and_decsera_spares_the_protected)
 {
@@ -1889,6 +2055,17 @@ UTEST(term, decera_erases_and_decsera_spares_the_protected)
     ASSERT_STREQ(row(5), "");
     feed("\33[5;1;5;80$z");
     ASSERT_STREQ(row(4), "");
+}
+
+/* DECSERA makes the characters spaces and leaves the cells' colors and
+ * attributes, as xterm does, whatever the pen. */
+UTEST(term, decsera_keeps_the_colors)
+{
+    fresh();
+    feed("\33[42;4mabc\33[44;24m\33[1;1;1;2${");
+    ASSERT_STREQ(row(0), "  c");
+    ASSERT_EQ(mode0_color(ink(0, 0)->bg_color), color_256[2]);
+    ASSERT_EQ(cell(1, 0)->attributes & TERM_ATTR_UL_MASK, TERM_ATTR_UL(TERM_UL_SINGLE));
 }
 
 /* DECCRA copies cells, colors and attributes, onto itself too, and loses
@@ -2297,7 +2474,7 @@ UTEST(term, xterm_key_options_set_and_report)
     /* The options of the other keys are not the console's to set or tell. */
     ASSERT_STREQ(ask("\33[?1m\33[?2g"), "");
     /* The secondary device attributes are still asked with the same marker. */
-    ASSERT_STREQ(ask("\33[>c"), "\33[>0;1;0c");
+    ASSERT_STREQ(ask("\33[>c"), "\33[>41;10;0c");
     /* The end of a program turns them off. */
     feed("\33[>4;2m\33[>4;1f");
     feed(STR_TERM_SOFT_RESET);
@@ -2398,8 +2575,91 @@ UTEST(term, decrqss_answers_with_the_other_settings)
     ASSERT_STREQ(ask("\33[1\"q\33P$q\"q\33\\"), "\33P1$r1\"q\33\\");
     ASSERT_STREQ(ask("\33P$q*x\33\\"), "\33P1$r0*x\33\\");
     ASSERT_STREQ(ask("\33[2*x\33P$q*x\33\\"), "\33P1$r2*x\33\\");
-    ASSERT_STREQ(ask("\33P$q\"p\33\\"), "\33P0$r\33\\");
+    ASSERT_STREQ(ask("\33P$q\"p\33\\"), "\33P1$r64;1\"p\33\\");
+    ASSERT_STREQ(ask("\33P$qt\33\\"), "\33P1$r30t\33\\");
+    ASSERT_STREQ(ask("\33P$q$|\33\\"), "\33P1$r80$|\33\\");
+    ASSERT_STREQ(ask("\33P$q*|\33\\"), "\33P1$r30*|\33\\");
     ASSERT_STREQ(ask("\33P$qz\33\\"), "\33P0$r\33\\");
+}
+
+/* DECRQPSR reports the cursor (DECCIR) and the tab stops (DECTABSR), and
+ * DECRSPS takes the reports back. */
+UTEST(term, decrqpsr_and_decrsps)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33[1$w"), "\33P1$u1;1;1;@;@;@;0;2;@;BBBB\33\\");
+    ASSERT_STREQ(ask("\33[5;10H\33[1;4;7m\33[1\"q\33*0\33)A\33n\33[1$w"),
+                 "\33P1$u5;10;1;K;A;@;2;2;@;BA0B\33\\");
+    ASSERT_STREQ(ask("\33[0m\33[0\"q\33[30;80Hx\33O\33[1$w"),
+                 "\33P1$u30;80;1;@;@;L;2;2;@;BA0B\33\\");
+    ASSERT_STREQ(ask("\33[2$w"), "\33P2$u9/17/25/33/41/49/57/65/73\33\\");
+    ASSERT_STREQ(ask("\33[3g\33[2$w"), "\33P2$u\33\\");
+
+    fresh();
+    feed("\33[2;20r\33P1$t3;4;1;C;A;I;3;2;@;A%50B\33\\");
+    ASSERT_EQ(cx(), 3);
+    ASSERT_EQ(cy(), 2);
+    ASSERT_STREQ(ask("\33[1$w"), "\33P1$u3;4;1;C;A;I;3;2;@;AB0B\33\\");
+    ASSERT_STREQ(ask("\33P$qm\33\\"), "\33P1$r0;1;4m\33\\");
+    /* Out of range, or garbled, it changes nothing. */
+    feed("\33P1$t31;4;1;@;@;@;0;2;@;BBBB\33\\");
+    feed("\33P1$t1;1;1;@;@;F;0;2;@;BBBB\33\\");
+    feed("\33P1$t1;1;1;@@;@;@;0;2;@;BBBB\33\\");
+    feed("\33P1$t1;1;1;@;@;@;0;2;@;BBB\33\\");
+    ASSERT_STREQ(ask("\33[1$w"), "\33P1$u3;4;1;C;A;I;3;2;@;AB0B\33\\");
+
+    feed("\33P2$t5/12/80\33\\");
+    ASSERT_STREQ(ask("\33[2$w"), "\33P2$u5/12/80\33\\");
+    feed("\33P2$t5/x\33\\");
+    ASSERT_STREQ(ask("\33[2$w"), "\33P2$u5/12/80\33\\");
+    feed("\33P2$t\33\\");
+    ASSERT_STREQ(ask("\33[2$w"), "\33P2$u\33\\");
+}
+
+/* DECCOLM does nothing until xterm's ?40 allows it; then, as in xterm
+ * where the window may not resize, the width stays and the screen is
+ * erased, every line single size, the margins whole and the cursor home. */
+UTEST(term, deccolm_with_allow_80_to_132)
+{
+    fresh();
+    feed("abc\33#6\33[5;20r\33[?69h\33[3;30s\33[10;10H\33[?3h");
+    ASSERT_STREQ(row(0), "abc");
+    ASSERT_EQ(cx(), 9);
+    ASSERT_STREQ(ask("\33[?40$p"), "\33[?40;2$y");
+    feed("\33[?40h\33[?3l");
+    ASSERT_STREQ(row(0), "");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
+    ASSERT_EQ(cx(), 0);
+    ASSERT_EQ(cy(), 0);
+    ASSERT_STREQ(ask("\33P$qr\33\\\33P$qs\33\\"), "\33P1$r1;30r\33\\\33P1$r1;80s\33\\");
+    ASSERT_STREQ(ask("\33[?40$p\33[?3$p"), "\33[?40;1$y\33[?3;4$y");
+    ASSERT_STREQ(ask("\33c\33[!p\33[?40$p"), "\33[?40;1$y");
+    feed(STR_TERM_SOFT_RESET);
+    ASSERT_STREQ(ask("\33[?40$p"), "\33[?40;2$y");
+}
+
+UTEST(term, decbkm_is_a_mode)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33[?67$p"), "\33[?67;2$y");
+    ASSERT_STREQ(ask("\33[?67h\33[?67$p"), "\33[?67;1$y");
+    ASSERT_TRUE(console_term.backarrow_bs);
+    ASSERT_STREQ(ask("\33c\33[?67$p"), "\33[?67;2$y");
+}
+
+/* DECSCL sets the level DECRQSS reports, with a soft reset, and takes no
+ * level it has not. Controls stay 7-bit whatever it asks. */
+UTEST(term, decscl_sets_the_level_with_a_soft_reset)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33[61\"p\33P$q\"p\33\\"), "\33P1$r61\"p\33\\");
+    ASSERT_STREQ(ask("\33[62;0\"p\33P$q\"p\33\\"), "\33P1$r62;1\"p\33\\");
+    ASSERT_STREQ(ask("\33[65\"p\33P$q\"p\33\\"), "\33P1$r62;1\"p\33\\");
+    ASSERT_STREQ(ask("\33[5;20r\33[4h\33[1m\33[63\"p\33P$qr\33\\\33P$qm\33\\"),
+                 "\33P1$r1;30r\33\\\33P1$r0m\33\\");
+    ASSERT_STREQ(ask("\33[4$p"), "\33[4;2$y");
+    ASSERT_STREQ(ask("\33[!p\33P$q\"p\33\\"), "\33P1$r63;1\"p\33\\");
+    ASSERT_STREQ(ask("\33c\33P$q\"p\33\\"), "\33P1$r64;1\"p\33\\");
 }
 
 /* Any other DCS string is dropped to its ST, and so is one cut short. */
@@ -2487,17 +2747,17 @@ UTEST(term, what_neovim_asks_as_it_starts_is_all_answered)
     ASSERT_STREQ(answer(),
                  "\33[?69;2$y\33[?2026;0$y\33[?2027;0$y\33[?2031;0$y\33[?2048;0$y"
                  "\33P1$r0;4:3m\33\\"
-                 "\33[?6c"
+                 "\33[?64;6;21;22;28c"
                  "\33]11;rgb:0000/0000/0000\7\33[0n"
                  "\33]11;rgb:0000/0000/0000\7\33[0n"
                  "\33P1$r0;48:2::1:2:3m\33\\"
-                 "\33[?6c");
+                 "\33[?64;6;21;22;28c");
     ASSERT_STREQ(row(0), "");
     ASSERT_EQ(cx(), 0);
     ASSERT_EQ(cy(), 0);
     ASSERT_STREQ(ask("\33P$qm\33\\"), "\33P1$r0m\33\\");
     /* And as it leaves. */
-    ASSERT_STREQ(ask("\33[>4;0m\33[c"), "\33[?6c");
+    ASSERT_STREQ(ask("\33[>4;0m\33[c"), "\33[?64;6;21;22;28c");
 }
 
 /* ---- smooth scroll ---- */
@@ -2507,8 +2767,10 @@ static const char *ghost(void)
 {
     static char text[96];
     const mode0_cell_t *c = &mode0_cells[MODE0_ROW_CELL(mode0_regs.smooth_ghost)];
+    tb_screen_t v;
+    tb_screen(&v);
     int last = 0;
-    for (int x = 0; x < 80; x++)
+    for (int x = 0; x < v.width; x++)
     {
         text[x] = (char)mode0_glyph_code(c[x].glyph);
         if (text[x] != ' ')
@@ -2545,6 +2807,59 @@ UTEST(term, a_smooth_reverse_index_moves_out_the_bottom_row_as_it_is)
     feed("\33[r");
 }
 
+/* A smooth line feed on a screen shorter than its ring moves out the top
+ * row, which joins the scrollback as it is and comes back with a grow. The
+ * 80-column size, not showing, at its full height with no slot to spare,
+ * scrolls the same line feed with its spare row and keeps its text. */
+UTEST(term, a_smooth_scroll_with_scrollback_keeps_both_sizes_text)
+{
+    fresh();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    console_set_height(40, TERM_MAX_HEIGHT - 1);
+    feed("\33[?4h\33[HA\33[2;1HB\33[99;1HZ\n");
+    ASSERT_TRUE(mode0_regs.smooth & MODE0_SMOOTH_ON);
+    ASSERT_STREQ(ghost(), "A");
+    ASSERT_STREQ(row(0), "B");
+    ASSERT_STREQ(row(TERM_MAX_HEIGHT - 3), "Z");
+    ASSERT_STREQ(row(TERM_MAX_HEIGHT - 2), "");
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    ASSERT_EQ(console_term.grids[1]->height, TERM_MAX_HEIGHT);
+    ASSERT_STREQ(row(0), "B");
+    ASSERT_STREQ(row(TERM_MAX_HEIGHT - 2), "Z");
+    ASSERT_STREQ(row(TERM_MAX_HEIGHT - 1), "");
+    console_set_height(40, TERM_MAX_HEIGHT);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    ASSERT_STREQ(row(0), "A");
+    ASSERT_STREQ(row(1), "B");
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* The row a smooth scroll moves out is drawn at its own size: from the
+ * spare row on a screen with no slot to spare, and from the scrollback on
+ * one shorter than its ring, where it comes back at that size too. */
+UTEST(term, a_smooth_scroll_moves_out_a_double_size_row_at_its_size)
+{
+    fresh();
+    feed("\33[?4h\33[H\33#3A\33[30;1H\n");
+    ASSERT_TRUE(mode0_regs.smooth & MODE0_SMOOTH_ON);
+    ASSERT_STREQ(ghost(), "A");
+    ASSERT_EQ(MODE0_ROW_SIZE(mode0_regs.smooth_ghost), TERM_LINE_TOP);
+    ASSERT_EQ(tb_screen_row_size(TERM_MAX_HEIGHT - 1), TERM_LINE_NORMAL);
+
+    fresh();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    console_set_height(40, TERM_MAX_HEIGHT - 1);
+    feed("\33[?4h\33[H\33#3A\33[99;1HZ\n");
+    ASSERT_TRUE(mode0_regs.smooth & MODE0_SMOOTH_ON);
+    ASSERT_STREQ(ghost(), "A");
+    ASSERT_EQ(MODE0_ROW_SIZE(mode0_regs.smooth_ghost), TERM_LINE_TOP);
+    ASSERT_EQ(tb_screen_row_size(TERM_MAX_HEIGHT - 2), TERM_LINE_NORMAL);
+    console_set_height(40, TERM_MAX_HEIGHT);
+    ASSERT_STREQ(row(0), "A");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_TOP);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
 /* A line feed that would scroll the moving rows again waits for them to
  * land, which takes TERM_SMOOTH_FRAMES frames. Text goes on into the row
  * coming in. */
@@ -2552,15 +2867,28 @@ UTEST(term, a_smooth_scroll_holds_the_next_line_feed)
 {
     fresh();
     feed("\33[?4h\33[30;1H\n");
-    ASSERT_TRUE(term_holds(&cells_term, '\n'));
-    ASSERT_FALSE(term_holds(&cells_term, 'A'));
+    ASSERT_TRUE(term_holds(&console_term, '\n'));
+    ASSERT_FALSE(term_holds(&console_term, 'A'));
     int frames = 0;
-    while (term_holds(&cells_term, '\n') && frames < 100)
+    while (term_holds(&console_term, '\n') && frames < 100)
     {
         vga_run_frame();
         frames++;
     }
     ASSERT_EQ(frames, TERM_SMOOTH_FRAMES);
+}
+
+/* RIS ends a smooth scroll on every machine, and with it the hold: the
+ * next line feed goes at once. */
+UTEST(term, ris_ends_a_smooth_scroll_and_its_hold)
+{
+    fresh();
+    feed("\33[?4h\33[30;1H\n");
+    ASSERT_TRUE(console_smoothing.grid == console_shown(&console_term));
+    ASSERT_TRUE(term_holds(&console_term, '\n'));
+    feed("\33c");
+    ASSERT_TRUE(console_smoothing.grid == NULL);
+    ASSERT_FALSE(term_holds(&console_term, '\n'));
 }
 
 /* A line feed that has to wait, behind one that is scrolling: what the
@@ -2593,7 +2921,7 @@ UTEST(term, a_console_sync_waits_for_the_scroll)
 UTEST(term, the_end_of_a_chain_releases_a_held_line)
 {
     ASSERT_TRUE(held_line_feed());
-    term_release_smooth(&cells_term);
+    term_release_smooth(&console_term);
     manifold_task();
     ASSERT_TRUE(manifold_drained());
     /* DECSCLM set again holds again. */

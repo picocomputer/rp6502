@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/vga/pointer.h"
 #include "core/aud/mix.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
@@ -84,8 +85,14 @@ void vga_load_code_page(uint16_t cp)
     font_load_code_page(cp);
 }
 
+void vga_set_pointer(uint8_t shape, int16_t x, int16_t y)
+{
+    pointer_set(shape, x, y);
+}
+
 void vga_init(void)
 {
+    pointer_init();
     vga_canvas_select(0);
 }
 
@@ -245,6 +252,9 @@ static void render_scanline(int y, uint32_t *fb)
             p->sprite_fn[i]((int16_t)y, (int16_t)W, plane[i], p->sprite_config[i], p->sprite_length[i]);
         }
     }
+
+    pointer_render((int16_t)y, (int16_t)W, plane[SCANVIDEO_PLANE_COUNT - 1],
+                   &filled[SCANVIDEO_PLANE_COUNT - 1]);
 
     uint32_t *dst = fb + (size_t)y * W;
     for (int x = 0; x < W; x++)

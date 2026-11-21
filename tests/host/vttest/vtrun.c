@@ -30,7 +30,17 @@
  * walk, with the keys typed after each screen. With VTGOLDEN naming an
  * approved screens.txt, the run fails when a screen differs, is new, or is
  * gone, and only those screens are saved as text and PNG for a person to look
- * at; without it, every screen is. */
+ * at; without it, every screen is.
+ *
+ * With VTXTERM set, to an xterm's path or to 1 for the one on the PATH, a
+ * real xterm is given the same bytes, and every screen
+ * recorded is held against xterm's (xmirror.h). The differences are in
+ * OUTDIR/xterm.txt and OUTDIR/xterm/, and VTXKNOWN names those approved.
+ *
+ * With VTCMD set, the program run is that shell command instead, with TERM
+ * xterm-256color, and the walk is VTKEYS: a screen is recorded each time
+ * the program has been quiet a moment, then the next step of VTKEYS is
+ * typed, steps between |, words as a test's answer takes them. */
 
 #include "core/com/com.h"
 #include "core/com/manifold.h"
@@ -41,6 +51,7 @@
 #include "core/sys/sys.h"
 #include "core/term/cells.h"
 #include "tb_screen.h"
+#include "xmirror.h"
 #include "core/vga/vga.h"
 #include "core/vga/vga_emu.h"
 #include "host/host.h"
@@ -147,6 +158,9 @@ static size_t vt_utf8(uint32_t cp, char *out)
 
 static uint32_t vt_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 static int vt_rows, vt_cols;
+static bool vt_mirror; /* xterm is given what the terminal is */
+static FILE *vt_stream; /* and OUTDIR/stream.bin has all of it */
+static long vt_streamed;
 
 /* The DEC special graphics, 0x5F to 0x7E, as Unicode. */
 static const uint32_t vt_dec[32] = {
@@ -156,6 +170,24 @@ static const uint32_t vt_dec[32] = {
     0x252C, 0x2502, 0x2A7D, 0x2A7E, 0x03C0, 0x2260, 0x00A3, 0x00B7,
 };
 
+/* DEC Technical, 0x21 to 0x7E, as Unicode, as xterm has it. The pieces of
+ * the big sigma have no Unicode and are xterm's private ones; the codes
+ * DEC left undefined are spaces. */
+static const uint32_t vt_tech[0x5E] = {
+    0x23B7, 0x250C, 0x2500, 0x2320, 0x2321, 0x2502, 0x23A1, 0x23A3,
+    0x23A4, 0x23A6, 0x23A7, 0x23A9, 0x23AB, 0x23AD, 0x23A8, 0x23AC,
+    0xE000, 0xE001, 0xE002, 0xE003, 0xE004, 0xE005, 0xE006, ' ',
+    ' ', ' ', ' ', 0x2264, 0x2260, 0x2265, 0x222B, 0x2234,
+    0x221D, 0x221E, 0x00F7, 0x0394, 0x2207, 0x03A6, 0x0393, 0x223C,
+    0x2243, 0x0398, 0x00D7, 0x039B, 0x21D4, 0x21D2, 0x2261, 0x03A0,
+    0x03A8, ' ', 0x03A3, ' ', ' ', 0x221A, 0x03A9, 0x039E,
+    0x03A5, 0x2282, 0x2283, 0x2229, 0x222A, 0x2227, 0x2228, 0x00AC,
+    0x03B1, 0x03B2, 0x03C7, 0x03B4, 0x03B5, 0x03C6, 0x03B3, 0x03B7,
+    0x03B9, 0x03B8, 0x03BA, 0x03BB, ' ', 0x03BD, 0x2202, 0x03C0,
+    0x03C8, 0x03C1, 0x03C3, 0x03C4, ' ', 0x0192, 0x03C9, 0x03BE,
+    0x03C5, 0x03B6, 0x2190, 0x2191, 0x2192, 0x2193,
+};
+
 /* The CP437 glyphs of the C0 codes, which term.c draws for the controls it
  * has no action for. */
 static const uint32_t vt_cp437_low[32] = {
@@ -163,6 +195,26 @@ static const uint32_t vt_cp437_low[32] = {
     0x25D8, 0x25CB, 0x25D9, 0x2642, 0x2640, 0x266A, 0x266B, 0x263C,
     0x25BA, 0x25C4, 0x2195, 0x203C, 0x00B6, 0x00A7, 0x25AC, 0x21A8,
     0x2191, 0x2193, 0x2192, 0x2190, 0x221F, 0x2194, 0x25B2, 0x25BC,
+};
+
+/* The CP437 glyphs of 0x80 to 0xFF, the code page the console starts in. */
+static const uint32_t vt_cp437_high[128] = {
+    0x00C7, 0x00FC, 0x00E9, 0x00E2, 0x00E4, 0x00E0, 0x00E5, 0x00E7,
+    0x00EA, 0x00EB, 0x00E8, 0x00EF, 0x00EE, 0x00EC, 0x00C4, 0x00C5,
+    0x00C9, 0x00E6, 0x00C6, 0x00F4, 0x00F6, 0x00F2, 0x00FB, 0x00F9,
+    0x00FF, 0x00D6, 0x00DC, 0x00A2, 0x00A3, 0x00A5, 0x20A7, 0x0192,
+    0x00E1, 0x00ED, 0x00F3, 0x00FA, 0x00F1, 0x00D1, 0x00AA, 0x00BA,
+    0x00BF, 0x2310, 0x00AC, 0x00BD, 0x00BC, 0x00A1, 0x00AB, 0x00BB,
+    0x2591, 0x2592, 0x2593, 0x2502, 0x2524, 0x2561, 0x2562, 0x2556,
+    0x2555, 0x2563, 0x2551, 0x2557, 0x255D, 0x255C, 0x255B, 0x2510,
+    0x2514, 0x2534, 0x252C, 0x251C, 0x2500, 0x253C, 0x255E, 0x255F,
+    0x255A, 0x2554, 0x2569, 0x2566, 0x2560, 0x2550, 0x256C, 0x2567,
+    0x2568, 0x2564, 0x2565, 0x2559, 0x2558, 0x2552, 0x2553, 0x256B,
+    0x256A, 0x2518, 0x250C, 0x2588, 0x2584, 0x258C, 0x2590, 0x2580,
+    0x03B1, 0x00DF, 0x0393, 0x03C0, 0x03A3, 0x03C3, 0x00B5, 0x03C4,
+    0x03A6, 0x0398, 0x03A9, 0x03B4, 0x221E, 0x03C6, 0x03B5, 0x2229,
+    0x2261, 0x00B1, 0x2265, 0x2264, 0x2320, 0x2321, 0x00F7, 0x2248,
+    0x00B0, 0x2219, 0x00B7, 0x221A, 0x207F, 0x00B2, 0x25A0, 0x00A0,
 };
 
 /* The bytes go to the terminal as a program's would: a byte held for a smooth
@@ -176,6 +228,12 @@ static void vt_term_write(const char *buf, size_t n)
         while (!manifold_cts())
             vga_run_frame();
         manifold_write_to(COM_TERM_SCREEN, buf + i, 1);
+    }
+    if (vt_mirror)
+    {
+        xm_write(buf, n);
+        fwrite(buf, 1, n, vt_stream);
+        vt_streamed += n;
     }
     while (!manifold_drained())
         vga_run_frame();
@@ -199,22 +257,32 @@ static void vt_term_init(void)
     vt_cols = v.width;
 }
 
+/* What a glyph shows, as Unicode. */
+static uint32_t vt_unicode(uint16_t glyph)
+{
+    uint32_t cp = mode0_glyph_code(glyph);
+    if (mode0_glyph_is_tech(glyph))
+        return vt_tech[cp - 0x21];
+    if (mode0_glyph_is_dec(glyph) && cp >= 0x5F && cp <= 0x7E)
+        return vt_dec[cp - 0x5F];
+    if (glyph >= 0x100)
+        return cp; /* an italic */
+    if (cp < 0x20)
+        return vt_cp437_low[cp]; /* a control drawn as its glyph */
+    if (cp == 0x7F)
+        return 0x2302; /* DEL drawn: the house */
+    if (cp > 0x7F)
+        return vt_cp437_high[cp - 0x80];
+    return cp;
+}
+
 static void vt_row(int y, char *out, size_t size)
 {
     const mode0_cell_t *row = tb_screen_row((uint8_t)y);
     size_t o = 0, last = 0;
     for (int x = 0; x < vt_cols && o + 8 < size; x++)
     {
-        const mode0_cell_t *c = &row[x];
-        uint32_t cp = mode0_glyph_code(c->glyph);
-        if (mode0_glyph_is_dec(c->glyph) && cp >= 0x5F && cp <= 0x7E)
-            cp = vt_dec[cp - 0x5F];
-        else if (cp < 0x20)
-            cp = vt_cp437_low[cp]; /* a control drawn as its glyph */
-        else if (cp == 0x7F)
-            cp = 0x2302; /* DEL drawn: the house */
-        else if (cp > 0x7F)
-            cp = '?';
+        uint32_t cp = vt_unicode(row[x].glyph);
         o += vt_utf8(cp, out + o);
         if (cp != ' ')
             last = o;
@@ -400,6 +468,275 @@ static bool vt_approved(const char *name, const char *line)
     return false;
 }
 
+/* ------------------------------------------------------------------------
+ * xterm, given the same bytes, when VTXTERM is set: each screen recorded is
+ * held against xterm's, cell by cell, as the colors and attributes a cell
+ * shows rather than how either keeps them. A screen that differs is named in
+ * OUTDIR/xterm.txt with a digest of its differences, and OUTDIR/xterm/NAME.txt
+ * shows both. VTXKNOWN names the differences approved, in the same form: a
+ * difference not there, or not the same, fails the run, as does one there
+ * that no longer happens. */
+
+static FILE *vt_xterm;
+static int vt_xdiffer;
+
+#define VT_KNOWN_MAX 1024
+static vt_golden_t vt_known[VT_KNOWN_MAX];
+static int vt_known_count;
+
+static void vt_load_known(const char *path)
+{
+    FILE *f = fopen(path, "r");
+    if (!f)
+    {
+        fprintf(stderr, "vtrun: cannot read %s\n", path);
+        exit(2);
+    }
+    char line[160];
+    while (fgets(line, sizeof line, f) && vt_known_count < VT_KNOWN_MAX)
+    {
+        line[strcspn(line, "\n")] = 0;
+        if (line[0] && line[0] != '#')
+            snprintf(vt_known[vt_known_count++].line, sizeof vt_known[0].line, "%s", line);
+    }
+    fclose(f);
+}
+
+/* Whether name with this digest is an approved difference. Its line is the
+ * name, the digest, and why. */
+static bool vt_known_difference(const char *name, uint32_t digest)
+{
+    char want[48];
+    snprintf(want, sizeof want, "%s %08X", name, digest);
+    size_t n = strlen(want);
+    for (int i = 0; i < vt_known_count; i++)
+        if (!strncmp(vt_known[i].line, want, n) &&
+            (vt_known[i].line[n] == ' ' || !vt_known[i].line[n]))
+        {
+            vt_known[i].seen = true;
+            return true;
+        }
+    return false;
+}
+
+/* The console's screen as xm_screen_t has a screen. */
+static void vt_ours(xm_screen_t *o)
+{
+    tb_screen_t v;
+    tb_screen(&v);
+    static const uint8_t esc_hash[4] = {5, 6, 3, 4}; /* by TERM_LINE_ */
+    o->rows = vt_rows;
+    o->cols = vt_cols;
+    o->cursor_x = v.cursor_x;
+    o->cursor_y = v.cursor_y;
+    o->reverse = v.reverse;
+    for (int y = 0; y < vt_rows; y++)
+    {
+        const mode0_cell_t *row = tb_screen_row((uint8_t)y);
+        const mode0_colors_t *colors = tb_screen_row_colors((uint8_t)y);
+        o->line[y] = esc_hash[tb_screen_row_size((uint8_t)y) & 3];
+        for (int x = 0; x < vt_cols; x++)
+        {
+            xm_cell_t *c = &o->cell[y][x];
+            const uint16_t a = row[x].attributes;
+            const unsigned ul = (a & TERM_ATTR_UL_MASK) >> TERM_ATTR_UL_SHIFT;
+            c->cp = vt_unicode(row[x].glyph);
+            c->attr = (uint8_t)(((a & TERM_ATTR_ANY_BLINK) ? XM_ATTR_BLINK : 0) |
+                                (ul ? XM_ATTR_UL : 0) | (ul == TERM_UL_DOUBLE ? XM_ATTR_DUL : 0) |
+                                ((a & TERM_ATTR_STRIKE) ? XM_ATTR_STRIKE : 0) |
+                                ((a & TERM_ATTR_OVERLINE) ? XM_ATTR_OVERLINE : 0) |
+                                ((row[x].glyph >= 0x100 && !mode0_glyph_is_dec(row[x].glyph))
+                                     ? XM_ATTR_ITALIC
+                                     : 0));
+            const uint16_t both[2] = {colors[x].fg_color, colors[x].bg_color};
+            uint32_t out[2];
+            for (int k = 0; k < 2; k++)
+            {
+                const uint16_t col = both[k];
+                if (col & SCANVIDEO_ALPHA_MASK)
+                    out[k] = XM_RGB5(SCANVIDEO_R5_FROM_PIXEL(col), SCANVIDEO_G5_FROM_PIXEL(col),
+                                     SCANVIDEO_B5_FROM_PIXEL(col));
+                else
+                {
+                    unsigned e = col >> MODE0_ENTRY_SHIFT;
+                    out[k] = e >= MODE0_ENTRIES ? (e - MODE0_ENTRIES) | XM_FAINT : e;
+                }
+            }
+            c->fg = out[0];
+            c->bg = out[1];
+            c->known = true;
+        }
+    }
+}
+
+static void vt_color_name(uint32_t c, char *out, size_t size)
+{
+    const char *faint = (c & XM_FAINT) && !(c & XM_RGB) ? " faint" : "";
+    if (c & XM_RGB)
+        snprintf(out, size, "#%02X%02X%02X", (c >> 10 & 31) << 3, (c >> 5 & 31) << 3,
+                 (c & 31) << 3);
+    else if ((c & ~XM_FAINT) == XM_DEFAULT_FG)
+        snprintf(out, size, "fg%s", faint);
+    else if ((c & ~XM_FAINT) == XM_DEFAULT_BG)
+        snprintf(out, size, "bg%s", faint);
+    else
+        snprintf(out, size, "%u%s", c & ~XM_FAINT, faint);
+}
+
+static void vt_cell_name(const xm_cell_t *c, bool look, char *out, size_t size)
+{
+    char glyph[8] = {0}, fg[24], bg[24];
+    vt_utf8(c->cp, glyph);
+    if (!look)
+    {
+        snprintf(out, size, "'%s'", glyph);
+        return;
+    }
+    vt_color_name(c->fg, fg, sizeof fg);
+    vt_color_name(c->bg, bg, sizeof bg);
+    snprintf(out, size, "'%s' %s/%s%s%s%s%s%s%s", glyph, fg, bg,
+             c->attr & XM_ATTR_UL ? (c->attr & XM_ATTR_DUL ? " dul" : " ul") : "",
+             c->attr & XM_ATTR_BLINK ? " blink" : "", c->attr & XM_ATTR_STRIKE ? " strike" : "",
+             c->attr & XM_ATTR_ITALIC ? " italic" : "",
+             c->attr & XM_ATTR_OVERLINE ? " overline" : "", "");
+}
+
+/* A row as text, of the cells a line of its size shows. */
+static void vt_xrow(const xm_screen_t *s, int y, char *out, size_t size)
+{
+    int cols = s->line[y] == 5 || !s->line[y] ? s->cols : s->cols / 2;
+    size_t o = 0;
+    for (int x = 0; x < cols && o + 8 < size; x++)
+        o += vt_utf8(s->cell[y][x].cp, out + o);
+    while (o && out[o - 1] == ' ')
+        o--;
+    out[o] = 0;
+}
+
+static void vt_compare(const char *name)
+{
+    static xm_screen_t theirs, ours;
+    if (!xm_snap(&theirs))
+    {
+        fprintf(stderr, "vtrun: no screen from xterm at %s\n", name);
+        exit(2);
+    }
+    vt_ours(&ours);
+    int text = 0, look = 0, lines = 0;
+    uint32_t digest = 0;
+    char detail[64][160];
+    int details = 0;
+    for (int y = 0; y < ours.rows; y++)
+    {
+        if (theirs.line[y] && ours.line[y] != theirs.line[y])
+        {
+            lines++;
+            const uint8_t pair[3] = {(uint8_t)y, ours.line[y], theirs.line[y]};
+            digest = host_crc32(digest, pair, sizeof pair);
+        }
+        /* A wide line shows half its cells. */
+        const int cols = ours.line[y] == 5 && theirs.line[y] != 6 && theirs.line[y] != 3 &&
+                                 theirs.line[y] != 4
+                             ? ours.cols
+                             : ours.cols / 2;
+        for (int x = 0; x < cols; x++)
+        {
+            const xm_cell_t *a = &ours.cell[y][x], *b = &theirs.cell[y][x];
+            const bool t = a->cp != b->cp;
+            /* Past the end of a line xterm printed, only its text is known.
+             * A blank's ink shows only in a line through it. */
+            const bool ink = a->cp != ' ' || ((a->attr | b->attr) & (XM_ATTR_UL | XM_ATTR_STRIKE |
+                                                                      XM_ATTR_OVERLINE));
+            const bool l = b->known && ((ink && a->fg != b->fg) || a->bg != b->bg ||
+                                        a->attr != b->attr);
+            if (!t && !l)
+                continue;
+            text += t;
+            look += !t;
+            const struct
+            {
+                uint8_t y, x;
+                uint32_t cp_a, cp_b, fg_a, fg_b, bg_a, bg_b;
+                uint8_t attr_a, attr_b;
+            } d = {(uint8_t)y, (uint8_t)x, a->cp, b->cp, a->fg, b->known ? b->fg : 0,
+                   a->bg, b->known ? b->bg : 0, a->attr, b->known ? b->attr : 0};
+            digest = host_crc32(digest, &d, sizeof d);
+            if (details < 64)
+            {
+                char an[64], bn[64];
+                vt_cell_name(a, l, an, sizeof an);
+                vt_cell_name(b, l, bn, sizeof bn);
+                snprintf(detail[details++], sizeof detail[0], "  %2d,%-2d ours %s, xterm %s", y,
+                         x, an, bn);
+            }
+        }
+    }
+    const bool cursor = ours.cursor_x != theirs.cursor_x || ours.cursor_y != theirs.cursor_y;
+    const bool reverse = ours.reverse != theirs.reverse;
+    if (cursor)
+    {
+        const int c[4] = {ours.cursor_x, ours.cursor_y, theirs.cursor_x, theirs.cursor_y};
+        digest = host_crc32(digest, c, sizeof c);
+    }
+    if (reverse)
+        digest = host_crc32(digest, &ours.reverse, 1);
+    if (!text && !look && !lines && !cursor && !reverse)
+        return;
+
+    char summary[256];
+    int sl = snprintf(summary, sizeof summary, "%s %08X", name, digest);
+    if (text)
+        sl += snprintf(summary + sl, sizeof summary - sl, " text %d", text);
+    if (look)
+        sl += snprintf(summary + sl, sizeof summary - sl, " look %d", look);
+    if (lines)
+        sl += snprintf(summary + sl, sizeof summary - sl, " lines %d", lines);
+    if (cursor)
+        sl += snprintf(summary + sl, sizeof summary - sl, " cursor %d,%d xterm %d,%d",
+                       ours.cursor_x, ours.cursor_y, theirs.cursor_x, theirs.cursor_y);
+    if (reverse)
+        snprintf(summary + sl, sizeof summary - sl, " reverse %s", ours.reverse ? "ours" : "xterm");
+    fprintf(vt_xterm, "%s\n", summary);
+    fflush(vt_xterm);
+    if (vt_known_difference(name, digest))
+        return;
+    vt_xdiffer++;
+    fprintf(stderr, "vtrun: differs from xterm: %s\n", summary);
+
+    char path[512];
+    snprintf(path, sizeof path, "%s/xterm", vt_outdir);
+    mkdir(path, 0777);
+    snprintf(path, sizeof path, "%s/xterm/%s.txt", vt_outdir, name);
+    FILE *f = fopen(path, "w");
+    if (!f)
+        return;
+    fprintf(f, "%s\nafter the first %ld bytes of stream.bin\n\n", summary, vt_streamed);
+    char a[1024], b[1024];
+    for (int y = 0; y < ours.rows; y++)
+    {
+        vt_xrow(&ours, y, a, sizeof a);
+        vt_xrow(&theirs, y, b, sizeof b);
+        fprintf(f, "%c%2d ours  |%s\n", strcmp(a, b) ? '*' : ' ', y, a);
+        if (strcmp(a, b))
+            fprintf(f, "    xterm |%s\n", b);
+    }
+    if (lines)
+    {
+        fprintf(f, "\nline sizes (ESC # n), ours/xterm:");
+        for (int y = 0; y < ours.rows; y++)
+            if (theirs.line[y] && ours.line[y] != theirs.line[y])
+                fprintf(f, " row %d %d/%d", y, ours.line[y], theirs.line[y]);
+        fprintf(f, "\n");
+    }
+    if (details)
+    {
+        fprintf(f, "\ncells (row,col)%s:\n", details == 64 ? ", the first 64" : "");
+        for (int i = 0; i < details; i++)
+            fprintf(f, "%s\n", detail[i]);
+    }
+    fclose(f);
+}
+
 static void vt_save(const char *name)
 {
     char path[512];
@@ -441,6 +778,8 @@ static void vt_shot(const char *name)
         vt_differ++;
     if (!vt_have_golden || !ok)
         vt_save(name);
+    if (vt_mirror)
+        vt_compare(name);
 }
 
 static char vt_echo[256]; /* the bytes of the keys last typed */
@@ -528,11 +867,13 @@ static const char *const vt_skip[] = {
     "Swedish national layout", /* the walk types on a US keyboard, choice 0 */
     "User-Defined Keys",      /* function keys */
     "Tektronix 4014",         /* a graphics terminal xterm can switch to */
-    /* Past what the console aims for: the VT102 and the xterm features a
+    /* Past what the console aims for: the VT420 and the xterm features a
      * program reaches for. */
-    "VT320 features",
-    "VT420 features",
     "VT520 features",
+    /* DECRQCRA, which the console leaves out: a checksum of the screen is a
+     * way to read it back, which a host must not have. vttest waits for an
+     * answer that never comes. */
+    "Checksum of Rectangular Area",
     /* Keeps the alternate-screen tests of 11.8.7 in color. */
     "Do not color after switching",
 };
@@ -570,6 +911,12 @@ static const char *const vt_keypad_keys[] = {
     "f1", "f2", "f3", "f4", "kp7", "kp8", "kp9", "kp-", "kp4", "kp5", "kp6",
     "kp,", "kp1", "kp2", "kp3", "kp0", "kp.", "kpenter", "tab", NULL};
 
+/* The keys of a PC keyboard that a VT220's function and editing keys are. */
+static const char *const vt_function_keys[] = {
+    "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12",
+    "insert", "delete", "home", "end", "pageup", "pagedown",
+    "up", "down", "left", "right", "tab", NULL};
+
 static const char *const vt_control_keys[] = {
     "ctrl-space ctrl-a ctrl-b ctrl-c ctrl-d ctrl-e ctrl-f ctrl-g ctrl-h ctrl-i "
     "ctrl-j ctrl-k ctrl-l ctrl-m ctrl-n ctrl-o ctrl-p ctrl-q ctrl-r ctrl-s "
@@ -598,12 +945,22 @@ static const vt_answer_t vt_answers[] = {
     {"<VT52 Numeric mode>", KEYBOARD_LED_NUMLOCK, vt_keypad_keys},
     {"<VT52 Application mode>", 0, vt_keypad_keys},
     {"Push each CTRL-key TWICE", 0, vt_control_keys},
+    {"Press each function key. Finish with TAB.", 0, vt_function_keys},
+    /* A key a wait, the same one twice to end */
+    {"When you are done, press any key twice to quit.", KEYBOARD_LED_NUMLOCK,
+     VT_STEPS("kp1", "kp1")},
+    {"Press any keys, repeat to quit.", 0, VT_STEPS("a", "a")},
+    {"Press the backspace key", 0, VT_STEPS("backspace")},
 };
 
 static const vt_answer_t *vt_answer; /* the row the walk is in */
 static int vt_step;                  /* and the next step of it */
 
 static int vt_slave = -1;
+static int vt_stuck_ms = VT_STUCK_MS;
+
+/* The pipes vtsleep.c's pauses talk to vtrun on, when it is preloaded. */
+static int vt_pause_tell = -1, vt_pause_wait = -1;
 
 /* Whether vttest sleeps: its state in /proc is S, a process waiting for
  * something. One that is running, or waiting only for a processor, is R. */
@@ -657,10 +1014,26 @@ static bool vt_drain(void)
     int quiet = 0;
     for (;;)
     {
-        struct pollfd p = {.fd = vt_master, .events = POLLIN};
-        int k = poll(&p, 1, VT_POLL_MS);
+        struct pollfd p[2] = {{.fd = vt_master, .events = POLLIN},
+                              {.fd = vt_pause_tell, .events = POLLIN}};
+        int k = poll(p, vt_pause_tell < 0 ? 1 : 2, VT_POLL_MS);
         if (k < 0 && errno == EINTR)
             continue;
+        if (k > 0 && !(p[0].revents & (POLLIN | POLLHUP)) && (p[1].revents & POLLIN))
+        {
+            /* vttest pauses, with all it wrote before the pause written:
+             * that is read and answered, and the pause ends. What it wrote
+             * reaches this side of the pseudoterminal a moment after, so a
+             * moment's quiet is waited for first. */
+            struct pollfd again = {.fd = vt_master, .events = POLLIN};
+            if (poll(&again, 1, 1) > 0)
+                continue;
+            char c;
+            (void)!read(vt_pause_tell, &c, 1);
+            (void)!write(vt_pause_wait, &c, 1);
+            quiet = 0;
+            continue;
+        }
         if (k > 0)
         {
             char buf[4096];
@@ -683,7 +1056,7 @@ static bool vt_drain(void)
             return true;
         }
         quiet += VT_POLL_MS;
-        if (quiet >= VT_STUCK_MS)
+        if (quiet >= vt_stuck_ms)
             return true;
     }
 }
@@ -828,6 +1201,20 @@ static const struct
     {"f2", HID_KEY_F2},
     {"f3", HID_KEY_F3},
     {"f4", HID_KEY_F4},
+    {"f5", HID_KEY_F5},
+    {"f6", HID_KEY_F6},
+    {"f7", HID_KEY_F7},
+    {"f8", HID_KEY_F8},
+    {"f9", HID_KEY_F9},
+    {"f10", HID_KEY_F10},
+    {"f11", HID_KEY_F11},
+    {"f12", HID_KEY_F12},
+    {"insert", HID_KEY_INSERT},
+    {"delete", HID_KEY_DELETE},
+    {"home", HID_KEY_HOME},
+    {"end", HID_KEY_END},
+    {"pageup", HID_KEY_PAGE_UP},
+    {"pagedown", HID_KEY_PAGE_DOWN},
     {"kp-", HID_KEY_KEYPAD_SUBTRACT},
     {"kp,", HID_KEY_KEYPAD_COMMA},
     {"kp.", HID_KEY_KEYPAD_DECIMAL},
@@ -949,7 +1336,27 @@ int main(int argc, char **argv)
     vt_screens = vt_open("screens.txt");
 
     vt_term_init();
+    if (getenv("VTXTERM"))
+    {
+        /* VTXTERM names the xterm, or is 1 for the one on the PATH. */
+        const char *xterm = getenv("VTXTERM");
+        if (!xm_start(strcmp(xterm, "1") ? xterm : "xterm", vt_rows, vt_cols, vt_outdir))
+            return 2;
+        vt_xterm = vt_open("xterm.txt");
+        vt_stream = vt_open("stream.bin");
+        vt_mirror = true;
+        vt_term_write("\33c", 2);
+        if (getenv("VTXKNOWN"))
+            vt_load_known(getenv("VTXKNOWN"));
+    }
     struct winsize ws = {.ws_row = (unsigned short)vt_rows, .ws_col = (unsigned short)vt_cols};
+    int tell[2] = {-1, -1}, wait[2] = {-1, -1};
+    const char *preload = getenv("VTSLEEP");
+    if (preload && (pipe(tell) || pipe(wait)))
+    {
+        perror("vtrun: pipe");
+        return 2;
+    }
     pid_t pid = forkpty(&vt_master, NULL, NULL, &ws);
     if (pid < 0)
     {
@@ -967,13 +1374,35 @@ int main(int argc, char **argv)
         args[n++] = geometry;
         args[n] = NULL;
         setenv("TERM", "vt102", 1);
+        if (preload)
+        {
+            char fds[32];
+            snprintf(fds, sizeof fds, "%d,%d", tell[1], wait[0]);
+            setenv("VTSLEEP_FDS", fds, 1);
+            setenv("LD_PRELOAD", preload, 1);
+            close(tell[0]);
+            close(wait[1]);
+        }
         const char *vttest = getenv("VTTEST");
+        if (getenv("VTCMD"))
+        {
+            setenv("TERM", "xterm-256color", 1);
+            execl("/bin/sh", "sh", "-c", getenv("VTCMD"), (char *)NULL);
+            _exit(127);
+        }
         args[0] = (char *)(vttest ? vttest : "vttest");
         execvp(args[0], args);
         _exit(127);
     }
 
     vt_pid = pid;
+    if (preload)
+    {
+        close(tell[1]);
+        close(wait[0]);
+        vt_pause_tell = tell[0];
+        vt_pause_wait = wait[1];
+    }
     vt_slave = open(ptsname(vt_master), O_RDWR | O_NOCTTY);
     if (vt_slave < 0)
     {
@@ -983,6 +1412,27 @@ int main(int argc, char **argv)
     int steps = 0;
     int status = 0;
     time_t start = time(NULL);
+    if (getenv("VTCMD"))
+    {
+        /* Another program than vttest, which may never block in a read:
+         * a screen is recorded when it has been quiet a while, and the
+         * next step of VTKEYS, steps between |, is typed. */
+        vt_stuck_ms = 400;
+        const char *keys = getenv("VTKEYS");
+        while (vt_wait())
+        {
+            char name[32], step[512];
+            snprintf(name, sizeof name, "cmd-%02d", ++steps);
+            vt_shot(name);
+            if (!keys || !*keys)
+                break;
+            size_t len = strcspn(keys, "|");
+            snprintf(step, sizeof step, "%.*s", (int)len, keys);
+            keys += len + (keys[len] == '|');
+            vt_send(name, step, 0, step);
+        }
+        goto done;
+    }
     while (steps++ < VT_STEP_LIMIT && vt_wait())
     {
         if (time(NULL) - start > VT_TIME_LIMIT)
@@ -1083,6 +1533,7 @@ int main(int argc, char **argv)
         vt_log("step limit\n");
         status = 1;
     }
+done:
     kill(pid, SIGKILL);
     close(vt_slave);
     close(vt_master);
@@ -1095,6 +1546,24 @@ int main(int argc, char **argv)
             fprintf(stderr, "vtrun: %s is gone\n", vt_golden[i].line);
             vt_differ++;
         }
+    if (vt_mirror)
+    {
+        xm_stop();
+        fclose(vt_xterm);
+        fclose(vt_stream);
+        for (int i = 0; i < vt_known_count; i++)
+            if (!vt_known[i].seen)
+            {
+                fprintf(stderr, "vtrun: no longer differs from xterm: %s\n", vt_known[i].line);
+                vt_xdiffer++;
+            }
+        if (vt_xdiffer)
+        {
+            fprintf(stderr, "vtrun: %d differences from xterm are not in %s; see %s/xterm\n",
+                    vt_xdiffer, getenv("VTXKNOWN") ? getenv("VTXKNOWN") : "VTXKNOWN", vt_outdir);
+            status = 1;
+        }
+    }
     if (vt_differ)
     {
         fprintf(stderr, "vtrun: %d screens differ from %s; they are saved in %s\n",

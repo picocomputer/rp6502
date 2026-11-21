@@ -4,8 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/aud/bel.h"
+#include "core/com/com.h"
 #include "core/sys/version.h"
-#include "core/term/cells.h"
+#include "core/term/console_term.h"
 #include "core/term/grid.h"
 #include "core/term/term.h"
 #include "core/vga/pixel_format.h"
@@ -15,15 +17,16 @@
 #include <stdio.h>
 #include <string.h>
 
-// A VT102 with most of what xterm adds: 256 colors and truecolor, the
-// alternate screen, the dynamic colors of OSC 4/10/11/12, bracketed paste,
-// the VT420's left and right margins and rectangles, and DECRQSS, which is
-// how a program finds kitty's underlines. The parser follows the DEC/xterm state machine (vt100.net), so
-// unknown sequences and strings are taken apart the way xterm does. Inside a sequence BS-SI and BEL act and the sequence
-// goes on, as in xterm; any other control ends it silently, as in Linux. DEC
-// Special Graphics is a character set (ESC ( 0 / SO / SI) the cells draw
-// from. Bytes 0x80-0xFF are always glyphs of the code page: there are no C1
-// controls and no UTF-8.
+// A VT420 as xterm is one: the VT420's margins, rectangles, reports and
+// character sets (DEC Special Graphics and DEC Technical, in G0 to G3), with
+// what xterm adds: 256 colors and truecolor, the alternate screen, the
+// dynamic colors of OSC 4/10/11/12, bracketed paste, and DECRQSS, which is
+// how a program finds kitty's underlines. The parser follows the DEC/xterm
+// state machine (vt100.net), so unknown sequences and strings are taken
+// apart the way xterm does. Inside a sequence BS-SI and BEL act and the
+// sequence goes on, as in xterm; any other control ends it silently, as in
+// Linux. Controls are 7-bit: bytes 0x80-0xFF are always glyphs of the code
+// page, so there are no C1 controls and no UTF-8.
 //
 // This is the parser and everything that is the same at every size: the
 // modes, the pens, the character sets and the queries. What moves the cursor
@@ -65,8 +68,7 @@ void term_show(term_t *t, bool alt)
     for (uint8_t i = 0; i < t->grid_count; i++)
     {
         term_grid_t *g = t->grids[i];
-        g->cur = &g->pos[alt];
-        g->ls = g->lines + (alt ? g->rows : 0);
+        g->shown = &g->screen[alt];
     }
 }
 
@@ -104,6 +106,7 @@ static void term_reset_core(term_t *t)
     t->vt52 = false;
     t->app_cursor = false;
     t->app_keypad = false;
+    t->backarrow_bs = false;
     t->autorepeat = true;
     t->ice_colors = false;
     t->bracketed_paste = false;
@@ -111,6 +114,7 @@ static void term_reset_core(term_t *t)
     t->format_other_keys = false;
     t->lr_margins = false;
     t->rect_attrs = false;
+    t->level = 64;
     t->protect_mode = TERM_PROTECT_OFF;
     t->erase_all = false;
     t->reverse_screen = false;
@@ -125,7 +129,7 @@ static void term_reset_core(term_t *t)
         term_default_pen(&t->saved[s]);
         t->has_saved[s] = false;
     }
-    cells_colors_reset(t);
+    console_term_reset(t);
     term_grids(t, GRID_RESET, 0);
 }
 
@@ -168,9 +172,17 @@ static void term_out_DECSTR(term_t *t)
     term_grids(t, GRID_DECSTR, 0);
 }
 
-term_grid_t *term_shown(term_t *t)
+// DECSCL, CSI Pl ; Pc " p: the conformance level, 61 for a VT100 to 64
+// for a VT420, and a soft reset, as on xterm and in DEC STD 070. Controls
+// are always 7-bit, whatever Pc asks. The level is only reported: the
+// terminal does as a VT420 at any of them.
+static void term_out_DECSCL(term_t *t)
 {
-    return t->grid_count > TERM_SCREEN_GRIDS ? t->grids[TERM_SCREEN_GRIDS] : cells_shown(t);
+    const uint16_t level = t->csi_param[0];
+    if (level < 61 || level > 64)
+        return;
+    term_out_DECSTR(t);
+    t->level = (uint8_t)level;
 }
 
 void term_add_grid(term_t *t, term_grid_t *g, const term_grid_t *from,
@@ -179,7 +191,6 @@ void term_add_grid(term_t *t, term_grid_t *g, const term_grid_t *from,
     assert(t->grid_count < TERM_MAX_GRIDS);
     term_grid_copy(g, from, lines, rows);
     t->grids[t->grid_count++] = g;
-    term_show(t, t->alt_active);
 }
 
 void term_drop_grid(term_t *t, term_grid_t *g)
@@ -506,29 +517,43 @@ static void term_out_SGR(term_t *t)
 
 /* ---- replies ----------------------------------------------------------- */
 
-static void term_replyf(const term_t *t, const char *fmt, unsigned a,
-                        unsigned b, unsigned c)
+static void term_replyf(const char *fmt, unsigned a, unsigned b, unsigned c)
 {
     char buf[TERM_REPLY_MAX];
     int n = snprintf(buf, sizeof(buf), fmt, a, b, c);
     if (n > 0 && n < (int)sizeof(buf))
-        cells_reply(t, buf, (size_t)n);
+        com_reply(buf, (size_t)n);
 }
 
-#define TERM_REPLY(t, lit) cells_reply((t), (lit), sizeof(lit) - 1)
+#define TERM_REPLY(lit) com_reply((lit), sizeof(lit) - 1)
 
-// Device Status Report: 5 status, 6 cursor position.
-static void term_out_DSR(term_t *t)
+// Primary DA: a VT420 (64) with selective erase (6), horizontal scrolling
+// and the left and right margins (21), ANSI color (22) and the rectangle
+// editing (28). Not soft fonts (7), user-defined keys (8) or the national
+// sets (9), which it has not.
+#define TERM_DA1 "\33[?64;6;21;22;28c"
+
+// Device Status Report, CSI Ps n: 5 status, 6 cursor position. The DEC
+// forms, CSI ? Ps n, answer as xterm's VT420 does: 6 is DECXCPR, the
+// position and the page, always 1; 15, there is no printer; 25, the
+// user-defined keys, which the console has none of, are unlocked; 26, a
+// North American LK201 keyboard, ready; 55 and 56, there is no locator; 62,
+// no room for macros (DECMSR); 63, the macros' checksum, of none (DECCKSR);
+// 75, no errors; 85, sessions are not configured.
+static void term_out_DSR(term_t *t, bool private)
 {
     switch (t->csi_param[0])
     {
     case 5:
-        TERM_REPLY(t, "\33[0n");
+        if (private)
+            TERM_REPLY("\33[?0n");
+        else
+            TERM_REPLY("\33[0n");
         break;
     case 6:
     {
-        const term_grid_t *g = term_shown(t);
-        const term_pos_t *pos = &g->pos[t->alt_active];
+        const term_grid_t *g = console_shown(t);
+        const term_pos_t *pos = term_pos(g);
         unsigned y = pos->y, x = pos->x;
         // Relative to the margins under DECOM, guarded so a cursor outside
         // them reports 1 rather than underflowing.
@@ -537,20 +562,52 @@ static void term_out_DSR(term_t *t)
             y = (y >= g->margin_top) ? (y - g->margin_top) : 0;
             x = (x >= g->margin_left) ? (x - g->margin_left) : 0;
         }
-        term_replyf(t, "\33[%u;%uR", y + 1, x + 1, 0);
+        term_replyf(private ? "\33[?%u;%u;1R" : "\33[%u;%uR", y + 1, x + 1, 0);
         break;
     }
+    }
+    if (!private)
+        return;
+    switch (t->csi_param[0])
+    {
+    case 15:
+        TERM_REPLY("\33[?13n");
+        break;
+    case 25:
+        TERM_REPLY("\33[?20n");
+        break;
+    case 26:
+        TERM_REPLY("\33[?27;1;0;0n");
+        break;
+    case 55:
+        TERM_REPLY("\33[?53n");
+        break;
+    case 56:
+        TERM_REPLY("\33[?57;0n");
+        break;
+    case 62:
+        TERM_REPLY("\33[0000*{");
+        break;
+    case 63:
+        term_replyf("\33P%u!~0000\33\\", t->csi_param_count > 1 ? t->csi_param[1] : 0, 0, 0);
+        break;
+    case 75:
+        TERM_REPLY("\33[?70n");
+        break;
+    case 85:
+        TERM_REPLY("\33[?83n");
+        break;
     }
 }
 
 // XTVERSION, CSI > q: the console's name and its firmware's version, so a
 // program need not guess the terminal from its device attributes.
-static void term_out_XTVERSION(term_t *t)
+static void term_out_XTVERSION(void)
 {
     char buf[TERM_REPLY_MAX];
     int n = snprintf(buf, sizeof(buf), "\33P>|RP6502(%s)\33\\", version_bare());
     if (n > 0 && n < (int)sizeof(buf))
-        cells_reply(t, buf, (size_t)n);
+        com_reply(buf, (size_t)n);
 }
 
 // xterm's window reports, CSI Ps t, of the ones that mean something here.
@@ -559,28 +616,28 @@ static void term_out_window(term_t *t)
 {
     if (t->csi_param_count > 1)
         return;
-    const term_grid_t *g = term_shown(t);
+    const term_grid_t *g = console_shown(t);
     // The cell is the screen's font, whatever size the program set.
-    unsigned cell = term_cell_height(cells_shown(t));
+    unsigned cell = term_cell_height(console_shown(t));
     switch (t->csi_param[0])
     {
     case 11: // minimized? only an emulator's window can be
         if (host_minimized())
-            TERM_REPLY(t, "\33[2t");
+            TERM_REPLY("\33[2t");
         else
-            TERM_REPLY(t, "\33[1t");
+            TERM_REPLY("\33[1t");
         break;
     case 14: // text area in pixels
-        term_replyf(t, "\33[4;%u;%ut", g->height * cell, g->width * 8u, 0);
+        term_replyf("\33[4;%u;%ut", g->height * cell, g->width * 8u, 0);
         break;
     case 16: // character cell in pixels
-        term_replyf(t, "\33[6;%u;%ut", cell, 8, 0);
+        term_replyf("\33[6;%u;%ut", cell, 8, 0);
         break;
     case 18: // text area in characters
-        term_replyf(t, "\33[8;%u;%ut", g->height, g->width, 0);
+        term_replyf("\33[8;%u;%ut", g->height, g->width, 0);
         break;
     case 19: // screen in characters
-        term_replyf(t, "\33[9;%u;%ut", g->height, g->width, 0);
+        term_replyf("\33[9;%u;%ut", g->height, g->width, 0);
         break;
     }
 }
@@ -604,7 +661,7 @@ static void term_out_DECRQM(term_t *t, bool private)
             break;
         case 3: // DECCOLM: 80 columns, and never 132. The 40-column screen is
                 // neither of DECCOLM's two, so the mode is not reported there.
-            pm = term_shown(t)->width == 80 ? 4 : 0;
+            pm = console_shown(t)->width == 80 ? 4 : 0;
             break;
         case 4: // DECSCLM
             pm = t->smooth_scroll ? 1 : 2;
@@ -633,8 +690,14 @@ static void term_out_DECRQM(term_t *t, bool private)
         case 33: // iCE colors
             pm = t->ice_colors ? 1 : 2;
             break;
+        case 40: // xterm's allow 80 to 132
+            pm = t->allow_deccolm ? 1 : 2;
+            break;
         case 66: // DECNKM
             pm = t->app_keypad ? 1 : 2;
+            break;
+        case 67: // DECBKM
+            pm = t->backarrow_bs ? 1 : 2;
             break;
         case 69: // DECLRMM
             pm = t->lr_margins ? 1 : 2;
@@ -676,7 +739,7 @@ static void term_out_DECRQM(term_t *t, bool private)
             break;
         }
     }
-    term_replyf(t, private ? "\33[?%u;%u$y" : "\33[%u;%u$y", ps, pm, 0);
+    term_replyf(private ? "\33[?%u;%u$y" : "\33[%u;%u$y", ps, pm, 0);
 }
 
 // DECSCA, CSI Ps " q: 1 protects the cells the pen writes from DECSED and
@@ -692,15 +755,17 @@ static void term_out_DECSCA(term_t *t)
         term_pen(t)->protect = false;
 }
 
-// DECREQTPARM, CSI 0 x or CSI 1 x: the VT100's line settings, answered as a
-// VT100 on its fastest line does -- no parity, 8 bits, 9600 baud both ways, clock
-// multiplier 1, no flags. CSI 0 x asks for a report unsolicited reports may
-// follow (2); CSI 1 x, for one only on request (3).
+// DECREQTPARM, CSI 0 x or CSI 1 x: the VT100's line settings -- no parity,
+// 8 bits, 38400 baud both ways, clock multiplier 1, no flags. The VT100's
+// speeds go up by 8 from 0 for 50 baud to 120 for 19200; 128 is xterm's
+// next step, 38400, the fastest the report can say. CSI 0 x asks for a
+// report unsolicited reports may follow (2); CSI 1 x, for one only on
+// request (3).
 static void term_out_DECREQTPARM(term_t *t)
 {
     uint16_t ps = t->csi_param[0];
     if (ps <= 1)
-        term_replyf(t, "\33[%u;1;1;112;112;1;0x", ps + 2u, 0, 0);
+        term_replyf("\33[%u;1;1;128;128;1;0x", ps + 2u, 0, 0);
 }
 
 // A pen color as SGR sets it, for DECRQSS: 30-37 and 90-97 (or 40s and
@@ -723,7 +788,10 @@ static int term_format_color(char *buf, size_t size, const term_color_t *c, unsi
 
 // DECRQSS, DCS $ q Pt ST: what a setting is now, as the sequence that would
 // set it. Pt is the end of that sequence: m for SGR, r for DECSTBM, s for
-// DECSLRM, SP q for DECSCUSR, " q for DECSCA and * x for DECSACE. The
+// DECSLRM, SP q for DECSCUSR, " q for DECSCA, * x for DECSACE, " p for
+// DECSCL, with ;1 for 7-bit controls above a VT100, and t, $ | and * | for
+// the rows and columns (DECSLPP, DECSCPP and DECSNLS), which only say what
+// they are. The
 // answer is DCS 1 $ r, the setting, Pt and ST; for any other Pt it is
 // DCS 0 $ r ST, as on xterm. SGR is the pen, after a 0 as xterm has it: a
 // program learns from it that an underline style or an RGB color it just
@@ -733,7 +801,7 @@ static void term_out_DECRQSS(term_t *t, const char *pt, unsigned len)
     char buf[TERM_REPLY_MAX];
     const size_t size = sizeof(buf) - 2; // room for ST
     const term_pen_t *pen = term_pen(t);
-    const term_grid_t *g = term_shown(t);
+    const term_grid_t *g = console_shown(t);
     int n = snprintf(buf, size, "\33P1$r");
     if (len == 1 && pt[0] == 'm')
     {
@@ -775,13 +843,204 @@ static void term_out_DECRQSS(term_t *t, const char *pt, unsigned len)
                       t->protect_mode == TERM_PROTECT_DEC && pen->protect ? 1u : 0u);
     else if (len == 2 && pt[0] == '*' && pt[1] == 'x')
         n += snprintf(buf + n, size - (size_t)n, "%u*x", t->rect_attrs ? 2u : 0u);
+    else if (len == 2 && pt[0] == '"' && pt[1] == 'p')
+        n += snprintf(buf + n, size - (size_t)n, t->level > 61 ? "%u;1\"p" : "%u\"p",
+                      (unsigned)t->level);
+    else if (len == 1 && pt[0] == 't')
+        n += snprintf(buf + n, size - (size_t)n, "%ut", (unsigned)g->height);
+    else if (len == 2 && pt[0] == '$' && pt[1] == '|')
+        n += snprintf(buf + n, size - (size_t)n, "%u$|", (unsigned)g->width);
+    else if (len == 2 && pt[0] == '*' && pt[1] == '|')
+        n += snprintf(buf + n, size - (size_t)n, "%u*|", (unsigned)g->height);
     else
         n = snprintf(buf, size, "\33P0$r");
     if (n >= (int)size)
         return;
     buf[n++] = '\33';
     buf[n++] = '\\';
-    cells_reply(t, buf, (size_t)n);
+    com_reply(buf, (size_t)n);
+}
+
+/* ---- presentation state: DECRQPSR and DECRSPS ------------------------ */
+
+// The final of a set's designation, as SCS gives it.
+static char term_cs_final(uint8_t set)
+{
+    return set == TERM_CS_DEC ? '0' : set == TERM_CS_UK ? 'A' : set == TERM_CS_TECH ? '>' : 'B';
+}
+
+// DECRQPSR, CSI Ps $ w: 1 asks for the cursor (DECCIR), 2 for the tab
+// stops (DECTABSR), as xterm answers them.
+//
+// DECCIR is DCS 1 $ u, then the row, the column and the page, 1; the pen's
+// rendition, @ plus 8 for reverse, 4 blink, 2 underline and 1 bold; @ plus
+// 1 for DECSCA's protection; @ plus 8 for a wrap pending, 4 for SS3, 2 for
+// SS2 and 1 for origin mode; the set in GL and in GR, which is always 2, as
+// on a VT420; @, as all four sets are of 94 characters; and the four sets'
+// finals. The row and column are the screen's, not the margins'.
+//
+// DECTABSR is DCS 2 $ u and the tab stops' columns with / between.
+static void term_out_DECRQPSR(term_t *t)
+{
+    const term_grid_t *g = console_shown(t);
+    const term_pos_t *pos = term_pos(g);
+    const term_pen_t *pen = term_pen(t);
+    if (t->csi_param[0] == 1)
+    {
+        char buf[TERM_REPLY_MAX];
+        const unsigned rend = 0x40u | (pen->reverse ? 8u : 0u) |
+                              ((pen->sgr_attr & TERM_ATTR_ANY_BLINK) ? 4u : 0u) |
+                              ((pen->sgr_attr & TERM_ATTR_UL_MASK) ? 2u : 0u) |
+                              (pen->bold ? 1u : 0u);
+        const unsigned att =
+            0x40u | (t->protect_mode == TERM_PROTECT_DEC && pen->protect ? 1u : 0u);
+        const unsigned flag = 0x40u | (pos->wrap_pending ? 8u : 0u) |
+                              (pen->ss == 3 ? 4u : 0u) | (pen->ss == 2 ? 2u : 0u) |
+                              (pen->origin_mode ? 1u : 0u);
+        int n = snprintf(buf, sizeof buf, "\33P1$u%u;%u;1;%c;%c;%c;%u;2;@;%c%c%c%c\33\\",
+                         pos->y + 1u, pos->x + 1u, rend, att, flag, (unsigned)pen->gl,
+                         term_cs_final(pen->g[0]), term_cs_final(pen->g[1]),
+                         term_cs_final(pen->g[2]), term_cs_final(pen->g[3]));
+        if (n > 0 && n < (int)sizeof buf)
+            com_reply(buf, (size_t)n);
+    }
+    else if (t->csi_param[0] == 2)
+    {
+        // A piece at a time: every column of a wide grid can be a stop.
+        char buf[8];
+        TERM_REPLY("\33P2$u");
+        bool first = true;
+        for (unsigned x = 0; x < g->width; x++)
+            if (grid_tab_is_set(g, (uint8_t)x))
+            {
+                int n = snprintf(buf, sizeof buf, first ? "%u" : "/%u", x + 1u);
+                com_reply(buf, (size_t)n);
+                first = false;
+            }
+        TERM_REPLY("\33\\");
+    }
+}
+
+// A byte of DECRSPS's DECCIR, DCS 1 $ t ... ST: the fields of DECCIR's
+// report, which csi_param holds in turn, csi_param_count counting them.
+// The first three and the sets in GL and GR are numbers; the rest a
+// character each, with ; after each but the sets' finals, which run on to
+// the end. A final with an intermediate, % & or ", is of a set this
+// terminal has not, and leaves that one as it was. Anything else out of
+// place spoils the lot (csi_colon).
+static void term_cir_byte(term_t *t, uint8_t ch)
+{
+    uint8_t f = t->csi_param_count;
+    if (f >= 13 || t->csi_colon)
+    {
+        t->csi_colon = true;
+        return;
+    }
+    const bool number = f <= 2 || f == 6 || f == 7;
+    if (f >= 9)
+    {
+        // The finals of G0 to G3: 0xFFFF is one this terminal has not.
+        if (!t->csi_intermediate && (ch == '%' || ch == '&' || ch == '"'))
+        {
+            t->csi_intermediate = ch;
+            return;
+        }
+        uint8_t set = 0xFF;
+        if (!t->csi_intermediate)
+            set = ch == '0'   ? TERM_CS_DEC
+                  : ch == 'A' ? TERM_CS_UK
+                  : ch == '>' ? TERM_CS_TECH
+                  : ch == 'B' ? TERM_CS_ASCII
+                              : 0xFF;
+        t->csi_param[f] = set == 0xFF ? 0xFFFF : set;
+        t->csi_intermediate = 0;
+        t->csi_param_count++;
+    }
+    else if (ch == ';')
+        t->csi_param_count++;
+    else if (number && ch >= '0' && ch <= '9')
+    {
+        uint32_t v = t->csi_param[f] * 10u + (ch - '0');
+        t->csi_param[f] = v > 0xFFFF ? 0xFFFF : (uint16_t)v;
+    }
+    else if (!number && !t->csi_param[f] && ch >= 0x40 && ch < 0x80)
+        t->csi_param[f] = ch;
+    else
+        t->csi_colon = true;
+}
+
+// DECRSPS's DECCIR at its ST: the cursor, the pen's rendition and
+// protection, the wrap pending, the single shift, origin mode, GL and the
+// four sets, as DECCIR reported them. Nothing changes if any field is out
+// of range, as on xterm.
+static void term_restore_DECCIR(term_t *t)
+{
+    const uint16_t *f = t->csi_param;
+    const term_grid_t *g = console_shown(t);
+    if (t->csi_colon || t->csi_param_count != 13 || !f[0] || f[0] > g->height || !f[1] ||
+        f[1] > g->width || f[2] != 1 || (f[3] & 0xF0) != 0x40 || (f[4] & 0xFE) != 0x40 ||
+        (f[5] & 0xF0) != 0x40 || f[6] > 3 || f[7] > 3 || (f[5] & 6) == 6)
+        return;
+    term_pen_t *pen = term_pen(t);
+    // The cursor goes as CUP takes it from the screen's corner, origin mode
+    // after.
+    const uint16_t rend = f[3], att = f[4], flag = f[5];
+    pen->origin_mode = false;
+    t->csi_param[0] = f[0];
+    t->csi_param[1] = f[1];
+    t->csi_param_count = 2;
+    term_grids(t, GRID_CSI, 'H');
+    pen->origin_mode = flag & 1;
+    for (uint8_t i = 0; i < t->grid_count; i++)
+        grid_restore_wrap(t->grids[i], (flag & 8) != 0);
+    pen->reverse = (rend & 8) != 0;
+    pen->bold = (rend & 1) != 0;
+    pen->sgr_attr &= (uint8_t)~TERM_ATTR_ANY_BLINK;
+    if (rend & 4)
+        pen->sgr_attr |= TERM_ATTR_BLINK;
+    if (!(rend & 2))
+        pen->sgr_attr &= (uint8_t)~TERM_ATTR_UL_MASK;
+    else if (!(pen->sgr_attr & TERM_ATTR_UL_MASK))
+        pen->sgr_attr |= TERM_ATTR_UL(TERM_UL_SINGLE);
+    if (att & 1)
+        t->protect_mode = TERM_PROTECT_DEC;
+    pen->protect = (att & 1) != 0;
+    pen->ss = (flag & 4) ? 3 : (flag & 2) ? 2 : 0;
+    pen->gl = (uint8_t)f[6];
+    for (int i = 0; i < 4; i++)
+        if (f[9 + i] != 0xFFFF)
+            pen->g[i] = (uint8_t)f[9 + i];
+}
+
+// A byte of DECRSPS's DECTABSR, DCS 2 $ t ... ST: columns from 1 with /
+// between, gathered into csi_param as a bitmap, the column so far in
+// osc_index. Anything else spoils the lot (csi_colon).
+static void term_tabs_byte(term_t *t, uint8_t ch)
+{
+    if (ch >= '0' && ch <= '9')
+    {
+        uint32_t v = t->osc_index * 10u + (ch - '0');
+        t->osc_index = v > 0xFFFF ? 0xFFFF : (uint16_t)v;
+    }
+    else if (ch == '/')
+    {
+        if (t->osc_index >= 1 && t->osc_index <= 16u * 16u)
+            t->csi_param[(t->osc_index - 1) >> 4] |= (uint16_t)(1u << ((t->osc_index - 1) & 15));
+        t->osc_index = 0;
+    }
+    else
+        t->csi_colon = true;
+}
+
+// DECRSPS's DECTABSR at its ST: the tab stops are the ones given, in every
+// grid, each taking those within its width.
+static void term_restore_DECTABSR(term_t *t)
+{
+    term_tabs_byte(t, '/');
+    if (t->csi_colon)
+        return;
+    for (uint8_t i = 0; i < t->grid_count; i++)
+        grid_set_tabs(t->grids[i], t->csi_param);
 }
 
 // xterm's key modifier options, of which the console has the one for the
@@ -868,13 +1127,24 @@ static void term_out_DECSET(term_t *t, bool set)
         case 1: // DECCKM: the cursor keys send SS3
             t->app_cursor = set;
             break;
+        case 3: // DECCOLM: with ?40, as xterm does where it may not resize:
+                // the width stays, and the screen is erased, every line
+                // single size, the margins whole and the cursor home
+            if (t->allow_deccolm)
+                term_grids(t, GRID_DECCOLM, 0);
+            break;
+        case 40: // xterm's allow 80 to 132: DECCOLM does what is above. As
+                 // in xterm, a reset leaves it as it is.
+            t->allow_deccolm = set;
+            break;
         case 2: // DECANM: reset enters VT52 mode; ESC < leaves it
             if (!set)
             {
                 t->vt52 = true;
-                term_pen(t)->g0_charset = TERM_CS_ASCII;
-                term_pen(t)->g1_charset = TERM_CS_ASCII;
-                term_pen(t)->gl_is_g1 = false;
+                term_pen(t)->g[0] = TERM_CS_ASCII;
+                term_pen(t)->g[1] = TERM_CS_ASCII;
+                term_pen(t)->gl = 0;
+                term_pen(t)->ss = 0;
             }
             break;
         case 4: // DECSCLM: smooth scroll
@@ -905,6 +1175,9 @@ static void term_out_DECSET(term_t *t, bool set)
             break;
         case 66: // DECNKM: the keypad mode, as ESC = and ESC >
             t->app_keypad = set;
+            break;
+        case 67: // DECBKM: Backspace sends BS, and Ctrl-Backspace DEL
+            t->backarrow_bs = set;
             break;
         case 69: // DECLRMM: CSI s sets the left and right margins
             t->lr_margins = set;
@@ -1033,7 +1306,7 @@ static void term_osc_ask(term_t *t, unsigned which)
     if (t->osc_asks < TERM_OSC_ASK_MAX)
     {
         t->osc_ask[t->osc_asks].which = (uint16_t)which;
-        t->osc_ask[t->osc_asks].color = cells_color_get(t, which);
+        t->osc_ask[t->osc_asks].color = console_color_get(t, which);
         t->osc_asks++;
     }
 }
@@ -1041,10 +1314,10 @@ static void term_osc_ask(term_t *t, unsigned which)
 // The answer: the OSC that would set the color, with each channel as four
 // hex digits, as xterm answers. The console shows five bits of a channel,
 // so those are the bits it gives back.
-static void term_reply_color(const term_t *t, unsigned which, uint16_t color, const char *end)
+static void term_reply_color(unsigned which, uint16_t color, const char *end)
 {
     char buf[TERM_REPLY_MAX];
-    const unsigned number = which < 256 ? 4 : 10 + which - CELLS_COLOR_FG;
+    const unsigned number = which < 256 ? 4 : 10 + which - CONSOLE_COLOR_FG;
     const int entry = which < 256 ? (int)which : -1;
     const unsigned r = SCANVIDEO_R5_FROM_PIXEL(color) * 0xFFFFu / 31u;
     const unsigned g = SCANVIDEO_G5_FROM_PIXEL(color) * 0xFFFFu / 31u;
@@ -1054,7 +1327,7 @@ static void term_reply_color(const term_t *t, unsigned which, uint16_t color, co
         n += snprintf(buf + n, sizeof(buf) - (size_t)n, ";%d", entry);
     n += snprintf(buf + n, sizeof(buf) - (size_t)n, ";rgb:%04x/%04x/%04x%s", r, g, b, end);
     if (n < (int)sizeof(buf))
-        cells_reply(t, buf, (size_t)n);
+        com_reply(buf, (size_t)n);
 }
 
 // One ';'-separated item of an OSC, applied as it ends.
@@ -1082,13 +1355,13 @@ static void term_osc_item(term_t *t)
         else if (t->osc_index < 256 && ask)
             term_osc_ask(t, t->osc_index);
         else if (t->osc_index < 256 && term_parse_color(s, len, &color))
-            cells_color(t, t->osc_index, color);
+            console_color(t, t->osc_index, color);
         break;
     case 104:
     {
         int idx = term_parse_index(s, len);
         if (idx >= 0)
-            cells_color_reset(t, (unsigned)idx);
+            console_color_reset(t, (unsigned)idx);
         break;
     }
     case 10:
@@ -1098,13 +1371,13 @@ static void term_osc_item(term_t *t)
         const unsigned number = t->osc_ps + t->osc_item;
         if (number > 12)
             break;
-        const unsigned which = number == 10   ? CELLS_COLOR_FG
-                               : number == 11 ? CELLS_COLOR_BG
-                                              : CELLS_COLOR_CURSOR;
+        const unsigned which = number == 10   ? CONSOLE_COLOR_FG
+                               : number == 11 ? CONSOLE_COLOR_BG
+                                              : CONSOLE_COLOR_CURSOR;
         if (ask)
             term_osc_ask(t, which);
         else if (term_parse_color(s, len, &color))
-            cells_color(t, which, color);
+            console_color(t, which, color);
         break;
     }
     }
@@ -1122,7 +1395,7 @@ static void term_osc_end(term_t *t, const char *end)
     {
         term_osc_item(t);
         for (unsigned i = 0; i < t->osc_asks; i++)
-            term_reply_color(t, t->osc_ask[i].which, t->osc_ask[i].color, end);
+            term_reply_color(t->osc_ask[i].which, t->osc_ask[i].color, end);
         t->osc_asks = 0;
     }
     else if (t->osc_stage == 0)
@@ -1131,16 +1404,16 @@ static void term_osc_end(term_t *t, const char *end)
         {
         case 104:
             for (unsigned i = 0; i < 256; i++)
-                cells_color_reset(t, i);
+                console_color_reset(t, i);
             break;
         case 110:
-            cells_color_reset(t, CELLS_COLOR_FG);
+            console_color_reset(t, CONSOLE_COLOR_FG);
             break;
         case 111:
-            cells_color_reset(t, CELLS_COLOR_BG);
+            console_color_reset(t, CONSOLE_COLOR_BG);
             break;
         case 112:
-            cells_color_reset(t, CELLS_COLOR_CURSOR);
+            console_color_reset(t, CONSOLE_COLOR_CURSOR);
             break;
         }
     }
@@ -1202,7 +1475,7 @@ static void term_execute(term_t *t, uint8_t ch)
     switch (ch)
     {
     case '\a': // BEL
-        cells_bell(t);
+        bel_term();
         break;
     case '\b': // BS
     case '\t': // HT
@@ -1212,21 +1485,24 @@ static void term_execute(term_t *t, uint8_t ch)
     case '\r': // CR
         term_grids(t, GRID_C0, ch);
         break;
-    case 0x0E: // SO (Shift Out): activate G1
-        term_pen(t)->gl_is_g1 = true;
+    case 0x0E: // SO (LS1): G1 into GL
+        term_pen(t)->gl = 1;
         break;
-    case 0x0F: // SI (Shift In): activate G0
-        term_pen(t)->gl_is_g1 = false;
+    case 0x0F: // SI (LS0): G0 into GL
+        term_pen(t)->gl = 0;
         break;
     }
 }
 
-// A graphic character from the stream, which REP can repeat.
+// A graphic character from the stream, which REP can repeat. A single
+// shift is spent on it.
 static void term_print(term_t *t, uint8_t byte)
 {
     t->last_glyph = byte;
+    t->last_ss = term_pen(t)->ss;
     t->rep_valid = true;
     term_grids(t, GRID_PRINT, byte);
+    term_pen(t)->ss = 0;
 }
 
 // A byte in the ground state. Bytes 0x20-0x7E and 0x80-0xFF are glyphs. A C0
@@ -1267,9 +1543,10 @@ static bool term_seq_control(term_t *t, uint8_t ch)
     return true;
 }
 
-// ESC ( F and ESC ) F: designate G0 or G1. U and K, Linux's null and user
-// maps, are ASCII here; the national sets and DEC's alternate ROMs are left
-// as they were.
+// ESC ( F, ESC ) F, ESC * F and ESC + F: designate G0, G1, G2 or G3. U and
+// K, Linux's null and user maps, are ASCII here; the national sets, DEC's
+// alternate ROMs and the 96-character sets (ESC - F, ESC . F and ESC / F)
+// are left as they were.
 static void term_designate(uint8_t *g, uint8_t final)
 {
     switch (final)
@@ -1285,22 +1562,23 @@ static void term_designate(uint8_t *g, uint8_t final)
     case 'A':
         *g = TERM_CS_UK;
         break;
+    case '>':
+        *g = TERM_CS_TECH;
+        break;
     }
 }
 
 // The final byte of ESC I... F, a sequence with intermediates: the character
 // set designations, and ESC # for the line sizes and DECALN. With left and
 // right margins allowed (DECLRMM) every line is single size, as on a VT420
-// and xterm. ESC % (UTF-8), ESC SP (7/8-bit controls), G2 and G3 are taken
-// and ignored.
+// and xterm. ESC % (UTF-8) and ESC SP (7/8-bit controls) are taken and
+// ignored.
 static void term_esc_int_final(term_t *t, uint8_t ch)
 {
     t->ansi_state = ansi_state_ground;
     t->rep_valid = false;
-    if (t->csi_intermediate == '(')
-        term_designate(&term_pen(t)->g0_charset, ch);
-    else if (t->csi_intermediate == ')')
-        term_designate(&term_pen(t)->g1_charset, ch);
+    if (t->csi_intermediate >= '(' && t->csi_intermediate <= '+')
+        term_designate(&term_pen(t)->g[t->csi_intermediate - '('], ch);
     else if (t->csi_intermediate == '#' && ch >= '3' && ch <= '8' && ch != '7' &&
              (ch == '8' || !t->lr_margins))
         term_grids(t, GRID_LINE, ch);
@@ -1338,24 +1616,51 @@ static void term_start_osc(term_t *t)
     t->osc_asks = 0;
 }
 
-// A byte of a DCS string, kept for DECRQSS, the one DCS the terminal takes.
-// Any other, such as XTGETTCAP's, runs to its ST and is dropped.
-static void term_dcs_byte(term_t *t, uint8_t ch)
+// A byte of a DCS string. DECRQSS's are kept in osc_spec. DECRSPS's, which
+// can be longer than that, are taken a byte at a time once their start,
+// 1 $ t or 2 $ t, is in: their fields go in csi_param, the parser's while a
+// string runs, and are acted on at the ST. Any other DCS, such as
+// XTGETTCAP's, runs to its ST and is dropped.
+static void term_dcs_keep(term_t *t, uint8_t ch)
 {
-    if (ch < 0x20)
-        return; // controls inside a string are ignored
     if (t->osc_len < TERM_OSC_SPEC_MAX)
         t->osc_spec[t->osc_len++] = (char)ch;
     else
         t->osc_len = TERM_OSC_SPEC_MAX + 1;
+    if (t->osc_len == 3 && t->osc_spec[1] == '$' && t->osc_spec[2] == 't' &&
+        (t->osc_spec[0] == '1' || t->osc_spec[0] == '2'))
+    {
+        memset(t->csi_param, 0, sizeof t->csi_param);
+        t->csi_param_count = 0;
+        t->csi_intermediate = 0;
+        t->csi_colon = false;
+        t->osc_index = 0;
+        t->osc_stage = t->osc_spec[0] == '1' ? TERM_DCS_CIR : TERM_DCS_TABS;
+    }
+}
+
+static void term_dcs_byte(term_t *t, uint8_t ch)
+{
+    if (ch < 0x20)
+        return; // controls inside a string are ignored
+    if (t->osc_stage == TERM_DCS_CIR)
+        term_cir_byte(t, ch);
+    else if (t->osc_stage == TERM_DCS_TABS)
+        term_tabs_byte(t, ch);
+    else
+        term_dcs_keep(t, ch);
 }
 
 // The DCS ended with ST.
 static void term_dcs_end(term_t *t)
 {
     t->rep_valid = false;
+    if (t->osc_stage == TERM_DCS_CIR)
+        term_restore_DECCIR(t);
+    else if (t->osc_stage == TERM_DCS_TABS)
+        term_restore_DECTABSR(t);
     // A Pt that is empty or too long is one it has not, and is told so.
-    if (t->osc_len >= 2 && t->osc_spec[0] == '$' && t->osc_spec[1] == 'q')
+    else if (t->osc_len >= 2 && t->osc_spec[0] == '$' && t->osc_spec[1] == 'q')
         term_out_DECRQSS(t, &t->osc_spec[2], t->osc_len - 2u);
 }
 
@@ -1387,6 +1692,7 @@ static void term_esc_byte(term_t *t, uint8_t ch)
     case 'P': // DCS
         t->ansi_state = ansi_state_dcs;
         t->osc_len = 0;
+        t->osc_stage = TERM_DCS_KEEP;
         break;
     case 'X': // SOS
     case '^': // PM
@@ -1417,7 +1723,7 @@ static void term_esc_byte(term_t *t, uint8_t ch)
         term_restore_cursor(t);
         break;
     case 'Z': // DECID: answered as Primary DA
-        TERM_REPLY(t, "\33[?6c");
+        TERM_REPLY(TERM_DA1);
         break;
     case 'V': // SPA: the cells written from here are guarded
         t->protect_mode = TERM_PROTECT_ISO;
@@ -1432,8 +1738,20 @@ static void term_esc_byte(term_t *t, uint8_t ch)
     case '>': // DECKPNM: numeric keypad
         t->app_keypad = false;
         break;
-        // SS2 and SS3 (N, O) have no G2 or G3 to shift to, so the next byte
-        // prints as itself.
+    case 'N': // SS2: the next glyph from G2
+        term_pen(t)->ss = 2;
+        break;
+    case 'O': // SS3: the next glyph from G3
+        term_pen(t)->ss = 3;
+        break;
+    case 'n': // LS2: G2 into GL
+        term_pen(t)->gl = 2;
+        break;
+    case 'o': // LS3: G3 into GL
+        term_pen(t)->gl = 3;
+        break;
+        // LS1R, LS2R and LS3R (ESC ~, ESC } and ESC |) put a set in GR,
+        // which is the code page's here, so they are taken and ignored.
     }
 }
 
@@ -1445,11 +1763,18 @@ static void term_csi_dispatch(term_t *t, uint8_t ch)
     {
     case 'b': // REP: the last glyph again, if nothing came between
         if (t->rep_valid)
+        {
+            // The glyph again from the set it came from, single shift and
+            // all, as in xterm.
+            const uint8_t ss = term_pen(t)->ss;
+            term_pen(t)->ss = t->last_ss;
             term_grids(t, GRID_REP, 0);
+            term_pen(t)->ss = ss;
+        }
         break;
-    case 'c': // Primary DA: a VT102
+    case 'c': // Primary DA
         if (!t->csi_param[0])
-            TERM_REPLY(t, "\33[?6c");
+            TERM_REPLY(TERM_DA1);
         break;
     case 'h':
         term_out_SM_RM(t, true);
@@ -1461,7 +1786,7 @@ static void term_csi_dispatch(term_t *t, uint8_t ch)
         term_out_SGR(t);
         break;
     case 'n':
-        term_out_DSR(t);
+        term_out_DSR(t, false);
         break;
     case 's': // DECSLRM with DECLRMM set; without, xterm's SCOSC, which is DECSC
         if (t->lr_margins)
@@ -1511,10 +1836,14 @@ static void term_csi_final(term_t *t, uint8_t ch)
             term_grids(t, GRID_COLUMNS, ch);
         else if (inter == '!' && ch == 'p')
             term_out_DECSTR(t);
+        else if (inter == '"' && ch == 'p')
+            term_out_DECSCL(t);
         else if (inter == '"' && ch == 'q')
             term_out_DECSCA(t);
         else if (inter == '$' && ch == 'p')
             term_out_DECRQM(t, false);
+        else if (inter == '$' && ch == 'w')
+            term_out_DECRQPSR(t);
         else if (inter == '$' && (ch == 'x' || ch == 'z' || ch == '{' || ch == 'v' ||
                                   ch == 'r' || ch == 't'))
             term_grids(t, GRID_RECT, ch);
@@ -1530,10 +1859,12 @@ static void term_csi_final(term_t *t, uint8_t ch)
             term_grids(t, GRID_SELECTIVE, ch);
         else if (inter == '$' && ch == 'p')
             term_out_DECRQM(t, true);
+        else if (!inter && ch == 'n')
+            term_out_DSR(t, true);
         else if (!inter && t->csi_param[0] == 4 && ch == 'm') // XTQMODKEYS
-            term_replyf(t, "\33[>4;%um", t->modify_other_keys, 0, 0);
+            term_replyf("\33[>4;%um", t->modify_other_keys, 0, 0);
         else if (!inter && t->csi_param[0] == 4 && ch == 'g') // XTQFMTKEYS
-            term_replyf(t, "\33[>4;%uf", t->format_other_keys, 0, 0);
+            term_replyf("\33[>4;%uf", t->format_other_keys, 0, 0);
         break;
     case '>':
         if (inter)
@@ -1542,14 +1873,14 @@ static void term_csi_final(term_t *t, uint8_t ch)
             term_out_XTMODKEYS(t, ch);
         else if (t->csi_param[0])
             break;
-        else if (ch == 'c') // Secondary DA: type 0, firmware 1, ROM 0
-            TERM_REPLY(t, "\33[>0;1;0c");
+        else if (ch == 'c') // Secondary DA: a VT420, firmware 1.0, no options
+            TERM_REPLY("\33[>41;10;0c");
         else if (ch == 'q')
-            term_out_XTVERSION(t);
+            term_out_XTVERSION();
         break;
     case '=': // Tertiary DA: a unit ID of zeros
         if (!inter && ch == 'c' && !t->csi_param[0])
-            TERM_REPLY(t, "\33P!|00000000\33\\");
+            TERM_REPLY("\33P!|00000000\33\\");
         break;
     }
     t->rep_valid = false;
@@ -1644,18 +1975,18 @@ static void term_vt52_byte(term_t *t, uint8_t ch)
         term_grids(t, GRID_VT52, ch);
         break;
     case 'F': // graphics mode: DEC Special Graphics, as the VT102 and xterm do
-        term_pen(t)->g0_charset = TERM_CS_DEC;
-        term_pen(t)->gl_is_g1 = false;
+        term_pen(t)->g[0] = TERM_CS_DEC;
+        term_pen(t)->gl = 0;
         break;
     case 'G': // ASCII mode
-        term_pen(t)->g0_charset = TERM_CS_ASCII;
-        term_pen(t)->gl_is_g1 = false;
+        term_pen(t)->g[0] = TERM_CS_ASCII;
+        term_pen(t)->gl = 0;
         break;
     case 'Y': // direct cursor address: row and column, each plus 32
         t->ansi_state = ansi_state_vt52_row;
         break;
     case 'Z': // identify: a VT100 in VT52 mode
-        TERM_REPLY(t, "\33/Z");
+        TERM_REPLY("\33/Z");
         break;
     case '<': // ANSI mode
         t->vt52 = false;
@@ -1789,7 +2120,7 @@ bool HOST_IN_RAM_FUNC term_holds(const term_t *t, uint8_t ch)
     if (t->smooth_released)
         return false;
     for (uint8_t i = 0; i < t->grid_count; i++)
-        if (cells_smooth_busy(t->grids[i]) && term_byte_scrolls(t, t->grids[i], ch))
+        if (console_smooth_busy(t->grids[i]) && term_byte_scrolls(t, t->grids[i], ch))
             return true;
     return false;
 }
@@ -1798,14 +2129,25 @@ bool HOST_IN_RAM_FUNC term_holds(const term_t *t, uint8_t ch)
 
 /* Everything that indexes is bounded: the parser's counts their arrays, and
  * osc_len the spec it is filling. */
+static bool term_pen_ok(const term_pen_t *pen)
+{
+    for (int i = 0; i < 4; i++)
+        if (pen->g[i] >= TERM_CS_COUNT)
+            return false;
+    return pen->gl < 4 && (pen->ss == 0 || pen->ss == 2 || pen->ss == 3);
+}
+
 bool term_sst_ok(sst_cursor_t *c, const term_t *t)
 {
     if (t->ansi_state >= ansi_state_count || t->protect_mode > TERM_PROTECT_ISO ||
+        t->level < 61 || t->level > 64 || t->osc_stage > 2 ||
+        (t->last_ss != 0 && t->last_ss != 2 && t->last_ss != 3) || !term_pen_ok(&t->pen[0]) || !term_pen_ok(&t->pen[1]) ||
+        !term_pen_ok(&t->saved[0]) || !term_pen_ok(&t->saved[1]) ||
         t->modify_other_keys > 3 || t->csi_param_count > TERM_CSI_PARAM_MAX_LEN ||
         t->osc_len > TERM_OSC_SPEC_MAX + 1 || t->osc_asks > TERM_OSC_ASK_MAX)
         return sst_refuse(c, "the terminal's parser out of range");
     for (int i = 0; i < TERM_OSC_ASK_MAX; i++)
-        if (t->osc_ask[i].which > CELLS_COLOR_CURSOR)
+        if (t->osc_ask[i].which > CONSOLE_COLOR_CURSOR)
             return sst_refuse(c, "an OSC answer for no color");
     return true;
 }

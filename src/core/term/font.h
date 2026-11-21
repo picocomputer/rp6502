@@ -15,12 +15,13 @@
 /* The glyphs, 8 rows tall and 16: one scan row of every glyph, then the
  * next row. Each has two tables of 256 glyphs. The first is the code
  * page's, which is all mode 1 draws. The second, FONT_OTHER glyphs on, has
- * what else the console draws: the italics of ASCII at 0x00 to 0x7F, and DEC
+ * what else the console draws: the italics of ASCII at 0x00 to 0x7F; DEC
+ * Technical at 0x80 to 0xDD, its characters 0x21 to 0x7E in turn; and DEC
  * Special Graphics at 0xDF to 0xFE, each at its character's code with the
  * top bit set. The 8-row glyphs have no italics, and have ASCII there. A
  * row's pointer reaches both tables, the second FONT_OTHER(rows) on. */
 #define FONT_OTHER(rows) ((rows) * 256)
-#define FONT_OTHER_DEC 0x80
+#define FONT_OTHER_HIGH 0x80
 extern uint8_t font8[2 * 2048];
 extern uint8_t font16[2 * 4096];
 
