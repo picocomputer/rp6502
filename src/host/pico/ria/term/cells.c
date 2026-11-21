@@ -256,16 +256,12 @@ void screen_clear(term_t *t, screen_t *s, uint8_t height)
 void screen_height(screen_t *s, uint8_t height, bool grow, bool top)
 {
     screen_ring_height(s, height, grow, top);
-    term_grid_t *g = cells_grid(s);
-    if (!g)
+    uint32_t *rows = cells_rows(s);
+    if (!rows)
         return;
-    for (int screen = 0; screen < 2; screen++)
-    {
-        uint32_t *rows = &cells_used[g == &console_80.grid][screen];
-        if (top)
-            *rows = grow ? *rows << 1 | 1 : *rows >> 1;
-        *rows &= cells_bits(0, height);
-    }
+    if (top)
+        *rows = grow ? *rows << 1 | 1 : *rows >> 1;
+    *rows &= cells_bits(0, height);
 }
 
 void screen_fit(screen_t *s, uint8_t height)

@@ -151,10 +151,14 @@ void term_set_width(term_t *t, term_grid_t *g, uint8_t width)
 
 // The height just went a row up or down: the screen showing moves, and the
 // scrollback of each screen is at most what the new height leaves.
+// One row more or fewer. The screen showing grows or shrinks at the top when
+// its cursor is on the bottom row (top); the other screen always does at the
+// bottom, so a row it gains comes in blank, as on xterm.
 static void grid_height_step(term_grid_t *g, bool grow, bool top)
 {
     grid_cancel(g);
     screen_height(g->shown, g->height, grow, top);
+    screen_height(&g->screen[g->shown == &g->screen[0]], g->height, grow, false);
     for (int s = 0; s < 2; s++)
         screen_fit(&g->screen[s], g->height);
 }

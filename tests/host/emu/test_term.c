@@ -526,6 +526,19 @@ UTEST(term, alt_1049_off_restores_on_the_primary_too)
     ASSERT_EQ(ch(2, 2), 'A');
 }
 
+/* A row the grid gains while the other screen shows comes in blank on the
+ * screen not showing too, as on xterm, not with what its memory held. */
+UTEST(term, the_other_screen_grows_blank_rows)
+{
+    fresh();
+    feed("\33[30;1HOLD\33[H");
+    console_set_height(80, 29);
+    feed("\33[?1049h");
+    console_set_height(80, 30);
+    feed("\33[?1049l");
+    ASSERT_STREQ(row(29), "");
+}
+
 UTEST(term, ed_3_forgets_the_scrollback)
 {
     fresh();
