@@ -234,7 +234,9 @@ X(STR_HELP_SET,
   "SET KB (układy)    - \aSprawdź lub ustaw układy klawiatury.\n"
   "SET CP (cp)        - \aSprawdź lub ustaw stronę kodową.\n"
   "SET VGA (0|1|2)    - \aSprawdź lub ustaw typ obrazu dla wyjścia VGA.\n"
-  "SET NFC (0|1|2|86) - \aWyłącz lub włącz czytnik NFC. 2 skanuje PN532.\n")
+  "SET NFC (0|1|2|86) - \aWyłącz lub włącz czytnik NFC. 2 skanuje PN532.\n"
+  "SET VOL (0..-64)   - \aGłośność wyjścia audio w dB. -64 wycisza.\n"
+  "SET BAL (-63..63)  - \aBalans lewy/prawy kanał w dB.\n")
 
 X(STR_HELP_SET_W,
   "SET RF (0|1)       - \aWyłącz lub włącz radio.\n"
@@ -403,6 +405,17 @@ X(STR_HELP_SET_VGA,
 
 X(STR_HELP_SET_NFC,
   "SET NFC (0|1|2|86) wyłącza|włącza|skanuje|czyści zapisane urządzenie NFC.\n")
+
+X(STR_HELP_SET_VOL,
+  "SET VOL ustawia głośność całego dźwięku w dB, od 0 (pełna) do -63.\n"
+  "Ustawienie -64 wycisza. Klawisze Volume Up i Volume Down klawiatury\n"
+  "zmieniają ją o 3 dB, a Mute wycisza lub przywraca dźwięk. Program może\n"
+  "ją dodatkowo ściszyć własnym rejestrem głośności, ale nigdy pogłośnić.\n"
+  "Dzwonek systemowy podlega tylko temu ustawieniu.\n")
+
+X(STR_HELP_SET_BAL,
+  "SET BAL ustawia balans lewy/prawy w dB, od -63 do 63. Wartość dodatnia\n"
+  "ścisza lewy kanał o tyle dB, ujemna prawy. 0 to środek.\n")
 
 X(STR_HELP_SET_RF,
   "SET RF (0|1) wyłącza|włącza wszystkie urządzenia radiowe.\n")

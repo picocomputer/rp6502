@@ -56,9 +56,12 @@ module psg
     input logic [2:0] bel_idx,
     input logic [7:0] bel_val,
 
-    /* Signed at full scale; the platform narrows. */
+    /* Signed at full scale; the platform narrows. The eight voices, and
+     * the bell apart, so the platform can scale them apart. */
     output logic signed [15:0] psg_l,
     output logic signed [15:0] psg_r,
+    output logic signed [15:0] bel_l,
+    output logic signed [15:0] bel_r,
     output logic psg_valid,
 
     output logic psg_tick,
@@ -308,9 +311,11 @@ module psg
 
     /* Each side's sum is a multiply-accumulate, loaded with the
      * rounding on voice 0. Nine voices at full scale and full weight come
-     * to under 2^29. */
+     * to under 2^29. The bell's product goes to a sum of its own, which
+     * takes the rounding with it, on the same multiplier. */
     localparam logic signed [29:0] MIX_ROUND = 30'sd2048;
-    logic signed [29:0] mix_l, mix_r;
+    logic signed [29:0] mix_l, mix_r, bmix_l, bmix_r;
+    logic signed [29:0] prod_l, prod_r;
     /* Bits 7-1 of pan_gate, the pan from -64 to 63. */
     logic signed [7:0] pan_c;
     always_comb pan_c = 8'($signed(cf_pan) >>> 1);
@@ -419,6 +424,8 @@ module psg
     always_comb begin
         w_l = $signed({1'b0, sine_q[10:0]});
         w_r = $signed({1'b0, env_q[10:0]});
+        prod_l = 30'(mix_s) * 30'(w_l);
+        prod_r = 30'(mix_s) * 30'(w_r);
     end
     logic signed [15:0] sine;
     always_comb sine = $signed(sine_q[15:0]);
@@ -554,12 +561,16 @@ module psg
         tickctr = '0;
         mix_l = MIX_ROUND;
         mix_r = MIX_ROUND;
+        bmix_l = MIX_ROUND;
+        bmix_r = MIX_ROUND;
         mix_s = '0;
         w_inc = '0;
         sine_q = '0;
         env_q = '0;
         psg_l = '0;
         psg_r = '0;
+        bel_l = '0;
+        bel_r = '0;
         psg_valid = 1'b0;
         psg_tick = 1'b0;
     end
@@ -625,10 +636,15 @@ module psg
                         env_q <= aud_rom[pan_r_a];
                     end
                     4'd9: begin
-                        mix_l <= (ch == 4'd0 ? MIX_ROUND : mix_l)
-                            + 30'(mix_s) * 30'(w_l);
-                        mix_r <= (ch == 4'd0 ? MIX_ROUND : mix_r)
-                            + 30'(mix_s) * 30'(w_r);
+                        if (ch == 4'd8) begin
+                            bmix_l <= MIX_ROUND + prod_l;
+                            bmix_r <= MIX_ROUND + prod_r;
+                        end else begin
+                            mix_l <= (ch == 4'd0 ? MIX_ROUND : mix_l)
+                                + prod_l;
+                            mix_r <= (ch == 4'd0 ? MIX_ROUND : mix_r)
+                                + prod_r;
+                        end
                         /* A clock of its own, so the wave reads a standing
                          * phase rather than a 32-bit add. */
                         w_phase <= ph_next;
@@ -649,6 +665,8 @@ module psg
             P_OUT: begin
                 psg_l <= clamped(21'(mix_l >>> 12));
                 psg_r <= clamped(21'(mix_r >>> 12));
+                bel_l <= clamped(21'(bmix_l >>> 12));
+                bel_r <= clamped(21'(bmix_r >>> 12));
                 psg_valid <= 1'b1;
                 clr <= 1'b0;
                 ch <= '0;
@@ -689,6 +707,7 @@ module psg
                 end
                 3'd3: {psg_r, psg_l} <= sst_wdata;
                 3'd4: {ch_adsr[8], tickctr} <= sst_wdata[14:0];
+                3'd5: {bel_r, bel_l} <= sst_wdata;
                 default: ;
             endcase
     end
@@ -711,6 +730,7 @@ module psg
                            xaddr};
             3'd3: st_rd = {psg_r, psg_l};
             3'd4: st_rd = {17'd0, ch_adsr[8], tickctr};
+            3'd5: st_rd = {bel_r, bel_l};
             default: st_rd = '0;
         endcase
         psg_sst_rdata = sel_cfg || sel_bel ? {24'd0, cfg_q}

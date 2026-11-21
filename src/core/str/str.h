@@ -27,6 +27,9 @@ bool str_parse_uint8(const char **args, uint8_t *result);
 bool str_parse_uint16(const char **args, uint16_t *result);
 bool str_parse_uint32(const char **args, uint32_t *result);
 
+// As str_parse_uint32, with an optional leading '-'.
+bool str_parse_int32(const char **args, int32_t *result);
+
 // Ensure there are no more arguments (only spaces to the null terminator).
 bool str_parse_end(const char *args);
 

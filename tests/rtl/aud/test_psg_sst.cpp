@@ -40,7 +40,7 @@ static std::vector<int> arrays()
 static std::vector<int> flops()
 {
     std::vector<int> v;
-    for (int a = 0x789; a < 0x78D; a++)
+    for (int a = 0x789; a < 0x78E; a++)
         v.push_back(a);
     return v;
 }
@@ -301,7 +301,8 @@ static long run_case(const Case &c, bool check_image = true)
         edge(b);
         if (a->psg_tick != b->psg_tick
             || (a->psg_tick
-                && (a->psg_l != b->psg_l || a->psg_r != b->psg_r)))
+                && (a->psg_l != b->psg_l || a->psg_r != b->psg_r
+                    || a->bel_l != b->bel_l || a->bel_r != b->bel_r)))
         {
             bad = n;
             break;
@@ -366,7 +367,7 @@ UTEST(psg_sst, a_save_after_a_pointer_write_comes_back)
 UTEST(psg_sst, every_saved_item_matters)
 {
     std::vector<int> items;
-    for (int k = 2; k < 5; k++)
+    for (int k = 2; k < 6; k++)
         items.push_back(SKIP_WORD + k);
     for (int b = 0; b < 7; b++)
         items.push_back(SKIP_CFG + b);

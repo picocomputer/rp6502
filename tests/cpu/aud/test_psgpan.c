@@ -26,16 +26,17 @@ static void hold(void)
     psg_put(6, 0x01); /* centred, gate */
     for (int i = 0; i < 2000; i++)
     {
-        int16_t l, r;
-        psg_sample(&l, &r);
+        int16_t l, r, bl, br;
+        psg_sample(&l, &r, &bl, &br);
     }
 }
 
 static void panned(uint8_t pan_gate, int16_t *l, int16_t *r)
 {
+    int16_t bl, br;
     psg_put(6, pan_gate);
-    psg_sample(l, r);
-    psg_sample(l, r);
+    psg_sample(l, r, &bl, &br);
+    psg_sample(l, r, &bl, &br);
 }
 
 UTEST(psg, a_held_note_pans_where_it_is_put)

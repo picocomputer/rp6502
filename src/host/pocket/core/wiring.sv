@@ -887,7 +887,7 @@ module wiring
 
     logic psg_tick;
 
-    logic signed [15:0] psg_l, psg_r;
+    logic signed [15:0] psg_l, psg_r, bel_l, bel_r;
     /* verilator lint_off PINCONNECTEMPTY */
     psg psg (
         .clk(clk_sys),
@@ -901,6 +901,8 @@ module wiring
         .bel_val(soc_wdata[7:0]),
         .psg_l(psg_l),
         .psg_r(psg_r),
+        .bel_l(bel_l),
+        .bel_r(bel_r),
         .psg_valid(),
         .psg_tick(psg_tick),
         .psg_busy(psg_busy),
@@ -981,18 +983,48 @@ module wiring
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
-    /* Two 16-bit engines and pcm's PCM_W bits add in PCM_W + 1. */
+    /* The volume's Q15 gains, by soc_addr[5:2]: 14 the engines', 15 the
+     * bell's, right in the high half. Unity from configuration, so a
+     * firmware that never writes them plays as before. */
+    logic [15:0] gain_eng_l, gain_eng_r, gain_bel_l, gain_bel_r;
+    initial begin
+        gain_eng_l = 16'h8000;
+        gain_eng_r = 16'h8000;
+        gain_bel_l = 16'h8000;
+        gain_bel_r = 16'h8000;
+    end
+    always_ff @(posedge clk_sys) begin
+        if (aud_we && soc_addr[5:2] == 4'hE)
+            {gain_eng_r, gain_eng_l} <= soc_wdata;
+        if (aud_we && soc_addr[5:2] == 4'hF)
+            {gain_bel_r, gain_bel_l} <= soc_wdata;
+    end
+
+    /* Two 16-bit engines and pcm's PCM_W bits add in PCM_W + 1. Each sum
+     * and the bell take their gain before the clamp, rounded as
+     * core/aud/mix.h's aud_gain_apply rounds, so unity is the sum itself. */
     localparam int ENG_W = PCM_W + 1;
-    localparam logic signed [ENG_W-1:0] ENG_MIN = ENG_W'(-32768),
-        ENG_MAX = ENG_W'(32767);
+    localparam int AMP_W = ENG_W + 19;
+    localparam logic signed [AMP_W-16:0] AMP_MIN = (AMP_W-15)'(-32768),
+        AMP_MAX = (AMP_W-15)'(32767);
     logic signed [ENG_W-1:0] eng_l, eng_r;
+    logic signed [AMP_W-1:0] amp_l, amp_r;
+    logic signed [AMP_W-16:0] out_l, out_r;
     always_comb begin
         eng_l = ENG_W'(opl_rs) + ENG_W'(psg_l) + ENG_W'(pcm_l);
         eng_r = ENG_W'(opl_rs) + ENG_W'(psg_r) + ENG_W'(pcm_r);
-        wiring_aud_l = eng_l < ENG_MIN ? -16'sd32768
-            : eng_l > ENG_MAX ? 16'sd32767 : 16'(eng_l);
-        wiring_aud_r = eng_r < ENG_MIN ? -16'sd32768
-            : eng_r > ENG_MAX ? 16'sd32767 : 16'(eng_r);
+        amp_l = AMP_W'(eng_l) * AMP_W'($signed({1'b0, gain_eng_l}))
+            + AMP_W'(bel_l) * AMP_W'($signed({1'b0, gain_bel_l}))
+            + AMP_W'(16384);
+        amp_r = AMP_W'(eng_r) * AMP_W'($signed({1'b0, gain_eng_r}))
+            + AMP_W'(bel_r) * AMP_W'($signed({1'b0, gain_bel_r}))
+            + AMP_W'(16384);
+        out_l = amp_l[AMP_W-1:15];
+        out_r = amp_r[AMP_W-1:15];
+        wiring_aud_l = out_l < AMP_MIN ? -16'sd32768
+            : out_l > AMP_MAX ? 16'sd32767 : 16'(out_l);
+        wiring_aud_r = out_r < AMP_MIN ? -16'sd32768
+            : out_r > AMP_MAX ? 16'sd32767 : 16'(out_r);
         wiring_aud_valid = psg_tick;
     end
 

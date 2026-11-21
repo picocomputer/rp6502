@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/aud/vol.h"
 #include "core/str/oem.h"
 #include "core/tim/tim.h"
 #include "ria/api/tim.h"
@@ -75,7 +76,7 @@ static void HOST_IN_FLASH_FUNC set_string(const char *args, bool (*set)(const ch
     static void set_mon_##pfx##_##name(const char *args)                     \
     {                                                                        \
         uint32_t val;                                                        \
-        if (*args && (!str_parse_uint32(&args, &val) ||                      \
+        if (*args && (!config_parse_int(&args, CONFIG_SIGNED(type), &val) || \
                       !str_parse_end(args) ||                                \
                       val != (uint32_t)(type)val ||                          \
                       !pfx##_set_##name((type)val)))                         \
@@ -131,6 +132,8 @@ void HOST_IN_FLASH_FUNC set_mon_set(const char *args)
     mon_add_response_fn(oem_code_page_response);
     mon_add_response_fn(vga_display_type_response);
     mon_add_response_fn(nfc_enabled_response);
+    mon_add_response_fn(vol_volume_response);
+    mon_add_response_fn(vol_balance_response);
 #ifdef RP6502_RIA_W
     mon_add_response_fn(cyw_rf_enable_response);
     mon_add_response_fn(cyw_rf_country_code_response);

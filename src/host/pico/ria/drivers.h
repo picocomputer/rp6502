@@ -47,6 +47,7 @@
 #include "ria/sys/vga.h"
 #include "ria/term/cells.h"
 #include "core/aud/mix.h"
+#include "core/aud/vol.h"
 #include "osal/pico/lfs.h"
 #include "ria/sys/cfg.h"
 #include "ria/usb/usb.h"
@@ -80,7 +81,8 @@
     PROC_DRIVER, STR_DRIVER,                         \
     STD_DRIVER, CONSOLE_DRIVER, TTY_DRIVER,          \
     OEM_DRIVER, LED_DRIVER,                          \
-    AUD_DRIVER, MID_DRIVER, KEYBOARD_DRIVER,         \
+    AUD_DRIVER, VOL_DRIVER,                          \
+    MID_DRIVER, KEYBOARD_DRIVER,                     \
     LAYOUT_DRIVER, KEYMAP_DRIVER,                    \
     MOUSE_DRIVER, GAMEPAD_DRIVER,                    \
     TABLET_DRIVER,                                   \

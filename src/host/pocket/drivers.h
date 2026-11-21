@@ -45,6 +45,7 @@
 #include "sw/vga.h"
 #include "core/api/arg.h"
 #include "core/aud/bel.h"
+#include "core/aud/vol.h"
 #include "core/term/font.h"
 #include "core/vga/canvas.h"
 #include "core/vga/mode/mode0.h"
@@ -87,7 +88,7 @@
     RIA_DRIVER, COM_DRIVER,                             \
     STD_DRIVER, CONSOLE_DRIVER, TTY_DRIVER,             \
     FS_POCKET_DRIVER,                                   \
-    AUD_FABRIC_DRIVER, BEL_DRIVER,                      \
+    AUD_FABRIC_DRIVER, VOL_DRIVER, BEL_DRIVER,          \
     TIO_DRIVER, RLN_DRIVER, CELLS_DRIVER,               \
     MODE0_DRIVER, FONT_DRIVER, CANVAS_DRIVER,           \
     VGA_FABRIC_DRIVER,                                  \

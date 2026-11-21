@@ -34,6 +34,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${SW_SRC}/trap.c ${RP6502_SW_LOG} ${SW_SRC}/vga.c ${SW_SRC}/vid.c
         ${RP6502_SRC}/core/aud/pcm.c
         ${RP6502_SRC}/core/aud/bel.c
+        ${RP6502_SRC}/core/aud/vol.c
         ${RP6502_SRC}/core/sys/pix.c
         ${RP6502_SRC}/core/rom/alias.c
         ${RP6502_SRC}/core/rom/asset.c

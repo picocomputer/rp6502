@@ -39,7 +39,8 @@ void aud_bel_put(unsigned i, uint8_t val);
 /* An engine sounds while its pointer is mapped, as psg.sv and opl.sv do, so
  * the PSG and the OPL2 can sound at once and their outputs sum. The bell is
  * the PSG's ninth voice, so a mixer runs psg_sample while the PSG is mapped
- * or the bell sounds. aud_stop parks both engines and leaves the bell. */
+ * or the bell sounds, and takes the bell's sample apart from the engines'.
+ * aud_stop parks both engines and leaves the bell. */
 
 /* While a probe is installed it is the only engine mixed. */
 void aud_setup_probe(void (*sample)(int16_t *left, int16_t *right));
@@ -99,6 +100,19 @@ uint32_t aud_pcm_underruns(void);
 
 #define AUD_SAMPLE_MAX 32767
 #define AUD_SAMPLE_MIN (-32768)
+
+/* The volume's Q15 gains from core/aud/vol.c, a side each for the engines
+ * and for the bell. A mixer scales the unclamped sum before its clamp, so a
+ * mix that clipped plays clean once turned down. Until the first call every
+ * gain is AUD_GAIN_UNITY, and unity leaves every sample as it was. */
+#define AUD_GAIN_UNITY 32768
+void aud_set_gain(uint16_t eng_l, uint16_t eng_r, uint16_t bel_l, uint16_t bel_r);
+
+static inline __attribute__((always_inline)) int32_t
+aud_gain_apply(int32_t eng, uint16_t eng_gain, int32_t bel, uint16_t bel_gain)
+{
+    return (int32_t)(((int64_t)eng * eng_gain + (int64_t)bel * bel_gain + 0x4000) >> 15);
+}
 
 /* --mute: nothing is heard and the window app opens no OS audio device. The
  * engines still step with the machine; their samples are not resampled. Default

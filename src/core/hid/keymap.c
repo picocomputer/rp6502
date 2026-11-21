@@ -10,6 +10,7 @@
  * start. Kept apart from keyboard.c because a machine whose host has already
  * done this work links neither this file nor the layout database. */
 
+#include "core/aud/vol.h"
 #include "core/sys/sst.h"
 #include "core/sys/timer.h"
 #include "machine.h"
@@ -476,6 +477,7 @@ void HOST_IN_RAM_FUNC keyboard_on_modifiers(uint8_t modifier)
 
 void HOST_IN_RAM_FUNC keyboard_on_press(uint8_t modifier, uint8_t keycode)
 {
+    vol_key(keycode);
     keymap_queue_key(modifier, keycode, true);
 }
 

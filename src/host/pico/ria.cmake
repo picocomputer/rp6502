@@ -262,6 +262,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/aud/opl.c
     ${RP6502_ROOT}/src/core/aud/pcm.c
     ${RP6502_ROOT}/src/core/aud/psg.c
+    ${RP6502_ROOT}/src/core/aud/vol.c
     ${RP6502_ROOT}/src/core/hid/hid.c
     ${RP6502_ROOT}/src/core/hid/keyboard.c
     ${RP6502_ROOT}/src/core/hid/layout.c

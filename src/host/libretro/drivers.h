@@ -23,6 +23,7 @@
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
+#include "core/aud/vol.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/com/tio.h"
@@ -65,7 +66,7 @@
     CELLS_DRIVER, MODE0_DRIVER, KEYBOARD_DRIVER, MOUSE_DRIVER, \
     GAMEPAD_DRIVER, TABLET_DRIVER, FONT_DRIVER, OEM_DRIVER,    \
     VGA_DRIVER, CANVAS_DRIVER, PROG_DRIVER, PASTE_DRIVER,      \
-    PSG_DRIVER, OPL_DRIVER, AUD_DRIVER, BEL_DRIVER,            \
+    PSG_DRIVER, OPL_DRIVER, AUD_DRIVER, VOL_DRIVER, BEL_DRIVER, \
     TIM_DRIVER, DIR_DRIVER, CLK_DRIVER, RANDOM_DRIVER,         \
     PHI2_DRIVER, CPU_DRIVER, VIA_DRIVER, BUS_DRIVER
 

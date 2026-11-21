@@ -96,6 +96,12 @@ void aud_task(void)
 
 void aud_bel_put(unsigned i, uint8_t val) { AUD_BEL = i << 8 | val; }
 
+void aud_set_gain(uint16_t eng_l, uint16_t eng_r, uint16_t bel_l, uint16_t bel_r)
+{
+    AUD_GAIN_ENG = (uint32_t)eng_r << 16 | eng_l;
+    AUD_GAIN_BEL = (uint32_t)bel_r << 16 | bel_l;
+}
+
 /* A pointer write zeroes the PSG's eight voices' registers in a pass of
  * about 64 clocks, which a write of the bell's or a program's would race,
  * so nothing goes on until it is done. */

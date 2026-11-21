@@ -10,6 +10,7 @@
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
+#include "core/aud/vol.h"
 #include "core/hid/hid.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
@@ -46,6 +47,10 @@ bool HOST_IN_FLASH_FUNC xreg0(uint8_t channel, uint8_t index, uint16_t word)
     }
     if (channel == 1)
     {
+        if (index == 2)
+            return vol_xreg_volume(word);
+        if (index == 3)
+            return vol_xreg_balance(word);
         /* A sound generator's block may start anywhere it ends inside
          * XRAM. Any other word parks the engine, and only 0xFFFF is not an
          * error. */

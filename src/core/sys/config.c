@@ -126,6 +126,17 @@ static bool config_end(bool ok, bool changed)
 DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #include "core/sys/driver_walk_end.h"
 
+bool config_parse_int(const char **value, bool is_signed, uint32_t *parsed)
+{
+    if (!is_signed)
+        return str_parse_uint32(value, parsed);
+    int32_t s;
+    if (!str_parse_int32(value, &s))
+        return false;
+    *parsed = (uint32_t)s;
+    return true;
+}
+
 void config_load_line(char letter, const char *value)
 {
 /* An if-chain rather than a switch, because stringizing a letter gives "P"
@@ -136,7 +147,7 @@ void config_load_line(char letter, const char *value)
     if (letter == (#ltr)[0])                                     \
     {                                                            \
         uint32_t parsed;                                         \
-        if (str_parse_uint32(&value, &parsed) &&                 \
+        if (config_parse_int(&value, CONFIG_SIGNED(type), &parsed) && \
             parsed == (uint32_t)(type)parsed)                    \
         {                                                        \
             type stored = (type)parsed;                          \
@@ -182,8 +193,12 @@ void config_render(config_sink_t sink, void *arg)
 {
     config_emit(sink, arg, "+V%u\n", CONFIG_VERSION);
 #define CONFIG_INT(ltr, pfx, name, type, def, check, apply, ...) \
-    config_emit(sink, arg, "+" #ltr "%u\n",                      \
-                (unsigned)config_##pfx##_##name);
+    if (CONFIG_SIGNED(type))                                     \
+        config_emit(sink, arg, "+" #ltr "%ld\n",                 \
+                    (long)config_##pfx##_##name);                \
+    else                                                         \
+        config_emit(sink, arg, "+" #ltr "%u\n",                  \
+                    (unsigned)config_##pfx##_##name);
 #define CONFIG_STR(ltr, pfx, name, size, def, check, apply, ...) \
     config_emit(sink, arg, "+" #ltr "%s\n", config_##pfx##_##name);
 #define CONFIG_RAW CONFIG_STR

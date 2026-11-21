@@ -56,6 +56,15 @@ void hid_set_leds(uint8_t leds)
     (void)leds;
 }
 
+/* The volume keys reach the mixer, which this test has not got. */
+void aud_set_gain(uint16_t eng_l, uint16_t eng_r, uint16_t bel_l, uint16_t bel_r)
+{
+    (void)eng_l;
+    (void)eng_r;
+    (void)bel_l;
+    (void)bel_r;
+}
+
 static uint16_t apf_host_code_page = 437;
 
 uint16_t oem_get_code_page_run(void)

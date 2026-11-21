@@ -22,6 +22,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/aud/mix.c
     ${RP6502_SRC}/core/aud/pcm.c
     ${RP6502_SRC}/core/aud/rsmp.c
+    ${RP6502_SRC}/core/aud/vol.c
     ${RP6502_SRC}/core/dap/dbg.c
     ${RP6502_SRC}/core/hid/hid.c
     ${RP6502_SRC}/core/hid/keyboard.c

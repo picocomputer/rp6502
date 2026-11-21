@@ -191,6 +191,11 @@ rp6502_add_test(tim LIBS emu_core)
 
 rp6502_add_test(attr LIBS emu_core)
 
+rp6502_add_test(vol LIBS emu_core)
+if(NOT WIN32)
+    target_link_libraries(test_vol PRIVATE m)
+endif()
+
 rp6502_add_test(pcm_mix LIBS emu_core ROM ${ADVENTURE_ROM})
 if(NOT WIN32)
     target_link_libraries(test_pcm_mix PRIVATE m)

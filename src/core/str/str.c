@@ -320,6 +320,22 @@ bool str_parse_uint32(const char **args, uint32_t *result)
     return true;
 }
 
+bool str_parse_int32(const char **args, int32_t *result)
+{
+    const char *scan = *args;
+    while (*scan == ' ')
+        scan++;
+    const bool neg = *scan == '-';
+    if (neg)
+        scan++;
+    uint32_t mag;
+    if (!str_parse_uint32(&scan, &mag) || mag > (neg ? 0x80000000u : 0x7FFFFFFFu))
+        return false;
+    *args = scan;
+    *result = neg ? (int32_t)(0u - mag) : (int32_t)mag;
+    return true;
+}
+
 const char *str_parse_string(const char **args)
 {
     size_t i = 0;

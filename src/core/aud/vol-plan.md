@@ -1,6 +1,9 @@
 # Global volume and balance — plan
 
-Status (2026-11-21): in progress on branch `feature/volume`.
+Status (2026-11-21): implemented on branch `feature/volume`. The emulator's
+tests pass and the RIA firmware builds; `psg.sv`, `wiring.sv` and the Pocket's
+firmware are still unchecked (no Verilator or RISC-V GCC here). Values are
+signed dB: `SET VOL -12`, `xreg(0, 1, 2, -12)`.
 
 ## Behaviour
 - Volume in dB, 0 to -63 in 1 dB steps; -64 is silence. Balance -63 to +63:

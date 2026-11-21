@@ -21,12 +21,13 @@ static inline bool psg_block_ok(uint16_t word)
     return word <= 0x10000 - PSG_REGS_SIZE;
 }
 
-/* One stereo sample from the engine's channel structures, the bell's
- * included, and the engine advanced by one. The phase and envelope steps
- * are derived from AUD_NATIVE_RATE, so a mixer has to call this once per
- * sample at that rate, or skip it while the PSG is parked and
+/* One stereo sample of the eight voices and one of the bell, each rounded
+ * and clamped on its own, and the engine advanced by one. The phase and
+ * envelope steps are derived from AUD_NATIVE_RATE, so a mixer has to call
+ * this once per sample at that rate, or skip it while the PSG is parked and
  * psg_bel_idle. */
-void psg_sample(int16_t *left, int16_t *right);
+void psg_sample(int16_t *left, int16_t *right,
+                int16_t *bel_left, int16_t *bel_right);
 
 /* True while the bell steps to the same state every sample. */
 bool psg_bel_idle(void);

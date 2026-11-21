@@ -221,6 +221,11 @@ static inline int32_t set_tz_minutes(void)
 /* Makes the bytes written since the last commit playable at once, as one
  * write. */
 #define AUD_PCM_COMMIT (*(volatile uint32_t *)0x70000034u)
+/* The volume's Q15 gains, right in bits 31:16 and left in 15:0: the PSG's
+ * eight voices, the OPL and PCM together, and the bell apart. 0x8000 is
+ * unity, which both hold from configuration. */
+#define AUD_GAIN_ENG (*(volatile uint32_t *)0x70000038u)
+#define AUD_GAIN_BEL (*(volatile uint32_t *)0x7000003Cu)
 #define CPU_RESB (*(volatile uint8_t *)0x40000000u)
 #define API_PENDING (*(volatile uint8_t *)0x40000004u)
 

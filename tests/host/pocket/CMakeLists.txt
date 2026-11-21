@@ -14,6 +14,7 @@ rp6502_add_test(apf
         ${RP6502_SRC}/core/str/str.c
         ${RP6502_SRC}/core/sys/config.c
         ${RP6502_SRC}/core/sys/timer.c
+        ${RP6502_SRC}/core/aud/vol.c
         ${RP6502_GEN}/layout_db.c ${RP6502_GEN}/unicode_oem.c
         apf_host.c
     INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC}

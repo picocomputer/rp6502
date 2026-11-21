@@ -72,19 +72,23 @@ static void run_lockstep(int *utest_result, int n)
 {
     for (int i = 0; i < n; i++)
     {
-        int16_t cl, cr;
-        psg_sample(&cl, &cr);
+        int16_t cl, cr, bl, br;
+        psg_sample(&cl, &cr, &bl, &br);
         int guard = 0;
         while (!dut->psg_valid && guard++ < 4000)
             clock_cycle();
         ASSERT_LT(guard, 4000);
         if (getenv("PSG_DEBUG")
-            && ((int16_t)dut->psg_l != cl || (int16_t)dut->psg_r != cr))
-            fprintf(stderr, "psg diff sample=%ld rtl=(%d,%d) c=(%d,%d)\n",
-                    g_sample, (int16_t)dut->psg_l, (int16_t)dut->psg_r,
-                    cl, cr);
+            && ((int16_t)dut->psg_l != cl || (int16_t)dut->psg_r != cr
+                || (int16_t)dut->bel_l != bl || (int16_t)dut->bel_r != br))
+            fprintf(stderr, "psg diff sample=%ld rtl=(%d,%d|%d,%d) "
+                    "c=(%d,%d|%d,%d)\n", g_sample,
+                    (int16_t)dut->psg_l, (int16_t)dut->psg_r,
+                    (int16_t)dut->bel_l, (int16_t)dut->bel_r, cl, cr, bl, br);
         ASSERT_EQ((int16_t)dut->psg_l, cl);
         ASSERT_EQ((int16_t)dut->psg_r, cr);
+        ASSERT_EQ((int16_t)dut->bel_l, bl);
+        ASSERT_EQ((int16_t)dut->bel_r, br);
         g_sample++;
         clock_cycle();
     }

@@ -170,7 +170,18 @@ bool psg_bel_idle(void)
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
-void HOST_IN_RAM_FUNC psg_sample(int16_t *left, int16_t *right)
+static inline __attribute__((always_inline)) int16_t psg_round(int32_t acc)
+{
+    acc = (acc + 2048) >> 12;
+    if (acc < AUD_SAMPLE_MIN)
+        acc = AUD_SAMPLE_MIN;
+    if (acc > AUD_SAMPLE_MAX)
+        acc = AUD_SAMPLE_MAX;
+    return (int16_t)acc;
+}
+
+void HOST_IN_RAM_FUNC psg_sample(int16_t *left, int16_t *right,
+                                 int16_t *bel_left, int16_t *bel_right)
 {
     /* The eight while a program maps them, then the bell while it sounds. */
     const unsigned lo = psg_xaddr != 0xFFFF ? 0 : PSG_BEL;
@@ -187,6 +198,8 @@ void HOST_IN_RAM_FUNC psg_sample(int16_t *left, int16_t *right)
      * 256 << 16, so a shift of twelve makes full volume unity gain. */
     int32_t acc_l = 0;
     int32_t acc_r = 0;
+    int32_t bel_l = 0;
+    int32_t bel_r = 0;
     for (unsigned i = lo; i < hi; i++)
     {
         const struct psg_channel *ch = &psg_regs[i];
@@ -202,24 +215,22 @@ void HOST_IN_RAM_FUNC psg_sample(int16_t *left, int16_t *right)
         int8_t pan = (int8_t)ch->pan_gate >> 1;
         if (pan != -64)
         {
-            acc_l += sample * psg_pan_table[63 - pan];
-            acc_r += sample * psg_pan_table[63 + pan];
+            const int32_t wl = sample * psg_pan_table[63 - pan];
+            const int32_t wr = sample * psg_pan_table[63 + pan];
+            if (i == PSG_BEL)
+                bel_l += wl, bel_r += wr;
+            else
+                acc_l += wl, acc_r += wr;
         }
     }
     /* Constant-power weights out of 4096: a centred channel puts 1/4 on
-     * each side and a hard-panned one 0.354 on one, the same power. */
-    acc_l = (acc_l + 2048) >> 12;
-    acc_r = (acc_r + 2048) >> 12;
-    if (acc_l < AUD_SAMPLE_MIN)
-        acc_l = AUD_SAMPLE_MIN;
-    if (acc_l > AUD_SAMPLE_MAX)
-        acc_l = AUD_SAMPLE_MAX;
-    if (acc_r < AUD_SAMPLE_MIN)
-        acc_r = AUD_SAMPLE_MIN;
-    if (acc_r > AUD_SAMPLE_MAX)
-        acc_r = AUD_SAMPLE_MAX;
-    *left = (int16_t)acc_l;
-    *right = (int16_t)acc_r;
+     * each side and a hard-panned one 0.354 on one, the same power. The
+     * bell comes out apart from the eight, because a program's volume
+     * leaves it be. */
+    *left = psg_round(acc_l);
+    *right = psg_round(acc_r);
+    *bel_left = psg_round(bel_l);
+    *bel_right = psg_round(bel_r);
 
     for (unsigned i = lo; i < hi; i++)
     {

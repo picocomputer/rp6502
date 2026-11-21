@@ -130,6 +130,19 @@ static pcm_t aud_pcm;
 static bool aud_pcm_on;
 static bool aud_pcm_closed;
 
+/* {right, left} Q15, from the main loop. The interrupt may take one word
+ * new and the other old, for one sample. */
+#define AUD_GAIN_BOTH(l, r) ((uint32_t)(r) << 16 | (l))
+static volatile uint32_t aud_gain_eng = AUD_GAIN_BOTH(AUD_GAIN_UNITY, AUD_GAIN_UNITY);
+static volatile uint32_t aud_gain_bel = AUD_GAIN_BOTH(AUD_GAIN_UNITY, AUD_GAIN_UNITY);
+
+void HOST_IN_RAM_FUNC aud_set_gain(uint16_t eng_l, uint16_t eng_r,
+                                   uint16_t bel_l, uint16_t bel_r)
+{
+    aud_gain_eng = AUD_GAIN_BOTH(eng_l, eng_r);
+    aud_gain_bel = AUD_GAIN_BOTH(bel_l, bel_r);
+}
+
 /* How much of each sample period aud_irq uses, for reading over SWD while a
  * program runs: nothing on the console or the 6502 side can see it then.
  * The IRQ slice counts system clocks from the wrap that raised the
@@ -207,13 +220,15 @@ static void HOST_ISR_FUNC aud_irq(void)
     pwm_clear_irq(AUD_IRQ_SLICE);
 
     aud_drain();
-    int32_t sl = 0, sr = 0;
+    int32_t sl = 0, sr = 0, bl = 0, br = 0;
     int16_t l, r;
     const uint16_t psg = psg_xaddr_get();
     if (psg != 0xFFFF || !psg_bel_idle())
     {
-        psg_sample(&l, &r);
+        int16_t b_l, b_r;
+        psg_sample(&l, &r, &b_l, &b_r);
         sl += l, sr += r;
+        bl = b_l, br = b_r;
     }
     if (opl_xaddr_get() != 0xFFFF)
     {
@@ -228,6 +243,9 @@ static void HOST_ISR_FUNC aud_irq(void)
         if (aud_pcm_closed && pcm_settled(&aud_pcm))
             aud_pcm_on = aud_pcm_closed = false;
     }
+    const uint32_t ge = aud_gain_eng, gb = aud_gain_bel;
+    sl = aud_gain_apply(sl, (uint16_t)ge, bl, (uint16_t)gb);
+    sr = aud_gain_apply(sr, (uint16_t)(ge >> 16), br, (uint16_t)(gb >> 16));
     if (sl < AUD_SAMPLE_MIN)
         sl = AUD_SAMPLE_MIN;
     if (sl > AUD_SAMPLE_MAX)

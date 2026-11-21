@@ -41,6 +41,11 @@ DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
  * it are up. */
 void config_load_line(char letter, const char *value);
 
+/* An integer row's value as its type's bits, a signed type's taking a '-',
+ * so that parsed == (uint32_t)(type)parsed holds just when it fits. */
+#define CONFIG_SIGNED(type) ((type)-1 < (type)1)
+bool config_parse_int(const char **value, bool is_signed, uint32_t *parsed);
+
 typedef void (*config_sink_t)(char c, void *arg);
 void config_render(config_sink_t sink, void *arg);
 

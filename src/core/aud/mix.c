@@ -422,11 +422,25 @@ static inline int16_t aud_clip(int32_t v)
     return (int16_t)v;
 }
 
+/* {right, left}, each AUD_GAIN_UNITY until vol.c says otherwise. They reach
+ * the render on its own thread at once rather than stamped, so a change lands
+ * up to a sink's lead late. */
+#define AUD_GAIN_BOTH(l, r) ((uint32_t)(r) << 16 | (l))
+static _Atomic uint32_t aud_gain_eng = AUD_GAIN_BOTH(AUD_GAIN_UNITY, AUD_GAIN_UNITY);
+static _Atomic uint32_t aud_gain_bel = AUD_GAIN_BOTH(AUD_GAIN_UNITY, AUD_GAIN_UNITY);
+
+void aud_set_gain(uint16_t eng_l, uint16_t eng_r, uint16_t bel_l, uint16_t bel_r)
+{
+    atomic_store(&aud_gain_eng, AUD_GAIN_BOTH(eng_l, eng_r));
+    atomic_store(&aud_gain_bel, AUD_GAIN_BOTH(bel_l, bel_r));
+}
+
 /* aud_mix writes one frame at AUD_NATIVE_RATE: every mapped engine summed,
- * the bell inside the PSG's, then clamped to sixteen bits. */
+ * and the bell apart, each scaled by its gain, then clamped to sixteen
+ * bits. */
 static void aud_mix(int32_t *left, int32_t *right)
 {
-    int32_t sl = 0, sr = 0;
+    int32_t sl = 0, sr = 0, bl = 0, br = 0;
     int16_t l, r;
     if (aud_probe)
     {
@@ -438,8 +452,10 @@ static void aud_mix(int32_t *left, int32_t *right)
     {
         if (psg_xaddr_get() != 0xFFFF || !psg_bel_idle())
         {
-            psg_sample(&l, &r);
+            int16_t b_l, b_r;
+            psg_sample(&l, &r, &b_l, &b_r);
             sl += l, sr += r;
+            bl = b_l, br = b_r;
         }
         if (opl_xaddr_get() != 0xFFFF)
         {
@@ -459,8 +475,10 @@ static void aud_mix(int32_t *left, int32_t *right)
             }
         }
     }
-    *left = aud_clip(sl);
-    *right = aud_clip(sr);
+    const uint32_t ge = atomic_load_explicit(&aud_gain_eng, memory_order_relaxed);
+    const uint32_t gb = atomic_load_explicit(&aud_gain_bel, memory_order_relaxed);
+    *left = aud_clip(aud_gain_apply(sl, (uint16_t)ge, bl, (uint16_t)gb));
+    *right = aud_clip(aud_gain_apply(sr, (uint16_t)(ge >> 16), br, (uint16_t)(gb >> 16)));
 }
 
 /* Every change stamped for the next native sample. */
@@ -1100,6 +1118,8 @@ static bool aud_sst_loaded(sst_cursor_t *c)
     X(SKIP, aud_probe, "a test's own engine")                   \
     X(SKIP, aud_busy, "a lock")                                 \
     X(SKIP, aud_on, "--mute is a session setting")              \
+    X(SKIP, aud_gain_eng, "the VOL row's, which sets it again") \
+    X(SKIP, aud_gain_bel, "the VOL row's, which sets it again") \
     X(SKIP, aud_sink_rate, "what the host's device answered")   \
     X(SKIP, aud_streaming, "which sink the host has")           \
     X(SKIP, aud_speed, "set by the host each frame")            \

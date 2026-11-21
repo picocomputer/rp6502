@@ -230,7 +230,9 @@ X(STR_HELP_SET,
   "SET KB (layouts)    - \aLire ou régler les dispositions clavier.\n"
   "SET CP (cp)         - \aLire ou régler la page de code.\n"
   "SET VGA (0|1|2)     - \aLire ou régler le type d'affichage VGA.\n"
-  "SET NFC (0|1|2|86)  - \aDésactiver/activer NFC. 2 scanne PN532.\n")
+  "SET NFC (0|1|2|86)  - \aDésactiver/activer NFC. 2 scanne PN532.\n"
+  "SET VOL (0..-64)    - \aVolume de sortie en dB. -64 coupe le son.\n"
+  "SET BAL (-63..63)   - \aBalance gauche/droite en dB.\n")
 
 X(STR_HELP_SET_W,
   "SET RF (0|1)        - \aDésactiver ou activer la radio.\n"
@@ -401,6 +403,18 @@ X(STR_HELP_SET_NFC,
   "Le réglage 0 désactive le lecteur NFC. Le réglage 1 active. Le réglage 2 "
   "scanne tous les VCP pour trouver un périphérique PN532. Le réglage 86 efface "
   "le périphérique NFC enregistré.\n")
+
+X(STR_HELP_SET_VOL,
+  "SET VOL règle le volume de toute la sortie audio en dB, de 0 (maximum) à "
+  "-63. Le réglage -64 coupe le son. Les touches Volume+ et Volume- d'un "
+  "clavier le changent de 3 dB et Muet le coupe ou le rétablit. Un programme "
+  "peut le baisser encore par son propre registre de volume, jamais le monter. "
+  "La sonnerie système ne suit que ce réglage.\n")
+
+X(STR_HELP_SET_BAL,
+  "SET BAL règle la balance gauche/droite en dB, de -63 à 63. Une valeur "
+  "positive baisse le canal gauche d'autant de dB, une valeur négative le "
+  "droit. 0 est centré.\n")
 
 X(STR_HELP_SET_RF,
   "SET RF (0|1) désactive ou active toutes les RF.\n")
