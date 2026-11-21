@@ -14,50 +14,45 @@
  * The sequence's numbers are in the terminal's csi_param. */
 
 #include "core/sys/sst.h"
+#include "core/term/screen.h"
 #include "core/term/term.h"
 #include <stdbool.h>
 #include <stdint.h>
 
-// A cursor's place in a grid.
-typedef struct
-{
-    uint8_t x, y;
-    bool wrap_pending; // the last column was written; the next glyph wraps
-} term_pos_t;
-
 // The terminal at one size. Each screen, primary and alternate, has its own
 // cursor position, saved position and line sizes; the margins and the tab
-// stops belong to the grid. The cursor's column never reaches the width:
-// writing the last column sets wrap_pending instead, as on a VT102. The
-// left and right margins are the whole width until DECSLRM sets them.
+// stops belong to the grid. shown points at the screen showing:
+// term_grid_init and term_grid_copy start it, and term_show sets it. The
+// cursor's column never reaches the width: writing the last column sets
+// wrap_pending instead, as on a VT102. The left and right margins are the
+// whole width until DECSLRM sets them.
 struct term_grid
 {
     uint8_t width;
     uint8_t height;
-    uint8_t rows; // the most rows: lines holds this many for each screen
+    uint8_t rows; // the most rows: each screen's line holds this many
     uint8_t margin_top, margin_bot;
     uint8_t margin_left, margin_right;
-    term_pos_t pos[2];   // the cursor on each screen
-    term_pos_t saved[2]; // DECSC's position on each screen
-    uint8_t *lines;      // TERM_LINE_ for each row: rows for the primary, then the alternate
-    term_pos_t *cur;     // the showing screen's pos
-    uint8_t *ls;         // the showing screen's lines
+    screen_t screen[2]; // the primary, then the alternate
+    screen_t *shown;    // the screen showing
     uint8_t tab_stops[TERM_TAB_BITMAP_BYTES]; // 1 bit per column
 };
 
 /* The cursor and the line sizes of the screen showing.
  *
- * These stay static inline and read only the grid's fields: term_pos, and
+ * These stay static inline and read only the grid's fields and the shown
+ * screen's pos and line, never anything in another file: term_pos, and
  * grid.c's grid_in_columns, run in the RIA's HOST_IN_RAM_FUNC drain path
  * (grid_*_scrolls, term_holds, term_byte_scrolls and the smooth-busy hook),
- * where a call to a function in flash cannot go. */
-static inline term_pos_t *term_pos(const term_grid_t *g)
+ * where a call to a function in flash cannot go. term_pos carries the
+ * annotation too, for when it is not inlined. */
+static inline HOST_IN_RAM_FUNC term_pos_t *term_pos(const term_grid_t *g)
 {
-    return g->cur;
+    return &g->shown->pos;
 }
 static inline uint8_t *term_lines(const term_grid_t *g)
 {
-    return g->ls;
+    return g->shown->line;
 }
 
 // The columns of row y: half the width on a double-size line.
@@ -145,8 +140,8 @@ static inline void grid_restore_wrap(term_grid_t *g, bool on)
 // width are left out.
 void grid_set_tabs(term_grid_t *g, const uint16_t *cols);
 
-/* g becomes a copy of from, with its own line sizes in lines, rows a
- * screen. The caller points its cur and ls at the screen showing. */
+/* g becomes a copy of from, showing the same screen, with its own line sizes
+ * in lines, rows a screen. */
 void term_grid_copy(term_grid_t *g, const term_grid_t *from, uint8_t *lines, uint8_t rows);
 
 // A grid of width columns by 30 rows (fewer if it holds fewer), its line
@@ -175,8 +170,10 @@ void term_set_width(term_t *t, term_grid_t *g, uint8_t width);
     Y(U8, g.width) Y(U8, g.height) Y(U8, g.rows)                       \
     Y(U8, g.margin_top) Y(U8, g.margin_bot)                            \
     Y(U8, g.margin_left) Y(U8, g.margin_right)                         \
-    TERM_POS_SST_ROWS(Y, g.pos[0]) TERM_POS_SST_ROWS(Y, g.saved[0])    \
-    TERM_POS_SST_ROWS(Y, g.pos[1]) TERM_POS_SST_ROWS(Y, g.saved[1])    \
+    TERM_POS_SST_ROWS(Y, g.screen[0].pos)                              \
+    TERM_POS_SST_ROWS(Y, g.screen[0].saved)                            \
+    TERM_POS_SST_ROWS(Y, g.screen[1].pos)                              \
+    TERM_POS_SST_ROWS(Y, g.screen[1].saved)                            \
     Y(BYTES, g.tab_stops)
 
 /* Whether a grid TERM_GRID_SST_ROWS loaded, and its line sizes, fit

@@ -66,8 +66,7 @@ void term_show(term_t *t, bool alt)
     for (uint8_t i = 0; i < t->grid_count; i++)
     {
         term_grid_t *g = t->grids[i];
-        g->cur = &g->pos[alt];
-        g->ls = g->lines + (alt ? g->rows : 0);
+        g->shown = &g->screen[alt];
     }
 }
 
@@ -190,7 +189,6 @@ void term_add_grid(term_t *t, term_grid_t *g, const term_grid_t *from,
     assert(t->grid_count < TERM_MAX_GRIDS);
     term_grid_copy(g, from, lines, rows);
     t->grids[t->grid_count++] = g;
-    term_show(t, t->alt_active);
 }
 
 void term_drop_grid(term_t *t, term_grid_t *g)

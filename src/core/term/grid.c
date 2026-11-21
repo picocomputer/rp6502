@@ -117,9 +117,9 @@ void term_grid_init(term_grid_t *g, uint8_t width, uint8_t *lines, uint8_t rows)
     g->width = width;
     g->rows = rows;
     g->height = rows < TERM_STD_HEIGHT ? rows : TERM_STD_HEIGHT;
-    g->lines = lines;
-    g->cur = &g->pos[0];
-    g->ls = lines;
+    g->screen[0].line = lines;
+    g->screen[1].line = lines + rows;
+    g->shown = &g->screen[0];
     memset(lines, TERM_LINE_NORMAL, 2u * rows);
     grid_full_margins(g);
     grid_reset_tabs(g);
@@ -129,11 +129,14 @@ void term_grid_copy(term_grid_t *g, const term_grid_t *from, uint8_t *lines, uin
 {
     *g = *from;
     g->rows = rows;
-    g->lines = lines;
+    g->shown = &g->screen[from->shown - from->screen];
     memset(lines, TERM_LINE_NORMAL, 2u * rows);
     unsigned n = from->rows < rows ? from->rows : rows;
-    memcpy(lines, from->lines, n);
-    memcpy(lines + rows, from->lines + from->rows, n);
+    for (int s = 0; s < 2; s++)
+    {
+        g->screen[s].line = lines + s * rows;
+        memcpy(g->screen[s].line, from->screen[s].line, n);
+    }
     if (g->height > rows)
         g->height = rows;
 }
@@ -148,11 +151,12 @@ void term_set_width(term_t *t, term_grid_t *g, uint8_t width)
     g->width = width;
     for (int s = 0; s < 2; s++)
     {
-        term_pos_t *ps[2] = {&g->pos[s], &g->saved[s]};
+        screen_t *sc = &g->screen[s];
+        term_pos_t *ps[2] = {&sc->pos, &sc->saved};
         for (int i = 0; i < 2; i++)
         {
             term_pos_t *p = ps[i];
-            unsigned cols = g->lines[s * g->rows + p->y] ? width / 2u : width;
+            unsigned cols = sc->line[p->y] ? width / 2u : width;
             if (p->x >= cols)
                 p->x = (uint8_t)(cols ? cols - 1 : 0);
             p->wrap_pending = false;
@@ -213,14 +217,16 @@ void term_set_height(term_t *t, term_grid_t *g, uint8_t height)
     // The resize loop only tracks the showing screen's cursor. Any other
     // cursor row (the other screen's and both saved positions) can exceed
     // the new height after a shrink; clamp them so a later swap or DECRC
-    // doesn't strand the cursor below the viewport.
+    // doesn't strand the cursor below the viewport. The showing screen's
+    // cursor is inside already.
     uint8_t max_y = (uint8_t)(g->height - 1);
-    term_pos_t *other = &g->pos[t->alt_active ? 0 : 1];
-    if (other->y > max_y)
-        other->y = max_y;
     for (int s = 0; s < 2; s++)
-        if (g->saved[s].y > max_y)
-            g->saved[s].y = max_y;
+    {
+        if (g->screen[s].pos.y > max_y)
+            g->screen[s].pos.y = max_y;
+        if (g->screen[s].saved.y > max_y)
+            g->screen[s].saved.y = max_y;
+    }
 }
 
 /* ---- scrolling --------------------------------------------------------- */
@@ -291,19 +297,19 @@ static bool grid_full_region(const term_grid_t *g)
 
 bool HOST_IN_RAM_FUNC grid_index_scrolls(const term_grid_t *g)
 {
-    const term_pos_t *pos = g->cur;
+    const term_pos_t *pos = term_pos(g);
     return pos->y == g->margin_bot && grid_in_columns(g, pos->x);
 }
 
 bool HOST_IN_RAM_FUNC grid_ri_scrolls(const term_grid_t *g)
 {
-    const term_pos_t *pos = g->cur;
+    const term_pos_t *pos = term_pos(g);
     return pos->y == g->margin_top && grid_in_columns(g, pos->x);
 }
 
 bool HOST_IN_RAM_FUNC grid_glyph_scrolls(const term_t *t, const term_grid_t *g)
 {
-    return g->cur->wrap_pending && t->autowrap && grid_index_scrolls(g);
+    return term_pos(g)->wrap_pending && t->autowrap && grid_index_scrolls(g);
 }
 
 // A scroll of one row by an index or a reverse index moves the row a
@@ -1313,7 +1319,8 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
         // DECLRMM: set, every line is single size, as on a VT420 and
         // xterm; reset, the left and right margins are the whole width.
         if (ch)
-            memset(g->lines, TERM_LINE_NORMAL, 2u * g->rows);
+            for (int s = 0; s < 2; s++)
+                memset(g->screen[s].line, TERM_LINE_NORMAL, g->rows);
         else
             grid_full_columns(g);
         break;
@@ -1370,12 +1377,12 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
         break;
     }
     case GRID_SAVE:
-        g->saved[t->alt_active] = *pos;
+        g->shown->saved = *pos;
         break;
     case GRID_RESTORE:
     {
         // With nothing saved the slot holds home.
-        *pos = g->saved[t->alt_active];
+        *pos = g->shown->saved;
         bool pending = pos->wrap_pending;
         grid_goto(t, g, pos->x, pos->y);
         pos->wrap_pending = pending;
@@ -1388,10 +1395,10 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
         grid_goto(t, g, pos->x, pos->y);
         break;
     case GRID_ALT_IN:
-        g->pos[1] = g->pos[0];
+        g->screen[1].pos = g->screen[0].pos;
         break;
     case GRID_ALT_OUT:
-        g->pos[0] = g->pos[1];
+        g->screen[0].pos = g->screen[1].pos;
         break;
     case GRID_CLEAR:
         grid_lines_normal(g, 0, g->rows);
@@ -1402,10 +1409,10 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
         grid_reset_tabs(g);
         for (int s = 0; s < 2; s++)
         {
-            g->pos[s].wrap_pending = false;
-            memset(&g->saved[s], 0, sizeof g->saved[s]);
+            g->screen[s].pos.wrap_pending = false;
+            memset(&g->screen[s].saved, 0, sizeof g->screen[s].saved);
         }
-        memset(g->lines + g->rows, TERM_LINE_NORMAL, g->rows);
+        memset(g->screen[1].line, TERM_LINE_NORMAL, g->rows);
         cells_reset(t, g);
         break;
     case GRID_DECCOLM:
@@ -1417,7 +1424,7 @@ void grid_do(term_t *t, term_grid_t *g, grid_op_t op, uint8_t ch)
     case GRID_DECSTR:
         grid_full_margins(g);
         for (int s = 0; s < 2; s++)
-            memset(&g->saved[s], 0, sizeof g->saved[s]);
+            memset(&g->screen[s].saved, 0, sizeof g->screen[s].saved);
         grid_goto(t, g, pos->x, pos->y);
         break;
     }
@@ -1435,16 +1442,17 @@ bool term_grid_sst_ok(sst_cursor_t *c, const term_grid_t *g, uint8_t rows)
     if (w < 1 || h < 1 || h > rows || g->margin_top > g->margin_bot ||
         g->margin_bot >= h || g->margin_left > g->margin_right || g->margin_right >= w)
         return sst_refuse(c, "a grid's size or margins out of range");
+    const screen_t *sc = g->screen;
     for (int s = 0; s < 2; s++)
-        if (g->pos[s].x >= w || g->pos[s].y >= h ||
-            g->saved[s].x >= w || g->saved[s].y >= h)
+        if (sc[s].pos.x >= w || sc[s].pos.y >= h || sc[s].saved.x >= w || sc[s].saved.y >= h)
             return sst_refuse(c, "a cursor off its grid");
-    for (unsigned i = 0; i < 2u * rows; i++)
-        if (g->lines[i] > TERM_LINE_BOTTOM)
-            return sst_refuse(c, "a line size out of range");
+    for (int s = 0; s < 2; s++)
+        for (unsigned i = 0; i < rows; i++)
+            if (sc[s].line[i] > TERM_LINE_BOTTOM)
+                return sst_refuse(c, "a line size out of range");
     /* The cursor sits inside its own line's columns. */
     for (int s = 0; s < 2; s++)
-        if (g->lines[s * rows + g->pos[s].y] && g->pos[s].x >= w / 2)
+        if (sc[s].line[sc[s].pos.y] && sc[s].pos.x >= w / 2)
             return sst_refuse(c, "a cursor past its line's columns");
     return true;
 }
@@ -1452,13 +1460,15 @@ bool term_grid_sst_ok(sst_cursor_t *c, const term_grid_t *g, uint8_t rows)
 void term_grid_sst_put(sst_cursor_t *c, const term_grid_t *g)
 {
     TERM_GRID_SST_ROWS(SST_ROW_PUT2, (*g))
-    sst_put(c, g->lines, 2u * g->rows);
+    for (int s = 0; s < 2; s++)
+        sst_put(c, g->screen[s].line, g->rows);
 }
 
 bool term_grid_sst_get(sst_cursor_t *c, term_grid_t *g)
 {
     const uint8_t rows = g->rows;
     TERM_GRID_SST_ROWS(SST_ROW_GET2, (*g))
-    sst_get(c, g->lines, 2u * rows);
+    for (int s = 0; s < 2; s++)
+        sst_get(c, g->screen[s].line, rows);
     return sst_ok(c) && term_grid_sst_ok(c, g, rows);
 }

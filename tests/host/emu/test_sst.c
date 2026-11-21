@@ -197,7 +197,7 @@ UTEST(sst, a_programs_own_size_comes_back)
 {
     rln_set_term_width(132);
     term_grid_t *g = cells_term.grids[TERM_SCREEN_GRIDS];
-    g->pos[0].x = 100;
+    g->screen[0].pos.x = 100;
     ASSERT_EQ(take(), (const char *)NULL);
     rln_set_term_width(0);
     ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS);
