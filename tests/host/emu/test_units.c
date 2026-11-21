@@ -400,6 +400,32 @@ UTEST(tablet, host_wheel_encoding)
     ASSERT_FALSE(tablet_is_mapped());
 }
 
+/* The shape a host shows is the program's, and one it does not know is no
+ * cursor, as is an unmapped tablet's. */
+UTEST(tablet, shape_clamp)
+{
+    tablet_stop();
+    ASSERT_FALSE(tablet_wanted());
+    ASSERT_EQ(tablet_shape(), TABLET_CURSOR_OFF);
+
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00)); /* xreg_ria_tablet(0xFF00) */
+    ASSERT_TRUE(tablet_wanted());
+    for (int shape = 0; shape < TABLET_CURSOR_COUNT; ++shape)
+    {
+        xram[0xFF00 + TABLET_OFF_CONTROL] = (uint8_t)shape;
+        ASSERT_EQ(tablet_shape(), shape);
+    }
+    xram[0xFF00 + TABLET_OFF_CONTROL] = TABLET_CURSOR_COUNT;
+    ASSERT_EQ(tablet_shape(), TABLET_CURSOR_OFF);
+    xram[0xFF00 + TABLET_OFF_CONTROL] = 0xFF;
+    ASSERT_EQ(tablet_shape(), TABLET_CURSOR_OFF);
+
+    xram[0xFF00 + TABLET_OFF_CONTROL] = TABLET_CURSOR_ARROW;
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+    ASSERT_FALSE(tablet_wanted());
+    ASSERT_EQ(tablet_shape(), TABLET_CURSOR_OFF);
+}
+
 static int tablet_contact_y(void)
 {
     return xram[0xFF00 + TABLET_OFF_CONTACTS + 1] |

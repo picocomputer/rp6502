@@ -107,6 +107,11 @@ bool tablet_xreg(uint16_t word);
 
 bool tablet_is_mapped(void);
 
+/* Whether a host gives the pointer to the tablet: it delivers pointer events,
+ * shows the shape from tablet_shape, and keeps the pointer out of the
+ * browser's and the mouse's hands. */
+bool tablet_wanted(void);
+
 bool tablet_mount(int slot, const tablet_connection_t *desc);
 
 bool tablet_umount(int slot);
@@ -130,8 +135,9 @@ void tablet_host_wheel(int dwheel, int dpan);
 /* The pointer left the window, or every contact was released. */
 void tablet_host_clear(void);
 
-/* The cursor shape the program asked for, one of TABLET_CURSOR_. */
-uint8_t tablet_control(void);
+/* The cursor shape over the canvas, one of TABLET_CURSOR_: the one the
+ * program asked for, or TABLET_CURSOR_OFF for one it does not know. */
+uint8_t tablet_shape(void);
 
 extern const sst_table_t tablet_sst;
 

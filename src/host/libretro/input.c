@@ -367,7 +367,7 @@ static int lightgun_port(void)
  * honouring that would turn a click into a finger going down. */
 static void poll_pointer(retro_input_state_t state)
 {
-    bool tablet = tablet_is_mapped();
+    bool tablet = tablet_wanted();
     bool mouse = mouse_is_mapped();
     if (!tablet && !mouse)
         return;

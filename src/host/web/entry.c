@@ -217,7 +217,7 @@ static void entry_frame(void)
         return;
     run_ms = now;
     app_frame();
-    const int32_t used = (mouse_is_mapped() ? 1 : 0) | (tablet_is_mapped() ? 2 : 0);
+    const int32_t used = (mouse_is_mapped() ? 1 : 0) | (tablet_wanted() ? 2 : 0);
     if (used != pointer)
     {
         pointer = used;

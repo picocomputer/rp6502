@@ -392,6 +392,11 @@ bool tablet_is_mapped(void)
     return tablet_xram != 0xFFFF;
 }
 
+bool tablet_wanted(void)
+{
+    return tablet_is_mapped();
+}
+
 void tablet_host_pointer(int x, int y, uint8_t buttons, bool host_cursor)
 {
     int cw, ch;
@@ -454,16 +459,17 @@ void tablet_task(void)
         tablet_write_xram();
     }
     const uint8_t *c = &tablet_state[TABLET_OFF_CONTACTS];
-    uint8_t shape = tablet_control();
-    if (shape >= TABLET_CURSOR_COUNT || !(c[0] & TABLET_FLAG_HOVER) || tablet_host_cursor)
+    uint8_t shape = tablet_shape();
+    if (!(c[0] & TABLET_FLAG_HOVER) || tablet_host_cursor)
         shape = TABLET_CURSOR_OFF;
     vga_set_pointer(shape, (int16_t)(c[2] | (c[3] & 0x0F) << 8),
                     (int16_t)(c[1] | (c[3] >> 4) << 8));
 }
 
-uint8_t tablet_control(void)
+uint8_t tablet_shape(void)
 {
     if (tablet_xram == 0xFFFF)
         return TABLET_CURSOR_OFF;
-    return xram[tablet_xram + TABLET_OFF_CONTROL];
+    const uint8_t shape = xram[tablet_xram + TABLET_OFF_CONTROL];
+    return shape < TABLET_CURSOR_COUNT ? shape : TABLET_CURSOR_OFF;
 }

@@ -345,7 +345,7 @@ bool input_mouse_locked(void)
 
 void input_event(const sapp_event *e)
 {
-    if (tablet_is_mapped() && input_tablet(e))
+    if (tablet_wanted() && input_tablet(e))
         return;
 
     switch (e->type)
@@ -457,12 +457,10 @@ void input_update_cursor(void)
         return;
     }
 #endif
-    if (tablet_is_mapped() && pointer_on_canvas)
+    if (tablet_wanted() && pointer_on_canvas)
     {
         had_tablet = true;
-        int shape = tablet_control();
-        if (shape >= TABLET_CURSOR_COUNT)
-            shape = TABLET_CURSOR_OFF;
+        const uint8_t shape = tablet_shape();
         if (shape == TABLET_CURSOR_OFF)
             sapp_show_mouse(false);
         else
