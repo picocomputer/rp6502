@@ -133,35 +133,47 @@ typedef struct
     uint16_t ul_color;
 } mode0_colors_t;
 
-/* The colors a cell can name: the 256 palette entries and the default
- * foreground and background, which are the console's (console_palette),
- * then all of those again at half brightness, for SGR 2, which are mode 0's
- * (mode0_faint_palette). draw.c makes the faint ones from the console's. */
+/* The colors a cell can name: the 256 entries of the console's palette
+ * (console_palette), then the default foreground and background, which are
+ * two of the console's special colors (console_specials), then all of
+ * those again at half brightness, for SGR 2, which are mode 0's: the faint
+ * palette (mode0_faint_palette) and the faint defaults
+ * (mode0_faint_defaults). draw.c makes the faint ones from the console's. */
 #define MODE0_ENTRIES 258
 #define MODE0_DEFAULT_FG 256
 #define MODE0_DEFAULT_BG 257
+#define MODE0_DEFAULTS (MODE0_ENTRIES - CONSOLE_PALETTE)
 #define MODE0_ENTRY_SHIFT 6
 #define MODE0_ENTRY(entry, faint) \
     ((uint16_t)(((unsigned)(entry) + ((faint) ? MODE0_ENTRIES : 0u)) << MODE0_ENTRY_SHIFT))
-extern uint16_t mode0_faint_palette[MODE0_ENTRIES];
+extern uint16_t mode0_faint_palette[CONSOLE_PALETTE];
+extern uint16_t mode0_faint_defaults[MODE0_DEFAULTS];
 
 _Static_assert(MODE0_DEFAULT_FG == CONSOLE_COLOR_FG && MODE0_DEFAULT_BG == CONSOLE_COLOR_BG &&
-                   MODE0_ENTRIES <= CONSOLE_COLORS,
-               "mode 0's entries are the console's palette");
+                   MODE0_ENTRIES == CONSOLE_COLOR_BG + 1,
+               "mode 0's entries are the console's palette and its default colors");
 
 _Static_assert(MODE0_ENTRY_SHIFT == SCANVIDEO_ALPHA_PIN + 1,
                "an entry sits above the opaque bit, which is clear for one");
 
-/* The pixel a cell's color is drawn as. A faint one is the rarest, so the
- * renderer's common path falls through to the console's palette. */
+/* The pixel of a faint color, named by its entry less MODE0_ENTRIES: an
+ * entry of the faint palette, then the faint defaults. */
+uint16_t mode0_faint_color(unsigned entry);
+
+/* The pixel a cell's color is drawn as. An entry of the palette is the
+ * commonest, so the renderer's common path takes it from the console's
+ * palette. Past the palette come the defaults, from the console's special
+ * colors, then the faint ones, which are the rarest. */
 static inline uint16_t mode0_color(uint16_t color)
 {
     if (color & SCANVIDEO_ALPHA_MASK)
         return color;
     const unsigned entry = color >> MODE0_ENTRY_SHIFT;
-    if (MODE_LIKELY(entry < MODE0_ENTRIES))
+    if (MODE_LIKELY(entry < CONSOLE_PALETTE))
         return console_palette[entry];
-    return mode0_faint_palette[entry - MODE0_ENTRIES];
+    if (entry < MODE0_ENTRIES)
+        return console_specials[entry - CONSOLE_PALETTE];
+    return mode0_faint_color(entry - MODE0_ENTRIES);
 }
 
 /* Whether a color names an entry the palette has, as every RGB color does. */

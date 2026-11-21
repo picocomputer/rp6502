@@ -19,7 +19,7 @@
 // (console_term.c), each size's screens keeping their cells in the cell
 // store (screen.c), and what mode 0 draws the size showing from. This file
 // hands the console mode 0's cells, writes mode 0's words and the faint
-// twins of the console's palette, keeps the blinks, draws the smooth
+// twins of the console's colors, keeps the blinks, draws the smooth
 // scrolls, feeds the console's bytes to the terminal, and saves all of it.
 
 // A blink is a thing on the screen, so it keeps the screen's time: these are
@@ -100,25 +100,27 @@ static bool draw_smooth_shows(const term_grid_t *g)
            console_smoothing.screen == (uint8_t)(g->shown - g->screen);
 }
 
-/* Mode 0's faint twins of the console's palette (mode0.h) follow it once a
- * color of it changes: all of them, as a change is rare and a reset or a
- * load changes them all. */
+/* Mode 0's faint twins of the console's palette and default colors
+ * (mode0.h) follow them once a color of them changes: all of them, as a
+ * change is rare and a reset or a load changes them all. */
 static void draw_follow_palette(void)
 {
     if (!console_palette_changed)
         return;
     console_palette_changed = false;
-    for (unsigned i = 0; i < MODE0_ENTRIES; i++)
+    for (unsigned i = 0; i < CONSOLE_PALETTE; i++)
         mode0_faint_palette[i] = mode0_faint(console_palette[i]);
+    for (unsigned i = 0; i < MODE0_DEFAULTS; i++)
+        mode0_faint_defaults[i] = mode0_faint(console_specials[i]);
 }
 
 /* ---- savestate ----------------------------------------------------------
  *
  * The console's terminal, each size's grid, the layout of each screen's
- * cells, the blinks and the smooth scroll, then the palette. The cells and
- * their colors are mode 0's (mode0.h). The cells' addresses are never
- * written, because they are mode 0's, the same in every build of a
- * machine. */
+ * cells, the blinks and the smooth scroll, then the palette and the
+ * special colors. The cells and their colors are mode 0's (mode0.h). The
+ * cells' addresses are never written, because they are mode 0's, the same
+ * in every build of a machine. */
 
 static bool draw_sst_term_ok(sst_cursor_t *c)
 {
@@ -231,7 +233,8 @@ static bool draw_sst_smooth_ok(sst_cursor_t *c)
     return true;
 }
 
-/* Any color is one, and mode 0's faint twins are made from the palette. */
+/* Any color is one, and mode 0's faint twins are made from the palette and
+ * the default colors. */
 static bool draw_sst_palette_ok(sst_cursor_t *c)
 {
     (void)c;
@@ -265,6 +268,7 @@ static bool draw_sst_palette_ok(sst_cursor_t *c)
     X(STRUCT, console_smoothing, DRAW_SMOOTH_SST_ROWS)                 \
     X(VALIDATE, draw_sst_smooth_ok)                                    \
     X(U16S, console_palette)                                           \
+    X(U16S, console_specials)                                          \
     X(VALIDATE, draw_sst_palette_ok)                                   \
     X(SKIP, draw_stale, "the canvas's load publishes everything")      \
     X(SKIP, draw_published, "what the row words were last written "    \
@@ -343,7 +347,7 @@ void draw_publish(void)
     mode0_regs.cursor = MODE0_CURSOR(pos->x, pos->y, console_term.cursor_style) |
                         (console_term.cursor_enabled ? MODE0_CURSOR_ENABLED : 0) |
                         (d->cursor_lit ? MODE0_CURSOR_LIT : 0);
-    mode0_regs.cursor_color = console_palette[CONSOLE_COLOR_CURSOR];
+    mode0_regs.cursor_color = console_specials[CONSOLE_COLOR_CURSOR - CONSOLE_PALETTE];
     mode0_regs.screen = d->cell_blink_phase |
                         (console_term.reverse_screen ? MODE0_SCREEN_REVERSE : 0);
     console_smooth_t *sm = &console_smoothing;

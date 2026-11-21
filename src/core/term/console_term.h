@@ -124,8 +124,9 @@ static inline HOST_IN_RAM_FUNC bool console_smooth_busy(const term_grid_t *g)
  * with it, as on xterm and Linux, because those cells hold the entry and
  * not the color. */
 
-// A color of the palette changed since draw.c last followed it: mode 0's
-// faint twins are made from the palette (draw.c), which clears this.
+// A color of the palette or a special color changed since draw.c last
+// followed them: mode 0's faint twins are made from them (draw.c), which
+// clears this.
 extern bool console_palette_changed;
 
 // RIS and the system's soft reset: the colors start again
@@ -134,8 +135,8 @@ extern bool console_palette_changed;
 // before the grids reset.
 void console_term_reset(term_t *t);
 
-// The OSC colors. which is an entry of console_palette: 0-255, or one of
-// CONSOLE_COLOR_FG, _BG and _CURSOR (color.h).
+// The OSC colors. which is an entry of console_palette, 0-255, or a special
+// color: CONSOLE_COLOR_FG, _BG or _CURSOR (color.h).
 void console_color(term_t *t, unsigned which, uint16_t color);
 void console_color_reset(term_t *t, unsigned which);
 // The palette and the default and cursor colors as at power-up, and

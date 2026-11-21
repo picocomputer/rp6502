@@ -13,7 +13,8 @@
 /* On a word, so the console can write and move cells a word at a time. */
 mode0_cell_t mode0_cells[MODE0_CELLS] __attribute__((aligned(4)));
 mode0_colors_t mode0_colors[MODE0_CELLS] __attribute__((aligned(4)));
-uint16_t mode0_faint_palette[MODE0_ENTRIES];
+uint16_t mode0_faint_palette[CONSOLE_PALETTE];
+uint16_t mode0_faint_defaults[MODE0_DEFAULTS];
 volatile mode0_regs_t mode0_regs;
 
 static void mode0_sst_put_cells(sst_cursor_t *c, unsigned flags)
@@ -51,6 +52,8 @@ static bool mode0_sst_cells_ok(sst_cursor_t *c)
     X(VALIDATE, mode0_sst_cells_ok)                                    \
     X(SKIP, mode0_faint_palette, "draw.c makes it from the console's " \
                                  "palette after a load")               \
+    X(SKIP, mode0_faint_defaults, "draw.c makes them from the "        \
+                                  "console's after a load")            \
     X(SKIP, mode0_regs, "published again by the canvas's load")
 SST_TABLE(mode0, MODE0_SST)
 
@@ -72,6 +75,15 @@ const uint8_t mode0_underline8[4][8] = {
     {0, 0x00, 0x00, 0x66, 0x00, 0x00},
     {0, 0xFF, 0xFF, 0x99, 0xAA, 0x7C},
 };
+
+/* Out of line, because the renderer inlines mode0_color in every one of its
+ * loops and a faint color is the rarest. */
+__attribute__((noinline)) uint16_t mode0_faint_color(unsigned entry)
+{
+    if (entry < CONSOLE_PALETTE)
+        return mode0_faint_palette[entry];
+    return mode0_faint_defaults[entry - CONSOLE_PALETTE];
+}
 
 #ifndef RP6502_VGA_FABRIC
 

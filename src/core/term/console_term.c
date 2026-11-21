@@ -17,17 +17,19 @@ term_t console_term;
 console_size_t console_40;
 console_size_t console_80;
 console_smooth_t console_smoothing;
-uint16_t console_palette[CONSOLE_COLORS];
+uint16_t console_palette[CONSOLE_PALETTE];
+uint16_t console_specials[CONSOLE_SPECIALS];
 bool console_palette_changed;
 
-/* draw.c's CELL chunk saves the terminal, both sizes, the smooth scroll and
- * the palette. */
+/* draw.c's CELL chunk saves the terminal, both sizes, the smooth scroll,
+ * the palette and the special colors. */
 #define CONSOLE_SST(X)                                                 \
     X(SKIP, console_term, "draw.c's CELL chunk saves it")              \
     X(SKIP, console_40, "draw.c's CELL chunk saves it")                \
     X(SKIP, console_80, "draw.c's CELL chunk saves it")                \
     X(SKIP, console_smoothing, "draw.c's CELL chunk saves it")         \
     X(SKIP, console_palette, "draw.c's CELL chunk saves it")           \
+    X(SKIP, console_specials, "draw.c's CELL chunk saves it")          \
     X(SKIP, console_palette_changed, "draw.c follows every color "     \
                                      "after a load")
 SST_TABLE(console_term, CONSOLE_SST)
@@ -124,13 +126,16 @@ const term_grid_t *HOST_IN_RAM_FUNC console_smooth_grid(void)
 void console_color(term_t *t, unsigned which, uint16_t color)
 {
     (void)t;
-    console_palette[which] = color;
+    if (which < CONSOLE_PALETTE)
+        console_palette[which] = color;
+    else
+        console_specials[which - CONSOLE_PALETTE] = color;
     console_palette_changed = true;
 }
 
 void console_color_reset(term_t *t, unsigned which)
 {
-    console_color(t, which, color_256[which < 256                   ? which
+    console_color(t, which, color_256[which < CONSOLE_PALETTE     ? which
                                       : which == CONSOLE_COLOR_BG ? CONSOLE_BG_COLOR_INDEX
                                                                   : CONSOLE_FG_COLOR_INDEX]);
 }
@@ -138,7 +143,8 @@ void console_color_reset(term_t *t, unsigned which)
 uint16_t console_color_get(const term_t *t, unsigned which)
 {
     (void)t;
-    return console_palette[which];
+    return which < CONSOLE_PALETTE ? console_palette[which]
+                                   : console_specials[which - CONSOLE_PALETTE];
 }
 
 void console_colors_reset(term_t *t)

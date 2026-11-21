@@ -214,13 +214,16 @@ UTEST(sst, a_programs_own_size_comes_back)
 }
 
 /* The console's palette comes back with the console's terminal, the
- * cursor's color with it, and mode 0's faint twins are made from it again. */
+ * special colors with it, and mode 0's faint twins are made from them
+ * again. */
 UTEST(sst, the_palette_and_its_faint_twins_come_back)
 {
     const uint16_t red = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(200, 100, 40);
     const uint16_t cursor = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(0, 80, 160);
+    const uint16_t paper = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(240, 230, 200);
     console_color(&console_term, 1, red);
     console_color(&console_term, CONSOLE_COLOR_CURSOR, cursor);
+    console_color(&console_term, CONSOLE_COLOR_BG, paper);
     draw_publish();
     ASSERT_EQ(take(), (const char *)NULL);
     console_colors_reset(&console_term);
@@ -228,9 +231,13 @@ UTEST(sst, the_palette_and_its_faint_twins_come_back)
     ASSERT_EQ(mode0_color(MODE0_ENTRY(1, true)), mode0_faint(color_256[1]));
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_EQ(console_palette[1], red);
-    ASSERT_EQ(console_palette[CONSOLE_COLOR_CURSOR], cursor);
+    ASSERT_EQ(console_color_get(&console_term, CONSOLE_COLOR_CURSOR), cursor);
+    ASSERT_EQ(console_color_get(&console_term, CONSOLE_COLOR_BG), paper);
     ASSERT_EQ(mode0_color(MODE0_ENTRY(1, false)), red);
     ASSERT_EQ(mode0_color(MODE0_ENTRY(1, true)), mode0_faint(red));
+    ASSERT_EQ(mode0_color(MODE0_ENTRY(MODE0_DEFAULT_BG, false)), paper);
+    ASSERT_EQ(mode0_color(MODE0_ENTRY(MODE0_DEFAULT_BG, true)), mode0_faint(paper));
+    ASSERT_EQ(mode0_color(MODE0_ENTRY(MODE0_DEFAULT_FG, true)), mode0_faint(color_256[7]));
     console_colors_reset(&console_term);
     draw_publish();
 }
