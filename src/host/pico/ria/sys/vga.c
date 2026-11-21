@@ -64,6 +64,15 @@ static enum {
 
 static bool vga_needs_reset = true;
 static vga_canvas_t vga_canvas_current = vga_canvas_console;
+
+/* The pointer as the tablet wants it, and whether the VGA has it yet. It is
+ * sent once a frame at most, as POINTER_X with the shape and then
+ * POINTER_Y, which moves it, so a mouse's hundreds of reports a second
+ * become a frame's one move. */
+static uint16_t vga_pointer_x_word;
+static uint16_t vga_pointer_y_word;
+static bool vga_pointer_dirty;
+static uint32_t vga_pointer_frame;
 static volatile uint32_t vga_vsync_deadline;
 static uint8_t vga_vsync_frame;
 /* The frames counted from the VSYNCs, with no 8-bit wrap, and when the last
@@ -128,6 +137,27 @@ static uint8_t vga_display_sent;
 
 /* The canvas and mode registers of channel 0 as the VGA holds them. */
 static uint16_t vga_xregs[8];
+
+void HOST_IN_RAM_FUNC vga_set_pointer(uint8_t shape, int16_t x, int16_t y)
+{
+    const uint16_t xw = (uint16_t)((unsigned)shape << 12 | ((uint16_t)x & 0x0FFF));
+    const uint16_t yw = (uint16_t)y;
+    if (xw == vga_pointer_x_word && yw == vga_pointer_y_word)
+        return;
+    vga_pointer_x_word = xw;
+    vga_pointer_y_word = yw;
+    vga_pointer_dirty = true;
+}
+
+static void HOST_IN_RAM_FUNC vga_pointer_task(void)
+{
+    if (!vga_pointer_dirty || !vga_connected() || vga_frames() == vga_pointer_frame)
+        return;
+    vga_pointer_dirty = false;
+    vga_pointer_frame = vga_frames();
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x08, vga_pointer_x_word);
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x09, vga_pointer_y_word);
+}
 
 void vga_set_code_page(uint16_t cp)
 {
@@ -459,6 +489,7 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
      * would erase, so there the screen has only the soft reset the banner
      * starts with, as every other terminal has. */
     vga_needs_reset = true;
+    vga_pointer_dirty = true;
     vga_code_page_sent = VGA_CODE_PAGE_UNKNOWN;
     if (oem_get_code_page_run()) /* at boot oem_init sends it */
         vga_set_code_page(oem_get_code_page_run());
@@ -549,6 +580,7 @@ void HOST_IN_RAM_FUNC vga_task(void)
         vga_canvas_current = vga_canvas_console;
         memset(vga_xregs, 0, sizeof vga_xregs);
     }
+    vga_pointer_task();
 }
 
 void vga_run(void)

@@ -28,9 +28,7 @@
 static uint8_t tablet_state[TABLET_BLOCK_SIZE];
 static uint16_t tablet_xram;
 
-/* Kept apart from the block because tablet_xreg blanks the block, and a
- * machine that lends the program its own cursor has to say so again in the
- * status byte of a block the program has just moved. */
+/* Whether the host draws the cursor, so the system draws none. */
 static bool tablet_host_cursor;
 
 /* The pointer in canvas pixels, which is what is written to XRAM. */
@@ -130,8 +128,7 @@ bool HOST_IN_FLASH_FUNC tablet_xreg(uint16_t word)
     bool mapped = word <= 0x10000 - TABLET_BLOCK_SIZE;
     tablet_xram = mapped ? word : 0xFFFF;
     memset(tablet_state, 0, sizeof(tablet_state));
-    if (tablet_host_cursor)
-        tablet_state[TABLET_OFF_STATUS] |= TABLET_STATUS_HOST_CURSOR;
+    tablet_state[TABLET_OFF_STATUS] = TABLET_STATUS_HOST_CURSOR;
     tablet_state[TABLET_OFF_CONTROL] = TABLET_CURSOR_ARROW;
     if (tablet_xram != 0xFFFF) /* the one write that also seeds the control byte */
         memcpy((uint8_t *)&xram[tablet_xram], tablet_state, TABLET_BLOCK_SIZE);
@@ -368,18 +365,9 @@ bool tablet_is_mapped(void)
     return tablet_xram != 0xFFFF;
 }
 
-static void tablet_set_host_cursor(bool on)
-{
-    tablet_host_cursor = on;
-    if (on)
-        tablet_state[TABLET_OFF_STATUS] |= TABLET_STATUS_HOST_CURSOR;
-    else
-        tablet_state[TABLET_OFF_STATUS] &= (uint8_t)~TABLET_STATUS_HOST_CURSOR;
-}
-
 void tablet_host_pointer(int x, int y, uint8_t buttons, bool host_cursor)
 {
-    tablet_set_host_cursor(host_cursor);
+    tablet_host_cursor = host_cursor;
     tablet_put_contact(0, (uint8_t)(buttons | TABLET_FLAG_HOVER), x, y);
     for (int i = 1; i < TABLET_MAX_CONTACTS; ++i)
         tablet_clear_contact(i);
@@ -388,7 +376,7 @@ void tablet_host_pointer(int x, int y, uint8_t buttons, bool host_cursor)
 
 void tablet_host_touch(const tablet_point_t *pts, int n)
 {
-    tablet_set_host_cursor(false); // a finger has no cursor
+    tablet_host_cursor = false; // a finger has no cursor
     if (n > TABLET_MAX_CONTACTS)
         n = TABLET_MAX_CONTACTS;
     for (int i = 0; i < n; ++i)
@@ -412,6 +400,16 @@ void tablet_host_wheel(int dwheel, int dpan)
     tablet_state[TABLET_OFF_WHEEL] = (uint8_t)(tablet_state[TABLET_OFF_WHEEL] + dwheel);
     tablet_state[TABLET_OFF_PAN] = (uint8_t)(tablet_state[TABLET_OFF_PAN] + dpan);
     tablet_write_xram();
+}
+
+void tablet_task(void)
+{
+    const uint8_t *c = &tablet_state[TABLET_OFF_CONTACTS];
+    uint8_t shape = tablet_control();
+    if (shape >= TABLET_CURSOR_COUNT || !(c[0] & TABLET_FLAG_HOVER) || tablet_host_cursor)
+        shape = TABLET_CURSOR_OFF;
+    vga_set_pointer(shape, (int16_t)(c[2] | (c[3] & 0x0F) << 8),
+                    (int16_t)(c[1] | (c[3] >> 4) << 8));
 }
 
 uint8_t tablet_control(void)

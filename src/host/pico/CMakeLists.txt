@@ -51,5 +51,9 @@ else()
     message(FATAL_ERROR "Unknown board: ${PICO_BOARD}")
 endif()
 
+# Both chips build C files the generators make, so the generators' variables
+# are set here, where both directories see them.
+include(${RP6502_ROOT}/src/core/gen.cmake)
+
 add_subdirectory(vga ${CMAKE_BINARY_DIR}/vga)
 add_subdirectory(${_ria} ${CMAKE_BINARY_DIR}/${_ria})

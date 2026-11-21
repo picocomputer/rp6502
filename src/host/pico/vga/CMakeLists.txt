@@ -1,5 +1,7 @@
 # The RP6502-VGA
 
+rp6502_gen_c()
+
 set(VGA_SRC ${RP6502_ROOT}/src/host/pico/vga)
 
 add_executable(rp6502-vga)
@@ -10,6 +12,7 @@ target_compile_definitions(rp6502-vga PRIVATE ${RP6502_PROJECT_DEFINITIONS}
 rp6502_log_definitions(rp6502-vga PRIVATE)
 pico_add_extra_outputs(rp6502-vga)
 pico_set_program_name(rp6502-vga "RP6502-VGA")
+add_dependencies(rp6502-vga rp6502_gen_c)
 pico_set_binary_type(rp6502-vga copy_to_ram)
 rp6502_pico_rtt(rp6502-vga)
 # The VGA's own linker files come first, so its memory_ram.incl takes the
@@ -36,6 +39,7 @@ target_compile_options(rp6502-vga PRIVATE
 )
 
 target_include_directories(rp6502-vga PRIVATE
+    ${RP6502_GEN}
     ${RP6502_ROOT}/src/host/pico
     ${VGA_SRC}
     ${RP6502_ROOT}/src
@@ -52,6 +56,7 @@ target_sources(rp6502-vga PRIVATE
     ${VGA_SRC}/main.c
     ${RP6502_ROOT}/src/host/pico/host.c
     ${RP6502_ROOT}/src/core/vga/prog.c
+    ${RP6502_ROOT}/src/core/vga/pointer.c
     ${RP6502_ROOT}/src/core/vga/mode/mode.c
     ${RP6502_ROOT}/src/core/vga/mode/mode0.c
     ${RP6502_ROOT}/src/core/vga/mode/mode1.c

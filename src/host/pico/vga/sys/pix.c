@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/vga/pointer.h"
 #include "vga/main.h"
 #include "core/com/manifold.h"
 #include "vga.pio.h"
@@ -50,6 +51,9 @@ static bool pix_ch0_xreg(uint8_t index, uint16_t word)
     }
     return false;
 }
+
+/* The pointer's x and shape, until its y says where it goes. */
+static uint16_t pix_pointer_x;
 
 static bool pix_ch15_xreg(uint8_t index, uint16_t word)
 {
@@ -99,6 +103,13 @@ static bool pix_ch15_xreg(uint8_t index, uint16_t word)
         if (!flash_program_request(word))
             ria_nak();
         return true;
+    case 0x08: // POINTER_X: x in bits 0-11, the shape in 12-15
+        pix_pointer_x = word;
+        return false;
+    case 0x09: // POINTER_Y: y, and the pointer moves to it and the x before
+        pointer_set((uint8_t)(pix_pointer_x >> 12), (int16_t)(pix_pointer_x & 0x0FFF),
+                    (int16_t)word);
+        return false;
     }
     return false;
 }

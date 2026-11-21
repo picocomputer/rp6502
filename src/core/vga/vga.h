@@ -62,6 +62,12 @@ bool vga_canvas_is_console(void);
 
 void vga_set_code_page(uint16_t cp);
 
+/* The pointer the system draws over the canvas for the tablet: one of the
+ * tablet's cursor shapes, or 0 for none, with its hot spot at x,y in canvas
+ * pixels. A machine that draws its own canvas draws it at once; a Pico RIA
+ * sends it to the VGA, once a frame at most. */
+void vga_set_pointer(uint8_t shape, int16_t x, int16_t y);
+
 void vga_load_code_page(uint16_t cp);
 
 bool vga_canvas_select(uint16_t canvas);

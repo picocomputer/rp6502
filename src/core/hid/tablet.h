@@ -31,8 +31,9 @@
 #define TABLET_OFF_PAN 3
 #define TABLET_OFF_CONTACTS 4
 
-/* status (firmware to ROM). A machine that has a cursor of its own to lend the
- * program says so here; a Pico has none and never sets it. */
+/* status (firmware to ROM). Always set: once it said the host had a cursor
+ * of its own to lend the program, and a program with none drew its own; now
+ * there is a cursor on every machine, the host's or one the system draws. */
 #define TABLET_STATUS_HOST_CURSOR 0x01
 
 /* contact flags. Hover is bit 7 so that the 6502 can test it with BIT and
@@ -44,17 +45,22 @@
 #define TABLET_FLAG_BTN5 0x10
 #define TABLET_FLAG_HOVER 0x80
 
-/* control (program to firmware): the cursor shapes a program may ask for. A
- * host with no cursor of its own ignores them. */
+/* control (program to firmware): the cursor shape the program asks for. The
+ * host draws it where it has a cursor of its own, and the system draws it
+ * over the canvas everywhere else (core/vga/pointer.h). */
 enum
 {
-    TABLET_CURSOR_OFF = 0, /* the host cursor is hidden and the program draws its own */
+    TABLET_CURSOR_OFF = 0, /* no cursor: the program draws its own, or none */
     TABLET_CURSOR_ARROW,
     TABLET_CURSOR_CROSSHAIR,
     TABLET_CURSOR_IBEAM,
     TABLET_CURSOR_HAND,
     TABLET_CURSOR_RESIZE_EW,
     TABLET_CURSOR_RESIZE_NS,
+    TABLET_CURSOR_RESIZE_NWSE,
+    TABLET_CURSOR_RESIZE_NESW,
+    TABLET_CURSOR_MOVE,
+    TABLET_CURSOR_NOT_ALLOWED,
     TABLET_CURSOR_COUNT,
 };
 
@@ -109,8 +115,8 @@ void tablet_report(int slot, uint8_t const *report, size_t size);
 
 /* A hovering pointer at x,y in canvas pixels, which is what the block carries,
  * with a bitmap of TABLET_FLAG_ buttons, taking contact 0. host_cursor says
- * whether this host can draw a cursor for the program; a host that cannot says
- * so and the program draws its own. */
+ * whether this host draws the cursor itself; where it does not, the system
+ * draws it over the canvas. */
 void tablet_host_pointer(int x, int y, uint8_t buttons, bool host_cursor);
 
 /* n touch contacts in canvas pixels, tip down and not hovering. The rest go
@@ -129,8 +135,14 @@ uint8_t tablet_control(void);
 
 extern const sst_table_t tablet_sst;
 
+/* Puts the system's pointer where the tablet is, in the shape the program
+ * asked for, while it hovers, the program has the tablet and the host draws
+ * no cursor of its own. */
+void tablet_task(void);
+
 #define TABLET_DRIVER DRIVER(                                        \
     INIT(tablet_init)                                                \
+    TASK_PUMPED(tablet_task)                                         \
     STOP(tablet_stop)                                                \
     RESET(tablet_stop)                                               \
     SST("TBLT", tablet))
