@@ -8,6 +8,7 @@
 #include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/term/color.h"
+#include "core/term/grid.h"
 #include "ria/sys/vga.h"
 #include "ria/term/cells.h"
 #include "machine.h"

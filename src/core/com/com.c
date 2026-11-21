@@ -10,6 +10,7 @@
 #include "core/sys/ria.h"
 #include "core/sys/timer.h"
 #include "core/term/cells.h"
+#include "core/term/grid.h"
 #include "core/com/manifold.h"
 #include "machine.h"
 #include "drivers.h"

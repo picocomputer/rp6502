@@ -11,6 +11,7 @@
 #include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/term/cells.h"
+#include "core/term/grid.h"
 #include "ria/sys/vga.h"
 #include "utest.h"
 #include <string.h>

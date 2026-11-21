@@ -190,32 +190,8 @@ typedef struct
 #define TERM_PROTECT_DEC 1
 #define TERM_PROTECT_ISO 2
 
-// A cursor's place in a grid.
-typedef struct
-{
-    uint8_t x, y;
-    bool wrap_pending; // the last column was written; the next glyph wraps
-} term_pos_t;
-
-// The terminal at one size. Each screen, primary and alternate, has its own
-// cursor position, saved position and line sizes; the margins and the tab
-// stops belong to the grid. The cursor's column never reaches the width:
-// writing the last column sets wrap_pending instead, as on a VT102. The
-// left and right margins are the whole width until DECSLRM sets them.
-typedef struct
-{
-    uint8_t width;
-    uint8_t height;
-    uint8_t rows; // the most rows: lines holds this many for each screen
-    uint8_t margin_top, margin_bot;
-    uint8_t margin_left, margin_right;
-    term_pos_t pos[2];   // the cursor on each screen
-    term_pos_t saved[2]; // DECSC's position on each screen
-    uint8_t *lines;      // TERM_LINE_ for each row: rows for the primary, then the alternate
-    term_pos_t *cur;     // the showing screen's pos
-    uint8_t *ls;         // the showing screen's lines
-    uint8_t tab_stops[TERM_TAB_BITMAP_BYTES]; // 1 bit per column
-} term_grid_t;
+// One size the terminal is followed at (grid.h).
+typedef struct term_grid term_grid_t;
 
 typedef struct
 {
@@ -279,10 +255,6 @@ typedef struct
     uint8_t grid_count;
 } term_t;
 
-// A grid of width columns by 30 rows (fewer if it holds fewer), its line
-// sizes in lines, which holds rows bytes for each of the two screens.
-void term_grid_init(term_grid_t *g, uint8_t width, uint8_t *lines, uint8_t rows);
-
 // A new terminal followed at the given grids, after a RIS.
 void term_init(term_t *t, term_grid_t *const *grids, uint8_t count);
 
@@ -306,15 +278,6 @@ void term_release_smooth(term_t *t);
 void term_RIS(term_t *t);
 void term_RIS_no_clear(term_t *t);
 
-// A grid's rows, one at a time, as the view grows or shrinks. A grow or
-// shrink with the cursor on the bottom row moves the screen, not the cursor.
-void term_set_height(term_t *t, term_grid_t *g, uint8_t height);
-
-// A grid's columns, as a program sets them: the cursors stay inside the
-// rows, a pending wrap ends, the tab stops past the old width are the
-// default ones, and the margins reset.
-void term_set_width(term_t *t, term_grid_t *g, uint8_t width);
-
 // Follow the terminal at one more grid, after the screen's: a copy of from,
 // its cursors, margins, tab stops and line sizes, with its own line sizes in
 // lines, rows for each screen. Dropping it leaves the others as they are.
@@ -322,18 +285,10 @@ void term_add_grid(term_t *t, term_grid_t *g, const term_grid_t *from,
                    uint8_t *lines, uint8_t rows);
 void term_drop_grid(term_t *t, term_grid_t *g);
 
-// The pen, the cursor and the line sizes of the screen showing.
+// The pen of the screen showing.
 static inline term_pen_t *term_pen(const term_t *t)
 {
     return t->cur;
-}
-static inline term_pos_t *term_pos(const term_grid_t *g)
-{
-    return g->cur;
-}
-static inline uint8_t *term_lines(const term_grid_t *g)
-{
-    return g->ls;
 }
 
 // Whether the cells the pen writes are protected.
@@ -351,43 +306,12 @@ static inline bool term_erase_selective(const term_t *t, bool dec)
     return t->protect_mode == TERM_PROTECT_ISO && !t->erase_all;
 }
 
-// The columns of row y: half the width on a double-size line.
-static inline unsigned term_cols(const term_grid_t *g, uint8_t y)
-{
-    return term_lines(g)[y] ? g->width / 2u : g->width;
-}
-
-// The last column a glyph or a move to the right reaches from the cursor:
-// the right margin for a cursor at or left of it, otherwise the last column
-// of its row.
-static inline unsigned term_right_stop(const term_grid_t *g)
-{
-    const term_pos_t *pos = term_pos(g);
-    unsigned last = term_cols(g, pos->y) - 1;
-    return pos->x <= g->margin_right && g->margin_right < last ? g->margin_right : last;
-}
-
-// The first column a CR or a move to the left reaches: the left margin for
-// a cursor at or right of it, otherwise the first column.
-static inline unsigned term_left_stop(const term_grid_t *g)
-{
-    return term_pos(g)->x >= g->margin_left ? g->margin_left : 0;
-}
-
-// The pixel height of one character cell: 8x8 on the 320-wide canvases, where
-// the 40-column terminal is drawn, 8x16 on the others.
-static inline unsigned term_cell_height(const term_grid_t *g)
-{
-    return g->width == 40 ? 8 : 16;
-}
-
 /* ---- savestate ----------------------------------------------------------
  *
- * The rows of a terminal and of a grid for their owner's SST_TABLE (sst.h),
- * field by field, so no padding reaches the blob. The owner carries
- * alt_active, whose load is term_show, and the sizes a terminal is followed
- * at, which are its own. A grid's rows leave out its line sizes, which are
- * the owner's array. */
+ * The rows of a terminal for its owner's SST_TABLE (sst.h), field by
+ * field, so no padding reaches the blob. The owner carries alt_active,
+ * whose load is term_show, and the sizes a terminal is followed at, which
+ * are its own. A grid's rows are in grid.h. */
 
 #define TERM_PEN_SST_ROWS(Y, p)                                        \
     Y(U8, p.sgr_attr)                                                  \
@@ -467,28 +391,5 @@ bool term_sst_ok(sst_cursor_t *c, const term_t *t);
  * line sizes follow. A savestate load calls it with the alt_active it
  * carries. */
 void term_show(term_t *t, bool alt);
-
-#define TERM_POS_SST_ROWS(Y, p)                                        \
-    Y(U8, p.x) Y(U8, p.y) Y(BOOL, p.wrap_pending)
-
-#define TERM_GRID_SST_ROWS(Y, g)                                       \
-    Y(U8, g.width) Y(U8, g.height) Y(U8, g.rows)                       \
-    Y(U8, g.margin_top) Y(U8, g.margin_bot)                            \
-    Y(U8, g.margin_left) Y(U8, g.margin_right)                         \
-    TERM_POS_SST_ROWS(Y, g.pos[0]) TERM_POS_SST_ROWS(Y, g.saved[0])    \
-    TERM_POS_SST_ROWS(Y, g.pos[1]) TERM_POS_SST_ROWS(Y, g.saved[1])    \
-    Y(BYTES, g.tab_stops)
-
-/* Whether a grid TERM_GRID_SST_ROWS loaded, and its line sizes, fit
- * storage for rows rows, and everything that indexes the cells is in
- * range. False, after sst_refuse, when not. */
-bool term_grid_sst_ok(sst_cursor_t *c, const term_grid_t *g, uint8_t rows);
-
-/* A grid's rows and then its line sizes, for an owner whose grid is not
- * always followed and so needs an FN row of its own. A grid of other rows
- * than g has is refused. */
-#define TERM_GRID_SST_SIZE(rows) (19 + TERM_TAB_BITMAP_BYTES + 2 * (rows))
-void term_grid_sst_put(sst_cursor_t *c, const term_grid_t *g);
-bool term_grid_sst_get(sst_cursor_t *c, term_grid_t *g);
 
 #endif /* _CORE_TERM_TERM_H_ */

@@ -14,6 +14,7 @@
 #include "core/com/tio.h"
 #include "core/sys/driver.h"
 #include "core/term/cells.h"
+#include "core/term/grid.h"
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>

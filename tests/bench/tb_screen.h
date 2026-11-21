@@ -12,6 +12,7 @@
  * width and height are the terminal's own, from the grid showing. */
 
 #include "core/term/cells.h"
+#include "core/term/grid.h"
 #include "core/vga/mode/mode0.h"
 #include <stdbool.h>
 #include <stdint.h>

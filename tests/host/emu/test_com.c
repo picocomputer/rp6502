@@ -18,6 +18,7 @@
 #include "core/sys/sys.h"
 #include "core/sys/timer.h"
 #include "core/term/cells.h"
+#include "core/term/grid.h"
 #include "core/vga/vga_emu.h"
 #include "machine.h"
 #include "utest.h"

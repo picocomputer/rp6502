@@ -16,6 +16,7 @@
 #include "core/wdc/sram.h"
 #include "core/com/rln.h"
 #include "core/term/cells.h"
+#include "core/term/grid.h"
 #include "core/vga/canvas.h"
 #include "tb_screen.h"
 #include "host/host.h"

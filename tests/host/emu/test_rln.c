@@ -12,6 +12,7 @@
 #include "core/ria/regs.h"
 #include "core/com/rln.h"
 #include "core/term/cells.h"
+#include "core/term/grid.h"
 #include "tb_screen.h"
 #include "core/sys/timer.h"
 #include "core/vga/vga_emu.h"

@@ -18,6 +18,7 @@
 #include "core/sys/version.h"
 #include "core/term/color.h"
 #include "core/term/cells.h"
+#include "core/term/grid.h"
 #include "tb_screen.h"
 #include "core/vga/vga.h"
 #include "core/vga/vga_emu.h"

@@ -7,13 +7,90 @@
 #ifndef _CORE_TERM_GRID_H_
 #define _CORE_TERM_GRID_H_
 
-/* Between term.c and grid.c: what the terminal's parser hands each grid. The
- * parser decodes a byte and does everything that is the same at every size;
- * what moves the cursor or the rows, it hands to every grid with one of
- * these. The sequence's numbers are in the terminal's csi_param. */
+/* The terminal at one size: a grid's cursors, margins, tab stops and line
+ * sizes, and what the terminal's parser hands each grid. The parser decodes
+ * a byte and does everything that is the same at every size; what moves the
+ * cursor or the rows, it hands to every grid with one of the grid_op_t.
+ * The sequence's numbers are in the terminal's csi_param. */
 
+#include "core/sys/sst.h"
 #include "core/term/term.h"
+#include <stdbool.h>
+#include <stdint.h>
 
+// A cursor's place in a grid.
+typedef struct
+{
+    uint8_t x, y;
+    bool wrap_pending; // the last column was written; the next glyph wraps
+} term_pos_t;
+
+// The terminal at one size. Each screen, primary and alternate, has its own
+// cursor position, saved position and line sizes; the margins and the tab
+// stops belong to the grid. The cursor's column never reaches the width:
+// writing the last column sets wrap_pending instead, as on a VT102. The
+// left and right margins are the whole width until DECSLRM sets them.
+struct term_grid
+{
+    uint8_t width;
+    uint8_t height;
+    uint8_t rows; // the most rows: lines holds this many for each screen
+    uint8_t margin_top, margin_bot;
+    uint8_t margin_left, margin_right;
+    term_pos_t pos[2];   // the cursor on each screen
+    term_pos_t saved[2]; // DECSC's position on each screen
+    uint8_t *lines;      // TERM_LINE_ for each row: rows for the primary, then the alternate
+    term_pos_t *cur;     // the showing screen's pos
+    uint8_t *ls;         // the showing screen's lines
+    uint8_t tab_stops[TERM_TAB_BITMAP_BYTES]; // 1 bit per column
+};
+
+/* The cursor and the line sizes of the screen showing.
+ *
+ * These stay static inline and read only the grid's fields: term_pos, and
+ * grid.c's grid_in_columns, run in the RIA's HOST_IN_RAM_FUNC drain path
+ * (grid_*_scrolls, term_holds, term_byte_scrolls and the smooth-busy hook),
+ * where a call to a function in flash cannot go. */
+static inline term_pos_t *term_pos(const term_grid_t *g)
+{
+    return g->cur;
+}
+static inline uint8_t *term_lines(const term_grid_t *g)
+{
+    return g->ls;
+}
+
+// The columns of row y: half the width on a double-size line.
+static inline unsigned term_cols(const term_grid_t *g, uint8_t y)
+{
+    return term_lines(g)[y] ? g->width / 2u : g->width;
+}
+
+// The last column a glyph or a move to the right reaches from the cursor:
+// the right margin for a cursor at or left of it, otherwise the last column
+// of its row.
+static inline unsigned term_right_stop(const term_grid_t *g)
+{
+    const term_pos_t *pos = term_pos(g);
+    unsigned last = term_cols(g, pos->y) - 1;
+    return pos->x <= g->margin_right && g->margin_right < last ? g->margin_right : last;
+}
+
+// The first column a CR or a move to the left reaches: the left margin for
+// a cursor at or right of it, otherwise the first column.
+static inline unsigned term_left_stop(const term_grid_t *g)
+{
+    return term_pos(g)->x >= g->margin_left ? g->margin_left : 0;
+}
+
+// The pixel height of one character cell: 8x8 on the 320-wide canvases, where
+// the 40-column terminal is drawn, 8x16 on the others.
+static inline unsigned term_cell_height(const term_grid_t *g)
+{
+    return g->width == 40 ? 8 : 16;
+}
+
+// What the parser hands each grid.
 typedef enum
 {
     GRID_PRINT,   // ch, a glyph
@@ -54,5 +131,47 @@ bool grid_glyph_scrolls(const term_t *t, const term_grid_t *g);
 /* g becomes a copy of from, with its own line sizes in lines, rows a
  * screen. The caller points its cur and ls at the screen showing. */
 void term_grid_copy(term_grid_t *g, const term_grid_t *from, uint8_t *lines, uint8_t rows);
+
+// A grid of width columns by 30 rows (fewer if it holds fewer), its line
+// sizes in lines, which holds rows bytes for each of the two screens.
+void term_grid_init(term_grid_t *g, uint8_t width, uint8_t *lines, uint8_t rows);
+
+// A grid's rows, one at a time, as the view grows or shrinks. A grow or
+// shrink with the cursor on the bottom row moves the screen, not the cursor.
+void term_set_height(term_t *t, term_grid_t *g, uint8_t height);
+
+// A grid's columns, as a program sets them: the cursors stay inside the
+// rows, a pending wrap ends, the tab stops past the old width are the
+// default ones, and the margins reset.
+void term_set_width(term_t *t, term_grid_t *g, uint8_t width);
+
+/* ---- savestate ----------------------------------------------------------
+ *
+ * The rows of a grid for its owner's SST_TABLE (sst.h), field by field, so
+ * no padding reaches the blob. They leave out its line sizes, which are the
+ * owner's array. */
+
+#define TERM_POS_SST_ROWS(Y, p)                                        \
+    Y(U8, p.x) Y(U8, p.y) Y(BOOL, p.wrap_pending)
+
+#define TERM_GRID_SST_ROWS(Y, g)                                       \
+    Y(U8, g.width) Y(U8, g.height) Y(U8, g.rows)                       \
+    Y(U8, g.margin_top) Y(U8, g.margin_bot)                            \
+    Y(U8, g.margin_left) Y(U8, g.margin_right)                         \
+    TERM_POS_SST_ROWS(Y, g.pos[0]) TERM_POS_SST_ROWS(Y, g.saved[0])    \
+    TERM_POS_SST_ROWS(Y, g.pos[1]) TERM_POS_SST_ROWS(Y, g.saved[1])    \
+    Y(BYTES, g.tab_stops)
+
+/* Whether a grid TERM_GRID_SST_ROWS loaded, and its line sizes, fit
+ * storage for rows rows, and everything that indexes the cells is in
+ * range. False, after sst_refuse, when not. */
+bool term_grid_sst_ok(sst_cursor_t *c, const term_grid_t *g, uint8_t rows);
+
+/* A grid's rows and then its line sizes, for an owner whose grid is not
+ * always followed and so needs an FN row of its own. A grid of other rows
+ * than g has is refused. */
+#define TERM_GRID_SST_SIZE(rows) (19 + TERM_TAB_BITMAP_BYTES + 2 * (rows))
+void term_grid_sst_put(sst_cursor_t *c, const term_grid_t *g);
+bool term_grid_sst_get(sst_cursor_t *c, term_grid_t *g);
 
 #endif /* _CORE_TERM_GRID_H_ */

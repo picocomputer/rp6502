@@ -7,6 +7,7 @@
 #include "core/com/manifold.h"
 #include "core/term/cells.h"
 #include "core/term/color.h"
+#include "core/term/grid.h"
 #include "core/term/term.h"
 #include "core/vga/mode/mode0.h"
 #include "core/vga/mode/mode.h"
