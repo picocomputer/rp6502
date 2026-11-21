@@ -39,16 +39,20 @@ SST_TABLE(console_term, CONSOLE_SST)
  * and rings and given their cells: each size's primary, then its alternate.
  * Without an alternate store, the alternate screen has no cells, and the
  * terminal never switches to it. */
+#if TERM_CELLS
+void console_init(cell_t *cells)
+#else
 void console_init(mode0_cell_t *cells)
+#endif
 {
     console_size_t *const all[] = {&console_40, &console_80};
 #if TERM_CELLS
-    screen_blank_cells(cells, MODE0_CELLS);
+    screen_blank_cells(cells, CONSOLE_CELLS);
     for (int n = 0; n < 2; n++)
     {
         term_grid_init(&all[n]->grid, n ? 80 : 40, all[n]->lines, all[n]->row_idx,
                        TERM_MAX_HEIGHT);
-        for (int b = 0; b < MODE0_SCREENS; b++)
+        for (int b = 0; b < CONSOLE_SCREENS; b++)
         {
             all[n]->bufs[b].mem = cells;
             all[n]->bufs[b].width = n ? 80 : 40;

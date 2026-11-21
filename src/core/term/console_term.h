@@ -50,11 +50,18 @@ extern console_size_t console_80;
 
 /* The terminal and both sizes as at power-up: new grids at TERM_STD_HEIGHT,
  * and a new terminal on them, whose RIS lays out every screen and sets the
- * palette. cells are MODE0_CELLS cells for the screens, each size's primary
- * then its alternate, the 40's first, and every one of them is a blank in
- * the default colors at once; NULL where the screens keep no cells. A
- * program's own grid is dropped. */
+ * palette. Where the screens keep cells (TERM_CELLS), cells are
+ * CONSOLE_CELLS cells of the machine's kind (cell.h) for the screens, each
+ * size's primary then its alternate, the 40's first, and every one of them
+ * is a blank in the default colors at once. Where they keep none, cells is
+ * NULL. A program's own grid is dropped. */
+#if TERM_CELLS
+#define CONSOLE_SCREENS (TERM_ALT_SCREEN ? 2 : 1)
+#define CONSOLE_CELLS ((40 + 80) * TERM_MEM_ROWS * CONSOLE_SCREENS)
+void console_init(cell_t *cells);
+#else
 void console_init(mode0_cell_t *cells);
+#endif
 
 // RIS, and the system's soft reset, which also sets the 40-column terminal
 // back to TERM_STD_HEIGHT: only a mode 0 on a 320-wide canvas sets its

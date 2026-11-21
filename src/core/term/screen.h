@@ -278,6 +278,13 @@ void screen_fit(screen_t *s, uint8_t height);
 // written, and yes where that does not say. No for a screen with no cells.
 bool screen_row_used(screen_t *s, uint8_t y);
 
+// The text of row y, a cell_text word (cell.h) for each of its columns,
+// into out, which has room for the screen's width. Returns the columns, the
+// screen's width or half of it on a row of double width; none for a screen
+// with no cells. Row y may be a row above row 0 still in the ring, as row
+// rows - 1 is the newest of them. A machine with no cells does not have it.
+unsigned screen_row_text(screen_t *s, uint8_t y, uint16_t *out);
+
 #if TERM_CELLS
 
 /* ---- inside the store ---------------------------------------------------

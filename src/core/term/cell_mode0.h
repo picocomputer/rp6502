@@ -265,6 +265,18 @@ static inline bool cell_shows(const mode0_cell_t *cell)
            cell_colors(cell)->bg_color != MODE0_ENTRY(MODE0_DEFAULT_BG, false);
 }
 
+// The character the glyph is and the set it is in, the italics' the code
+// page's.
+static inline uint16_t cell_text(const mode0_cell_t *cell)
+{
+    const uint16_t glyph = cell->glyph;
+    const unsigned set = mode0_glyph_is_dec(glyph)    ? CELL_SET_DEC
+                         : mode0_glyph_is_tech(glyph) ? CELL_SET_TECH
+                                                      : CELL_SET_PAGE;
+    return (uint16_t)(mode0_glyph_code(glyph) | set << CELL_TEXT_SET_SHIFT |
+                      (cell_guarded(cell) ? CELL_TEXT_GUARD : 0));
+}
+
 /* ---- savestate --------------------------------------------------------- */
 
 static inline void cell_fill_put(sst_cursor_t *c, const cell_fill_t *e)

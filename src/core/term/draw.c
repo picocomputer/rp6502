@@ -413,6 +413,8 @@ void cells_init(void)
     manifold_set_term_out(cells_out_chars);
 }
 
+_Static_assert(MODE0_CELLS == CONSOLE_CELLS, "mode 0's cells are the console's");
+
 /* The console as at power-up over mode 0's cells: it is the RESET hook,
  * because a load that fails leaves any value in all of them. */
 void cells_restart(void)

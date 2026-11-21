@@ -45,10 +45,13 @@
  *   of columns [from, end) of a row of width cells kept, put back, or moved
  *   to another row.
  * cell_shows(cell): the cell shows something on the screen.
+ * cell_text(cell): the cell's text, a CELL_TEXT_ word, the same on every
+ *   kind.
  * cell_fill_put, cell_fill_get, cell_side_put, cell_side_get: a fill or a
  *   side in the savestate, in CELL_FILL_SST_SIZE and CELL_SIDE_SST_SIZE
  *   bytes; a get says whether it is one. */
 
+#include "core/term/term.h"
 #include <stdint.h>
 
 // Where a character's glyph is: the code page, DEC Special Graphics, DEC
@@ -61,11 +64,25 @@ enum
     CELL_SET_ITALIC,
 };
 
+// A cell's text (cell_text): the character in bits 0-7, its set in bits
+// 8-9, a CELL_SET_ other than CELL_SET_ITALIC, which is the code page's
+// character drawn otherwise, whether the cell was written, and whether
+// DECSCA or SPA guards it. No kind marks a cell written yet.
+#define CELL_TEXT_CODE 0xFFu
+#define CELL_TEXT_SET_SHIFT 8
+#define CELL_TEXT_SET (3u << CELL_TEXT_SET_SHIFT)
+#define CELL_TEXT_WRITTEN (1u << 13)
+#define CELL_TEXT_GUARD (1u << 14)
+
 // The most cells a strip keeps (cell_strip_t). With more cells either side
 // of the columns than this, the store copies the cells between the columns
 // instead (screen_settle).
 #define CELL_STRIP_MAX 40
 
+#if TERM_CELL_TEXT
+#include "core/term/cell_text.h"
+#else
 #include "core/term/cell_mode0.h"
+#endif
 
 #endif /* _CORE_TERM_CELL_H_ */

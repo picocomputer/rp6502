@@ -64,6 +64,14 @@
 #define TERM_CELLS 1
 #endif
 
+/* TERM_CELL_TEXT: the cells are text cells (cell_text.h), the text of each
+ * cell and whether it shows, for a machine that keeps the console's text
+ * but draws nothing. 0 is mode 0's cells (cell_mode0.h), as mode 0 draws
+ * them. */
+#ifndef TERM_CELL_TEXT
+#define TERM_CELL_TEXT 0
+#endif
+
 /* A smooth scroll moves a row in this many frames: one scanline a frame on
  * the 16-scanline rows, one every second frame on the 8-scanline rows of
  * the 40-column terminal, so both move a line in the same time. */

@@ -957,6 +957,18 @@ bool screen_row_used(screen_t *s, uint8_t y)
     return false;
 }
 
+unsigned screen_row_text(screen_t *s, uint8_t y, uint16_t *out)
+{
+    if (!screen_settled(s))
+        return 0;
+    screen_clean_line(s, y);
+    const cell_t *row = screen_row(s, y);
+    const unsigned cols = screen_size(s, y) ? s->cells->width / 2u : s->cells->width;
+    for (unsigned x = 0; x < cols; x++)
+        out[x] = cell_text(&row[x]);
+    return cols;
+}
+
 void screen_blank_cells(cell_t *cells, unsigned n)
 {
     const cell_fill_t e = cell_blank(' ', cell_side_default(), false);

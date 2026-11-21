@@ -80,6 +80,14 @@ set_tests_properties(vttest PROPERTIES TIMEOUT 600 LABELS "slow;host.vttest"
 add_test(NAME vttest_screens_clean COMMAND ${CMAKE_COMMAND} -E rm -rf ${_screens})
 set_tests_properties(vttest_screens_clean PROPERTIES FIXTURES_SETUP vttest_screens)
 
+# The stream of the walk, which the walk writes as it gives it to xterm, held
+# through the RIA's console terminal and the VGA's (tests/host/xcheck) after
+# the walk.
+if(_xterm_ok)
+    xcheck_test(vttest file ${_screens}/stream.bin 1)
+    set_tests_properties(xcheck_vttest PROPERTIES DEPENDS vttest)
+endif()
+
 # tmux, the program most likely to use the margins and rectangles now that
 # the console says it is a VT420, run in panes through the console and held
 # against xterm, where both are installed. Its locale is C, as the console
@@ -93,5 +101,7 @@ if(RP6502_TMUX AND _xterm_ok)
             "VTKEYS=seq space 1 space 50 return|ctrl-b o|seq space 100 space 160 return|ctrl-b o|ls space -l space / return|clear return|ctrl-b z|ctrl-b z|exit return|exit return|exit return"
             $<TARGET_FILE:vtrun> ${_tmux_screens})
     set_tests_properties(vttest_tmux PROPERTIES TIMEOUT 120 LABELS "slow;host.vttest")
+    xcheck_test(tmux file ${_tmux_screens}/stream.bin 2)
+    set_tests_properties(xcheck_tmux PROPERTIES DEPENDS vttest_tmux)
 endif()
 
