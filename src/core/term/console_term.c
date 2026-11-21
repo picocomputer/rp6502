@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/term/cells.h"
+#include "core/term/draw.h"
 #include "core/term/color.h"
 #include "core/term/console_term.h"
 #include "core/term/grid.h"

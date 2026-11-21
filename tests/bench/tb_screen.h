@@ -11,14 +11,14 @@
  * (core/vga/mode/mode0.h), so a test sees what a renderer sees. The grid's
  * width and height are the terminal's own, from the grid showing. */
 
-#include "core/term/cells.h"
+#include "core/term/draw.h"
 #include "core/term/console_term.h"
 #include "core/term/grid.h"
 #include "core/vga/mode/mode0.h"
 #include <stdbool.h>
 #include <stdint.h>
 
-/* The cells_task calls that finish what the cell store (screen.c) does a
+/* The draw_task calls that finish what the cell store (screen.c) does a
  * row a tick: the lazy erases of all four screens, and a recolor pass with
  * the one a change during it starts after it, of every row of mode0_cells. */
 #define TB_SCREEN_SETTLE (8 * TERM_MAX_HEIGHT + 1)

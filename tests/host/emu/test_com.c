@@ -17,7 +17,7 @@
 #include "core/sys/ria.h"
 #include "core/sys/sys.h"
 #include "core/sys/timer.h"
-#include "core/term/cells.h"
+#include "core/term/draw.h"
 #include "core/term/console_term.h"
 #include "core/term/grid.h"
 #include "core/vga/vga_emu.h"
@@ -728,7 +728,7 @@ UTEST(com, a_write_to_the_screen_reaches_term_c_alone)
     ASSERT_EQ(sent_len, (size_t)1);
     ASSERT_EQ(wired_len, (size_t)1);
     unwire();
-    cells_init();
+    draw_init();
     untap();
 }
 
@@ -744,7 +744,7 @@ UTEST(com, the_end_reset_puts_the_default_shape_on_the_screen_alone)
     com_end_now();
     ASSERT_EQ(screen_len, sent_len + 5);
     ASSERT_EQ(memcmp(&screen[screen_len - 5], "\33[0 q", 5), 0);
-    cells_init();
+    draw_init();
     untap();
 }
 
@@ -757,7 +757,7 @@ UTEST(com, a_write_to_the_screen_lands_between_the_output_around_it)
     manifold_putchar('c');
     ASSERT_EQ(screen_len, (size_t)3);
     ASSERT_EQ(memcmp(screen, "abc", 3), 0);
-    cells_init();
+    draw_init();
 }
 
 /* The console's terminal, which com_clean_line reads. */
@@ -822,7 +822,7 @@ UTEST(com, the_line_carries_11520_bytes_a_second_out)
     /* A terminal with no smooth scroll left on by another case, which
      * would hold the line up. */
     manifold_flush();
-    cells_init();
+    draw_init();
     manifold_set_paced(true);
     paced_count = 0;
     manifold_set_tx_tap(paced_tap);
@@ -869,7 +869,7 @@ UTEST(com, the_line_carries_11520_bytes_a_second_in)
 UTEST(com, a_session_end_waits_for_the_output_then_follows_it)
 {
     manifold_flush();
-    cells_init();
+    draw_init();
     manifold_set_paced(true);
     tap();
     for (const char *p = "abcdefghij"; *p; p++)
@@ -904,7 +904,7 @@ UTEST(com, a_program_starting_ends_the_last_session)
 
 int main(int argc, const char *const argv[])
 {
-    cells_init();
+    draw_init();
     /* No frames run, so the console's line keeps no pace. */
     manifold_set_paced(false);
     return utest_main(argc, argv);

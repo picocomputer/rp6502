@@ -17,7 +17,7 @@
 #include "core/sys/sys.h"
 #include "core/sys/version.h"
 #include "core/term/color.h"
-#include "core/term/cells.h"
+#include "core/term/draw.h"
 #include "core/term/console_term.h"
 #include "core/term/grid.h"
 #include "tb_screen.h"
@@ -66,14 +66,14 @@ static void fresh(void)
     manifold_set_paced(false);
     feed("\30\33c");
     for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-        cells_task();
+        draw_task();
     answer();
 }
 
 static const mode0_cell_t *cell(int x, int y)
 {
     for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-        cells_task();
+        draw_task();
     return tb_screen_row((uint8_t)y) + x;
 }
 
@@ -735,23 +735,23 @@ UTEST(term, a_savestate_carries_the_keyboard_modes)
     static uint8_t blob[1 << 18];
     fresh();
     feed("\33[?1h\33=\33[?8l");
-    ASSERT_LE((size_t)cells_sst.size, sizeof blob);
-    sst_cursor_t c = {blob, blob + cells_sst.size, false, NULL};
-    cells_sst.save(&c, 0);
+    ASSERT_LE((size_t)draw_sst.size, sizeof blob);
+    sst_cursor_t c = {blob, blob + draw_sst.size, false, NULL};
+    draw_sst.save(&c, 0);
     ASSERT_TRUE(sst_ok(&c));
     feed("\33c");
-    c = (sst_cursor_t){blob, blob + cells_sst.size, false, NULL};
-    ASSERT_TRUE(cells_sst.load(&c, 0));
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    ASSERT_TRUE(draw_sst.load(&c, 0));
     ASSERT_TRUE(sst_ok(&c));
     ASSERT_TRUE(console_term.app_cursor);
     ASSERT_TRUE(console_term.app_keypad);
     ASSERT_FALSE(console_term.autorepeat);
     feed("\33[?1l\33[?8h");
-    c = (sst_cursor_t){blob, blob + cells_sst.size, false, NULL};
-    cells_sst.save(&c, 0);
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    draw_sst.save(&c, 0);
     feed("\33[?1h\33[?8l");
-    c = (sst_cursor_t){blob, blob + cells_sst.size, false, NULL};
-    ASSERT_TRUE(cells_sst.load(&c, 0));
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    ASSERT_TRUE(draw_sst.load(&c, 0));
     ASSERT_FALSE(console_term.app_cursor);
     ASSERT_TRUE(console_term.app_keypad);
     ASSERT_TRUE(console_term.autorepeat);
@@ -1581,11 +1581,11 @@ static void lazy_run(bool pay_each, uint8_t *screen)
             feed(lazy_seq[k]);
         if (pay_each)
             for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-                cells_task();
+                draw_task();
     }
     console_set_height(80, 30);
     for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-        cells_task();
+        draw_task();
     for (int y = 0; y < 30; y++)
     {
         const mode0_cell_t *r = tb_screen_row((uint8_t)y);
@@ -1657,7 +1657,7 @@ static void rep_screen(const char *before, int n, bool rep, uint8_t *screen, int
     /* The far half of a double-size row shows when the row is single again. */
     feed("\0337\33[10;1H\33#5\0338");
     for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-        cells_task();
+        draw_task();
     for (int r = 0; r < 30; r++)
     {
         const mode0_cell_t *row = tb_screen_row((uint8_t)r);

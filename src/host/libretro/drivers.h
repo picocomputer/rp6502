@@ -46,7 +46,7 @@
 #include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/term/font.h"
-#include "core/term/cells.h"
+#include "core/term/draw.h"
 #include "core/vga/vga_emu.h"
 #include "core/wdc/bus.h"
 #include "core/wdc/cpu.h"
@@ -54,7 +54,7 @@
 #include "core/wdc/phi2.h"
 
 /* VGA comes before BUS because vga_task advances the beam one scanline and
- * bus_task then runs the 6502 up to it. CELLS comes before VGA because
+ * bus_task then runs the 6502 up to it. DRAW comes before VGA because
  * vga_init programs the console canvas, which sets the terminal's height. */
 #define RP6502_MACH_DRIVERS                                    \
     RIA_DRIVER, REGS_DRIVER, SRAM_DRIVER, XRAM_DRIVER,         \
@@ -62,7 +62,7 @@
     ASSET_DRIVER, MANIFOLD_DRIVER, MANIFOLD_TX_DRIVER,         \
     COM_DRIVER, STD_DRIVER, CONSOLE_DRIVER, TTY_DRIVER,        \
     TIO_DRIVER, RLN_DRIVER, API_DRIVER, XREG_DRIVER,           \
-    CELLS_DRIVER, MODE0_DRIVER, KEYBOARD_DRIVER, MOUSE_DRIVER, \
+    DRAW_DRIVER, MODE0_DRIVER, KEYBOARD_DRIVER, MOUSE_DRIVER,  \
     GAMEPAD_DRIVER, TABLET_DRIVER, FONT_DRIVER, OEM_DRIVER,    \
     VGA_DRIVER, CANVAS_DRIVER, PROG_DRIVER, PASTE_DRIVER,      \
     PSG_DRIVER, OPL_DRIVER, AUD_DRIVER, BEL_DRIVER,            \

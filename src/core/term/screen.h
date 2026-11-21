@@ -42,15 +42,15 @@ struct screen_cells;
 // its rows moves the line attributes themselves.
 typedef struct
 {
-    term_pos_t pos;            // the cursor
-    term_pos_t saved;          // DECSC's position
-    uint8_t rows;              // the slots of the ring, the most rows the grid has
-    uint8_t mem_rows;          // the rows of memory, the spare row with them
-    uint8_t y_offset;          // the slot of row 0
-    uint8_t hidden;            // the rows above row 0 still in the ring
-    uint8_t spare;             // the row of memory in no slot; mem_rows when there is none
-    uint8_t *line;             // the line attributes of each row of memory, the owner's storage
-    uint8_t *row_idx;          // the row of memory in each slot, the owner's storage, or NULL
+    term_pos_t pos;             // the cursor
+    term_pos_t saved;           // DECSC's position
+    uint8_t rows;               // the slots of the ring, the most rows the grid has
+    uint8_t mem_rows;           // the rows of memory, the spare row with them
+    uint8_t y_offset;           // the slot of row 0
+    uint8_t hidden;             // the rows above row 0 still in the ring
+    uint8_t spare;              // the row of memory in no slot; mem_rows when there is none
+    uint8_t *line;              // the line attributes of each row of memory, the owner's storage
+    uint8_t *row_idx;           // the row of memory in each slot, the owner's storage, or NULL
     struct screen_cells *cells; // its cells, or NULL for a screen with none
 } screen_t;
 
@@ -198,8 +198,7 @@ static inline void screen_forget(screen_t *s)
  * the cursor, the margins and the line sizes are the new ones. Colors come
  * from the pen, and an erased cell takes the pen's colors, not reversed. An
  * erased cell is one never written (cell.h) unless the function says it
- * is.
- * A screen with no cells, a program's own size (term_add_grid) for one,
+ * is. A screen with no cells, a program's own size (term_add_grid) for one,
  * has only its ring: a scroll, an index, a clear, a reset and a change of
  * height move it, and the rest leave it be. */
 

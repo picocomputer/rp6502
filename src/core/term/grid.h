@@ -8,10 +8,11 @@
 #define _CORE_TERM_GRID_H_
 
 /* The terminal at one size: a grid's cursors, margins, tab stops and the
- * rows of its screens, and what the terminal's parser hands each grid. The parser decodes
- * a byte and does everything that is the same at every size; what moves the
- * cursor or the rows, it hands to every grid with one of the grid_op_t.
- * The sequence's numbers are in the terminal's csi_param. */
+ * rows of its screens, and what the terminal's parser hands each grid. The
+ * parser decodes a byte and does everything that is the same at every
+ * size; what moves the cursor or the rows, it hands to every grid with one
+ * of the grid_op_t. The sequence's numbers are in the terminal's
+ * csi_param. */
 
 #include "core/sys/sst.h"
 #include "core/term/screen.h"
@@ -21,15 +22,14 @@
 
 // The terminal at one size. Each screen, primary and alternate, has its own
 // cursor position, saved position and ring of rows, which carry their line
-// attributes; the margins
-// and the tab stops belong to the grid. shown points at the screen showing:
-// term_grid_init and term_grid_copy start it, and term_show sets it. The
-// cursor's column never reaches the width: writing the last column sets
-// wrap_pending instead, as on a VT102. The left and right margins are the
-// whole width until DECSLRM sets them. cancels goes up at each scroll,
-// index, clear and change of height of the grid, and at DECLRMM's set, and
-// at nothing else, each of which ends the grid's smooth scroll
-// (console_term.h).
+// attributes; the margins and the tab stops belong to the grid. shown
+// points at the screen showing: term_grid_init and term_grid_copy start it,
+// and term_show sets it. The cursor's column never reaches the width:
+// writing the last column sets wrap_pending instead, as on a VT102. The
+// left and right margins are the whole width until DECSLRM sets them.
+// cancels goes up at each scroll, index, clear and change of height of the
+// grid, and at DECLRMM's set, and at nothing else, each of which ends the
+// grid's smooth scroll (console_term.h).
 struct term_grid
 {
     uint8_t width;
@@ -181,7 +181,7 @@ void term_set_width(term_t *t, term_grid_t *g, uint8_t width);
     Y(U8, p.x) Y(U8, p.y) Y(BOOL, p.wrap_pending)
 
 #define TERM_GRID_SST_ROWS(Y, g)                                       \
-    Y(U8, g.width) Y(U8, g.height) Y(U8, g.screen[0].rows)                     \
+    Y(U8, g.width) Y(U8, g.height) Y(U8, g.screen[0].rows)             \
     Y(U8, g.margin_top) Y(U8, g.margin_bot)                            \
     Y(U8, g.margin_left) Y(U8, g.margin_right)                         \
     TERM_POS_SST_ROWS(Y, g.screen[0].pos)                              \

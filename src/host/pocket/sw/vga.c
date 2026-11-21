@@ -9,7 +9,6 @@
 
 #include "core/vga/pixel_format.h"
 
-#include "core/term/cells.h"
 #include "core/term/font.h"
 
 static int16_t vga_highest_scanline;

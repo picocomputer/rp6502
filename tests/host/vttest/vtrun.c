@@ -49,7 +49,7 @@
 #include "core/hid/usage.h"
 #include "core/hid/vtkey.h"
 #include "core/sys/sys.h"
-#include "core/term/cells.h"
+#include "core/term/draw.h"
 #include "tb_screen.h"
 #include "xmirror.h"
 #include "core/vga/vga.h"
@@ -294,7 +294,7 @@ static void vt_row(int y, char *out, size_t size)
 static void vt_settle(void)
 {
     for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-        cells_task();
+        draw_task();
     vga_run_frame();
     tb_screen_t v;
     for (int i = 0; i < 120; i++)

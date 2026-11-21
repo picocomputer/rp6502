@@ -311,11 +311,11 @@ static inline bool mode0_place(int16_t w, int16_t h, const uint16_t *xregs,
 
 /* The savestate carries the cells and their colors, written as they lie in
  * memory, in this build's byte order. The palette is the console's
- * terminal's, which CELLS_DRIVER saves, and draw.c makes the faint half
+ * terminal's, which DRAW_DRIVER saves, and draw.c makes the faint half
  * from it again. The words are not carried: the canvas's load publishes the
  * console again.
  *
- * MODE0_DRIVER follows CELLS_DRIVER in the driver list, because the cells'
+ * MODE0_DRIVER follows DRAW_DRIVER in the driver list, because the cells'
  * save first does the scrolls the screens are owed, which moves cells. */
 extern const sst_table_t mode0_sst;
 

@@ -30,7 +30,7 @@
 #include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/sys/random.h"
-#include "core/term/cells.h"
+#include "core/term/draw.h"
 #include "sw/apf.h"
 #include "sw/aud.h"
 #include "core/wdc/resb.h"
@@ -55,16 +55,16 @@
 /* LOG_DRIVER is first, so what log_init connects to the debug port is there
  * before any other init runs.
  *
- * VID_DRIVER follows CELLS_DRIVER because vid_init selects the console canvas
+ * VID_DRIVER follows DRAW_DRIVER because vid_init selects the console canvas
  * through vga_canvas_select, and vga_canvas_select then calls mode0_prog,
- * which calls console_set_height on the terminals that cells_init sets up.
+ * which calls console_set_height on the terminals that draw_init sets up.
  *
  * AUD_FABRIC_DRIVER follows STD_DRIVER because END and RESET hooks run in
  * reverse, so aud_end and aud_reset empty PCM before std_reset closes it,
  * which would otherwise wait for the buffer to play.
  *
- * FONT_DRIVER follows CELLS_DRIVER because font_init resets the terminals
- * that cells_init sets up, and comes before VID_DRIVER, whose canvas draws
+ * FONT_DRIVER follows DRAW_DRIVER because font_init resets the terminals
+ * that draw_init sets up, and comes before VID_DRIVER, whose canvas draws
  * with the glyphs font_init writes.
  *
  * A savestate walks the list in order. FAB_DRIVER comes first, so the
@@ -74,7 +74,7 @@
  * running program's image by the name PROC_CHAIN_DRIVER loads, and
  * AUD_FABRIC_DRIVER follows STD_DRIVER, because its load puts back the PCM:
  * buffer that the STD row's reopen of PCM: empties. CANVAS_DRIVER follows
- * CELLS_DRIVER and MODE0_DRIVER, because its load publishes the canvas to
+ * DRAW_DRIVER and MODE0_DRIVER, because its load publishes the canvas to
  * the cells, and VGA_FABRIC_DRIVER follows it, because its load computes the
  * vsync line from the canvas.
  */
@@ -88,7 +88,7 @@
     STD_DRIVER, CONSOLE_DRIVER, TTY_DRIVER,             \
     FS_POCKET_DRIVER,                                   \
     AUD_FABRIC_DRIVER, BEL_DRIVER,                      \
-    TIO_DRIVER, RLN_DRIVER, CELLS_DRIVER,               \
+    TIO_DRIVER, RLN_DRIVER, DRAW_DRIVER,                \
     MODE0_DRIVER, FONT_DRIVER, CANVAS_DRIVER,           \
     VGA_FABRIC_DRIVER,                                  \
     LAYOUT_DRIVER, KEYBOARD_DRIVER,                     \

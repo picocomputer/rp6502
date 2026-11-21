@@ -5,7 +5,7 @@
  */
 
 #include "core/com/manifold.h"
-#include "core/term/cells.h"
+#include "core/term/draw.h"
 #include "core/term/console_term.h"
 #include "core/term/grid.h"
 #include "core/term/screen.h"
@@ -38,13 +38,13 @@
 // on every machine, as mode 0's smooth_frame word has it. A time is compared
 // with it by the sign of their difference, so the count wrapping is no
 // matter.
-static inline uint32_t cells_frame(void)
+static inline uint32_t draw_frame(void)
 {
     return (uint32_t)vga_frame_count();
 }
 
 // Cursor blink half-period.
-#define CELLS_CURSOR_BLINK_FRAMES 30
+#define DRAW_CURSOR_BLINK_FRAMES 30
 
 // Whenever input changes the cursor's logical position or its
 // appearance (DECSCUSR style, DECTCEM visibility), the cursor is
@@ -53,7 +53,7 @@ static inline uint32_t cells_frame(void)
 // blink schedule untouched. The gap re-lights to the appropriate
 // steady/blink state when it fires -- one frame, which is as soon as
 // anything can be seen.
-#define CELLS_CURSOR_INPUT_GAP_FRAMES 1
+#define DRAW_CURSOR_INPUT_GAP_FRAMES 1
 
 // What one size shows besides its cells: its blinks.
 typedef struct
@@ -62,13 +62,13 @@ typedef struct
     bool cursor_lit;
     uint32_t cell_blink_frame;
     uint8_t cell_blink_phase;
-} cells_draw_t;
+} draw_blinks_t;
 
-static cells_draw_t draw_40;
-static cells_draw_t draw_80;
+static draw_blinks_t draw_40;
+static draw_blinks_t draw_80;
 /* Something mode 0 draws changed outside a batch of the console's bytes,
- * for cells_task to publish. */
-static bool cells_stale;
+ * for draw_task to publish. */
+static bool draw_stale;
 
 // The layout the row words were last written from: the screen showing,
 // which row of memory each of its rows has, and the line size of each row
@@ -83,10 +83,10 @@ static struct
     uint8_t height;
     uint8_t row_idx[TERM_MAX_HEIGHT];
     uint8_t line[TERM_MEM_ROWS];
-} cells_published;
+} draw_published;
 
 // What a size of the console shows besides its cells.
-static inline cells_draw_t *cells_draw(const term_grid_t *g)
+static inline draw_blinks_t *draw_blinks(const term_grid_t *g)
 {
     return g == &console_80.grid ? &draw_80 : &draw_40;
 }
@@ -94,7 +94,7 @@ static inline cells_draw_t *cells_draw(const term_grid_t *g)
 // The smooth scroll moving on the screen showing of g, drawn where a screen
 // keeps a spare row of memory for the row going out. Without one the row
 // going out is erased as it goes, so nothing is drawn moving.
-static bool cells_smooth_shows(const term_grid_t *g)
+static bool draw_smooth_shows(const term_grid_t *g)
 {
     return console_smooth_busy(g) && TERM_SPARE_ROWS &&
            console_smoothing.screen == (uint8_t)(g->shown - g->screen);
@@ -103,7 +103,7 @@ static bool cells_smooth_shows(const term_grid_t *g)
 /* Mode 0's faint twins of the console's palette (mode0.h) follow it once a
  * color of it changes: all of them, as a change is rare and a reset or a
  * load changes them all. */
-static void cells_follow_palette(void)
+static void draw_follow_palette(void)
 {
     if (!console_palette_changed)
         return;
@@ -120,19 +120,19 @@ static void cells_follow_palette(void)
  * written, because they are mode 0's, the same in every build of a
  * machine. */
 
-static bool cells_sst_term_ok(sst_cursor_t *c)
+static bool draw_sst_term_ok(sst_cursor_t *c)
 {
     return term_sst_ok(c, &console_term);
 }
 
-static void cells_sst_put_alt(sst_cursor_t *c, unsigned flags)
+static void draw_sst_put_alt(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     sst_put_bool(c, console_term.alt_active);
 }
 
 /* The alternate screen only exists in a build that has one. */
-static bool cells_sst_get_alt(sst_cursor_t *c, unsigned flags)
+static bool draw_sst_get_alt(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     bool alt = sst_get_bool(c);
@@ -145,7 +145,7 @@ static bool cells_sst_get_alt(sst_cursor_t *c, unsigned flags)
 }
 
 /* A grid keeps its rows and its width, which are the console's. */
-static bool cells_sst_grids_ok(sst_cursor_t *c)
+static bool draw_sst_grids_ok(sst_cursor_t *c)
 {
     if (console_40.grid.width != 40 || console_80.grid.width != 80)
         return sst_refuse(c, "a screen of other columns");
@@ -155,7 +155,7 @@ static bool cells_sst_grids_ok(sst_cursor_t *c)
 
 /* The line attributes, once the layouts below have loaded them: those of
  * the screens that have cells, which are the ones saved. */
-static bool cells_sst_lines_ok(sst_cursor_t *c)
+static bool draw_sst_lines_ok(sst_cursor_t *c)
 {
     return term_grid_sst_lines_ok(c, &console_40.grid, MODE0_SCREENS) &&
            term_grid_sst_lines_ok(c, &console_80.grid, MODE0_SCREENS);
@@ -164,7 +164,7 @@ static bool cells_sst_lines_ok(sst_cursor_t *c)
 /* Each screen's layout, as the store puts it: each size's screens that have
  * cells. A put does a scroll the screen is owed first, which moves cells
  * that MODE0_DRIVER saves after this row. */
-static void cells_sst_put_bufs(sst_cursor_t *c, unsigned flags)
+static void draw_sst_put_bufs(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     console_size_t *const all[] = {&console_40, &console_80};
@@ -173,7 +173,7 @@ static void cells_sst_put_bufs(sst_cursor_t *c, unsigned flags)
             screen_sst_put(c, &all[n]->grid.screen[b]);
 }
 
-static bool cells_sst_get_bufs(sst_cursor_t *c, unsigned flags)
+static bool draw_sst_get_bufs(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     console_size_t *const all[] = {&console_40, &console_80};
@@ -184,7 +184,7 @@ static bool cells_sst_get_bufs(sst_cursor_t *c, unsigned flags)
     return true;
 }
 
-#define CELLS_BLINK_SST_ROWS(Y, s)                                     \
+#define DRAW_BLINK_SST_ROWS(Y, s)                                      \
     Y(U32, s.cursor_frame) Y(BOOL, s.cursor_lit)                       \
     Y(U32, s.cell_blink_frame) Y(U8, s.cell_blink_phase)
 
@@ -193,14 +193,14 @@ static bool cells_sst_get_bufs(sst_cursor_t *c, unsigned flags)
  * has landed or that its grid ended, so only one still moving is saved, and
  * a load starts the one it brings back from the grid's count as it is,
  * below. */
-static void cells_sst_put_smooth(sst_cursor_t *c, unsigned flags)
+static void draw_sst_put_smooth(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     const term_grid_t *g = console_smooth_grid();
     sst_put_u8(c, g == &console_40.grid ? 1 : g == &console_80.grid ? 2 : 0);
 }
 
-static bool cells_sst_get_smooth(sst_cursor_t *c, unsigned flags)
+static bool draw_sst_get_smooth(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     const uint8_t n = sst_get_u8(c);
@@ -212,14 +212,14 @@ static bool cells_sst_get_smooth(sst_cursor_t *c, unsigned flags)
     return true;
 }
 
-#define CELLS_SMOOTH_SST_ROWS(Y, s)                                    \
+#define DRAW_SMOOTH_SST_ROWS(Y, s)                                     \
     Y(U8, s.screen) Y(U8, s.top) Y(U8, s.bot) Y(BOOL, s.up)            \
     Y(U8, s.ghost) Y(U32, s.frame)
 
 /* The screen of a smooth scroll, on or not, indexes the store's screens,
  * and the ghost and the rows of one that is on index the cells and the row
  * words. It counts its cancels from its grid's count as it is. */
-static bool cells_sst_smooth_ok(sst_cursor_t *c)
+static bool draw_sst_smooth_ok(sst_cursor_t *c)
 {
     console_smooth_t *sm = &console_smoothing;
     if (sm->screen >= MODE0_SCREENS ||
@@ -232,24 +232,24 @@ static bool cells_sst_smooth_ok(sst_cursor_t *c)
 }
 
 /* Any color is one, and mode 0's faint twins are made from the palette. */
-static bool cells_sst_palette_ok(sst_cursor_t *c)
+static bool draw_sst_palette_ok(sst_cursor_t *c)
 {
     (void)c;
     console_palette_changed = true;
-    cells_follow_palette();
+    draw_follow_palette();
     return true;
 }
 
-#define CELLS_SST(X)                                                   \
+#define DRAW_SST(X)                                                    \
     TERM_SST_ROWS(X, console_term)                                     \
-    X(VALIDATE, cells_sst_term_ok)                                     \
-    X(FN, cells_sst_put_alt, cells_sst_get_alt, 1, 1)                  \
+    X(VALIDATE, draw_sst_term_ok)                                      \
+    X(FN, draw_sst_put_alt, draw_sst_get_alt, 1, 1)                    \
     X(IN_FN, console_term.alt_active)                                  \
     X(SKIP, console_term.grids, "the sizes it is followed at")         \
     X(STRUCT, console_40.grid, TERM_GRID_SST_ROWS)                     \
     X(STRUCT, console_80.grid, TERM_GRID_SST_ROWS)                     \
-    X(VALIDATE, cells_sst_grids_ok)                                    \
-    X(FN, cells_sst_put_bufs, cells_sst_get_bufs,                      \
+    X(VALIDATE, draw_sst_grids_ok)                                     \
+    X(FN, draw_sst_put_bufs, draw_sst_get_bufs,                        \
       2 * MODE0_SCREENS * SCREEN_SST_SIZE, 4)                          \
     X(IN_FN, console_40.lines)                                         \
     X(IN_FN, console_40.row_idx)                                       \
@@ -257,52 +257,52 @@ static bool cells_sst_palette_ok(sst_cursor_t *c)
     X(IN_FN, console_80.lines)                                         \
     X(IN_FN, console_80.row_idx)                                       \
     X(IN_FN, console_80.bufs)                                          \
-    X(VALIDATE, cells_sst_lines_ok)                                    \
-    X(STRUCT, draw_40, CELLS_BLINK_SST_ROWS)                           \
-    X(STRUCT, draw_80, CELLS_BLINK_SST_ROWS)                           \
-    X(FN, cells_sst_put_smooth, cells_sst_get_smooth, 1, 1)            \
+    X(VALIDATE, draw_sst_lines_ok)                                     \
+    X(STRUCT, draw_40, DRAW_BLINK_SST_ROWS)                            \
+    X(STRUCT, draw_80, DRAW_BLINK_SST_ROWS)                            \
+    X(FN, draw_sst_put_smooth, draw_sst_get_smooth, 1, 1)              \
     X(IN_FN, console_smoothing.grid)                                   \
-    X(STRUCT, console_smoothing, CELLS_SMOOTH_SST_ROWS)                \
-    X(VALIDATE, cells_sst_smooth_ok)                                   \
+    X(STRUCT, console_smoothing, DRAW_SMOOTH_SST_ROWS)                 \
+    X(VALIDATE, draw_sst_smooth_ok)                                    \
     X(U16S, console_palette)                                           \
-    X(VALIDATE, cells_sst_palette_ok)                                  \
-    X(SKIP, cells_stale, "the canvas's load publishes everything")     \
-    X(SKIP, cells_published, "what the row words were last written "   \
-                             "from, which the canvas's load compares")
-SST_TABLE(cells, CELLS_SST)
+    X(VALIDATE, draw_sst_palette_ok)                                   \
+    X(SKIP, draw_stale, "the canvas's load publishes everything")      \
+    X(SKIP, draw_published, "what the row words were last written "    \
+                            "from, which the canvas's load compares")
+SST_TABLE(draw, DRAW_SST)
 
 // Force the cursor unlit and arm the input-gap timer. Used by movement
 // and by appearance changes (DECSCUSR, DECTCEM enable) so the cursor's new
 // state lands on a clean blink boundary.
-static inline void cells_cursor_restart_blink(cells_draw_t *d)
+static inline void draw_cursor_restart_blink(draw_blinks_t *d)
 {
     d->cursor_lit = false;
-    d->cursor_frame = cells_frame() + CELLS_CURSOR_INPUT_GAP_FRAMES;
+    d->cursor_frame = draw_frame() + DRAW_CURSOR_INPUT_GAP_FRAMES;
 }
 
 // Restart the cursor blink and the blinking text together, both lit, so a
 // reset leaves them in step.
-static void cells_restart_blinks(cells_draw_t *d)
+static void draw_restart_blinks(draw_blinks_t *d)
 {
-    cells_cursor_restart_blink(d);
+    draw_cursor_restart_blink(d);
     d->cell_blink_phase = 0;
-    d->cell_blink_frame = cells_frame() + TERM_BLINK_TICK_FRAMES;
+    d->cell_blink_frame = draw_frame() + TERM_BLINK_TICK_FRAMES;
 }
 
 // RIS and the system's soft reset: the blinks of both sizes start again,
 // and everything is published.
 void draw_reset(void)
 {
-    cells_restart_blinks(&draw_40);
-    cells_restart_blinks(&draw_80);
-    cells_stale = true;
+    draw_restart_blinks(&draw_40);
+    draw_restart_blinks(&draw_80);
+    draw_stale = true;
 }
 
 /* ---- the stream -------------------------------------------------------- */
 
 // n bytes compared a word at a time, only the bits of each byte in mask.
-static inline bool cells_bytes_differ(const uint8_t *a, const uint8_t *b, unsigned n,
-                                      uint8_t mask)
+static inline bool draw_bytes_differ(const uint8_t *a, const uint8_t *b, unsigned n,
+                                     uint8_t mask)
 {
     uint32_t diff = 0;
     unsigned i = 0;
@@ -319,22 +319,22 @@ static inline bool cells_bytes_differ(const uint8_t *a, const uint8_t *b, unsign
     return diff != 0;
 }
 
-void cells_publish(void)
+void draw_publish(void)
 {
-    cells_follow_palette();
+    draw_follow_palette();
     const term_grid_t *g = console_shown(&console_term);
-    cells_draw_t *d = cells_draw(g);
+    draw_blinks_t *d = draw_blinks(g);
     const screen_t *s = g->shown;
-    if (cells_published.screen != s || cells_published.y_offset != s->y_offset ||
-        cells_published.height != g->height ||
-        cells_bytes_differ(cells_published.row_idx, s->row_idx, TERM_MAX_HEIGHT, 0xFF) ||
-        cells_bytes_differ(cells_published.line, s->line, TERM_MEM_ROWS, SCREEN_LINE_SIZE))
+    if (draw_published.screen != s || draw_published.y_offset != s->y_offset ||
+        draw_published.height != g->height ||
+        draw_bytes_differ(draw_published.row_idx, s->row_idx, TERM_MAX_HEIGHT, 0xFF) ||
+        draw_bytes_differ(draw_published.line, s->line, TERM_MEM_ROWS, SCREEN_LINE_SIZE))
     {
-        cells_published.screen = s;
-        cells_published.y_offset = s->y_offset;
-        cells_published.height = g->height;
-        memcpy(cells_published.row_idx, s->row_idx, TERM_MAX_HEIGHT);
-        memcpy(cells_published.line, s->line, TERM_MEM_ROWS);
+        draw_published.screen = s;
+        draw_published.y_offset = s->y_offset;
+        draw_published.height = g->height;
+        memcpy(draw_published.row_idx, s->row_idx, TERM_MAX_HEIGHT);
+        memcpy(draw_published.line, s->line, TERM_MEM_ROWS);
         for (uint8_t y = 0; y < g->height; y++)
             mode0_regs.row[y] = MODE0_ROW(screen_row(s, y) - mode0_cells, screen_size(s, y));
     }
@@ -347,7 +347,7 @@ void cells_publish(void)
     mode0_regs.screen = d->cell_blink_phase |
                         (console_term.reverse_screen ? MODE0_SCREEN_REVERSE : 0);
     console_smooth_t *sm = &console_smoothing;
-    const bool smooth = cells_smooth_shows(g);
+    const bool smooth = draw_smooth_shows(g);
     if (smooth)
     {
         const screen_cells_t *b = s->cells;
@@ -359,19 +359,19 @@ void cells_publish(void)
     }
     else
         mode0_regs.smooth = 0;
-    cells_published.smooth = smooth;
+    draw_published.smooth = smooth;
     // The words now describe one picture.
     mode0_regs.publish = 1;
-    cells_stale = false;
+    draw_stale = false;
     screen_moved = false;
     // A fabric that met a frame start part way through the publish kept the
     // last frame's words for that frame, and reads the publish word back 0.
     // When that frame was a smooth scroll's first, no frame has shown the
     // scroll on its way, so it starts a frame later and goes again.
-    if (smooth && !mode0_regs.publish && cells_frame() == sm->frame)
+    if (smooth && !mode0_regs.publish && draw_frame() == sm->frame)
     {
         sm->frame++;
-        cells_stale = true;
+        draw_stale = true;
     }
 }
 
@@ -379,7 +379,7 @@ void cells_publish(void)
 // one that has to wait for a smooth scroll still moving (term_holds), unless
 // force. Returns how many went. A cursor's blink starts again when a byte
 // moves it or changes how it looks: its style, or it coming back on.
-static int cells_out_chars(const char *buf, int length, bool force)
+static int draw_out_chars(const char *buf, int length, bool force)
 {
     term_t *term = &console_term;
     const term_grid_t *const all[2] = {&console_40.grid, &console_80.grid};
@@ -400,28 +400,28 @@ static int cells_out_chars(const char *buf, int length, bool force)
             const term_pos_t *now = term_pos(all[n]);
             if (look || now->x != was[n].x || now->y != was[n].y ||
                 now->wrap_pending != was[n].wrap_pending)
-                cells_cursor_restart_blink(cells_draw(all[n]));
+                draw_cursor_restart_blink(draw_blinks(all[n]));
         }
     }
-    cells_publish();
+    draw_publish();
     return i;
 }
 
-void cells_init(void)
+void draw_init(void)
 {
-    cells_restart();
+    draw_restart();
     // become part of stdout
-    manifold_set_term_out(cells_out_chars);
+    manifold_set_term_out(draw_out_chars);
 }
 
 _Static_assert(MODE0_CELLS == CONSOLE_CELLS, "mode 0's cells are the console's");
 
 /* The console as at power-up over mode 0's cells: it is the RESET hook,
  * because a load that fails leaves any value in all of them. */
-void cells_restart(void)
+void draw_restart(void)
 {
     console_init(mode0_cells);
-    cells_stale = true;
+    draw_stale = true;
 }
 
 // Cursor blink timing only — toggles cursor_lit on its cadence and forces
@@ -429,15 +429,15 @@ void cells_restart(void)
 // which ignore cursor_lit when cursor_style is steady; this keeps the
 // timing path style-agnostic.
 // True when cursor_lit changed.
-static bool cells_blink_cursor(cells_draw_t *d)
+static bool draw_blink_cursor(draw_blinks_t *d)
 {
     bool was = d->cursor_lit;
     if (!console_term.cursor_enabled)
         d->cursor_lit = false;
-    else if ((int32_t)(cells_frame() - d->cursor_frame) >= 0)
+    else if ((int32_t)(draw_frame() - d->cursor_frame) >= 0)
     {
         d->cursor_lit = !d->cursor_lit;
-        d->cursor_frame = cells_frame() + CELLS_CURSOR_BLINK_FRAMES;
+        d->cursor_frame = draw_frame() + DRAW_CURSOR_BLINK_FRAMES;
     }
     return d->cursor_lit != was;
 }
@@ -449,12 +449,12 @@ static bool cells_blink_cursor(cells_draw_t *d)
 // rate's off-phase, and both relight together at phase 0. Per size so the
 // cursor timer and cell blink timer share an owner instead of crossing a
 // global. True when the phase changed.
-static bool cells_cell_blink_phase_task(cells_draw_t *d)
+static bool draw_cell_blink_phase_task(draw_blinks_t *d)
 {
-    if ((int32_t)(cells_frame() - d->cell_blink_frame) < 0)
+    if ((int32_t)(draw_frame() - d->cell_blink_frame) < 0)
         return false;
     d->cell_blink_phase = (uint8_t)((d->cell_blink_phase + 1) & TERM_ATTR_ANY_BLINK);
-    d->cell_blink_frame = cells_frame() + TERM_BLINK_TICK_FRAMES;
+    d->cell_blink_frame = draw_frame() + TERM_BLINK_TICK_FRAMES;
     return true;
 }
 
@@ -462,10 +462,10 @@ static bool cells_cell_blink_phase_task(cells_draw_t *d)
 // written again without it: the frame count wrapping round long after can
 // never show it again. Asking puts away a record that has landed
 // (console_smooth_grid), so it never shows again either.
-static bool cells_smooth_task(void)
+static bool draw_smooth_task(void)
 {
-    const bool shows = cells_smooth_shows(console_shown(&console_term));
-    return cells_published.smooth && !shows;
+    const bool shows = draw_smooth_shows(console_shown(&console_term));
+    return draw_published.smooth && !shows;
 }
 
 // Do a scroll between left and right margins either screen of a size is
@@ -474,7 +474,7 @@ static bool cells_smooth_task(void)
 // of the screen showing never owes anything (the terminal touches every row
 // it puts the cursor on), so this never changes the cell under the cursor
 // and never has to restart its blink.
-static void cells_tidy(term_grid_t *g)
+static void draw_tidy(term_grid_t *g)
 {
     for (int b = 0; b < 2; b++)
         if (g->screen[b].cells && g->screen[b].cells->later.n)
@@ -489,17 +489,17 @@ static void cells_tidy(term_grid_t *g)
         screen_tidy(other, g->height);
 }
 
-void cells_task(void)
+void draw_task(void)
 {
-    cells_stale |= cells_smooth_task();
-    cells_stale |= cells_blink_cursor(&draw_40);
-    cells_stale |= cells_blink_cursor(&draw_80);
-    cells_stale |= cells_cell_blink_phase_task(&draw_40);
-    cells_stale |= cells_cell_blink_phase_task(&draw_80);
+    draw_stale |= draw_smooth_task();
+    draw_stale |= draw_blink_cursor(&draw_40);
+    draw_stale |= draw_blink_cursor(&draw_80);
+    draw_stale |= draw_cell_blink_phase_task(&draw_40);
+    draw_stale |= draw_cell_blink_phase_task(&draw_80);
     // Another size or screen showing is published too, and a color changed.
-    if (cells_stale || screen_moved || console_palette_changed ||
-        cells_published.screen != console_shown(&console_term)->shown)
-        cells_publish();
-    cells_tidy(&console_40.grid);
-    cells_tidy(&console_80.grid);
+    if (draw_stale || screen_moved || console_palette_changed ||
+        draw_published.screen != console_shown(&console_term)->shown)
+        draw_publish();
+    draw_tidy(&console_40.grid);
+    draw_tidy(&console_80.grid);
 }

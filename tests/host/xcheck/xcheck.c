@@ -25,7 +25,7 @@
 
 #include "core/aud/bel.h"
 #include "core/com/com.h"
-#include "core/term/cells.h"
+#include "core/term/draw.h"
 #include "core/term/console_term.h"
 #include "core/term/grid.h"
 #include "core/term/screen.h"

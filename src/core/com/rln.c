@@ -1528,7 +1528,7 @@ void rln_stop(void)
 
 /* No read, and the third grid off the screen's terminal, with nothing drawn:
  * after a failed load the line's indexes and geometry may hold anything, and
- * the console they would draw through is not reset yet. CELLS' RESET runs
+ * the console they would draw through is not reset yet. DRAW's RESET runs
  * first, so the grid list is sound to search. The rest is set again by the
  * next read's start. */
 void rln_reset(void)

@@ -11,7 +11,7 @@
 #include "core/com/tio.h"
 #include "core/ria/regs.h"
 #include "core/com/rln.h"
-#include "core/term/cells.h"
+#include "core/term/draw.h"
 #include "core/term/console_term.h"
 #include "core/term/grid.h"
 #include "tb_screen.h"
@@ -60,7 +60,7 @@ static void fresh(void)
     manifold_set_paced(false);
     history.count = 0;
     reading_with = &history;
-    cells_init();
+    draw_init();
     com_set_reply_default(true);
     rln_set_plain(false);
     com_rx_clear();
@@ -735,7 +735,7 @@ static int screen_out(const char *buf, int len, bool force)
     strncat(screen, buf, (size_t)len);
     for (int i = 0; i < len; i++)
         term_write(&console_term, (uint8_t)buf[i]);
-    cells_publish();
+    draw_publish();
     return len;
 }
 
@@ -752,7 +752,7 @@ static void screen_reading(void)
 
 static void screen_done(void)
 {
-    cells_init();
+    draw_init();
     manifold_set_tx_tap(NULL);
 }
 

@@ -249,8 +249,9 @@ static void grid_copy(term_t *t, term_grid_t *g, unsigned sy, unsigned sx,
 // coming in. The caller places the cursor and touches its row. Between left
 // and right margins only the cells between them move. A scroll of all the
 // columns returns the row of memory the row that went out at the edge is
-// in, which keep keeps (screen_scroll); between margins nothing is kept, and
-// the 0 returned names no row.
+// in, which keep keeps (screen_scroll). Between margins nothing is kept
+// and nothing scrolls smoothly (grid_smooths), so the 0 returned is never
+// read.
 static uint8_t grid_scroll(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot,
                            uint16_t count, bool up, bool keep)
 {

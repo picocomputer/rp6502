@@ -18,7 +18,7 @@
 #include "ria/sys/vga.h"
 #include "core/sys/config.h"
 #include "core/str/oem.h"
-#include "core/term/cells.h"
+#include "core/term/draw.h"
 #include "core/term/font.h"
 #include "core/vga/mode/mode0.h"
 #include "core/term/console_term.h"

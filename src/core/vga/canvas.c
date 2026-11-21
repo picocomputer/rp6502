@@ -8,7 +8,7 @@
 #include "core/vga/vga.h"
 #include "core/vga/mode/mode0.h"
 #include "core/api/xreg.h"
-#include "core/term/cells.h"
+#include "core/term/draw.h"
 #include "core/term/console_term.h"
 
 /* canvas_w and canvas_h cache the selected canvas's size, so that the getters
@@ -60,7 +60,7 @@ static bool canvas_sst_get_code(sst_cursor_t *c, unsigned flags)
         return false;
     if (!canvas_load(canvas))
         return sst_refuse(c, "a canvas this build lacks");
-    cells_publish();
+    draw_publish();
     return true;
 }
 

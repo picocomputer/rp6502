@@ -9,7 +9,6 @@
 #include "vga/sys/ria.h"
 #include "vga/sys/vga.h"
 #include "core/vga/prog.h"
-#include "core/term/cells.h"
 #include "vga/scanvideo/scanvideo.h"
 #include <pico/stdlib.h>
 #include <pico/multicore.h>

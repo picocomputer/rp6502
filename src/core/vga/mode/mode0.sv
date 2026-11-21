@@ -6,8 +6,9 @@
  * The terminal's memories and scanout registers, the fabric's copy of
  * what core/vga/mode/mode0.h defines: mode0_cells, mode0_colors,
  * mode0_palette, and mode0_regs's row, cursor, cursor color and screen
- * words. The linker places each behind its window, so cells.c's and
- * draw.c's ordinary stores land here unchanged, and this draws what mode0.c draws.
+ * words. The linker places each behind its window, so the ordinary
+ * stores of core/term/screen.c and draw.c land here unchanged, and this
+ * draws what mode0.c draws.
  *
  * There is one terminal, so this is one engine of its own beside the
  * fill engine, with its own line buffer. It has a line to finish in and

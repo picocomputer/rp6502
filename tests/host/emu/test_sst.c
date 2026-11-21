@@ -15,7 +15,7 @@
 #include "core/aud/psg.h"
 #include "core/wdc/sram.h"
 #include "core/com/rln.h"
-#include "core/term/cells.h"
+#include "core/term/draw.h"
 #include "core/term/console_term.h"
 #include "core/term/grid.h"
 #include "core/vga/canvas.h"
@@ -221,10 +221,10 @@ UTEST(sst, the_palette_and_its_faint_twins_come_back)
     const uint16_t cursor = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(0, 80, 160);
     console_color(&console_term, 1, red);
     console_color(&console_term, CONSOLE_COLOR_CURSOR, cursor);
-    cells_publish();
+    draw_publish();
     ASSERT_EQ(take(), (const char *)NULL);
     console_colors_reset(&console_term);
-    cells_publish();
+    draw_publish();
     ASSERT_EQ(mode0_color(MODE0_ENTRY(1, true)), mode0_faint(color_256[1]));
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_EQ(console_palette[1], red);
@@ -232,7 +232,7 @@ UTEST(sst, the_palette_and_its_faint_twins_come_back)
     ASSERT_EQ(mode0_color(MODE0_ENTRY(1, false)), red);
     ASSERT_EQ(mode0_color(MODE0_ENTRY(1, true)), mode0_faint(red));
     console_colors_reset(&console_term);
-    cells_publish();
+    draw_publish();
 }
 
 UTEST(sst, a_program_picks_up_where_it_was)
@@ -778,7 +778,7 @@ static bool boot_text(boot_text_t *t)
 {
     static char line[TERM_MAX_WIDTH + 1];
     for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-        cells_task();
+        draw_task();
     tb_screen_t v;
     tb_screen(&v);
     int fence = -1, asked = -1;

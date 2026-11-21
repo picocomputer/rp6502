@@ -54,7 +54,7 @@ char manifold_out_read(void)
     return ch;
 }
 
-/* The console's terminal, which cells_init sets first of all; see drivers.h. */
+/* The console's terminal, which draw_init sets first of all; see drivers.h. */
 static int (*manifold_term_out)(const char *buf, int len, bool force);
 
 void manifold_set_term_out(int (*out_chars)(const char *buf, int len, bool force))
