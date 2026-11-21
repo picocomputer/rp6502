@@ -46,7 +46,7 @@ rp6502_add_test(ria_cells
     SOURCES test_cells.c ${RP6502_SRC}/host/pico/ria/term/cells.c
         ${RP6502_SRC}/core/term/term.c ${RP6502_SRC}/core/term/grid.c
         ${RP6502_SRC}/core/term/screen.c
-        ${RP6502_SRC}/core/term/color.c
+        ${RP6502_SRC}/core/term/color.c ${RP6502_SRC}/core/aud/bel.c
         ${RP6502_ROOT}/tests/bench/tb_version.c
     INCLUDES ${CMAKE_CURRENT_LIST_DIR}/stub ${RP6502_SRC}/host/pico/ria
         ${RP6502_SRC}/host/pico ${RP6502_SRC} ${RP6502_GEN}

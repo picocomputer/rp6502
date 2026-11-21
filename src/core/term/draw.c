@@ -473,18 +473,6 @@ void cells_publish(void)
     }
 }
 
-void cells_reply(const term_t *term, const char *s, size_t n)
-{
-    (void)term;
-    manifold_reply(s, n);
-}
-
-void cells_bell(const term_t *term)
-{
-    (void)term;
-    manifold_bell();
-}
-
 term_grid_t *cells_shown(const term_t *term)
 {
     (void)term;

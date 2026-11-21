@@ -32,18 +32,6 @@ void manifold_in_write(char ch)
     RING_PUT(&manifold_in, ch);
 }
 
-/* The RIA answers the program's queries; its terminal follows this one. */
-void manifold_reply(const char *s, size_t n)
-{
-    (void)s;
-    (void)n;
-}
-
-/* The bell is the RIA's too. */
-void manifold_bell(void)
-{
-}
-
 bool manifold_out_empty(void)
 {
     return !RING_LEN(&manifold_out);

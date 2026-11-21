@@ -16,15 +16,25 @@
 #include "utest.h"
 #include <string.h>
 
-/* The console with no VGA: the 80-column terminal. */
-bool vga_connected(void) { return false; }
+/* The console with no VGA, the 80-column terminal, unless a test connects
+ * one (ria/sys/vga.c). Its canvas is 640 wide, so the 80 shows either way. */
+static bool connected;
+bool vga_connected(void) { return connected; }
 uint32_t vga_frames(void) { return 0; }
 void vga_canvas_size(int *w, int *h) { *w = 640, *h = 480; }
 void manifold_set_term_out(int (*out)(const char *buf, int len, bool force)) { (void)out; }
 void com_reply(const char *s, size_t n) { (void)s, (void)n; }
-bool com_get_bel(void) { return false; }
-void bel_add(const bel_sound_t *sound) { (void)sound; }
-const bel_sound_t bel_teletype;
+
+/* The bell's voice is the PSG's ninth, and register 6 is its gate
+ * (core/aud/bel.c); the bell sounds while the gate is up. Its deadlines
+ * never fall due, as the clock stands still. */
+static uint8_t gate;
+void aud_bel_put(unsigned i, uint8_t val)
+{
+    if (i == 6)
+        gate = val;
+}
+uint64_t host_clock_us(void) { return 1; }
 
 static void say(const char *s)
 {
@@ -45,6 +55,7 @@ static const char *rows(int count)
 
 static void fresh(void)
 {
+    connected = false;
     cells_init();
     cells_RIS();
 }
@@ -113,6 +124,29 @@ UTEST(cells, each_screen_has_its_own_rows)
     ASSERT_STREQ(rows(4), "..#.");
     say("\33[?47l");
     ASSERT_STREQ(rows(4), "#...");
+}
+
+/* The bell is the VGA terminal's: with no VGA, the terminal the user sees
+ * is another, which rings its own. */
+UTEST(cells, a_bell_rings_only_with_a_vga)
+{
+    fresh();
+    bel_reset();
+    bel_init();
+    say("\a");
+    ASSERT_FALSE(gate);
+    connected = true;
+    say("\a");
+    ASSERT_TRUE(gate);
+    /* And none rings with the bell turned off. */
+    bel_init();
+    bel_set_term(false);
+    say("\a");
+    ASSERT_FALSE(gate);
+    bel_reset();
+    say("\a");
+    ASSERT_TRUE(gate);
+    bel_init();
 }
 
 UTEST_MAIN();

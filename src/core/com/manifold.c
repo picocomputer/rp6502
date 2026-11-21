@@ -7,7 +7,6 @@
 #include "core/com/manifold.h"
 #include "core/com/com.h"
 #include "core/com/manifold_tx.h"
-#include "core/aud/bel.h"
 #include "core/sys/ria.h"
 #include "core/sys/ring.h"
 #include "core/sys/timer.h"
@@ -311,18 +310,6 @@ void manifold_flush(void)
 bool manifold_drained(void)
 {
     return !manifold_tx_len();
-}
-
-/* The emulated terminal is the console's own, so com takes its answers. */
-void manifold_reply(const char *s, size_t n)
-{
-    com_reply(s, n);
-}
-
-void manifold_bell(void)
-{
-    if (com_get_bel())
-        bel_add(&bel_teletype);
 }
 
 /* A Ctrl-C is scanned for before the bytes are pushed, so a break is seen

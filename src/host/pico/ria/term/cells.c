@@ -4,8 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/aud/bel.h"
-#include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/term/color.h"
 #include "core/term/grid.h"
@@ -57,19 +55,6 @@ void cells_RIS_no_clear(void)
 void cells_set_height(uint8_t width, uint8_t height)
 {
     term_set_height(&cells_term, width == 40 ? &cells_40 : &cells_80, height);
-}
-
-void cells_reply(const term_t *t, const char *s, size_t n)
-{
-    (void)t;
-    com_reply(s, n);
-}
-
-void cells_bell(const term_t *t)
-{
-    (void)t;
-    if (com_get_bel())
-        bel_add(&bel_teletype);
 }
 
 /* The 40 on a 320-wide canvas of a connected VGA; otherwise the 80, which is

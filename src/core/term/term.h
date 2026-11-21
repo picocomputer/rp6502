@@ -8,7 +8,7 @@
 #define _CORE_TERM_TERM_H_
 
 /* The terminal: a VT420 with most of what xterm adds. Bytes go in
- * with term_write and answers to queries come out through cells_reply (cells.h).
+ * with term_write and answers to queries go to com_reply (com.h).
  *
  * One terminal follows one stream, and it can be followed at several sizes
  * at once: the console's 40 and 80 columns, and on the RIA a program's own

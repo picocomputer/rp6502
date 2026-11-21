@@ -63,15 +63,6 @@ void manifold_uart_clear(void);
 
 /* Terminal: the terminal emulator's link to the console. */
 
-/* The answer of the terminal in core/term/draw.c to a query: com_reply where
- * that terminal is the console's, dropped where another chip answers. */
-void manifold_reply(const char *s, size_t n);
-
-/* The bell of the terminal in core/term/draw.c: rung where that terminal
- * is the console's and the bell is on, and nothing where another chip
- * rings it. */
-void manifold_bell(void);
-
 /* The terminal emulator's input: every byte the console sends to the UART or
  * to COM_TERM_SCREEN. It returns how many it took: it stops at a byte that
  * has to wait for a smooth scroll still moving, unless force. */

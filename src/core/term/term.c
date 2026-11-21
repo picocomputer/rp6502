@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/aud/bel.h"
+#include "core/com/com.h"
 #include "core/sys/version.h"
 #include "core/term/cells.h"
 #include "core/term/grid.h"
@@ -515,16 +517,15 @@ static void term_out_SGR(term_t *t)
 
 /* ---- replies ----------------------------------------------------------- */
 
-static void term_replyf(const term_t *t, const char *fmt, unsigned a,
-                        unsigned b, unsigned c)
+static void term_replyf(const char *fmt, unsigned a, unsigned b, unsigned c)
 {
     char buf[TERM_REPLY_MAX];
     int n = snprintf(buf, sizeof(buf), fmt, a, b, c);
     if (n > 0 && n < (int)sizeof(buf))
-        cells_reply(t, buf, (size_t)n);
+        com_reply(buf, (size_t)n);
 }
 
-#define TERM_REPLY(t, lit) cells_reply((t), (lit), sizeof(lit) - 1)
+#define TERM_REPLY(lit) com_reply((lit), sizeof(lit) - 1)
 
 // Primary DA: a VT420 (64) with selective erase (6), horizontal scrolling
 // and the left and right margins (21), ANSI color (22) and the rectangle
@@ -545,9 +546,9 @@ static void term_out_DSR(term_t *t, bool private)
     {
     case 5:
         if (private)
-            TERM_REPLY(t, "\33[?0n");
+            TERM_REPLY("\33[?0n");
         else
-            TERM_REPLY(t, "\33[0n");
+            TERM_REPLY("\33[0n");
         break;
     case 6:
     {
@@ -561,7 +562,7 @@ static void term_out_DSR(term_t *t, bool private)
             y = (y >= g->margin_top) ? (y - g->margin_top) : 0;
             x = (x >= g->margin_left) ? (x - g->margin_left) : 0;
         }
-        term_replyf(t, private ? "\33[?%u;%u;1R" : "\33[%u;%uR", y + 1, x + 1, 0);
+        term_replyf(private ? "\33[?%u;%u;1R" : "\33[%u;%uR", y + 1, x + 1, 0);
         break;
     }
     }
@@ -570,43 +571,43 @@ static void term_out_DSR(term_t *t, bool private)
     switch (t->csi_param[0])
     {
     case 15:
-        TERM_REPLY(t, "\33[?13n");
+        TERM_REPLY("\33[?13n");
         break;
     case 25:
-        TERM_REPLY(t, "\33[?20n");
+        TERM_REPLY("\33[?20n");
         break;
     case 26:
-        TERM_REPLY(t, "\33[?27;1;0;0n");
+        TERM_REPLY("\33[?27;1;0;0n");
         break;
     case 55:
-        TERM_REPLY(t, "\33[?53n");
+        TERM_REPLY("\33[?53n");
         break;
     case 56:
-        TERM_REPLY(t, "\33[?57;0n");
+        TERM_REPLY("\33[?57;0n");
         break;
     case 62:
-        TERM_REPLY(t, "\33[0000*{");
+        TERM_REPLY("\33[0000*{");
         break;
     case 63:
-        term_replyf(t, "\33P%u!~0000\33\\", t->csi_param_count > 1 ? t->csi_param[1] : 0, 0, 0);
+        term_replyf("\33P%u!~0000\33\\", t->csi_param_count > 1 ? t->csi_param[1] : 0, 0, 0);
         break;
     case 75:
-        TERM_REPLY(t, "\33[?70n");
+        TERM_REPLY("\33[?70n");
         break;
     case 85:
-        TERM_REPLY(t, "\33[?83n");
+        TERM_REPLY("\33[?83n");
         break;
     }
 }
 
 // XTVERSION, CSI > q: the console's name and its firmware's version, so a
 // program need not guess the terminal from its device attributes.
-static void term_out_XTVERSION(term_t *t)
+static void term_out_XTVERSION(void)
 {
     char buf[TERM_REPLY_MAX];
     int n = snprintf(buf, sizeof(buf), "\33P>|RP6502(%s)\33\\", version_bare());
     if (n > 0 && n < (int)sizeof(buf))
-        cells_reply(t, buf, (size_t)n);
+        com_reply(buf, (size_t)n);
 }
 
 // xterm's window reports, CSI Ps t, of the ones that mean something here.
@@ -622,21 +623,21 @@ static void term_out_window(term_t *t)
     {
     case 11: // minimized? only an emulator's window can be
         if (host_minimized())
-            TERM_REPLY(t, "\33[2t");
+            TERM_REPLY("\33[2t");
         else
-            TERM_REPLY(t, "\33[1t");
+            TERM_REPLY("\33[1t");
         break;
     case 14: // text area in pixels
-        term_replyf(t, "\33[4;%u;%ut", g->height * cell, g->width * 8u, 0);
+        term_replyf("\33[4;%u;%ut", g->height * cell, g->width * 8u, 0);
         break;
     case 16: // character cell in pixels
-        term_replyf(t, "\33[6;%u;%ut", cell, 8, 0);
+        term_replyf("\33[6;%u;%ut", cell, 8, 0);
         break;
     case 18: // text area in characters
-        term_replyf(t, "\33[8;%u;%ut", g->height, g->width, 0);
+        term_replyf("\33[8;%u;%ut", g->height, g->width, 0);
         break;
     case 19: // screen in characters
-        term_replyf(t, "\33[9;%u;%ut", g->height, g->width, 0);
+        term_replyf("\33[9;%u;%ut", g->height, g->width, 0);
         break;
     }
 }
@@ -738,7 +739,7 @@ static void term_out_DECRQM(term_t *t, bool private)
             break;
         }
     }
-    term_replyf(t, private ? "\33[?%u;%u$y" : "\33[%u;%u$y", ps, pm, 0);
+    term_replyf(private ? "\33[?%u;%u$y" : "\33[%u;%u$y", ps, pm, 0);
 }
 
 // DECSCA, CSI Ps " q: 1 protects the cells the pen writes from DECSED and
@@ -764,7 +765,7 @@ static void term_out_DECREQTPARM(term_t *t)
 {
     uint16_t ps = t->csi_param[0];
     if (ps <= 1)
-        term_replyf(t, "\33[%u;1;1;128;128;1;0x", ps + 2u, 0, 0);
+        term_replyf("\33[%u;1;1;128;128;1;0x", ps + 2u, 0, 0);
 }
 
 // A pen color as SGR sets it, for DECRQSS: 30-37 and 90-97 (or 40s and
@@ -857,7 +858,7 @@ static void term_out_DECRQSS(term_t *t, const char *pt, unsigned len)
         return;
     buf[n++] = '\33';
     buf[n++] = '\\';
-    cells_reply(t, buf, (size_t)n);
+    com_reply(buf, (size_t)n);
 }
 
 /* ---- presentation state: DECRQPSR and DECRSPS ------------------------ */
@@ -901,22 +902,22 @@ static void term_out_DECRQPSR(term_t *t)
                          term_cs_final(pen->g[0]), term_cs_final(pen->g[1]),
                          term_cs_final(pen->g[2]), term_cs_final(pen->g[3]));
         if (n > 0 && n < (int)sizeof buf)
-            cells_reply(t, buf, (size_t)n);
+            com_reply(buf, (size_t)n);
     }
     else if (t->csi_param[0] == 2)
     {
         // A piece at a time: every column of a wide grid can be a stop.
         char buf[8];
-        TERM_REPLY(t, "\33P2$u");
+        TERM_REPLY("\33P2$u");
         bool first = true;
         for (unsigned x = 0; x < g->width; x++)
             if (grid_tab_is_set(g, (uint8_t)x))
             {
                 int n = snprintf(buf, sizeof buf, first ? "%u" : "/%u", x + 1u);
-                cells_reply(t, buf, (size_t)n);
+                com_reply(buf, (size_t)n);
                 first = false;
             }
-        TERM_REPLY(t, "\33\\");
+        TERM_REPLY("\33\\");
     }
 }
 
@@ -1313,7 +1314,7 @@ static void term_osc_ask(term_t *t, unsigned which)
 // The answer: the OSC that would set the color, with each channel as four
 // hex digits, as xterm answers. The console shows five bits of a channel,
 // so those are the bits it gives back.
-static void term_reply_color(const term_t *t, unsigned which, uint16_t color, const char *end)
+static void term_reply_color(unsigned which, uint16_t color, const char *end)
 {
     char buf[TERM_REPLY_MAX];
     const unsigned number = which < 256 ? 4 : 10 + which - CELLS_COLOR_FG;
@@ -1326,7 +1327,7 @@ static void term_reply_color(const term_t *t, unsigned which, uint16_t color, co
         n += snprintf(buf + n, sizeof(buf) - (size_t)n, ";%d", entry);
     n += snprintf(buf + n, sizeof(buf) - (size_t)n, ";rgb:%04x/%04x/%04x%s", r, g, b, end);
     if (n < (int)sizeof(buf))
-        cells_reply(t, buf, (size_t)n);
+        com_reply(buf, (size_t)n);
 }
 
 // One ';'-separated item of an OSC, applied as it ends.
@@ -1394,7 +1395,7 @@ static void term_osc_end(term_t *t, const char *end)
     {
         term_osc_item(t);
         for (unsigned i = 0; i < t->osc_asks; i++)
-            term_reply_color(t, t->osc_ask[i].which, t->osc_ask[i].color, end);
+            term_reply_color(t->osc_ask[i].which, t->osc_ask[i].color, end);
         t->osc_asks = 0;
     }
     else if (t->osc_stage == 0)
@@ -1474,7 +1475,7 @@ static void term_execute(term_t *t, uint8_t ch)
     switch (ch)
     {
     case '\a': // BEL
-        cells_bell(t);
+        bel_term();
         break;
     case '\b': // BS
     case '\t': // HT
@@ -1722,7 +1723,7 @@ static void term_esc_byte(term_t *t, uint8_t ch)
         term_restore_cursor(t);
         break;
     case 'Z': // DECID: answered as Primary DA
-        TERM_REPLY(t, TERM_DA1);
+        TERM_REPLY(TERM_DA1);
         break;
     case 'V': // SPA: the cells written from here are guarded
         t->protect_mode = TERM_PROTECT_ISO;
@@ -1773,7 +1774,7 @@ static void term_csi_dispatch(term_t *t, uint8_t ch)
         break;
     case 'c': // Primary DA
         if (!t->csi_param[0])
-            TERM_REPLY(t, TERM_DA1);
+            TERM_REPLY(TERM_DA1);
         break;
     case 'h':
         term_out_SM_RM(t, true);
@@ -1861,9 +1862,9 @@ static void term_csi_final(term_t *t, uint8_t ch)
         else if (!inter && ch == 'n')
             term_out_DSR(t, true);
         else if (!inter && t->csi_param[0] == 4 && ch == 'm') // XTQMODKEYS
-            term_replyf(t, "\33[>4;%um", t->modify_other_keys, 0, 0);
+            term_replyf("\33[>4;%um", t->modify_other_keys, 0, 0);
         else if (!inter && t->csi_param[0] == 4 && ch == 'g') // XTQFMTKEYS
-            term_replyf(t, "\33[>4;%uf", t->format_other_keys, 0, 0);
+            term_replyf("\33[>4;%uf", t->format_other_keys, 0, 0);
         break;
     case '>':
         if (inter)
@@ -1873,13 +1874,13 @@ static void term_csi_final(term_t *t, uint8_t ch)
         else if (t->csi_param[0])
             break;
         else if (ch == 'c') // Secondary DA: a VT420, firmware 1.0, no options
-            TERM_REPLY(t, "\33[>41;10;0c");
+            TERM_REPLY("\33[>41;10;0c");
         else if (ch == 'q')
-            term_out_XTVERSION(t);
+            term_out_XTVERSION();
         break;
     case '=': // Tertiary DA: a unit ID of zeros
         if (!inter && ch == 'c' && !t->csi_param[0])
-            TERM_REPLY(t, "\33P!|00000000\33\\");
+            TERM_REPLY("\33P!|00000000\33\\");
         break;
     }
     t->rep_valid = false;
@@ -1985,7 +1986,7 @@ static void term_vt52_byte(term_t *t, uint8_t ch)
         t->ansi_state = ansi_state_vt52_row;
         break;
     case 'Z': // identify: a VT100 in VT52 mode
-        TERM_REPLY(t, "\33/Z");
+        TERM_REPLY("\33/Z");
         break;
     case '<': // ANSI mode
         t->vt52 = false;

@@ -772,7 +772,7 @@ static void say(const char *s)
 /* A BEL that ends an OSC is the end of a string and no bell. */
 UTEST(com, a_bell_inside_an_escape_sequence_does_not_ring)
 {
-    com_set_bel(true);
+    bel_set_term(true);
     bel_init();
     ASSERT_FALSE(bell_rings());
     say("\33]0;a title\a");
@@ -788,10 +788,10 @@ UTEST(com, a_bell_inside_an_escape_sequence_does_not_ring)
     ASSERT_TRUE(bell_rings());
     /* And none rings with the bell turned off. */
     bel_init();
-    com_set_bel(false);
+    bel_set_term(false);
     say("\a");
     ASSERT_FALSE(bell_rings());
-    com_set_bel(true);
+    bel_set_term(true);
     bel_init();
 }
 
