@@ -61,6 +61,10 @@ void vga_set_scanout(bool on);
 
 uint32_t *vga_get_framebuffer(void);
 
+/* Draws the canvas as it stands into fb, every row, without running the
+ * machine: for a test that needs the pixels only now and then. */
+void vga_draw(uint32_t *fb);
+
 bool vga_frame_crc(uint32_t *crc);
 
 /* The savestate carries the beam and the frame's vsync. The frame count is

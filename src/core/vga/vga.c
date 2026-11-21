@@ -267,6 +267,13 @@ static void render_scanline(int y, uint32_t *fb)
     }
 }
 
+void vga_draw(uint32_t *fb)
+{
+    const int h = vga_canvas_height();
+    for (int y = 0; y < h; y++)
+        render_scanline(y, fb);
+}
+
 static void vga_render_scanline(int y)
 {
     if (g_framebuffer)

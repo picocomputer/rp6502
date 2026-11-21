@@ -245,8 +245,9 @@ static void vt_term_write(const char *buf, size_t n)
 
 static void vt_term_init(void)
 {
+    /* No framebuffer: the screens are judged by their cells, and the frames
+     * the walk runs go by without drawing. vt_save draws the one it keeps. */
     sys_init();
-    vga_set_framebuffer(vt_fb);
     for (int i = 0; i < 120; i++)
         vga_run_frame();
     /* The monitor's banner goes, and the run starts on a blank screen. */
@@ -755,6 +756,7 @@ static void vt_save(const char *name)
     int w, h;
     vga_canvas_size(&w, &h);
     snprintf(path, sizeof path, "%s/%s.png", vt_outdir, name);
+    vga_draw(vt_fb);
     png_write(path, w, h, vt_fb);
 }
 
