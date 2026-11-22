@@ -92,6 +92,16 @@ static uint32_t vga_answer_deadline;
 #define VGA_JOB_HOLD_US 1000
 static uint64_t vga_job_hold_end_us;
 
+/* The console sends the VGA no byte before this time, which keeps the speed
+ * the console's terminal keeps (term_speed, DECSCS): a byte waits out the one
+ * before it, 10 bits at the speed that byte went at, as SyncTERM's next
+ * character does. A byte that went unlimited, or left it unlimited, sets no
+ * wait, and the byte after it goes at the UART's pace, as every byte does at
+ * 115200, whose 86 us are under the UART's own. Set only while a VGA is
+ * connected. It is not the VGA at work, so a sync does not wait for it
+ * (vga_console_busy). */
+static uint64_t vga_console_paced_us;
+
 /* Set when a flash of either chip begins, and never cleared: a flash ends in
  * a reboot or a lockup. From then on vga.c sends nothing it awaits, so
  * FLASH_PROGRAM's answer is the only one. */
@@ -609,7 +619,8 @@ static bool HOST_IN_RAM_FUNC vga_console_held(void)
 
 bool HOST_IN_RAM_FUNC vga_console_ready(void)
 {
-    return !vga_console_held() && vga_connected() && pix_ready();
+    return !vga_console_held() && time_us_64() >= vga_console_paced_us &&
+           vga_connected() && pix_ready();
 }
 
 bool vga_console_busy(void)
@@ -733,14 +744,21 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
 }
 
 /* The console's terminal (vterm.h) follows the VGA's in text cells,
- * fed every byte the VGA's terminal gets. */
+ * fed every byte the VGA's terminal gets, as it is sent, so the speed it
+ * keeps is the VGA's too. Each byte holds the next one for its time at the
+ * speed it went at (vga_console_paced_us). */
 static cell_t vga_console_cells[VTERM_CELLS];
 
 static int vga_console_out(const char *buf, int length, bool force)
 {
     (void)force;
     for (int i = 0; i < length; i++)
+    {
+        uint32_t speed = term_speed(&vterm);
         term_write(&vterm, (uint8_t)buf[i]);
+        if (speed && term_speed(&vterm) && vga_connected())
+            vga_console_paced_us = time_us_64() + 10u * 1000000u / speed;
+    }
     return length;
 }
 

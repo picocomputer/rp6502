@@ -240,8 +240,13 @@ bool vterm_set_code_page(uint16_t cp)
     vterm_pages[vterm_page_count++ % 8] = cp;
     return true;
 }
+/* Its speed (term_speed) in bits a second: 'r', the final byte of DECSCS,
+ * sets the one a case gives, and 'c', of RIS, makes it unlimited, as does a
+ * RIS of the terminal. */
+static uint32_t vterm_speed;
+static uint32_t vterm_speed_set;
 void vterm_init(cell_t *cells) { (void)cells; }
-void vterm_RIS(void) {}
+void vterm_RIS(void) { vterm_speed = 0; }
 void vterm_RIS_no_clear(void) {}
 void vterm_canvas(uint8_t cols, bool is_console) { (void)cols; (void)is_console; }
 void vterm_place(uint8_t cols, uint8_t rows, int16_t begin, uint8_t row_px)
@@ -249,12 +254,26 @@ void vterm_place(uint8_t cols, uint8_t rows, int16_t begin, uint8_t row_px)
     (void)cols; (void)rows; (void)begin; (void)row_px;
 }
 void vterm_unplace(void) {}
-void term_write(term_t *t, uint8_t ch) { (void)t; (void)ch; }
+void term_write(term_t *t, uint8_t ch)
+{
+    (void)t;
+    if (ch == 'r')
+        vterm_speed = vterm_speed_set;
+    else if (ch == 'c')
+        vterm_speed = 0;
+}
+uint32_t term_speed(const term_t *t)
+{
+    (void)t;
+    return vterm_speed;
+}
 
-/* The console's output (manifold.c): with nothing queued, a flush is done. */
+/* The console's output (manifold.c): with nothing queued, a flush is done.
+ * It feeds the console's terminal through vga.c every byte it sends. */
+static int (*term_out)(const char *buf, int len, bool force);
 void manifold_write_to(uint8_t to, const char *buf, size_t n) { (void)to; (void)buf; (void)n; }
 void manifold_flush(void) {}
-void manifold_set_term_out(int (*out_chars)(const char *buf, int len, bool force)) { (void)out_chars; }
+void manifold_set_term_out(int (*out_chars)(const char *buf, int len, bool force)) { term_out = out_chars; }
 void manifold_uart_drain_rx(void) {}
 void com_rx_clear_source(com_source_t src) { (void)src; }
 void com_set_reply_default(bool quiet) { (void)quiet; }
@@ -556,6 +575,155 @@ UTEST(vga, a_lost_vga_no_wait)
     ASSERT_FALSE(vga_connected());
     draw_job_started();
     ASSERT_FALSE(vga_console_busy());
+}
+
+/* ---- the console's speed ---------------------------------------------- */
+
+/* One byte of the console goes to the terminals, as manifold.c sends it. */
+static void console_byte(char ch) { term_out(&ch, 1, true); }
+
+/* The console's terminal takes a DECSCS for bits a second. */
+static void console_speed(uint32_t bps)
+{
+    vterm_speed_set = bps;
+    console_byte('r');
+}
+
+/* At 300 baud each byte holds the next 10 bits, 33333 us, and a sync does
+ * not wait for it. The byte that sets the speed went unlimited, so the byte
+ * after it goes at once. */
+UTEST(vga, the_speed_spaces_the_console)
+{
+    boot_settled();
+    console_speed(300);
+    ASSERT_TRUE(vga_console_ready());
+    console_byte('A');
+    ASSERT_FALSE(vga_console_ready());
+    ASSERT_FALSE(vga_console_busy());
+    now_us += 33332;
+    ASSERT_FALSE(vga_console_ready());
+    now_us += 1;
+    ASSERT_TRUE(vga_console_ready());
+    console_byte('B');
+    ASSERT_FALSE(vga_console_ready());
+    now_us += 33333;
+    ASSERT_TRUE(vga_console_ready());
+}
+
+/* Every speed's byte time, and the byte that changes the speed waits out its
+ * time at the speed it went at, as SyncTERM's next character does. At
+ * 115200 it is under the UART's own, which spaces the bytes then. */
+UTEST(vga, each_speed_its_byte_time)
+{
+    static const uint32_t bps[] = {300, 600, 1200, 2400, 4800, 9600,
+                                   19200, 38400, 57600, 76800, 115200};
+    static const uint32_t us[] = {33333, 16666, 8333, 4166, 2083, 1041,
+                                  520, 260, 173, 130, 86};
+    boot_settled();
+    for (unsigned i = 0; i < 11; i++)
+    {
+        console_speed(bps[i]);
+        if (i)
+        {
+            now_us += us[i - 1] - 1;
+            ASSERT_FALSE(vga_console_ready());
+            now_us += 1;
+        }
+        ASSERT_TRUE(vga_console_ready());
+        console_byte('A');
+        now_us += us[i] - 1;
+        ASSERT_FALSE(vga_console_ready());
+        now_us += 1;
+        ASSERT_TRUE(vga_console_ready());
+    }
+}
+
+/* Unlimited holds nothing, and neither does the byte that makes it so,
+ * DECSCS or RIS. */
+UTEST(vga, unlimited_and_ris_end_the_wait)
+{
+    boot_settled();
+    console_byte('A');
+    ASSERT_TRUE(vga_console_ready());
+    console_speed(300);
+    console_byte('A');
+    now_us += 33333;
+    console_speed(0);
+    ASSERT_TRUE(vga_console_ready());
+    console_byte('A');
+    ASSERT_TRUE(vga_console_ready());
+    console_speed(300);
+    console_byte('A');
+    now_us += 33333;
+    console_byte('c');
+    ASSERT_TRUE(vga_console_ready());
+    console_byte('A');
+    ASSERT_TRUE(vga_console_ready());
+}
+
+/* A job and the speed both hold the console, each to its own end, and only
+ * the job is the VGA at work. */
+UTEST(vga, a_job_and_the_speed_hold_together)
+{
+    boot_settled();
+    console_speed(9600);
+    draw_job_started();
+    console_byte('A');
+    ASSERT_TRUE(vga_console_busy());
+    now_us += 1000;
+    ASSERT_FALSE(vga_console_busy());
+    ASSERT_FALSE(vga_console_ready());
+    now_us += 41;
+    ASSERT_TRUE(vga_console_ready());
+    console_speed(300);
+    now_us += 1041;
+    console_byte('A');
+    draw_job_started();
+    now_us += 1000;
+    ASSERT_FALSE(vga_console_busy());
+    ASSERT_FALSE(vga_console_ready());
+    now_us += 32333;
+    ASSERT_TRUE(vga_console_ready());
+}
+
+/* With no VGA the console's terminal keeps the speed and nothing waits for
+ * it: the console goes to the UART's wire, which keeps its own pace. */
+UTEST(vga, no_vga_no_speed)
+{
+    boot(false, false);
+    console_speed(300);
+    console_byte('A');
+    ASSERT_EQ(300u, term_speed(&vterm));
+    ASSERT_FALSE(vga_console_busy());
+}
+
+/* A lost VGA takes the console's terminal back to unlimited, and what the
+ * console sends while it is lost holds nothing: the VGA connected again at
+ * the next run is sent its bytes at once. */
+UTEST(vga, a_lost_vga_no_speed)
+{
+    boot_settled();
+    console_speed(300);
+    fake.old = true;
+    vga_set_code_page(850);
+    vga_task(); // CODE_PAGE, never answered
+    advance_ms(VGA_ANSWER_MS);
+    vga_task();
+    ASSERT_FALSE(vga_connected());
+    ASSERT_EQ(0u, term_speed(&vterm));
+    console_speed(300);
+    console_byte('A');
+    uint64_t went = now_us;
+    fake.old = false;
+    vga_run();
+    ASSERT_TRUE(vga_connected());
+    vga_task(); // CODE_PAGE
+    deliver();
+    vga_task(); // DISPLAY
+    deliver();
+    reclocked();
+    ASSERT_LT(now_us - went, (uint64_t)33333);
+    ASSERT_TRUE(vga_console_ready());
 }
 
 /* ---- FLASH ------------------------------------------------------------- */
