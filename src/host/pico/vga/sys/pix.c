@@ -70,9 +70,11 @@ static bool pix_ch15_xreg(uint8_t index, uint16_t word)
         vga_set_display(word);
         vterm_RIS_no_clear();
         memset(xregs, 0, sizeof(xregs));
+        ria_ack();
         return true;
-    case 0x01: // CODE_PAGE
+    case 0x01: // CODE_PAGE, never refused: a page it lacks becomes one it has
         font_set_code_page(word);
+        ria_ack();
         return true;
     case 0x03: // UART_TX
         manifold_out_write((char)word);

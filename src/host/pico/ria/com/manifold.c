@@ -107,10 +107,11 @@ static void manifold_uart_tx_write(char ch)
 /* With the VGA connected, the UART's TX pin carries the backchannel, so a
  * byte written to the UART reaches no wire. Each byte sent to the VGA over
  * PIX still goes through the UART, which spaces them one character time
- * apart, so the VGA's small PIX FIFO is never overrun. */
+ * apart, so the VGA's small PIX FIFO is never overrun. None goes while the
+ * VGA's answer to a message is awaited or a code page is still to go. */
 static bool HOST_IN_RAM_FUNC manifold_vga_writable(void)
 {
-    return (uart_get_hw(MANIFOLD_UART)->fr & UART_UARTFR_TXFE_BITS) && pix_ready();
+    return (uart_get_hw(MANIFOLD_UART)->fr & UART_UARTFR_TXFE_BITS) && vga_console_ready();
 }
 
 static void HOST_IN_RAM_FUNC manifold_vga_write(uint8_t reg, char ch)

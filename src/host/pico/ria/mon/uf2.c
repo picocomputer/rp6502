@@ -40,8 +40,9 @@ static enum {
     UF2_VALIDATE,
     UF2_IDENTIFY,
     UF2_WRITE,
+    UF2_VGA_TAKE,  // polling vga_flash_take() until the VGA is taken
     UF2_VGA_WRITE, // stage a page in VGA xram, then send $1:F:07
-    UF2_VGA_WAIT,  // polling pix_wait_poll() for the reply to $1:F:07
+    UF2_VGA_WAIT,  // polling vga_answer() for the reply to $1:F:07
     UF2_VGA_SUCCESS, // $1:F:06 word=0 then watchdog_reboot RIA
     UF2_VGA_LOCKUP,  // $1:F:06 word=1 then spin RIA forever
 } uf2_state;
@@ -375,13 +376,6 @@ static void HOST_IN_FLASH_FUNC uf2_do_identify(void)
         return;
     }
 
-    if (uf2_to_vga && !vga_connected())
-    {
-        uf2_close();
-        mon_add_response_utf8(S(STR_ERR_VGA_NOT_CONNECTED));
-        return;
-    }
-
     if (f_lseek(&uf2_fil, uf2_main_start) != FR_OK)
     {
         uf2_invalid();
@@ -391,7 +385,35 @@ static void HOST_IN_FLASH_FUNC uf2_do_identify(void)
     uf2_page_idx = 0;
     uf2_page_count = 0;
     uf2_last_percent = -1;
-    uf2_state = uf2_to_vga ? UF2_VGA_WRITE : UF2_WRITE;
+    uf2_state = uf2_to_vga ? UF2_VGA_TAKE : UF2_WRITE;
+}
+
+/* The VGA is taken last, once nothing can send FLASH back to the monitor: a
+ * taken VGA is never sent DISPLAY or CODE_PAGE again, and from here every
+ * failure ends in a lockup. */
+static void HOST_IN_FLASH_FUNC uf2_do_vga_take(void)
+{
+    switch (vga_flash_take())
+    {
+    case VGA_ANSWER_WAITING:
+        return;
+    case VGA_ANSWER_ACK:
+        uf2_state = UF2_VGA_WRITE;
+        return;
+    case VGA_ANSWER_NAK:
+    case VGA_ANSWER_TIMEOUT:
+        uf2_close();
+        mon_add_response_utf8(S(STR_ERR_VGA_NOT_CONNECTED));
+        return;
+    }
+}
+
+/* The VGA lost or refused a page, and the RIA locks up. */
+static void HOST_IN_FLASH_FUNC uf2_vga_refused(void)
+{
+    RP6502_LOG(uf2, ERROR, "VGA refused page %lu of block %lu",
+               (unsigned long)uf2_page_idx, (unsigned long)uf2_block_idx);
+    uf2_state = UF2_VGA_LOCKUP;
 }
 
 static void HOST_IN_FLASH_FUNC uf2_do_vga_write(void)
@@ -409,25 +431,23 @@ static void HOST_IN_FLASH_FUNC uf2_do_vga_write(void)
     uf2_build_page(uf2_page_idx);
     for (uint32_t i = 0; i < FLASH_PAGE_SIZE; i++)
         pix_send_blocking(PIX_DEVICE_XRAM, 0, UF2_PAGE[i], (uint16_t)i);
-    // The wait begins before the request is sent, because pix_ack and pix_nak
-    // only record a reply while a wait is in progress.
-    pix_wait_begin(UF2_VGA_ACK_TIMEOUT_MS);
-    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x07, (uint16_t)uf2_page_idx);
-    uf2_state = UF2_VGA_WAIT;
+    if (vga_ask(0xF, 0x07, (uint16_t)uf2_page_idx, UF2_VGA_ACK_TIMEOUT_MS))
+        uf2_state = UF2_VGA_WAIT;
+    else
+        uf2_vga_refused();
 }
 
 static void HOST_IN_FLASH_FUNC uf2_do_vga_wait(void)
 {
-    switch (pix_wait_poll())
+    switch (vga_answer())
     {
-    case 0:
+    case VGA_ANSWER_WAITING:
         return;
-    case 1:
+    case VGA_ANSWER_ACK:
         break;
-    default:
-        RP6502_LOG(uf2, ERROR, "VGA refused page %lu of block %lu",
-                   (unsigned long)uf2_page_idx, (unsigned long)uf2_block_idx);
-        uf2_state = UF2_VGA_LOCKUP;
+    case VGA_ANSWER_NAK:
+    case VGA_ANSWER_TIMEOUT:
+        uf2_vga_refused();
         return;
     }
     uf2_page_idx++;
@@ -458,6 +478,9 @@ void HOST_IN_RAM_FUNC uf2_task(void)
         break;
     case UF2_IDENTIFY:
         uf2_do_identify();
+        break;
+    case UF2_VGA_TAKE:
+        uf2_do_vga_take();
         break;
     case UF2_WRITE:
         uf2_write_ria(&uf2_fil, uf2_num_blocks);

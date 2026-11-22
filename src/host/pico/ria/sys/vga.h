@@ -57,6 +57,10 @@ void vga_flashing(void);
 // Fully connected with backchannel.
 bool vga_connected(void);
 
+/* Room on PIX for a byte of the console of a connected VGA. None goes while
+ * an answer is awaited or a code page is still to go. */
+bool vga_console_ready(void);
+
 // Responders for status.
 int vga_boot_response(char *buf, size_t buf_size, int state, unsigned width);
 int vga_status_response(char *buf, size_t buf_size, int state, unsigned width);
@@ -72,6 +76,48 @@ const char *vga_get_display_type_verbose(void);
 /* A register of channel 0 as it is sent to the VGA: the canvas and mode
  * xregs, which the console's terminal follows. */
 void vga_xreg(uint8_t index, uint16_t word);
+
+/* The messages the VGA answers on the backchannel, with an ack or, when it
+ * refuses one, a nak: CANVAS and MODE on channel 0, and DISPLAY, CODE_PAGE
+ * and FLASH_PROGRAM on channel 15. The answers carry no tag, so one message
+ * is awaited at a time, and the console sends the VGA no bytes until its
+ * answer comes. A VGA that is connected and does not answer in time is lost,
+ * as a VGA that stops its VSYNCs is.
+ *
+ * DISPLAY and CODE_PAGE are vga.c's own: it sends each as soon as nothing is
+ * awaited, and nothing else is asked until they are gone. A 6502 program's
+ * CANVAS and MODE, and FLASH's FLASH_PROGRAM, are asked here, and the answer
+ * stays for the one who asked until it asks again. */
+typedef enum
+{
+    VGA_ANSWER_ACK,
+    VGA_ANSWER_NAK,
+    VGA_ANSWER_TIMEOUT,
+    VGA_ANSWER_WAITING,
+} vga_answer_t;
+
+/* The VGA holds its answers out of the window around each VSYNC, so this
+ * must exceed that lockout plus a frame of scheduling slack. */
+#define VGA_ANSWER_MS 25
+
+/* Nothing is awaited and nothing of vga.c's own is still to go, so a message
+ * may be asked. */
+bool vga_ask_ready(void);
+
+/* Sends a message the VGA answers, once vga_ask_ready, and awaits its answer
+ * for up to timeout_ms. A VGA that is not connected is sent nothing, and this
+ * is false. */
+bool vga_ask(uint8_t ch4, uint8_t byte, uint16_t word, uint32_t timeout_ms);
+
+/* The answer to the message vga_ask sent last. */
+vga_answer_t vga_answer(void);
+
+/* FLASH of VGA firmware takes the VGA, polled until it is not WAITING: ACK
+ * once it is taken, TIMEOUT when no VGA is there. A VGA lost to a message it
+ * did not answer is linked again, without the DISPLAY and CODE_PAGE that it
+ * may not answer, and taken at its first VSYNC. From then on vga.c sends
+ * nothing it awaits an answer to. */
+vga_answer_t vga_flash_take(void);
 
 #define VGA_CONFIG_DISPLAY_TYPE CONFIG_INT(D, vga, display_type, uint8_t, 0, \
     vga_check_display_type, vga_apply_display_type, STR_VGA, \

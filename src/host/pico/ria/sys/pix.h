@@ -31,17 +31,6 @@ void pix_init(void);
 void pix_stop(void);
 void pix_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
 
-/* API to set XREGs
- */
-
-void pix_ack(void);
-void pix_nak(void);
-
-// External access to PIX VGA response. Used by uf2 flash tool.
-void pix_wait_begin(uint32_t timeout_ms);
-// 1=ack, -1=nak, -2=timeout, 0=still waiting. Resets state on terminal.
-int pix_wait_poll(void);
-
 // Room for at least one more message in PIX_SM's FIFO, and no hold.
 bool pix_ready(void);
 

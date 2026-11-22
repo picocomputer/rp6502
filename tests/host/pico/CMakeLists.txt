@@ -54,3 +54,18 @@ rp6502_add_test(ria_cells
     DEFS PICO_PROGRAM_NAME="RP6502-RIA" RP6502_LOCALE=EN
         TERM_MAX_HEIGHT=32 TERM_ALT_SCREEN=1 TERM_CELL_TEXT=1 TERM_SPARE_ROWS=0)
 add_dependencies(test_ria_cells rp6502_gen_c)
+
+# The messages the VGA answers and a 6502 program's xreg burst, vga.c and
+# pix.c as the RIA builds them, against a fake VGA on hardware stubbed in vga/.
+# Each case boots a RIA of its own, in a process of its own. pix.c's
+# fallthrough attribute needs a GNU-compatible compiler.
+if(NOT MSVC)
+    rp6502_add_test(ria_vga SPLIT
+        SOURCES test_vga.c
+            ${RP6502_SRC}/host/pico/ria/sys/vga.c ${RP6502_SRC}/host/pico/ria/sys/pix.c
+        INCLUDES ${CMAKE_CURRENT_LIST_DIR}/vga ${CMAKE_CURRENT_LIST_DIR}/stub
+            ${RP6502_SRC}/host/pico/ria ${RP6502_SRC}/host/pico ${RP6502_SRC} ${RP6502_GEN}
+        DEFS PICO_PROGRAM_NAME="RP6502-RIA" RP6502_LOCALE=EN
+            TERM_MAX_HEIGHT=32 TERM_ALT_SCREEN=1 TERM_CELL_TEXT=1 TERM_SPARE_ROWS=0)
+    add_dependencies(test_ria_vga rp6502_gen_c)
+endif()
