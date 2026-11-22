@@ -858,8 +858,7 @@ static void boot_row(char *dst, uint8_t y, uint8_t width)
 static bool boot_text(boot_text_t *t)
 {
     static char line[TERM_MAX_WIDTH + 1];
-    for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-        draw_task();
+    draw_task();
     tb_screen_t v;
     tb_screen(&v);
     int fence = -1, asked = -1;

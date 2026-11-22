@@ -89,10 +89,13 @@ static void screen_reverse(screen_t *s, unsigned lo, unsigned hi)
     }
 }
 
-// The rows turn k places toward the top: the first k reversed, the rest
-// reversed, then all of them reversed. No row needs keeping aside, so a
-// ring of any size turns in place.
-void screen_rotate(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, bool up)
+// Rows [top, bot] turn n rows up or down round the ring: each takes the
+// row of memory n rows below it, or above it, and the n at the end go
+// round, their line attributes with them. The rows turn k places toward
+// the top: the first k reversed, the rest reversed, then all of them
+// reversed. No row needs keeping aside, so a ring of any size turns in
+// place.
+static void screen_rotate(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, bool up)
 {
     const unsigned h = (unsigned)bot - top + 1;
     const unsigned k = up ? n : h - n;
@@ -201,8 +204,9 @@ void screen_ring_fit(screen_t *s, uint8_t height)
 //    are remapped through each screen's ring, y_offset and row_idx,
 //    and mode 0's row words say where each row's cells are.
 // 2. Work on more than one row, a clear, an erase of rows, a rectangle,
-//    is a job (screen.h), the same work done on each of its rows. A
-//    change to one row is done at once.
+//    a scroll between left and right margins, is a job (screen.h), the
+//    same work done on each of its rows. A change to one row is done at
+//    once.
 // 3. What a cell holds is the machine's kind of cell (cell.h). The store
 //    moves rows and runs of cells, and reads or writes what is in a cell
 //    only through the kind.
@@ -221,7 +225,6 @@ void screen_sst_put(sst_cursor_t *c, screen_t *s)
 {
     const uint8_t *const start = c->at;
     screen_job_finish(s);
-    screen_settle(s);
     for (int i = 0; i < s->rows; i++)
         sst_put_u8(c, s->row_idx[i]);
     sst_put_u8(c, s->spare);
@@ -241,7 +244,6 @@ bool screen_sst_get(sst_cursor_t *c, screen_t *s)
     sst_get(c, s->line, s->mem_rows);
     s->y_offset = sst_get_u8(c);
     s->hidden = sst_get_u8(c);
-    b->later.n = 0;
     b->job.kind = SCREEN_JOB_NONE;
     /* Everything here indexes the cell array. row_idx is the ring and
      * y_offset is added to it before the lookup, so both are bounded, and
@@ -261,17 +263,6 @@ bool screen_sst_get(sst_cursor_t *c, screen_t *s)
     }
     if (s->mem_rows == s->rows && s->spare != s->mem_rows)
         return sst_refuse(c, "a screen's rows out of order");
-    return true;
-}
-
-// The screen with the scroll it is owed done, for everything that changes
-// a cell. False for a screen with no cells.
-static inline bool screen_settled(screen_t *s)
-{
-    if (!s->cells)
-        return false;
-    if (s->cells->later.n)
-        screen_settle(s);
     return true;
 }
 
@@ -335,17 +326,12 @@ static void screen_fill_rows(screen_t *s, uint8_t from, uint8_t to, const cell_f
                         e);
 }
 
-// The screen's ring in order, and its height rows erased to the fill. A
-// scroll the screen was owed is forgotten with the cells it would have
-// moved.
+// The screen's ring in order, and its height rows erased to the fill.
 static void screen_erased(screen_t *s, uint8_t height, const cell_fill_t *e)
 {
     screen_ring_clear(s);
-    screen_cells_t *b = s->cells;
-    if (!b)
-        return;
-    b->later.n = 0;
-    screen_fill_rows(s, 0, height, e);
+    if (s->cells)
+        screen_fill_rows(s, 0, height, e);
 }
 
 /* ---- what the grid asks of the cells ----------------------------------- */
@@ -376,7 +362,7 @@ static cell_fill_t screen_glyph_cell(term_t *term, const screen_t *s, uint8_t by
 
 void screen_glyphs(term_t *term, screen_t *s, uint8_t y, uint8_t x, uint8_t byte, unsigned n)
 {
-    if (!screen_settled(s))
+    if (!s->cells)
         return;
     const cell_fill_t e = screen_glyph_cell(term, s, byte);
     cell_t *at = screen_row(s, y) + x;
@@ -404,7 +390,7 @@ void screen_wipe_rect(screen_t *s, uint8_t top, uint8_t bot, uint8_t left, uint8
 void screen_fill_rect(term_t *term, screen_t *s, uint8_t top, uint8_t bot, uint8_t left,
                       uint8_t right, uint8_t byte)
 {
-    if (!screen_settled(s))
+    if (!s->cells)
         return;
     const cell_fill_t e = screen_glyph_cell(term, s, byte);
     screen_fill_job(s, top, bot, left, right, true, &e);
@@ -413,7 +399,7 @@ void screen_fill_rect(term_t *term, screen_t *s, uint8_t top, uint8_t bot, uint8
 void screen_erase_rect(term_t *term, screen_t *s, uint8_t top, uint8_t bot, uint8_t left,
                        uint8_t right)
 {
-    if (!screen_settled(s))
+    if (!s->cells)
         return;
     const cell_fill_t e = screen_pen_erase(term, false, true);
     screen_fill_job(s, top, bot, left, right, true, &e);
@@ -422,7 +408,7 @@ void screen_erase_rect(term_t *term, screen_t *s, uint8_t top, uint8_t bot, uint
 void screen_erase(term_t *term, screen_t *s, uint8_t y, unsigned from, unsigned to,
                   bool selective, bool written)
 {
-    if (!screen_settled(s))
+    if (!s->cells)
         return;
     screen_fill_erased(term, screen_row(s, y), from, to, selective, written);
 }
@@ -447,7 +433,7 @@ static void screen_row_delete(cell_t *row, unsigned x, unsigned end, unsigned n,
 // written before end with a delete.
 void screen_insert(term_t *term, screen_t *s, uint8_t y, uint8_t x, unsigned end, unsigned n)
 {
-    if (!screen_settled(s))
+    if (!s->cells)
         return;
     const cell_fill_t in = screen_pen_erase(term, false, true);
     screen_row_insert(screen_row(s, y), x, end, n, &in);
@@ -455,21 +441,29 @@ void screen_insert(term_t *term, screen_t *s, uint8_t y, uint8_t x, unsigned end
 
 void screen_delete(term_t *term, screen_t *s, uint8_t y, uint8_t x, unsigned end, unsigned n)
 {
-    if (!screen_settled(s))
+    if (!s->cells)
         return;
     const cell_fill_t in = screen_pen_erase(term, false, false);
     screen_row_delete(screen_row(s, y), x, end, n, &in);
 }
 
-void screen_copy_cells(term_t *term, screen_t *s, uint8_t sy, unsigned sx, uint8_t dy,
-                       unsigned dx, unsigned n)
+// The rows go in the order that reads each before it is written: from the
+// last up when the rectangle goes down the screen.
+void screen_copy_rect(screen_t *s, uint8_t sy, uint8_t sx, uint8_t dy, uint8_t dx, uint8_t h,
+                      uint8_t w)
 {
-    (void)term;
-    if (!screen_settled(s))
-        return;
-    cell_t *row = screen_row(s, dy);
-    cell_run_move(row + dx, screen_row(s, sy) + sx, n);
-    cell_marks(row, dx, dx + n, SCREEN_MARK_WRITTEN, 0, 0);
+    const uint8_t back = dy > sy ? (uint8_t)(h - 1) : 0;
+    const screen_job_t j = {.kind = SCREEN_JOB_MOVE,
+                            .first = (uint8_t)(dy + back),
+                            .last = (uint8_t)(dy + h - 1 - back),
+                            .left = dx,
+                            .right = (uint8_t)(dx + w - 1),
+                            .sized = true,
+                            .move = {.row = (uint8_t)(sy + back),
+                                     .col = sx,
+                                     .moves = h,
+                                     .written = true}};
+    screen_job_start(s, &j);
 }
 
 void screen_attrs(screen_t *s, uint8_t top, uint8_t bot, uint8_t left, uint8_t right,
@@ -506,7 +500,7 @@ void screen_shift(term_t *term, screen_t *s, uint8_t top, uint8_t bot, unsigned 
 
 void screen_erase_rows(term_t *term, screen_t *s, uint8_t from, uint8_t to, bool selective)
 {
-    if (!screen_settled(s))
+    if (!s->cells)
         return;
     const cell_fill_t e = screen_pen_erase(term, selective, false);
     screen_fill_rows(s, from, to, &e);
@@ -515,7 +509,7 @@ void screen_erase_rows(term_t *term, screen_t *s, uint8_t from, uint8_t to, bool
 void screen_align(term_t *term, screen_t *s, uint8_t height)
 {
     (void)term;
-    if (!screen_settled(s))
+    if (!s->cells)
         return;
     const cell_fill_t e = cell_blank('E', cell_side_default(), false, true);
     screen_fill_rows(s, 0, height, &e);
@@ -527,7 +521,7 @@ void screen_align(term_t *term, screen_t *s, uint8_t height)
 uint8_t screen_scroll(term_t *term, screen_t *s, uint8_t top, uint8_t bot, uint8_t n, bool up,
                       bool keep)
 {
-    if (!screen_settled(s))
+    if (!s->cells)
         return screen_ring_scroll(s, top, bot, n, up, keep);
     const uint8_t ghost = screen_ring_scroll(s, top, bot, n, up, keep);
     const cell_fill_t e = screen_pen_erase(term, false, false);
@@ -538,89 +532,23 @@ uint8_t screen_scroll(term_t *term, screen_t *s, uint8_t top, uint8_t bot, uint8
     return ghost;
 }
 
-// Do the scroll a screen is owed. A row cannot move, as it does in a scroll
-// of whole rows, without taking the cells either side of the columns with
-// it. So the cells between the columns are copied up or down a row at a
-// time; or, when there are fewer cells either side, the rows move and the
-// cells either side, and the line attributes, go back to the rows they were
-// on, each row's to the next round the region. Everything that changes a
-// cell does the scroll first.
-void screen_settle(screen_t *s)
-{
-    screen_cells_t *buf = s->cells;
-    const screen_later_t l = buf->later;
-    if (!l.n)
-        return;
-    buf->later.n = 0;
-    screen_moved = true;
-    const unsigned top = l.top, bot = l.bot, from = l.from, end = l.end, n = l.n;
-    const unsigned h = bot - top + 1;
-    const unsigned width = buf->width, inside = end - from, outside = width - inside;
-    if (n < h && (outside > CELL_STRIP_MAX || inside * (h - n) <= outside * h))
-    {
-        for (unsigned i = 0; i < h - n; i++)
-        {
-            const unsigned to = l.up ? top + i : bot - i;
-            cell_run_move(screen_row(s, (uint8_t)to) + from,
-                          screen_row(s, (uint8_t)(l.up ? to + n : to - n)) + from, inside);
-        }
-    }
-    else if (n < h)
-    {
-        screen_rotate(s, (uint8_t)top, (uint8_t)bot, (uint8_t)n, l.up);
-        // Row j of the region now has the cells either side, and the line
-        // attributes, that belong on row j + step, counted round the region.
-        const unsigned step = l.up ? n : h - n;
-        cell_strip_t strip;
-        for (unsigned first = 0, moved = 0; moved < h; first++)
-        {
-            cell_t *row = screen_row(s, (uint8_t)(top + first));
-            uint8_t *line = &s->line[screen_mem(s, (uint8_t)(top + first))];
-            const uint8_t kept = *line;
-            cell_strip_keep(&strip, row, from, end, width);
-            for (unsigned j = first;;)
-            {
-                unsigned src = j >= step ? j - step : j + h - step;
-                moved++;
-                if (src == first)
-                {
-                    cell_strip_put(&strip, row, from, end, width);
-                    *line = kept;
-                    break;
-                }
-                const uint8_t m = screen_mem(s, (uint8_t)(top + src));
-                cell_t *other = screen_row(s, (uint8_t)(top + src));
-                cell_strip_move(row, other, from, end, width);
-                *line = s->line[m];
-                line = &s->line[m];
-                row = other;
-                j = src;
-            }
-        }
-    }
-    for (unsigned i = 0; i < n; i++)
-        fill_glyph(screen_row(s, (uint8_t)(l.up ? bot - i : top + i)), from, end, &l.in);
-}
-
-// The screen is only owed the scroll. One of the same columns the same way
-// that it already owes is added to; any other is done first.
+// A row cannot move round the ring, as it does in a scroll of whole rows,
+// without taking the cells either side of the columns with it. So the
+// cells between the columns move a row at a time, each row read before it
+// is written, and the rows keep their line attributes.
 void screen_scroll_cols(term_t *term, screen_t *s, uint8_t top, uint8_t bot, unsigned from,
                         unsigned end, uint8_t n, bool up)
 {
-    if (!s->cells)
-        return;
-    screen_later_t *l = &s->cells->later;
-    const cell_fill_t in = screen_pen_erase(term, false, false);
-    const unsigned h = (unsigned)bot - top + 1;
-    if (l->n && l->top == top && l->bot == bot && l->from == from && l->end == end &&
-        l->up == up && cell_fill_same(&l->in, &in))
-    {
-        l->n = (uint8_t)(l->n + n < h ? l->n + n : h);
-        return;
-    }
-    screen_settle(s);
-    const screen_later_t later = {top, bot, (uint8_t)from, (uint8_t)end, n, up, in};
-    *l = later;
+    const screen_job_t j = {.kind = SCREEN_JOB_MOVE,
+                            .first = up ? top : bot,
+                            .last = up ? bot : top,
+                            .left = (uint8_t)from,
+                            .right = (uint8_t)(end - 1),
+                            .move = {.row = (uint8_t)(up ? top + n : bot - n),
+                                     .col = (uint8_t)from,
+                                     .moves = (uint8_t)(bot - top + 1 - n),
+                                     .in = screen_pen_erase(term, false, false)}};
+    screen_job_start(s, &j);
 }
 
 // The fast scroll: the viewport rotates through y_offset, and the row
@@ -628,7 +556,7 @@ void screen_scroll_cols(term_t *term, screen_t *s, uint8_t top, uint8_t bot, uns
 // going out.
 uint8_t screen_index(term_t *term, screen_t *s, uint8_t height, bool up, bool keep)
 {
-    if (!screen_settled(s))
+    if (!s->cells)
         return screen_ring_index(s, height, up, keep);
     const uint8_t ghost = screen_ring_index(s, height, up, keep);
     const uint8_t in = (uint8_t)(up ? height - 1 : 0);
@@ -645,7 +573,7 @@ void screen_clear(term_t *term, screen_t *s, uint8_t height)
 
 void screen_height(screen_t *s, uint8_t height, bool grow, bool top)
 {
-    if (!screen_settled(s))
+    if (!s->cells)
     {
         screen_ring_height(s, height, grow, top);
         return;
@@ -680,7 +608,7 @@ void screen_reset(screen_t *s, uint8_t height)
 
 bool screen_row_used(screen_t *s, uint8_t y)
 {
-    if (!screen_settled(s))
+    if (!s->cells)
         return false;
     const cell_t *row = screen_row(s, y);
     for (unsigned x = 0; x < s->cells->width; x++)
@@ -691,7 +619,7 @@ bool screen_row_used(screen_t *s, uint8_t y)
 
 unsigned screen_row_text(screen_t *s, uint8_t y, uint16_t *out)
 {
-    if (!screen_settled(s))
+    if (!s->cells)
         return 0;
     const cell_t *row = screen_row(s, y);
     const unsigned cols = screen_cols(s, y);
@@ -778,11 +706,9 @@ static void screen_job_row(screen_t *s, const screen_job_t *j, uint8_t y)
     }
 }
 
-// The scroll the screen is owed is done first, as for anything that changes
-// a cell.
 void screen_job_start(screen_t *s, const screen_job_t *job)
 {
-    if (!screen_settled(s))
+    if (!s->cells)
         return;
     assert(!screen_job_pending(s));
     if (job->first == job->last)

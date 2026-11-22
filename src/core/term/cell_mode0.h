@@ -48,12 +48,6 @@ typedef struct
     uint16_t bg;
 } cell_side_t;
 
-typedef struct
-{
-    mode0_cell_t cell[CELL_STRIP_MAX];
-    mode0_colors_t colors[CELL_STRIP_MAX];
-} cell_strip_t;
-
 /* ---- colors ------------------------------------------------------------ */
 
 // A cell's color at half brightness: an RGB pixel halved, or the faint twin
@@ -130,16 +124,6 @@ static inline cell_fill_t cell_blank(uint8_t code, cell_side_t side, bool select
                            {side.fg, side.bg, side.fg},
                            selective};
     return e;
-}
-
-// The attributes hold whether the cells are written.
-static inline bool cell_fill_same(const cell_fill_t *a, const cell_fill_t *b)
-{
-    return a->selective == b->selective && a->cell.glyph == b->cell.glyph &&
-           a->cell.attributes == b->cell.attributes &&
-           a->colors.fg_color == b->colors.fg_color &&
-           a->colors.bg_color == b->colors.bg_color &&
-           a->colors.ul_color == b->colors.ul_color;
 }
 
 // The cell a character lands as: the pen's colors and attributes, and the
@@ -220,12 +204,6 @@ void cell_run_move(mode0_cell_t *dst, const mode0_cell_t *src, unsigned n);
 void cell_wipe(mode0_cell_t *row, unsigned from, unsigned to, bool selective);
 void cell_marks(mode0_cell_t *row, unsigned from, unsigned to, unsigned set, unsigned clear,
                 unsigned toggle);
-void cell_strip_keep(cell_strip_t *strip, const mode0_cell_t *row, unsigned from,
-                     unsigned end, unsigned width);
-void cell_strip_put(const cell_strip_t *strip, mode0_cell_t *row, unsigned from,
-                    unsigned end, unsigned width);
-void cell_strip_move(mode0_cell_t *to, const mode0_cell_t *row, unsigned from, unsigned end,
-                     unsigned width);
 
 // A cell shows something: a character other than a space, a line through
 // it, a background other than the default one, or its colors swapped. The

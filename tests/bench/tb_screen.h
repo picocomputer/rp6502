@@ -18,11 +18,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* The draw_task calls that finish what the cell store (screen.c) leaves
- * to the draw task: the scrolls between margins the screens are owed, one
- * screen of each size a call, and the publish after the last of them. */
-#define TB_SCREEN_SETTLE 3
-
 typedef struct
 {
     uint8_t width;

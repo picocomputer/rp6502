@@ -19,8 +19,6 @@
  *   it is selective, which leaves the guarded cells. Its cell is .cell and
  *   its flag .selective; the rest is the kind's.
  * cell_side_t: the colors of a blank, the pen's or the default's.
- * cell_strip_t: the cells either side of some columns of a row,
- *   CELL_STRIP_MAX at most, kept while a margin scroll moves the rows.
  *
  * cell_from_pen(t, width, code, set): the fill of a character of a screen
  *   of width columns in the pen, code in the set (CELL_SET_).
@@ -28,8 +26,6 @@
  *   colors' blank.
  * cell_blank(code, side, selective, written): the fill of a blank, a space
  *   or DECALN's E, as side has it, written or not (CELL_TEXT_WRITTEN).
- * cell_fill_same: two that leave a row the same, whether the cells are
- *   written included.
  * cell_guarded(cell): DECSCA or SPA guards it.
  * cell_put1(at, fill): one cell written.
  * cell_run_fill(at, n, fill): n cells become the fill's cell, guarded or
@@ -42,9 +38,6 @@
  * cell_marks(row, from, to, set, clear, toggle): DECCARA's and DECRARA's
  *   SCREEN_MARK_ attributes changed, and with SCREEN_MARK_WRITTEN set the
  *   cells written.
- * cell_strip_keep, cell_strip_put, cell_strip_move: the cells either side
- *   of columns [from, end) of a row of width cells kept, put back, or moved
- *   to another row.
  * cell_shows(cell): the cell shows something on the screen.
  * cell_text(cell): the cell's text, a CELL_TEXT_ word, the same on every
  *   kind. */
@@ -84,11 +77,6 @@ enum
 #define CELL_TEXT_SET (3u << CELL_TEXT_SET_SHIFT)
 #define CELL_TEXT_WRITTEN (1u << 13)
 #define CELL_TEXT_GUARD (1u << 14)
-
-// The most cells a strip keeps (cell_strip_t). With more cells either side
-// of the columns than this, the store copies the cells between the columns
-// instead (screen_settle).
-#define CELL_STRIP_MAX 40
 
 #if TERM_CELL_TEXT
 #include "core/term/cell_text.h"

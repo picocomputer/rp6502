@@ -377,7 +377,7 @@ static inline bool mode0_place(int16_t w, int16_t h, const uint16_t *xregs,
  * console again.
  *
  * MODE0_DRIVER follows DRAW_DRIVER in the driver list, because the cells'
- * save first does the scrolls the screens are owed, which moves cells. */
+ * save first finishes the screens' jobs, which changes cells. */
 extern const sst_table_t mode0_sst;
 
 #define MODE0_DRIVER DRIVER(                                   \

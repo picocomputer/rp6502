@@ -59,24 +59,3 @@ void cell_marks(cell_t *row, unsigned from, unsigned to, unsigned set, unsigned 
     for (cell_t *cell = row + from, *end = row + to; cell < end; cell++)
         *cell = (cell_t)(((*cell & keep) | put) ^ flip);
 }
-
-void cell_strip_keep(cell_strip_t *strip, const cell_t *row, unsigned from, unsigned end,
-                     unsigned width)
-{
-    memcpy(strip->cell, row, from * sizeof(cell_t));
-    memcpy(strip->cell + from, row + end, (width - end) * sizeof(cell_t));
-}
-
-void cell_strip_put(const cell_strip_t *strip, cell_t *row, unsigned from, unsigned end,
-                    unsigned width)
-{
-    memcpy(row, strip->cell, from * sizeof(cell_t));
-    memcpy(row + end, strip->cell + from, (width - end) * sizeof(cell_t));
-}
-
-void cell_strip_move(cell_t *to, const cell_t *row, unsigned from, unsigned end,
-                     unsigned width)
-{
-    memcpy(to, row, from * sizeof(cell_t));
-    memcpy(to + end, row + end, (width - end) * sizeof(cell_t));
-}

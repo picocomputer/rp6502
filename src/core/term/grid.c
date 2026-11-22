@@ -213,27 +213,6 @@ void term_set_height(term_t *t, term_grid_t *g, uint8_t height)
 
 /* ---- scrolling --------------------------------------------------------- */
 
-// Copy the h rows of w columns at (sy, sx) to (dy, dx). The two may overlap:
-// the rows go in the order that reads each before it is written. A
-// double-size line gives and takes only the columns it has.
-static void grid_copy(term_t *t, term_grid_t *g, unsigned sy, unsigned sx,
-                      unsigned dy, unsigned dx, unsigned h, unsigned w)
-{
-    for (unsigned i = 0; i < h; i++)
-    {
-        unsigned k = dy > sy ? h - 1 - i : i;
-        unsigned from = term_cols(g, (uint8_t)(sy + k)), to = term_cols(g, (uint8_t)(dy + k));
-        if (sx >= from || dx >= to)
-            continue;
-        unsigned n = w;
-        if (n > from - sx)
-            n = from - sx;
-        if (n > to - dx)
-            n = to - dx;
-        screen_copy_cells(t, g->shown, (uint8_t)(sy + k), sx, (uint8_t)(dy + k), dx, n);
-    }
-}
-
 // Scroll the inclusive region [top, bot] up or down by count rows, erased rows
 // coming in. The caller places the cursor. Between left
 // and right margins only the cells between them move. A scroll of all the
@@ -1082,7 +1061,7 @@ static void grid_DECCRA(term_t *t, term_grid_t *g)
         h = (unsigned)d.bot - d.top + 1;
     if (w > (unsigned)d.right - d.left + 1)
         w = (unsigned)d.right - d.left + 1;
-    grid_copy(t, g, s.top, s.left, d.top, d.left, h, w);
+    screen_copy_rect(g->shown, s.top, s.left, d.top, d.left, (uint8_t)h, (uint8_t)w);
 }
 
 // DECCARA, CSI Pt ; Pl ; Pb ; Pr ; Ps ... $ r, changes the attributes of

@@ -52,11 +52,6 @@ typedef struct
     cell_t cell;
 } cell_side_t;
 
-typedef struct
-{
-    cell_t cell[CELL_STRIP_MAX];
-} cell_strip_t;
-
 /* ---- fills and sides --------------------------------------------------- */
 
 // The pen's background is other than the default as it is drawn: in iCE
@@ -87,12 +82,6 @@ static inline cell_fill_t cell_blank(uint8_t code, cell_side_t side, bool select
     const cell_fill_t e = {(cell_t)(side.cell | code | (written ? CELL_TEXT_WRITTEN : 0)),
                            selective};
     return e;
-}
-
-// The cell holds whether it is written.
-static inline bool cell_fill_same(const cell_fill_t *a, const cell_fill_t *b)
-{
-    return a->selective == b->selective && a->cell == b->cell;
 }
 
 // The cell a character lands as: its text and the pen's lines, swap and
@@ -141,12 +130,6 @@ void cell_run_move(cell_t *dst, const cell_t *src, unsigned n);
 void cell_wipe(cell_t *row, unsigned from, unsigned to, bool selective);
 void cell_marks(cell_t *row, unsigned from, unsigned to, unsigned set, unsigned clear,
                 unsigned toggle);
-void cell_strip_keep(cell_strip_t *strip, const cell_t *row, unsigned from, unsigned end,
-                     unsigned width);
-void cell_strip_put(const cell_strip_t *strip, cell_t *row, unsigned from, unsigned end,
-                    unsigned width);
-void cell_strip_move(cell_t *to, const cell_t *row, unsigned from, unsigned end,
-                     unsigned width);
 
 static inline bool cell_shows(const cell_t *cell)
 {

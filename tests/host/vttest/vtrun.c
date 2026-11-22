@@ -291,12 +291,10 @@ static void vt_row(int y, char *out, size_t size)
     out[last] = 0;
 }
 
-/* Does the scrolls the screens are owed, and shows blinking text in its lit
- * phase. */
+/* Publishes the screen, and shows blinking text in its lit phase. */
 static void vt_settle(void)
 {
-    for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-        draw_task();
+    draw_task();
     vga_run_frame();
     tb_screen_t v;
     for (int i = 0; i < 120; i++)
@@ -1072,8 +1070,8 @@ static bool vt_drain(void)
     }
 }
 
-/* Waits for vttest to want a key, with the scrolls the screens are owed
- * done so the cells are what the screen shows. */
+/* Waits for vttest to want a key, with the screen published and blinking
+ * text lit. */
 static bool vt_wait(void)
 {
     if (!vt_drain())

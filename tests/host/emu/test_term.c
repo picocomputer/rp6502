@@ -65,15 +65,13 @@ static void fresh(void)
     /* No frames run, so the console's line keeps no pace. */
     manifold_set_paced(false);
     feed("\30\33c");
-    for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-        draw_task();
+    draw_task();
     answer();
 }
 
 static const mode0_cell_t *cell(int x, int y)
 {
-    for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-        draw_task();
+    draw_task();
     return tb_screen_row((uint8_t)y) + x;
 }
 
@@ -1536,167 +1534,6 @@ UTEST(term, a_run_of_cells_moves_whole_at_every_length)
             }
 }
 
-/* What a screen is owed is never seen once it is done. The same bytes are
- * fed twice: once with the scroll between margins a screen is owed done
- * after each sequence, and once with it left owing until the end, through
- * every scroll, insert, erase, shift, rectangle and change of height that
- * comes meanwhile. The two screens are the same, cell for cell, written or
- * not, with the guards beside them. */
-static uint32_t owed_state;
-static unsigned owed_rand(unsigned n)
-{
-    owed_state = owed_state * 1664525u + 1013904223u;
-    return (owed_state >> 8) % n;
-}
-
-static void owed_op(char *out, size_t size)
-{
-    switch (owed_rand(31))
-    {
-    case 0:
-    case 1:
-    case 2:
-    {
-        unsigned n = 1 + owed_rand(100);
-        for (unsigned i = 0; i < n; i++)
-            out[i] = (char)('a' + owed_rand(26));
-        out[n] = 0;
-        break;
-    }
-    case 3: snprintf(out, size, "\r\n"); break;
-    case 4: snprintf(out, size, "\n\n\n"); break;
-    case 5: snprintf(out, size, "\33M"); break;
-    case 6: snprintf(out, size, "\33[%u;%uH", 1 + owed_rand(30), 1 + owed_rand(80)); break;
-    case 7: snprintf(out, size, "\33[%uJ", owed_rand(3)); break;
-    case 8: snprintf(out, size, "\33[%uK", owed_rand(3)); break;
-    case 9: snprintf(out, size, "\33[?%u%c", owed_rand(3), owed_rand(2) ? 'J' : 'K'); break;
-    case 10: snprintf(out, size, "\33[%u%c", 1 + owed_rand(31), owed_rand(2) ? 'L' : 'M'); break;
-    case 11: snprintf(out, size, "\33[%u%c", 1 + owed_rand(31), owed_rand(2) ? 'S' : 'T'); break;
-    case 12: snprintf(out, size, "\33[%u%c", 1 + owed_rand(81), "@PX"[owed_rand(3)]); break;
-    case 13: snprintf(out, size, "\33[%u %c", 1 + owed_rand(81), owed_rand(2) ? '@' : 'A'); break;
-    case 14: snprintf(out, size, "%c\33[%ub", (char)('A' + owed_rand(26)), 1 + owed_rand(3000)); break;
-    case 15: snprintf(out, size, "%c\33[%ub", (char)('A' + owed_rand(26)), 1 + owed_rand(200)); break;
-    case 16:
-    {
-        unsigned top = 1 + owed_rand(29);
-        snprintf(out, size, "\33[%u;%ur", top, top + owed_rand(31 - top));
-        break;
-    }
-    case 17: snprintf(out, size, "\33[r"); break;
-    case 18: snprintf(out, size, "\33[%u;%um", 30 + owed_rand(8), 40 + owed_rand(8)); break;
-    case 19: snprintf(out, size, "\33[%um", (unsigned[]){0, 4, 7, 2, 5, 1}[owed_rand(6)]); break;
-    case 20: snprintf(out, size, "\33[%u\"q", owed_rand(2)); break;
-    case 21: snprintf(out, size, "\33#8"); break;
-    case 22: snprintf(out, size, "\33[?1049%c", owed_rand(2) ? 'h' : 'l'); break;
-    case 23: snprintf(out, size, "\33#%c", "3456"[owed_rand(4)]); break;
-    case 24: snprintf(out, size, "\33[4%c", owed_rand(2) ? 'h' : 'l'); break;
-    case 25: snprintf(out, size, "\33[?7%c", owed_rand(4) ? 'h' : 'l'); break;
-    case 26:
-        snprintf(out, size, "\33[%u;%u;%u;%u$z", 1 + owed_rand(30), 1 + owed_rand(80),
-                 1 + owed_rand(30), 1 + owed_rand(80));
-        break;
-    case 27:
-        snprintf(out, size, "\33[%u;%u;%u;%u;%u$x", 'a' + owed_rand(26), 1 + owed_rand(30),
-                 1 + owed_rand(80), 1 + owed_rand(30), 1 + owed_rand(80));
-        break;
-    case 28:
-        snprintf(out, size, "\33[%u*x\33[%u;%u;%u;%u;%u$%c", owed_rand(2) ? 2 : 0,
-                 1 + owed_rand(30), 1 + owed_rand(80), 1 + owed_rand(30), 1 + owed_rand(80),
-                 (unsigned[]){0, 1, 4, 5, 7, 24}[owed_rand(6)], owed_rand(2) ? 'r' : 't');
-        break;
-    case 29:
-        snprintf(out, size, "\33[%u;%u;%u;%u;1;%u;%u$v", 1 + owed_rand(30), 1 + owed_rand(80),
-                 1 + owed_rand(30), 1 + owed_rand(80), 1 + owed_rand(30), 1 + owed_rand(80));
-        break;
-    default: out[0] = 0; break; /* a change of height, which the caller makes */
-    }
-}
-
-#define OWED_OPS 60
-static char owed_seq[OWED_OPS][128];
-static uint8_t owed_height[OWED_OPS];
-static bool owed_skip[OWED_OPS];
-
-static void owed_make(uint32_t seed)
-{
-    owed_state = seed;
-    for (int k = 0; k < OWED_OPS; k++)
-    {
-        owed_op(owed_seq[k], sizeof owed_seq[k]);
-        owed_height[k] = owed_seq[k][0] ? 0 : (uint8_t)(10 + owed_rand(21));
-        owed_skip[k] = false;
-    }
-}
-
-static void owed_run(bool pay_each, uint8_t *screen)
-{
-    fresh();
-    for (int k = 0; k < OWED_OPS; k++)
-    {
-        if (owed_skip[k])
-            continue;
-        if (owed_height[k])
-            vterm_place(80, owed_height[k], 0, 16);
-        else
-            feed(owed_seq[k]);
-        if (pay_each)
-            for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-                draw_task();
-    }
-    vterm_place(80, 30, 0, 16);
-    for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-        draw_task();
-    for (int y = 0; y < 30; y++)
-    {
-        const mode0_cell_t *r = tb_screen_row((uint8_t)y);
-        memcpy(screen + y * 80 * 10, r, 80 * 4);
-        memcpy(screen + y * 80 * 10 + 80 * 4, &mode0_colors[r - mode0_cells], 80 * 6);
-    }
-}
-
-static uint8_t owed_paid[30 * 80 * 10], owed_left[30 * 80 * 10];
-static bool owed_differs(void)
-{
-    owed_run(true, owed_paid);
-    owed_run(false, owed_left);
-    return memcmp(owed_paid, owed_left, sizeof owed_paid) != 0;
-}
-
-UTEST(term, what_a_screen_is_owed_is_never_seen)
-{
-    for (uint32_t seed = 1; seed <= 2000; seed++)
-    {
-        owed_make(seed);
-        if (!owed_differs())
-            continue;
-        /* The fewest of this seed's sequences that still differ. */
-        for (int k = 0; k < OWED_OPS; k++)
-        {
-            owed_skip[k] = true;
-            if (!owed_differs())
-                owed_skip[k] = false;
-        }
-        ASSERT_TRUE(owed_differs());
-        int at = 0;
-        while (owed_paid[at] == owed_left[at])
-            at++;
-        printf("seed %u: row %d, byte %d is %02x done at once and %02x left owing, after:\n",
-               (unsigned)seed, at / 800, at % 800, owed_paid[at], owed_left[at]);
-        for (int k = 0; k < OWED_OPS; k++)
-        {
-            if (owed_skip[k])
-                continue;
-            printf("  ");
-            if (owed_height[k])
-                printf("height %u", owed_height[k]);
-            for (const char *c = owed_seq[k]; *c; c++)
-                printf(*c == 27 ? "ESC" : *c < 32 ? "^%c" : "%c", *c < 32 ? *c + 64 : *c);
-            printf("\n");
-        }
-        ASSERT_TRUE(false);
-    }
-}
-
 /* REP draws what printing the glyph that many times draws: the same cells,
  * with the pen's attributes and guard, and the cursor in the same place. */
 static void rep_screen(const char *before, int n, bool rep, uint8_t *screen, int *x, int *y)
@@ -1715,8 +1552,7 @@ static void rep_screen(const char *before, int n, bool rep, uint8_t *screen, int
             feed("Q");
     /* The far half of a double-size row shows when the row is single again. */
     feed("\0337\33[10;1H\33#5\0338");
-    for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-        draw_task();
+    draw_task();
     for (int r = 0; r < 30; r++)
     {
         const mode0_cell_t *row = tb_screen_row((uint8_t)r);
@@ -2484,10 +2320,10 @@ UTEST(term, rep_between_margins_draws_what_printing_draws)
     }
 }
 
-/* Line feeds between margins add up to one scroll, and whatever comes
- * between them is done in its turn: another pen, the other screen, a
- * savestate. */
-UTEST(term, line_feeds_between_margins_add_up)
+/* Each line feed between margins moves the cells between them a row, with
+ * its own pen's blank coming in, and the other screen and a savestate
+ * leave what it moved. */
+UTEST(term, line_feeds_between_margins_move_the_cells_between_them)
 {
     static uint8_t blob[1 << 20];
     fresh();
@@ -2507,11 +2343,11 @@ UTEST(term, line_feeds_between_margins_add_up)
     feed("\33[2;5Hxy\33[5;5H\nz");
     ASSERT_STREQ(row(1), "bbb    bbb");
     ASSERT_STREQ(row(4), "eee z  eee");
-    /* The other screen, with a scroll still owed to this one. */
+    /* A scroll on the other screen leaves this one's cells. */
     feed("\33[2;4Hpq\33[5;5H\n\33[?47h\33[?69h\33[2;5r\33[4;7s\33[5;5H\nalt\33[?47l");
     ASSERT_STREQ(row(1), "bbb    bbb");
     ASSERT_STREQ(row(3), "ddd z  ddd");
-    /* A savestate with a scroll owed. */
+    /* A savestate right after a scroll. */
     feed("\33[2;4Hrs\33[5;5H\n");
     ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
     feed("\33c");
@@ -3651,6 +3487,72 @@ UTEST(job, a_shift_of_many_rows_is_done_by_its_byte)
     ASSERT_EQ(job_held(6, 1), ' ');
     ASSERT_EQ(job_held(5, 4), 'e');
     ASSERT_EQ(job_held(5, 5), 'f');
+    ASSERT_FALSE(screen_job_pending(job_screen()));
+}
+
+/* Whether each row of the screen showing is in the row of memory it was
+ * in, as mems has them. */
+static bool job_ring_kept(const uint8_t *mems, int rows)
+{
+    for (int y = 0; y < rows; y++)
+        if (screen_mem(job_screen(), (uint8_t)y) != mems[y])
+            return false;
+    return true;
+}
+
+/* A move of many rows is done by the byte that asks for it, no row is left
+ * owing it, and the ring stays as it was: a line feed, a reverse index, DL,
+ * IL, SU and SD between left and right margins, which leave the rows and
+ * columns outside them, and DECCRA down and up over itself, which reads
+ * each row before it writes it. */
+UTEST(job, a_move_of_many_rows_is_done_by_its_byte)
+{
+    job_rows();
+    uint8_t mems[30];
+    for (int y = 0; y < 30; y++)
+        mems[y] = screen_mem(job_screen(), (uint8_t)y);
+    feed("\33[?69h\33[2;5r\33[3;8s\33[5;3H\n");
+    ASSERT_EQ(job_held(1, 1), 'b');
+    ASSERT_EQ(job_held(2, 1), 'c');
+    ASSERT_EQ(job_held(2, 3), 'e');
+    ASSERT_EQ(job_held(1, 4), 'e');
+    ASSERT_EQ(job_held(2, 4), ' ');
+    feed("\33[2;3H\33M");
+    ASSERT_EQ(job_held(1, 1), 'b');
+    ASSERT_EQ(job_held(2, 1), ' ');
+    ASSERT_EQ(job_held(2, 2), 'c');
+    ASSERT_EQ(job_held(2, 4), 'e');
+    feed("\33[3;3H\33[2M");
+    ASSERT_EQ(job_held(2, 2), 'e');
+    ASSERT_EQ(job_held(1, 3), 'd');
+    ASSERT_EQ(job_held(2, 3), ' ');
+    feed("\33[3;3H\33[L");
+    ASSERT_EQ(job_held(1, 2), 'c');
+    ASSERT_EQ(job_held(2, 2), ' ');
+    ASSERT_EQ(job_held(2, 3), 'e');
+    feed("\33[S");
+    ASSERT_EQ(job_held(2, 2), 'e');
+    ASSERT_EQ(job_held(2, 3), ' ');
+    feed("\33[2T");
+    ASSERT_EQ(job_held(2, 2), ' ');
+    ASSERT_EQ(job_held(2, 4), 'e');
+    ASSERT_EQ(job_held(2, 0), 'a');
+    ASSERT_EQ(job_held(2, 5), 'f');
+    ASSERT_EQ(job_held(1, 4), 'e');
+    ASSERT_TRUE(job_ring_kept(mems, 30));
+    ASSERT_FALSE(screen_job_pending(job_screen()));
+    job_rows();
+    feed("\33[1;1;3;6;1;2;1;1$v");
+    ASSERT_EQ(job_held(0, 0), 'a');
+    ASSERT_EQ(job_held(0, 1), 'a');
+    ASSERT_EQ(job_held(0, 2), 'b');
+    ASSERT_EQ(job_held(0, 3), 'c');
+    ASSERT_EQ(job_held(0, 4), 'e');
+    feed("\33[2;1;4;6;1;1;1;1$v");
+    ASSERT_EQ(job_held(0, 0), 'a');
+    ASSERT_EQ(job_held(0, 1), 'b');
+    ASSERT_EQ(job_held(0, 2), 'c');
+    ASSERT_EQ(job_held(0, 3), 'c');
     ASSERT_FALSE(screen_job_pending(job_screen()));
 }
 

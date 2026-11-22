@@ -189,8 +189,8 @@ static bool draw_sst_lines_ok(sst_cursor_t *c)
 }
 
 /* Each screen's layout, as the store puts it: each size's screens that have
- * cells. A put finishes the screen's job and does a scroll the screen is
- * owed first, which change cells that MODE0_DRIVER saves after this row. */
+ * cells. A put finishes the screen's job first, which changes cells that
+ * MODE0_DRIVER saves after this row. */
 static void draw_sst_put_bufs(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
@@ -500,18 +500,6 @@ static bool draw_smooth_task(void)
     return draw_published.smooth && !shows;
 }
 
-// Do a scroll between left and right margins one screen of a size is owed,
-// if either is owed one.
-static void draw_settle(term_grid_t *g)
-{
-    for (int b = 0; b < 2; b++)
-        if (g->screen[b].cells && g->screen[b].cells->later.n)
-        {
-            screen_settle(&g->screen[b]);
-            return;
-        }
-}
-
 void draw_task(void)
 {
     draw_stale |= draw_smooth_task();
@@ -523,6 +511,4 @@ void draw_task(void)
     if (draw_stale || screen_moved || vterm_palette_changed ||
         draw_published.screen != vterm_get_shown(&vterm)->shown)
         draw_publish();
-    draw_settle(&vterm_40.grid);
-    draw_settle(&vterm_80.grid);
 }

@@ -148,13 +148,10 @@ void screen_set_cells(screen_t *s, struct screen_cells *cells);
 // The line attributes stay with their rows of memory.
 void screen_ring_clear(screen_t *s);
 
-// Rows [top, bot] turn n rows up or down round the ring: each takes the row
-// of memory n rows below it, or above it, and the n at the end go round,
-// their line attributes with them. Nothing else changes.
-void screen_rotate(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, bool up);
-
-// Rows [top, bot] move n rows up or down, as screen_rotate turns them, and
-// the n rows coming in are blank lines (screen_lines_blank). Returns the
+// Rows [top, bot] move n rows up or down round the ring: each takes the
+// row of memory n rows below it, or above it, and the n at the end go
+// round, their line attributes with them, to be the n rows coming in,
+// which are blank lines (screen_lines_blank). Returns the
 // row of memory of the row that went out at the edge, which lands where
 // the rows coming in start. With keep, for a smooth scroll of one row, the
 // spare row of memory takes that slot instead, before anything erases the
@@ -202,8 +199,9 @@ static inline void screen_forget(screen_t *s)
  * has only its ring: a scroll, an index, a clear, a reset and a change of
  * height move it, and the rest leave it be. A fill of more than one row,
  * an erase of rows, a rectangle, DECALN, a clear and the rows a scroll
- * brings in, is a job (below), as is a wipe, a change of attributes or a
- * shift of more than one row. */
+ * brings in, is a job (below), as is a wipe, a change of attributes, a
+ * shift, a scroll between left and right margins or a DECCRA of more than
+ * one row. */
 
 // n copies of the glyph at row y from column x, in the pen and the active
 // character set. n never runs past the row's columns.
@@ -249,11 +247,12 @@ void screen_delete(term_t *t, screen_t *s, uint8_t y, uint8_t x, unsigned end, u
 void screen_shift(term_t *t, screen_t *s, uint8_t top, uint8_t bot, unsigned from,
                   unsigned end, unsigned n, bool left);
 
-// n cells of row sy from column sx are copied to row dy from column dx,
-// colors, attributes and all, and every cell copied to is written, as
-// xterm has it. The two runs may overlap.
-void screen_copy_cells(term_t *t, screen_t *s, uint8_t sy, unsigned sx, uint8_t dy,
-                       unsigned dx, unsigned n);
+// DECCRA: the h rows of w columns at row sy, column sx are copied to row
+// dy, column dx, colors, attributes and all, and every cell copied to is
+// written, as xterm has it. A double-size line gives and takes only the
+// columns it has. The two rectangles may overlap.
+void screen_copy_rect(screen_t *s, uint8_t sy, uint8_t sx, uint8_t dy, uint8_t dx, uint8_t h,
+                      uint8_t w);
 
 // DECCARA and DECRARA: columns [left, right] of rows [top, bot] have these
 // attributes set, cleared, then reversed, whatever else the cells hold,
@@ -286,7 +285,8 @@ uint8_t screen_scroll(term_t *t, screen_t *s, uint8_t top, uint8_t bot, uint8_t 
                       bool keep);
 
 // The same for only columns [from, end) of those rows, which are not the
-// whole width: a scroll between left and right margins.
+// whole width: a scroll between left and right margins. The rows keep
+// their line attributes, and nothing is kept.
 void screen_scroll_cols(term_t *t, screen_t *s, uint8_t top, uint8_t bot, unsigned from,
                         unsigned end, uint8_t n, bool up);
 
@@ -329,19 +329,6 @@ unsigned screen_row_text(screen_t *s, uint8_t y, uint16_t *out);
  *
  * The cells of a screen, of the machine's kind (cell.h), for screen.c and
  * for draw.c, which makes what mode 0 draws from them and saves them. */
-
-// A scroll between left and right margins owed to a screen: columns
-// [from, end) of rows [top, bot] move n rows up or down, and this blank
-// comes in. n is 0 when no scroll is owed. Another scroll of the same
-// columns the same way only adds to n, so a run of line feeds moves the
-// cells once.
-typedef struct
-{
-    uint8_t top, bot, from, end;
-    uint8_t n;
-    bool up;
-    cell_fill_t in;
-} screen_later_t;
 
 /* A job: work on more than one row of a screen, the same work on each of
  * its rows, done a row at a time from its first row to its last, which is
@@ -419,7 +406,7 @@ typedef struct
     };
 } screen_job_t;
 
-// The cells of a screen and the scroll it is owed. A row of the screen is
+// The cells of a screen. A row of the screen is
 // in a row of memory, which the screen's ring gives. The screen has
 // TERM_SPARE_ROWS more rows of memory than slots: the ring's spare is the
 // one in no slot, which a smooth scroll gives the row coming in while the
@@ -428,13 +415,11 @@ typedef struct screen_cells
 {
     cell_t *mem;
     uint8_t width;
-    screen_later_t later;
     screen_job_t job;
 } screen_cells_t;
 
-/* The store moved cells in a way that may change what shows, outside the
- * functions that change a cell: a scroll it was owed is done, or the height
- * changed. draw.c publishes and clears it. */
+/* The height changed, which moves the store's rows in a way that may
+ * change what shows. draw.c publishes and clears it. */
 extern bool screen_moved;
 
 // The cells of row y of a screen that has them.
@@ -446,10 +431,6 @@ static inline cell_t *screen_row(const screen_t *s, uint8_t y)
 
 // n cells from cells are blanks in the default colors.
 void screen_blank_cells(cell_t *cells, unsigned n);
-
-// Do the scroll between left and right margins the screen is owed, if it
-// is owed one.
-void screen_settle(screen_t *s);
 
 /* ---- jobs --------------------------------------------------------------- */
 
@@ -475,9 +456,8 @@ void screen_job_finish(screen_t *s);
 
 /* A screen's layout in the savestate: its ring and spare row, the line
  * attributes of each row of memory, the slot of row 0 and the rows above
- * it. A put first finishes the screen's job and does a scroll the screen
- * is owed, so the layout saved is the layout the cells are in and no job is
- * ever saved. For a screen with cells. */
+ * it. A put first finishes the screen's job, so no job is ever saved. For
+ * a screen with cells. */
 #define SCREEN_SST_SIZE (TERM_MAX_HEIGHT + 1 + TERM_MEM_ROWS + 2)
 void screen_sst_put(sst_cursor_t *c, screen_t *s);
 bool screen_sst_get(sst_cursor_t *c, screen_t *s);
