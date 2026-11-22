@@ -254,7 +254,10 @@ extern mode0_colors_t mode0_colors[MODE0_CELLS];
 /* The words, all of them whole 32-bit words, because a fabric's registers
  * take nothing smaller. They describe the terminal showing.
  *
- * row: a row's first cell in mode0_cells, and its TERM_LINE_ size.
+ * row: a row's first cell in mode0_cells, its TERM_LINE_ size, and the
+ *   columns [from, to) of the row the selection takes, drawn with their
+ *   colors swapped over what DECSCNM draws; from equal to to is none. The
+ *   columns are the row's own, half the width on a row of double width.
  * cursor: x; y; the DECSCUSR style; whether its blink has it lit; and
  *   whether it is shown at all.
  * cursor_color: OSC 12's color.
@@ -311,8 +314,12 @@ static inline unsigned mode0_smooth_moved(uint32_t start, uint32_t now, unsigned
 }
 
 #define MODE0_ROW(cell, size) ((uint32_t)(cell) | ((uint32_t)(size) << 16))
+#define MODE0_ROW_SELECT(from, to) (((uint32_t)(from) << 18) | ((uint32_t)(to) << 25))
 #define MODE0_ROW_CELL(w) ((uint16_t)(w))
 #define MODE0_ROW_SIZE(w) ((uint8_t)(((w) >> 16) & 3))
+#define MODE0_ROW_FROM(w) ((uint8_t)(((w) >> 18) & 0x7F))
+#define MODE0_ROW_TO(w) ((uint8_t)((w) >> 25))
+_Static_assert(80 <= 0x7F, "a column of the selection in seven bits");
 
 #define MODE0_CURSOR_ENABLED (1u << 25)
 #define MODE0_CURSOR_LIT (1u << 24)

@@ -16,13 +16,23 @@
  * memory is the same row on both; and the text of each row in view and of
  * each row above them still in the ring, whether each is used, and whether
  * it wrapped on its own; and what a copy takes of a few ranges of each
- * screen. The text is cell_text's, which is the same for both kinds, so
- * the two print the same digests. xcheck.py runs both and
- * holds them against each other.
+ * screen; and the selection. The text is cell_text's, which is the same
+ * for both kinds, so the two print the same digests. xcheck.py runs both
+ * and holds them against each other.
  *
- *   xcheck fuzz SEED STEPS [POINT]   a seeded stream of sequences
- *   xcheck file PATH SEED [POINT]    the bytes of a file, the seed's changes
- *                                    of height between its chunks
+ * The selection goes as on the Pico. The user makes it on the RIA, the text
+ * build, which takes it at once (vterm_select), and as frames pass sends
+ * its words (vterm_select_words) when the user changed it, as
+ * ria/sys/vga.c does, into WORDS, a line each frame. The mode 0 build, the
+ * VGA, takes each frame's line from WORDS at the same place in the stream
+ * and applies the words it holds (vterm_select_apply), whatever job is
+ * pending then. Between the two, each drops it by the bytes as it has it.
+ * So the text build runs first.
+ *
+ *   xcheck WORDS fuzz SEED STEPS [POINT]   a seeded stream of sequences
+ *   xcheck WORDS file PATH SEED [POINT]    the bytes of a file, the seed's
+ *                                          changes of height between its
+ *                                          chunks
  *
  * Each point prints a line, its number and its digest. With POINT, the
  * build prints all it holds at that point instead, and stops there. */
@@ -134,6 +144,57 @@ static void xc_copies(screen_t *s, uint8_t height, uint32_t seed)
     }
 }
 
+/* ---- the selection ----------------------------------------------------- */
+
+// The words of each frame: written by the text build, read by mode 0's.
+static FILE *xc_words;
+
+// A frame passes: the RIA sends the selection's words when the user changed
+// it since the last it sent, or nothing, and the VGA takes what was sent.
+static void xc_frame(void)
+{
+#if TERM_CELL_TEXT
+    uint16_t start, end;
+    if (!vterm_selection.unsent)
+        fprintf(xc_words, "-\n");
+    else
+    {
+        vterm_selection.unsent = false;
+        vterm_select_words(&start, &end);
+        fprintf(xc_words, "%u %u\n", start, end);
+    }
+#else
+    char line[32];
+    unsigned start, end;
+    if (!fgets(line, sizeof line, xc_words))
+    {
+        fprintf(stderr, "xcheck: the words run out before the stream\n");
+        exit(2);
+    }
+    if (sscanf(line, "%u %u", &start, &end) == 2)
+        vterm_select_apply((uint16_t)start, (uint16_t)end);
+#endif
+}
+
+// The selection as it stands: its screen, its ends and the rows of memory
+// it takes, or none.
+static void xc_selection(void)
+{
+    const screen_selection_t *v = &vterm_selection;
+    if (!v->shows)
+    {
+        xc_print("no selection\n");
+        return;
+    }
+    const vterm_size_t *size =
+        v->screen == &vterm_80.grid.screen[0] || v->screen == &vterm_80.grid.screen[1]
+            ? &vterm_80
+            : &vterm_40;
+    xc_print("selection on %u columns, %s, %u,%u to %u,%u, rows %016llx\n",
+             size->grid.width, v->screen == size->grid.screen ? "primary" : "alternate",
+             v->start_row, v->start_col, v->end_row, v->end_col, (unsigned long long)v->rows);
+}
+
 static void xc_point(unsigned point)
 {
     xc_len = 0;
@@ -157,14 +218,17 @@ static void xc_point(unsigned point)
             xc_copies(s, g->height, point * 4u + (unsigned)(n * 2 + b));
         }
     }
+    xc_selection();
 }
 
 static unsigned xc_points;
 static long xc_want = -1;
 
-// A point: its digest, or with xc_want this point all it holds.
+// A point: its digest, or with xc_want this point all it holds. A frame
+// passes first, so the VGA has what the RIA has.
 static void xc_check(void)
 {
+    xc_frame();
     term_job_finish(&vterm);
     const unsigned point = xc_points++;
     if (xc_want >= 0 && point != (unsigned long)xc_want)
@@ -237,6 +301,36 @@ static unsigned xc_count(void)
     return xc_below(4) ? 1 + xc_below(4) : xc_below(40);
 }
 
+// The user selects on the screen showing, a few rows from a row of its
+// height, from a column of its row to a column of the last, or now and
+// then ends the selection: on the RIA, the text build, alone. The mode 0
+// build draws the same numbers, so the stream goes on the same.
+static void xc_select(void)
+{
+    term_grid_t *g = vterm_get_shown(&vterm);
+    const screen_t *s = g->shown;
+    const bool end = !xc_below(4);
+    const uint8_t y0 = (uint8_t)xc_below(g->height);
+    const uint8_t y1 = (uint8_t)(y0 + xc_below(g->height - y0 < 4u ? g->height - y0 : 4u));
+    const unsigned c0 = screen_size(s, y0) ? g->width / 2u : g->width;
+    const unsigned c1 = screen_size(s, y1) ? g->width / 2u : g->width;
+    uint8_t x0 = (uint8_t)xc_below(c0 + 1), x1 = (uint8_t)xc_below(c1 + 1);
+    if (y0 == y1 && x1 < x0)
+    {
+        const uint8_t x = x0;
+        x0 = x1;
+        x1 = x;
+    }
+#if TERM_CELL_TEXT
+    if (end)
+        vterm_unselect();
+    else
+        vterm_select(g, (uint8_t)(s - g->screen), screen_mem(s, y0), x0, screen_mem(s, y1), x1);
+#else
+    (void)end;
+#endif
+}
+
 /* What ria/sys/vga.c replays of the VGA's: mode 0 programmed on the
  * canvas, a change of display (the console placed for the old display and
  * the new, then the soft reset), a RIS, or a canvas, which chooses the size
@@ -301,7 +395,7 @@ static void xc_sequence(void)
                                         "?47", "?1047", "?1048", "?69", "?3", "?40"};
     static const char *const sizes[] = {"\33#3", "\33#4", "\33#5", "\33#6"};
     const unsigned t = xc_below(14), b = xc_below(34), l = xc_below(80);
-    switch (xc_below(40))
+    switch (xc_below(41))
     {
     case 0:
     case 1:
@@ -408,8 +502,12 @@ static void xc_sequence(void)
     case 38:
         xc_replay();
         break;
+    case 39:
+        xc_select();
+        break;
     default:
         xc_frames += xc_below(20);
+        xc_frame();
         break;
     }
 }
@@ -438,7 +536,13 @@ static void xc_file(const char *path)
     while ((n = fread(chunk, 1, sizeof chunk, f)) > 0)
     {
         for (size_t i = 0; i < n; i++)
+        {
             xc_byte(chunk[i]);
+            if (!xc_below(256))
+                xc_select();
+            else if (!xc_below(64))
+                xc_frame();
+        }
         xc_check();
         if (!xc_below(4))
             xc_replay();
@@ -448,12 +552,19 @@ static void xc_file(const char *path)
 
 int main(int argc, char **argv)
 {
-    if (argc < 4 || (strcmp(argv[1], "fuzz") && strcmp(argv[1], "file")))
+    if (argc < 5 || (strcmp(argv[2], "fuzz") && strcmp(argv[2], "file")))
     {
-        fprintf(stderr, "usage: xcheck fuzz SEED STEPS [POINT]\n"
-                        "       xcheck file PATH SEED [POINT]\n");
+        fprintf(stderr, "usage: xcheck WORDS fuzz SEED STEPS [POINT]\n"
+                        "       xcheck WORDS file PATH SEED [POINT]\n");
         return 2;
     }
+    xc_words = fopen(argv[1], TERM_CELL_TEXT ? "w" : "r");
+    if (!xc_words)
+    {
+        fprintf(stderr, "xcheck: no %s\n", argv[1]);
+        return 2;
+    }
+    argc--, argv++;
     const bool fuzz = !strcmp(argv[1], "fuzz");
     xc_seed = strtoull(argv[fuzz ? 2 : 3], NULL, 0) * 0x9E3779B97F4A7C15ull | 1;
     if (argc > 4)

@@ -76,6 +76,7 @@ volatile uint32_t draw_bytes_in_jobs;
 // which row of memory each of its rows has, and the line size of each row
 // of memory. Only a scroll, a line size, a change of height, or another
 // screen showing changes it, so most bytes leave the row words as they are.
+// The selection's own flag (vterm_selection.changed) says when it changed.
 // And whether the words showed a smooth scroll moving, and the frame they
 // were written in.
 static struct
@@ -213,6 +214,31 @@ static bool draw_sst_get_bufs(sst_cursor_t *c, unsigned flags)
     return true;
 }
 
+/* The selection, as the two words the RIA sends the VGA
+ * (vterm_select_words), which the load checks against the rows it loaded
+ * above: a selection that shows is on rows of its grid's height, in order.
+ * Its count of the user's changes is the RIA's alone, and not saved. */
+static void draw_sst_put_selection(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t start, end;
+    vterm_select_words(&start, &end);
+    sst_put_u16(c, start);
+    sst_put_u16(c, end);
+}
+
+static bool draw_sst_get_selection(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    const uint16_t start = sst_get_u16(c);
+    const uint16_t end = sst_get_u16(c);
+    if (!sst_ok(c))
+        return false;
+    if (!vterm_select_apply(start, end))
+        return sst_refuse(c, "a selection of no rows of its screen");
+    return true;
+}
+
 #define DRAW_BLINK_SST_ROWS(Y, s)                                      \
     Y(U32, s.cursor_frame) Y(BOOL, s.cursor_lit)                       \
     Y(U32, s.cell_blink_frame) Y(U8, s.cell_blink_phase)
@@ -290,6 +316,8 @@ static bool draw_sst_palette_ok(sst_cursor_t *c)
     X(IN_FN, vterm_80.row_idx)                                         \
     X(IN_FN, vterm_80.bufs)                                            \
     X(VALIDATE, draw_sst_lines_ok)                                     \
+    X(FN, draw_sst_put_selection, draw_sst_get_selection, 4, 1)        \
+    X(IN_FN, vterm_selection)                                          \
     X(STRUCT, draw_40, DRAW_BLINK_SST_ROWS)                            \
     X(STRUCT, draw_80, DRAW_BLINK_SST_ROWS)                            \
     X(FN, draw_sst_put_smooth, draw_sst_get_smooth, 1, 1)              \
@@ -358,13 +386,31 @@ static inline bool draw_bytes_differ(const uint8_t *a, const uint8_t *b, unsigne
     return diff != 0;
 }
 
+// The columns of row of memory m of s the selection takes, as mode 0's
+// row word carries them, while it shows on s: all of the row's but on its
+// first row and its last, each row's own columns, half the width on a row
+// of double width. None otherwise.
+static uint32_t draw_row_selection(const screen_t *s, uint8_t m)
+{
+    const screen_selection_t *v = &vterm_selection;
+    if (!screen_selection_on(s) || !((v->rows >> m) & 1))
+        return 0;
+    const unsigned cols = screen_mem_size(s, m) ? s->cells->width / 2u : s->cells->width;
+    const unsigned from = m == v->start_row ? v->start_col : 0;
+    const unsigned to = m == v->end_row ? v->end_col : cols;
+    return from < to ? MODE0_ROW_SELECT(from, to) : 0;
+}
+
+// The row words are written again for a new layout, and for a change of
+// the selection, as one picture with the rest.
 void draw_publish(void)
 {
     draw_follow_palette();
     const term_grid_t *g = vterm_get_shown(&vterm);
     draw_blinks_t *d = draw_blinks(g);
     const screen_t *s = g->shown;
-    if (draw_published.screen != s || draw_published.y_offset != s->y_offset ||
+    if (vterm_selection.changed || draw_published.screen != s ||
+        draw_published.y_offset != s->y_offset ||
         draw_published.height != g->height ||
         draw_bytes_differ(draw_published.row_idx, s->row_idx, TERM_MAX_HEIGHT, 0xFF) ||
         draw_bytes_differ(draw_published.line, s->line, TERM_MEM_ROWS, SCREEN_LINE_SIZE))
@@ -374,8 +420,14 @@ void draw_publish(void)
         draw_published.height = g->height;
         memcpy(draw_published.row_idx, s->row_idx, TERM_MAX_HEIGHT);
         memcpy(draw_published.line, s->line, TERM_MEM_ROWS);
+        vterm_selection.changed = false;
         for (uint8_t y = 0; y < g->height; y++)
-            mode0_regs.row[y] = MODE0_ROW(screen_row(s, y) - mode0_cells, screen_size(s, y));
+        {
+            const uint8_t m = screen_mem(s, y);
+            mode0_regs.row[y] = MODE0_ROW(screen_mem_row(s, m) - mode0_cells,
+                                          screen_mem_size(s, m)) |
+                                draw_row_selection(s, m);
+        }
     }
     const term_pos_t *pos = term_pos(g);
     // A cursor with a wrap pending is on the column it wrote, as on a VT100.
@@ -532,10 +584,12 @@ void draw_task(void)
     draw_stale |= draw_cell_blink_phase_task(&draw_40);
     draw_stale |= draw_cell_blink_phase_task(&draw_80);
     // Another size or screen showing is published too, a new height, which
-    // moves the rows, and a color changed. With DRAW_PUBLISH_PER_FRAME, once
-    // a frame at most.
+    // moves the rows, a color changed, and the selection changed, which may
+    // come with no byte of the console. With DRAW_PUBLISH_PER_FRAME, once a
+    // frame at most.
     const term_grid_t *g = vterm_get_shown(&vterm);
-    if ((draw_stale || vterm_palette_changed || draw_published.screen != g->shown ||
+    if ((draw_stale || vterm_palette_changed || vterm_selection.changed ||
+         draw_published.screen != g->shown ||
          draw_published.height != g->height) &&
         !(DRAW_PUBLISH_PER_FRAME && draw_published.frame == draw_frame()))
         draw_publish();

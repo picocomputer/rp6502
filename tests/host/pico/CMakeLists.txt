@@ -55,6 +55,18 @@ rp6502_add_test(ria_cells
         TERM_MAX_HEIGHT=32 TERM_ALT_SCREEN=1 TERM_CELL_TEXT=1)
 add_dependencies(test_ria_cells rp6502_gen_c)
 
+# The Pico VGA's console screen, a job done 11 rows a pass and mode 0's
+# words written once a frame at most, built as the VGA's machine.h builds it.
+rp6502_add_test(vga_draw
+    SOURCES test_draw.c
+        ${RP6502_SRC}/core/term/draw.c ${RP6502_SRC}/core/term/term.c
+        ${RP6502_SRC}/core/term/grid.c ${RP6502_SRC}/core/term/screen.c
+        ${RP6502_SRC}/core/term/vterm.c ${RP6502_SRC}/core/term/color.c
+        ${RP6502_SRC}/core/term/cell_mode0.c
+    INCLUDES ${CMAKE_CURRENT_LIST_DIR}/stub ${RP6502_GEN}
+    DEFS TERM_MAX_HEIGHT=32 TERM_ALT_SCREEN=1 TERM_JOB_ROWS=11 DRAW_PUBLISH_PER_FRAME=1)
+add_dependencies(test_vga_draw rp6502_gen_c)
+
 # A paste of the machine's own text, through the RIA's keyboard row
 # (KEYMAP_COM_SOURCE) and its paste stage, keys typed through keymap.c, built
 # as the RIA's machine.h builds it.

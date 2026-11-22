@@ -19,20 +19,22 @@ vterm_size_t vterm_40;
 vterm_size_t vterm_80;
 vterm_smooth_t vterm_smoothing;
 vterm_placement_t vterm_placement;
+screen_selection_t vterm_selection;
 uint16_t vterm_palette[VTERM_PALETTE];
 uint16_t vterm_specials[VTERM_SPECIALS];
 bool vterm_palette_changed;
 static uint16_t vterm_code_page;
 
 /* draw.c's CELL chunk saves the terminal, both sizes, the smooth scroll,
- * where mode 0 sits, the palette and the special colors, and font.c's FONT
- * chunk the code page, with the glyphs it writes. */
+ * where mode 0 sits, the selection, the palette and the special colors, and
+ * font.c's FONT chunk the code page, with the glyphs it writes. */
 #define VTERM_SST(X)                                             \
     X(SKIP, vterm, "draw.c's CELL chunk saves it")               \
     X(SKIP, vterm_40, "draw.c's CELL chunk saves it")            \
     X(SKIP, vterm_80, "draw.c's CELL chunk saves it")            \
     X(SKIP, vterm_smoothing, "draw.c's CELL chunk saves it")     \
     X(SKIP, vterm_placement, "draw.c's CELL chunk saves it")     \
+    X(SKIP, vterm_selection, "draw.c's CELL chunk saves it")     \
     X(SKIP, vterm_palette, "draw.c's CELL chunk saves it")       \
     X(SKIP, vterm_specials, "draw.c's CELL chunk saves it")      \
     X(SKIP, vterm_palette_changed, "draw.c follows every color " \
@@ -68,12 +70,14 @@ void vterm_init(cell_t *cells)
     term_grid_t *const grids[] = {&vterm_40.grid, &vterm_80.grid};
     term_init(&vterm, grids, 2);
     vterm_placement = (vterm_placement_t){.cols = 80, .console = true};
+    vterm_selection = (screen_selection_t){.changed = true};
 }
 
 void vterm_RIS(void)
 {
     term_job_finish(&vterm);
     term_RIS(&vterm);
+    screen_selection_drop();
 }
 
 void vterm_RIS_no_clear(void)
@@ -85,21 +89,32 @@ void vterm_RIS_no_clear(void)
 
 /* ---- where mode 0 sits ------------------------------------------------- */
 
+// The record becomes p, and a selection goes when that changes it.
+static void vterm_placement_set(const vterm_placement_t *p)
+{
+    vterm_placement_t *was = &vterm_placement;
+    if (was->begin == p->begin && was->cols == p->cols && was->rows == p->rows &&
+        was->row_px == p->row_px && was->console == p->console && was->placed == p->placed)
+        return;
+    *was = *p;
+    screen_selection_drop();
+}
+
 void vterm_canvas(uint8_t cols, bool is_console)
 {
     if (is_console && vterm_placement.console)
         return;
-    vterm_placement = (vterm_placement_t){.cols = cols, .console = is_console};
+    vterm_placement_set(&(vterm_placement_t){.cols = cols, .console = is_console});
 }
 
 void vterm_place(uint8_t cols, uint8_t rows, int16_t begin, uint8_t row_px)
 {
-    vterm_placement_t *p = &vterm_placement;
-    p->begin = begin;
-    p->cols = cols;
-    p->rows = rows;
-    p->row_px = row_px;
-    p->placed = true;
+    vterm_placement_set(&(vterm_placement_t){.begin = begin,
+                                             .cols = cols,
+                                             .rows = rows,
+                                             .row_px = row_px,
+                                             .console = vterm_placement.console,
+                                             .placed = true});
     term_job_finish(&vterm);
     term_set_height(&vterm, cols == 40 ? &vterm_40.grid : &vterm_80.grid, rows);
 }
@@ -107,8 +122,110 @@ void vterm_place(uint8_t cols, uint8_t rows, int16_t begin, uint8_t row_px)
 void vterm_unplace(void)
 {
     vterm_placement = (vterm_placement_t){.cols = 80};
+    screen_selection_drop();
     term_job_finish(&vterm);
     term_set_height(&vterm, &vterm_80.grid, VTERM_SERIAL_ROWS);
+}
+
+/* ---- the selection ----------------------------------------------------- */
+
+// The selection's grid, the one whose screen it is on.
+static const term_grid_t *vterm_selection_grid(void)
+{
+    const screen_t *s = vterm_selection.screen;
+    return s == &vterm_80.grid.screen[0] || s == &vterm_80.grid.screen[1] ? &vterm_80.grid
+                                                                          : &vterm_40.grid;
+}
+
+// The rows of memory the selection takes, walking g's rows of the height
+// from its start to its end. False when its ends are not rows of the
+// height in that order, or its columns are more than their rows have.
+static bool vterm_selection_lay(const term_grid_t *g)
+{
+    screen_selection_t *v = &vterm_selection;
+    const screen_t *s = v->screen;
+    bool in = false;
+    v->rows = 0;
+    for (uint8_t y = 0; y < g->height; y++)
+    {
+        const uint8_t m = screen_mem(s, y);
+        const unsigned cols = screen_mem_size(s, m) ? g->width / 2u : g->width;
+        if (m == v->start_row)
+        {
+            if (in || v->start_col > cols)
+                return false;
+            in = true;
+        }
+        if (!in)
+            continue;
+        v->rows |= 1ull << m;
+        if (m == v->end_row)
+            return v->end_col <= cols && (m != v->start_row || v->start_col < v->end_col);
+    }
+    return false;
+}
+
+// The selection, as the user or a save state leaves it. False when the
+// ends select nothing but are not the same.
+static bool vterm_selection_set(const term_grid_t *g, uint8_t screen, uint8_t start_row,
+                                uint8_t start_col, uint8_t end_row, uint8_t end_col)
+{
+    screen_selection_t *v = &vterm_selection;
+    v->screen = &g->screen[screen];
+    v->start_row = start_row;
+    v->start_col = start_col;
+    v->end_row = end_row;
+    v->end_col = end_col;
+    v->changed = true;
+    v->shows = false;
+    if (start_row == end_row && start_col == end_col)
+        return true;
+    v->shows = screen < VTERM_SCREENS && vterm_selection_lay(g);
+    return v->shows;
+}
+
+void vterm_select(const term_grid_t *g, uint8_t screen, uint8_t start_row, uint8_t start_col,
+                  uint8_t end_row, uint8_t end_col)
+{
+    vterm_selection.unsent = true;
+    vterm_selection_set(g, screen, start_row, start_col, end_row, end_col);
+}
+
+void vterm_unselect(void)
+{
+    vterm_selection.unsent = true;
+    screen_selection_drop();
+}
+
+#define VTERM_SELECT_WORD(code, row, col) \
+    ((uint16_t)((unsigned)(col) | (unsigned)(row) << 7 | (unsigned)(code) << 13))
+#define VTERM_SELECT_COL(w) ((uint8_t)((w) & 0x7F))
+#define VTERM_SELECT_ROW(w) ((uint8_t)(((w) >> 7) & 0x3F))
+#define VTERM_SELECT_CODE(w) ((unsigned)(w) >> 13)
+_Static_assert(TERM_MEM_ROWS <= 64 && 80 < 128, "a row of memory and a column in a word");
+
+void vterm_select_words(uint16_t *start, uint16_t *end)
+{
+    const screen_selection_t *v = &vterm_selection;
+    if (!v->shows)
+    {
+        *start = *end = 0;
+        return;
+    }
+    const term_grid_t *g = vterm_selection_grid();
+    const unsigned code = (g == &vterm_80.grid) << 1 | (unsigned)(v->screen - g->screen);
+    *start = VTERM_SELECT_WORD(code, v->start_row, v->start_col);
+    *end = VTERM_SELECT_WORD(code, v->end_row, v->end_col);
+}
+
+bool vterm_select_apply(uint16_t start, uint16_t end)
+{
+    const unsigned code = VTERM_SELECT_CODE(start);
+    if (start != end && (code > 3 || code != VTERM_SELECT_CODE(end)))
+        return false;
+    return vterm_selection_set(code >> 1 ? &vterm_80.grid : &vterm_40.grid, code & 1,
+                               VTERM_SELECT_ROW(start), VTERM_SELECT_COL(start),
+                               VTERM_SELECT_ROW(end), VTERM_SELECT_COL(end));
 }
 
 uint16_t vterm_get_code_page(void)

@@ -106,11 +106,12 @@ mode0_render_wide(uint16_t *buf, uint8_t bits, const uint32_t *pair)
 }
 
 /* The pixel pairs of every cell of a row: the colors it shows, looked up
- * where they are entries of the palette, after DECSCNM and the blink phase,
- * as the four ways two pixels can land. */
+ * where they are entries of the palette, swapped by DECSCNM and swapped
+ * again in the selection's columns [from, to), then the blink phase, as
+ * the four ways two pixels can land. */
 static inline __attribute__((always_inline)) void
 mode0_row_pairs(uint32_t *pair, const mode0_cell_t *cell, const mode0_colors_t *colors,
-                int cols, uint8_t blink_mask, bool rev)
+                int cols, uint8_t blink_mask, bool rev, unsigned from, unsigned to)
 {
     for (int i = 0; i < cols; i++, cell++, colors++, pair += 4)
     {
@@ -118,7 +119,7 @@ mode0_row_pairs(uint32_t *pair, const mode0_cell_t *cell, const mode0_colors_t *
         mode0_cell_shows(cell, colors, &fg, &bg);
         fg = mode0_color(fg);
         bg = mode0_color(bg);
-        if (rev)
+        if (rev != ((unsigned)i - from < to - from))
         {
             uint16_t t = fg;
             fg = bg;
@@ -282,14 +283,18 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
     const mode0_colors_t *colors = &mode0_colors[MODE0_ROW_CELL(row_word)];
     const bool wide = size != TERM_LINE_NORMAL;
     const int cols = wide ? width / 2 : width;
+    /* The selection's columns of the row, which its word carries. */
+    const unsigned sel_from = MODE0_ROW_FROM(row_word), sel_to = MODE0_ROW_TO(row_word);
     /* The row's pairs are built for the first of its scanlines a thread
-     * draws in a frame, and again when the row or the screen's look, which
-     * holds the blink phase and DECSCNM, changes part way down it. */
+     * draws in a frame, and again when the row, the selection's columns of
+     * it, or the screen's look, which holds the blink phase and DECSCNM,
+     * changes part way down it. */
     /* The rest of the key is zero, as it is for a row built here. */
     const uint32_t key[9] = {VGA_FILL_MODE0_ROW, row_word, screen, (uint32_t)vga_frame_count()};
     if (memcmp(cache->key, key, sizeof(key)))
     {
-        mode0_row_pairs(cache->row_pair[0], cell, colors, cols, blink_mask, reverse);
+        mode0_row_pairs(cache->row_pair[0], cell, colors, cols, blink_mask, reverse, sel_from,
+                        sel_to);
         memcpy(cache->key, key, sizeof(key));
     }
     const uint32_t *pair = cache->row_pair[0];
@@ -339,17 +344,18 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
                 crgb[1] = cursor_color;
             break;
         default:
-        { // 0, 1, 2: block
+        { // 0, 1, 2: block, its glyph in what its cell shows as the
+          // background, after DECSCNM and the selection
             const mode0_cell_t *cp = cell + cx;
             uint16_t cfg, cbg;
             mode0_cell_shows(cp, colors + cx, &cfg, &cbg);
+            const bool crev = reverse != ((unsigned)cx - sel_from < sel_to - sel_from);
             uint16_t cattr = cp->attributes;
             uint8_t cbits = font_line[cp->glyph];
             if (cattr & line_mask)
                 cbits = 0xFF;
             cbits |= underline[(cattr >> TERM_ATTR_UL_SHIFT) & 7];
-            mode_pair_set(cpair, cursor_color,
-                          mode0_color(reverse ? cfg : cbg));
+            mode_pair_set(cpair, cursor_color, mode0_color(crev ? cfg : cbg));
             if (wide)
                 mode0_render_wide(crgb, cbits, cpair);
             else

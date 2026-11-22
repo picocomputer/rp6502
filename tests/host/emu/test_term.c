@@ -4102,4 +4102,487 @@ UTEST(job, a_move_of_many_rows_is_done_by_its_byte)
     ASSERT_FALSE(screen_job_pending(job_screen()));
 }
 
+/* ---- the selection (screen.h, vterm.h) ----------------------------------
+ *
+ * The console's selection on the 80-column terminal showing, made in rows
+ * of the screen and kept in rows of memory, and what drops its highlight. */
+
+/* Rows 0 to 9 of the screen full of their digit, row 0 of 0s. */
+static void sel_rows(void)
+{
+    fresh();
+    for (int y = 0; y < 10; y++)
+    {
+        char line[96];
+        memset(line, '0' + y, 80);
+        line[80] = 0;
+        feed(line);
+        if (y < 9)
+            feed("\r\n");
+    }
+    feed("\33[20;1H");
+}
+
+/* The user selects from row y0, column x0 up to row y1, column x1 of the
+ * screen showing, which sel_rows filled. */
+static void sel(int y0, int x0, int y1, int x1)
+{
+    term_grid_t *g = vterm_get_shown(&vterm);
+    const screen_t *s = g->shown;
+    vterm_select(g, (uint8_t)(s - g->screen), screen_mem(s, (uint8_t)y0), (uint8_t)x0,
+                 screen_mem(s, (uint8_t)y1), (uint8_t)x1);
+}
+
+static bool sel_shows(void)
+{
+    return vterm_selection.shows;
+}
+
+/* The selection's columns of row y, as the row word draw.c writes carries
+ * them, from and to packed as from * 100 + to; 0 for none. */
+static unsigned sel_word(int y)
+{
+    draw_task();
+    const uint32_t w = mode0_regs.row[y];
+    return MODE0_ROW_FROM(w) * 100u + MODE0_ROW_TO(w);
+}
+
+/* A selection whose start is its end is none, and one whose end comes
+ * before its start is none too. */
+UTEST(select, a_start_at_its_end_selects_nothing)
+{
+    sel_rows();
+    sel(2, 5, 2, 5);
+    ASSERT_FALSE(sel_shows());
+    sel(3, 0, 2, 5);
+    ASSERT_FALSE(sel_shows());
+    sel(2, 5, 2, 6);
+    ASSERT_TRUE(sel_shows());
+    vterm_unselect();
+    ASSERT_FALSE(sel_shows());
+}
+
+/* A glyph drops it when it lands in its columns, and not just outside
+ * them: the start's column is in it, the end's is not. */
+UTEST(select, a_glyph_drops_it_in_its_columns)
+{
+    sel_rows();
+    sel(2, 5, 2, 10);
+    feed("\33[3;5Hx\33[3;11Hx\33[2;6Hx\33[4;6Hx");
+    ASSERT_TRUE(sel_shows());
+    feed("\33[3;10Hx");
+    ASSERT_FALSE(sel_shows());
+    sel(2, 5, 2, 10);
+    feed("\33[3;6Hx");
+    ASSERT_FALSE(sel_shows());
+}
+
+/* Over several rows it takes the start's row from its column, the rows
+ * between whole, and the end's row up to its column. */
+UTEST(select, over_rows_it_takes_the_rows_between_whole)
+{
+    sel_rows();
+    sel(2, 5, 4, 10);
+    feed("\33[3;5Hx\33[5;11Hx");
+    ASSERT_TRUE(sel_shows());
+    feed("\33[3;80Hx");
+    ASSERT_FALSE(sel_shows());
+    sel(2, 5, 4, 10);
+    feed("\33[4;1Hx");
+    ASSERT_FALSE(sel_shows());
+    sel(2, 5, 4, 10);
+    feed("\33[5;10Hx");
+    ASSERT_FALSE(sel_shows());
+}
+
+/* An erase, an insert and a delete of one row drop it when they reach its
+ * columns: an insert or a delete moves every cell to the end of the row. */
+UTEST(select, an_erase_insert_or_delete_reaching_it_drops_it)
+{
+    sel_rows();
+    sel(2, 5, 4, 10);
+    feed("\33[5;11H\33[K\33[5;11H\33[4@\33[5;11H\33[4P\33[3;1H\33[4X\33[1;1H\33[2K");
+    ASSERT_TRUE(sel_shows());
+    feed("\33[5;10H\33[X");
+    ASSERT_FALSE(sel_shows());
+    sel(2, 5, 4, 10);
+    feed("\33[3;1H\33[K");
+    ASSERT_FALSE(sel_shows());
+    sel(2, 5, 4, 10);
+    feed("\33[3;1H\33[@");
+    ASSERT_FALSE(sel_shows());
+    sel(2, 5, 4, 10);
+    feed("\33[5;1H\33[P");
+    ASSERT_FALSE(sel_shows());
+}
+
+/* A job of more than one row drops it when it works on its columns: a fill
+ * (an erase of rows, DECFRA), a move (DECCRA into it), a shift (SL), a
+ * wipe (DECSERA) and REP's rows. One that misses it keeps it, and a change
+ * of attributes (DECCARA, DECRARA) never drops it. */
+UTEST(select, a_job_reaching_it_drops_it)
+{
+    static const struct
+    {
+        const char *seq;
+        bool keeps;
+    } cases[] = {
+        {"\33[6;1H\33[J", true},
+        {"\33[5;1H\33[J", false},
+        {"\33[1;1H\33[1J", true},
+        {"\33[4;1H\33[1J", false},
+        {"\33[88;1;1;2;80$x", true},
+        {"\33[88;1;1;3;5$x", true},
+        {"\33[88;1;1;3;6$x", false},
+        {"\33[3;1;3;80;1;7;1;1$v", true},
+        {"\33[7;1;7;80;1;4;1;1$v", false},
+        {"\33[1;1;2;80$z", true},
+        {"\33[2;1;9;80${", false},
+        {"\33[2;1;9;80;7$r", true},
+        {"\33[2;1;9;80;7$t", true},
+        {"\33[6;10r\33[7;1H\33[2 @", true},
+        {"\33[1;10r\33[5;1H\33[2 @", false},
+        {"\33[7;1Hx\33[200b", true},
+        {"\33[1;1Hx\33[200b", false},
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof *cases; i++)
+    {
+        sel_rows();
+        sel(2, 5, 4, 10);
+        feed(cases[i].seq);
+        EXPECT_EQ(sel_shows(), cases[i].keeps);
+        if (sel_shows() != cases[i].keeps)
+            printf("case %u: %s\n", (unsigned)i, cases[i].seq + 1);
+    }
+}
+
+/* A scroll of the whole screen moves it with its rows, and drops it when
+ * one of its rows goes out at the top. */
+UTEST(select, a_scroll_moves_it_and_one_taking_its_row_out_drops_it)
+{
+    sel_rows();
+    sel(2, 5, 4, 10);
+    ASSERT_EQ(sel_word(2), 580u);
+    feed("\33[30;1H\n\n");
+    ASSERT_TRUE(sel_shows());
+    ASSERT_EQ(sel_word(0), 580u);
+    ASSERT_EQ(sel_word(1), 80u);
+    ASSERT_EQ(sel_word(2), 10u);
+    ASSERT_EQ(sel_word(3), 0u);
+    feed("\n");
+    ASSERT_FALSE(sel_shows());
+    ASSERT_EQ(sel_word(0), 0u);
+    /* A reverse index takes the last row out. */
+    sel_rows();
+    sel(27, 0, 29, 3);
+    feed("\33[1;1H\33M");
+    ASSERT_FALSE(sel_shows());
+}
+
+/* A smooth scroll is the same: its row going out drops it, and a row it
+ * keeps moving out is never one of the selection's. */
+UTEST(select, a_smooth_index_moves_it_too)
+{
+    sel_rows();
+    feed("\33[?4h");
+    sel(3, 0, 4, 80);
+    feed("\33[30;1H\n");
+    ASSERT_TRUE(sel_shows());
+    ASSERT_EQ(sel_word(2), 80u);
+    sel(0, 0, 0, 3);
+    for (int i = 0; i < 20; i++)
+        vga_run_frame();
+    feed("\n");
+    ASSERT_FALSE(sel_shows());
+}
+
+/* A REP that scrolls moves it, or drops it with the row it takes out. */
+UTEST(select, a_rep_that_scrolls_moves_or_drops_it)
+{
+    sel_rows();
+    sel(5, 0, 5, 80);
+    feed("\33[30;1Hx\33[160b");
+    ASSERT_TRUE(sel_shows());
+    ASSERT_EQ(sel_word(3), 80u);
+    sel(1, 0, 1, 80);
+    feed("\33[30;1Hx\33[160b");
+    ASSERT_FALSE(sel_shows());
+}
+
+/* At a height of fewer rows than the ring, the row going out joins the
+ * rows above row 0, which drops a selection it is in. */
+UTEST(select, the_rows_above_row_0_hold_none)
+{
+    sel_rows();
+    vterm_place(80, 20, 0, 16);
+    sel(0, 0, 1, 80);
+    ASSERT_TRUE(sel_shows());
+    feed("\33[20;1H\n");
+    ASSERT_FALSE(sel_shows());
+    sel(4, 0, 5, 80);
+    feed("\n");
+    ASSERT_TRUE(sel_shows());
+    ASSERT_EQ(sel_word(3), 80u);
+    vterm_place(80, 30, 0, 16);
+}
+
+/* Output on the other screen keeps it, and it shows only while its screen
+ * does. Selecting on the other screen moves it there. */
+UTEST(select, it_is_its_screens_alone)
+{
+    sel_rows();
+    sel(2, 5, 4, 10);
+    feed("\33[?1049hhello\33[2J\33[3;1Hthere");
+    ASSERT_TRUE(sel_shows());
+    ASSERT_EQ(sel_word(2), 0u);
+    feed("\33[?1049l");
+    ASSERT_TRUE(sel_shows());
+    ASSERT_EQ(sel_word(2), 580u);
+    feed("\33[?1049h");
+    sel(0, 0, 0, 2);
+    ASSERT_EQ(sel_word(0), 2u);
+    ASSERT_EQ(sel_word(2), 0u);
+    feed("\33[?1049l");
+    ASSERT_EQ(sel_word(0), 0u);
+    ASSERT_EQ(sel_word(2), 0u);
+}
+
+/* A selected row taking another size drops it, and the same size or a row
+ * outside it keeps it. DECLRMM's set makes every line single size. */
+UTEST(select, a_selected_row_changing_size_drops_it)
+{
+    sel_rows();
+    sel(2, 5, 4, 10);
+    feed("\33[6;1H\33#6\33[3;1H\33#5");
+    ASSERT_TRUE(sel_shows());
+    feed("\33#6");
+    ASSERT_FALSE(sel_shows());
+    feed("\33#5");
+    sel(2, 5, 4, 10);
+    feed("\33[?69h");
+    ASSERT_TRUE(sel_shows());
+    feed("\33[?69l\33[3;1H\33#6");
+    sel(2, 5, 4, 10);
+    ASSERT_EQ(sel_word(2), 540u);
+    feed("\33[?69h");
+    ASSERT_FALSE(sel_shows());
+}
+
+/* A scroll of some rows that holds some of its rows and not all, which
+ * would open a gap in it, drops it, as does one that takes one of its rows
+ * out at the edge. One that holds it all and takes none out moves it. */
+UTEST(select, a_scroll_of_some_rows_moves_or_drops_it)
+{
+    sel_rows();
+    sel(2, 5, 4, 10);
+    feed("\33[4;10r\33[S");
+    ASSERT_FALSE(sel_shows());
+    sel_rows();
+    sel(2, 5, 4, 10);
+    feed("\33[1;10r\33[S");
+    ASSERT_TRUE(sel_shows());
+    ASSERT_EQ(sel_word(1), 580u);
+    feed("\33[3;10r\33[T");
+    ASSERT_FALSE(sel_shows());
+    sel_rows();
+    sel(2, 5, 4, 10);
+    feed("\33[6;10r\33[S\33[r\33[8;1H\33[L");
+    ASSERT_TRUE(sel_shows());
+    feed("\33[4;1H\33[M");
+    ASSERT_FALSE(sel_shows());
+    /* Between left and right margins a scroll is a move of cells. */
+    sel_rows();
+    sel(2, 0, 2, 10);
+    feed("\33[?69h\33[11;20s\33[1;10r\33[S");
+    ASSERT_TRUE(sel_shows());
+    feed("\33[1;10s\33[S");
+    ASSERT_FALSE(sel_shows());
+}
+
+/* RIS clears it, and so do a clear of its screen and a new height. */
+UTEST(select, a_reset_clear_or_new_height_drops_it)
+{
+    sel_rows();
+    sel(2, 5, 4, 10);
+    feed("\33c");
+    ASSERT_FALSE(sel_shows());
+    sel_rows();
+    sel(2, 5, 4, 10);
+    feed("\33[2J");
+    ASSERT_FALSE(sel_shows());
+    sel_rows();
+    sel(2, 5, 4, 10);
+    vterm_RIS();
+    ASSERT_FALSE(sel_shows());
+    sel_rows();
+    sel(2, 5, 4, 10);
+    vterm_place(80, 29, 0, 16);
+    ASSERT_FALSE(sel_shows());
+    vterm_place(80, 30, 0, 16);
+}
+
+/* The system's soft reset at a program's end keeps it on the 80-column
+ * terminal's primary screen, and drops one on the alternate screen, which
+ * it erases. */
+UTEST(select, the_soft_reset_keeps_it)
+{
+    sel_rows();
+    sel(2, 5, 4, 10);
+    vterm_RIS_no_clear();
+    ASSERT_TRUE(sel_shows());
+    feed("\33[!p");
+    ASSERT_TRUE(sel_shows());
+    feed("\33[?1049h");
+    sel(2, 5, 4, 10);
+    ASSERT_TRUE(sel_shows());
+    ASSERT_TRUE(vterm_selection.screen == &vterm_get_shown(&vterm)->screen[1]);
+    vterm_RIS_no_clear();
+    ASSERT_FALSE(sel_shows());
+}
+
+/* A save state carries the selection, and a load checks it against the
+ * rows it loads: one whose ends are not rows of its screen in order is
+ * refused. */
+UTEST(select, a_savestate_carries_it)
+{
+    static uint8_t blob[1 << 18];
+    sel_rows();
+    feed("\33[30;1H\n\n");
+    sel(2, 5, 4, 10);
+    const screen_selection_t was = vterm_selection;
+    sst_cursor_t c = {blob, blob + draw_sst.size, false, NULL};
+    draw_sst.save(&c, 0);
+    ASSERT_TRUE(sst_ok(&c));
+    feed("\33c");
+    ASSERT_FALSE(sel_shows());
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    ASSERT_TRUE(draw_sst.load(&c, 0));
+    ASSERT_TRUE(sel_shows());
+    ASSERT_TRUE(vterm_selection.screen == was.screen);
+    ASSERT_EQ(vterm_selection.rows, was.rows);
+    ASSERT_EQ(vterm_selection.start_row, was.start_row);
+    ASSERT_EQ(vterm_selection.end_col, was.end_col);
+    ASSERT_EQ(sel_word(2), 580u);
+    /* Its start below its end. */
+    const uint8_t start = vterm_selection.start_row;
+    vterm_selection.start_row = vterm_selection.end_row;
+    vterm_selection.end_row = start;
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    draw_sst.save(&c, 0);
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    ASSERT_FALSE(draw_sst.load(&c, 0));
+    /* None loads as none. */
+    fresh();
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    draw_sst.save(&c, 0);
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    ASSERT_TRUE(draw_sst.load(&c, 0));
+    ASSERT_FALSE(sel_shows());
+}
+
+/* ---- mode 0 draws the selection ---- */
+
+/* The row words carry each row's columns of it: the start's row from its
+ * column, the rows between whole, the end's row to its column, a row of
+ * double width in its own columns, and the ghost of a smooth scroll none. A
+ * drop takes them all away, with no byte after it. */
+UTEST(select, the_row_words_carry_it)
+{
+    sel_rows();
+    feed("\33[5;1H\33#6");
+    sel(2, 5, 4, 30);
+    ASSERT_EQ(sel_word(1), 0u);
+    ASSERT_EQ(sel_word(2), 580u);
+    ASSERT_EQ(sel_word(3), 80u);
+    ASSERT_EQ(sel_word(4), 30u);
+    ASSERT_EQ(sel_word(5), 0u);
+    sel(3, 0, 4, 40);
+    ASSERT_EQ(sel_word(4), 40u);
+    ASSERT_EQ(sel_word(2), 0u);
+    vterm_unselect();
+    ASSERT_EQ(sel_word(3), 0u);
+    ASSERT_EQ(sel_word(4), 0u);
+}
+
+/* A change of the selection with no byte of the console after it is
+ * published by draw_task alone. */
+UTEST(select, draw_task_publishes_it_alone)
+{
+    sel_rows();
+    draw_task();
+    sel(2, 5, 2, 10);
+    ASSERT_EQ(MODE0_ROW_FROM(mode0_regs.row[2]), 0);
+    draw_task();
+    ASSERT_EQ(MODE0_ROW_FROM(mode0_regs.row[2]), 5);
+    ASSERT_EQ(MODE0_ROW_TO(mode0_regs.row[2]), 10);
+    ASSERT_FALSE(vterm_selection.changed);
+    vterm_unselect();
+    draw_task();
+    ASSERT_EQ(MODE0_ROW_TO(mode0_regs.row[2]), 0);
+}
+
+/* A pixel of a cell: its first scanline's second pixel, a space's ground. */
+static uint32_t sel_pixel(const uint32_t *fb, int x, int y)
+{
+    return fb[(y * 16 + 1) * 640 + x * 8 + 1];
+}
+
+/* The selection's cells are drawn with their colors swapped over what
+ * DECSCNM draws, as reverse video draws them. */
+UTEST(select, mode_0_draws_its_cells_swapped)
+{
+    static uint32_t fb[640 * 480];
+    fresh();
+    feed("\33[?25l\33[7m \33[m\r\n\33[41m    \33[m\33[2;3H\33[41;7m \33[m\33[20;1H");
+    sel(1, 1, 1, 2);
+    draw_task();
+    vga_draw(fb);
+    const uint32_t ink = sel_pixel(fb, 0, 0), red = sel_pixel(fb, 0, 1);
+    ASSERT_NE(ink, red);
+    ASSERT_EQ(sel_pixel(fb, 1, 1), ink);
+    ASSERT_EQ(sel_pixel(fb, 2, 1), ink);
+    ASSERT_EQ(sel_pixel(fb, 3, 1), red);
+    feed("\33[?5h");
+    draw_task();
+    vga_draw(fb);
+    ASSERT_EQ(sel_pixel(fb, 1, 1), red);
+    ASSERT_EQ(sel_pixel(fb, 0, 1), ink);
+    feed("\33[?5l");
+    vterm_unselect();
+    draw_task();
+    vga_draw(fb);
+    ASSERT_EQ(sel_pixel(fb, 1, 1), red);
+}
+
+/* The block cursor draws its glyph in what its cell shows as the ground:
+ * the cell's ink when the cell is selected. */
+UTEST(select, the_block_cursor_draws_over_it)
+{
+    static uint32_t fb[640 * 480];
+    fresh();
+    feed("\33]12;#0000ff\7\33[2 q\33[7m \33[m \r\n#\33[2;1H");
+    const int x = 0, y = 1;
+    for (int pass = 0; pass < 2; pass++)
+    {
+        if (pass)
+            sel(1, 0, 1, 1);
+        draw_task();
+        vga_draw(fb);
+        const uint32_t cursor = sel_pixel(fb, x, y);
+        const uint32_t want = pass ? sel_pixel(fb, 0, 0) : sel_pixel(fb, 1, 0);
+        unsigned glyph = 0;
+        for (int py = 0; py < 16; py++)
+            for (int px = 0; px < 8; px++)
+            {
+                const uint32_t p = fb[(y * 16 + py) * 640 + x * 8 + px];
+                if (p != cursor)
+                {
+                    ASSERT_EQ(p, want);
+                    glyph++;
+                }
+            }
+        ASSERT_GT(glyph, 0u);
+    }
+}
+
 UTEST_MAIN();

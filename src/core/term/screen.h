@@ -69,6 +69,64 @@ static inline uint8_t screen_mem(const screen_t *s, uint8_t y)
     return s->row_idx ? s->row_idx[slot] : slot;
 }
 
+/* ---- the selection ------------------------------------------------------
+ *
+ * The console's one selection, kept in the terminal's state on every chip
+ * (vterm.h), because the store is what drops its highlight. It is on a
+ * screen of one of the console's grids, from row of memory start_row,
+ * column start_col, up to row of memory end_row, column end_col, that cell
+ * not taken. Its columns are each row's own, half the grid's width on a row
+ * of double width. It is kept in rows of memory, which never move, so a
+ * scroll that keeps it never changes it: the scroll only changes which row
+ * of the screen each of its rows shows on. rows has a bit for each row of
+ * memory it takes: its first, its last and those the screen shows between
+ * them, all of them rows of the grid's height. The ghost of a smooth scroll
+ * and the spare row are never among them, since a selected row going out
+ * drops it.
+ *
+ * Its highlight shows until the user ends it or a change to its cells
+ * drops it, as on xterm: a glyph, an erase, an insert or a delete that
+ * reaches its columns; a job of any kind but SCREEN_JOB_ATTRS that does; a
+ * selected row leaving the rows of the height; a scroll of some of the
+ * screen's rows that holds some of its rows and not all, which would open
+ * a gap in it; one of its rows taking another line size; a change of the
+ * grid's height; a clear or a reset of its screen. A change of attributes
+ * alone, DECCARA's and DECRARA's, keeps it. A job is judged as it starts,
+ * before it changes a cell, so a chip that does a job over passes of its
+ * main loop drops the selection at the same byte as one that does it at
+ * once. A selection whose start is its end is none. */
+typedef struct
+{
+    uint64_t rows;                // a bit for each row of memory it takes
+    const screen_t *screen;       // the screen it was made on
+    uint8_t start_row, start_col; // where it starts: a row of memory, a column
+    uint8_t end_row, end_col;     // and where it ends, that cell not taken
+    bool shows;                   // its highlight shows: made, and not dropped
+    bool changed;                 // since mode 0's row words were last written
+    bool unsent;                  // a change of the user's the RIA has not sent
+} screen_selection_t;
+extern screen_selection_t vterm_selection;
+
+_Static_assert(TERM_MEM_ROWS <= 64, "a bit of the selection for each row of memory");
+
+// Whether the selection shows on s: the first test of every drop, so the
+// cost of one where there is none is a load and a compare.
+static inline bool screen_selection_on(const screen_t *s)
+{
+    return vterm_selection.shows && s == vterm_selection.screen;
+}
+
+// The highlight goes, and the ends stay as they were.
+static inline void screen_selection_drop(void)
+{
+    vterm_selection.shows = false;
+    vterm_selection.changed = true;
+}
+
+// Columns [from, to) of row of memory m of the screen the selection shows
+// on change: it drops when it takes one of them.
+void screen_selection_touch(uint8_t m, unsigned from, unsigned to);
+
 // The line attributes of a row: bits 0-1 its size, TERM_LINE_, and bit 2
 // TERM_LINE_WRAPPED.
 #define SCREEN_LINE_SIZE 3u
@@ -87,10 +145,13 @@ static inline uint8_t screen_size(const screen_t *s, uint8_t y)
 }
 
 // Row y of the screen takes a line size, TERM_LINE_, and keeps whether it
-// wrapped.
+// wrapped. A selected row that changes size drops the selection.
 static inline void screen_set_size(screen_t *s, uint8_t y, uint8_t size)
 {
-    uint8_t *line = &s->line[screen_mem(s, y)];
+    const uint8_t m = screen_mem(s, y);
+    uint8_t *line = &s->line[m];
+    if (screen_selection_on(s) && (*line & SCREEN_LINE_SIZE) != size)
+        screen_selection_touch(m, 0, UINT8_MAX);
     *line = (uint8_t)((*line & ~SCREEN_LINE_SIZE) | size);
 }
 

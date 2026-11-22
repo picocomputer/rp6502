@@ -254,6 +254,21 @@ void vterm_place(uint8_t cols, uint8_t rows, int16_t begin, uint8_t row_px)
     (void)cols; (void)rows; (void)begin; (void)row_px;
 }
 void vterm_unplace(void) {}
+/* The selection: a case makes a change of the user's by marking it unsent
+ * and giving the words it encodes to. */
+screen_selection_t vterm_selection;
+static uint16_t select_start, select_end;
+void vterm_select_words(uint16_t *start, uint16_t *end)
+{
+    *start = select_start;
+    *end = select_end;
+}
+static void user_selects(uint16_t start, uint16_t end)
+{
+    select_start = start;
+    select_end = end;
+    vterm_selection.unsent = true;
+}
 void term_write(term_t *t, uint8_t ch)
 {
     (void)t;
@@ -822,6 +837,65 @@ UTEST(vga, ria_flashing_sends_nothing_awaited)
     ASSERT_TRUE(vga_console_ready());
     ASSERT_LT(sent_find(0xF, 0x01, from), 0);
     ASSERT_LT(sent_find(0xF, 0x00, from), 0);
+}
+
+/* ---- the selection ----------------------------------------------------- */
+
+/* A change of the user's goes as SELECT_START then SELECT_END, the words
+ * of the selection as it is when it goes, once a frame at most, and
+ * nothing goes without one. */
+UTEST(vga, a_selection_goes_once_a_frame)
+{
+    boot_settled();
+    unsigned from = sent_count;
+    vga_task();
+    ASSERT_LT(sent_find(0xF, 0x0B, from), 0);
+    user_selects(0x1234, 0x1300);
+    vga_task();
+    int at = sent_find(0xF, 0x0B, from);
+    ASSERT_GE(at, 0);
+    ASSERT_EQ(sent[at].word, 0x1234);
+    ASSERT_EQ((int)sent_find(0xF, 0x0C, from), at + 1);
+    ASSERT_EQ(sent[at + 1].word, 0x1300);
+    from = sent_count;
+    user_selects(0x0001, 0x0002);
+    user_selects(0x0003, 0x0004);
+    vga_task();
+    ASSERT_LT(sent_find(0xF, 0x0B, from), 0);
+    advance_ms(40); /* the frames go on by the clock */
+    vga_task();
+    at = sent_find(0xF, 0x0B, from);
+    ASSERT_GE(at, 0);
+    ASSERT_EQ(sent[at].word, 0x0003);
+    ASSERT_EQ(sent[at + 1].word, 0x0004);
+    ASSERT_LT(sent_find(0xF, 0x0B, (unsigned)at + 1), 0);
+    from = sent_count;
+    advance_ms(40);
+    vga_task();
+    ASSERT_LT(sent_find(0xF, 0x0B, from), 0);
+}
+
+/* Nothing goes with no VGA, nor once a flash has begun, when nothing in
+ * flash may run. */
+UTEST(vga, no_selection_goes_while_flashing)
+{
+    boot_settled();
+    vga_flashing();
+    unsigned from = sent_count;
+    user_selects(0x1234, 0x1300);
+    advance_ms(40);
+    vga_task();
+    ASSERT_LT(sent_find(0xF, 0x0B, from), 0);
+}
+
+UTEST(vga, no_selection_goes_with_no_vga)
+{
+    boot(false, false);
+    unsigned from = sent_count;
+    user_selects(0x1234, 0x1300);
+    advance_ms(40);
+    vga_task();
+    ASSERT_LT(sent_find(0xF, 0x0B, from), 0);
 }
 
 UTEST_MAIN()

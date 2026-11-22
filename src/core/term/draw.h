@@ -42,12 +42,17 @@ void draw_task(void);
  * setting the heights again to its next task. */
 void draw_restart(void);
 
-/* Writes mode 0's words for the size showing. draw_out_chars calls it
- * after each batch of the console's bytes (with DRAW_PUBLISH_PER_FRAME,
- * draw_task does), and draw_task after the blinks, a reset, a new height or
- * another size showing. Something else that
- * changes what shows calls it too: a savestate load that puts the canvas
- * back, or a test that feeds term_write directly. */
+/* Writes mode 0's words for the size showing, the selection's columns of
+ * each row in its row word while the selection shows on the screen
+ * showing. The ghost row of a smooth scroll and the spare row are never
+ * the selection's (screen.h), so smooth_ghost carries none.
+ * draw_out_chars calls it after each batch of the console's bytes (with
+ * DRAW_PUBLISH_PER_FRAME, draw_task does), and draw_task after the blinks,
+ * a reset, a new height, another size showing or a change of the
+ * selection, which can come with no byte of the console: the mouse's, or
+ * the RIA's sent to the VGA. Something else that changes what shows calls
+ * it too: a savestate load that puts the canvas back, or a test that feeds
+ * term_write directly. */
 void draw_publish(void);
 
 /* The console's bytes that came while a job was pending (TERM_JOB_ROWS),
@@ -71,9 +76,10 @@ void draw_job_started(void);
 
 /* The chunk holds the console's terminal (term.h) and both sizes in full:
  * each one's grid, where mode 0 sits (vterm.h), the layout of its screens'
- * cells (the scroll remap) and its blinks, then the smooth scroll and the
- * palette (color.h). The cells and their colors are MODE0_DRIVER's
- * (mode0.h), which follows this one in the driver list. */
+ * cells (the scroll remap), the selection (screen.h) and its blinks, then
+ * the smooth scroll and the palette (color.h). The cells and their colors
+ * are MODE0_DRIVER's (mode0.h), which follows this one in the driver
+ * list. */
 extern const sst_table_t draw_sst;
 
 #define DRAW_DRIVER DRIVER(                                    \

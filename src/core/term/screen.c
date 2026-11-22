@@ -12,14 +12,69 @@
 #include <limits.h>
 #include <string.h>
 
+/* ---- the selection ----------------------------------------------------- */
+
+// The columns of row of memory m the selection takes: all of them but on
+// its first row, which starts at its start, and its last, which ends at
+// its end.
+void screen_selection_touch(uint8_t m, unsigned from, unsigned to)
+{
+    const screen_selection_t *v = &vterm_selection;
+    if (!((v->rows >> m) & 1))
+        return;
+    const unsigned first = m == v->start_row ? v->start_col : 0;
+    const unsigned last = m == v->end_row ? v->end_col : UINT8_MAX;
+    if (from < last && first < to)
+        screen_selection_drop();
+}
+
+// Every row of memory of a screen the selection shows on goes single size:
+// a selected row that was not drops it.
+static void screen_selection_sizes(const screen_t *s)
+{
+    for (unsigned m = 0; m < s->mem_rows; m++)
+        if (s->line[m] & SCREEN_LINE_SIZE)
+            screen_selection_touch((uint8_t)m, 0, UINT8_MAX);
+}
+
+// Rows [top, bot] of a screen the selection shows on turn n rows round the
+// ring: it drops when they hold some of its rows and not all, which would
+// open a gap in it, or when one of its rows is among the n going out at
+// the edge, which come round to the other edge to be erased. A selection
+// all inside them that none of them takes out moves with them.
+static void screen_selection_rotate(const screen_t *s, uint8_t top, uint8_t bot, uint8_t n,
+                                    bool up)
+{
+    const uint64_t rows = vterm_selection.rows;
+    const unsigned out_from = up ? top : (unsigned)bot + 1 - n;
+    const unsigned out_to = up ? (unsigned)top + n : (unsigned)bot + 1;
+    uint64_t in = 0, out = 0;
+    for (unsigned y = top; y <= bot; y++)
+    {
+        const uint64_t bit = 1ull << screen_mem(s, (uint8_t)y);
+        in |= bit;
+        if (y >= out_from && y < out_to)
+            out |= bit;
+    }
+    if ((in & rows) && ((in & rows) != rows || (out & rows)))
+        screen_selection_drop();
+}
+
 // The ring a screen's rows are laid out in (screen.h). Every machine keeps
 // it for every screen, with cells or without.
 
-// Rows [from, to) keep only the line attributes in keep.
+// Rows [from, to) keep only the line attributes in keep. A selected row
+// whose size that changes drops the selection; whether it wrapped is no
+// matter.
 static void screen_lines_keep(screen_t *s, unsigned from, unsigned to, uint8_t keep)
 {
     for (unsigned y = from; y < to; y++)
-        s->line[screen_mem(s, (uint8_t)y)] &= keep;
+    {
+        const uint8_t m = screen_mem(s, (uint8_t)y);
+        if (screen_selection_on(s) && (s->line[m] & SCREEN_LINE_SIZE & ~keep))
+            screen_selection_touch(m, 0, UINT8_MAX);
+        s->line[m] &= keep;
+    }
 }
 
 void screen_lines_normal(screen_t *s, unsigned from, unsigned to)
@@ -39,12 +94,16 @@ void screen_lines_unwrap(screen_t *s, unsigned from, unsigned to)
 
 void screen_all_normal(screen_t *s)
 {
+    if (screen_selection_on(s))
+        screen_selection_sizes(s);
     for (unsigned m = 0; m < s->mem_rows; m++)
         s->line[m] &= TERM_LINE_WRAPPED;
 }
 
 void screen_all_blank(screen_t *s)
 {
+    if (screen_selection_on(s))
+        screen_selection_sizes(s);
     memset(s->line, 0, s->mem_rows);
 }
 
@@ -64,8 +123,11 @@ void screen_set_cells(screen_t *s, struct screen_cells *cells)
     s->cells = cells;
 }
 
+// The rows of memory take other slots, so a selection there drops.
 void screen_ring_clear(screen_t *s)
 {
+    if (screen_selection_on(s))
+        screen_selection_drop();
     s->y_offset = 0;
     s->hidden = 0;
     s->spare = s->rows;
@@ -134,6 +196,8 @@ static uint8_t screen_keep(screen_t *s, uint8_t in, uint8_t gone, bool keep)
 
 uint8_t screen_ring_scroll(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, bool up, bool keep)
 {
+    if (screen_selection_on(s))
+        screen_selection_rotate(s, top, bot, n, up);
     screen_rotate(s, top, bot, n, up);
     const uint8_t edge = (uint8_t)(up ? bot - n + 1 : top + n - 1);
     const uint8_t ghost = screen_keep(s, edge, edge, keep);
@@ -144,8 +208,12 @@ uint8_t screen_ring_scroll(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, boo
     return ghost;
 }
 
+// The row going out, row 0 up and the last row of the height down, drops a
+// selection it is in; the rest of the screen moves with it.
 uint8_t screen_ring_index(screen_t *s, uint8_t height, bool up, bool keep)
 {
+    if (screen_selection_on(s))
+        screen_selection_touch(screen_mem(s, (uint8_t)(up ? 0 : height - 1)), 0, UINT8_MAX);
     screen_turn(s, up);
     const uint8_t in = (uint8_t)(up ? height - 1 : 0);
     uint8_t ghost;
@@ -165,8 +233,11 @@ uint8_t screen_ring_index(screen_t *s, uint8_t height, bool up, bool keep)
     return ghost;
 }
 
+// A change of height drops a selection on either of the grid's screens.
 bool screen_ring_height(screen_t *s, uint8_t height, bool grow, bool top)
 {
+    if (screen_selection_on(s))
+        screen_selection_drop();
     if (!top)
     {
         if (grow)
@@ -361,6 +432,8 @@ void screen_glyphs(term_t *term, screen_t *s, uint8_t y, uint8_t x, uint8_t byte
 {
     if (!s->cells)
         return;
+    if (screen_selection_on(s))
+        screen_selection_touch(screen_mem(s, y), x, x + n);
     const cell_fill_t e = screen_glyph_cell(term, s, byte);
     cell_t *at = screen_row(s, y) + x;
     if (n == 1)
@@ -407,6 +480,8 @@ void screen_erase(term_t *term, screen_t *s, uint8_t y, unsigned from, unsigned 
 {
     if (!s->cells)
         return;
+    if (screen_selection_on(s))
+        screen_selection_touch(screen_mem(s, y), from, to);
     screen_fill_erased(term, screen_row(s, y), from, to, selective, written);
 }
 
@@ -432,6 +507,8 @@ void screen_insert(term_t *term, screen_t *s, uint8_t y, uint8_t x, unsigned end
 {
     if (!s->cells)
         return;
+    if (screen_selection_on(s))
+        screen_selection_touch(screen_mem(s, y), x, end);
     const cell_fill_t in = screen_pen_erase(term, false, true);
     screen_row_insert(screen_row(s, y), x, end, n, &in);
 }
@@ -440,6 +517,8 @@ void screen_delete(term_t *term, screen_t *s, uint8_t y, uint8_t x, unsigned end
 {
     if (!s->cells)
         return;
+    if (screen_selection_on(s))
+        screen_selection_touch(screen_mem(s, y), x, end);
     const cell_fill_t in = screen_pen_erase(term, false, false);
     screen_row_delete(screen_row(s, y), x, end, n, &in);
 }
@@ -790,11 +869,35 @@ static void screen_job_row(screen_t *s, const screen_job_t *j, uint8_t y)
     }
 }
 
+// A job of a screen the selection shows on, about to start: one of any
+// kind but a change of attributes drops the selection when it works on its
+// columns of one of its rows. The rows go as the job's go, round the ring,
+// each through its row of memory, so a REP's row above row 0 counts.
+static void screen_selection_job(const screen_t *s, const screen_job_t *j)
+{
+    if (j->kind == SCREEN_JOB_ATTRS)
+        return;
+    const unsigned rows = screen_job_done(s, j, j->last) + 1;
+    uint8_t y = j->first;
+    for (unsigned i = 0; i < rows && screen_selection_on(s); i++)
+    {
+        screen_selection_touch(screen_mem(s, y), j->left, j->right + 1u);
+        if (j->up)
+            y = (uint8_t)(y ? y - 1 : s->rows - 1);
+        else
+            y = (uint8_t)(y + 1 == s->rows ? 0 : y + 1);
+    }
+}
+
+// The selection is judged before the job changes a cell, a job of one row
+// too.
 void screen_job_start(screen_t *s, const screen_job_t *job)
 {
     if (!s->cells)
         return;
     assert(!screen_job_pending(s));
+    if (screen_selection_on(s))
+        screen_selection_job(s, job);
     if (job->first == job->last)
     {
         screen_job_row(s, job, job->first);

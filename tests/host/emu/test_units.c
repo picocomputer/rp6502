@@ -426,6 +426,59 @@ UTEST(vga, a_host_console_size_places_the_console_again)
     ASSERT_TRUE(placed_at(true, 80, 30, 0));
 }
 
+/* A selection of the first two rows of the terminal showing. */
+static void select_two_rows(void)
+{
+    term_grid_t *g = vterm_get_shown(&vterm);
+    vterm_select(g, 0, screen_mem(g->shown, 0), 0, screen_mem(g->shown, 1), 4);
+}
+
+/* Mode 0 programmed again where it is keeps the selection, and programmed
+ * somewhere new clears it; so does another canvas, and the console canvas
+ * coming back from one. The console canvas from itself, and a stop on it,
+ * keep it. */
+UTEST(vga, the_selection_outlives_mode_0_programmed_where_it_is)
+{
+    sys_init();
+    select_two_rows();
+    ASSERT_TRUE(vterm_selection.shows);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    vga_console_reset();
+    ASSERT_TRUE(vterm_selection.shows);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_360));
+    ASSERT_FALSE(vterm_selection.shows);
+    ASSERT_TRUE(program_mode0(40, 360));
+    select_two_rows();
+    ASSERT_TRUE(program_mode0(40, 360));
+    ASSERT_TRUE(vterm_selection.shows);
+    ASSERT_TRUE(program_mode0(40, 344));
+    ASSERT_FALSE(vterm_selection.shows);
+    ASSERT_TRUE(program_mode0(56, 360));
+    select_two_rows();
+    ASSERT_TRUE(program_mode0(40, 344));
+    ASSERT_FALSE(vterm_selection.shows);
+    select_two_rows();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    ASSERT_FALSE(vterm_selection.shows);
+}
+
+/* On a 320-wide canvas the stop sets the 40-column terminal back to its
+ * standard height, which drops a selection there at any other height. */
+UTEST(vga, a_stop_drops_a_selection_on_the_40_at_another_height)
+{
+    sys_init();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    ASSERT_TRUE(program_mode0(16, 224));
+    select_two_rows();
+    vterm_RIS_no_clear();
+    ASSERT_FALSE(vterm_selection.shows);
+    ASSERT_TRUE(program_mode0(0, 0));
+    select_two_rows();
+    vterm_RIS_no_clear();
+    ASSERT_TRUE(vterm_selection.shows);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
 /* Channel 0 has eight registers, as on the VGA chip, so a write to $12 sets
  * nothing rather than register 2. */
 UTEST(vga, channel_0_ignores_registers_it_lacks)

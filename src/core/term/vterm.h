@@ -109,6 +109,46 @@ void vterm_place(uint8_t cols, uint8_t rows, int16_t begin, uint8_t row_px);
 // the UART, taken to be 80x24.
 void vterm_unplace(void);
 
+/* ---- the selection ------------------------------------------------------
+ *
+ * The console's one selection, which mode 0 highlights (draw.c), kept the
+ * same on every chip: vterm_selection, which screen.h declares, since the
+ * store drops it. Mode 0 placed somewhere new, the console canvas coming
+ * back from another canvas (vterm_canvas, vterm_place), vterm_unplace and
+ * vterm_RIS clear it. Mode 0 programmed again where it is, and the console
+ * canvas selected from itself, keep it, and so does vterm_RIS_no_clear on
+ * a primary screen. That reset erases each grid's alternate screen, which
+ * drops one there, and sets the 40-column terminal's height back, which
+ * drops one on that terminal at any other height. */
+
+// The user selects, on screen (0 the primary, 1 the alternate) of g, one of
+// the console's grids, from row of memory start_row, column start_col up
+// to row of memory end_row, column end_col, that cell not taken. The
+// columns are each row's own, half the width on a row of double width. Its
+// start is a row of the height no lower on the screen than its end, and
+// its columns are no more than their rows have; a start that is its end,
+// or ends that are not so, select nothing. A change of the user's, for the
+// RIA to send (vterm_selection.unsent), as is vterm_unselect.
+void vterm_select(const term_grid_t *g, uint8_t screen, uint8_t start_row, uint8_t start_col,
+                  uint8_t end_row, uint8_t end_col);
+
+// The user ends the selection.
+void vterm_unselect(void);
+
+/* The selection as two words of the VGA's control channel, its start and
+ * its end, each the column in bits 6:0, the row of memory in bits 12:7, the
+ * screen in bit 13 and the grid in bit 14, 1 for the 80-column one. None,
+ * or one whose highlight was dropped, is two words the same. The RIA sends
+ * them (ria/sys/vga.c), and a save state keeps them (draw.c). */
+void vterm_select_words(uint16_t *start, uint16_t *end);
+
+// The selection becomes the one of the words: the VGA's when the RIA sends
+// them, at once, whatever job is pending, since the RIA judged that job as
+// it started, before the change, as the VGA did; and a save state's. It
+// counts no change of the user's, which only the RIA sends. False when they
+// select no rows of the height of a screen this build has.
+bool vterm_select_apply(uint16_t start, uint16_t end);
+
 /* The code page the console's glyphs show, as font_code_page_of gives it:
  * the fonts' own page on a machine that draws them (font.c), and on the RIA
  * the page the VGA's fonts hold, followed while the VGA is connected. */

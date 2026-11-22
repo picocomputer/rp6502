@@ -11,20 +11,23 @@
 
 TEXT and MODE0 are xcheck built with the text cells and with mode 0's.
 Both are run on the same input, and every point's digest must be the same.
-At the first point that differs, both print all they hold there, and the
-rows that differ are shown. A file that is not there is skipped, as
-vttest's stream is when the walk did not give it to xterm."""
+TEXT, the RIA, runs first and writes the selection's words it sends each
+frame to a file, which MODE0, the VGA, takes them from. At the first point
+that differs, both print all they hold there, and the rows that differ are
+shown. A file that is not there is skipped, as vttest's stream is when the
+walk did not give it to xterm."""
 
 import difflib
 import os
 import subprocess
 import sys
+import tempfile
 
 SKIP = 77
 
 
-def run(build, args):
-    out = subprocess.run([build] + args, check=True, stdout=subprocess.PIPE)
+def run(build, words, args):
+    out = subprocess.run([build, words] + args, check=True, stdout=subprocess.PIPE)
     return out.stdout.decode().splitlines()
 
 
@@ -33,12 +36,19 @@ def main():
     if args[0] == "file" and not os.path.exists(args[1]):
         print(f"xcheck: no {args[1]}, skipped")
         return SKIP
-    a, b = run(text, args), run(mode0, args)
+    with tempfile.TemporaryDirectory() as tmp:
+        return check(text, mode0, os.path.join(tmp, "words"), args)
+
+
+def check(text, mode0, words, args):
+    a = run(text, words, args)
+    b = run(mode0, words, args)
     for i, (x, y) in enumerate(zip(a, b)):
         if x != y:
             point = x.split()[0]
             print(f"xcheck: the text cells and mode 0's differ at point {point}")
-            da, db = run(text, args + [point]), run(mode0, args + [point])
+            da = run(text, words, args + [point])
+            db = run(mode0, words, args + [point])
             diff = list(difflib.unified_diff(db, da, "mode0", "text", lineterm="", n=1))
             print("\n".join(diff[:80]))
             return 1

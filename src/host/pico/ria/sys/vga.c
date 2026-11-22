@@ -117,6 +117,15 @@ static int16_t vga_pointer_y;
 static bool vga_pointer_shape_dirty;
 static bool vga_pointer_where_dirty;
 static uint32_t vga_pointer_frame;
+
+/* The frame the selection last went to the VGA in. A change of the
+ * user's (vterm_selection.unsent) goes once a frame at most, as
+ * SELECT_START and then SELECT_END, which applies it, and only a change of
+ * the user's goes: a change to its cells drops it on the VGA at the same
+ * byte as here, since the RIA's terminal takes each byte of the console as
+ * it sends it, ahead of the words. */
+static uint32_t vga_select_frame;
+
 static volatile uint32_t vga_vsync_deadline;
 static uint8_t vga_vsync_frame;
 /* The frames counted from the VSYNCs, with no 8-bit wrap, and when the last
@@ -130,8 +139,9 @@ static bool vga_flash_linked;
 static uint32_t vga_flash_link_deadline;
 
 /* A flash has begun, or FLASH is linking the VGA again for one: vga.c sends
- * no DISPLAY or CODE_PAGE. */
-static bool vga_silenced(void)
+ * no DISPLAY, CODE_PAGE or selection. In RAM, for vga_task, which asks it
+ * before it calls into flash. */
+static inline bool HOST_IN_RAM_FUNC vga_silenced(void)
 {
     return vga_flash_started || vga_flash_linked;
 }
@@ -220,6 +230,27 @@ static void HOST_IN_RAM_FUNC vga_pointer_task(void)
         vga_pointer_shape_dirty = false;
         pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x08, vga_pointer_shape);
     }
+}
+
+/* The selection's words (vterm_select_words), from flash. */
+static void HOST_IN_FLASH_FUNC vga_select_send(void)
+{
+    uint16_t start, end;
+    vterm_selection.unsent = false;
+    vga_select_frame = (uint32_t)vga_frame_count();
+    vterm_select_words(&start, &end);
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x0B, start);
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x0C, end);
+}
+
+/* Nothing goes while a flash is under way, when nothing in flash may run.
+ * The words go with no answer awaited, and are not held for the console's
+ * gate: PIX keeps them in order with the console's bytes. */
+static void HOST_IN_RAM_FUNC vga_select_task(void)
+{
+    if (vga_connected() && !vga_silenced() && vterm_selection.unsent &&
+        vga_frame_count() != vga_select_frame)
+        vga_select_send();
 }
 
 /* The page goes to a connected VGA alone (vga_tell_code_page), and
@@ -845,6 +876,7 @@ void HOST_IN_RAM_FUNC vga_task(void)
     if (vga_needs_reset)
         vga_tell_display();
     vga_pointer_task();
+    vga_select_task();
 }
 
 vga_answer_t HOST_IN_FLASH_FUNC vga_flash_take(void)
