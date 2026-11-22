@@ -87,31 +87,17 @@ static inline uint16_t cell_base(const term_color_t *c, unsigned dflt)
     }
 }
 
-// A pen's ink as a cell holds it: faint halves each channel, and bold is
-// the cell's to draw (mode0_cell_shows).
+// A pen's ink as a cell holds it, written or erased: faint halves each
+// channel, and bold is the cell's to draw (mode0_cell_shows).
 static inline uint16_t cell_pen_ink(const term_pen_t *pen)
 {
     const uint16_t fg = cell_base(&pen->fg, MODE0_DEFAULT_FG);
     return pen->faint ? cell_faint(fg) : fg;
 }
 
-// The colors the pen erases in. Bold brightens palette colors 0-7 and the
-// default foreground (to 15, as Linux does); faint halves each channel. In
-// iCE colors mode (?33) SGR 5/6 brightens a background of 0-7 or the default
-// instead of blinking -- the IBM-VGA hack the BBS scene relies on. A
-// brightened color is the entry it was brightened to.
-static inline uint16_t cell_pen_fg(const term_pen_t *pen)
-{
-    uint16_t fg;
-    if (pen->bold && pen->fg.kind == TERM_COLOR_INDEX && pen->fg.index < 8)
-        fg = MODE0_ENTRY(pen->fg.index + 8, false);
-    else if (pen->bold && pen->fg.kind == TERM_COLOR_DEFAULT)
-        fg = MODE0_ENTRY(15, false);
-    else
-        fg = cell_base(&pen->fg, MODE0_DEFAULT_FG);
-    return pen->faint ? cell_faint(fg) : fg;
-}
-
+// A pen's background. In iCE colors mode (?33) SGR 5/6 brighten a
+// background of 0-7 or the default, the IBM VGA hack the BBS scene relies
+// on; a brightened color is the entry it was brightened to.
 static inline uint16_t cell_pen_bg(const term_t *term, const term_pen_t *pen)
 {
     bool bright = term->ice_colors && (pen->sgr_attr & TERM_ATTR_ANY_BLINK);
@@ -129,7 +115,7 @@ static inline uint16_t cell_pen_bg(const term_t *term, const term_pen_t *pen)
 static inline cell_side_t cell_side_pen(const term_t *term)
 {
     const term_pen_t *pen = term_pen(term);
-    const cell_side_t side = {cell_pen_fg(pen), cell_pen_bg(term, pen)};
+    const cell_side_t side = {cell_pen_ink(pen), cell_pen_bg(term, pen)};
     return side;
 }
 
