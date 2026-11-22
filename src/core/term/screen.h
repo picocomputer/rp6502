@@ -200,10 +200,12 @@ static inline void screen_forget(screen_t *s)
  * erased cell is one never written (cell.h) unless the function says it
  * is. A screen with no cells, a program's own size (term_add_grid) for one,
  * has only its ring: a scroll, an index, a clear, a reset and a change of
- * height move it, and the rest leave it be. */
+ * height move it, and the rest leave it be. A fill of more than one row,
+ * an erase of rows, a rectangle, DECALN, a clear and the rows a scroll
+ * brings in, is a job (below). */
 
-// Row y is about to be written or have the cursor on it: a lazy erase still
-// owed to it is done now.
+// Row y is about to be written or have the cursor on it: what it is still
+// owed is done now.
 void screen_touch(screen_t *s, uint8_t y);
 
 // n copies of the glyph at row y from column x, in the pen and the active
@@ -211,10 +213,17 @@ void screen_touch(screen_t *s, uint8_t y);
 // cursor's or one the caller has touched.
 void screen_glyphs(term_t *t, screen_t *s, uint8_t y, uint8_t x, uint8_t byte, unsigned n);
 
-// Every cell of row y becomes the glyph, in the pen and the active character
-// set, when the row is next touched or the store gets to it. The cursor's
-// row is never left owing one.
-void screen_fill_row(term_t *t, screen_t *s, uint8_t y, uint8_t byte);
+// DECFRA: columns [left, right] of rows [top, bot] become the glyph, in the
+// pen and the active character set: fewer columns on a double-size line,
+// and none past them.
+void screen_fill_rect(term_t *t, screen_t *s, uint8_t top, uint8_t bot, uint8_t left,
+                      uint8_t right, uint8_t byte);
+
+// DECERA: columns [left, right] of rows [top, bot] erased to written
+// blanks, protected cells too, with the columns of a rectangle as
+// screen_fill_rect has them.
+void screen_erase_rect(term_t *t, screen_t *s, uint8_t top, uint8_t bot, uint8_t left,
+                       uint8_t right);
 
 // Erase columns [from, to) of row y, which is the cursor's or one the
 // caller has touched, to blanks written or not (cell.h). A selective erase
@@ -222,12 +231,12 @@ void screen_fill_row(term_t *t, screen_t *s, uint8_t y, uint8_t byte);
 void screen_erase(term_t *t, screen_t *s, uint8_t y, unsigned from, unsigned to,
                   bool selective, bool written);
 
-// DECSERA: the glyphs of columns [from, to) of row y, which the caller has
-// touched, become spaces, and the cells keep their colors and attributes,
-// as xterm has it, and are written. A selective one leaves the protected
-// cells.
-void screen_wipe(term_t *t, screen_t *s, uint8_t y, unsigned from, unsigned to,
-                 bool selective);
+// DECSERA: the glyphs of columns [left, right] of rows [top, bot] become
+// spaces, with the columns of a rectangle as screen_fill_rect has them, and
+// the cells keep their colors and attributes, as xterm has it, and are
+// written. A selective one leaves the protected cells.
+void screen_wipe_rect(screen_t *s, uint8_t top, uint8_t bot, uint8_t left, uint8_t right,
+                      bool selective);
 
 // Insert n erased cells at column x of row y, the cells up to column end
 // moving right and off it; or delete n there, the cells up to end moving
@@ -262,12 +271,12 @@ void screen_copy_cells(term_t *t, screen_t *s, uint8_t sy, unsigned sx, uint8_t 
 void screen_attrs(screen_t *s, uint8_t y, unsigned from, unsigned to, unsigned set,
                   unsigned clear, unsigned toggle);
 
-// Lazy-erase rows [from, to), selectively or not, to blanks written or not.
-void screen_erase_rows(term_t *t, screen_t *s, uint8_t from, uint8_t to, bool selective,
-                       bool written);
+// Erase rows [from, to), every column of their rows of memory, selectively
+// or not, to blanks never written.
+void screen_erase_rows(term_t *t, screen_t *s, uint8_t from, uint8_t to, bool selective);
 
-// DECALN: the screen's height rows lazy-erased to written E's in the
-// default colors.
+// DECALN: the screen's height rows erased to written E's in the default
+// colors.
 void screen_align(term_t *t, screen_t *s, uint8_t height);
 
 // Rows [top, bot] move n rows up or down, erased rows coming in. Returns
@@ -289,11 +298,11 @@ void screen_scroll_cols(term_t *t, screen_t *s, uint8_t top, uint8_t bot, unsign
 // screen_scroll (screen_ring_index).
 uint8_t screen_index(term_t *t, screen_t *s, uint8_t height, bool up, bool keep);
 
-// The screen lazy-erased in the pen's colors over its height rows, and its
+// The screen erased in the pen's colors over its height rows, and its
 // scrollback forgotten.
 void screen_clear(term_t *t, screen_t *s, uint8_t height);
 
-// RIS and the system's soft reset: the alternate screen lazy-erased in the
+// RIS and the system's soft reset: the alternate screen erased in the
 // default colors over its height rows, and its scrollback forgotten.
 void screen_reset(screen_t *s, uint8_t height);
 
@@ -353,19 +362,16 @@ typedef struct
     uint8_t toggle;
 } screen_marks_t;
 
-// What a row is owed: nothing, a fill, a shift, or a change of attributes.
-// A selective fill leaves the guarded cells alone.
+// What a row is owed: nothing, a shift, or a change of attributes.
 enum
 {
     SCREEN_OWED_NONE,
-    SCREEN_OWED_FILL,
     SCREEN_OWED_SHIFT,
     SCREEN_OWED_MARKS,
 };
 
 typedef union
 {
-    cell_fill_t fill;
     screen_shift_t shift;
     screen_marks_t marks;
 } screen_owed_t;
@@ -399,6 +405,7 @@ enum
     SCREEN_JOB_MOVE,  // the cells of another row moved in (screen_job_move_t)
     SCREEN_JOB_SHIFT, // the cells moved sideways (screen_job_shift_t)
     SCREEN_JOB_ATTRS, // the attributes changed (screen_job_attrs_t)
+    SCREEN_JOB_WIPE,  // the glyphs became spaces (screen_job_wipe_t)
 };
 
 // A move: the job's first row takes the cells of row row from column col,
@@ -433,6 +440,14 @@ typedef struct
     uint8_t set, clear, toggle;
 } screen_job_attrs_t;
 
+// A wipe, DECSERA's: the glyphs become spaces, the cells keep their colors
+// and attributes and are written (cell_wipe), and with selective the
+// guarded cells are left.
+typedef struct
+{
+    bool selective;
+} screen_job_wipe_t;
+
 typedef struct
 {
     uint8_t kind;        // SCREEN_JOB_
@@ -446,16 +461,17 @@ typedef struct
         screen_job_move_t move;
         screen_job_shift_t shift;
         screen_job_attrs_t attrs;
+        screen_job_wipe_t wipe;
     };
 } screen_job_t;
 
 // The cells of a screen and what its rows are still owed. A row of the
-// screen is in a row of memory, which the screen's ring gives. A fill or a
-// shift is owed to the row of memory, so it goes where the row goes and a
-// scroll moves none of them. The screen has TERM_SPARE_ROWS more rows of
-// memory than slots: the ring's spare is the one in no slot, which a smooth
-// scroll gives the row coming in while the row going out still shows. Its
-// job is the one pending, if any.
+// screen is in a row of memory, which the screen's ring gives. A shift or
+// a change of attributes is owed to the row of memory, so it goes where
+// the row goes and a scroll moves none of them. The screen has
+// TERM_SPARE_ROWS more rows of memory than slots: the ring's spare is the
+// one in no slot, which a smooth scroll gives the row coming in while the
+// row going out still shows. Its job is the one pending, if any.
 typedef struct screen_cells
 {
     cell_t *mem;
@@ -499,8 +515,10 @@ static inline bool screen_job_pending(const screen_t *s)
 }
 
 // The screen, which has no job pending, starts this one, which runs to
-// the end at once, inside the operation that starts it. A screen with no
-// cells has no work to do.
+// the end at once, inside the operation that starts it. A job of one row
+// is that row's work done at once, as any change to one row is: only work
+// on more than one row is ever a job. A screen with no cells has no work
+// to do.
 void screen_job_start(screen_t *s, const screen_job_t *job);
 
 // The next rows, up to rows of them, of the job the screen has pending,

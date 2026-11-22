@@ -58,9 +58,7 @@ typedef struct
     cell_t cell[CELL_STRIP_MAX];
 } cell_strip_t;
 
-// A fill in the savestate: the cell and whether it is selective. A side:
-// its cell.
-#define CELL_FILL_SST_SIZE 3
+// A side in the savestate: its cell.
 #define CELL_SIDE_SST_SIZE 2
 
 /* ---- fills and sides --------------------------------------------------- */
@@ -176,20 +174,6 @@ static inline uint16_t cell_text(const cell_t *cell)
 static inline bool cell_ok(cell_t cell)
 {
     return (cell & CELL_TEXT_SET) >> CELL_TEXT_SET_SHIFT < CELL_SET_ITALIC;
-}
-
-static inline void cell_fill_put(sst_cursor_t *c, const cell_fill_t *e)
-{
-    sst_put_u16(c, e->cell);
-    sst_put_bool(c, e->selective);
-}
-
-static inline bool cell_fill_get(sst_cursor_t *c, cell_fill_t *e, uint8_t width)
-{
-    (void)width;
-    e->cell = sst_get_u16(c);
-    e->selective = sst_get_bool(c);
-    return cell_ok(e->cell);
 }
 
 static inline void cell_side_put(sst_cursor_t *c, const cell_side_t *side)

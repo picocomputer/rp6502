@@ -50,9 +50,8 @@
  * cell_shows(cell): the cell shows something on the screen.
  * cell_text(cell): the cell's text, a CELL_TEXT_ word, the same on every
  *   kind.
- * cell_fill_put, cell_fill_get, cell_side_put, cell_side_get: a fill or a
- *   side in the savestate, in CELL_FILL_SST_SIZE and CELL_SIDE_SST_SIZE
- *   bytes; a get says whether it is one. */
+ * cell_side_put, cell_side_get: a side in the savestate, in
+ *   CELL_SIDE_SST_SIZE bytes; a get says whether it is one. */
 
 #include "core/term/term.h"
 #include <stdint.h>

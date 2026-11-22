@@ -19,8 +19,9 @@
 #include <stdint.h>
 
 /* The draw_task calls that finish what the cell store (screen.c) does a
- * row a tick: the lazy erases of all four screens, and a recolor pass with
- * the one a change during it starts after it, of every row of mode0_cells. */
+ * row a tick: what the rows of all four screens are owed, and a recolor
+ * pass with the one a change during it starts after it, of every row of
+ * mode0_cells. */
 #define TB_SCREEN_SETTLE (8 * TERM_MAX_HEIGHT + 1)
 
 typedef struct

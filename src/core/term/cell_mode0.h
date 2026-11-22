@@ -55,9 +55,7 @@ typedef struct
     mode0_colors_t colors[CELL_STRIP_MAX];
 } cell_strip_t;
 
-// A fill in the savestate: the cell, its colors, and whether it is
-// selective. A side: its two colors.
-#define CELL_FILL_SST_SIZE 11
+// A side in the savestate: its two colors.
 #define CELL_SIDE_SST_SIZE 4
 
 /* ---- colors ------------------------------------------------------------ */
@@ -265,30 +263,6 @@ static inline uint16_t cell_text(const mode0_cell_t *cell)
 }
 
 /* ---- savestate --------------------------------------------------------- */
-
-static inline void cell_fill_put(sst_cursor_t *c, const cell_fill_t *e)
-{
-    sst_put_u16(c, e->cell.glyph);
-    sst_put_u16(c, e->cell.attributes);
-    sst_put_u16(c, e->colors.fg_color);
-    sst_put_u16(c, e->colors.bg_color);
-    sst_put_u16(c, e->colors.ul_color);
-    sst_put_bool(c, e->selective);
-}
-
-// A fill of a screen of width columns: its glyph is in that screen's font.
-static inline bool cell_fill_get(sst_cursor_t *c, cell_fill_t *e, uint8_t width)
-{
-    e->cell.glyph = sst_get_u16(c);
-    e->cell.attributes = sst_get_u16(c);
-    e->colors.fg_color = sst_get_u16(c);
-    e->colors.bg_color = sst_get_u16(c);
-    e->colors.ul_color = sst_get_u16(c);
-    e->selective = sst_get_bool(c);
-    return mode0_glyph_ok(e->cell.glyph, width == 40 ? 8 : 16) &&
-           mode0_color_ok(e->colors.fg_color) && mode0_color_ok(e->colors.bg_color) &&
-           mode0_color_ok(e->colors.ul_color);
-}
 
 static inline void cell_side_put(sst_cursor_t *c, const cell_side_t *side)
 {

@@ -215,15 +215,6 @@ void term_set_height(term_t *t, term_grid_t *g, uint8_t height)
 
 /* ---- scrolling --------------------------------------------------------- */
 
-// DECERA's erase of columns [from, to) of a row that may still be owed
-// something: written blanks, as xterm's, which fills the rectangle.
-static void grid_erase_cols(term_t *t, term_grid_t *g, uint8_t y, unsigned from,
-                            unsigned to)
-{
-    screen_touch(g->shown, y);
-    screen_erase(t, g->shown, y, from, to, false, true);
-}
-
 // Copy the h rows of w columns at (sy, sx) to (dy, dx). The two may overlap:
 // the rows go in the order that reads each before it is written. A
 // double-size line gives and takes only the columns it has.
@@ -312,7 +303,7 @@ static bool grid_smooths(const term_t *t, const term_grid_t *g)
 
 // An index or a reverse index on its margin scrolls the region a row up or
 // down. A smooth one pays the row going out what it is owed first, such as
-// an erase, and keeps it as it is, because it still shows while it goes;
+// a shift, and keeps it as it is, because it still shows while it goes;
 // then the rows [top, bot] start moving.
 static void grid_scroll_one(term_t *t, term_grid_t *g, bool up)
 {
@@ -336,9 +327,8 @@ static void grid_scroll_one(term_t *t, term_grid_t *g, bool up)
 // Index: down a row, scrolling the region at its bottom margin. The core of
 // LF, VT, FF, IND and NEL. Below the region the cursor walks down to the last
 // row and never scrolls. Outside the left and right margins it stays on the
-// bottom margin and nothing scrolls. grid_index_move leaves the cursor's new
-// row untouched, for a caller that fills it.
-static void grid_index_move(term_t *t, term_grid_t *g)
+// bottom margin and nothing scrolls.
+static void grid_index(term_t *t, term_grid_t *g)
 {
     term_pos_t *pos = term_pos(g);
     pos->wrap_pending = false;
@@ -351,11 +341,6 @@ static void grid_index_move(term_t *t, term_grid_t *g)
         ;
     else
         grid_scroll_one(t, g, true);
-}
-
-static void grid_index(term_t *t, term_grid_t *g)
-{
-    grid_index_move(t, g);
     grid_after_scroll(g);
 }
 
@@ -526,8 +511,7 @@ static unsigned grid_rep_pass(term_t *t, term_grid_t *g, unsigned n, bool write,
 // of whole rows changes nothing; so a long count runs only that far, plus its
 // remainder. A run is a multiple of both a row's length and a double-size
 // row's, which is just the width when the width is even. The glyphs go a
-// row at a time, and a whole row with more to come is only owed its glyphs,
-// so a long REP writes the row it starts on and the row it ends on.
+// row at a time.
 //
 // Between left and right margins a run is the columns between them, after
 // the row the cursor starts on, which can be as long as the width. There a
@@ -564,37 +548,12 @@ static void grid_REP(term_t *t, term_grid_t *g)
     }
     while (n)
     {
-        // A pending wrap goes to the next row, as grid_wrap does, but the
-        // row is not touched until it is known what it gets.
-        bool moved = false;
-        if (pos->wrap_pending)
-        {
-            pos->wrap_pending = false;
-            if (t->autowrap)
-            {
-                grid_mark_wrap(g);
-                grid_index_move(t, g);
-                pos->x = g->margin_left;
-                moved = true;
-            }
-        }
+        grid_wrap(t, g);
         unsigned cols = term_cols(g, pos->y);
-        if (pos->x >= cols)
-            pos->x = (uint8_t)(cols - 1);
         unsigned run = (unsigned)(cols - pos->x);
         if (run > n)
             run = n;
-        if (run == g->width && n > run && t->autowrap)
-            // A whole row, with more to come: the row is owed the glyph,
-            // whatever it was owed, and the cursor goes on from it. Not a
-            // double-size row, whose far half keeps what it holds.
-            screen_fill_row(t, g->shown, pos->y, t->last_glyph);
-        else
-        {
-            if (moved)
-                screen_touch(g->shown, pos->y);
-            screen_glyphs(t, g->shown, pos->y, pos->x, t->last_glyph, run);
-        }
+        screen_glyphs(t, g->shown, pos->y, pos->x, t->last_glyph, run);
         n -= run;
         if (pos->x + run < cols)
             pos->x = (uint8_t)(pos->x + run);
@@ -772,7 +731,7 @@ static void grid_erase_line(term_t *t, term_grid_t *g, uint16_t mode, bool selec
                  mode == 1 && (unsigned)pos->x + 1u < g->width);
 }
 
-// Lazy-erase rows [from, to), which become blank lines unless the erase is
+// Erase rows [from, to), which become blank lines unless the erase is
 // selective: a row whose protected cells stay keeps its line attributes, as
 // on xterm. Whole rows erased are never written.
 static void grid_erase_rows(term_t *t, term_grid_t *g, uint8_t from, uint8_t to,
@@ -780,13 +739,12 @@ static void grid_erase_rows(term_t *t, term_grid_t *g, uint8_t from, uint8_t to,
 {
     if (!selective)
         screen_lines_blank(g->shown, from, to);
-    screen_erase_rows(t, g->shown, from, to, selective, false);
+    screen_erase_rows(t, g->shown, from, to, selective);
 }
 
 // Erase Display. ED 0 and ED 1 erase the cursor's row like EL 0 and EL 1 and
-// lazy-erase the rows past it. ED 2 lazy-erases every row and touches the
-// cursor's. ED 3 (xterm) forgets the scrollback: the rows a taller view would
-// bring back.
+// the rows past it. ED 2 erases every row. ED 3 (xterm) forgets the
+// scrollback: the rows a taller view would bring back.
 static void grid_erase_display(term_t *t, term_grid_t *g, uint16_t mode, bool selective)
 {
     term_pos_t *pos = term_pos(g);
@@ -803,7 +761,6 @@ static void grid_erase_display(term_t *t, term_grid_t *g, uint16_t mode, bool se
     case 2:
         pos->wrap_pending = false;
         grid_erase_rows(t, g, 0, g->height, selective);
-        screen_touch(g->shown, pos->y);
         break;
     case 3:
         pos->wrap_pending = false;
@@ -905,8 +862,7 @@ static void grid_line_size(term_grid_t *g, uint8_t size)
 }
 
 // DECALN, ESC # 8: the screen full of E's, for lining up a monitor. The
-// margins reset, every line is single size, and the cursor goes home. The E's
-// come in as a lazy erase does, a row a tick.
+// margins reset, every line is single size, and the cursor goes home.
 static void grid_DECALN(term_t *t, term_grid_t *g)
 {
     grid_full_margins(g);
@@ -1102,14 +1058,6 @@ static unsigned grid_rect_end(const term_grid_t *g, const grid_rect_t *r, uint8_
     return r->right < cols ? r->right + 1u : cols;
 }
 
-// A whole row that the cursor is not on can be owed what a rectangle does
-// to it.
-static bool grid_rect_whole_row(const term_grid_t *g, const grid_rect_t *r, uint8_t y,
-                                unsigned end)
-{
-    return r->left == 0 && end == g->width && y != term_pos(g)->y;
-}
-
 // DECFRA, CSI Pch ; Pt ; Pl ; Pb ; Pr $ x: the rectangle full of a
 // character, as the pen writes it. Any byte that prints is taken.
 static void grid_DECFRA(term_t *t, term_grid_t *g)
@@ -1118,46 +1066,28 @@ static void grid_DECFRA(term_t *t, term_grid_t *g)
     grid_rect_t r;
     if (ch < 0x20 || ch == 0x7F || ch > 0xFF || !grid_rect_parse(t, g, 1, 5, &r))
         return;
-    for (unsigned y = r.top; y <= r.bot; y++)
-    {
-        unsigned end = grid_rect_end(g, &r, (uint8_t)y);
-        if (r.left >= end)
-            continue;
-        if (grid_rect_whole_row(g, &r, (uint8_t)y, end))
-            screen_fill_row(t, g->shown, (uint8_t)y, (uint8_t)ch);
-        else
-        {
-            screen_touch(g->shown, (uint8_t)y);
-            screen_glyphs(t, g->shown, (uint8_t)y, r.left, (uint8_t)ch, end - r.left);
-        }
-    }
+    screen_fill_rect(t, g->shown, r.top, r.bot, r.left, r.right, (uint8_t)ch);
 }
 
 // DECERA, CSI Pt ; Pl ; Pb ; Pr $ z, erases the rectangle as ED erases the
-// screen, protected cells too. DECSERA, $ {, only makes its characters
-// spaces, as xterm does: the cells keep their colors and attributes, and
-// after a DECSCA the protected ones are left. Neither changes a line's
-// size, and both leave the cells written, as xterm's do.
-static void grid_rect_erase(term_t *t, term_grid_t *g, bool wipe, bool selective)
+// screen, protected cells too. It leaves a line's size, and the cells
+// written, as xterm's.
+static void grid_DECERA(term_t *t, term_grid_t *g)
 {
     grid_rect_t r;
-    if (!grid_rect_parse(t, g, 0, 4, &r))
-        return;
-    for (unsigned y = r.top; y <= r.bot; y++)
-    {
-        unsigned end = grid_rect_end(g, &r, (uint8_t)y);
-        if (r.left >= end)
-            continue;
-        if (wipe)
-        {
-            screen_touch(g->shown, (uint8_t)y);
-            screen_wipe(t, g->shown, (uint8_t)y, r.left, end, selective);
-        }
-        else if (grid_rect_whole_row(g, &r, (uint8_t)y, end))
-            screen_erase_rows(t, g->shown, (uint8_t)y, (uint8_t)(y + 1), false, true);
-        else
-            grid_erase_cols(t, g, (uint8_t)y, r.left, end);
-    }
+    if (grid_rect_parse(t, g, 0, 4, &r))
+        screen_erase_rect(t, g->shown, r.top, r.bot, r.left, r.right);
+}
+
+// DECSERA, CSI Pt ; Pl ; Pb ; Pr $ {, only makes the rectangle's characters
+// spaces, as xterm does: the cells keep their colors and attributes, and
+// after a DECSCA the protected ones are left. It leaves a line's size, and
+// the cells written, as xterm's.
+static void grid_DECSERA(term_t *t, term_grid_t *g)
+{
+    grid_rect_t r;
+    if (grid_rect_parse(t, g, 0, 4, &r))
+        screen_wipe_rect(g->shown, r.top, r.bot, r.left, r.right, term_erase_selective(t, true));
 }
 
 // DECCRA, CSI Pts ; Pls ; Pbs ; Prs ; Pps ; Ptd ; Pld ; Ppd $ v: the
@@ -1258,10 +1188,10 @@ static void grid_rect(term_t *t, term_grid_t *g, uint8_t ch)
         grid_DECFRA(t, g);
         break;
     case 'z':
-        grid_rect_erase(t, g, false, false);
+        grid_DECERA(t, g);
         break;
     case '{':
-        grid_rect_erase(t, g, true, term_erase_selective(t, true));
+        grid_DECSERA(t, g);
         break;
     case 'v':
         grid_DECCRA(t, g);

@@ -1328,8 +1328,8 @@ UTEST(term, sgr_38_1_is_no_color)
     ASSERT_EQ(mode0_color(ink(2, 0)->fg_color), color_256[1]);
 }
 
-/* A lazy erase still owed takes a recolor too. */
-UTEST(term, an_owed_erase_takes_a_recolor)
+/* An erase of rows takes a recolor too. */
+UTEST(term, an_erase_of_rows_takes_a_recolor)
 {
     fresh();
     feed("\33[44m\33[2J\33]4;4;#123456\7");
@@ -1384,9 +1384,9 @@ UTEST(term, spa_guards_from_every_erase_unless_erm)
     ASSERT_STREQ(row(0), "");
 }
 
-/* A selective erase owed to a row spares its protected cells when it lands,
- * and leaves the row's size. */
-UTEST(term, a_selective_lazy_erase_spares_and_keeps_the_size)
+/* A selective erase of rows spares their protected cells, and leaves the
+ * rows' sizes. */
+UTEST(term, a_selective_erase_of_rows_spares_and_keeps_the_size)
 {
     fresh();
     feed("\33#6\33[1\"qA\33[0\"qB\r\nC\33[?2J");
@@ -1398,7 +1398,7 @@ UTEST(term, a_selective_lazy_erase_spares_and_keeps_the_size)
     ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
 }
 
-/* SR moves the protected cells of a row still owed a selective erase. */
+/* SR moves the protected cells a selective erase of rows spares. */
 UTEST(term, a_shift_moves_what_a_selective_erase_spares)
 {
     fresh();
@@ -1538,107 +1538,107 @@ UTEST(term, a_run_of_cells_moves_whole_at_every_length)
 }
 
 /* What a row is owed is never seen once it is paid. The same bytes are fed
- * twice: once with every owed fill paid after each sequence, and once with
+ * twice: once with everything owed paid after each sequence, and once with
  * them left owing until the end, through every scroll, insert, erase, shift,
  * rectangle and change of height that comes meanwhile. The two screens are
  * the same, cell for cell, written or not, with the guards beside them. */
-static uint32_t lazy_state;
-static unsigned lazy_rand(unsigned n)
+static uint32_t owed_state;
+static unsigned owed_rand(unsigned n)
 {
-    lazy_state = lazy_state * 1664525u + 1013904223u;
-    return (lazy_state >> 8) % n;
+    owed_state = owed_state * 1664525u + 1013904223u;
+    return (owed_state >> 8) % n;
 }
 
-static void lazy_op(char *out, size_t size)
+static void owed_op(char *out, size_t size)
 {
-    switch (lazy_rand(31))
+    switch (owed_rand(31))
     {
     case 0:
     case 1:
     case 2:
     {
-        unsigned n = 1 + lazy_rand(100);
+        unsigned n = 1 + owed_rand(100);
         for (unsigned i = 0; i < n; i++)
-            out[i] = (char)('a' + lazy_rand(26));
+            out[i] = (char)('a' + owed_rand(26));
         out[n] = 0;
         break;
     }
     case 3: snprintf(out, size, "\r\n"); break;
     case 4: snprintf(out, size, "\n\n\n"); break;
     case 5: snprintf(out, size, "\33M"); break;
-    case 6: snprintf(out, size, "\33[%u;%uH", 1 + lazy_rand(30), 1 + lazy_rand(80)); break;
-    case 7: snprintf(out, size, "\33[%uJ", lazy_rand(3)); break;
-    case 8: snprintf(out, size, "\33[%uK", lazy_rand(3)); break;
-    case 9: snprintf(out, size, "\33[?%u%c", lazy_rand(3), lazy_rand(2) ? 'J' : 'K'); break;
-    case 10: snprintf(out, size, "\33[%u%c", 1 + lazy_rand(31), lazy_rand(2) ? 'L' : 'M'); break;
-    case 11: snprintf(out, size, "\33[%u%c", 1 + lazy_rand(31), lazy_rand(2) ? 'S' : 'T'); break;
-    case 12: snprintf(out, size, "\33[%u%c", 1 + lazy_rand(81), "@PX"[lazy_rand(3)]); break;
-    case 13: snprintf(out, size, "\33[%u %c", 1 + lazy_rand(81), lazy_rand(2) ? '@' : 'A'); break;
-    case 14: snprintf(out, size, "%c\33[%ub", (char)('A' + lazy_rand(26)), 1 + lazy_rand(3000)); break;
-    case 15: snprintf(out, size, "%c\33[%ub", (char)('A' + lazy_rand(26)), 1 + lazy_rand(200)); break;
+    case 6: snprintf(out, size, "\33[%u;%uH", 1 + owed_rand(30), 1 + owed_rand(80)); break;
+    case 7: snprintf(out, size, "\33[%uJ", owed_rand(3)); break;
+    case 8: snprintf(out, size, "\33[%uK", owed_rand(3)); break;
+    case 9: snprintf(out, size, "\33[?%u%c", owed_rand(3), owed_rand(2) ? 'J' : 'K'); break;
+    case 10: snprintf(out, size, "\33[%u%c", 1 + owed_rand(31), owed_rand(2) ? 'L' : 'M'); break;
+    case 11: snprintf(out, size, "\33[%u%c", 1 + owed_rand(31), owed_rand(2) ? 'S' : 'T'); break;
+    case 12: snprintf(out, size, "\33[%u%c", 1 + owed_rand(81), "@PX"[owed_rand(3)]); break;
+    case 13: snprintf(out, size, "\33[%u %c", 1 + owed_rand(81), owed_rand(2) ? '@' : 'A'); break;
+    case 14: snprintf(out, size, "%c\33[%ub", (char)('A' + owed_rand(26)), 1 + owed_rand(3000)); break;
+    case 15: snprintf(out, size, "%c\33[%ub", (char)('A' + owed_rand(26)), 1 + owed_rand(200)); break;
     case 16:
     {
-        unsigned top = 1 + lazy_rand(29);
-        snprintf(out, size, "\33[%u;%ur", top, top + lazy_rand(31 - top));
+        unsigned top = 1 + owed_rand(29);
+        snprintf(out, size, "\33[%u;%ur", top, top + owed_rand(31 - top));
         break;
     }
     case 17: snprintf(out, size, "\33[r"); break;
-    case 18: snprintf(out, size, "\33[%u;%um", 30 + lazy_rand(8), 40 + lazy_rand(8)); break;
-    case 19: snprintf(out, size, "\33[%um", (unsigned[]){0, 4, 7, 2, 5, 1}[lazy_rand(6)]); break;
-    case 20: snprintf(out, size, "\33[%u\"q", lazy_rand(2)); break;
+    case 18: snprintf(out, size, "\33[%u;%um", 30 + owed_rand(8), 40 + owed_rand(8)); break;
+    case 19: snprintf(out, size, "\33[%um", (unsigned[]){0, 4, 7, 2, 5, 1}[owed_rand(6)]); break;
+    case 20: snprintf(out, size, "\33[%u\"q", owed_rand(2)); break;
     case 21: snprintf(out, size, "\33#8"); break;
-    case 22: snprintf(out, size, "\33[?1049%c", lazy_rand(2) ? 'h' : 'l'); break;
-    case 23: snprintf(out, size, "\33#%c", "3456"[lazy_rand(4)]); break;
-    case 24: snprintf(out, size, "\33[4%c", lazy_rand(2) ? 'h' : 'l'); break;
-    case 25: snprintf(out, size, "\33[?7%c", lazy_rand(4) ? 'h' : 'l'); break;
+    case 22: snprintf(out, size, "\33[?1049%c", owed_rand(2) ? 'h' : 'l'); break;
+    case 23: snprintf(out, size, "\33#%c", "3456"[owed_rand(4)]); break;
+    case 24: snprintf(out, size, "\33[4%c", owed_rand(2) ? 'h' : 'l'); break;
+    case 25: snprintf(out, size, "\33[?7%c", owed_rand(4) ? 'h' : 'l'); break;
     case 26:
-        snprintf(out, size, "\33[%u;%u;%u;%u$z", 1 + lazy_rand(30), 1 + lazy_rand(80),
-                 1 + lazy_rand(30), 1 + lazy_rand(80));
+        snprintf(out, size, "\33[%u;%u;%u;%u$z", 1 + owed_rand(30), 1 + owed_rand(80),
+                 1 + owed_rand(30), 1 + owed_rand(80));
         break;
     case 27:
-        snprintf(out, size, "\33[%u;%u;%u;%u;%u$x", 'a' + lazy_rand(26), 1 + lazy_rand(30),
-                 1 + lazy_rand(80), 1 + lazy_rand(30), 1 + lazy_rand(80));
+        snprintf(out, size, "\33[%u;%u;%u;%u;%u$x", 'a' + owed_rand(26), 1 + owed_rand(30),
+                 1 + owed_rand(80), 1 + owed_rand(30), 1 + owed_rand(80));
         break;
     case 28:
-        snprintf(out, size, "\33[%u*x\33[%u;%u;%u;%u;%u$%c", lazy_rand(2) ? 2 : 0,
-                 1 + lazy_rand(30), 1 + lazy_rand(80), 1 + lazy_rand(30), 1 + lazy_rand(80),
-                 (unsigned[]){0, 1, 4, 5, 7, 24}[lazy_rand(6)], lazy_rand(2) ? 'r' : 't');
+        snprintf(out, size, "\33[%u*x\33[%u;%u;%u;%u;%u$%c", owed_rand(2) ? 2 : 0,
+                 1 + owed_rand(30), 1 + owed_rand(80), 1 + owed_rand(30), 1 + owed_rand(80),
+                 (unsigned[]){0, 1, 4, 5, 7, 24}[owed_rand(6)], owed_rand(2) ? 'r' : 't');
         break;
     case 29:
-        snprintf(out, size, "\33[%u;%u;%u;%u;1;%u;%u$v", 1 + lazy_rand(30), 1 + lazy_rand(80),
-                 1 + lazy_rand(30), 1 + lazy_rand(80), 1 + lazy_rand(30), 1 + lazy_rand(80));
+        snprintf(out, size, "\33[%u;%u;%u;%u;1;%u;%u$v", 1 + owed_rand(30), 1 + owed_rand(80),
+                 1 + owed_rand(30), 1 + owed_rand(80), 1 + owed_rand(30), 1 + owed_rand(80));
         break;
     default: out[0] = 0; break; /* a change of height, which the caller makes */
     }
 }
 
-#define LAZY_OPS 60
-static char lazy_seq[LAZY_OPS][128];
-static uint8_t lazy_height[LAZY_OPS];
-static bool lazy_skip[LAZY_OPS];
+#define OWED_OPS 60
+static char owed_seq[OWED_OPS][128];
+static uint8_t owed_height[OWED_OPS];
+static bool owed_skip[OWED_OPS];
 
-static void lazy_make(uint32_t seed)
+static void owed_make(uint32_t seed)
 {
-    lazy_state = seed;
-    for (int k = 0; k < LAZY_OPS; k++)
+    owed_state = seed;
+    for (int k = 0; k < OWED_OPS; k++)
     {
-        lazy_op(lazy_seq[k], sizeof lazy_seq[k]);
-        lazy_height[k] = lazy_seq[k][0] ? 0 : (uint8_t)(10 + lazy_rand(21));
-        lazy_skip[k] = false;
+        owed_op(owed_seq[k], sizeof owed_seq[k]);
+        owed_height[k] = owed_seq[k][0] ? 0 : (uint8_t)(10 + owed_rand(21));
+        owed_skip[k] = false;
     }
 }
 
-static void lazy_run(bool pay_each, uint8_t *screen)
+static void owed_run(bool pay_each, uint8_t *screen)
 {
     fresh();
-    for (int k = 0; k < LAZY_OPS; k++)
+    for (int k = 0; k < OWED_OPS; k++)
     {
-        if (lazy_skip[k])
+        if (owed_skip[k])
             continue;
-        if (lazy_height[k])
-            vterm_place(80, lazy_height[k], 0, 16);
+        if (owed_height[k])
+            vterm_place(80, owed_height[k], 0, 16);
         else
-            feed(lazy_seq[k]);
+            feed(owed_seq[k]);
         if (pay_each)
             for (int i = 0; i < TB_SCREEN_SETTLE; i++)
                 draw_task();
@@ -1654,42 +1654,42 @@ static void lazy_run(bool pay_each, uint8_t *screen)
     }
 }
 
-static uint8_t lazy_paid[30 * 80 * 10], lazy_owing[30 * 80 * 10];
-static bool lazy_differs(void)
+static uint8_t owed_paid[30 * 80 * 10], owed_left[30 * 80 * 10];
+static bool owed_differs(void)
 {
-    lazy_run(true, lazy_paid);
-    lazy_run(false, lazy_owing);
-    return memcmp(lazy_paid, lazy_owing, sizeof lazy_paid) != 0;
+    owed_run(true, owed_paid);
+    owed_run(false, owed_left);
+    return memcmp(owed_paid, owed_left, sizeof owed_paid) != 0;
 }
 
 UTEST(term, what_a_row_is_owed_is_never_seen)
 {
     for (uint32_t seed = 1; seed <= 2000; seed++)
     {
-        lazy_make(seed);
-        if (!lazy_differs())
+        owed_make(seed);
+        if (!owed_differs())
             continue;
         /* The fewest of this seed's sequences that still differ. */
-        for (int k = 0; k < LAZY_OPS; k++)
+        for (int k = 0; k < OWED_OPS; k++)
         {
-            lazy_skip[k] = true;
-            if (!lazy_differs())
-                lazy_skip[k] = false;
+            owed_skip[k] = true;
+            if (!owed_differs())
+                owed_skip[k] = false;
         }
-        ASSERT_TRUE(lazy_differs());
+        ASSERT_TRUE(owed_differs());
         int at = 0;
-        while (lazy_paid[at] == lazy_owing[at])
+        while (owed_paid[at] == owed_left[at])
             at++;
         printf("seed %u: row %d, byte %d is %02x paid at once and %02x left owing, after:\n",
-               (unsigned)seed, at / 800, at % 800, lazy_paid[at], lazy_owing[at]);
-        for (int k = 0; k < LAZY_OPS; k++)
+               (unsigned)seed, at / 800, at % 800, owed_paid[at], owed_left[at]);
+        for (int k = 0; k < OWED_OPS; k++)
         {
-            if (lazy_skip[k])
+            if (owed_skip[k])
                 continue;
             printf("  ");
-            if (lazy_height[k])
-                printf("height %u", lazy_height[k]);
-            for (const char *c = lazy_seq[k]; *c; c++)
+            if (owed_height[k])
+                printf("height %u", owed_height[k]);
+            for (const char *c = owed_seq[k]; *c; c++)
                 printf(*c == 27 ? "ESC" : *c < 32 ? "^%c" : "%c", *c < 32 ? *c + 64 : *c);
             printf("\n");
         }
@@ -1698,8 +1698,7 @@ UTEST(term, what_a_row_is_owed_is_never_seen)
 }
 
 /* REP draws what printing the glyph that many times draws: the same cells,
- * with the pen's attributes and guard, and the cursor in the same place.
- * Its whole rows are only owed their glyphs, so this is those rows paid. */
+ * with the pen's attributes and guard, and the cursor in the same place. */
 static void rep_screen(const char *before, int n, bool rep, uint8_t *screen, int *x, int *y)
 {
     char seq[32];
@@ -2068,8 +2067,7 @@ UTEST(term, the_left_and_right_margins_come_back)
 
 /* ---- rectangles ---------------------------------------------------------- */
 
-/* DECFRA fills with a character as the pen writes it. A whole row is owed
- * its fill, and the cursor's row is filled at once. */
+/* DECFRA fills with a character as the pen writes it. */
 UTEST(term, decfra_fills_a_rectangle_in_the_pen)
 {
     fresh();
@@ -2099,8 +2097,8 @@ UTEST(term, decfra_fills_a_rectangle_in_the_pen)
     ASSERT_EQ(ch(0, 0), '-');
 }
 
-/* A rectangle on a row that is still owed an erase lands on the erased row. */
-UTEST(term, a_rectangle_lands_on_a_row_as_it_is_owed)
+/* A rectangle on a row just erased lands on the erased row. */
+UTEST(term, a_rectangle_lands_on_an_erased_row)
 {
     fresh();
     feed("old\33[5;1Hold\33[1;1H\33[44m\33[2J\33[0m\33[88;5;5;5;6$x");
@@ -3084,8 +3082,8 @@ UTEST(term, decsclm_is_reported)
     ASSERT_STREQ(ask("\33[?4h\33[?4$p"), "\33[?4;1$y");
 }
 
-/* The row going out still shows while it goes, so an erase it was owed is
- * paid first: a whole-screen scroll after ED 2 moves out a blank row. */
+/* The row going out still shows while it goes, as it is: a whole-screen
+ * scroll after ED 2 moves out a blank row. */
 UTEST(term, a_smooth_scroll_moves_out_the_row_as_it_is)
 {
     fresh();
@@ -3494,6 +3492,28 @@ UTEST(job, a_change_of_attributes_changes_its_columns)
     ASSERT_FALSE(attrs(1, 0) & MODE0_ATTR_BOLD);
 }
 
+/* A wipe, DECSERA's: the characters become spaces, the cells keep their
+ * colors and are written, and a selective one leaves the guarded cells. */
+UTEST(job, a_wipe_makes_spaces_and_keeps_the_colors)
+{
+    fresh();
+    feed("\33[42mab\33[1\"qc\33[0\"qde\r\nfghij\r\nklmno");
+    screen_job_t j = job(SCREEN_JOB_WIPE, 0, 1, 1, 7);
+    j.wipe.selective = true;
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(0), "a c");
+    ASSERT_STREQ(row(1), "f");
+    ASSERT_STREQ(row(2), "klmno");
+    ASSERT_EQ(mode0_color(ink(1, 0)->bg_color), color_256[2]);
+    ASSERT_EQ(mode0_color(ink(3, 1)->bg_color), color_256[2]);
+    ASSERT_TRUE(written(7, 0));
+    ASSERT_FALSE(written(8, 0));
+    j.wipe.selective = false;
+    screen_job_start(job_screen(), &j);
+    ASSERT_EQ(ch(2, 0), ' ');
+    ASSERT_EQ(ch(0, 0), 'a');
+}
+
 /* A save never holds a job: a put finishes it first. */
 UTEST(job, a_save_finishes_the_job)
 {
@@ -3536,6 +3556,46 @@ UTEST(job, no_byte_comes_while_a_job_is_pending)
         feedn(p, 1);
         ASSERT_FALSE(job_any_pending());
     }
+}
+
+/* The character the store holds at a cell of the screen showing, with no
+ * draw_task to pay a row what it is owed. */
+static char job_held(int x, int y)
+{
+    return (char)mode0_glyph_code(screen_row(job_screen(), (uint8_t)y)[x].glyph);
+}
+
+/* A fill or a wipe of many rows is done by the byte that asks for it, and
+ * no row is left owing it: an erase of rows, DECALN, a rectangle, a clear
+ * and a reset. */
+UTEST(job, a_fill_of_many_rows_is_done_by_its_byte)
+{
+    job_rows();
+    feed("\33[H\33[J");
+    ASSERT_EQ(job_held(0, 3), ' ');
+    feed("\33#8");
+    ASSERT_EQ(job_held(0, 0), 'E');
+    ASSERT_EQ(job_held(79, 29), 'E');
+    feed("\33[5;1H\33[1J");
+    ASSERT_EQ(job_held(10, 2), ' ');
+    ASSERT_EQ(job_held(10, 5), 'E');
+    feed("\33[88;7;3;9;6$x");
+    ASSERT_EQ(job_held(2, 6), 'X');
+    ASSERT_EQ(job_held(5, 8), 'X');
+    feed("\33[7;3;9;6$z");
+    ASSERT_EQ(job_held(2, 6), ' ');
+    ASSERT_EQ(job_held(5, 8), ' ');
+    ASSERT_EQ(job_held(6, 8), 'E');
+    feed("\33[7;3;9;8${");
+    ASSERT_EQ(job_held(7, 6), ' ');
+    ASSERT_EQ(job_held(6, 8), ' ');
+    ASSERT_EQ(job_held(8, 8), 'E');
+    feed("\33[2J");
+    ASSERT_EQ(job_held(79, 29), ' ');
+    feed("\33[?1049h\33#8\33[?1049l\33[?1049h");
+    ASSERT_EQ(job_held(5, 5), ' ');
+    feed("\33[?1049l\33#8\33c");
+    ASSERT_EQ(job_held(79, 29), ' ');
 }
 
 UTEST_MAIN();

@@ -280,7 +280,7 @@ static bool draw_sst_palette_ok(sst_cursor_t *c)
     X(STRUCT, vterm_placement, DRAW_PLACEMENT_SST_ROWS)                \
     X(VALIDATE, draw_sst_placement_ok)                                 \
     X(FN, draw_sst_put_bufs, draw_sst_get_bufs,                        \
-      2 * MODE0_SCREENS * SCREEN_SST_SIZE, 6)                          \
+      2 * MODE0_SCREENS * SCREEN_SST_SIZE, 7)                          \
     X(IN_FN, vterm_40.lines)                                           \
     X(IN_FN, vterm_40.row_idx)                                         \
     X(IN_FN, vterm_40.bufs)                                            \
