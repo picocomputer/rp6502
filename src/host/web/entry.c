@@ -8,9 +8,9 @@
 #include "host/sokol/app/app.h"
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/prompt.h"
+#include "host/sokol/app/input.h"
 #include "core/hid/usage.h"
 #include "core/hid/mouse.h"
-#include "core/hid/tablet.h"
 #include "sokol/sokol_app.h"
 #include <emscripten.h>
 #include <emscripten/html5.h>
@@ -77,11 +77,14 @@ EM_JS(void, js_away_setup, (int32_t *away, const double *run_ms, double live_ms)
     };
 });
 
-/* pointer is 1 while the program maps the mouse and 2 while it maps the
- * tablet. An event that the program does not use is not cancelled, so the page
- * scrolls, zooms and shows its context menu. The wheel is cancelled for a
- * mouse program only while the pointer is locked. sokol_app has no callback
- * for contextmenu or for buttons above 3, so those are cancelled here. */
+/* pointer is 1 while the program maps the mouse, 2 while the tablet has
+ * the pointer (input_pointer_to_tablet): a program maps it, or the console's
+ * terminal claims it with no mouse mapped, and 4 while the tablet also uses
+ * the wheel (input_wheel_to_tablet). An event that nothing uses is not
+ * cancelled, so the page scrolls, zooms and shows its context menu. The wheel
+ * is cancelled for a mouse program only while the pointer is locked.
+ * sokol_app has no callback for contextmenu or for buttons above 3, so those
+ * are cancelled here. */
 EM_JS(void, js_pointer_setup, (const int32_t *pointer), {
     const signal = Module.rp6502.signal;
     const canvas = Module.canvas;
@@ -93,13 +96,13 @@ EM_JS(void, js_pointer_setup, (const int32_t *pointer), {
     };
     for (const type of ['mousedown', 'mouseup', 'contextmenu'])
         canvas.addEventListener(type, cancel(used), {signal});
-    canvas.addEventListener('wheel', cancel(() => (used() & 2) || locked()), {signal});
+    canvas.addEventListener('wheel', cancel(() => (used() & 4) || locked()), {signal});
     for (const type of ['touchstart', 'touchmove', 'touchend'])
         canvas.addEventListener(type, cancel(() => used() & 2), {signal});
 });
 
 /* touch-action applies from the start of a touch, so it is set when the
- * program maps or unmaps the tablet, before the next touch. */
+ * tablet gets or loses the pointer, before the next touch. */
 EM_JS(void, js_touch_action, (int32_t used), {
     Module.canvas.style.touchAction = (used & 2) ? "none" : "";
 });
@@ -217,7 +220,8 @@ static void entry_frame(void)
         return;
     run_ms = now;
     app_frame();
-    const int32_t used = (mouse_is_mapped() ? 1 : 0) | (tablet_wanted() ? 2 : 0);
+    const int32_t used = (mouse_is_mapped() ? 1 : 0) | (input_pointer_to_tablet() ? 2 : 0) |
+                         (input_wheel_to_tablet() ? 4 : 0);
     if (used != pointer)
     {
         pointer = used;

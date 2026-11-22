@@ -26,6 +26,7 @@
 #include "core/hid/layout.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
+#include "core/term/vterm_mouse.h"
 #include "core/str/oem.h"
 #include "core/com/rln.h"
 #include "core/str/str.h"
@@ -93,7 +94,7 @@
     AUD_DRIVER, MID_DRIVER, KEYBOARD_DRIVER,         \
     LAYOUT_DRIVER, KEYMAP_DRIVER,                    \
     MOUSE_DRIVER, GAMEPAD_DRIVER,                    \
-    TABLET_DRIVER,                                   \
+    TABLET_DRIVER, VTERM_MOUSE_DRIVER,               \
     MBUF_DRIVER, TIO_DRIVER, RLN_DRIVER, FIL_DRIVER,  \
     ROM_DRIVER, UF2_DRIVER, TIM_DRIVER,              \
     MODEM_DRIVER, DIR_DRIVER, CLK_DRIVER,            \

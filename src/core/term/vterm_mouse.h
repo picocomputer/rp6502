@@ -1,0 +1,69 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+#ifndef _CORE_TERM_VTERM_MOUSE_H_
+#define _CORE_TERM_VTERM_MOUSE_H_
+
+/* The console's mouse: the terminal's share of the tablet (core/hid/tablet.h),
+ * on every machine that has one. It owns the tablet's hooks. It claims the
+ * tablet while mode 0 shows the terminal (vterm_placement), so the pointer
+ * is the arrow there with no program on the tablet. It claims no wheel
+ * (tablet_wheel_claimed): with no scrollback, the wheel does nothing in the
+ * terminal, and a page around the machine keeps it. It acts on contact 0
+ * where that is over mode 0's cells:
+ *
+ * - a press goes to the terminal when it is over mode 0's cells and the
+ *   tablet was shared as the press came (tablet_shared, true with no
+ *   program on it), and the decision holds to the release, so a drag that
+ *   leaves mode 0 keeps going to the terminal;
+ * - with nothing pressed, motion and the wheel go to the terminal while
+ *   contact 0 is there, over mode 0's cells, and the tablet is shared. A
+ *   contact that has gone, a pointer that left or a finger lifted, goes
+ *   nowhere.
+ *
+ * tablet_on_contact only queues what changed, with the share bit as it was
+ * then, from RAM: every press and release is kept, and motion between them
+ * is merged. vterm_mouse_task takes the queue and decides who acts. */
+
+#include "core/sys/ring.h"
+#include "core/sys/sst.h"
+#include <stdbool.h>
+#include <stdint.h>
+
+/* A change of contact 0, as the task takes it. */
+typedef struct
+{
+    int16_t x, y;  // canvas pixels, where it is after the change
+    uint8_t flags; // its TABLET_FLAG_ after the change
+    int8_t wheel;  // what the wheel moved by, with any merged into it
+    int8_t pan;    // the same for sideways scrolling
+    bool edge;     // a button or hover went up or down: nothing merges into it
+    bool moved;    // the user moved it
+    bool shared;   // the program shared the tablet (tablet_shared) as it came
+} vterm_mouse_event_t;
+
+/* The changes the task has yet to take. A change with no edge merges into
+ * the newest when that has none either. A full queue merges every change
+ * into the newest, edges included, so the flags the task ends on are
+ * always contact 0's. */
+#define VTERM_MOUSE_QUEUE 8
+typedef RING(vterm_mouse_event_t, VTERM_MOUSE_QUEUE) vterm_mouse_queue_t;
+extern vterm_mouse_queue_t vterm_mouse_queue;
+
+/* Whether the terminal took the last change the task took, by the rule
+ * above: a release is its press's. */
+bool vterm_mouse_acts(void);
+
+void vterm_mouse_task(void);
+void vterm_mouse_reset(void);
+extern const sst_table_t vterm_mouse_sst;
+
+#define VTERM_MOUSE_DRIVER DRIVER(   \
+    TASK_PUMPED(vterm_mouse_task)    \
+    RESET(vterm_mouse_reset)         \
+    SST("VMOU", vterm_mouse))
+
+#endif /* _CORE_TERM_VTERM_MOUSE_H_ */

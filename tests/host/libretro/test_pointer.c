@@ -361,3 +361,113 @@ UTEST(pointer, a_lightgun_points_at_the_tablet)
     memset(fe.lightgun, 0, sizeof fe.lightgun);
     fe.unload_game();
 }
+
+/* The console's mouse, as a save state holds it. Its chunk, VMOU, ends with
+ * contact 0's flags as the console last took them and whether it took that
+ * change. A chunk is its id, a two-byte version and a four-byte length, then
+ * what was saved. */
+static bool console_mouse(uint8_t *flags, bool *took)
+{
+    const size_t n = fe.serialize_size();
+    uint8_t *blob = malloc(n);
+    bool found = false;
+    if (blob && fe.serialize(blob, n))
+        for (size_t at = 0; at + 10 <= n && !found; at++)
+        {
+            if (memcmp(blob + at, "VMOU", 4))
+                continue;
+            const uint32_t used = (uint32_t)blob[at + 6] << 24 | (uint32_t)blob[at + 7] << 16 |
+                                  (uint32_t)blob[at + 8] << 8 | blob[at + 9];
+            if (used < 2 || at + 10 + used > n)
+                continue;
+            *flags = blob[at + 10 + used - 2];
+            *took = blob[at + 10 + used - 1] != 0;
+            found = true;
+        }
+    free(blob);
+    return found;
+}
+
+/* The console program leaves the console for a canvas with no mode 0 when
+ * this byte of its RAM is not 0. */
+#define CONSOLE_LEAVE 0x0200
+
+/* With nothing mapped, the console's terminal claims the tablet while mode 0
+ * shows, so the pointer is read and reaches the console's mouse. */
+UTEST(pointer, the_console_reads_the_pointer_with_nothing_mapped)
+{
+    fe_close();
+    fe_open();
+    memset(fe.pointer, 0, sizeof fe.pointer);
+    memset(fe.mouse, 0, sizeof fe.mouse);
+    ASSERT_TRUE(rom_loaded(CONSOLE_ROM));
+    a_mouse_has_moved();
+    finger_at(0, 0.25f, 0.25f, false);
+    fe_run(2);
+    uint8_t flags = 0;
+    bool took = false;
+    ASSERT_TRUE(console_mouse(&flags, &took));
+    ASSERT_EQ(flags, 0x80); /* hover */
+    ASSERT_TRUE(took);
+    fe.unload_game();
+}
+
+/* A frontend polls once a frame, so a click is a press in one frame and a
+ * release in the next; the console's mouse takes each. */
+UTEST(pointer, edges_in_consecutive_frames_are_each_delivered)
+{
+    fe_close();
+    fe_open();
+    memset(fe.pointer, 0, sizeof fe.pointer);
+    memset(fe.mouse, 0, sizeof fe.mouse);
+    ASSERT_TRUE(rom_loaded(CONSOLE_ROM));
+    a_mouse_has_moved();
+    finger_at(0, 0.25f, 0.25f, false);
+    fe_run(2);
+    uint8_t flags = 0;
+    bool took = false;
+    for (int i = 0; i < 2; i++)
+    {
+        fe.mouse[RETRO_DEVICE_ID_MOUSE_LEFT] = 1;
+        fe_run(1);
+        ASSERT_TRUE(console_mouse(&flags, &took));
+        ASSERT_EQ(flags, 0x81); /* hover + LEFT */
+        ASSERT_TRUE(took);
+        fe.mouse[RETRO_DEVICE_ID_MOUSE_LEFT] = 0;
+        fe_run(1);
+        ASSERT_TRUE(console_mouse(&flags, &took));
+        ASSERT_EQ(flags, 0x80);
+        ASSERT_TRUE(took);
+    }
+    fe.unload_game();
+}
+
+/* A canvas with no mode 0 takes the pointer off the tablet, and a button
+ * held as it went is let go there, so the console's mouse is not left
+ * pressed. */
+UTEST(pointer, a_pointer_taken_off_the_tablet_lets_go)
+{
+    fe_close();
+    fe_open();
+    memset(fe.pointer, 0, sizeof fe.pointer);
+    memset(fe.mouse, 0, sizeof fe.mouse);
+    ASSERT_TRUE(rom_loaded(CONSOLE_ROM));
+    a_mouse_has_moved();
+    finger_at(0, 0.25f, 0.25f, false);
+    fe.mouse[RETRO_DEVICE_ID_MOUSE_LEFT] = 1;
+    fe_run(2);
+    uint8_t flags = 0;
+    bool took = false;
+    ASSERT_TRUE(console_mouse(&flags, &took));
+    ASSERT_EQ(flags, 0x81);
+
+    uint8_t *ram = fe.get_memory_data(RETRO_MEMORY_SYSTEM_RAM);
+    ASSERT_TRUE(ram != NULL);
+    ram[CONSOLE_LEAVE] = 1;
+    fe_run(5);
+    ASSERT_EQ(fe.frame_w, 320u);
+    ASSERT_TRUE(console_mouse(&flags, &took));
+    ASSERT_EQ(flags, 0x00);
+    memset(fe.mouse, 0, sizeof fe.mouse);
+    fe.unload_game();
+}

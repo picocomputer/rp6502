@@ -15,8 +15,8 @@
 
 /* The offsets of the XRAM report block are in tablet.h. The wheel and pan
  * bytes are counters read by subtracting the previous value, as the mouse's
- * are. The program sets the control byte, and it leads the block so that
- * everything the firmware writes back is one contiguous run. */
+ * are. The program owns the control and status bytes, and they lead the
+ * block so that everything the firmware writes back is one contiguous run. */
 /* A relative mouse counts far finer than a canvas pixel, so it is tracked in a
  * fixed reference resolution at the same rate mouse.c reports at and then
  * scaled to the canvas. The program then reads an absolute position that moves
@@ -30,6 +30,11 @@ static uint16_t tablet_xram;
 
 /* Whether the host draws the cursor, so the system draws none. */
 static bool tablet_host_cursor;
+
+/* Whether the host gave the tablet its pointer at its last poll
+ * (tablet_host_give). It is saved, so the edge it makes is the machine's
+ * and a load puts it back with the contacts it let in. */
+static bool tablet_host_given;
 
 /* The pointer in canvas pixels, which is what is written to XRAM. */
 static int16_t tablet_x;
@@ -68,20 +73,21 @@ static bool tablet_sst_valid(sst_cursor_t *c)
 /* The whole block is saved, control byte included. The six counters behind
  * it are not, because only tablet_report writes them and no machine that
  * saves state has a report to give it. */
-#define TABLET_SST(X)                                       \
-    X(U16, tablet_xram)                                     \
-    X(BYTES, tablet_state)                                  \
-    X(BOOL, tablet_host_cursor)                             \
-    X(VALIDATE, tablet_sst_valid)                           \
-    X(SKIP, tablet_x)                                       \
-    X(SKIP, tablet_y)                                       \
-    X(SKIP, tablet_ref_x)                                   \
-    X(SKIP, tablet_ref_y)                                   \
-    X(SKIP, tablet_sub_x)                                   \
-    X(SKIP, tablet_sub_y)                                   \
-    X(SKIP, tablet_cw)                                      \
-    X(SKIP, tablet_ch)                                      \
-    X(SKIP, tablet_committed, "rebuilt from tablet_state")  \
+#define TABLET_SST(X)                                              \
+    X(U16, tablet_xram)                                            \
+    X(BYTES, tablet_state)                                         \
+    X(SKIP, tablet_host_cursor, "set by every host pointer event") \
+    X(BOOL, tablet_host_given)                                     \
+    X(VALIDATE, tablet_sst_valid)                                  \
+    X(SKIP, tablet_x)                                              \
+    X(SKIP, tablet_y)                                              \
+    X(SKIP, tablet_ref_x)                                          \
+    X(SKIP, tablet_ref_y)                                          \
+    X(SKIP, tablet_sub_x)                                          \
+    X(SKIP, tablet_sub_y)                                          \
+    X(SKIP, tablet_cw)                                             \
+    X(SKIP, tablet_ch)                                             \
+    X(SKIP, tablet_committed, "rebuilt from tablet_state")         \
     X(SKIP, tablet_connections, "nothing mounts on a machine that saves")
 SST_TABLE(tablet, TABLET_SST)
 
@@ -118,22 +124,46 @@ static void tablet_clear_contact(int i)
     tablet_state[TABLET_OFF_CONTACTS + i * TABLET_CONTACT_SIZE] = 0;
 }
 
+/* A contact's place, as tablet_put_contact packs it. */
+static int16_t HOST_IN_RAM_FUNC tablet_contact_x(const uint8_t *c)
+{
+    return (int16_t)(c[2] | (c[3] & 0x0F) << 8);
+}
+
+static int16_t HOST_IN_RAM_FUNC tablet_contact_y(const uint8_t *c)
+{
+    return (int16_t)(c[1] | (c[3] >> 4) << 8);
+}
+
 /* Every change to the tablet ends here, mapped or not. by_user is false for a
- * pointer the firmware moved, as onto a new canvas. A 6502 reading the block
- * during this memcpy can get bytes from two reports, so a program reads the
- * block until two reads match. */
+ * pointer the firmware moved, as onto a new canvas. The owner hears of a
+ * change to contact 0 or the counters, measured from the last commit. The
+ * block is written from the wheel on, so the program's control and status
+ * are never written over. A 6502 reading the block during this memcpy can
+ * get bytes from two reports, so a program reads the block until two reads
+ * match. */
 static void HOST_IN_RAM_FUNC tablet_commit(bool by_user)
 {
-    (void)by_user;
-    memcpy(tablet_committed, &tablet_state[TABLET_OFF_WHEEL], TABLET_COMMITTED_SIZE);
+    const uint8_t *now = &tablet_state[TABLET_OFF_WHEEL];
+    if (memcmp(tablet_committed, now, TABLET_COMMITTED_SIZE))
+    {
+        const uint8_t *was = tablet_committed;
+        const uint8_t *c_was = &was[TABLET_OFF_CONTACTS - TABLET_OFF_WHEEL];
+        const uint8_t *c_now = &now[TABLET_OFF_CONTACTS - TABLET_OFF_WHEEL];
+        const bool moved = memcmp(&c_was[1], &c_now[1], TABLET_CONTACT_SIZE - 1) != 0;
+        tablet_on_contact(c_was[0], c_now[0], tablet_contact_x(c_now), tablet_contact_y(c_now),
+                          (int8_t)(now[0] - was[0]), (int8_t)(now[1] - was[1]),
+                          by_user && moved);
+        memcpy(tablet_committed, now, TABLET_COMMITTED_SIZE);
+    }
     if (tablet_xram != 0xFFFF)
-        memcpy((uint8_t *)&xram[tablet_xram + TABLET_OFF_STATUS], &tablet_state[TABLET_OFF_STATUS],
-               TABLET_BLOCK_SIZE - TABLET_OFF_STATUS);
+        memcpy((uint8_t *)&xram[tablet_xram + TABLET_OFF_WHEEL], now,
+               TABLET_BLOCK_SIZE - TABLET_OFF_WHEEL);
 }
 
 void HOST_IN_FLASH_FUNC tablet_init(void)
 {
-    tablet_state[TABLET_OFF_STATUS] = TABLET_STATUS_HOST_CURSOR;
+    tablet_host_given = false;
     tablet_stop();
 }
 
@@ -144,13 +174,15 @@ void tablet_stop(void)
 
 /* The contacts and counters are kept whether a program has the tablet or
  * not, as the mouse's are, so a program that maps it finds a mouse already
- * hovering where it is. Mapping seeds only the control byte. */
+ * hovering where it is. Mapping seeds the program's two bytes: the arrow,
+ * and the tablet shared. */
 bool HOST_IN_FLASH_FUNC tablet_xreg(uint16_t word)
 {
     bool mapped = word <= 0x10000 - TABLET_BLOCK_SIZE;
     tablet_xram = mapped ? word : 0xFFFF;
     tablet_state[TABLET_OFF_CONTROL] = TABLET_CURSOR_ARROW;
-    if (tablet_xram != 0xFFFF) /* the one write that also seeds the control byte */
+    tablet_state[TABLET_OFF_STATUS] = TABLET_STATUS_SHARED;
+    if (tablet_xram != 0xFFFF) /* the one write of the program's bytes */
         memcpy((uint8_t *)&xram[tablet_xram], tablet_state, TABLET_BLOCK_SIZE);
     return mapped || word == 0xFFFF;
 }
@@ -403,9 +435,19 @@ bool tablet_is_mapped(void)
     return tablet_xram != 0xFFFF;
 }
 
+bool HOST_IN_RAM_FUNC tablet_shared(void)
+{
+    return tablet_xram == 0xFFFF || (xram[tablet_xram + TABLET_OFF_STATUS] & TABLET_STATUS_SHARED);
+}
+
 bool tablet_wanted(void)
 {
-    return tablet_is_mapped();
+    return tablet_is_mapped() || tablet_claimed();
+}
+
+bool tablet_wheel_wanted(void)
+{
+    return tablet_is_mapped() || tablet_wheel_claimed();
 }
 
 void tablet_host_pointer(int x, int y, uint8_t buttons, bool host_cursor)
@@ -441,6 +483,13 @@ void tablet_host_clear(void)
     tablet_commit(true);
 }
 
+void tablet_host_give(bool given)
+{
+    if (tablet_host_given && !given)
+        tablet_host_clear();
+    tablet_host_given = given;
+}
+
 void tablet_host_wheel(int dwheel, int dpan)
 {
     if (dwheel == 0 && dpan == 0)
@@ -473,14 +522,13 @@ void tablet_task(void)
     uint8_t shape = tablet_shape();
     if (!(c[0] & TABLET_FLAG_HOVER) || tablet_host_cursor)
         shape = TABLET_CURSOR_OFF;
-    vga_set_pointer(shape, (int16_t)(c[2] | (c[3] & 0x0F) << 8),
-                    (int16_t)(c[1] | (c[3] >> 4) << 8));
+    vga_set_pointer(shape, tablet_contact_x(c), tablet_contact_y(c));
 }
 
 uint8_t tablet_shape(void)
 {
     if (tablet_xram == 0xFFFF)
-        return TABLET_CURSOR_OFF;
+        return tablet_claimed() ? TABLET_CURSOR_ARROW : TABLET_CURSOR_OFF;
     const uint8_t shape = xram[tablet_xram + TABLET_OFF_CONTROL];
     return shape < TABLET_CURSOR_COUNT ? shape : TABLET_CURSOR_OFF;
 }

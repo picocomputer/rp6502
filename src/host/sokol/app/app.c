@@ -39,7 +39,6 @@
 #include "core/com/com.h"
 #include "core/str/oem.h"
 #include "core/hid/mouse.h"
-#include "core/hid/tablet.h"
 #include "core/rom/rom.h"
 #include "core/sys/sys.h"
 #include "core/vga/vga_emu.h"
@@ -102,7 +101,7 @@ static void update_title(void)
         v = 3;
         t = "Picocomputer 6502  -  Esc releases mouse";
     }
-    else if (mouse_is_mapped() && !tablet_wanted())
+    else if (mouse_is_mapped() && !input_pointer_to_tablet())
     {
         v = 2;
         t = "Picocomputer 6502  -  click to capture mouse";
@@ -272,10 +271,7 @@ void app_frame(void)
         }
     machine_ns += os_mono_ns() - t0;
 
-    /* The absolute tablet never captures the pointer, and a program that has
-     * unmapped the mouse no longer wants it. */
-    if (input_mouse_locked() && (!mouse_is_mapped() || tablet_wanted()))
-        sapp_lock_mouse(false);
+    input_pointer_task();
     update_title();
     /* The desktop drop-a-ROM prompt holds the CPU with no program loaded, so
      * the halt it shows is not a program exiting and must not close the

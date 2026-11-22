@@ -25,6 +25,24 @@ void input_locks(void);
 /* sapp_mouse_locked(), limited on the web to the lock on Module.canvas. */
 bool input_mouse_locked(void);
 
+/* Whether this host gives its pointer to the tablet (tablet_wanted) rather
+ * than capturing it for the mouse. A program that maps the mouse and not the
+ * tablet is not on the tablet, even while the console's terminal claims it:
+ * the pointer is the mouse's, its first click only captures, and the terminal
+ * has no pointer here. A program that maps both is fed from the tablet's one
+ * pointer, uncaptured. */
+bool input_pointer_to_tablet(void);
+
+/* Whether the wheel goes to the tablet (tablet_wheel_wanted) while it has
+ * the pointer. A wheel that nothing uses is neither fed nor cancelled: it is
+ * left to the page around the player, which scrolls with it. */
+bool input_wheel_to_tablet(void);
+
+/* Once a frame: lets go of a capture the mouse no longer wants, and tells
+ * the tablet whether it has this host's pointer (tablet_host_give), so a
+ * button held as it stops having it is let go. */
+void input_pointer_task(void);
+
 /* Whether the host pointer is over the drawn canvas. The tablet's requested
  * cursor applies only there, and the system cursor shows in the letterbox. */
 void input_set_pointer_on_canvas(bool on);

@@ -28,6 +28,7 @@
 #include "core/hid/layout.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
+#include "core/term/vterm_mouse.h"
 #include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/sys/random.h"
@@ -95,6 +96,7 @@
     LAYOUT_DRIVER, KEYBOARD_DRIVER,                     \
     APF_DRIVER, KEYMAP_DRIVER,                          \
     MOUSE_DRIVER, GAMEPAD_DRIVER, TABLET_DRIVER,        \
+    VTERM_MOUSE_DRIVER,                                 \
     VID_DRIVER, TIM_DRIVER,                             \
     DIR_DRIVER, API_DRIVER,                             \
     CLK_DRIVER, PHI2_DRIVER

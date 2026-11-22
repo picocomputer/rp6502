@@ -56,6 +56,7 @@ rp6502_add_test(pointer
     INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
     DEFS ${RP6502_RETRO_DEFS}
         MOUSE_ROM="${MOUSE_ROM}" TABLET_ROM="${TABLET_ROM}"
+        CONSOLE_ROM="${CONSOLE_ROM}"
     DEPENDS rp6502_libretro pointer_roms
     TIMEOUT 60)
 

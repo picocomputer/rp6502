@@ -258,8 +258,8 @@ static uint8_t pointer_buttons(const sapp_event *e)
 }
 
 /* Route a host pointer or touch event to the tablet, which is an absolute canvas
- * position and never captures. Because nothing is captured while a tablet is
- * mapped, a mouse the program also mapped is fed from here as well: the one
+ * position and never captures. Because nothing is captured while the tablet has
+ * the pointer, a mouse the program mapped is fed from here as well: the one
  * physical pointer drives both blocks, as it would on hardware. True when the
  * event was consumed. */
 static bool input_tablet(const sapp_event *e)
@@ -297,6 +297,11 @@ static bool input_tablet(const sapp_event *e)
         return true;
     }
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
+        /* A wheel the tablet does not use is not consumed. It falls to the
+         * mouse, which takes it only while captured, so it is either used here
+         * or left whole to the page, as the web build cancels it. */
+        if (!input_wheel_to_tablet())
+            return false;
         /* sokol's scroll_x, like GLFW's, is positive to the left, and pan, like
          * HID AC Pan, is positive to the right. */
         tablet_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(-e->scroll_x));
@@ -343,9 +348,29 @@ bool input_mouse_locked(void)
 #endif
 }
 
+bool input_pointer_to_tablet(void)
+{
+    return tablet_is_mapped() || (tablet_wanted() && !mouse_is_mapped());
+}
+
+bool input_wheel_to_tablet(void)
+{
+    return input_pointer_to_tablet() && tablet_wheel_wanted();
+}
+
+void input_pointer_task(void)
+{
+    const bool to_tablet = input_pointer_to_tablet();
+    /* The absolute tablet never captures the pointer, and a program that has
+     * unmapped the mouse no longer wants it. */
+    if (input_mouse_locked() && (!mouse_is_mapped() || to_tablet))
+        sapp_lock_mouse(false);
+    tablet_host_give(to_tablet);
+}
+
 void input_event(const sapp_event *e)
 {
-    if (tablet_wanted() && input_tablet(e))
+    if (input_pointer_to_tablet() && input_tablet(e))
         return;
 
     switch (e->type)
@@ -457,7 +482,7 @@ void input_update_cursor(void)
         return;
     }
 #endif
-    if (tablet_wanted() && pointer_on_canvas)
+    if (input_pointer_to_tablet() && pointer_on_canvas)
     {
         had_tablet = true;
         const uint8_t shape = tablet_shape();

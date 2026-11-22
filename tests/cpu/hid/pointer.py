@@ -15,6 +15,10 @@ TICKS = 0xFF55
 
 MOUSE_BYTES = 5
 
+# The console program maps nothing. It stays on the console until a frontend
+# writes a byte other than 0 here, and then selects a canvas with no mode 0.
+LEAVE = 0x0200
+
 # A latch value of 65535 gives a period of about 8.2 ms at the default 8 MHz.
 T1_PERIOD = 0xFFFF
 ACR_T1_FREE_RUN = 0x40
@@ -25,6 +29,17 @@ IFR_T1 = 0x40
 def tablet_rom():
     p = Asm()
     p.xreg(0, 0, 3, TABLET)
+    p.jmp_abs(p.here())
+    return p
+
+
+def console_rom():
+    p = Asm()
+    p.store(LEAVE, 0)
+    p.symbol("wait")
+    p.lda_abs(LEAVE)
+    p.beq("wait")
+    p.xreg(1, 0, 0, 1)  # the 320x240 canvas
     p.jmp_abs(p.here())
     return p
 
@@ -127,6 +142,14 @@ let contact = TABLET + 4
 run 10
 peek xram:contact $00 $00 $00 $00
 
+# Bit 0 of status is the program's. Mapping sets it to share the tablet,
+# and the tablet never writes it after.
+peek xram:TABLET+1 $01
+poke xram:TABLET+1 $00
+tablet at 120 80 0
+wait xram:contact $80
+peek xram:TABLET+1 $00
+
 # A single touch is contact 0 with its flags set to $01, TABLET_FLAG_LEFT.
 tablet touch 60,60
 wait xram:contact $01
@@ -169,6 +192,6 @@ def test_tablet():
     script(TABLET_SCRIPT, rom("tablet"))
 
 
-ROMS = {"mouse": mouse_rom, "tablet": tablet_rom}
+ROMS = {"mouse": mouse_rom, "tablet": tablet_rom, "console": console_rom}
 TESTS = {"pointer": test_pointer, "tablet": test_tablet}
 main(globals())

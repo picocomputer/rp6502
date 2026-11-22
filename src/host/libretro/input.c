@@ -352,8 +352,14 @@ static int lightgun_port(void)
     return -1;
 }
 
-/* Neither device is read until a program has mapped it into XRAM, so a ROM
- * that wants neither is never a reason to watch where anyone is pointing.
+/* Neither device is read until a program has mapped it into XRAM, or the
+ * console's terminal claims the tablet while mode 0 shows (tablet_wanted),
+ * so a ROM that wants neither with no mode 0 placed is never a reason to
+ * watch where anyone is pointing. Nothing captures here, so a program that
+ * maps only the mouse gets it as well as the terminal getting the tablet.
+ * The tablet is told on every poll whether it has the pointer
+ * (tablet_host_give), so a button held as it stops being wanted is let go
+ * there.
  *
  * Touch and the mouse take turns at the tablet. The mouse drives it while
  * nothing is being touched; a touch takes it away and keeps it until the
@@ -369,6 +375,7 @@ static void poll_pointer(retro_input_state_t state)
 {
     bool tablet = tablet_wanted();
     bool mouse = mouse_is_mapped();
+    tablet_host_give(tablet);
     if (!tablet && !mouse)
         return;
 
