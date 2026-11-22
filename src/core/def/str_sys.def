@@ -15,18 +15,23 @@ X(STR_UF2_PROG_NAME_RIA, PICO_PROGRAM_NAME)
 X(STR_UF2_PROG_NAME_VGA, "RP6502-VGA")
 
 // Terminal resets. The soft reset goes to every terminal, so it holds only
-// what any VT100-class terminal takes: CAN, ESC < to leave VT52 mode (ignored
-// in ANSI mode), the primary screen, SGR 0, ASCII in G0 and G0 shifted in,
-// insert mode off, autowrap on, the cursor shown, and the cursor keys,
-// keypad and key repeat back to normal, so a terminal on the UART types as the
-// line editor expects once a program ends, with xterm's modifyOtherKeys and
-// formatOtherKeys off. The left and right margins go (DECLRMM reset), so the CR that follows reaches the first column of
-// the screen and not a margin the program left.
+// what a VT100-class terminal takes or ignores: CAN, ESC < to leave VT52 mode
+// (ignored in ANSI mode), then SyncTERM's DECSCS with no parameters, which
+// ends a speed a program set so the rest goes at the line's (others ignore
+// it). The modes go in one list each: the primary screen, jump scroll, the
+// cursor keys, the left and right margins (DECLRMM), so the CR that follows
+// reaches the first column of the screen and not a margin the program left,
+// the backarrow key and mode 40 reset, autowrap, the cursor and key repeat
+// set. Then the scroll region, SGR 0, ASCII in G0 to G3 and G0 shifted in,
+// insert mode off and the numeric keypad, so a terminal on the UART types as
+// the line editor expects once a program ends, with xterm's modifyOtherKeys
+// and formatOtherKeys off. DECSTR would say most of it in four bytes, but
+// SyncTERM has none.
 // The screen's terminal gets the rest of a reset out of band, with the console
 // reset. The hard reset, RIS, goes to the screen alone: a terminal on the UART
 // keeps what it shows.
 X(STR_TERM_HARD_RESET, "\30\33<\33c")
-X(STR_TERM_SOFT_RESET, "\30\33<\33[?47l\33[?4l\0337\33[r\0338\33[0m\33(B\33)B\33*B\33+B\17\33[4l\33[?7h\33[?25h\33[?1l\33>\33[?8h\33[?69l\33[?67l\33[?40l\33[>4m\33[>4f")
+X(STR_TERM_SOFT_RESET, "\30\33<\33[*r\33[?47;4;1;69;67;40l\33[?7;25;8h\0337\33[r\0338\33[0m\33(B\33)B\33*B\33+B\17\33[4l\33>\33[>4m\33[>4f")
 
 // https://www.ntppool.org/
 X(STR_NTP_SERVER, "pool.ntp.org")

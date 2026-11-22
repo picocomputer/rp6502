@@ -531,6 +531,17 @@ UTEST(term, the_soft_reset_string_puts_the_keys_back)
     ASSERT_STREQ(row(0), "qA");
 }
 
+/* The soft reset ends a speed a program set, first, so the rest of it and
+ * the prompt go at the line's pace. */
+UTEST(term, the_soft_reset_string_ends_the_speed)
+{
+    fresh();
+    feed("\33[0;1*r");
+    ASSERT_EQ(term_speed(&vterm), 300u);
+    feed(STR_TERM_SOFT_RESET);
+    ASSERT_EQ(term_speed(&vterm), 0u);
+}
+
 /* Each item of an OSC 4 takes effect as it ends, so the CAN keeps entry 1's
  * green and drops entry 2's blue, and an ESC after a finished item keeps
  * that item. X follows entry 1 to its blue. */
