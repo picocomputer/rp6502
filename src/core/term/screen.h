@@ -259,8 +259,8 @@ void screen_copy_cells(term_t *t, screen_t *s, uint8_t sy, unsigned sx, uint8_t 
 #define SCREEN_MARK_REVERSE 8u
 #define SCREEN_MARK_ALL 15u
 #define SCREEN_MARK_WRITTEN 16u
-void screen_attrs(term_t *t, screen_t *s, uint8_t y, unsigned from, unsigned to,
-                  unsigned set, unsigned clear, unsigned toggle);
+void screen_attrs(screen_t *s, uint8_t y, unsigned from, unsigned to, unsigned set,
+                  unsigned clear, unsigned toggle);
 
 // Lazy-erase rows [from, to), selectively or not, to blanks written or not.
 void screen_erase_rows(term_t *t, screen_t *s, uint8_t from, uint8_t to, bool selective,

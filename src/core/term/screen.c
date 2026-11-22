@@ -637,19 +637,13 @@ void screen_copy_cells(term_t *term, screen_t *s, uint8_t sy, unsigned sx, uint8
 
 // The row is only owed the change, after whatever it was owed before: no
 // cell changes until the row is paid. The cursor's row is never left owing.
-// In iCE colors mode (?33) no cell blinks, so none is made to.
-void screen_attrs(term_t *term, screen_t *s, uint8_t y, unsigned from, unsigned to,
-                  unsigned set, unsigned clear, unsigned toggle)
+void screen_attrs(screen_t *s, uint8_t y, unsigned from, unsigned to, unsigned set,
+                  unsigned clear, unsigned toggle)
 {
     if (!screen_settled(s))
         return;
     screen_cells_t *buf = s->cells;
     const uint8_t m = screen_mem(s, y);
-    if (term->ice_colors)
-    {
-        set &= ~SCREEN_MARK_BLINK;
-        toggle &= ~SCREEN_MARK_BLINK;
-    }
     if (buf->owed[m])
         screen_pay(buf, m);
     const screen_marks_t marks = {(uint8_t)from, (uint8_t)to, (uint8_t)set, (uint8_t)clear,

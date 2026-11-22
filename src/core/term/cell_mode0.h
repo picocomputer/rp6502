@@ -170,14 +170,14 @@ static inline bool cell_fill_same(const cell_fill_t *a, const cell_fill_t *b)
 // The cell a character lands as: the pen's colors and attributes, and the
 // glyph where the font has it (mode0.h), in the font's rows for the
 // screen's width: 8 on the 40-column screen, drawn on the 320-wide
-// canvases, and 16 on the 80. SGR 7 and 8 swap and hide at the cell, and in
-// iCE colors mode (?33) the blink bits are left off the cell: the bright
-// background is the blink. An underline SGR 58 colored is flagged, so the
-// renderer reads its color; any other holds the foreground's color. A cell
-// written while DECSCA or SPA protects is guarded, and every one is
-// written (cell.h). Bold, SGR 7 and SGR 8 are bits of the cell, which the
-// renderer draws (mode0_cell_shows), so DECCARA and DECRARA change bits
-// alone.
+// canvases, and 16 on the 80. In iCE colors mode (?33) a blinking pen's
+// background is the bright one (cell_pen_bg), and the cell keeps its
+// blink, as SyncTERM's does: ?35 stops every cell blinking. An underline
+// SGR 58 colored is flagged, so the renderer reads its color; any other
+// holds the foreground's color. A cell written while DECSCA or SPA protects
+// is guarded, and every one is written (cell.h). Bold, SGR 7 and SGR 8 are
+// bits of the cell, which the renderer draws (mode0_cell_shows), so DECCARA
+// and DECRARA change bits alone.
 static inline cell_fill_t cell_from_pen(const term_t *term, uint8_t width, uint8_t code,
                                         unsigned set)
 {
@@ -187,10 +187,7 @@ static inline cell_fill_t cell_from_pen(const term_t *term, uint8_t width, uint8
     const uint16_t f = cell_pen_ink(pen);
     e.colors.fg_color = f;
     e.colors.bg_color = cell_pen_bg(term, pen);
-    uint16_t cell_mask = TERM_ATTR_CELL_MASK;
-    if (term->ice_colors)
-        cell_mask &= (uint16_t)~TERM_ATTR_ANY_BLINK;
-    uint16_t attributes = (uint16_t)((pen->sgr_attr & cell_mask) | MODE0_ATTR_WRITTEN);
+    uint16_t attributes = (uint16_t)((pen->sgr_attr & TERM_ATTR_CELL_MASK) | MODE0_ATTR_WRITTEN);
     if (pen->ul_set && (attributes & TERM_ATTR_UL_MASK))
         attributes |= MODE0_ATTR_UL_COLOR;
     if (term_protecting(term))

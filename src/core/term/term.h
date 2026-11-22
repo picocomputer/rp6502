@@ -223,7 +223,8 @@ typedef struct
     bool backarrow_bs;    // DECBKM, ?67: Backspace sends BS, not DEL
     bool allow_deccolm;   // xterm's ?40: DECCOLM erases and homes, as a width change would
     bool autorepeat;      // DECARM, ?8
-    bool ice_colors;      // ?33: SGR 5/6 means bright bg (the IBM VGA hack), not blink
+    bool ice_colors;      // SyncTERM's ?33: SGR 5/6 also brighten the background
+    bool blink_off;       // SyncTERM's ?35: no cell blinks
     bool bracketed_paste; // ?2004: a paste comes between ESC [ 200 ~ and ESC [ 201 ~
     uint8_t modify_other_keys; // xterm's modifyOtherKeys, 0 to 3: CSI > 4 ; n m
     bool format_other_keys;    // xterm's formatOtherKeys: CSI > 4 ; 1 f
@@ -360,6 +361,7 @@ static inline bool term_erase_selective(const term_t *t, bool dec)
     X(BOOL, t.allow_deccolm)                                           \
     X(BOOL, t.autorepeat)                                              \
     X(BOOL, t.ice_colors)                                              \
+    X(BOOL, t.blink_off)                                               \
     X(BOOL, t.bracketed_paste)                                         \
     X(U8, t.modify_other_keys)                                         \
     X(BOOL, t.format_other_keys)                                       \

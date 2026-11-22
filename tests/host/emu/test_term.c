@@ -870,6 +870,36 @@ UTEST(term, osc_ignores_line_feeds_inside)
     ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), rgb(1, 2, 3));
 }
 
+/* In iCE colors mode, SyncTERM's ?33, a blinking pen writes a bright
+ * background, and the cell still blinks, as SyncTERM's does. ?35 stops every
+ * cell blinking, those already on the screen too, and both are reset by
+ * RIS. */
+UTEST(term, ice_colors_keep_the_blink_and_35_stops_it)
+{
+    fresh();
+    feed("\33[?33h\33[5;41mA\33[mB");
+    ASSERT_EQ(mode0_color(ink(0, 0)->bg_color), color_256[9]);
+    ASSERT_EQ(attrs(0, 0) & TERM_ATTR_ANY_BLINK, TERM_ATTR_BLINK);
+    ASSERT_STREQ(ask("\33[?35$p"), "\33[?35;2$y");
+    feed("\33[?35h");
+    ASSERT_STREQ(ask("\33[?35$p"), "\33[?35;1$y");
+    for (int i = 0; i < 120; i++)
+    {
+        vga_run_frame();
+        ASSERT_EQ(MODE0_SCREEN_BLINK(mode0_regs.screen), 0);
+    }
+    feed("\33[?35l");
+    bool blinked = false;
+    for (int i = 0; i < 120 && !blinked; i++)
+    {
+        vga_run_frame();
+        blinked = MODE0_SCREEN_BLINK(mode0_regs.screen) != 0;
+    }
+    ASSERT_TRUE(blinked);
+    feed("\33[?35h\33c");
+    ASSERT_STREQ(ask("\33[?35$p"), "\33[?35;2$y");
+}
+
 UTEST(term, ice_colors_survive_osc_11)
 {
     fresh();
@@ -2233,7 +2263,7 @@ UTEST(term, deccara_underline_and_blink)
     feed("\33[1;1;1;2;4$r");
     ASSERT_EQ(attrs(0, 0), TERM_ATTR_UL(TERM_UL_SINGLE));
     feed("\33[?33h\33[1;1;1;2;5$r");
-    ASSERT_EQ(attrs(0, 0) & TERM_ATTR_ANY_BLINK, 0);
+    ASSERT_EQ(attrs(0, 0) & TERM_ATTR_ANY_BLINK, TERM_ATTR_BLINK);
 }
 
 /* DECRARA reverses the attributes, and twice is as it was. */

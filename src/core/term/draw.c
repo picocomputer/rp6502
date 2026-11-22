@@ -375,7 +375,8 @@ void draw_publish(void)
                         (vterm.cursor_enabled ? MODE0_CURSOR_ENABLED : 0) |
                         (d->cursor_lit ? MODE0_CURSOR_LIT : 0);
     mode0_regs.cursor_color = vterm_specials[VTERM_COLOR_CURSOR - VTERM_PALETTE];
-    mode0_regs.screen = d->cell_blink_phase |
+    // With ?35 the phase stays at none, so no cell blinks.
+    mode0_regs.screen = (vterm.blink_off ? 0u : d->cell_blink_phase) |
                         (vterm.reverse_screen ? MODE0_SCREEN_REVERSE : 0);
     vterm_smooth_t *sm = &vterm_smoothing;
     const bool smooth = draw_smooth_shows(g);

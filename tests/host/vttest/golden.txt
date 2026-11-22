@@ -275,7 +275,7 @@ m08_9-02 8D570223 cursor 13,20 style 0
 11.2.5.3.2_3-01 14E462B9 cursor 13,28 style 0
 11.2.5.3.3-menu-01 4BE80815 cursor 39,10 style 0
 11.2.5.3.3_1-01 2FEAA9D0 cursor 13,28 style 0
-11.2.5.3.3_2-01 8C88EE36 cursor 13,28 style 0
+11.2.5.3.3_2-01 923F2262 cursor 13,28 style 0
 11.2.5.3.3_2-02 5AE320CB cursor 13,28 style 0
 11.2.5.3_4-01 D0919F72 cursor 13,28 style 0
 11.2.5.3_4-02 747FF9F2 cursor 13,28 style 0
@@ -426,7 +426,7 @@ m08_9-02 8D570223 cursor 13,20 style 0
 11.3.1.5.3.2_3-01 14E462B9 cursor 13,28 style 0
 11.3.1.5.3.3-menu-01 BCD63142 cursor 39,10 style 0
 11.3.1.5.3.3_1-01 2FEAA9D0 cursor 13,28 style 0
-11.3.1.5.3.3_2-01 8C88EE36 cursor 13,28 style 0
+11.3.1.5.3.3_2-01 923F2262 cursor 13,28 style 0
 11.3.1.5.3.3_2-02 5AE320CB cursor 13,28 style 0
 11.3.1.5.3_4-01 D0919F72 cursor 13,28 style 0
 11.3.1.5.3_4-02 747FF9F2 cursor 13,28 style 0
@@ -592,7 +592,7 @@ m08_9-02 8D570223 cursor 13,20 style 0
 11.3.7.1.3.2_3-01 14E462B9 cursor 13,28 style 0
 11.3.7.1.3.3-menu-01 BD1B45B8 cursor 39,10 style 0
 11.3.7.1.3.3_1-01 2FEAA9D0 cursor 13,28 style 0
-11.3.7.1.3.3_2-01 8C88EE36 cursor 13,28 style 0
+11.3.7.1.3.3_2-01 923F2262 cursor 13,28 style 0
 11.3.7.1.3.3_2-02 5AE320CB cursor 13,28 style 0
 11.3.7.1.3_4-01 D0919F72 cursor 13,28 style 0
 11.3.7.1.3_4-02 747FF9F2 cursor 13,28 style 0
@@ -631,7 +631,7 @@ m08_9-02 8D570223 cursor 13,20 style 0
 11.3.7.2.1.2_3-01 14E462B9 cursor 13,28 style 0
 11.3.7.2.1.3-menu-01 EE212B1B cursor 39,10 style 0
 11.3.7.2.1.3_1-01 2FEAA9D0 cursor 13,28 style 0
-11.3.7.2.1.3_2-01 8C88EE36 cursor 13,28 style 0
+11.3.7.2.1.3_2-01 923F2262 cursor 13,28 style 0
 11.3.7.2.1.3_2-02 5AE320CB cursor 13,28 style 0
 11.3.7.2.1_4-01 D0919F72 cursor 13,28 style 0
 11.3.7.2.1_4-02 747FF9F2 cursor 13,28 style 0
@@ -649,7 +649,7 @@ m08_9-02 8D570223 cursor 13,20 style 0
 11.3.7.2.1.6_10-01 B6E5EB9F cursor 13,28 style 0
 11.3.7.2.2-menu-01 496A8CDE cursor 39,10 style 0
 11.3.7.2.2_1-01 2FEAA9D0 cursor 13,28 style 0
-11.3.7.2.2_2-01 8C88EE36 cursor 13,28 style 0
+11.3.7.2.2_2-01 923F2262 cursor 13,28 style 0
 11.3.7.2.2_2-02 8CA522F9 cursor 13,28 style 0
 11.3.7.2.3-menu-01 2ADE7B88 cursor 39,15 style 0
 11.3.7.2.3.1-menu-01 A4F52BB5 cursor 40,18 style 0
@@ -810,7 +810,7 @@ m08_9-02 8D570223 cursor 13,20 style 0
 11.7_6-01 FE4EBC43 cursor 13,29 style 0
 11.8-menu-01 0E23C960 cursor 39,17 style 0
 11.8.2-menu-01 D8C2F7DB cursor 39,10 style 0
-11.8.2_2-01 1C4DAFAF cursor 13,28 style 0
+11.8.2_2-01 57C47C55 cursor 13,28 style 0
 11.8.2_2-02 A5FB38CE cursor 13,28 style 0
 11.8.2_2-03 C66F5A6F cursor 13,28 style 0
 11.8_3-01 A9A857C9 cursor 0,1 style 0

@@ -109,6 +109,7 @@ static void term_reset_core(term_t *t)
     t->backarrow_bs = false;
     t->autorepeat = true;
     t->ice_colors = false;
+    t->blink_off = false;
     t->bracketed_paste = false;
     t->modify_other_keys = 0;
     t->format_other_keys = false;
@@ -690,6 +691,9 @@ static void term_out_DECRQM(term_t *t, bool private)
         case 33: // iCE colors
             pm = t->ice_colors ? 1 : 2;
             break;
+        case 35: // blink off
+            pm = t->blink_off ? 1 : 2;
+            break;
         case 40: // xterm's allow 80 to 132
             pm = t->allow_deccolm ? 1 : 2;
             break;
@@ -1170,8 +1174,11 @@ static void term_out_DECSET(term_t *t, bool set)
         case 25: // DECTCEM
             t->cursor_enabled = set;
             break;
-        case 33: /* iCE colors -- SGR 5/6 becomes the IBM-VGA bright-bg hack */
+        case 33: // SyncTERM's iCE colors: a cell SGR 5/6 write gets a bright background
             t->ice_colors = set;
+            break;
+        case 35: // SyncTERM's blink off: no cell blinks, those on the screen included
+            t->blink_off = set;
             break;
         case 66: // DECNKM: the keypad mode, as ESC = and ESC >
             t->app_keypad = set;

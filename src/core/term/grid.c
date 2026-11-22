@@ -1246,7 +1246,7 @@ static void grid_rect_attrs(term_t *t, term_grid_t *g, bool reverse)
         unsigned end = grid_rect_end(g, &row, (uint8_t)y);
         if (row.left >= end)
             continue;
-        screen_attrs(t, g->shown, (uint8_t)y, row.left, end, set, clear, toggle);
+        screen_attrs(g->shown, (uint8_t)y, row.left, end, set, clear, toggle);
     }
 }
 
