@@ -183,8 +183,8 @@ def term_run(r, name):
 
 def test_sizes(r):
     """The RIA's copy of the console's terminal follows the VGA's through
-    canvas and mode 0 changes and a program's own width, and answers the
-    queries, or with 0x0D set does not."""
+    canvas and mode 0 changes, keeps its width when a program sets the line
+    editor's, and answers the queries, or with 0x0D set does not."""
     b = r.board
     # The console has 32 rows on an SXGA display and 30 on the others.
     h = b"32" if "1280x1024" in " ".join(b.command("SET VGA")) else b"30"

@@ -769,7 +769,8 @@ def term_build(ops_at, loaded):
 
 
 # The console's terminal on the RIA follows the VGA's through its size
-# changes, and a program's own size, and answers the queries. Each step is
+# changes, keeps its width when a program sets the line editor's, and
+# answers the queries. Each step is
 # what the ROM does first, the query, and the answer it should get, which
 # the ROM prints as "=" and its bytes in hex. An empty answer is no answer.
 # The console has 30 rows, or 32 on an SXGA display, which {h} stands for.
@@ -792,9 +793,10 @@ SIZE_STEPS = (
     (lambda p: p.say("\r\n" * 30 + "ab"), "\33[6n", b"\33[22;3R"),
     # The console canvas again.
     (lambda p: p.xreg(1, 0, 0, 0), "\33[18t", b"\33[8;{h};80t"),
-    # A program's own width.
-    (sizes_attr(ATTR_RLN_WIDTH, 132), "\33[18t", b"\33[8;{h};132t"),
-    (lambda p: p.say("\33[1;100H"), "\33[6n", b"\33[1;100R"),
+    # The line editor's width is not the terminal's: the terminal keeps its
+    # 80 columns, and the cursor stops at the last of them.
+    (sizes_attr(ATTR_RLN_WIDTH, 132), "\33[18t", b"\33[8;{h};80t"),
+    (lambda p: p.say("\33[1;100H"), "\33[6n", b"\33[1;80R"),
     (sizes_attr(ATTR_RLN_WIDTH, 0), "\33[6n", b"\33[3;1R"),
     # Quiet.
     (sizes_attr(ATTR_TERM_QUIET, 1), "\33[6n", b""),
