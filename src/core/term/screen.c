@@ -8,6 +8,7 @@
 #include "core/term/term.h"
 #include "machine.h"
 #include <assert.h>
+#include <limits.h>
 #include <string.h>
 
 // The ring a screen's rows are laid out in (screen.h). Every machine keeps
@@ -238,6 +239,7 @@ void screen_sst_put(sst_cursor_t *c, screen_t *s)
 {
     const uint8_t *const start = c->at;
     screen_cells_t *b = s->cells;
+    screen_job_finish(s);
     screen_settle(s);
     for (int i = 0; i < s->rows; i++)
         sst_put_u8(c, s->row_idx[i]);
@@ -336,6 +338,7 @@ bool screen_sst_get(sst_cursor_t *c, screen_t *s)
     s->hidden = sst_get_u8(c);
     b->all_clean = sst_get_bool(c);
     b->later.n = 0;
+    b->job.kind = SCREEN_JOB_NONE;
     /* Everything here indexes the cell array. row_idx is the ring and
      * y_offset is added to it before the lookup, so both are bounded, and
      * the slots and the spare name every row of memory once. With no spare
@@ -369,6 +372,13 @@ static inline bool screen_settled(screen_t *s)
 }
 
 /* ---- cells and rows ---------------------------------------------------- */
+
+// The columns of row y of a screen that has cells: half its width on a
+// double-size line.
+static inline unsigned screen_cols(const screen_t *s, uint8_t y)
+{
+    return screen_size(s, y) ? s->cells->width / 2u : s->cells->width;
+}
 
 // Fill [start, end) of `row`: every cell becomes the fill's cell. A
 // selective erase leaves the guarded cells as they are.
@@ -592,34 +602,38 @@ void screen_erase(term_t *term, screen_t *s, uint8_t y, unsigned from, unsigned 
     screen_fill_erased(term, screen_row(s, y), from, to, selective, written);
 }
 
-// Columns [x, end) of a row move n right, written erased cells coming in
-// at x; or n left, erased cells never written coming in before end.
-static void screen_row_insert(term_t *term, cell_t *row, unsigned x, unsigned end,
-                              unsigned n)
+// Columns [x, end) of a row move n right, the fill in coming in at x; or
+// n left, the fill in coming in before end.
+static void screen_row_insert(cell_t *row, unsigned x, unsigned end, unsigned n,
+                              const cell_fill_t *in)
 {
     cell_run_move(&row[x + n], &row[x], end - x - n);
-    screen_fill_erased(term, row, x, x + n, false, true);
+    fill_glyph(row, x, x + n, in);
 }
 
-static void screen_row_delete(term_t *term, cell_t *row, unsigned x, unsigned end,
-                              unsigned n)
+static void screen_row_delete(cell_t *row, unsigned x, unsigned end, unsigned n,
+                              const cell_fill_t *in)
 {
     cell_run_move(&row[x], &row[x + n], end - x - n);
-    screen_fill_erased(term, row, end - n, end, false, false);
+    fill_glyph(row, end - n, end, in);
 }
 
+// Erased cells come in: written ones at x with an insert, and ones never
+// written before end with a delete.
 void screen_insert(term_t *term, screen_t *s, uint8_t y, uint8_t x, unsigned end, unsigned n)
 {
     if (!screen_settled(s))
         return;
-    screen_row_insert(term, screen_row(s, y), x, end, n);
+    const cell_fill_t in = screen_pen_erase(term, false, true);
+    screen_row_insert(screen_row(s, y), x, end, n, &in);
 }
 
 void screen_delete(term_t *term, screen_t *s, uint8_t y, uint8_t x, unsigned end, unsigned n)
 {
     if (!screen_settled(s))
         return;
-    screen_row_delete(term, screen_row(s, y), x, end, n);
+    const cell_fill_t in = screen_pen_erase(term, false, false);
+    screen_row_delete(screen_row(s, y), x, end, n, &in);
 }
 
 void screen_copy_cells(term_t *term, screen_t *s, uint8_t sy, unsigned sx, uint8_t dy,
@@ -698,25 +712,25 @@ void screen_shift(term_t *term, screen_t *sc, uint8_t top, uint8_t bot, unsigned
     if (!screen_settled(sc))
         return;
     screen_cells_t *buf = sc->cells;
+    const cell_side_t side = cell_side_pen(term);
+    const cell_fill_t in = cell_blank(' ', side, false, !left);
     if (from || end != buf->width)
     {
         for (uint8_t y = top; y <= bot; y++)
         {
-            const unsigned cols = screen_size(sc, y) ? buf->width / 2u : buf->width;
+            const unsigned cols = screen_cols(sc, y);
             const unsigned e = end < cols ? end : cols;
             if (from >= e)
                 continue;
             const unsigned n = count < e - from ? count : e - from;
             screen_clean_line(sc, y);
             if (left)
-                screen_row_delete(term, screen_row(sc, y), from, e, n);
+                screen_row_delete(screen_row(sc, y), from, e, n, &in);
             else
-                screen_row_insert(term, screen_row(sc, y), from, e, n);
+                screen_row_insert(screen_row(sc, y), from, e, n, &in);
         }
         return;
     }
-    const cell_side_t side = cell_side_pen(term);
-    const cell_fill_t in = cell_blank(' ', side, false, !left);
     const uint8_t width = buf->width;
     screen_shift_t whole = {0, 0, width, width, side, side};
     screen_shift_add(&whole, width, count < width ? (uint8_t)count : width, left, side);
@@ -983,7 +997,7 @@ unsigned screen_row_text(screen_t *s, uint8_t y, uint16_t *out)
         return 0;
     screen_clean_line(s, y);
     const cell_t *row = screen_row(s, y);
-    const unsigned cols = screen_size(s, y) ? s->cells->width / 2u : s->cells->width;
+    const unsigned cols = screen_cols(s, y);
     for (unsigned x = 0; x < cols; x++)
         out[x] = cell_text(&row[x]);
     return cols;
@@ -993,4 +1007,110 @@ void screen_blank_cells(cell_t *cells, unsigned n)
 {
     const cell_fill_t e = cell_blank(' ', cell_side_default(), false, false);
     cell_run_fill(cells, n, &e);
+}
+
+/* ---- jobs -------------------------------------------------------------- */
+
+// The end of the columns the job works on in row y, past its right column,
+// or with sized past the row's last column when that comes first.
+static unsigned screen_job_end(const screen_t *s, const screen_job_t *j, uint8_t y)
+{
+    const unsigned end = j->right + 1u;
+    if (!j->sized)
+        return end;
+    const unsigned cols = screen_cols(s, y);
+    return end < cols ? end : cols;
+}
+
+// A move's row y: the cells of its source row, or the fill coming in. The
+// source row is paid what it is owed before it is read.
+static void screen_job_move(screen_t *s, const screen_job_t *j, uint8_t y, cell_t *row,
+                            unsigned end)
+{
+    const screen_job_move_t *v = &j->move;
+    const unsigned done = y > j->first ? y - j->first : j->first - y;
+    if (done >= v->moves)
+    {
+        fill_glyph(row, j->left, end, &v->in);
+        return;
+    }
+    const uint8_t sy = (uint8_t)(v->row + y - j->first);
+    unsigned n = end - j->left;
+    if (j->sized)
+    {
+        const unsigned cols = screen_cols(s, sy);
+        if (v->col >= cols)
+            return;
+        if (n > cols - v->col)
+            n = cols - v->col;
+    }
+    screen_clean_line(s, sy);
+    cell_run_move(row + j->left, screen_row(s, sy) + v->col, n);
+    if (v->written)
+        cell_marks(row, j->left, j->left + n, SCREEN_MARK_WRITTEN, 0, 0);
+}
+
+// The job's work on row y, which is paid what it is owed first.
+static void screen_job_row(screen_t *s, const screen_job_t *j, uint8_t y)
+{
+    const unsigned left = j->left, end = screen_job_end(s, j, y);
+    if (left >= end)
+        return;
+    screen_clean_line(s, y);
+    cell_t *row = screen_row(s, y);
+    switch (j->kind)
+    {
+    case SCREEN_JOB_FILL:
+        fill_glyph(row, left, end, &j->fill);
+        break;
+    case SCREEN_JOB_MOVE:
+        screen_job_move(s, j, y, row, end);
+        break;
+    case SCREEN_JOB_SHIFT:
+    {
+        const unsigned n = j->shift.n < end - left ? j->shift.n : end - left;
+        if (j->shift.left)
+            screen_row_delete(row, left, end, n, &j->shift.in);
+        else
+            screen_row_insert(row, left, end, n, &j->shift.in);
+        break;
+    }
+    case SCREEN_JOB_ATTRS:
+        cell_marks(row, left, end, j->attrs.set, j->attrs.clear, j->attrs.toggle);
+        break;
+    }
+}
+
+// The scroll the screen is owed is done first, as for anything that changes
+// a cell.
+void screen_job_start(screen_t *s, const screen_job_t *job)
+{
+    if (!screen_settled(s))
+        return;
+    assert(!screen_job_pending(s));
+    screen_job_t *j = &s->cells->job;
+    *j = *job;
+    j->next = j->first;
+    screen_job_finish(s);
+}
+
+bool screen_job_step(screen_t *s, unsigned rows)
+{
+    screen_job_t *j = &s->cells->job;
+    for (; rows && j->kind != SCREEN_JOB_NONE; rows--)
+    {
+        const uint8_t y = j->next;
+        screen_job_row(s, j, y);
+        if (y == j->last)
+            j->kind = SCREEN_JOB_NONE;
+        else
+            j->next = (uint8_t)(y < j->last ? y + 1 : y - 1);
+    }
+    return j->kind != SCREEN_JOB_NONE;
+}
+
+void screen_job_finish(screen_t *s)
+{
+    if (s->cells)
+        screen_job_step(s, UINT_MAX);
 }

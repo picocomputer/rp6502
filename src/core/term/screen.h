@@ -383,12 +383,79 @@ typedef struct
     cell_fill_t in;
 } screen_later_t;
 
+/* A job: work on more than one row of a screen, the same work on each of
+ * its rows, done a row at a time from its first row to its last, which is
+ * up the screen or down it. Each row's work is on columns [left, right]
+ * of the row, and with sized only on those its line has, as a rectangle's
+ * are: fewer on a double-size line, and none past them. A screen has one
+ * job at most, and the terminal takes no byte while one is pending, so the
+ * rows, their line sizes and the pen stay as they were when it started.
+ * Its rows are rows of the screen, not of memory, as nothing turns the
+ * ring while it runs. The work is one of these: */
+enum
+{
+    SCREEN_JOB_NONE,  // no job is pending
+    SCREEN_JOB_FILL,  // every cell becomes the fill's (cell.h)
+    SCREEN_JOB_MOVE,  // the cells of another row moved in (screen_job_move_t)
+    SCREEN_JOB_SHIFT, // the cells moved sideways (screen_job_shift_t)
+    SCREEN_JOB_ATTRS, // the attributes changed (screen_job_attrs_t)
+};
+
+// A move: the job's first row takes the cells of row row from column col,
+// and each row after it the cells of the row as far from that, so the
+// moves of a scroll or a DECCRA read each row before they write it when
+// the job's rows go the way the cells go. The first moves rows of the job
+// are moved, and the rows after them take the fill in: the rows a scroll
+// brings in. With written, every cell moved to is written (cell.h), as
+// DECCRA's are. With sized, the cells moved stop at the source's line's
+// columns too.
+typedef struct
+{
+    uint8_t row, col;
+    uint8_t moves;
+    bool written;
+    cell_fill_t in;
+} screen_job_move_t;
+
+// A shift: the cells move n columns left or right, as many as the row's
+// columns hold, and the fill in comes in at the other side.
+typedef struct
+{
+    uint8_t n;
+    bool left;
+    cell_fill_t in;
+} screen_job_shift_t;
+
+// A change of attributes, DECCARA's and DECRARA's: the SCREEN_MARK_
+// attributes to set, to clear, and then to reverse.
+typedef struct
+{
+    uint8_t set, clear, toggle;
+} screen_job_attrs_t;
+
+typedef struct
+{
+    uint8_t kind;        // SCREEN_JOB_
+    uint8_t first, last; // the rows, in the order they are done
+    uint8_t next;        // the row done next
+    uint8_t left, right; // the columns
+    bool sized;          // a row's columns stop at its line's
+    union
+    {
+        cell_fill_t fill;
+        screen_job_move_t move;
+        screen_job_shift_t shift;
+        screen_job_attrs_t attrs;
+    };
+} screen_job_t;
+
 // The cells of a screen and what its rows are still owed. A row of the
 // screen is in a row of memory, which the screen's ring gives. A fill or a
 // shift is owed to the row of memory, so it goes where the row goes and a
 // scroll moves none of them. The screen has TERM_SPARE_ROWS more rows of
 // memory than slots: the ring's spare is the one in no slot, which a smooth
-// scroll gives the row coming in while the row going out still shows.
+// scroll gives the row coming in while the row going out still shows. Its
+// job is the one pending, if any.
 typedef struct screen_cells
 {
     cell_t *mem;
@@ -397,6 +464,7 @@ typedef struct screen_cells
     screen_owed_t what[TERM_MEM_ROWS];
     screen_later_t later;
     bool all_clean;
+    screen_job_t job;
 } screen_cells_t;
 
 /* The store moved cells in a way that may change what shows, outside the
@@ -422,11 +490,32 @@ void screen_settle(screen_t *s);
 // was paid, false when none of them owes anything.
 bool screen_tidy(screen_t *s, uint8_t height);
 
+/* ---- jobs --------------------------------------------------------------- */
+
+// Whether the screen has a job pending. Never for a screen with no cells.
+static inline bool screen_job_pending(const screen_t *s)
+{
+    return s->cells && s->cells->job.kind != SCREEN_JOB_NONE;
+}
+
+// The screen, which has no job pending, starts this one, which runs to
+// the end at once, inside the operation that starts it. A screen with no
+// cells has no work to do.
+void screen_job_start(screen_t *s, const screen_job_t *job);
+
+// The next rows, up to rows of them, of the job the screen has pending,
+// which has cells. True while some of the job is still to do.
+bool screen_job_step(screen_t *s, unsigned rows);
+
+// The job the screen has pending, if it has one, runs to the end.
+void screen_job_finish(screen_t *s);
+
 /* A screen's layout in the savestate: its ring and spare row, the line
  * attributes of each row of memory, what each row of memory is owed in a
- * record of SCREEN_SST_RECORD bytes, and the rest. A put first does a
- * scroll the screen is owed, so the layout saved is the layout the cells
- * are in. For a screen with cells. */
+ * record of SCREEN_SST_RECORD bytes, and the rest. A put first finishes
+ * the screen's job and does a scroll the screen is owed, so the layout
+ * saved is the layout the cells are in and no job is ever saved. For a
+ * screen with cells. */
 #define SCREEN_SST_RECORD 12
 #define SCREEN_SST_SIZE (TERM_MAX_HEIGHT + 1 + (2 + SCREEN_SST_RECORD) * TERM_MEM_ROWS + 3)
 void screen_sst_put(sst_cursor_t *c, screen_t *s);

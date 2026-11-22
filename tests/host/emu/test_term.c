@@ -3265,4 +3265,277 @@ UTEST(term, a_read_waits_for_the_held_line)
     ASSERT_EQ(cy(), 29);
 }
 
+/* ---- jobs (screen.h) ----------------------------------------------------
+ *
+ * Work on more than one row of a screen, a row at a time, on the 80-column
+ * terminal's screen showing. */
+
+static screen_t *job_screen(void)
+{
+    return vterm_get_shown(&vterm)->shown;
+}
+
+/* A job of a kind on rows first to last, in that order, and columns
+ * [left, right]. */
+static screen_job_t job(uint8_t kind, uint8_t first, uint8_t last, uint8_t left, uint8_t right)
+{
+    screen_job_t j;
+    memset(&j, 0, sizeof j);
+    j.kind = kind;
+    j.first = first;
+    j.last = last;
+    j.left = left;
+    j.right = right;
+    return j;
+}
+
+/* A job left pending with none of its rows done, as a machine that does a
+ * job a few rows at a time leaves one. */
+static void job_pending(const screen_job_t *j)
+{
+    screen_t *s = job_screen();
+    s->cells->job = *j;
+    s->cells->job.next = j->first;
+}
+
+/* A character as the pen writes it, and the blank a clear brings in. */
+static cell_fill_t job_char(uint8_t code)
+{
+    return cell_from_pen(&vterm, 80, code, CELL_SET_PAGE);
+}
+
+static cell_fill_t job_blank(bool written)
+{
+    return cell_blank(' ', cell_side_default(), false, written);
+}
+
+/* Rows 1 to 6 of the screen, a letter a row from a. */
+static void job_rows(void)
+{
+    fresh();
+    feed("aaaaaa\r\nbbbbbb\r\ncccccc\r\ndddddd\r\neeeeee\r\nffffff");
+}
+
+/* A fill: its columns of its rows, and nothing else. A job starts and runs
+ * to the end at once. */
+UTEST(job, a_fill_fills_its_columns_of_its_rows)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_FILL, 1, 3, 2, 4);
+    j.fill = job_char('x');
+    screen_job_start(job_screen(), &j);
+    ASSERT_FALSE(screen_job_pending(job_screen()));
+    ASSERT_STREQ(row(0), "aaaaaa");
+    ASSERT_STREQ(row(1), "bbxxxb");
+    ASSERT_STREQ(row(3), "ddxxxd");
+    ASSERT_STREQ(row(4), "eeeeee");
+}
+
+/* A step does the next rows, as many as it is given, from the first row to
+ * the last, here up the screen, and says whether any are left. */
+UTEST(job, a_step_does_the_next_rows)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_FILL, 4, 0, 0, 1);
+    j.fill = job_char('x');
+    job_pending(&j);
+    ASSERT_TRUE(screen_job_step(job_screen(), 2));
+    ASSERT_STREQ(row(4), "xxeeee");
+    ASSERT_STREQ(row(3), "xxdddd");
+    ASSERT_STREQ(row(2), "cccccc");
+    ASSERT_TRUE(screen_job_pending(job_screen()));
+    ASSERT_TRUE(screen_job_step(job_screen(), 2));
+    ASSERT_STREQ(row(1), "xxbbbb");
+    ASSERT_STREQ(row(0), "aaaaaa");
+    ASSERT_FALSE(screen_job_step(job_screen(), 2));
+    ASSERT_STREQ(row(0), "xxaaaa");
+    ASSERT_FALSE(screen_job_pending(job_screen()));
+    ASSERT_STREQ(row(5), "ffffff");
+}
+
+/* The end of a job is the rest of it at once. */
+UTEST(job, a_finish_does_the_rest)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_FILL, 0, 5, 0, 0);
+    j.fill = job_char('x');
+    job_pending(&j);
+    ASSERT_TRUE(screen_job_step(job_screen(), 1));
+    screen_job_finish(job_screen());
+    ASSERT_FALSE(screen_job_pending(job_screen()));
+    ASSERT_STREQ(row(5), "xfffff");
+}
+
+/* A scroll up between margins: each row takes the cells of the row below,
+ * read before it is written, and the rows after the moves take the fill
+ * coming in. */
+UTEST(job, a_move_up_reads_each_row_before_it_writes_it)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_MOVE, 0, 3, 1, 2);
+    j.move.row = 1;
+    j.move.col = 1;
+    j.move.moves = 3;
+    j.move.in = job_blank(false);
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(0), "abbaaa");
+    ASSERT_STREQ(row(1), "bccbbb");
+    ASSERT_STREQ(row(2), "cddccc");
+    ASSERT_STREQ(row(3), "d  ddd");
+    ASSERT_STREQ(row(4), "eeeeee");
+    /* A scroll's cells are not made written. */
+    ASSERT_FALSE(written(1, 3));
+}
+
+/* And down, the rows done from the bottom. */
+UTEST(job, a_move_down_reads_each_row_before_it_writes_it)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_MOVE, 3, 0, 1, 2);
+    j.move.row = 2;
+    j.move.col = 1;
+    j.move.moves = 3;
+    j.move.in = job_blank(false);
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(0), "a  aaa");
+    ASSERT_STREQ(row(1), "baabbb");
+    ASSERT_STREQ(row(2), "cbbccc");
+    ASSERT_STREQ(row(3), "dccddd");
+    ASSERT_STREQ(row(4), "eeeeee");
+}
+
+/* A DECCRA: the cells from other columns of rows elsewhere, every row
+ * moved, each cell moved to written. */
+UTEST(job, a_copy_takes_other_columns_and_writes_its_cells)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_MOVE, 7, 8, 2, 4);
+    j.sized = true;
+    j.move.row = 0;
+    j.move.col = 4;
+    j.move.moves = 2;
+    j.move.written = true;
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(7), "  aa");
+    ASSERT_STREQ(row(8), "  bb");
+    ASSERT_TRUE(written(2, 7));
+    ASSERT_TRUE(written(4, 8));
+    ASSERT_FALSE(written(1, 7));
+}
+
+/* Sized, a row's columns stop at its line's: a double-width line has half
+ * of them. */
+UTEST(job, a_sized_job_stops_at_a_lines_columns)
+{
+    fresh();
+    feed("\33[2;1H\33#6\33[3;1H\33#6");
+    screen_job_t j = job(SCREEN_JOB_FILL, 0, 2, 0, 79);
+    j.fill = job_char('x');
+    j.sized = true;
+    screen_job_start(job_screen(), &j);
+    ASSERT_EQ(strlen(row(0)), 80u);
+    ASSERT_EQ(strlen(row(1)), 40u);
+    j.last = 2;
+    j.first = 2;
+    j.sized = false;
+    screen_job_start(job_screen(), &j);
+    ASSERT_EQ(strlen(row(2)), 80u);
+}
+
+/* A shift left: the cells move left and the fill comes in at the right. */
+UTEST(job, a_shift_left_brings_its_fill_in_at_the_right)
+{
+    fresh();
+    feed("abcdef\r\nuvwxyz\r\nlmnopq");
+    screen_job_t j = job(SCREEN_JOB_SHIFT, 0, 1, 1, 4);
+    j.shift.n = 2;
+    j.shift.left = true;
+    j.shift.in = job_char('-');
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(0), "ade--f");
+    ASSERT_STREQ(row(1), "uxy--z");
+    ASSERT_STREQ(row(2), "lmnopq");
+}
+
+/* A shift right: the cells move right and the fill comes in at the left.
+ * One of more than its columns leaves every cell the fill. */
+UTEST(job, a_shift_right_brings_its_fill_in_at_the_left)
+{
+    fresh();
+    feed("abcdef\r\nuvwxyz");
+    screen_job_t j = job(SCREEN_JOB_SHIFT, 0, 1, 0, 5);
+    j.shift.n = 2;
+    j.shift.in = job_blank(true);
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(0), "  abcd");
+    ASSERT_STREQ(row(1), "  uvwx");
+    ASSERT_TRUE(written(0, 0));
+    j.shift.n = 9;
+    j.shift.in = job_char('-');
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(0), "------");
+}
+
+/* A change of attributes: its columns of its rows. */
+UTEST(job, a_change_of_attributes_changes_its_columns)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_ATTRS, 0, 1, 1, 2);
+    j.attrs.set = SCREEN_MARK_BOLD;
+    screen_job_start(job_screen(), &j);
+    ASSERT_TRUE(attrs(1, 0) & MODE0_ATTR_BOLD);
+    ASSERT_TRUE(attrs(2, 1) & MODE0_ATTR_BOLD);
+    ASSERT_FALSE(attrs(0, 0) & MODE0_ATTR_BOLD);
+    ASSERT_FALSE(attrs(3, 1) & MODE0_ATTR_BOLD);
+    ASSERT_FALSE(attrs(1, 2) & MODE0_ATTR_BOLD);
+    j.attrs.set = 0;
+    j.attrs.toggle = SCREEN_MARK_BOLD;
+    screen_job_start(job_screen(), &j);
+    ASSERT_FALSE(attrs(1, 0) & MODE0_ATTR_BOLD);
+}
+
+/* A save never holds a job: a put finishes it first. */
+UTEST(job, a_save_finishes_the_job)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_FILL, 0, 5, 0, 0);
+    j.fill = job_char('x');
+    job_pending(&j);
+    static uint8_t blob[SCREEN_SST_SIZE];
+    sst_cursor_t c = {blob, blob + sizeof blob, false, NULL};
+    screen_sst_put(&c, job_screen());
+    ASSERT_TRUE(sst_ok(&c));
+    ASSERT_FALSE(screen_job_pending(job_screen()));
+    ASSERT_STREQ(row(5), "xfffff");
+}
+
+/* Whether any screen of either size has a job pending. */
+static bool job_any_pending(void)
+{
+    vterm_size_t *const all[] = {&vterm_40, &vterm_80};
+    for (int n = 0; n < 2; n++)
+        for (int b = 0; b < 2; b++)
+            if (screen_job_pending(&all[n]->grid.screen[b]))
+                return true;
+    return false;
+}
+
+/* The terminal never takes a byte while a job is pending: none is pending
+ * after any byte of the sequences that work on many rows. */
+UTEST(job, no_byte_comes_while_a_job_is_pending)
+{
+    fresh();
+    static const char ops[] =
+        "x\33[200b\33[2J\33[5;5H\33[1J\33[J\33[?2J\33#8\33[42;1;1;9;80$x"
+        "\33[1;1;9;80$z\33[1;1;9;80${\33[1;1;5;40;1;10;5;1$v\33[1;1;9;80;1$r"
+        "\33[1;1;9;80;4$t\33[3L\33[3M\33[2S\33[2T\33[3 @\33[3 A\33[3'}\33[3'~"
+        "\33[?69h\33[5;40s\33[2;9r\33[3L\33[2S\33[9;5H\n\n\33[1 @\33[?69l\33[r"
+        "\33[?1049h\33[2J\33[?1049l\33[?40h\33[?3h\33c";
+    for (const char *p = ops; *p; p++)
+    {
+        feedn(p, 1);
+        ASSERT_FALSE(job_any_pending());
+    }
+}
+
 UTEST_MAIN();

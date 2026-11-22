@@ -189,8 +189,8 @@ static bool draw_sst_lines_ok(sst_cursor_t *c)
 }
 
 /* Each screen's layout, as the store puts it: each size's screens that have
- * cells. A put does a scroll the screen is owed first, which moves cells
- * that MODE0_DRIVER saves after this row. */
+ * cells. A put finishes the screen's job and does a scroll the screen is
+ * owed first, which change cells that MODE0_DRIVER saves after this row. */
 static void draw_sst_put_bufs(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
