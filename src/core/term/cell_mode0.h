@@ -68,7 +68,7 @@ static inline uint16_t cell_faint(uint16_t color)
 {
     if (color & SCANVIDEO_ALPHA_MASK)
         return mode0_faint(color);
-    return (uint16_t)(color + MODE0_ENTRY(MODE0_ENTRIES, false));
+    return (uint16_t)(color | (MODE0_CODE_FAINT << MODE0_ENTRY_SHIFT));
 }
 
 // A pen color before bold, faint and iCE colors, as a cell holds it: the

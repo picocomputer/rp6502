@@ -564,8 +564,11 @@ static void vt_ours(xm_screen_t *o)
                                      SCANVIDEO_B5_FROM_PIXEL(col));
                 else
                 {
-                    unsigned e = col >> MODE0_ENTRY_SHIFT;
-                    out[k] = e >= MODE0_ENTRIES ? (e - MODE0_ENTRIES) | XM_FAINT : e;
+                    const unsigned code = col >> MODE0_ENTRY_SHIFT;
+                    const unsigned e = (code & MODE0_CODE_DEFAULT)
+                                           ? MODE0_DEFAULT_FG + (code & 1)
+                                           : code & 0xFF;
+                    out[k] = (code & MODE0_CODE_FAINT) ? e | XM_FAINT : e;
                 }
             }
             c->fg = out[0];

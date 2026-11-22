@@ -46,7 +46,7 @@ static bool mode0_sst_cells_ok(sst_cursor_t *c)
 
 #define MODE0_SST(X)                                                   \
     X(FN, mode0_sst_put_cells, mode0_sst_get_cells,                    \
-      sizeof mode0_cells + sizeof mode0_colors, 3)                     \
+      sizeof mode0_cells + sizeof mode0_colors, 4)                     \
     X(IN_FN, mode0_cells)                                              \
     X(IN_FN, mode0_colors)                                             \
     X(VALIDATE, mode0_sst_cells_ok)                                    \
@@ -77,12 +77,14 @@ const uint8_t mode0_underline8[4][8] = {
 };
 
 /* Out of line, because the renderer inlines mode0_color in every one of its
- * loops and a faint color is the rarest. */
-__attribute__((noinline)) uint16_t mode0_faint_color(unsigned entry)
+ * loops and these are the rarer colors. */
+__attribute__((noinline)) uint16_t mode0_color_rest(unsigned code)
 {
-    if (entry < VTERM_PALETTE)
-        return mode0_faint_palette[entry];
-    return mode0_faint_defaults[entry - VTERM_PALETTE];
+    if (!(code & MODE0_CODE_DEFAULT))
+        return mode0_faint_palette[code & 0xFF];
+    if (code & MODE0_CODE_FAINT)
+        return mode0_faint_defaults[code & 1];
+    return vterm_specials[code & 1];
 }
 
 #ifndef RP6502_VGA_FABRIC

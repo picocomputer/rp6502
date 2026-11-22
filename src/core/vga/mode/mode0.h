@@ -137,47 +137,53 @@ typedef struct
     uint16_t ul_color;
 } mode0_colors_t;
 
-/* The colors a cell can name: the 256 entries of the console's palette
- * (vterm_palette), then the default foreground and background, which are
- * two of the console's special colors (vterm_specials), then all of
- * those again at half brightness, for SGR 2, which are mode 0's: the faint
- * palette (mode0_faint_palette) and the faint defaults
- * (mode0_faint_defaults). draw.c makes the faint ones from the console's. */
-#define MODE0_ENTRIES 258
+/* The colors a cell can name, in bits 15:6 of a color whose opaque bit is
+ * clear: 8 bits of an entry of the console's palette (vterm_palette), then
+ * a bit for faint, SGR 2, so bits 8:0 are the address of a palette of 512,
+ * the console's 256 then mode 0's faint ones (mode0_faint_palette). A bit
+ * above them says the color is a default instead, the foreground or the
+ * background by bit 0, which are two of the console's special colors
+ * (vterm_specials), or with the faint bit mode 0's faint defaults
+ * (mode0_faint_defaults). draw.c makes the faint ones from the console's.
+ * MODE0_ENTRY names a color by the console's number for it, 0 to 255 for
+ * the palette and MODE0_DEFAULT_FG or _BG for the defaults. */
 #define MODE0_DEFAULT_FG 256
 #define MODE0_DEFAULT_BG 257
-#define MODE0_DEFAULTS (MODE0_ENTRIES - VTERM_PALETTE)
+#define MODE0_DEFAULTS 2
 #define MODE0_ENTRY_SHIFT 6
-#define MODE0_ENTRY(entry, faint) \
-    ((uint16_t)(((unsigned)(entry) + ((faint) ? MODE0_ENTRIES : 0u)) << MODE0_ENTRY_SHIFT))
+#define MODE0_CODE_FAINT 0x100u
+#define MODE0_CODE_DEFAULT 0x200u
+#define MODE0_ENTRY(entry, faint)                                                       \
+    ((uint16_t)((((unsigned)(entry) < VTERM_PALETTE                                     \
+                      ? (unsigned)(entry)                                               \
+                      : MODE0_CODE_DEFAULT | ((unsigned)(entry) - VTERM_PALETTE)) |    \
+                 ((faint) ? MODE0_CODE_FAINT : 0u))                                     \
+                << MODE0_ENTRY_SHIFT))
 extern uint16_t mode0_faint_palette[VTERM_PALETTE];
 extern uint16_t mode0_faint_defaults[MODE0_DEFAULTS];
 
 _Static_assert(MODE0_DEFAULT_FG == VTERM_COLOR_FG && MODE0_DEFAULT_BG == VTERM_COLOR_BG &&
-                   MODE0_ENTRIES == VTERM_COLOR_BG + 1,
-               "mode 0's entries are the console's palette and its default colors");
+                   VTERM_PALETTE == 256,
+               "mode 0's colors are the console's palette of 256 and its default colors");
 
 _Static_assert(MODE0_ENTRY_SHIFT == SCANVIDEO_ALPHA_PIN + 1,
-               "an entry sits above the opaque bit, which is clear for one");
+               "a color's code sits above the opaque bit, which is clear for one");
 
-/* The pixel of a faint color, named by its entry less MODE0_ENTRIES: an
- * entry of the faint palette, then the faint defaults. */
-uint16_t mode0_faint_color(unsigned entry);
+/* The pixel of a color past the console's palette: a faint one, or a
+ * default, by its code. */
+uint16_t mode0_color_rest(unsigned code);
 
-/* The pixel a cell's color is drawn as. An entry of the palette is the
- * commonest, so the renderer's common path takes it from the console's
- * palette. Past the palette come the defaults, from the console's special
- * colors, then the faint ones, which are the rarest. */
+/* The pixel a cell's color is drawn as. An entry of the console's palette
+ * is the commonest, so the renderer's common path takes it from there;
+ * the faint palette and the defaults are rarer. */
 static inline uint16_t mode0_color(uint16_t color)
 {
     if (color & SCANVIDEO_ALPHA_MASK)
         return color;
-    const unsigned entry = color >> MODE0_ENTRY_SHIFT;
-    if (MODE_LIKELY(entry < VTERM_PALETTE))
-        return vterm_palette[entry];
-    if (entry < MODE0_ENTRIES)
-        return vterm_specials[entry - VTERM_PALETTE];
-    return mode0_faint_color(entry - MODE0_ENTRIES);
+    const unsigned code = color >> MODE0_ENTRY_SHIFT;
+    if (MODE_LIKELY(code < VTERM_PALETTE))
+        return vterm_palette[code];
+    return mode0_color_rest(code);
 }
 
 /* A bold cell's ink: entries 0 to 7 of the palette, faint or not, are drawn
@@ -186,14 +192,11 @@ static inline uint16_t mode0_bold(uint16_t ink)
 {
     if (ink & SCANVIDEO_ALPHA_MASK)
         return ink;
-    unsigned entry = ink >> MODE0_ENTRY_SHIFT;
-    const bool faint = entry >= MODE0_ENTRIES;
-    if (faint)
-        entry -= MODE0_ENTRIES;
-    if (entry < 8)
-        return MODE0_ENTRY(entry + 8, faint);
-    if (entry == MODE0_DEFAULT_FG)
-        return MODE0_ENTRY(15, faint);
+    const unsigned code = ink >> MODE0_ENTRY_SHIFT;
+    if (!(code & MODE0_CODE_DEFAULT) && (code & 0xFF) < 8)
+        return (uint16_t)((code + 8) << MODE0_ENTRY_SHIFT);
+    if (code == MODE0_CODE_DEFAULT || code == (MODE0_CODE_DEFAULT | MODE0_CODE_FAINT))
+        return MODE0_ENTRY(15, code & MODE0_CODE_FAINT);
     return ink;
 }
 
@@ -223,7 +226,9 @@ static inline void mode0_cell_shows(const mode0_cell_t *cell, const mode0_colors
 /* Whether a color names an entry the palette has, as every RGB color does. */
 static inline bool mode0_color_ok(uint16_t color)
 {
-    return (color & SCANVIDEO_ALPHA_MASK) || (color >> MODE0_ENTRY_SHIFT) < 2 * MODE0_ENTRIES;
+    const unsigned code = color >> MODE0_ENTRY_SHIFT;
+    return (color & SCANVIDEO_ALPHA_MASK) || code < MODE0_CODE_DEFAULT ||
+           (code & ~(MODE0_CODE_FAINT | 1u)) == MODE0_CODE_DEFAULT;
 }
 
 /* A pixel at half brightness, for SGR 2. */

@@ -1272,6 +1272,19 @@ UTEST(term, a_palette_change_touches_no_cell)
     ASSERT_FALSE(ink(0, 0)->fg_color & SCANVIDEO_ALPHA_MASK);
 }
 
+/* A color names an entry of a palette of 512 by its low 9 bits: the
+ * console's 256, then the faint ones above them. The defaults are apart. */
+UTEST(term, a_faint_color_is_the_palette_address_with_bit_8)
+{
+    fresh();
+    feed("\33[31mA\33[2;31mB\33[2;39mC");
+    ASSERT_EQ(held(0, 0)->fg_color >> MODE0_ENTRY_SHIFT, 1u);
+    ASSERT_EQ(held(1, 0)->fg_color >> MODE0_ENTRY_SHIFT, 1u | MODE0_CODE_FAINT);
+    ASSERT_EQ(held(2, 0)->fg_color >> MODE0_ENTRY_SHIFT, MODE0_CODE_DEFAULT | MODE0_CODE_FAINT);
+    ASSERT_EQ(mode0_color(held(1, 0)->fg_color), mode0_faint_palette[1]);
+    ASSERT_EQ(mode0_color(held(2, 0)->fg_color), mode0_faint_defaults[0]);
+}
+
 /* SGR 38:1 and 48:1 were the console's own transparent color. They are
  * forms SGR does not know now: the colon form is skipped whole, and the
  * semicolon form takes its 1 with it, so it is not bold. */
