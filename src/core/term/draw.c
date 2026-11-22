@@ -95,13 +95,11 @@ static inline draw_blinks_t *draw_blinks(const term_grid_t *g)
     return g == &vterm_80.grid ? &draw_80 : &draw_40;
 }
 
-// The smooth scroll moving on the screen showing of g, drawn where a screen
-// keeps a spare row of memory for the row going out. Without one the row
-// going out is erased as it goes, so nothing is drawn moving.
+// Whether a smooth scroll is moving on the screen of g that shows, and so
+// its ghost row (vterm_smoothing.ghost) is drawn going out.
 static bool draw_smooth_shows(const term_grid_t *g)
 {
-    return vterm_smooth_busy(g) && TERM_SPARE_ROWS &&
-           vterm_smoothing.screen == (uint8_t)(g->shown - g->screen);
+    return vterm_smooth_busy(g) && vterm_smoothing.screen == (uint8_t)(g->shown - g->screen);
 }
 
 /* Mode 0's faint twins of the console's palette and default colors

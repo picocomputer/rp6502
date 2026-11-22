@@ -52,7 +52,7 @@ rp6502_add_test(ria_cells
     INCLUDES ${CMAKE_CURRENT_LIST_DIR}/stub ${RP6502_SRC}/host/pico/ria
         ${RP6502_SRC}/host/pico ${RP6502_SRC} ${RP6502_GEN}
     DEFS PICO_PROGRAM_NAME="RP6502-RIA" RP6502_LOCALE=EN
-        TERM_MAX_HEIGHT=32 TERM_ALT_SCREEN=1 TERM_CELL_TEXT=1 TERM_SPARE_ROWS=0)
+        TERM_MAX_HEIGHT=32 TERM_ALT_SCREEN=1 TERM_CELL_TEXT=1)
 add_dependencies(test_ria_cells rp6502_gen_c)
 
 # The messages the VGA answers and a 6502 program's xreg burst, vga.c and
@@ -66,6 +66,6 @@ if(NOT MSVC)
         INCLUDES ${CMAKE_CURRENT_LIST_DIR}/vga ${CMAKE_CURRENT_LIST_DIR}/stub
             ${RP6502_SRC}/host/pico/ria ${RP6502_SRC}/host/pico ${RP6502_SRC} ${RP6502_GEN}
         DEFS PICO_PROGRAM_NAME="RP6502-RIA" RP6502_LOCALE=EN
-            TERM_MAX_HEIGHT=32 TERM_ALT_SCREEN=1 TERM_CELL_TEXT=1 TERM_SPARE_ROWS=0)
+            TERM_MAX_HEIGHT=32 TERM_ALT_SCREEN=1 TERM_CELL_TEXT=1)
     add_dependencies(test_ria_vga rp6502_gen_c)
 endif()

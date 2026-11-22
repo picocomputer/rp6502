@@ -37,10 +37,8 @@
 /* The console's terminal follows the VGA's, which is this tall. */
 #define TERM_MAX_HEIGHT 32
 
-/* It keeps the console's text, and draws nothing: text cells, and no
- * spare row for a smooth scroll to draw the row going out from. */
+/* It keeps the console's text, and draws nothing: text cells. */
 #define TERM_CELL_TEXT 1
-#define TERM_SPARE_ROWS 0
 
 
 #endif /* _HOST_MACHINE_H_ */

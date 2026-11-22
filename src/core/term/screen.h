@@ -128,7 +128,7 @@ void screen_all_blank(screen_t *s);
 
 // A screen of rows slots, blank lines, in order. Its ring is in row_idx,
 // rows bytes of the owner's, or NULL for a screen that will have no cells.
-// A screen with a ring has TERM_SPARE_ROWS rows of memory more than slots,
+// A screen with a ring has a row of memory more than slots, the spare row,
 // because only a ring moves a spare row round, so a ring is for a screen
 // of no more than TERM_MAX_HEIGHT rows. Its line attributes are in line, a
 // byte of the owner's for each row of memory. It has no cells. The cursors
@@ -156,8 +156,7 @@ void screen_ring_clear(screen_t *s);
 // the rows coming in start. With keep, for a smooth scroll of one row, the
 // spare row of memory takes that slot instead, before anything erases the
 // row coming in, so the row that went keeps its line attributes and its
-// cells while it still shows going. A screen with no spare
-// row keeps nothing.
+// cells while it still shows going. A screen with no ring keeps nothing.
 uint8_t screen_ring_scroll(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, bool up,
                            bool keep);
 
@@ -458,11 +457,11 @@ typedef struct
     };
 } screen_job_t;
 
-// The cells of a screen. A row of the screen is
-// in a row of memory, which the screen's ring gives. The screen has
-// TERM_SPARE_ROWS more rows of memory than slots: the ring's spare is the
-// one in no slot, which a smooth scroll gives the row coming in while the
-// row going out still shows. Its job is the one pending, if any.
+// The cells of a screen. A row of the screen is in a row of memory, which
+// the screen's ring gives. The screen has a row of memory more than slots:
+// the ring's spare is the one in no slot, which a smooth scroll gives the
+// row coming in while the row going out still shows. Its job is the one
+// pending, if any.
 typedef struct screen_cells
 {
     cell_t *mem;

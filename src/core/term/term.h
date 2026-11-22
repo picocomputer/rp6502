@@ -46,15 +46,11 @@
 #define TERM_ALT_SCREEN 1
 #endif
 
-/* TERM_SPARE_ROWS: the row of memory each screen keeps beyond its
- * TERM_MAX_HEIGHT for DECSCLM, which holds the row a smooth scroll moves
- * out while it moves. A machine whose cell store is fixed elsewhere, as
- * in an FPGA, can leave it out with 0, and the terminal there scrolls
- * whole rows even in smooth scroll mode. */
-#ifndef TERM_SPARE_ROWS
-#define TERM_SPARE_ROWS 1
-#endif
-#define TERM_MEM_ROWS (TERM_MAX_HEIGHT + TERM_SPARE_ROWS)
+/* TERM_MEM_ROWS: the rows of memory of each screen, TERM_MAX_HEIGHT and the
+ * spare row DECSCLM keeps beyond them, which holds the row a smooth scroll
+ * moves out while it moves. Every machine keeps it, so every machine runs
+ * the same ring, and a row of memory is the same row on each. */
+#define TERM_MEM_ROWS (TERM_MAX_HEIGHT + 1)
 
 /* TERM_CELL_TEXT: the cells are text cells (cell_text.h), the text of each
  * cell and whether it shows, for a machine that keeps the console's text

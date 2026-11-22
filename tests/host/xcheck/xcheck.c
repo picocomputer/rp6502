@@ -5,14 +5,15 @@
  */
 
 /* xcheck: the console's terminal as the Pico VGA keeps it, in mode 0's
- * cells with a spare row and its jobs left pending (TERM_JOB_ROWS), or as
- * the RIA keeps it, in text cells with none and its jobs done at once
- * (TERM_CELL_TEXT, TERM_SPARE_ROWS 0). The two builds are fed the same
- * bytes, and the same changes of height and resets in the order
- * ria/sys/vga.c replays them, with smooth scrolls moving and holding bytes
- * as on a connected VGA, and jobs done a few passes of the main loop at a
- * time as on the Pico VGA. At points along the way a build prints a digest of
- * what both sizes' two screens hold: the text of each row in view and of
+ * cells and its jobs left pending (TERM_JOB_ROWS), or as the RIA keeps it,
+ * in text cells and its jobs done at once (TERM_CELL_TEXT). The two builds
+ * are fed the same bytes, and the same changes of height and resets in the
+ * order ria/sys/vga.c replays them, with smooth scrolls moving and holding
+ * bytes as on a connected VGA, and jobs done a few passes of the main loop
+ * at a time as on the Pico VGA. At points along the way a build prints a
+ * digest of what both sizes' two screens hold: their rings, the row of
+ * memory in each slot, the slot of row 0 and the spare row, so a row of
+ * memory is the same row on both; and the text of each row in view and of
  * each row above them still in the ring, whether each is used, and whether
  * it wrapped on its own. The text is cell_text's, which is the same for
  * both kinds, so the two print the same digests. xcheck.py runs both and
@@ -106,6 +107,10 @@ static void xc_point(void)
             screen_t *s = &g->screen[b];
             xc_print("%u columns, %s, %u rows, %u above\n", g->width,
                      b ? "alternate" : "primary", g->height, s->hidden);
+            xc_print("ring at %u, spare %u:", s->y_offset, s->spare);
+            for (int i = 0; i < s->rows; i++)
+                xc_print(" %u", s->row_idx[i]);
+            xc_print("\n");
             for (int k = s->hidden; k > 0; k--)
                 xc_row(s, (uint8_t)(s->rows - k), -k);
             for (int y = 0; y < g->height; y++)

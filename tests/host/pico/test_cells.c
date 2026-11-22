@@ -16,8 +16,7 @@
 #include <string.h>
 
 /* The RIA's machine.h, which a host build cannot include. */
-_Static_assert(TERM_MAX_HEIGHT == 32 && TERM_ALT_SCREEN == 1 && TERM_CELL_TEXT == 1 &&
-                   TERM_SPARE_ROWS == 0,
+_Static_assert(TERM_MAX_HEIGHT == 32 && TERM_ALT_SCREEN == 1 && TERM_CELL_TEXT == 1,
                "the RIA's terminal");
 
 /* The console with no VGA, the 80-column terminal, unless a test connects

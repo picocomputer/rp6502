@@ -7,9 +7,8 @@
 #ifndef _TEST_XCHECK_MACHINE_H_
 #define _TEST_XCHECK_MACHINE_H_
 
-/* The Pico VGA's console terminal on the host, for xcheck: 32 rows, the
- * alternate screen, and a spare row, unless the build of the text kind
- * leaves it out as the RIA does. Nothing goes in flash. */
+/* The Pico VGA's console terminal on the host, for xcheck: 32 rows and the
+ * alternate screen, as the RIA's too. Nothing goes in flash. */
 
 #define HOST_IN_FLASH
 #define HOST_IN_FLASH_FUNC __attribute__((noinline))

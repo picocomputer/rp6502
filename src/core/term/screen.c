@@ -51,7 +51,7 @@ void screen_all_blank(screen_t *s)
 void screen_init(screen_t *s, uint8_t rows, uint8_t *line, uint8_t *row_idx)
 {
     s->rows = rows;
-    s->mem_rows = (uint8_t)(row_idx ? rows + TERM_SPARE_ROWS : rows);
+    s->mem_rows = (uint8_t)(row_idx ? rows + 1u : rows);
     s->line = line;
     s->row_idx = row_idx;
     s->cells = NULL;
@@ -241,8 +241,7 @@ bool screen_sst_get(sst_cursor_t *c, screen_t *s)
     b->job.kind = SCREEN_JOB_NONE;
     /* Everything here indexes the cell array. row_idx is the ring and
      * y_offset is added to it before the lookup, so both are bounded, and
-     * the slots and the spare name every row of memory once. With no spare
-     * row, the spare is none. */
+     * the slots and the spare name every row of memory once. */
     if (!sst_ok(c))
         return false;
     if (s->y_offset >= s->rows || s->hidden >= s->rows)
@@ -255,8 +254,6 @@ bool screen_sst_get(sst_cursor_t *c, screen_t *s)
             return sst_refuse(c, "a screen's rows out of order");
         seen[m] = true;
     }
-    if (s->mem_rows == s->rows && s->spare != s->mem_rows)
-        return sst_refuse(c, "a screen's rows out of order");
     return true;
 }
 
