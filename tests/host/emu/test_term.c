@@ -90,9 +90,25 @@ static bool written(int x, int y)
 }
 
 /* The colors of a cell. */
-static const mode0_colors_t *ink(int x, int y)
+/* The colors a cell holds. */
+static const mode0_colors_t *held(int x, int y)
 {
     return &mode0_colors[cell(x, y) - mode0_cells];
+}
+
+/* The colors a cell shows: its bold, conceal and reverse drawn
+ * (mode0_cell_shows), and its underline's color, which is the ink's but
+ * for one of its own. A few at once, for comparing cells. */
+static const mode0_colors_t *ink(int x, int y)
+{
+    static mode0_colors_t shown[4];
+    static unsigned next;
+    mode0_colors_t *s = &shown[next++ % 4];
+    const mode0_cell_t *c = cell(x, y);
+    const mode0_colors_t *k = &mode0_colors[c - mode0_cells];
+    mode0_cell_shows(c, k, &s->fg_color, &s->bg_color);
+    s->ul_color = (c->attributes & MODE0_ATTR_UL_COLOR) ? k->ul_color : s->fg_color;
+    return s;
 }
 
 static char ch(int x, int y)
@@ -893,7 +909,7 @@ UTEST(term, underline_styles)
     ASSERT_EQ(attrs(1, 0), TERM_ATTR_UL(TERM_UL_DOUBLE));
     ASSERT_EQ(attrs(2, 0), 0);
     /* 1:5 is bold, not blink */
-    ASSERT_EQ(attrs(3, 0), MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT);
+    ASSERT_EQ(attrs(3, 0), MODE0_ATTR_BOLD);
     ASSERT_EQ(mode0_color(ink(3, 0)->fg_color), color_256[15]);
     /* Every style, the last one set standing; a style past the last is
      * none; SGR 21 is the double one and SGR 24 ends them all. */
@@ -1243,10 +1259,10 @@ UTEST(term, a_palette_change_touches_no_cell)
     fresh();
     feed("\33[31mA\33[2;32mB\33[0m\33[38;2;9;8;7mC");
     const mode0_cell_t before[3] = {*cell(0, 0), *cell(1, 0), *cell(2, 0)};
-    const mode0_colors_t inks[3] = {*ink(0, 0), *ink(1, 0), *ink(2, 0)};
+    const mode0_colors_t inks[3] = {*held(0, 0), *held(1, 0), *held(2, 0)};
     feed("\33]4;1;#102030\7\33]4;2;#204060\7");
     ASSERT_EQ(0, memcmp(before, cell(0, 0), sizeof before));
-    ASSERT_EQ(0, memcmp(inks, ink(0, 0), sizeof inks));
+    ASSERT_EQ(0, memcmp(inks, held(0, 0), sizeof inks));
     ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), rgb(0x10, 0x20, 0x30));
     ASSERT_EQ(mode0_color(ink(1, 0)->fg_color),
               SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB5(0x20 >> 4, 0x40 >> 4, 0x60 >> 4));
@@ -2137,8 +2153,7 @@ UTEST(term, deccara_changes_the_attributes_of_cells)
     const uint16_t bg = MODE0_ENTRY(MODE0_DEFAULT_BG, false);
     feed("\33[2*xhello\33[1;1;1;4;1;4;5;7$r");
     ASSERT_EQ(attrs(0, 0),
-              TERM_ATTR_UL(TERM_UL_SINGLE) | TERM_ATTR_BLINK | MODE0_ATTR_BOLD |
-                  MODE0_ATTR_BOLD_DEFAULT | MODE0_ATTR_REVERSE);
+              TERM_ATTR_UL(TERM_UL_SINGLE) | TERM_ATTR_BLINK | MODE0_ATTR_BOLD | MODE0_ATTR_REVERSE);
     ASSERT_EQ(ink(0, 0)->fg_color, bg);
     ASSERT_EQ(ink(0, 0)->bg_color, MODE0_ENTRY(15, false));
     ASSERT_EQ(ink(0, 0)->ul_color, bg);
@@ -2216,17 +2231,16 @@ UTEST(term, decrara_reverses_the_attributes)
     ASSERT_EQ(attrs(0, 0), MODE0_ATTR_REVERSE);
     ASSERT_EQ(ink(0, 0)->bg_color, MODE0_ENTRY(MODE0_DEFAULT_FG, false));
     ASSERT_EQ(attrs(1, 0),
-              MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT | MODE0_ATTR_REVERSE);
+              MODE0_ATTR_BOLD | MODE0_ATTR_REVERSE);
     ASSERT_EQ(ink(1, 0)->bg_color, MODE0_ENTRY(15, false));
     feed("\33[1;1;1;2;1;7$t");
-    ASSERT_EQ(attrs(0, 0), MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT);
+    ASSERT_EQ(attrs(0, 0), MODE0_ATTR_BOLD);
     ASSERT_EQ(attrs(1, 0), 0);
     ASSERT_EQ(ink(1, 0)->fg_color, MODE0_ENTRY(MODE0_DEFAULT_FG, false));
     /* 0 is all four. */
     feed("\33[1;2;1;2;0$t");
     ASSERT_EQ(attrs(1, 0),
-              TERM_ATTR_UL(TERM_UL_SINGLE) | TERM_ATTR_BLINK | MODE0_ATTR_BOLD |
-                  MODE0_ATTR_BOLD_DEFAULT | MODE0_ATTR_REVERSE);
+              TERM_ATTR_UL(TERM_UL_SINGLE) | TERM_ATTR_BLINK | MODE0_ATTR_BOLD | MODE0_ATTR_REVERSE);
     feed("\33[1;2;1;2$t");
     ASSERT_EQ(attrs(1, 0), 0);
 }

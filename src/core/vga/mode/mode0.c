@@ -46,7 +46,7 @@ static bool mode0_sst_cells_ok(sst_cursor_t *c)
 
 #define MODE0_SST(X)                                                   \
     X(FN, mode0_sst_put_cells, mode0_sst_get_cells,                    \
-      sizeof mode0_cells + sizeof mode0_colors, 2)                     \
+      sizeof mode0_cells + sizeof mode0_colors, 3)                     \
     X(IN_FN, mode0_cells)                                              \
     X(IN_FN, mode0_colors)                                             \
     X(VALIDATE, mode0_sst_cells_ok)                                    \
@@ -103,17 +103,19 @@ mode0_render_wide(uint16_t *buf, uint8_t bits, const uint32_t *pair)
         *w++ = pair[((bits >> k) & 1) * 3];
 }
 
-/* The pixel pairs of every cell of a row: its colors, looked up where they
- * are entries of the palette, after DECSCNM and the blink phase, as the four
- * ways two pixels can land. */
+/* The pixel pairs of every cell of a row: the colors it shows, looked up
+ * where they are entries of the palette, after DECSCNM and the blink phase,
+ * as the four ways two pixels can land. */
 static inline __attribute__((always_inline)) void
 mode0_row_pairs(uint32_t *pair, const mode0_cell_t *cell, const mode0_colors_t *colors,
                 int cols, uint8_t blink_mask, bool rev)
 {
     for (int i = 0; i < cols; i++, cell++, colors++, pair += 4)
     {
-        uint16_t fg = mode0_color(colors->fg_color);
-        uint16_t bg = mode0_color(colors->bg_color);
+        uint16_t fg, bg;
+        mode0_cell_shows(cell, colors, &fg, &bg);
+        fg = mode0_color(fg);
+        bg = mode0_color(bg);
         if (rev)
         {
             uint16_t t = fg;
@@ -337,14 +339,15 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
         default:
         { // 0, 1, 2: block
             const mode0_cell_t *cp = cell + cx;
-            const mode0_colors_t *cc = colors + cx;
+            uint16_t cfg, cbg;
+            mode0_cell_shows(cp, colors + cx, &cfg, &cbg);
             uint16_t cattr = cp->attributes;
             uint8_t cbits = font_line[cp->glyph];
             if (cattr & line_mask)
                 cbits = 0xFF;
             cbits |= underline[(cattr >> TERM_ATTR_UL_SHIFT) & 7];
             mode_pair_set(cpair, cursor_color,
-                          mode0_color(reverse ? cc->fg_color : cc->bg_color));
+                          mode0_color(reverse ? cfg : cbg));
             if (wide)
                 mode0_render_wide(crgb, cbits, cpair);
             else

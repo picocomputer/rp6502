@@ -87,7 +87,15 @@ static inline uint16_t cell_base(const term_color_t *c, unsigned dflt)
     }
 }
 
-// The colors the pen draws in. Bold brightens palette colors 0-7 and the
+// A pen's ink as a cell holds it: faint halves each channel, and bold is
+// the cell's to draw (mode0_cell_shows).
+static inline uint16_t cell_pen_ink(const term_pen_t *pen)
+{
+    const uint16_t fg = cell_base(&pen->fg, MODE0_DEFAULT_FG);
+    return pen->faint ? cell_faint(fg) : fg;
+}
+
+// The colors the pen erases in. Bold brightens palette colors 0-7 and the
 // default foreground (to 15, as Linux does); faint halves each channel. In
 // iCE colors mode (?33) SGR 5/6 brightens a background of 0-7 or the default
 // instead of blinking -- the IBM-VGA hack the BBS scene relies on. A
@@ -167,27 +175,18 @@ static inline bool cell_fill_same(const cell_fill_t *a, const cell_fill_t *b)
 // background is the blink. An underline SGR 58 colored is flagged, so the
 // renderer reads its color; any other holds the foreground's color. A cell
 // written while DECSCA or SPA protects is guarded, and every one is
-// written (cell.h). The cell says when bold brightened its ink and when its
-// colors are swapped, so DECCARA and DECRARA can undo either; a concealed
-// cell has no ink to say it of.
+// written (cell.h). Bold, SGR 7 and SGR 8 are bits of the cell, which the
+// renderer draws (mode0_cell_shows), so DECCARA and DECRARA change bits
+// alone.
 static inline cell_fill_t cell_from_pen(const term_t *term, uint8_t width, uint8_t code,
                                         unsigned set)
 {
     const term_pen_t *pen = term_pen(term);
     const unsigned rows = width == 40 ? 8 : 16;
     cell_fill_t e;
-    uint16_t f = cell_pen_fg(pen);
-    uint16_t b = cell_pen_bg(term, pen);
-    if (pen->reverse)
-    {
-        uint16_t tmp = f;
-        f = b;
-        b = tmp;
-    }
-    if (pen->conceal)
-        f = b;
+    const uint16_t f = cell_pen_ink(pen);
     e.colors.fg_color = f;
-    e.colors.bg_color = b;
+    e.colors.bg_color = cell_pen_bg(term, pen);
     uint16_t cell_mask = TERM_ATTR_CELL_MASK;
     if (term->ice_colors)
         cell_mask &= (uint16_t)~TERM_ATTR_ANY_BLINK;
@@ -196,15 +195,12 @@ static inline cell_fill_t cell_from_pen(const term_t *term, uint8_t width, uint8
         attributes |= MODE0_ATTR_UL_COLOR;
     if (term_protecting(term))
         attributes |= MODE0_ATTR_GUARD;
+    if (pen->bold)
+        attributes |= MODE0_ATTR_BOLD;
     if (pen->reverse)
         attributes |= MODE0_ATTR_REVERSE;
-    if (pen->bold && !pen->conceal)
-    {
-        if (pen->fg.kind == TERM_COLOR_INDEX && pen->fg.index < 8)
-            attributes |= MODE0_ATTR_BOLD;
-        else if (pen->fg.kind == TERM_COLOR_DEFAULT)
-            attributes |= MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT;
-    }
+    if (pen->conceal)
+        attributes |= MODE0_ATTR_CONCEAL;
     uint16_t glyph = code;
     if (set == CELL_SET_DEC)
         glyph = MODE0_GLYPH_DEC(rows, code);

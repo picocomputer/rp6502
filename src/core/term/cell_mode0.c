@@ -194,93 +194,57 @@ void cell_wipe(mode0_cell_t *row, unsigned from, unsigned to, bool selective)
         }
 }
 
-// Bold on or off for a cell's ink, which is a palette entry it can be told
-// of: on, entries 0 to 7 and the default foreground become their bright
-// entries, as the pen draws them; off, an ink that bold brightened goes
-// back. An RGB ink, or one that was bright without bold, stays as it is.
-// Returns the cell's attributes.
-static uint16_t cell_ink_bold(uint16_t *ink, uint16_t attributes, bool on)
+// The bold, the reverse and the written mark are bits of the cell of their
+// own, so every cell takes them alike. The underline and the blink each
+// have one SCREEN_MARK_ bit for any of their styles, so what a cell comes
+// to depends on whether it has one: a cell keeps, loses or gains one, as
+// four masks, by whether it has an underline and a blink. An underline
+// set here is a single one in the foreground's color, and a blink set here
+// is the slow one. Bold, conceal and reverse are drawn from the bits
+// (mode0_cell_shows), so no color changes, and no cell takes a branch.
+static uint16_t cell_marks_bits(unsigned marks)
 {
-    if (*ink & SCANVIDEO_ALPHA_MASK)
-        return attributes;
-    unsigned entry = *ink >> MODE0_ENTRY_SHIFT;
-    const bool faint = entry >= MODE0_ENTRIES;
-    if (faint)
-        entry -= MODE0_ENTRIES;
-    if (on && !(attributes & MODE0_ATTR_BOLD))
-    {
-        if (entry < 8)
-        {
-            entry += 8;
-            attributes |= MODE0_ATTR_BOLD;
-        }
-        else if (entry == MODE0_DEFAULT_FG)
-        {
-            entry = 15;
-            attributes |= MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT;
-        }
-    }
-    else if (!on && (attributes & MODE0_ATTR_BOLD))
-    {
-        if (attributes & MODE0_ATTR_BOLD_DEFAULT)
-            entry = MODE0_DEFAULT_FG;
-        else if (entry >= 8 && entry < 16)
-            entry -= 8;
-        attributes &= (uint16_t)~(MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT);
-    }
-    *ink = MODE0_ENTRY(entry, faint);
-    return attributes;
+    return (uint16_t)(((marks & SCREEN_MARK_BOLD) ? MODE0_ATTR_BOLD : 0) |
+                      ((marks & SCREEN_MARK_REVERSE) ? MODE0_ATTR_REVERSE : 0) |
+                      ((marks & SCREEN_MARK_WRITTEN) ? MODE0_ATTR_WRITTEN : 0));
 }
 
-// Each cell's attributes are worked out from what it has, so a cell that
-// already has what is asked is left alone. A cell whose two colors are the
-// same, a concealed one for one, is not made bold, which would show it. An
-// underline set here is a single one in the foreground's color. A cell
-// only made written keeps its colors as they are.
 void cell_marks(mode0_cell_t *row, unsigned from, unsigned to, unsigned set, unsigned clear,
                 unsigned toggle)
 {
-    mode0_colors_t *colors = cell_colors(row);
-    for (unsigned i = from; i < to; i++)
+    const uint16_t bits_set = cell_marks_bits(set);
+    const uint16_t bits_clear = (uint16_t)~cell_marks_bits(clear);
+    const uint16_t bits_flip = cell_marks_bits(toggle);
+    uint16_t keep[4], put[4];
+    for (unsigned has = 0; has < 4; has++)
     {
-        uint16_t a = row[i].attributes;
-        mode0_colors_t *c = &colors[i];
-        const unsigned has = ((a & MODE0_ATTR_BOLD) ? SCREEN_MARK_BOLD : 0) |
-                             ((a & TERM_ATTR_UL_MASK) ? SCREEN_MARK_UNDERLINE : 0) |
-                             ((a & TERM_ATTR_ANY_BLINK) ? SCREEN_MARK_BLINK : 0) |
-                             ((a & MODE0_ATTR_REVERSE) ? SCREEN_MARK_REVERSE : 0) |
-                             ((a & MODE0_ATTR_WRITTEN) ? SCREEN_MARK_WRITTEN : 0);
-        const unsigned want = ((has | set) & ~clear) ^ toggle;
-        const unsigned change = has ^ want;
-        if (!change)
-            continue;
-        if (change & SCREEN_MARK_WRITTEN)
-            a ^= MODE0_ATTR_WRITTEN;
-        if (change & SCREEN_MARK_REVERSE)
+        const unsigned marks = ((has & 1) ? SCREEN_MARK_UNDERLINE : 0) |
+                               ((has & 2) ? SCREEN_MARK_BLINK : 0);
+        const unsigned want = ((marks | set) & ~clear) ^ toggle;
+        unsigned k = 0xFFFF, p = 0;
+        if ((marks ^ want) & SCREEN_MARK_UNDERLINE)
         {
-            const uint16_t fg = c->fg_color;
-            c->fg_color = c->bg_color;
-            c->bg_color = fg;
-            a ^= MODE0_ATTR_REVERSE;
-        }
-        if ((change & SCREEN_MARK_BOLD) && c->fg_color != c->bg_color)
-            a = cell_ink_bold((a & MODE0_ATTR_REVERSE) ? &c->bg_color : &c->fg_color, a,
-                              want & SCREEN_MARK_BOLD);
-        if (change & SCREEN_MARK_UNDERLINE)
-        {
-            a &= (uint16_t)~(TERM_ATTR_UL_MASK | MODE0_ATTR_UL_COLOR);
             if (want & SCREEN_MARK_UNDERLINE)
-                a |= TERM_ATTR_UL(TERM_UL_SINGLE);
+                p |= TERM_ATTR_UL(TERM_UL_SINGLE);
+            else
+                k &= ~(TERM_ATTR_UL_MASK | MODE0_ATTR_UL_COLOR);
         }
-        if (change & SCREEN_MARK_BLINK)
+        if ((marks ^ want) & SCREEN_MARK_BLINK)
         {
-            a &= (uint16_t)~TERM_ATTR_ANY_BLINK;
             if (want & SCREEN_MARK_BLINK)
-                a |= TERM_ATTR_BLINK;
+                p |= TERM_ATTR_BLINK;
+            else
+                k &= ~TERM_ATTR_ANY_BLINK;
         }
-        if ((change & ~SCREEN_MARK_WRITTEN) && !(a & MODE0_ATTR_UL_COLOR))
-            c->ul_color = c->fg_color;
-        row[i].attributes = a;
+        keep[has] = (uint16_t)(k & bits_clear);
+        put[has] = (uint16_t)(p | (bits_set & bits_clear));
+    }
+    for (mode0_cell_t *cell = row + from, *end = row + to; cell < end; cell++)
+    {
+        const unsigned a = cell->attributes;
+        const unsigned has = (((a & TERM_ATTR_UL_MASK) + TERM_ATTR_UL_MASK) >> 5) |
+                             ((((a & TERM_ATTR_ANY_BLINK) + TERM_ATTR_ANY_BLINK) >> 2) << 1);
+        cell->attributes = (uint16_t)(((a & keep[has]) | put[has]) ^ bits_flip);
     }
 }
 

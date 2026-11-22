@@ -46,20 +46,24 @@
  * MODE0_ATTR_GUARD: DECSCA or SPA guards the cell from the selective
  * erases.
  *
- * MODE0_ATTR_BOLD: bold made the cell's ink the bright entry of its
- * palette color, 8 above it, and with MODE0_ATTR_BOLD_DEFAULT the ink was
- * the default foreground and is entry 15.
+ * MODE0_ATTR_BOLD: the cell is bold. Its ink is drawn in the bright entry
+ * of its palette color, 8 above it, and the default foreground in entry 15;
+ * an RGB ink, or any other entry, is drawn as it is.
  *
- * MODE0_ATTR_REVERSE: the colors are swapped, so the ink is the
+ * MODE0_ATTR_CONCEAL: the ink is drawn in the background's color.
+ *
+ * MODE0_ATTR_REVERSE: the colors are drawn swapped, so the ink is the
  * background.
  *
  * MODE0_ATTR_WRITTEN: the cell was written, as xterm's CHARDRAWN has it,
  * not only erased (core/term/cell.h).
  *
- * The guard, the bolds and the reverse are the console's own, for the
- * sequences that change the attributes of cells already written (DECCARA
- * and DECRARA), and the written bit for a copy of the text. No renderer
- * draws them: the colors already show the bolds and the reverse.
+ * The guard is for the selective erases and the written bit for a copy of
+ * the text; no renderer draws them. A cell's colors are the pen's, and its
+ * bold, conceal and reverse are drawn from its attributes
+ * (mode0_cell_shows) when a row's colors are looked up, so the sequences
+ * that change the attributes of cells already written (DECCARA and
+ * DECRARA) change bits alone.
  *
  * Only the underlines, the strike and the overline change what a scanline
  * draws, and only on their own rows of the glyph. On every other row a
@@ -76,7 +80,7 @@ typedef struct
 #define MODE0_ATTR_UL_COLOR (1u << 8)
 #define MODE0_ATTR_GUARD (1u << 9)
 #define MODE0_ATTR_BOLD (1u << 10)
-#define MODE0_ATTR_BOLD_DEFAULT (1u << 11)
+#define MODE0_ATTR_CONCEAL (1u << 11)
 #define MODE0_ATTR_REVERSE (1u << 12)
 #define MODE0_ATTR_WRITTEN (1u << 13)
 /* The attributes that put a line through a cell. */
@@ -174,6 +178,46 @@ static inline uint16_t mode0_color(uint16_t color)
     if (entry < MODE0_ENTRIES)
         return vterm_specials[entry - VTERM_PALETTE];
     return mode0_faint_color(entry - MODE0_ENTRIES);
+}
+
+/* A bold cell's ink: entries 0 to 7 of the palette, faint or not, are drawn
+ * 8 above, and the default foreground, faint or not, as entry 15. */
+static inline uint16_t mode0_bold(uint16_t ink)
+{
+    if (ink & SCANVIDEO_ALPHA_MASK)
+        return ink;
+    unsigned entry = ink >> MODE0_ENTRY_SHIFT;
+    const bool faint = entry >= MODE0_ENTRIES;
+    if (faint)
+        entry -= MODE0_ENTRIES;
+    if (entry < 8)
+        return MODE0_ENTRY(entry + 8, faint);
+    if (entry == MODE0_DEFAULT_FG)
+        return MODE0_ENTRY(15, faint);
+    return ink;
+}
+
+/* The ink and the background a cell shows, as colors of mode0_color: its
+ * own, the ink made bright when it is bold, the two swapped when it is
+ * reversed, then the ink the background when it is concealed. */
+static inline void mode0_cell_shows(const mode0_cell_t *cell, const mode0_colors_t *colors,
+                                    uint16_t *fg, uint16_t *bg)
+{
+    const uint16_t a = cell->attributes;
+    uint16_t f = colors->fg_color;
+    uint16_t b = colors->bg_color;
+    if (a & MODE0_ATTR_BOLD)
+        f = mode0_bold(f);
+    if (a & MODE0_ATTR_REVERSE)
+    {
+        const uint16_t t = f;
+        f = b;
+        b = t;
+    }
+    if (a & MODE0_ATTR_CONCEAL)
+        f = b;
+    *fg = f;
+    *bg = b;
 }
 
 /* Whether a color names an entry the palette has, as every RGB color does. */

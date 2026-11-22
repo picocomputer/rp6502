@@ -307,10 +307,11 @@ static void vt_settle(void)
     }
 }
 
-/* A CRC-32 of the cells: glyphs, attributes and the colors they show. A
- * cell's color is a pixel or an entry of mode 0's palette; the pixel it is
- * drawn as is what goes in, so the golden screens hold whichever a cell
- * has. */
+/* A CRC-32 of the cells: glyphs, attributes and the colors they show, with
+ * their bold, conceal and reverse drawn (mode0_cell_shows), and the
+ * underline's color the ink's but for one of its own. A cell's color is a
+ * pixel or an entry of mode 0's palette; the pixel it is drawn as is what
+ * goes in, so the golden screens hold whichever a cell has. */
 /* A cell's attributes as the byte golden.txt's digests were made from:
  * the blinks in bits 0 and 1, an underline that is not double in bit 2 and
  * a double one in bit 3, then the strike, the overline, DEC graphics and
@@ -335,6 +336,10 @@ static uint32_t vt_cells(void)
         const mode0_colors_t *colors = tb_screen_row_colors((uint8_t)y);
         for (int x = 0; x < vt_cols; x++)
         {
+            uint16_t fg, bg;
+            mode0_cell_shows(&row[x], &colors[x], &fg, &bg);
+            const uint16_t ul =
+                (row[x].attributes & MODE0_ATTR_UL_COLOR) ? colors[x].ul_color : fg;
             /* The eight bytes golden.txt's digests were made from. */
             const struct
             {
@@ -344,8 +349,7 @@ static uint32_t vt_cells(void)
                 uint16_t bg_color;
                 uint16_t ul_color;
             } shown = {mode0_glyph_code(row[x].glyph), vt_attributes(&row[x]),
-                       mode0_color(colors[x].fg_color), mode0_color(colors[x].bg_color),
-                       mode0_color(colors[x].ul_color)};
+                       mode0_color(fg), mode0_color(bg), mode0_color(ul)};
             crc = host_crc32(crc, &shown, sizeof shown);
         }
     }
@@ -549,7 +553,8 @@ static void vt_ours(xm_screen_t *o)
                                 ((row[x].glyph >= 0x100 && !mode0_glyph_is_dec(row[x].glyph))
                                      ? XM_ATTR_ITALIC
                                      : 0));
-            const uint16_t both[2] = {colors[x].fg_color, colors[x].bg_color};
+            uint16_t both[2];
+            mode0_cell_shows(&row[x], &colors[x], &both[0], &both[1]);
             uint32_t out[2];
             for (int k = 0; k < 2; k++)
             {

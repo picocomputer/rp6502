@@ -42,25 +42,22 @@ void cell_wipe(cell_t *row, unsigned from, unsigned to, bool selective)
 // change its colors and its drawing, which it has none of. An underline
 // that is set or cleared leaves the strike and the overline, and a swap
 // leaves the paper (cell_text.h). Whether it was written is the cell's too.
+// Each is one bit of the cell, so every cell takes the same three masks.
+static cell_t cell_marks_bits(unsigned marks)
+{
+    return (cell_t)(((marks & SCREEN_MARK_UNDERLINE) ? CELL_TEXT_UNDERLINE : 0) |
+                    ((marks & SCREEN_MARK_REVERSE) ? CELL_TEXT_REVERSE : 0) |
+                    ((marks & SCREEN_MARK_WRITTEN) ? CELL_TEXT_WRITTEN : 0));
+}
+
 void cell_marks(cell_t *row, unsigned from, unsigned to, unsigned set, unsigned clear,
                 unsigned toggle)
 {
-    for (unsigned i = from; i < to; i++)
-    {
-        const unsigned cell = row[i];
-        const unsigned has = ((cell & CELL_TEXT_UNDERLINE) ? SCREEN_MARK_UNDERLINE : 0) |
-                             ((cell & CELL_TEXT_REVERSE) ? SCREEN_MARK_REVERSE : 0) |
-                             ((cell & CELL_TEXT_WRITTEN) ? SCREEN_MARK_WRITTEN : 0);
-        const unsigned want = ((has | set) & ~clear) ^ toggle;
-        unsigned next = cell & ~(CELL_TEXT_UNDERLINE | CELL_TEXT_REVERSE | CELL_TEXT_WRITTEN);
-        if (want & SCREEN_MARK_UNDERLINE)
-            next |= CELL_TEXT_UNDERLINE;
-        if (want & SCREEN_MARK_REVERSE)
-            next |= CELL_TEXT_REVERSE;
-        if (want & SCREEN_MARK_WRITTEN)
-            next |= CELL_TEXT_WRITTEN;
-        row[i] = (cell_t)next;
-    }
+    const unsigned keep = (cell_t)~cell_marks_bits(clear);
+    const unsigned put = cell_marks_bits(set) & keep;
+    const unsigned flip = cell_marks_bits(toggle);
+    for (cell_t *cell = row + from, *end = row + to; cell < end; cell++)
+        *cell = (cell_t)(((*cell & keep) | put) ^ flip);
 }
 
 void cell_strip_keep(cell_strip_t *strip, const cell_t *row, unsigned from, unsigned end,
