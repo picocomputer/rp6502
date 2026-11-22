@@ -132,10 +132,13 @@ term_grid_t *vterm_get_shown(const term_t *t);
  * or down by an index or a reverse index, and the VGA shows them move there
  * a scanline a frame from the next frame, over TERM_SMOOTH_FRAMES. ghost is
  * the row of memory the row that went is in, which screen_scroll or
- * screen_index kept with its line size; it shows until it is gone. Nothing
- * writes the ghost until the next scroll, index, clear or change of height
- * of the grid, each of which ends the smooth scroll, as a reset does, and
- * the terminal holds a byte that would scroll the rows until they land
+ * screen_index kept with its line size; it shows until it is gone. A REP
+ * whose glyphs filled it before they scrolled it out writes the glyph there
+ * too: screen_rep at once in the spare row kept aside from the ring, the
+ * REP's job as one of its rows in the newest row above row 0. Nothing else
+ * writes it until the next scroll, index, clear or change of height of the
+ * grid, each of which ends the smooth scroll, as a reset does, and the
+ * terminal holds a byte that would scroll the rows until they land
  * (term_holds). A scroll still moving finishes at once. The frames are the
  * VGA's, vga_frame_count. With no VGA the console is a serial port to a
  * terminal of unknown kind, and nothing moves or is held. A machine that

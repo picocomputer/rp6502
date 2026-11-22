@@ -204,8 +204,8 @@ void screen_ring_fit(screen_t *s, uint8_t height)
 //    are remapped through each screen's ring, y_offset and row_idx,
 //    and mode 0's row words say where each row's cells are.
 // 2. Work on more than one row, a clear, an erase of rows, a rectangle,
-//    a scroll between left and right margins, is a job (screen.h), the
-//    same work done on each of its rows. A change to one row is done at
+//    a scroll between left and right margins, a REP, is a job (screen.h),
+//    the same work done on each of its rows. A change to one row is done at
 //    once.
 // 3. What a cell holds is the machine's kind of cell (cell.h). The store
 //    moves rows and runs of cells, and reads or writes what is in a cell
@@ -268,11 +268,17 @@ bool screen_sst_get(sst_cursor_t *c, screen_t *s)
 
 /* ---- cells and rows ---------------------------------------------------- */
 
-// The columns of row y of a screen that has cells: half its width on a
-// double-size line.
+// The columns of row of memory m of a screen that has cells: half its
+// width on a double-size line.
+static inline unsigned screen_mem_cols(const screen_t *s, uint8_t m)
+{
+    return screen_mem_size(s, m) ? s->cells->width / 2u : s->cells->width;
+}
+
+// The columns of row y of a screen that has cells.
 static inline unsigned screen_cols(const screen_t *s, uint8_t y)
 {
-    return screen_size(s, y) ? s->cells->width / 2u : s->cells->width;
+    return screen_mem_cols(s, screen_mem(s, y));
 }
 
 // Fill [start, end) of `row`: every cell becomes the fill's cell. A
@@ -458,6 +464,7 @@ void screen_copy_rect(screen_t *s, uint8_t sy, uint8_t sx, uint8_t dy, uint8_t d
                             .last = (uint8_t)(dy + h - 1 - back),
                             .left = dx,
                             .right = (uint8_t)(dx + w - 1),
+                            .up = back != 0,
                             .sized = true,
                             .move = {.row = (uint8_t)(sy + back),
                                      .col = sx,
@@ -515,6 +522,30 @@ void screen_align(term_t *term, screen_t *s, uint8_t height)
     screen_fill_rows(s, 0, height, &e);
 }
 
+// A ghost kept aside from the ring is in no row of the screen, so it
+// takes the glyph here, over every column its line has.
+void screen_rep(term_t *term, screen_t *s, uint8_t byte, const screen_rep_t *rep)
+{
+    if (!s->cells)
+        return;
+    const screen_job_t j = {.kind = SCREEN_JOB_REP,
+                            .first = rep->first,
+                            .last = rep->last,
+                            .left = rep->left,
+                            .right = rep->right,
+                            .sized = true,
+                            .rep = {.glyph = screen_glyph_cell(term, s, byte),
+                                    .erase = screen_pen_erase(term, false, false),
+                                    .moves = rep->moves,
+                                    .by = rep->by,
+                                    .to = rep->to,
+                                    .tail = rep->tail}};
+    if (rep->ghost == s->spare && rep->ghost != s->mem_rows)
+        fill_glyph(screen_mem_row(s, rep->ghost), 0, screen_mem_cols(s, rep->ghost),
+                   &j.rep.glyph);
+    screen_job_start(s, &j);
+}
+
 // The rows move round the ring, and the n rows coming in are erased in the
 // pen's colors, after the ring has kept the row going out. A screen with no
 // cells has only its ring.
@@ -544,6 +575,7 @@ void screen_scroll_cols(term_t *term, screen_t *s, uint8_t top, uint8_t bot, uns
                             .last = up ? bot : top,
                             .left = (uint8_t)from,
                             .right = (uint8_t)(end - 1),
+                            .up = !up,
                             .move = {.row = (uint8_t)(up ? top + n : bot - n),
                                      .col = (uint8_t)from,
                                      .moves = (uint8_t)(bot - top + 1 - n),
@@ -647,12 +679,20 @@ static unsigned screen_job_end(const screen_t *s, const screen_job_t *j, uint8_t
     return end < cols ? end : cols;
 }
 
+// The rows of the job done before row y, counted round the ring the way
+// its rows go.
+static unsigned screen_job_done(const screen_t *s, const screen_job_t *j, uint8_t y)
+{
+    const int done = j->up ? j->first - y : y - j->first;
+    return (unsigned)(done < 0 ? done + s->rows : done);
+}
+
 // A move's row y: the cells of its source row, or the fill coming in.
 static void screen_job_move(screen_t *s, const screen_job_t *j, uint8_t y, cell_t *row,
                             unsigned end)
 {
     const screen_job_move_t *v = &j->move;
-    const unsigned done = y > j->first ? y - j->first : j->first - y;
+    const unsigned done = screen_job_done(s, j, y);
     if (done >= v->moves)
     {
         fill_glyph(row, j->left, end, &v->in);
@@ -671,6 +711,35 @@ static void screen_job_move(screen_t *s, const screen_job_t *j, uint8_t y, cell_
     cell_run_move(row + j->left, screen_row(s, sy) + v->col, n);
     if (v->written)
         cell_marks(row, j->left, j->left + n, SCREEN_MARK_WRITTEN, 0, 0);
+}
+
+// A REP's row y: the cells of the row by rows below it, for its first
+// moves rows; otherwise the glyph, which on the last row stops at column
+// to, the cells past it kept, erased, or pushed right past the glyphs.
+static void screen_job_rep(screen_t *s, const screen_job_t *j, uint8_t y, cell_t *row,
+                           unsigned end)
+{
+    const screen_job_rep_t *r = &j->rep;
+    const unsigned left = j->left;
+    if (screen_job_done(s, j, y) < r->moves)
+    {
+        cell_run_move(row + left, screen_row(s, (uint8_t)(y + r->by)) + left, end - left);
+        return;
+    }
+    if (y != j->last)
+    {
+        fill_glyph(row, left, end, &r->glyph);
+        return;
+    }
+    const unsigned to = r->to < end ? r->to : end;
+    if (r->tail == SCREEN_REP_INSERT)
+    {
+        screen_row_insert(row, left, end, to - left, &r->glyph);
+        return;
+    }
+    fill_glyph(row, left, to, &r->glyph);
+    if (r->tail == SCREEN_REP_ERASE)
+        fill_glyph(row, to, end, &r->erase);
 }
 
 // The job's work on row y.
@@ -703,6 +772,9 @@ static void screen_job_row(screen_t *s, const screen_job_t *j, uint8_t y)
     case SCREEN_JOB_WIPE:
         cell_wipe(row, left, end, j->wipe.selective);
         break;
+    case SCREEN_JOB_REP:
+        screen_job_rep(s, j, y, row, end);
+        break;
     }
 }
 
@@ -731,8 +803,10 @@ bool screen_job_step(screen_t *s, unsigned rows)
         screen_job_row(s, j, y);
         if (y == j->last)
             j->kind = SCREEN_JOB_NONE;
+        else if (j->up)
+            j->next = (uint8_t)(y ? y - 1 : s->rows - 1);
         else
-            j->next = (uint8_t)(y < j->last ? y + 1 : y - 1);
+            j->next = (uint8_t)(y + 1 == s->rows ? 0 : y + 1);
     }
     return j->kind != SCREEN_JOB_NONE;
 }

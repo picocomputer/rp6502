@@ -168,8 +168,9 @@ uint8_t screen_ring_scroll(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, boo
 // down, the row just past the last. With keep, when that is the row coming
 // in, which it is when the ring has no slot to spare, the spare row of
 // memory takes its slot, as in screen_ring_scroll. Otherwise the row that
-// went is in a slot past the screen's rows, which nothing writes until the
-// next move of the ring.
+// went is in a slot past the screen's rows, which nothing but a REP's job
+// writes until the next move of the ring: up, the newest row above row 0
+// is one of the REP's rows when its glyphs filled it (screen_rep_t).
 uint8_t screen_ring_index(screen_t *s, uint8_t height, bool up, bool keep);
 
 // The height went one row up or down to height, and with top the screen
@@ -200,8 +201,8 @@ static inline void screen_forget(screen_t *s)
  * height move it, and the rest leave it be. A fill of more than one row,
  * an erase of rows, a rectangle, DECALN, a clear and the rows a scroll
  * brings in, is a job (below), as is a wipe, a change of attributes, a
- * shift, a scroll between left and right margins or a DECCRA of more than
- * one row. */
+ * shift, a scroll between left and right margins, a DECCRA or a REP of
+ * more than one row. */
 
 // n copies of the glyph at row y from column x, in the pen and the active
 // character set. n never runs past the row's columns.
@@ -276,6 +277,41 @@ void screen_erase_rows(term_t *t, screen_t *s, uint8_t from, uint8_t to, bool se
 // colors.
 void screen_align(term_t *t, screen_t *s, uint8_t height);
 
+// REP's rows after the cursor's (screen_rep), done once the grid has
+// written the cursor's own row and turned the ring for the scrolls the
+// glyphs make. Rows [first, last] go down the screen, counted round the
+// ring, so first may be a row above row 0 (screen_row_text). Each takes
+// the glyph over columns [left, right], fewer on a double-size line, but
+// for two things. Between left and right margins, which move cells in
+// place of the ring, the first moves rows take the cells by rows below
+// them, as a scroll of that many rows moves them, and the glyph comes in
+// after them. The last row takes the glyph only up to column to, and then
+// tail: the rest kept, or erased as the row came in with a scroll, or in
+// insert mode pushed right past the glyphs. ghost is the row of memory the
+// last scroll kept going out for a smooth scroll (screen_ring_index), when
+// it was a row of the glyph, and mem_rows otherwise; one kept aside from
+// the ring takes the glyph too.
+enum
+{
+    SCREEN_REP_KEEP,   // the last row's cells past to stay
+    SCREEN_REP_ERASE,  // they are erased in the pen's colors, never written
+    SCREEN_REP_INSERT, // they move right past the glyphs and off the row
+};
+
+typedef struct
+{
+    uint8_t first, last;
+    uint8_t left, right;
+    uint8_t moves, by;
+    uint8_t to;
+    uint8_t tail; // SCREEN_REP_
+    uint8_t ghost;
+} screen_rep_t;
+
+// REP's rows, as screen_rep_t has them, in the glyph byte as the pen and
+// the active character set draw it.
+void screen_rep(term_t *t, screen_t *s, uint8_t byte, const screen_rep_t *rep);
+
 // Rows [top, bot] move n rows up or down, erased rows coming in. Returns
 // the row of memory the row that went out at the edge is in. With keep, a
 // smooth scroll of one row, that row keeps its cells while it still shows
@@ -331,14 +367,15 @@ unsigned screen_row_text(screen_t *s, uint8_t y, uint16_t *out);
  * for draw.c, which makes what mode 0 draws from them and saves them. */
 
 /* A job: work on more than one row of a screen, the same work on each of
- * its rows, done a row at a time from its first row to its last, which is
- * up the screen or down it. Each row's work is on columns [left, right]
+ * its rows, done a row at a time from its first row to its last, down the
+ * screen, or with up up it. Each row's work is on columns [left, right]
  * of the row, and with sized only on those its line has, as a rectangle's
  * are: fewer on a double-size line, and none past them. A screen has one
  * job at most, and the terminal takes no byte while one is pending, so the
  * rows, their line sizes and the pen stay as they were when it started.
  * Its rows are rows of the screen, not of memory, as nothing turns the
- * ring while it runs. The work is one of these: */
+ * ring while it runs, counted round the ring, so a REP's can start above
+ * row 0. The work is one of these: */
 enum
 {
     SCREEN_JOB_NONE,  // no job is pending
@@ -347,6 +384,7 @@ enum
     SCREEN_JOB_SHIFT, // the cells moved sideways (screen_job_shift_t)
     SCREEN_JOB_ATTRS, // the attributes changed (screen_job_attrs_t)
     SCREEN_JOB_WIPE,  // the glyphs became spaces (screen_job_wipe_t)
+    SCREEN_JOB_REP,   // REP's rows (screen_job_rep_t)
 };
 
 // A move: the job's first row takes the cells of row row from column col,
@@ -389,12 +427,23 @@ typedef struct
     bool selective;
 } screen_job_wipe_t;
 
+// REP's rows, as screen_rep_t has them: the glyph's fill, and the erase
+// the last row's cells past to take with SCREEN_REP_ERASE.
+typedef struct
+{
+    cell_fill_t glyph, erase;
+    uint8_t moves, by;
+    uint8_t to;
+    uint8_t tail;
+} screen_job_rep_t;
+
 typedef struct
 {
     uint8_t kind;        // SCREEN_JOB_
     uint8_t first, last; // the rows, in the order they are done
     uint8_t next;        // the row done next
     uint8_t left, right; // the columns
+    bool up;             // the rows go up the screen
     bool sized;          // a row's columns stop at its line's
     union
     {
@@ -403,6 +452,7 @@ typedef struct
         screen_job_shift_t shift;
         screen_job_attrs_t attrs;
         screen_job_wipe_t wipe;
+        screen_job_rep_t rep;
     };
 } screen_job_t;
 
@@ -422,11 +472,17 @@ typedef struct screen_cells
  * change what shows. draw.c publishes and clears it. */
 extern bool screen_moved;
 
+// The cells of row of memory m of a screen that has them.
+static inline cell_t *screen_mem_row(const screen_t *s, uint8_t m)
+{
+    const screen_cells_t *c = s->cells;
+    return c->mem + (uint32_t)m * c->width;
+}
+
 // The cells of row y of a screen that has them.
 static inline cell_t *screen_row(const screen_t *s, uint8_t y)
 {
-    const screen_cells_t *c = s->cells;
-    return c->mem + (uint32_t)screen_mem(s, y) * c->width;
+    return screen_mem_row(s, screen_mem(s, y));
 }
 
 // n cells from cells are blanks in the default colors.

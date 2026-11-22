@@ -382,10 +382,8 @@ void draw_publish(void)
     const bool smooth = draw_smooth_shows(g);
     if (smooth)
     {
-        const screen_cells_t *b = s->cells;
-        mode0_regs.smooth_ghost =
-            MODE0_ROW(b->mem + (uint32_t)sm->ghost * b->width - mode0_cells,
-                      screen_mem_size(s, sm->ghost));
+        mode0_regs.smooth_ghost = MODE0_ROW(screen_mem_row(s, sm->ghost) - mode0_cells,
+                                            screen_mem_size(s, sm->ghost));
         mode0_regs.smooth_frame = (uint32_t)sm->frame;
         mode0_regs.smooth = MODE0_SMOOTH(sm->top, sm->bot, sm->up);
     }

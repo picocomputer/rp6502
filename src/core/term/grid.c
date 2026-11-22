@@ -279,8 +279,11 @@ static bool grid_smooths(const term_t *t, const term_grid_t *g)
 
 // An index or a reverse index on its margin scrolls the region a row up or
 // down. A smooth one keeps the row going out as it is, because it still
-// shows while it goes; then the rows [top, bot] start moving.
-static void grid_scroll_one(term_t *t, term_grid_t *g, bool up)
+// shows while it goes; then the rows [top, bot] start moving. Returns the
+// row of memory the row that went is in (screen_scroll). With fill, the
+// row coming in is erased; without, it is a REP's to fill, and only the
+// ring turns, so the scroll is of all the columns.
+static uint8_t grid_scroll_one(term_t *t, term_grid_t *g, bool up, bool fill)
 {
     const uint8_t top = g->margin_top, bot = g->margin_bot;
     const bool keep = grid_smooths(t, g);
@@ -288,12 +291,20 @@ static void grid_scroll_one(term_t *t, term_grid_t *g, bool up)
     if (grid_full_region(g))
     {
         grid_cancel(g);
-        ghost = screen_index(t, g->shown, g->height, up, keep);
+        ghost = fill ? screen_index(t, g->shown, g->height, up, keep)
+                     : screen_ring_index(g->shown, g->height, up, keep);
     }
-    else
+    else if (fill)
         ghost = grid_scroll(t, g, top, bot, 1, up, keep);
+    else
+    {
+        assert(grid_all_columns(g));
+        grid_cancel(g);
+        ghost = screen_ring_scroll(g->shown, top, bot, 1, up, keep);
+    }
     if (keep)
         vterm_smooth(t, g, top, bot, up, ghost);
+    return ghost;
 }
 
 // Index: down a row, scrolling the region at its bottom margin. The core of
@@ -312,7 +323,7 @@ static void grid_index(term_t *t, term_grid_t *g)
     else if (!grid_in_columns(g, pos->x))
         ;
     else
-        grid_scroll_one(t, g, true);
+        grid_scroll_one(t, g, true, true);
     grid_after_scroll(g);
 }
 
@@ -331,7 +342,7 @@ static void grid_reverse_index(term_t *t, term_grid_t *g)
     else if (!grid_in_columns(g, pos->x))
         ;
     else
-        grid_scroll_one(t, g, false);
+        grid_scroll_one(t, g, false, true);
     grid_after_scroll(g);
 }
 
@@ -405,18 +416,68 @@ static void grid_put_glyph(term_t *t, term_grid_t *g, uint8_t byte)
         pos->wrap_pending = true;
 }
 
-// One pass of a REP between left and right margins. The cursor goes where
-// the n glyphs take it, and the scrolls of the region on the way are
-// counted, not done: `done` is how many so far. With `write`, the glyphs
-// are written where they are once all `total` scrolls are done: a run
-// between the margins of a row in the region is that many rows higher for
-// each scroll still to come, or gone off the top, and anything else stays
-// on its row.
-static unsigned grid_rep_pass(term_t *t, term_grid_t *g, unsigned n, bool write,
-                              unsigned total)
+// A run of REP's glyph on the cursor's row from column x, done at once. In
+// insert mode one that ends short of the stop first pushes the cells from
+// x, or from the left margin for an x left of it, right past the glyphs,
+// as printing them one by one does; one that reaches the stop pushes them
+// all off the row, which the glyphs alone do.
+static void grid_rep_run(term_t *t, term_grid_t *g, unsigned x, unsigned len, unsigned stop)
 {
+    const uint8_t y = term_pos(g)->y;
+    const unsigned end = x + len;
+    const unsigned at = x > g->margin_left ? x : g->margin_left;
+    if (grid_inserting(t) && end <= stop && at < end && grid_in_columns(g, at))
+        screen_insert(t, g->shown, y, (uint8_t)at, stop + 1, end - at);
+    screen_glyphs(t, g->shown, y, (uint8_t)x, t->last_glyph, len);
+}
+
+// REP, CSI Pn b: the last graphic character again, Pn times (xterm,
+// ECMA-48). After a row more than the grid holds, every row the glyphs can
+// reach is full of the glyph, the scrollback included, and each further run
+// of whole rows changes nothing; so a long count runs only that far, plus its
+// remainder. A run is a multiple of both a row's length and a double-size
+// row's, which is just the width when the width is even. Between left and
+// right margins a run is the columns between them, after the row the
+// cursor starts on, which can be as long as the width.
+//
+// The cursor goes where printing the glyphs takes it, a run of them a row,
+// and the scrolls on the way are counted. The runs on the cursor's own row
+// are written at once, before anything scrolls. A scroll of all the
+// columns turns the ring at once too, as printing would, and leaves the
+// rows coming in to the glyph. Every row after the cursor's is one job of
+// the store (screen_rep): the glyph, then on the last row the cells past
+// it kept, erased as a row a scroll brings in, or in insert mode pushed
+// right, never one insert per glyph. Between margins a scroll moves the
+// cells, so the job first moves the rows the glyphs leave, as one scroll
+// of them all. A run that only repeats the run before it on the same row,
+// as on the last row below the region, changes nothing.
+static void grid_REP(term_t *t, term_grid_t *g)
+{
+    unsigned n = grid_param(t, 0, 1);
+    unsigned run = (g->width & 1) && g->width > 1 ? g->width * (g->width / 2u) : g->width;
+    unsigned most = run * (grid_rows(g) + 1u);
+    const bool all = grid_all_columns(g);
+    if (!all)
+    {
+        run = (unsigned)g->margin_right + 1 - g->margin_left;
+        most = g->width + run * (grid_rows(g) + 1u);
+    }
+    if (n > most)
+        n = most + (n - most) % run;
     term_pos_t *pos = term_pos(g);
-    unsigned done = 0;
+    screen_t *const s = g->shown;
+    const int top = g->margin_top, bot = g->margin_bot;
+    const int y0 = pos->y;
+    unsigned scrolls = 0;
+    uint8_t ghost = s->mem_rows;
+    // The rows after the cursor's: the first run's and the last's, with
+    // the scrolls before each, and where the last ends.
+    bool away = false, after = false;
+    int first_y = 0, last_y = 0;
+    unsigned first_scrolls = 0, last_scrolls = 0, to = 0;
+    // The run before: its row, the scrolls before it, its column.
+    int run_y = -1;
+    unsigned run_scrolls = 0, run_x = 0;
     while (n)
     {
         if (pos->wrap_pending)
@@ -424,42 +485,56 @@ static unsigned grid_rep_pass(term_t *t, term_grid_t *g, unsigned n, bool write,
             pos->wrap_pending = false;
             if (t->autowrap)
             {
-                if (pos->y != g->margin_bot)
+                grid_mark_wrap(g);
+                if (pos->y != bot)
                 {
                     if (pos->y < g->height - 1)
+                    {
                         ++pos->y;
+                        away = true;
+                    }
                 }
                 else if (grid_in_columns(g, pos->x))
-                    done++;
+                {
+                    if (all)
+                        ghost = grid_scroll_one(t, g, true, false);
+                    scrolls++;
+                    away = true;
+                }
                 pos->x = g->margin_left;
             }
         }
-        unsigned cols = term_cols(g, pos->y);
-        if (pos->x >= cols)
-            pos->x = (uint8_t)(cols - 1);
-        unsigned stop = term_right_stop(g);
-        unsigned run = (unsigned)(stop + 1 - pos->x);
-        if (run > n)
-            run = n;
-        if (write)
+        const unsigned stop = term_right_stop(g);
+        unsigned len = stop + 1 - pos->x;
+        if (pos->y == run_y && scrolls == run_scrolls && pos->x == run_x)
+            n = (n - 1) % len + 1;
+        else
         {
-            // The run's cells outside the margins, which are left of them
-            // or all of it, then those between.
-            unsigned x = pos->x, end = x + run;
-            unsigned out = x > g->margin_right ? end : x < g->margin_left ? g->margin_left : x;
-            if (out > end)
-                out = end;
-            if (out > x)
-                screen_glyphs(t, g->shown, pos->y, (uint8_t)x, t->last_glyph, out - x);
-            int y = pos->y;
-            if (y >= g->margin_top && y <= g->margin_bot)
-                y -= (int)(total - done);
-            if (end > out && (y >= g->margin_top || pos->y < g->margin_top))
-                screen_glyphs(t, g->shown, (uint8_t)y, (uint8_t)out, t->last_glyph, end - out);
+            run_y = pos->y;
+            run_scrolls = scrolls;
+            run_x = pos->x;
+            if (len > n)
+                len = n;
+            if (!away)
+                grid_rep_run(t, g, pos->x, len, stop);
+            else
+            {
+                if (!after)
+                {
+                    after = true;
+                    first_y = pos->y;
+                    first_scrolls = scrolls;
+                }
+                last_y = pos->y;
+                last_scrolls = scrolls;
+                to = pos->x + len;
+            }
         }
-        n -= run;
-        if (pos->x + run <= stop)
-            pos->x = (uint8_t)(pos->x + run);
+        if (len > n)
+            len = n;
+        n -= len;
+        if (pos->x + len <= stop)
+            pos->x = (uint8_t)(pos->x + len);
         else
         {
             pos->x = (uint8_t)stop;
@@ -468,70 +543,39 @@ static unsigned grid_rep_pass(term_t *t, term_grid_t *g, unsigned n, bool write,
                 n = 0;
         }
     }
-    return done;
-}
-
-// REP, CSI Pn b: the last graphic character again, Pn times (xterm,
-// ECMA-48). After a row more than the grid holds, every row the glyphs can
-// reach is full of the glyph, the scrollback included, and each further run
-// of whole rows changes nothing; so a long count runs only that far, plus its
-// remainder. A run is a multiple of both a row's length and a double-size
-// row's, which is just the width when the width is even. The glyphs go a
-// row at a time.
-//
-// Between left and right margins a run is the columns between them, after
-// the row the cursor starts on, which can be as long as the width. There a
-// scroll moves cells, so the scrolls are counted first and done as one, and
-// then the glyphs are written where that leaves them.
-static void grid_REP(term_t *t, term_grid_t *g)
-{
-    unsigned n = grid_param(t, 0, 1);
-    unsigned run = (g->width & 1) && g->width > 1 ? g->width * (g->width / 2u) : g->width;
-    unsigned most = run * (grid_rows(g) + 1u);
-    if (!grid_all_columns(g))
-    {
-        run = (unsigned)g->margin_right + 1 - g->margin_left;
-        most = g->width + run * (grid_rows(g) + 1u);
-    }
-    if (n > most)
-        n = most + (n - most) % run;
-    if (grid_inserting(t))
-    {
-        while (n--)
-            grid_put_glyph(t, g, t->last_glyph);
+    if (!after)
         return;
-    }
-    term_pos_t *pos = term_pos(g);
-    if (!grid_all_columns(g))
+    // A row in the region went a row up for each scroll after its run. One
+    // that went past the top is gone, or with the region the whole screen
+    // is among the rows above row 0 the ring keeps. The row the last scroll
+    // kept going out for a smooth scroll is a row of the glyph's when the
+    // rows after the cursor's reach past the top.
+    int first = first_y, last = last_y;
+    if (first_y >= top && first_y <= bot)
+        first -= (int)(scrolls - first_scrolls);
+    if (last_y >= top && last_y <= bot)
+        last -= (int)(scrolls - last_scrolls);
+    screen_rep_t rep = {.left = g->margin_left,
+                        .right = g->margin_right,
+                        .to = (uint8_t)to,
+                        .tail = scrolls             ? SCREEN_REP_ERASE
+                                : grid_inserting(t) ? SCREEN_REP_INSERT
+                                                    : SCREEN_REP_KEEP,
+                        .ghost = first < top ? ghost : s->mem_rows};
+    const int lowest = grid_full_region(g) ? -(int)s->hidden : top;
+    if (first_y >= top && first_y <= bot && first < lowest)
+        first = lowest;
+    // Between margins the rows from the top to the cursor's, which the
+    // scrolls moved up, keep what they had, the cursor's row with its runs.
+    if (!all && scrolls && y0 >= top && y0 <= bot && y0 - (int)scrolls >= top)
     {
-        const term_pos_t from = *pos;
-        const unsigned scrolls = grid_rep_pass(t, g, n, false, 0);
-        *pos = from;
-        grid_scroll(t, g, g->margin_top, g->margin_bot, (uint16_t)scrolls, true, false);
-        grid_rep_pass(t, g, n, true, scrolls);
-        return;
+        rep.moves = (uint8_t)(y0 - (int)scrolls - top + 1);
+        rep.by = (uint8_t)scrolls;
+        first = top;
     }
-    while (n)
-    {
-        grid_wrap(t, g);
-        unsigned cols = term_cols(g, pos->y);
-        unsigned run = (unsigned)(cols - pos->x);
-        if (run > n)
-            run = n;
-        screen_glyphs(t, g->shown, pos->y, pos->x, t->last_glyph, run);
-        n -= run;
-        if (pos->x + run < cols)
-            pos->x = (uint8_t)(pos->x + run);
-        else
-        {
-            // The last column: what is left wraps, or with DECAWM off lands
-            // on that column again, which already holds the glyph.
-            pos->x = (uint8_t)(cols - 1);
-            pos->wrap_pending = t->autowrap;
-            if (!t->autowrap)
-                n = 0;
-        }
-    }
+    rep.first = (uint8_t)(first < 0 ? first + s->rows : first);
+    rep.last = (uint8_t)last;
+    screen_rep(t, s, t->last_glyph, &rep);
 }
 
 /* ---- tabs -------------------------------------------------------------- */

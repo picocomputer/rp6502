@@ -2320,6 +2320,106 @@ UTEST(term, rep_between_margins_draws_what_printing_draws)
     }
 }
 
+/* REP in insert mode draws what printing in insert mode draws: a run that
+ * ends short of the stop pushes the rest of its row right, once, and the
+ * rows a scroll brings in, between margins or not, take the glyphs as
+ * printing leaves them. */
+UTEST(term, rep_in_insert_mode_draws_what_printing_draws)
+{
+    static const char *const cases[] = {
+        "\33[4h\33[12;30H",
+        "\33[4h\33[30;30H",
+        "\33[4h\33[5;9r\33[3;40H",
+        "\33[?69h\33[21;60s\33[4h\33[1;30H",
+        "\33[?69h\33[21;60s\33[4h\33[30;30H",
+        "\33[?69h\33[21;60s\33[5;25r\33[4h\33[20;10H",
+        "\33[?69h\33[21;60s\33[5;25r\33[4h\33[28;30H",
+    };
+    static const int counts[] = {1, 2, 39, 40, 41, 81, 200, 1201};
+    static uint8_t a[30 * 80 * 10], b[30 * 80 * 10];
+    static char before[30 * 90 + 80];
+    for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++)
+    {
+        int at = 0;
+        for (int y = 0; y < 30; y++)
+        {
+            at += snprintf(before + at, sizeof before - (size_t)at, "\33[%d;1H", y + 1);
+            for (int x = 0; x < 79; x++)
+                before[at++] = (char)(33 + (y * 7 + x * 5) % 90);
+        }
+        snprintf(before + at, sizeof before - (size_t)at, "%s", cases[i]);
+        for (unsigned k = 0; k < sizeof counts / sizeof counts[0]; k++)
+        {
+            int ax, ay, bx, by;
+            rep_screen(before, counts[k], true, a, &ax, &ay);
+            rep_screen(before, counts[k], false, b, &bx, &by);
+            if (memcmp(a, b, sizeof a) || ax != bx || ay != by)
+                printf("REP %d after case %u differs\n", counts[k], i);
+            ASSERT_EQ(0, memcmp(a, b, sizeof a));
+            ASSERT_EQ(ax, bx);
+            ASSERT_EQ(ay, by);
+        }
+    }
+}
+
+/* What the 40-column size holds after a Q and n more by REP or by printing,
+ * from where before leaves the cursor, on a screen 4 rows shorter than its
+ * ring: the rows above row 0 the ring keeps, the newest last, then the
+ * screen's rows, a row of 40 cell_text words each. */
+static void rep_ring(const char *before, int n, bool rep, uint16_t *out, int *above)
+{
+    static char glyphs[2048];
+    fresh();
+    xreg1(0, 0, vga_canvas_320_240);
+    vterm_place(40, TERM_MAX_HEIGHT - 4, 0, 8);
+    feed(before);
+    feed("Q");
+    if (rep)
+    {
+        char seq[32];
+        snprintf(seq, sizeof seq, "\33[%db", n);
+        feed(seq);
+    }
+    else
+    {
+        memset(glyphs, 'Q', (size_t)n);
+        feedn(glyphs, (size_t)n);
+    }
+    screen_t *s = vterm_40.grid.shown;
+    memset(out, 0, TERM_MAX_HEIGHT * 40 * sizeof *out);
+    *above = s->hidden;
+    for (int k = s->hidden; k > 0; k--)
+        screen_row_text(s, (uint8_t)(s->rows - k), out + (s->hidden - k) * 40);
+    for (int y = 0; y < vterm_40.grid.height; y++)
+        screen_row_text(s, (uint8_t)y, out + (s->hidden + y) * 40);
+    xreg1(0, 0, vga_canvas_console);
+}
+
+/* The rows a REP scrolls past the top of the screen go above row 0 as
+ * printing sends them, full of the glyph, as many as the ring keeps. */
+UTEST(term, rep_leaves_the_rows_above_row_0_as_printing_does)
+{
+    static const char *const cases[] = {
+        "\33[26;5H",
+        "\33[3;5H",
+        "\33[HABC\33[2;1HDEF\33[26;5H",
+        "\33[HABC\33[5;20r\33[20;5H",
+    };
+    static const int counts[] = {1, 36, 37, 120, 207, 1040, 1080, 1123, 1600};
+    static uint16_t a[TERM_MAX_HEIGHT * 40], b[TERM_MAX_HEIGHT * 40];
+    for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++)
+        for (unsigned k = 0; k < sizeof counts / sizeof counts[0]; k++)
+        {
+            int an, bn;
+            rep_ring(cases[i], counts[k], true, a, &an);
+            rep_ring(cases[i], counts[k], false, b, &bn);
+            if (memcmp(a, b, sizeof a) || an != bn)
+                printf("REP %d after case %u differs\n", counts[k], i);
+            ASSERT_EQ(an, bn);
+            ASSERT_EQ(0, memcmp(a, b, sizeof a));
+        }
+}
+
 /* Each line feed between margins moves the cells between them a row, with
  * its own pen's blank coming in, and the other screen and a savestate
  * leave what it moved. */
@@ -2893,6 +2993,31 @@ static const char *ghost(void)
     return text;
 }
 
+/* A smooth REP moves out the row the last of its scrolls takes out, as it
+ * was: a row it never wrote, the row it started on, or a row of the glyph,
+ * which is kept aside from the ring and still takes it. */
+UTEST(term, a_smooth_rep_moves_out_the_row_its_last_scroll_takes)
+{
+    static char started[81], full[81];
+    memset(started, ' ', 40);
+    memset(started + 40, 'Q', 40);
+    memset(full, 'Q', 80);
+    static const struct
+    {
+        int n;
+        const char *out;
+    } cases[] = {{119, "OLD"}, {519, started}, {599, full}};
+    for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++)
+    {
+        char seq[64];
+        fresh();
+        snprintf(seq, sizeof seq, "\33[5;1HOLD\33[?4h\33[5;10r\33[10;41HQ\33[%db", cases[i].n);
+        feed(seq);
+        ASSERT_TRUE(mode0_regs.smooth & MODE0_SMOOTH_ON);
+        ASSERT_STREQ(ghost(), cases[i].out);
+    }
+}
+
 UTEST(term, decsclm_is_reported)
 {
     fresh();
@@ -3091,8 +3216,8 @@ static screen_t *job_screen(void)
     return vterm_get_shown(&vterm)->shown;
 }
 
-/* A job of a kind on rows first to last, in that order, and columns
- * [left, right]. */
+/* A job of a kind on rows first to last, in that order, up the screen
+ * when first is below last, and columns [left, right]. */
 static screen_job_t job(uint8_t kind, uint8_t first, uint8_t last, uint8_t left, uint8_t right)
 {
     screen_job_t j;
@@ -3100,6 +3225,7 @@ static screen_job_t job(uint8_t kind, uint8_t first, uint8_t last, uint8_t left,
     j.kind = kind;
     j.first = first;
     j.last = last;
+    j.up = first > last;
     j.left = left;
     j.right = right;
     return j;
@@ -3330,6 +3456,71 @@ UTEST(job, a_wipe_makes_spaces_and_keeps_the_colors)
     screen_job_start(job_screen(), &j);
     ASSERT_EQ(ch(2, 0), ' ');
     ASSERT_EQ(ch(0, 0), 'a');
+}
+
+/* A REP's rows: the first moves rows take the cells of the rows by below,
+ * the rest the glyph, and the last only to its column, the rest erased as
+ * a scroll brings it in. */
+UTEST(job, a_rep_moves_then_fills_and_erases_after_its_last_glyph)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_REP, 0, 3, 1, 4);
+    j.rep.glyph = job_char('x');
+    j.rep.erase = job_blank(false);
+    j.rep.moves = 2;
+    j.rep.by = 1;
+    j.rep.to = 3;
+    j.rep.tail = SCREEN_REP_ERASE;
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(0), "abbbba");
+    ASSERT_STREQ(row(1), "bccccb");
+    ASSERT_STREQ(row(2), "cxxxxc");
+    ASSERT_STREQ(row(3), "dxx  d");
+    ASSERT_STREQ(row(4), "eeeeee");
+    ASSERT_FALSE(written(3, 3));
+}
+
+/* In insert mode the last row's cells move right past its glyphs, once,
+ * and off the row; with nothing after the glyphs they stay. */
+UTEST(job, a_rep_in_insert_mode_pushes_its_last_row_right)
+{
+    fresh();
+    feed("abcdef\r\nuvwxyz\r\nlmnopq");
+    screen_job_t j = job(SCREEN_JOB_REP, 0, 1, 1, 4);
+    j.rep.glyph = job_char('x');
+    j.rep.to = 3;
+    j.rep.tail = SCREEN_REP_INSERT;
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(0), "axxxxf");
+    ASSERT_STREQ(row(1), "uxxvwz");
+    j.first = 2;
+    j.last = 2;
+    j.rep.tail = SCREEN_REP_KEEP;
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(2), "lxxopq");
+}
+
+/* A job's rows are counted round the ring: one can start above row 0, in
+ * the rows the ring keeps there, and go down onto the screen. */
+UTEST(job, a_job_goes_down_round_the_ring)
+{
+    job_rows();
+    xreg1(0, 0, vga_canvas_320_240);
+    vterm_place(40, TERM_MAX_HEIGHT - 4, 0, 8);
+    feed("\33[99;1H\n");
+    screen_t *s = job_screen();
+    ASSERT_EQ(s->hidden, 1);
+    screen_job_t j = job(SCREEN_JOB_FILL, (uint8_t)(s->rows - 1), 0, 0, 1);
+    j.up = false;
+    j.fill = cell_from_pen(&vterm, 40, 'x', CELL_SET_PAGE);
+    screen_job_start(s, &j);
+    uint16_t text[40];
+    screen_row_text(s, (uint8_t)(s->rows - 1), text);
+    ASSERT_EQ(text[1] & CELL_TEXT_CODE, 'x');
+    ASSERT_EQ(text[2] & CELL_TEXT_CODE, 'a');
+    ASSERT_STREQ(row(0), "xxbbbb");
+    ASSERT_STREQ(row(1), "cccccc");
+    xreg1(0, 0, vga_canvas_console);
 }
 
 /* A save never holds a job: a put finishes it first. */
