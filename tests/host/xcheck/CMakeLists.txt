@@ -1,5 +1,5 @@
 # xcheck: the console's terminal built as the Pico VGA keeps it, in mode 0's
-# cells with a spare row and its jobs done two rows a pass, and as the RIA
+# cells with a spare row and its jobs done 11 rows a pass, and as the RIA
 # keeps it, in text cells with none and its jobs done at once, both at the
 # VGA's 32 rows with the alternate screen (machine.h). xcheck.py feeds both
 # the same stream and holds the text they keep against each other.
@@ -18,7 +18,7 @@ foreach(_kind text mode0)
     if(_kind STREQUAL text)
         target_compile_definitions(${_target} PRIVATE TERM_CELL_TEXT=1 TERM_SPARE_ROWS=0)
     else()
-        target_compile_definitions(${_target} PRIVATE TERM_JOB_ROWS=2)
+        target_compile_definitions(${_target} PRIVATE TERM_JOB_ROWS=11)
     endif()
     rp6502_log_definitions(${_target} PRIVATE)
 endforeach()

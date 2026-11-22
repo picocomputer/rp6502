@@ -66,8 +66,8 @@ typedef struct
 
 static draw_blinks_t draw_40;
 static draw_blinks_t draw_80;
-/* Something mode 0 draws changed outside a batch of the console's bytes,
- * for draw_task to publish. */
+/* Something mode 0 draws changed, for draw_task to publish: outside a batch
+ * of the console's bytes, or in one with DRAW_PUBLISH_PER_FRAME. */
 static bool draw_stale;
 
 volatile uint32_t draw_bytes_in_jobs;
@@ -76,10 +76,12 @@ volatile uint32_t draw_bytes_in_jobs;
 // which row of memory each of its rows has, and the line size of each row
 // of memory. Only a scroll, a line size, a change of height, or another
 // screen showing changes it, so most bytes leave the row words as they are.
-// And whether the words showed a smooth scroll moving.
+// And whether the words showed a smooth scroll moving, and the frame they
+// were written in.
 static struct
 {
     bool smooth;
+    uint32_t frame;
     const screen_t *screen;
     uint8_t y_offset;
     uint8_t height;
@@ -398,6 +400,7 @@ void draw_publish(void)
     else
         mode0_regs.smooth = 0;
     draw_published.smooth = smooth;
+    draw_published.frame = draw_frame();
     // The words now describe one picture.
     mode0_regs.publish = 1;
     draw_stale = false;
@@ -446,7 +449,10 @@ static int draw_out_chars(const char *buf, int length, bool force)
                 draw_cursor_restart_blink(draw_blinks(all[n]));
         }
     }
-    draw_publish();
+    if (DRAW_PUBLISH_PER_FRAME)
+        draw_stale = true;
+    else
+        draw_publish();
     return i;
 }
 
@@ -520,9 +526,11 @@ void draw_task(void)
     draw_stale |= draw_cell_blink_phase_task(&draw_40);
     draw_stale |= draw_cell_blink_phase_task(&draw_80);
     // Another size or screen showing is published too, a new height, which
-    // moves the rows, and a color changed.
+    // moves the rows, and a color changed. With DRAW_PUBLISH_PER_FRAME, once
+    // a frame at most.
     const term_grid_t *g = vterm_get_shown(&vterm);
-    if (draw_stale || vterm_palette_changed || draw_published.screen != g->shown ||
-        draw_published.height != g->height)
+    if ((draw_stale || vterm_palette_changed || draw_published.screen != g->shown ||
+         draw_published.height != g->height) &&
+        !(DRAW_PUBLISH_PER_FRAME && draw_published.frame == draw_frame()))
         draw_publish();
 }

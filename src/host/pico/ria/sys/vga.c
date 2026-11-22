@@ -86,8 +86,9 @@ static uint32_t vga_answer_deadline;
  * terminal starts at the same byte and does TERM_JOB_ROWS rows a pass of its
  * main loop. The console sends the VGA no byte until this time, so none
  * comes while the VGA still works on it. The hold is flat, the same for a
- * job of any size, and generous for a whole screen at both sizes. Set only
- * while a VGA is connected. */
+ * job of any size. Measured with termload (tests/hil), a whole-screen job
+ * at both sizes takes the Pico VGA up to 0.93 ms under two 8-bit bitmaps
+ * and 0.67 ms without. Set only while a VGA is connected. */
 #define VGA_JOB_HOLD_US 1000
 static uint64_t vga_job_hold_end_us;
 

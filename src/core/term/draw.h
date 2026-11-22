@@ -21,6 +21,18 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* DRAW_PUBLISH_PER_FRAME: draw_task writes mode 0's words at most once a
+ * frame, and the console's bytes only mark them for it. For a machine whose
+ * mode 0 reads the words as it draws each scanline, with no time to spare:
+ * it builds a row again whenever the row's word changes, and a scroll
+ * changes every row's word, so words written after every byte of a burst
+ * of scrolls make it build rows again on most scanlines and lines come out
+ * late. Nothing is lost, since a frame shows one picture. 0, the default,
+ * writes them after each batch of the console's bytes. */
+#ifndef DRAW_PUBLISH_PER_FRAME
+#define DRAW_PUBLISH_PER_FRAME 0
+#endif
+
 void draw_init(void);
 void draw_task(void);
 
@@ -31,8 +43,9 @@ void draw_task(void);
 void draw_restart(void);
 
 /* Writes mode 0's words for the size showing. draw_out_chars calls it
- * after each batch of the console's bytes, and draw_task after the blinks,
- * a reset, a new height or another size showing. Something else that
+ * after each batch of the console's bytes (with DRAW_PUBLISH_PER_FRAME,
+ * draw_task does), and draw_task after the blinks, a reset, a new height or
+ * another size showing. Something else that
  * changes what shows calls it too: a savestate load that puts the canvas
  * back, or a test that feeds term_write directly. */
 void draw_publish(void);
