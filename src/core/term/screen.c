@@ -211,16 +211,9 @@ void screen_ring_fit(screen_t *s, uint8_t height)
 //    moves rows and runs of cells, and reads or writes what is in a cell
 //    only through the kind.
 
-bool screen_moved;
-
-/* draw.c's CELL chunk saves each screen's layout (screen_sst_put). The
- * cells are the kind's (cell.h). */
-#define SCREEN_SST(X) \
-    X(SKIP, screen_moved, "the canvas's load publishes everything")
-SST_TABLE(screen_store, SCREEN_SST)
-
-/* The cells' addresses are never written, because the kind's cells are
- * the same in every build of a machine. */
+/* draw.c's CELL chunk saves each screen's layout. The cells are the
+ * kind's (cell.h), and their addresses are never written, because the
+ * kind's cells are the same in every build of a machine. */
 void screen_sst_put(sst_cursor_t *c, screen_t *s)
 {
     const uint8_t *const start = c->at;
@@ -610,7 +603,6 @@ void screen_height(screen_t *s, uint8_t height, bool grow, bool top)
         screen_ring_height(s, height, grow, top);
         return;
     }
-    screen_moved = true;
     // With top, a grow moves everything down a row and the row above comes
     // into view: a row of scrollback, which comes back as it left, or else
     // a blank one. A shrink sends the top row out of view to join the

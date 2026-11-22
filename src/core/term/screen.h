@@ -468,10 +468,6 @@ typedef struct screen_cells
     screen_job_t job;
 } screen_cells_t;
 
-/* The height changed, which moves the store's rows in a way that may
- * change what shows. draw.c publishes and clears it. */
-extern bool screen_moved;
-
 // The cells of row of memory m of a screen that has them.
 static inline cell_t *screen_mem_row(const screen_t *s, uint8_t m)
 {

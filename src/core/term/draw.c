@@ -393,7 +393,6 @@ void draw_publish(void)
     // The words now describe one picture.
     mode0_regs.publish = 1;
     draw_stale = false;
-    screen_moved = false;
     // A fabric that met a frame start part way through the publish kept the
     // last frame's words for that frame, and reads the publish word back 0.
     // When that frame was a smooth scroll's first, no frame has shown the
@@ -505,8 +504,10 @@ void draw_task(void)
     draw_stale |= draw_blink_cursor(&draw_80);
     draw_stale |= draw_cell_blink_phase_task(&draw_40);
     draw_stale |= draw_cell_blink_phase_task(&draw_80);
-    // Another size or screen showing is published too, and a color changed.
-    if (draw_stale || screen_moved || vterm_palette_changed ||
-        draw_published.screen != vterm_get_shown(&vterm)->shown)
+    // Another size or screen showing is published too, a new height, which
+    // moves the rows, and a color changed.
+    const term_grid_t *g = vterm_get_shown(&vterm);
+    if (draw_stale || vterm_palette_changed || draw_published.screen != g->shown ||
+        draw_published.height != g->height)
         draw_publish();
 }
