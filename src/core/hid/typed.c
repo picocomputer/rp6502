@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/hid/paste.h"
 #include "core/hid/typed.h"
 #include "core/sys/ria.h"
 #include "core/sys/ring.h"
@@ -35,12 +36,16 @@ void typed_reset(void)
 }
 
 /* A Ctrl-C latches SIGINT before the space is checked, so a break is seen
- * even when the queue is too full to take the byte. */
+ * even when the queue is too full to take the byte, and it ends a paste
+ * going in (paste.h). */
 void HOST_IN_RAM_FUNC typed_push(const char *s, size_t n)
 {
     for (size_t i = 0; i < n; i++)
         if (s[i] == 0x03)
+        {
             ria_trigger_sigint();
+            paste_cut();
+        }
     if (n <= RING_AVAIL(&typed_queue))
         RING_IN(&typed_queue, s, (uint32_t)n);
 }

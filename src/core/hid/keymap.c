@@ -219,6 +219,7 @@ static char HOST_IN_RAM_FUNC keymap_layout_lookup(const keymap_press_t *k)
 
 void keymap_abandon(void)
 {
+    paste_cancel();
     typed_clear();
     keymap_alt_mode = false;
     keymap_dead_key0 = keymap_dead_key1 = 0;

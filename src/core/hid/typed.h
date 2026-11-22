@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The queue of typed bytes: what the keyboard and pastes type, waiting for
- * the keyboard row of RP6502_COM_SOURCES to read it. It holds
- * TYPED_QUEUE_SIZE bytes, which machine.h sets. */
+/* The queue of typed bytes: what the keyboard types, waiting behind the
+ * paste stage (paste.h) for the keyboard row of RP6502_COM_SOURCES to read
+ * it. It holds TYPED_QUEUE_SIZE bytes, which machine.h sets. */
 
 #ifndef _CORE_HID_TYPED_H_
 #define _CORE_HID_TYPED_H_
@@ -14,9 +14,9 @@
 #include "core/sys/sst.h"
 #include <stddef.h>
 
-/* A Ctrl-C in what is pushed raises the SIGINT, even when the queue is full
- * and the bytes are dropped. The queue takes all of a push or none of it, so
- * a key's sequence is never cut. */
+/* A Ctrl-C in what is pushed raises the SIGINT and ends a paste, even when
+ * the queue is full and the bytes are dropped. The queue takes all of a push
+ * or none of it, so a key's sequence is never cut. */
 void typed_push(const char *s, size_t n);
 
 /* The room left. */

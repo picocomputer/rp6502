@@ -8,6 +8,8 @@
 #include "host/host.h"
 
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 uint32_t host_seed(void)
 {
@@ -22,4 +24,22 @@ const char *host_save_dir(void)
 bool host_minimized(void)
 {
     return false;
+}
+
+/* The test bench's host has a clipboard, empty until something is put in
+ * it, as a desktop's is. */
+static char *tb_clipboard;
+
+const char *host_clipboard_get(void)
+{
+    return tb_clipboard ? tb_clipboard : "";
+}
+
+bool host_clipboard_set(const char *utf8)
+{
+    const size_t n = strlen(utf8) + 1;
+    free(tb_clipboard);
+    tb_clipboard = malloc(n);
+    memcpy(tb_clipboard, utf8, n);
+    return true;
 }

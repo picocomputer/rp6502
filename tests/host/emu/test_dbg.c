@@ -9,7 +9,7 @@
 #include "core/wdc/sram.h"
 #include "host/host.h"
 #include "core/vga/vga_emu.h"
-#include "core/hid/paste.h"
+#include "core/hid/paste_host.h"
 #include "core/aud/mix.h"
 #include "core/aud/bel.h"
 #include "emu_boot.h"

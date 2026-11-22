@@ -67,6 +67,8 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_GEN}/layout_db.c
         ${RP6502_SRC}/core/hid/keymap.c
         ${RP6502_SRC}/core/hid/typed.c
+        ${RP6502_SRC}/core/hid/paste.c
+        ${RP6502_SRC}/core/hid/clip_byte.c
         ${RP6502_SRC}/core/hid/vtkey.c
         ${RP6502_SRC}/core/hid/mouse.c
         ${RP6502_SRC}/core/hid/gamepad.c
@@ -86,6 +88,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/term/term.c
         ${RP6502_SRC}/core/term/grid.c
         ${RP6502_SRC}/core/term/screen.c
+        ${RP6502_SRC}/core/term/cell.c
         ${RP6502_SRC}/core/term/cell_mode0.c
         ${RP6502_SRC}/core/term/vterm.c
         ${RP6502_SRC}/core/term/vterm_mouse.c

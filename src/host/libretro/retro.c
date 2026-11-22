@@ -472,6 +472,18 @@ bool host_minimized(void)
     return false;
 }
 
+/* libretro gives a core no clipboard, so the machine keeps its own. */
+const char *host_clipboard_get(void)
+{
+    return NULL;
+}
+
+bool host_clipboard_set(const char *utf8)
+{
+    (void)utf8;
+    return false;
+}
+
 /* The first load cold-boots the machine; every load after it refills RAM, so
  * no data from the last program remains in memory. The content path is
  * converted again on every boot, after sys_init has selected a code page,

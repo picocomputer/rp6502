@@ -132,7 +132,7 @@ unsigned char unicode_from_codepoint(uint32_t cp, uint16_t page)
     return w ? (unsigned char)w : 0x7F;
 }
 
-unsigned char unicode_from_utf8_next(const char **p, uint16_t page)
+uint32_t unicode_utf8_next(const char **p)
 {
     const unsigned char *s = (const unsigned char *)*p;
     unsigned char b0 = *s;
@@ -163,7 +163,7 @@ unsigned char unicode_from_utf8_next(const char **p, uint16_t page)
     else
     {
         *p = (const char *)(s + 1);
-        return 0x7F;
+        return UNICODE_MALFORMED;
     }
     for (int i = 1; i <= extra; i++)
     {
@@ -171,7 +171,7 @@ unsigned char unicode_from_utf8_next(const char **p, uint16_t page)
         if ((bi & 0xC0) != 0x80)
         {
             *p = (const char *)(s + i);
-            return 0x7F;
+            return UNICODE_MALFORMED;
         }
         cp = (cp << 6) | (bi & 0x3F);
     }
@@ -181,8 +181,43 @@ unsigned char unicode_from_utf8_next(const char **p, uint16_t page)
     // they do not contain, such as '/' or '.'.
     static const uint32_t min_cp[] = {0, 0x80, 0x800, 0x10000};
     if (cp < min_cp[extra] || cp > 0x10FFFF)
-        return 0x7F;
-    return unicode_from_codepoint(cp, page);
+        return UNICODE_MALFORMED;
+    return cp;
+}
+
+unsigned char unicode_from_utf8_next(const char **p, uint16_t page)
+{
+    uint32_t cp = unicode_utf8_next(p);
+    if (cp < 0x80)
+        return (unsigned char)cp;
+    return cp == UNICODE_MALFORMED ? 0x7F : unicode_from_codepoint(cp, page);
+}
+
+int unicode_utf8_put(uint32_t cp, char *dst)
+{
+    if (cp < 0x80)
+    {
+        dst[0] = (char)cp;
+        return 1;
+    }
+    if (cp < 0x800)
+    {
+        dst[0] = (char)(0xC0 | (cp >> 6));
+        dst[1] = (char)(0x80 | (cp & 0x3F));
+        return 2;
+    }
+    if (cp < 0x10000)
+    {
+        dst[0] = (char)(0xE0 | (cp >> 12));
+        dst[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        dst[2] = (char)(0x80 | (cp & 0x3F));
+        return 3;
+    }
+    dst[0] = (char)(0xF0 | (cp >> 18));
+    dst[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+    dst[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+    dst[3] = (char)(0x80 | (cp & 0x3F));
+    return 4;
 }
 
 int unicode_to_utf8_char(unsigned char b, uint16_t page, char *dst)
@@ -194,19 +229,5 @@ int unicode_to_utf8_char(unsigned char b, uint16_t page, char *dst)
         if (!u)
             u = 0xFFFD;
     }
-    if (u < 0x80)
-    {
-        dst[0] = (char)u;
-        return 1;
-    }
-    if (u < 0x800)
-    {
-        dst[0] = (char)(0xC0 | (u >> 6));
-        dst[1] = (char)(0x80 | (u & 0x3F));
-        return 2;
-    }
-    dst[0] = (char)(0xE0 | (u >> 12));
-    dst[1] = (char)(0x80 | ((u >> 6) & 0x3F));
-    dst[2] = (char)(0x80 | (u & 0x3F));
-    return 3;
+    return unicode_utf8_put(u, dst);
 }

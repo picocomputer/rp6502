@@ -4,47 +4,153 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/hid/clip.h"
 #include "core/hid/paste.h"
 #include "core/hid/typed.h"
-#include "core/str/oem.h"
+#include "core/sys/ria.h"
+#include "core/sys/ring.h"
 #include "core/sys/sst.h"
 #include "core/term/vterm.h"
 #include "machine.h"
-#include <stdlib.h>
 #include <string.h>
 
-/* Text still being delivered to the typed queue, NULL when idle. */
-static char *paste_buf;
-static size_t paste_len, paste_pos;
+/* In RAM, as paste_read and paste_peek read them. */
+static const char HOST_IN_RAM paste_open_bracket[] = "\33[200~";
+static const char HOST_IN_RAM paste_close_bracket[] = "\33[201~";
+#define PASTE_BRACKET (sizeof paste_open_bracket - 1)
+
+/* The paste's text staged as code page bytes, read before the typed queue's
+ * bytes behind it. The stage holds one paste's text at a time. */
+static RING(char, TYPED_QUEUE_SIZE) paste_stage;
+
+/* The typed queue's first paste_ahead bytes were there when the paste
+ * started, and are read before it. */
+static uint32_t paste_ahead;
+
+/* The brackets round the stage: the bytes of the opening bracket still to
+ * be read before it, and of the closing bracket after it, which counts only
+ * once the paste has no more text. */
+static uint8_t paste_open;
+static uint8_t paste_close;
+
+/* Where the text comes from while there is more: the host through
+ * paste_host_fill, or a machine buffer, PASTE_FROM_CLIP plus its clip.h
+ * number, from its element paste_at. */
+enum
+{
+    PASTE_FROM_NONE,
+    PASTE_FROM_HOST,
+    PASTE_FROM_CLIP,
+};
+static uint8_t paste_from;
+static uint16_t paste_at;
+static paste_fill_t paste_host_fill;
+
+/* The paste from paste_from has given nothing yet: it waits until the one
+ * before it has all been read, and starts, its opening bracket first, with
+ * the first text it gives. */
+static bool paste_waiting;
+
+/* The closing bracket follows the text, and for a paste still waiting, the
+ * opening bracket comes before it. */
+static bool paste_bracketed;
+
+/* The stage holds the host's text, which no save carries. */
+static bool paste_hosted;
+
+/* Nothing of a paste is left to read: no bracket and no staged text. */
+static bool HOST_IN_RAM_FUNC paste_drained(void)
+{
+    return !paste_open && !RING_LEN(&paste_stage) && !paste_close;
+}
+
+bool HOST_IN_RAM_FUNC paste_staging(void)
+{
+    return paste_from != PASTE_FROM_NONE;
+}
+
+bool HOST_IN_RAM_FUNC paste_busy(void)
+{
+    return !paste_drained() || paste_staging();
+}
+
+/* Up to room of the *left bytes still to read of bracket. */
+static size_t HOST_IN_RAM_FUNC paste_bracket_read(const char *bracket, uint8_t *left,
+                                                  char *dst, size_t room)
+{
+    const size_t n = *left < room ? *left : room;
+    memcpy(dst, bracket + PASTE_BRACKET - *left, n);
+    *left = (uint8_t)(*left - n);
+    return n;
+}
+
+size_t HOST_IN_RAM_FUNC paste_read(char *buf, size_t length)
+{
+    size_t got = 0;
+    if (paste_ahead)
+    {
+        got = typed_read(buf, length < paste_ahead ? length : paste_ahead);
+        paste_ahead -= (uint32_t)got;
+        if (paste_ahead)
+            return got;
+    }
+    got += paste_bracket_read(paste_open_bracket, &paste_open, buf + got, length - got);
+    got += RING_OUT(&paste_stage, buf + got, (uint32_t)(length - got));
+    if (!RING_LEN(&paste_stage))
+        got += paste_bracket_read(paste_close_bracket, &paste_close, buf + got, length - got);
+    if (paste_busy())
+        return got;
+    return got + typed_read(buf + got, length - got);
+}
+
+/* Past the stage while more is to come, nothing has arrived yet. */
+int HOST_IN_RAM_FUNC paste_peek(size_t offset)
+{
+    if (offset < paste_ahead)
+        return typed_peek(offset);
+    offset -= paste_ahead;
+    if (offset < paste_open)
+        return (unsigned char)paste_open_bracket[PASTE_BRACKET - paste_open + offset];
+    offset -= paste_open;
+    const uint32_t staged = RING_LEN(&paste_stage);
+    if (offset < staged)
+        return (unsigned char)*RING_AT(&paste_stage, offset);
+    offset -= staged;
+    if (offset < paste_close)
+        return (unsigned char)paste_close_bracket[PASTE_BRACKET - paste_close + offset];
+    if (paste_staging())
+        return -1;
+    return typed_peek(paste_ahead + offset - paste_close);
+}
+
+/* The paste going in has no more text: the closing bracket comes after
+ * what is staged. */
+static void HOST_IN_RAM_FUNC paste_end(void)
+{
+    paste_from = PASTE_FROM_NONE;
+    paste_close = paste_bracketed ? PASTE_BRACKET : 0;
+    paste_bracketed = false;
+}
+
+void HOST_IN_RAM_FUNC paste_cut(void)
+{
+    if (paste_waiting)
+    {
+        paste_from = PASTE_FROM_NONE;
+        paste_waiting = paste_bracketed = false;
+    }
+    else if (paste_from != PASTE_FROM_NONE)
+        paste_end();
+}
 
 void paste_cancel(void)
 {
-    free(paste_buf);
-    paste_buf = NULL;
+    RING_RESET(&paste_stage);
+    paste_ahead = 0;
+    paste_open = paste_close = 0;
+    paste_from = PASTE_FROM_NONE;
+    paste_waiting = paste_bracketed = paste_hosted = false;
 }
-
-/* The text came from outside the machine and is on its way in, so a save
- * carries none of it and every load ends it. */
-static void paste_sst_nothing(sst_cursor_t *c, unsigned flags)
-{
-    (void)c;
-    (void)flags;
-}
-
-static bool paste_sst_cancel(sst_cursor_t *c, unsigned flags)
-{
-    (void)c;
-    (void)flags;
-    paste_cancel();
-    return true;
-}
-
-#define PASTE_SST(X)                                        \
-    X(FN, paste_sst_nothing, paste_sst_cancel, 0, 1)        \
-    X(SKIP, paste_buf, "every load cancels the paste")      \
-    X(SKIP, paste_len)                                      \
-    X(SKIP, paste_pos)
-SST_TABLE(paste, PASTE_SST)
 
 void paste_clear(void)
 {
@@ -52,89 +158,152 @@ void paste_clear(void)
     typed_clear();
 }
 
-/* End the paste in progress, then make room for n bytes of text and the
- * extra bytes around them. Empty text starts nothing. */
-static char *paste_alloc(size_t n, size_t extra)
+/* A paste going in is cut short, and this one follows it. One that starts
+ * with nothing going in waits behind what the typed queue holds. */
+static void paste_begin(uint8_t from, bool bracketed)
 {
-    paste_cancel();
-    paste_len = paste_pos = 0;
-    if (!n)
-        return NULL;
-    return paste_buf = malloc(n + extra);
+    paste_cut();
+    if (!paste_busy())
+        paste_ahead = (uint32_t)(TYPED_QUEUE_SIZE - typed_free());
+    paste_from = from;
+    paste_waiting = true;
+    paste_bracketed = bracketed;
 }
 
-void typed_text(const char *utf8)
+void paste_host(paste_fill_t fill, bool bracketed)
 {
-    size_t n = utf8 ? strlen(utf8) : 0;
-    if (!paste_alloc(n, 0))
-        return;
-    memcpy(paste_buf, utf8, n);
-    paste_len = n;
+    paste_host_fill = fill;
+    paste_begin(PASTE_FROM_HOST, bracketed);
 }
 
-/* A program that set bracketed paste (?2004) gets the paste between
- * ESC [ 200 ~ and ESC [ 201 ~, with any ESC of the text left out, so the
- * text cannot end the bracket early. A line end is pressed as Enter, the way
- * a terminal pastes: the host's clipboard ends lines in CRLF on Windows and
- * LF elsewhere. */
-static const char paste_open[] = "\33[200~";
-static const char paste_close[] = "\33[201~";
-
-void paste_start(const char *utf8)
+void paste_host_cut(paste_fill_t fill)
 {
-    size_t n = utf8 ? strlen(utf8) : 0;
-    bool bracket = vterm.bracketed_paste;
-    if (!paste_alloc(n, bracket ? sizeof paste_open + sizeof paste_close : 0))
-        return;
-    size_t len = 0;
-    if (bracket)
-    {
-        memcpy(paste_buf, paste_open, sizeof paste_open - 1);
-        len = sizeof paste_open - 1;
-    }
-    for (size_t i = 0; i < n; i++)
-    {
-        char ch = utf8[i];
-        if (ch == '\33' && bracket)
-            continue;
-        if (ch == '\r' && utf8[i + 1] == '\n')
-            i++;
-        paste_buf[len++] = ch == '\n' ? '\r' : ch;
-    }
-    if (bracket)
-    {
-        memcpy(paste_buf + len, paste_close, sizeof paste_close - 1);
-        len += sizeof paste_close - 1;
-    }
-    paste_len = len;
+    if (paste_from == PASTE_FROM_HOST && paste_host_fill == fill)
+        paste_cut();
 }
 
-bool paste_busy(void)
+void paste_clip(uint8_t which)
 {
-    return paste_buf != NULL;
+    paste_at = 0;
+    paste_begin((uint8_t)(PASTE_FROM_CLIP + which), vterm.bracketed_paste);
 }
 
+void paste_clip_changed(uint8_t which)
+{
+    if (paste_from == PASTE_FROM_CLIP + which)
+        paste_cut();
+}
+
+/* A paste waiting starts once the one before it has all been read, and
+ * its text is staged as far as the stage goes. Its opening bracket comes
+ * with its first text, so a paste with none, of an empty buffer or of host
+ * text that was all control characters, sends nothing. Text typed as
+ * written may hold a Ctrl-C, which raises the SIGINT as it is staged, as a
+ * typed one does. */
 void paste_task(void)
 {
-    if (!paste_buf)
+    if (paste_waiting && !paste_drained())
         return;
-    /* A quarter of the queue is left free so that live typing still fits
-     * during a long paste. */
-    while (paste_pos < paste_len && typed_free() > TYPED_QUEUE_SIZE / 4)
+    while (paste_from != PASTE_FROM_NONE)
     {
-        char out[16];
-        size_t room = typed_free() - TYPED_QUEUE_SIZE / 4;
-        if (room > sizeof out)
-            room = sizeof out;
-        size_t taken = 0;
-        size_t n = oem_from_utf8_run(paste_buf + paste_pos,
-                                     paste_len - paste_pos,
-                                     true, out, room, &taken);
-        if (!taken)
-            break;
-        typed_push(out, n);
-        paste_pos += taken;
+        const size_t room = RING_AVAIL(&paste_stage);
+        if (!room)
+            return;
+        char text[TYPED_QUEUE_SIZE];
+        const size_t n = paste_from == PASTE_FROM_HOST
+                             ? paste_host_fill(text, room)
+                             : clip_fill((uint8_t)(paste_from - PASTE_FROM_CLIP), &paste_at,
+                                         text, room);
+        if (!n)
+        {
+            paste_cut();
+            return;
+        }
+        if (paste_waiting)
+        {
+            paste_waiting = false;
+            paste_open = paste_bracketed ? PASTE_BRACKET : 0;
+            paste_hosted = paste_from == PASTE_FROM_HOST;
+        }
+        if (memchr(text, 0x03, n))
+            ria_trigger_sigint();
+        RING_IN(&paste_stage, text, (uint32_t)n);
     }
-    if (paste_pos >= paste_len)
-        paste_cancel();
 }
+
+/* The host's text is never saved: not the text staged, nor a host paste
+ * still to come. What the program has been given of a paste of it is
+ * machine state, though: one whose opening bracket the program has begun
+ * to read is saved as that paste cut short, its brackets with no text
+ * between, so the closing bracket still comes. One the program has seen
+ * nothing of goes. A paste of a machine buffer is saved whole: its text,
+ * its brackets and where it is in the buffer. */
+static void paste_sst_save(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    const bool seen = !paste_hosted || paste_open < PASTE_BRACKET;
+    const bool host = paste_from == PASTE_FROM_HOST;
+    const uint32_t len = paste_hosted ? 0 : RING_LEN(&paste_stage);
+    uint8_t close = seen ? paste_close : 0;
+    if (host && !paste_waiting && seen && paste_bracketed)
+        close = PASTE_BRACKET;
+    sst_put_u32(c, len);
+    for (uint32_t i = 0; i < TYPED_QUEUE_SIZE; i++)
+        sst_put_u8(c, i < len ? (uint8_t)*RING_AT(&paste_stage, i) : 0);
+    sst_put_u32(c, paste_ahead);
+    sst_put_u8(c, seen ? paste_open : 0);
+    sst_put_u8(c, close);
+    sst_put_u8(c, host ? PASTE_FROM_NONE : paste_from);
+    sst_put_u16(c, host ? 0 : paste_at);
+    sst_put_bool(c, !host && paste_waiting);
+    sst_put_bool(c, !host && paste_bracketed);
+}
+
+static bool paste_sst_load(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    paste_cancel();
+    const uint32_t len = sst_get_u32(c);
+    char bytes[TYPED_QUEUE_SIZE];
+    sst_get(c, bytes, sizeof bytes);
+    const uint32_t ahead = sst_get_u32(c);
+    const uint8_t open = sst_get_u8(c);
+    const uint8_t close = sst_get_u8(c);
+    const uint8_t from = sst_get_u8(c);
+    const uint16_t at = sst_get_u16(c);
+    const bool waiting = sst_get_bool(c);
+    const bool bracketed = sst_get_bool(c);
+    if (!sst_ok(c))
+        return false;
+    if (len > TYPED_QUEUE_SIZE || ahead > TYPED_QUEUE_SIZE - typed_free() ||
+        open > PASTE_BRACKET || close > PASTE_BRACKET)
+        return sst_refuse(c, "a paste holding more than it can");
+    if ((from != PASTE_FROM_NONE && (from < PASTE_FROM_CLIP || from >= PASTE_FROM_CLIP + CLIP_COUNT)) ||
+        at > CLIP_SIZE || (from == PASTE_FROM_NONE && (waiting || bracketed)) ||
+        (close && from != PASTE_FROM_NONE && !waiting))
+        return sst_refuse(c, "a paste from nowhere");
+    RING_IN(&paste_stage, bytes, len);
+    paste_ahead = ahead;
+    paste_open = open;
+    paste_close = close;
+    paste_from = from;
+    paste_at = at;
+    paste_waiting = waiting;
+    paste_bracketed = bracketed;
+    return true;
+}
+
+#define PASTE_SST(X)                                                   \
+    X(FN, paste_sst_save, paste_sst_load,                              \
+      4 + TYPED_QUEUE_SIZE + 4 + 1 + 1 + 1 + 2 + 1 + 1, 1)             \
+    X(IN_FN, paste_stage)                                              \
+    X(IN_FN, paste_ahead)                                              \
+    X(IN_FN, paste_open)                                               \
+    X(IN_FN, paste_close)                                              \
+    X(IN_FN, paste_from)                                               \
+    X(IN_FN, paste_at)                                                 \
+    X(IN_FN, paste_waiting)                                            \
+    X(IN_FN, paste_bracketed)                                          \
+    X(SKIP, paste_host_fill, "the host's text, which every load ends") \
+    X(SKIP, paste_hosted, "the host's text, which every load ends")
+SST_TABLE(paste, PASTE_SST)

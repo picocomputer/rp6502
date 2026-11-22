@@ -443,6 +443,41 @@ bool host_minimized(void)
     return app_minimized;
 }
 
+#ifndef __EMSCRIPTEN__
+/* The clipboard is the desktop's while the window runs. sokol hands back the
+ * text it last had when the desktop's is too big for its buffer, so then
+ * there is none. With no window, a script or a headless run, the clipboard
+ * is one the emulator keeps for itself, empty until something is put in it,
+ * which asking for never writes over. The web player's are in its entry.c. */
+static bool app_clipboard_too_big;
+static char *app_clipboard;
+
+const char *host_clipboard_get(void)
+{
+    if (!sapp_isvalid())
+        return app_clipboard ? app_clipboard : "";
+    app_clipboard_too_big = false;
+    const char *text = sapp_get_clipboard_string();
+    return app_clipboard_too_big ? "" : text;
+}
+
+bool host_clipboard_set(const char *utf8)
+{
+    if (sapp_isvalid())
+    {
+        sapp_set_clipboard_string(utf8);
+        return true;
+    }
+    const size_t n = strlen(utf8) + 1;
+    free(app_clipboard);
+    app_clipboard = malloc(n);
+    if (!app_clipboard)
+        return false;
+    memcpy(app_clipboard, utf8, n);
+    return true;
+}
+#endif
+
 void app_input(const struct sapp_event *e)
 {
     if (e->type == SAPP_EVENTTYPE_ICONIFIED)
@@ -534,6 +569,10 @@ void app_log(const char *tag, uint32_t log_level, uint32_t log_item_id,
              const char *filename_or_null, void *user_data)
 {
     (void)user_data;
+#ifndef __EMSCRIPTEN__
+    if (log_item_id == SAPP_LOGITEM_CLIPBOARD_STRING_TOO_BIG && !strcmp(tag, "sapp"))
+        app_clipboard_too_big = true;
+#endif
     const char *message = message_or_null ? message_or_null : "";
     const char *filename = filename_or_null ? filename_or_null : "";
     switch (log_level)

@@ -13,7 +13,8 @@
 #include "core/hid/usage.h"
 #include "core/hid/vtkey.h"
 #include "core/hid/hostkey.h"
-#include "core/hid/paste.h"
+#include "core/hid/clip.h"
+#include "core/hid/paste_host.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/vga/vga_emu.h"
@@ -431,7 +432,16 @@ void input_event(const sapp_event *e)
             mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(-e->scroll_x));
         break;
     case SAPP_EVENTTYPE_CLIPBOARD_PASTED:
+#if defined(__EMSCRIPTEN__)
+        /* The page's paste event has handed its text over, and it is
+         * typed as a paste. The page gives the machine no clipboard
+         * (entry.c): this text is not one, and sokol keeps it until the
+         * next paste event, which cuts this paste short as it starts. */
         paste_start(sapp_get_clipboard_string());
+#else
+        /* The paste key: the clipboard is pasted, the desktop's. */
+        clip_paste(CLIP_CLIPBOARD);
+#endif
         break;
     case SAPP_EVENTTYPE_QUIT_REQUESTED:
         if (input_chord_held)

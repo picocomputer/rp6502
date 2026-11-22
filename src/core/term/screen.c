@@ -650,6 +650,28 @@ unsigned screen_row_text(screen_t *s, uint8_t y, uint16_t *out)
     return cols;
 }
 
+void screen_copy(screen_t *s, uint8_t y0, uint8_t x0, uint8_t y1, uint8_t x1,
+                 screen_sink_t *sink)
+{
+    if (!s->cells)
+        return;
+    assert(s->cells->job.kind == SCREEN_JOB_NONE);
+    assert(y0 <= y1 && y1 < s->rows);
+    uint16_t text[TERM_MAX_WIDTH];
+    for (unsigned y = y0; y <= y1; y++)
+    {
+        const unsigned cols = screen_row_text(s, (uint8_t)y, text);
+        unsigned last = cols;
+        while (last && !(text[last - 1] & CELL_TEXT_WRITTEN))
+            last--;
+        const unsigned to = y < y1 ? cols : x1 < cols ? x1 : cols;
+        for (unsigned x = y > y0 ? 0 : x0; x < to && x < last; x++)
+            sink->text(sink, text[x] & CELL_TEXT_WRITTEN ? text[x] : ' ');
+        if (!screen_wrapped(s, (uint8_t)y) && (y < y1 || x1 > last))
+            sink->line(sink);
+    }
+}
+
 void screen_blank_cells(cell_t *cells, unsigned n)
 {
     const cell_fill_t e = cell_blank(' ', cell_side_default(), false, false);

@@ -24,7 +24,9 @@
 #include "core/com/tio.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/keyboard.h"
+#include "core/hid/clip.h"
 #include "core/hid/keymap.h"
+#include "core/hid/paste.h"
 #include "core/hid/layout.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
@@ -95,6 +97,7 @@
     VGA_FABRIC_DRIVER,                                  \
     LAYOUT_DRIVER, KEYBOARD_DRIVER,                     \
     APF_DRIVER, KEYMAP_DRIVER,                          \
+    CLIP_DRIVER, PASTE_DRIVER,                          \
     MOUSE_DRIVER, GAMEPAD_DRIVER, TABLET_DRIVER,        \
     VTERM_MOUSE_DRIVER,                                 \
     VID_DRIVER, TIM_DRIVER,                             \

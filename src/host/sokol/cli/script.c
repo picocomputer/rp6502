@@ -22,7 +22,9 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/hid/hostkey.h"
+#include "core/hid/clip.h"
 #include "core/hid/paste.h"
+#include "core/hid/paste_host.h"
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
@@ -1274,6 +1276,31 @@ static bool script_command(const char *line)
                                     on ? "on" : "off");
             return true;
         }
+        if (script_keyword(&p, "clip"))
+        {
+            char text[SCRIPT_LINE_MAX], shown[4 * sizeof text];
+            if (!script_string(&p, text, sizeof text))
+                return script_error("%s clip wants a quoted string", cmd);
+            if (!script_end(p))
+                return false;
+            /* A script runs with no window, where the clipboard is one
+             * the emulator keeps, which asking for never writes over
+             * (app.c). So the check asks the host itself, and a paste of
+             * the clipboard going in goes on: clip_host_get would end it. */
+            const char *got = host_clipboard_get();
+            if (!got)
+                return script_error("this host has no clipboard");
+            script_printable(shown, sizeof shown, text, strlen(text));
+            if (want && strcmp(got, text))
+            {
+                char held[4 * sizeof text];
+                script_printable(held, sizeof held, got, strlen(got));
+                return script_error("the clipboard holds \"%s\", expected \"%s\"", held, shown);
+            }
+            if (!want && !strcmp(got, text))
+                return script_error("did not expect the clipboard to hold \"%s\"", shown);
+            return true;
+        }
         script_cap_t *cap = script_stream(&p);
         char text[256], shown[4 * sizeof text];
         size_t len;
@@ -1345,7 +1372,9 @@ static bool script_command(const char *line)
 
     if (!strcasecmp(cmd, "type"))
     {
-        char text[SCRIPT_LINE_MAX];
+        /* The paste stage reads the text where it is, so it is kept here
+         * until the next type, which waits until it is all staged. */
+        static char text[SCRIPT_LINE_MAX];
         if (!script_string(&p, text, sizeof text))
             return script_error("type wants a quoted string");
         long frames = SCRIPT_WAIT_FRAMES;
@@ -1354,14 +1383,30 @@ static bool script_command(const char *line)
         if (!script_end(p))
             return false;
         typed_text(text);
-        /* Waiting for the text to drain, because typed_text replaces
-         * whatever is still being delivered and back-to-back type commands
-         * would otherwise truncate each other. */
+        /* Waiting for the text to be staged, because typed_text cuts
+         * short whatever is still being staged and back-to-back type
+         * commands would otherwise truncate each other. */
         script_wait = SCRIPT_TYPING;
         script_budget = (unsigned long)frames;
         return true;
     }
 
+
+    /* The host's clipboard, which with no window is one the emulator keeps
+     * for itself. */
+    if (!strcasecmp(cmd, "clip"))
+    {
+        char text[SCRIPT_LINE_MAX];
+        if (!script_keyword(&p, "set"))
+            return script_error("clip wants set");
+        if (!script_string(&p, text, sizeof text))
+            return script_error("clip set wants a quoted string");
+        if (!script_end(p))
+            return false;
+        if (!clip_host_set(text))
+            return script_error("this host has no clipboard");
+        return true;
+    }
 
     if (!strcasecmp(cmd, "key"))
     {
@@ -1813,7 +1858,7 @@ static bool script_settle(void)
                             script_addr, script_addr_want, got);
     }
     case SCRIPT_TYPING:
-        if (!paste_busy())
+        if (!paste_staging())
             break;
         if (script_spend())
             return false;
@@ -1904,6 +1949,7 @@ void script_usage(FILE *out)
             "  wait [xram:]<addr> <byte> [frames]  run until that byte reads that value\n"
             "  wait exit [frames]        run until the program exits\n"
             "  type \"text\" [frames]      type it (\\r = Enter, \\t = Tab)\n"
+            "  clip set \"text\"           put it in the clipboard\n"
             "  key <key>[+ctrl][+shift][+alt][+cmd]\n"
             "                                      send what a terminal sends\n"
             "  press/release <key>...    the direct HID bitmap, by name or 0xNN\n"
@@ -1924,6 +1970,8 @@ void script_usage(FILE *out)
             "  expect-not exit <code>\n"
             "  expect lock num|caps|scroll on|off  check a lock\n"
             "  expect-not lock num|caps|scroll on|off\n"
+            "  expect clip \"text\"        check what the clipboard holds\n"
+            "  expect-not clip \"text\"\n"
             "  discard [stdout|stderr|console]     drop what no check has taken\n"
             "                                      (default all three)\n"
             "  eof [frames]              end stdin once the program has read what was typed\n"

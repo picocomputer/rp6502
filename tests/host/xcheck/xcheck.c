@@ -15,8 +15,9 @@
  * memory in each slot, the slot of row 0 and the spare row, so a row of
  * memory is the same row on both; and the text of each row in view and of
  * each row above them still in the ring, whether each is used, and whether
- * it wrapped on its own. The text is cell_text's, which is the same for
- * both kinds, so the two print the same digests. xcheck.py runs both and
+ * it wrapped on its own; and what a copy takes of a few ranges of each
+ * screen. The text is cell_text's, which is the same for both kinds, so
+ * the two print the same digests. xcheck.py runs both and
  * holds them against each other.
  *
  *   xcheck fuzz SEED STEPS [POINT]   a seeded stream of sequences
@@ -95,7 +96,45 @@ static void xc_row(screen_t *s, uint8_t y, int label)
     xc_print("\n");
 }
 
-static void xc_point(void)
+// What screen_copy takes, a cell_text word a character and | a line end.
+static void xc_copy_text(screen_sink_t *k, uint16_t word)
+{
+    (void)k;
+    xc_print(" %04x", word);
+}
+
+static void xc_copy_line(screen_sink_t *k)
+{
+    (void)k;
+    xc_print(" |");
+}
+
+// Copies of a few ranges of a screen, the ranges from a generator of their
+// own, so the stream is the same with them or without.
+static void xc_copies(screen_t *s, uint8_t height, uint32_t seed)
+{
+    screen_sink_t k = {xc_copy_text, xc_copy_line};
+    for (int i = 0; i < 4; i++)
+    {
+        seed = seed * 1103515245u + 12345u;
+        const uint8_t y0 = (uint8_t)(seed >> 8) % height;
+        seed = seed * 1103515245u + 12345u;
+        const uint8_t y1 = (uint8_t)(y0 + (seed >> 8) % (unsigned)(height - y0));
+        seed = seed * 1103515245u + 12345u;
+        uint8_t x0 = (uint8_t)((seed >> 8) % 81), x1 = (uint8_t)((seed >> 16) % 81);
+        if (y0 == y1 && x1 < x0)
+        {
+            const uint8_t x = x0;
+            x0 = x1;
+            x1 = x;
+        }
+        xc_print("copy %u,%u to %u,%u:", y0, x0, y1, x1);
+        screen_copy(s, y0, x0, y1, x1, &k);
+        xc_print("\n");
+    }
+}
+
+static void xc_point(unsigned point)
 {
     xc_len = 0;
     const vterm_size_t *const sizes[] = {&vterm_40, &vterm_80};
@@ -115,6 +154,7 @@ static void xc_point(void)
                 xc_row(s, (uint8_t)(s->rows - k), -k);
             for (int y = 0; y < g->height; y++)
                 xc_row(s, (uint8_t)y, y);
+            xc_copies(s, g->height, point * 4u + (unsigned)(n * 2 + b));
         }
     }
 }
@@ -129,7 +169,7 @@ static void xc_check(void)
     const unsigned point = xc_points++;
     if (xc_want >= 0 && point != (unsigned long)xc_want)
         return;
-    xc_point();
+    xc_point(point);
     if (xc_want >= 0)
     {
         fwrite(xc_out, 1, xc_len, stdout);

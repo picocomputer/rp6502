@@ -2014,46 +2014,6 @@ UTEST(cli, aspect_names_the_console_and_fixes_the_frame)
     }
 }
 
-UTEST(units, host_text_keeps_control_bytes)
-{
-    char out[32];
-    size_t taken = 0;
-    size_t n = oem_from_utf8_run("a\nb\r\nc\r", 7, true, out, sizeof out, &taken);
-    ASSERT_EQ(taken, (size_t)7);
-    ASSERT_EQ(n, (size_t)7);
-    ASSERT_EQ(memcmp(out, "a\nb\r\nc\r", 7), 0);
-    n = oem_from_utf8_run("\33[A\3\177", 6, true, out, sizeof out, &taken);
-    ASSERT_EQ(n, (size_t)6);
-    ASSERT_EQ(memcmp(out, "\33[A\3\177", 6), 0);
-}
-
-UTEST(units, host_text_carries_a_sequence_split_across_two_reads)
-{
-    char out[32];
-    size_t taken = 0;
-    size_t n = oem_from_utf8_run("h\xc3", 2, false, out, sizeof out, &taken);
-    ASSERT_EQ(n, (size_t)1);
-    ASSERT_EQ(out[0], 'h');
-    ASSERT_EQ(taken, (size_t)1); /* the lead byte is left for the next call */
-    n = oem_from_utf8_run("\xc3\xa9!", 3, false, out, sizeof out, &taken);
-    ASSERT_EQ(taken, (size_t)3);
-    ASSERT_EQ(n, (size_t)2);
-    ASSERT_EQ((unsigned char)out[0], 0x82); /* CP437 é */
-    ASSERT_EQ(out[1], '!');
-}
-
-UTEST(units, host_text_spells_what_the_code_page_cannot_as_a_question_mark)
-{
-    char out[8];
-    size_t taken = 0;
-    size_t n = oem_from_utf8_run("\xe4\xb8\xad", 3, true, out, sizeof out, &taken);
-    ASSERT_EQ(n, (size_t)1);
-    ASSERT_EQ(out[0], '?');
-    n = oem_from_utf8_run("abcd", 4, true, out, 2, &taken);
-    ASSERT_EQ(n, (size_t)2);
-    ASSERT_EQ(taken, (size_t)2);
-}
-
 UTEST_MAIN();
 
 UTEST(random, the_machines_seed_does_not_move)

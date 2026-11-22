@@ -32,6 +32,8 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/vtkey.c
     ${RP6502_SRC}/core/hid/hostkey.c
     ${RP6502_SRC}/core/hid/paste.c
+    ${RP6502_SRC}/core/hid/paste_host.c
+    ${RP6502_SRC}/core/hid/clip_text.c
     ${RP6502_SRC}/core/hid/typed.c
     ${RP6502_SRC}/core/rom/alias.c
     ${RP6502_SRC}/core/rom/rom.c
@@ -96,6 +98,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/term/term.c
     ${RP6502_SRC}/core/term/grid.c
     ${RP6502_SRC}/core/term/screen.c
+    ${RP6502_SRC}/core/term/cell.c
     ${RP6502_SRC}/core/term/cell_mode0.c
     ${RP6502_SRC}/core/term/vterm.c
     ${RP6502_SRC}/core/term/vterm_mouse.c

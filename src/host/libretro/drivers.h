@@ -28,6 +28,7 @@
 #include "core/hid/typed.h"
 #include "core/com/tio.h"
 #include "core/hid/gamepad.h"
+#include "core/hid/clip.h"
 #include "core/hid/paste.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
@@ -68,7 +69,8 @@
     DRAW_DRIVER, MODE0_DRIVER, KEYBOARD_DRIVER, MOUSE_DRIVER,  \
     GAMEPAD_DRIVER, TABLET_DRIVER, VTERM_MOUSE_DRIVER,         \
     FONT_DRIVER, OEM_DRIVER,                                   \
-    VGA_DRIVER, CANVAS_DRIVER, PROG_DRIVER, PASTE_DRIVER,      \
+    VGA_DRIVER, CANVAS_DRIVER, PROG_DRIVER,                    \
+    CLIP_DRIVER, PASTE_DRIVER,                                 \
     PSG_DRIVER, OPL_DRIVER, AUD_DRIVER, BEL_DRIVER,            \
     TIM_DRIVER, DIR_DRIVER, CLK_DRIVER, RANDOM_DRIVER,         \
     PHI2_DRIVER, CPU_DRIVER, VIA_DRIVER, BUS_DRIVER

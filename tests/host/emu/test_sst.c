@@ -15,7 +15,10 @@
 #include "core/aud/psg.h"
 #include "core/wdc/sram.h"
 #include "core/com/rln.h"
+#include "core/com/com.h"
+#include "core/hid/clip.h"
 #include "core/hid/paste.h"
+#include "core/hid/paste_host.h"
 #include "core/hid/typed.h"
 #include "core/term/draw.h"
 #include "core/term/grid.h"
@@ -67,8 +70,8 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)241323);
-    ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 43u);
+    ASSERT_EQ(sst_size(), (size_t)251328);
+    ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 44u);
 }
 
 UTEST(sst, a_blob_is_framed)
@@ -313,6 +316,132 @@ UTEST(sst, a_load_mid_paste_cancels_it)
     ASSERT_EQ(take(), (const char *)NULL);
     ASSERT_TRUE(paste_busy());
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_FALSE(paste_busy());
+}
+
+/* All the keyboard row gives, the paste staged as the main loop stages it. */
+static size_t keyboard_all(char *out, size_t max)
+{
+    size_t got = 0;
+    for (int i = 0; i < 10000 && got < max; i++)
+    {
+        paste_task();
+        size_t n = com_read(COM_SOURCE_KEYBOARD, out + got, max - got);
+        got += n;
+        if (!n && !paste_busy())
+            break;
+    }
+    return got;
+}
+
+static void say(const char *s)
+{
+    while (*s)
+        term_write(&vterm, (uint8_t)*s++);
+}
+
+/* The host's text is left behind, but a program that has read the opening
+ * bracket is owed the closing one, which comes after a load. */
+UTEST(sst, a_bracketed_host_paste_comes_back_as_its_closing_bracket)
+{
+    com_rx_clear();
+    say("\33[?2004h");
+    static char big[TYPED_QUEUE_SIZE * 4];
+    memset(big, 'p', sizeof big - 1);
+    paste_start(big);
+    paste_task();
+    char head[8];
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, sizeof head), sizeof head);
+    ASSERT_EQ(memcmp(head, "\33[200~pp", 8), 0);
+    ASSERT_EQ(take(), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    char rest[16] = {0};
+    ASSERT_EQ(keyboard_all(rest, sizeof rest - 1), (size_t)6);
+    ASSERT_STREQ(rest, "\33[201~");
+    ASSERT_FALSE(paste_busy());
+    say("\33[?2004l");
+}
+
+/* Half an opening bracket read is finished, then closed. */
+UTEST(sst, a_half_read_opening_bracket_is_finished_after_a_load)
+{
+    com_rx_clear();
+    say("\33[?2004h");
+    paste_start("text");
+    paste_task();
+    char head[3];
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, sizeof head), sizeof head);
+    ASSERT_EQ(take(), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    char rest[16] = {0};
+    ASSERT_EQ(keyboard_all(rest, sizeof rest - 1), (size_t)9);
+    ASSERT_STREQ(rest, "00~\33[201~");
+    say("\33[?2004l");
+}
+
+/* A bracketed host paste the program has read nothing of goes whole. */
+UTEST(sst, an_unread_host_paste_leaves_nothing_after_a_load)
+{
+    com_rx_clear();
+    say("\33[?2004h");
+    paste_start("text");
+    paste_task();
+    ASSERT_EQ(take(), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_FALSE(paste_busy());
+    char rest[16];
+    ASSERT_EQ(keyboard_all(rest, sizeof rest), (size_t)0);
+    say("\33[?2004l");
+}
+
+/* A paste of a machine buffer that waits behind host text is saved: after
+ * a load the host paste's closing bracket comes, then the whole of it. */
+UTEST(sst, a_machine_paste_behind_host_text_comes_back)
+{
+    com_rx_clear();
+    say("\33[?2004h\33[H\33[2Jmine");
+    term_job_finish(&vterm);
+    clip_copy(CLIP_PRIMARY, vterm_get_shown(&vterm)->shown, 0, 0, 0, 4);
+    static char big[TYPED_QUEUE_SIZE * 4];
+    memset(big, 'p', sizeof big - 1);
+    paste_start(big);
+    paste_task();
+    char head[8];
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, sizeof head), sizeof head);
+    clip_paste(CLIP_PRIMARY);
+    paste_task();
+    ASSERT_EQ(take(), (const char *)NULL);
+    clip_reset();
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    char rest[32] = {0};
+    ASSERT_EQ(keyboard_all(rest, sizeof rest - 1), (size_t)22);
+    ASSERT_STREQ(rest, "\33[201~\33[200~mine\33[201~");
+    say("\33[?2004l");
+}
+
+/* A paste of the machine's own text is machine state: a load in the middle
+ * of one goes on from where the save was, with the buffer it reads. */
+UTEST(sst, a_paste_of_the_machine_s_own_text_comes_back)
+{
+    com_rx_clear();
+    for (int y = 0; y < 10; y++)
+        for (const char *t = "\r\n0123456789abcdefghijklmnopqrstuvwxyz"; *t; t++)
+            term_write(&vterm, (uint8_t)*t);
+    term_job_finish(&vterm);
+    const term_grid_t *g = vterm_get_shown(&vterm);
+    clip_copy(CLIP_PRIMARY, g->shown, 0, 0, (uint8_t)(g->height - 1), g->width);
+    clip_paste(CLIP_PRIMARY);
+    paste_task();
+    char head[100];
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, sizeof head), sizeof head);
+    ASSERT_EQ(take(), (const char *)NULL);
+    static char rest[2048], again[2048];
+    const size_t got = keyboard_all(rest, sizeof rest);
+    ASSERT_GT(got, (size_t)TYPED_QUEUE_SIZE);
+    clip_reset();
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(keyboard_all(again, sizeof again), got);
+    ASSERT_EQ(memcmp(rest, again, got), 0);
     ASSERT_FALSE(paste_busy());
 }
 

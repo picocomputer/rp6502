@@ -78,6 +78,20 @@ enum
 #define CELL_TEXT_WRITTEN (1u << 13)
 #define CELL_TEXT_GUARD (1u << 14)
 
+// The character a cell_text word shows, as Unicode, for a copy to the host:
+// the code page's character, CP437's glyphs for the C0 codes and DEL, which
+// the console draws with them whatever the page, and DEC Special Graphics
+// and Technical as xterm has them, but for the pieces of the big sigma,
+// whose top and bottom left are U+23B2 and U+23B3 and whose others have no
+// Unicode and are xterm's private ones. A byte the code page has no
+// character for is U+FFFD. cell.c, with vterm_get_code_page.
+uint32_t cell_text_unicode(uint16_t word);
+
+// The same as a code page byte, for a copy kept in the machine: the code
+// page's character as it is, and any other through its Unicode to the code
+// page's, or '?' where the page has none. Never a control byte.
+uint8_t cell_text_byte(uint16_t word);
+
 #if TERM_CELL_TEXT
 #include "core/term/cell_text.h"
 #else

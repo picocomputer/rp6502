@@ -254,6 +254,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/term/screen.c
     ${RP6502_ROOT}/src/core/term/vterm.c
     ${RP6502_ROOT}/src/core/term/vterm_mouse.c
+    ${RP6502_ROOT}/src/core/term/cell.c
     ${RP6502_ROOT}/src/core/term/cell_text.c
     ${RP6502_GEN}/unicode_oem.c
     ${RP6502_ROOT}/src/core/api/std.c
@@ -271,6 +272,8 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/hid/layout.c
     ${RP6502_ROOT}/src/core/hid/keymap.c
     ${RP6502_ROOT}/src/core/hid/typed.c
+    ${RP6502_ROOT}/src/core/hid/paste.c
+    ${RP6502_ROOT}/src/core/hid/clip_byte.c
     ${RP6502_ROOT}/src/core/hid/vtkey.c
     ${RP6502_GEN}/layout_db.c
     ${RP6502_ROOT}/src/core/hid/mouse.c

@@ -13,11 +13,13 @@
 #include "core/com/rln.h"
 #include "core/com/console.h"
 #include "core/str/str.h"
+#include "core/str/unicode.h"
 #include "core/sys/sst.h"
 #include "core/sys/sys.h"
 #include "core/sys/version.h"
 #include "core/term/color.h"
 #include "core/term/draw.h"
+#include "core/term/font.h"
 #include "core/term/grid.h"
 #include "core/term/vterm.h"
 #include "tb_screen.h"
@@ -2577,6 +2579,195 @@ static void feed_as(int n)
     char a[96];
     memset(a, 'A', (size_t)n);
     feedn(a, (size_t)n);
+}
+
+/* ---- a cell's character, as Unicode and as a byte ---------------------- */
+
+static uint16_t word(unsigned set, unsigned code)
+{
+    return (uint16_t)(code | set << CELL_TEXT_SET_SHIFT);
+}
+
+/* xterm's DEC Special Graphics and Technical, as vtrun's tables have them,
+ * the screens' text the vttest walk prints. */
+static const uint32_t xterm_dec[32] = {
+    ' ', 0x25C6, 0x2592, 0x2409, 0x240C, 0x240D, 0x240A, 0x00B0,
+    0x00B1, 0x2424, 0x240B, 0x2518, 0x2510, 0x250C, 0x2514, 0x253C,
+    0x23BA, 0x23BB, 0x2500, 0x23BC, 0x23BD, 0x251C, 0x2524, 0x2534,
+    0x252C, 0x2502, 0x2A7D, 0x2A7E, 0x03C0, 0x2260, 0x00A3, 0x00B7,
+};
+static const uint32_t xterm_tech[0x5E] = {
+    0x23B7, 0x250C, 0x2500, 0x2320, 0x2321, 0x2502, 0x23A1, 0x23A3,
+    0x23A4, 0x23A6, 0x23A7, 0x23A9, 0x23AB, 0x23AD, 0x23A8, 0x23AC,
+    0xE000, 0xE001, 0xE002, 0xE003, 0xE004, 0xE005, 0xE006, ' ',
+    ' ', ' ', ' ', 0x2264, 0x2260, 0x2265, 0x222B, 0x2234,
+    0x221D, 0x221E, 0x00F7, 0x0394, 0x2207, 0x03A6, 0x0393, 0x223C,
+    0x2243, 0x0398, 0x00D7, 0x039B, 0x21D4, 0x21D2, 0x2261, 0x03A0,
+    0x03A8, ' ', 0x03A3, ' ', ' ', 0x221A, 0x03A9, 0x039E,
+    0x03A5, 0x2282, 0x2283, 0x2229, 0x222A, 0x2227, 0x2228, 0x00AC,
+    0x03B1, 0x03B2, 0x03C7, 0x03B4, 0x03B5, 0x03C6, 0x03B3, 0x03B7,
+    0x03B9, 0x03B8, 0x03BA, 0x03BB, ' ', 0x03BD, 0x2202, 0x03C0,
+    0x03C8, 0x03C1, 0x03C3, 0x03C4, ' ', 0x0192, 0x03C9, 0x03BE,
+    0x03C5, 0x03B6, 0x2190, 0x2191, 0x2192, 0x2193,
+};
+
+/* A copy gives the host xterm's characters, but for the top and bottom left
+ * of the big sigma, which Unicode has. */
+UTEST(term, the_dec_sets_copy_as_xterm_s)
+{
+    fresh();
+    for (unsigned c = 0x5F; c <= 0x7E; c++)
+        ASSERT_EQ(cell_text_unicode(word(CELL_SET_DEC, c)), xterm_dec[c - 0x5F]);
+    for (unsigned c = 0x21; c <= 0x7E; c++)
+    {
+        const uint32_t want = c == 0x31 ? 0x23B2 : c == 0x32 ? 0x23B3 : xterm_tech[c - 0x21];
+        ASSERT_EQ(cell_text_unicode(word(CELL_SET_TECH, c)), want);
+    }
+}
+
+/* Every glyph of the two sets that the font takes from CP437 is the
+ * character CP437 has there: its byte inside the machine is the glyph it
+ * shows. */
+UTEST(term, the_dec_sets_are_the_glyphs_the_font_draws)
+{
+    fresh();
+    ASSERT_EQ(vterm_get_code_page(), 437);
+    unsigned checked = 0;
+    for (unsigned c = 0x21; c <= 0x7E; c++)
+        for (unsigned set = CELL_SET_DEC; set <= CELL_SET_TECH; set++)
+        {
+            if (set == CELL_SET_DEC && c < 0x5F)
+                continue;
+            const unsigned slot = set == CELL_SET_DEC ? (c | 0x80) : FONT_OTHER_HIGH + c - 0x21;
+            const uint8_t b = cell_text_byte(word(set, c));
+            if (b < 0x80)
+                continue;
+            for (int row = 0; row < 16; row++)
+                ASSERT_EQ(font16[FONT_OTHER(16) + row * 256 + slot], font16[row * 256 + b]);
+            checked++;
+        }
+    ASSERT_GE(checked, 40u);
+}
+
+/* Inside the machine, a code page byte stays as it is, and every other
+ * character becomes the code page's nearest, or '?': never a control byte,
+ * so the C0 glyphs and DEL's go too. */
+UTEST(term, a_byte_is_the_code_page_s_nearest)
+{
+    fresh();
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_PAGE, 'A')), 'A');
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_PAGE, 0x82)), 0x82);
+    ASSERT_EQ(cell_text_unicode(word(CELL_SET_PAGE, 0x82)), 0x00E9u);
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_DEC, 'q')), 0xC4);
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_DEC, 'y')), 0xF3);
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_DEC, 'z')), 0xF2);
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_TECH, 'a')), 0xE0);
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_TECH, '1')), '?');
+    ASSERT_EQ(cell_text_unicode(word(CELL_SET_PAGE, 0x01)), 0x263Au);
+    ASSERT_EQ(cell_text_unicode(word(CELL_SET_PAGE, 0x7F)), 0x2302u);
+    for (unsigned c = 0; c < 0x20; c++)
+        ASSERT_GE(cell_text_byte(word(CELL_SET_PAGE, c)), 0x20);
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_PAGE, 0x7F)), '?');
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_DEC, '_')), ' ');
+}
+
+/* A code page with no box drawing has '?' for DEC's line. */
+UTEST(term, a_page_with_no_line_has_a_question_mark_for_dec_s)
+{
+    fresh();
+    vterm_load_code_page(1252);
+    ASSERT_EQ(vterm_get_code_page(), 0);
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_DEC, 'q')), '?');
+    vterm_load_code_page(437);
+}
+
+/* ---- what a copy takes ------------------------------------------------- */
+
+static char copied[1024];
+static size_t copied_len;
+
+static void copy_text(screen_sink_t *k, uint16_t w)
+{
+    (void)k;
+    copied[copied_len++] = (char)cell_text_byte(w);
+}
+
+static void copy_line(screen_sink_t *k)
+{
+    (void)k;
+    copied[copied_len++] = '\n';
+}
+
+/* The text of the screen showing from row y0, column x0 up to row y1,
+ * column x1, a line end as \n. */
+static const char *copy(int y0, int x0, int y1, int x1)
+{
+    draw_task();
+    term_job_finish(&vterm);
+    copied_len = 0;
+    screen_sink_t k = {copy_text, copy_line};
+    screen_copy(vterm_get_shown(&vterm)->shown, (uint8_t)y0, (uint8_t)x0, (uint8_t)y1,
+                (uint8_t)x1, &k);
+    copied[copied_len] = 0;
+    return copied;
+}
+
+/* Cells never written before a row's last written cell copy as spaces, and
+ * none after it. */
+UTEST(term, a_copy_takes_a_row_up_to_its_last_written_cell)
+{
+    fresh();
+    feed("foo\33[5Cbar");
+    ASSERT_STREQ(copy(0, 0, 0, 11), "foo     bar");
+    ASSERT_STREQ(copy(0, 2, 0, 5), "o  ");
+    ASSERT_STREQ(copy(0, 0, 1, 0), "foo     bar\n");
+}
+
+/* Written spaces are text. */
+UTEST(term, a_copy_keeps_written_spaces)
+{
+    fresh();
+    feed("ab  ");
+    ASSERT_STREQ(copy(0, 0, 0, 80), "ab  \n");
+    feed("\33[2;1Hab\33[K");
+    ASSERT_STREQ(copy(1, 0, 1, 80), "ab\n");
+}
+
+/* A line that ended early ends with a line end, and the copy's last row
+ * gets one only when the copy reaches past its text. */
+UTEST(term, a_copy_ends_a_line_that_ended_early)
+{
+    fresh();
+    feed("a\r\nb");
+    ASSERT_STREQ(copy(0, 0, 1, 80), "a\nb\n");
+    ASSERT_STREQ(copy(0, 0, 1, 1), "a\nb");
+    ASSERT_STREQ(copy(0, 0, 1, 0), "a\n");
+    ASSERT_STREQ(copy(0, 1, 0, 80), "\n");
+}
+
+/* A line that wrapped on its own joins the next with nothing between, and
+ * an erase that clears its wrap mark ends it. */
+UTEST(term, a_copy_joins_a_wrapped_line)
+{
+    fresh();
+    feed_as(81);
+    feed("yz");
+    char want[96];
+    memset(want, 'A', 81);
+    memcpy(want + 81, "yz\n", 4);
+    ASSERT_STREQ(copy(0, 0, 1, 80), want);
+    feed("\33[1;80H\33[K");
+    memcpy(want + 79, "\nAyz\n", 6);
+    ASSERT_STREQ(copy(0, 0, 1, 80), want);
+}
+
+/* A row of double width has half the columns. */
+UTEST(term, a_copy_of_a_double_width_row_has_half_the_columns)
+{
+    fresh();
+    feed("\33#6abc");
+    ASSERT_STREQ(copy(0, 1, 0, 40), "bc\n");
+    ASSERT_STREQ(copy(0, 0, 0, 2), "ab");
 }
 
 /* Each operation leaves the first rows wrapped where xterm 412 does. xterm

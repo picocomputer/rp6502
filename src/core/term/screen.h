@@ -360,6 +360,29 @@ bool screen_row_used(screen_t *s, uint8_t y);
 // rows - 1 is the newest of them.
 unsigned screen_row_text(screen_t *s, uint8_t y, uint16_t *out);
 
+// Where screen_copy puts the text it takes: text for each character, a
+// cell_text word, and line for each line end. A sink is the first member of
+// whatever holds what it fills.
+typedef struct screen_sink screen_sink_t;
+struct screen_sink
+{
+    void (*text)(screen_sink_t *k, uint16_t word);
+    void (*line)(screen_sink_t *k);
+};
+
+// The text of the screen from row y0, column x0 up to row y1, column x1,
+// that cell not taken, as xterm copies it. The columns are the row's own,
+// half the screen's width on a row of double width. A row's cells are
+// taken up to its last written cell (cell.h), the cells never written
+// before it as spaces. A line ends after each row that did not wrap on its
+// own, so a wrapped line joins the next with nothing between, but after the
+// last row only when the copy reaches past its last written cell. The
+// screen has no job pending, and y1 is a row of the grid's height. The
+// screen does not know that height, so it asserts only that y1 is a row of
+// its ring.
+void screen_copy(screen_t *s, uint8_t y0, uint8_t x0, uint8_t y1, uint8_t x1,
+                 screen_sink_t *sink);
+
 /* ---- inside the store ---------------------------------------------------
  *
  * The cells of a screen, of the machine's kind (cell.h), for screen.c and

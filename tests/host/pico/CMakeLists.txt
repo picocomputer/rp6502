@@ -55,6 +55,27 @@ rp6502_add_test(ria_cells
         TERM_MAX_HEIGHT=32 TERM_ALT_SCREEN=1 TERM_CELL_TEXT=1)
 add_dependencies(test_ria_cells rp6502_gen_c)
 
+# A paste of the machine's own text, through the RIA's keyboard row
+# (KEYMAP_COM_SOURCE) and its paste stage, keys typed through keymap.c, built
+# as the RIA's machine.h builds it.
+rp6502_add_test(ria_paste
+    SOURCES test_paste.c
+        ${RP6502_SRC}/core/hid/paste.c ${RP6502_SRC}/core/hid/clip_byte.c
+        ${RP6502_SRC}/core/hid/typed.c ${RP6502_SRC}/core/hid/keymap.c
+        ${RP6502_SRC}/core/hid/vtkey.c
+        ${RP6502_SRC}/core/sys/ring.c
+        ${RP6502_SRC}/core/term/term.c ${RP6502_SRC}/core/term/grid.c
+        ${RP6502_SRC}/core/term/screen.c ${RP6502_SRC}/core/term/vterm.c
+        ${RP6502_SRC}/core/term/color.c ${RP6502_SRC}/core/term/cell.c
+        ${RP6502_SRC}/core/term/cell_text.c ${RP6502_SRC}/core/aud/bel.c
+        ${RP6502_SRC}/core/str/unicode.c ${RP6502_GEN}/unicode_oem.c
+        ${RP6502_ROOT}/tests/bench/tb_version.c
+    INCLUDES ${CMAKE_CURRENT_LIST_DIR}/stub ${RP6502_SRC}/host/pico/ria
+        ${RP6502_SRC}/host/pico ${RP6502_SRC} ${RP6502_GEN}
+    DEFS PICO_PROGRAM_NAME="RP6502-RIA" RP6502_LOCALE=EN
+        TERM_MAX_HEIGHT=32 TERM_ALT_SCREEN=1 TERM_CELL_TEXT=1 TYPED_QUEUE_SIZE=16)
+add_dependencies(test_ria_paste rp6502_gen_c)
+
 # The messages the VGA answers and a 6502 program's xreg burst, vga.c and
 # pix.c as the RIA builds them, against a fake VGA on hardware stubbed in vga/.
 # Each case boots a RIA of its own, in a process of its own. pix.c's

@@ -11,6 +11,7 @@
 #include "host/sokol/app/input.h"
 #include "core/hid/usage.h"
 #include "core/hid/mouse.h"
+#include "host/host.h"
 #include "sokol/sokol_app.h"
 #include <emscripten.h>
 #include <emscripten/html5.h>
@@ -246,6 +247,20 @@ void host_window_menu_draw(void) {}
 void host_window_files_dropped(void) {}
 void host_window_open_url(const char *url) { (void)url; }
 bool entry_wait_for_rom(void) { return false; }
+
+/* The page gives the machine no clipboard to ask for or set, so the machine
+ * keeps its own. What the page's paste event hands over is typed as a paste
+ * (input.c). */
+const char *host_clipboard_get(void)
+{
+    return NULL;
+}
+
+bool host_clipboard_set(const char *utf8)
+{
+    (void)utf8;
+    return false;
+}
 
 int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)
 {
