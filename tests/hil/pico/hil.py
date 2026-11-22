@@ -32,6 +32,8 @@ class Rig:
         self.args = args
         self.board = build.Board(args.device, args.key)
         self.probe = rig.Probe(args.elf, args.probe, self.board) if args.elf else None
+        self.vga = (rig.VgaProbe(args.vga_elf, args.vga_probe, self.board)
+                    if args.vga_elf else None)
         self.tmp = tempfile.TemporaryDirectory()
 
     def rom(self, name):
@@ -127,7 +129,9 @@ def test_tput(r):
 
 def test_term(r):
     """The console's terminal keeps up with the UART: the slowest things it
-    does, each followed at once by a probe whose answer shows a lost byte."""
+    does, each followed at once by a probe whose answer shows a lost byte.
+    With --vga-elf, a byte that came while the VGA's terminal had work
+    pending, or a word the VGA's PIX FIFO had no room for, fails it too."""
     term_run(r, "hil-term")
 
 
@@ -143,6 +147,9 @@ def term_run(r, name):
     t0, bad, end = time.monotonic(), [], "no output for 20 s"
     with contextlib.ExitStack() as stack:
         video = stack.enter_context(rig.LateLines(r.args.video)) if r.args.video else None
+        vga = stack.enter_context(r.vga) if r.vga else None
+        if vga:
+            vga.clear()
         time.sleep(1 if video else 0)
         b.run_in_ram(rom)
         for line in b.lines(20):
@@ -156,6 +163,10 @@ def term_run(r, name):
                 break
         print(f"{len(roms.TERM_OPS) * roms.TERM_LOOPS} probes in "
               f"{time.monotonic() - t0:.1f} s", flush=True)
+        if vga:
+            late, overrun = vga.faults()
+            print(f"{late} bytes came during a job, PIX FIFO "
+                  f"{'overran' if overrun else 'kept up'}", flush=True)
     b.stop()
     if video:
         print(f"{video.late} of {video.frames} frames with late scanlines"
@@ -166,6 +177,8 @@ def term_run(r, name):
         raise Fail(f"{len(bad)} probes lost bytes, after {sorted(set(map(repr, bad)))}")
     if video and (video.late or not video.frames):
         raise Fail("late scanlines" if video.late else "no video captured")
+    if vga and (late or overrun):
+        raise Fail(f"{late} bytes during a job" if late else "the PIX FIFO overran")
 
 
 def test_sizes(r):
@@ -301,6 +314,11 @@ def main():
                     help="the ELF of the firmware on the RIA; enables the probe")
     ap.add_argument("--probe", metavar="serial",
                     help="the serial number of the debug probe, when there are several")
+    ap.add_argument("--vga-elf", metavar="file",
+                    help="the ELF of the firmware on the VGA; term and termload "
+                         "then read the VGA through its probe")
+    ap.add_argument("--vga-probe", metavar="serial",
+                    help="the serial number of the debug probe on the VGA")
     ap.add_argument("--flash", action="store_true",
                     help="program --elf through the probe before the tests")
     ap.add_argument("--dir", default="MSC0:/", metavar="dir",

@@ -23,5 +23,9 @@
  * rows. */
 #define TERM_MAX_HEIGHT 32
 
+/* Core 0 renders a scanline each pass of the main loop and may be away
+ * about 200 us before a line is late. A row of a job is 5 to 12 us, so two
+ * a pass keep a job's share to about a tenth of that. */
+#define TERM_JOB_ROWS 2
 
 #endif /* _HOST_MACHINE_H_ */

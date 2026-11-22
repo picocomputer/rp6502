@@ -5,11 +5,13 @@
  */
 
 /* xcheck: the console's terminal as the Pico VGA keeps it, in mode 0's
- * cells with a spare row, or as the RIA keeps it, in text cells with none
+ * cells with a spare row and its jobs left pending (TERM_JOB_ROWS), or as
+ * the RIA keeps it, in text cells with none and its jobs done at once
  * (TERM_CELL_TEXT, TERM_SPARE_ROWS 0). The two builds are fed the same
  * bytes, and the same changes of height and resets in the order
  * ria/sys/vga.c replays them, with smooth scrolls moving and holding bytes
- * as on a connected VGA. At points along the way a build prints a digest of
+ * as on a connected VGA, and jobs done a few passes of the main loop at a
+ * time as on the Pico VGA. At points along the way a build prints a digest of
  * what both sizes' two screens hold: the text of each row in view and of
  * each row above them still in the ring, whether each is used, and whether
  * it wrapped on its own. The text is cell_text's, which is the same for
@@ -117,6 +119,7 @@ static long xc_want = -1;
 // A point: its digest, or with xc_want this point all it holds.
 static void xc_check(void)
 {
+    term_job_finish(&vterm);
     const unsigned point = xc_points++;
     if (xc_want >= 0 && point != (unsigned long)xc_want)
         return;
@@ -147,11 +150,16 @@ static unsigned xc_below(unsigned n)
 }
 
 // A byte the terminal holds while a smooth scroll moves waits for the
-// frames that land it.
+// frames that land it. Between two bytes the main loop makes none to three
+// passes, in turn, and a job still pending when the byte comes is finished
+// first, as draw.c does.
 static void xc_byte(uint8_t b)
 {
+    static unsigned passes;
     while (term_holds(&vterm, b))
         xc_frames++;
+    term_job_step(&vterm, (passes++ % 4) * TERM_JOB_ROWS);
+    term_job_finish(&vterm);
     term_write(&vterm, b);
 }
 

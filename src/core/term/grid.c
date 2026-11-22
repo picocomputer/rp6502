@@ -398,47 +398,30 @@ static bool grid_inserting(const term_t *t)
     return t->insert_mode && !t->vt52;
 }
 
-// Write one glyph at the cursor and move on. Writing the last column, or the
-// right margin, leaves the cursor there with a wrap pending (DECAWM on), or
-// just stays there (DECAWM off). In insert mode (IRM) the rest of the row
-// up to the right margin moves right first, and what passes it is lost.
-static void grid_put_glyph(term_t *t, term_grid_t *g, uint8_t byte)
-{
-    term_pos_t *pos = term_pos(g);
-    grid_wrap(t, g);
-    unsigned stop = term_right_stop(g);
-    if (grid_inserting(t) && grid_in_columns(g, pos->x))
-        screen_insert(t, g->shown, pos->y, pos->x, stop + 1, 1);
-    screen_glyphs(t, g->shown, pos->y, pos->x, byte, 1);
-    if (pos->x < stop)
-        pos->x++;
-    else if (t->autowrap)
-        pos->wrap_pending = true;
-}
-
 // A run of REP's glyph on the cursor's row from column x, done at once. In
 // insert mode one that ends short of the stop first pushes the cells from
 // x, or from the left margin for an x left of it, right past the glyphs,
 // as printing them one by one does; one that reaches the stop pushes them
 // all off the row, which the glyphs alone do.
-static void grid_rep_run(term_t *t, term_grid_t *g, unsigned x, unsigned len, unsigned stop)
+static void grid_rep_run(term_t *t, term_grid_t *g, uint8_t byte, unsigned x, unsigned len,
+                         unsigned stop)
 {
     const uint8_t y = term_pos(g)->y;
     const unsigned end = x + len;
     const unsigned at = x > g->margin_left ? x : g->margin_left;
     if (grid_inserting(t) && end <= stop && at < end && grid_in_columns(g, at))
         screen_insert(t, g->shown, y, (uint8_t)at, stop + 1, end - at);
-    screen_glyphs(t, g->shown, y, (uint8_t)x, t->last_glyph, len);
+    screen_glyphs(t, g->shown, y, (uint8_t)x, byte, len);
 }
 
-// REP, CSI Pn b: the last graphic character again, Pn times (xterm,
-// ECMA-48). After a row more than the grid holds, every row the glyphs can
-// reach is full of the glyph, the scrollback included, and each further run
-// of whole rows changes nothing; so a long count runs only that far, plus its
-// remainder. A run is a multiple of both a row's length and a double-size
-// row's, which is just the width when the width is even. Between left and
-// right margins a run is the columns between them, after the row the
-// cursor starts on, which can be as long as the width.
+// The glyph byte n times, as REP repeats it (xterm, ECMA-48). After a row
+// more than the grid holds, every row the glyphs can reach is full of the
+// glyph, the scrollback included, and each further run of whole rows
+// changes nothing; so a long count runs only that far, plus its remainder.
+// A run is a multiple of both a row's length and a double-size row's,
+// which is just the width when the width is even. Between left and right
+// margins a run is the columns between them, after the row the cursor
+// starts on, which can be as long as the width.
 //
 // The cursor goes where printing the glyphs takes it, a run of them a row,
 // and the scrolls on the way are counted. The runs on the cursor's own row
@@ -451,9 +434,8 @@ static void grid_rep_run(term_t *t, term_grid_t *g, unsigned x, unsigned len, un
 // cells, so the job first moves the rows the glyphs leave, as one scroll
 // of them all. A run that only repeats the run before it on the same row,
 // as on the last row below the region, changes nothing.
-static void grid_REP(term_t *t, term_grid_t *g)
+static void grid_repeat(term_t *t, term_grid_t *g, uint8_t byte, unsigned n)
 {
-    unsigned n = grid_param(t, 0, 1);
     unsigned run = (g->width & 1) && g->width > 1 ? g->width * (g->width / 2u) : g->width;
     unsigned most = run * (grid_rows(g) + 1u);
     const bool all = grid_all_columns(g);
@@ -516,7 +498,7 @@ static void grid_REP(term_t *t, term_grid_t *g)
             if (len > n)
                 len = n;
             if (!away)
-                grid_rep_run(t, g, pos->x, len, stop);
+                grid_rep_run(t, g, byte, pos->x, len, stop);
             else
             {
                 if (!after)
@@ -575,7 +557,39 @@ static void grid_REP(term_t *t, term_grid_t *g)
     }
     rep.first = (uint8_t)(first < 0 ? first + s->rows : first);
     rep.last = (uint8_t)last;
-    screen_rep(t, s, t->last_glyph, &rep);
+    screen_rep(t, s, byte, &rep);
+}
+
+// Write one glyph at the cursor and move on. Writing the last column, or the
+// right margin, leaves the cursor there with a wrap pending (DECAWM on), or
+// just stays there (DECAWM off). In insert mode (IRM) the rest of the row
+// up to the right margin moves right first, and what passes it is lost. A
+// wrap that scrolls the rows between left and right margins moves their
+// cells, a job (screen.h), and the glyph lands on the row the job brings
+// in, so the glyph is a REP of one, whose job writes it after the move.
+static void grid_put_glyph(term_t *t, term_grid_t *g, uint8_t byte)
+{
+    if (!grid_all_columns(g) && grid_glyph_scrolls(t, g))
+    {
+        grid_repeat(t, g, byte, 1);
+        return;
+    }
+    term_pos_t *pos = term_pos(g);
+    grid_wrap(t, g);
+    unsigned stop = term_right_stop(g);
+    if (grid_inserting(t) && grid_in_columns(g, pos->x))
+        screen_insert(t, g->shown, pos->y, pos->x, stop + 1, 1);
+    screen_glyphs(t, g->shown, pos->y, pos->x, byte, 1);
+    if (pos->x < stop)
+        pos->x++;
+    else if (t->autowrap)
+        pos->wrap_pending = true;
+}
+
+// REP, CSI Pn b: the last graphic character again, Pn times.
+static void grid_REP(term_t *t, term_grid_t *g)
+{
+    grid_repeat(t, g, t->last_glyph, grid_param(t, 0, 1));
 }
 
 /* ---- tabs -------------------------------------------------------------- */

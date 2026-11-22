@@ -1,8 +1,8 @@
 # xcheck: the console's terminal built as the Pico VGA keeps it, in mode 0's
-# cells with a spare row, and as the RIA keeps it, in text cells with none,
-# both at the VGA's 32 rows with the alternate screen (machine.h). xcheck.py
-# feeds both the same stream and holds the text they keep against each
-# other.
+# cells with a spare row and its jobs done two rows a pass, and as the RIA
+# keeps it, in text cells with none and its jobs done at once, both at the
+# VGA's 32 rows with the alternate screen (machine.h). xcheck.py feeds both
+# the same stream and holds the text they keep against each other.
 foreach(_kind text mode0)
     set(_target xcheck_${_kind})
     add_executable(${_target} xcheck.c
@@ -17,6 +17,8 @@ foreach(_kind text mode0)
         ${CMAKE_CURRENT_LIST_DIR} ${RP6502_SRC} ${RP6502_GEN})
     if(_kind STREQUAL text)
         target_compile_definitions(${_target} PRIVATE TERM_CELL_TEXT=1 TERM_SPARE_ROWS=0)
+    else()
+        target_compile_definitions(${_target} PRIVATE TERM_JOB_ROWS=2)
     endif()
     rp6502_log_definitions(${_target} PRIVATE)
 endforeach()

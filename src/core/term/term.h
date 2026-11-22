@@ -64,6 +64,15 @@
 #define TERM_CELL_TEXT 0
 #endif
 
+/* TERM_JOB_ROWS: the rows of a pending job (screen.h) the machine's main
+ * loop does a pass (draw_task), for a machine whose core must never be
+ * away long. A job is then left pending when it starts, and anything that
+ * comes for the terminal finishes it first. 0, the default, runs a job to
+ * the end at once, inside the operation that starts it. */
+#ifndef TERM_JOB_ROWS
+#define TERM_JOB_ROWS 0
+#endif
+
 /* A smooth scroll moves a row in this many frames: one scanline a frame on
  * the 16-scanline rows, one every second frame on the 8-scanline rows of
  * the 40-column terminal, so both move a line in the same time. */
@@ -272,8 +281,21 @@ typedef struct
 // A new terminal followed at the given grids, after a RIS.
 void term_init(term_t *t, term_grid_t *const *grids, uint8_t count);
 
-// One byte of the stream.
+// One byte of the stream. No job (screen.h) is pending on any screen of
+// its grids: whoever feeds the terminal finishes them first.
 void term_write(term_t *t, uint8_t ch);
+
+// Whether a screen of the terminal's grids has a job pending, which only a
+// machine with TERM_JOB_ROWS leaves.
+bool term_job_pending(const term_t *t);
+
+// The next rows, up to rows of them in all, of the jobs the screens of the
+// terminal's grids have pending, in the order of the grids.
+void term_job_step(term_t *t, unsigned rows);
+
+// Every job the screens of the terminal's grids have pending runs to the
+// end.
+void term_job_finish(term_t *t);
 
 // True when ch must wait for a smooth scroll still moving: it would scroll
 // that region again, or set the margins (DECSTBM), as on a VT100. The

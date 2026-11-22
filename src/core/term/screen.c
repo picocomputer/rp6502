@@ -783,7 +783,8 @@ void screen_job_start(screen_t *s, const screen_job_t *job)
     screen_job_t *j = &s->cells->job;
     *j = *job;
     j->next = j->first;
-    screen_job_finish(s);
+    if (!TERM_JOB_ROWS)
+        screen_job_finish(s);
 }
 
 bool screen_job_step(screen_t *s, unsigned rows)

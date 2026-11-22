@@ -2,8 +2,8 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 """The rig of the hardware tests: an RP6502-PICO, its console, and a debug
-probe on the SWD port of the RIA. The console, the probe and the flashing
-are src/core/build.py's; what is here is the tests' own."""
+probe on the SWD port of the RIA, the VGA, or each. The console, the probes
+and the flashing are src/core/build.py's; what is here is the tests' own."""
 
 import subprocess
 import sys
@@ -41,6 +41,29 @@ class Probe(build.Probe):
             rows.setdefault(row["second"], row)
             stop.wait(0.25)
         return list(rows.values())[1:]
+
+
+class VgaProbe(build.Probe):
+    """build.Probe on the VGA, with what the terminal tests read after a
+    run: the console's bytes that came while a job of the terminal was
+    pending (draw_bytes_in_jobs in src/core/term/draw.h), and the overrun
+    flag of the PIX register FIFO, which a word the VGA had no room for sets:
+    RXSTALL of state machine 1 of PIO1 (src/host/pico/vga/sys/pix.h) in its
+    FDEBUG, which a write of 1 clears."""
+
+    FDEBUG = 0x50300008
+    PIX_REGS_RXSTALL = 1 << 1
+
+    def clear(self):
+        """Both back to zero, before a run."""
+        self.write(self.sym["draw_bytes_in_jobs"], 32, [0])
+        self.write(self.FDEBUG, 32, [self.PIX_REGS_RXSTALL])
+
+    def faults(self):
+        """The bytes that came during a job, and whether the FIFO overran."""
+        late = self.read(self.sym["draw_bytes_in_jobs"], 32, 1)[0]
+        overrun = bool(self.read(self.FDEBUG, 32, 1)[0] & self.PIX_REGS_RXSTALL)
+        return late, overrun
 
 
 def load_summary(rows):

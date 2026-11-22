@@ -11,7 +11,9 @@
  * (vterm.h) over mode 0's cells, fed every byte of the console, the
  * blinks of both sizes, the drawing of the console's one smooth scroll, and
  * the save state of all of it. It writes what mode 0 draws
- * (core/vga/mode/mode0.h) for the size showing. */
+ * (core/vga/mode/mode0.h) for the size showing. On a machine with
+ * TERM_JOB_ROWS (term.h), draw_task does that many rows of the jobs
+ * pending each pass of the main loop. */
 
 #include "core/sys/sst.h"
 #include "core/term/term.h"
@@ -34,6 +36,13 @@ void draw_restart(void);
  * changes what shows calls it too: a savestate load that puts the canvas
  * back, or a test that feeds term_write directly. */
 void draw_publish(void);
+
+/* The console's bytes that came while a job was pending (TERM_JOB_ROWS),
+ * each of which finished the jobs at once before it went in. The RIA holds
+ * its bytes back while the VGA works, so on the Pico VGA this stays 0. The
+ * hardware tests (tests/hil) read it and clear it through the VGA's debug
+ * probe. */
+extern volatile uint32_t draw_bytes_in_jobs;
 
 /* RIS and the system's soft reset (vterm_reset): the blinks start
  * again, and everything is published. A machine that draws nothing has it

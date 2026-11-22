@@ -263,6 +263,13 @@ class OpenOCD:
             raise RuntimeError(f"read of {addr:#x}: {' '.join(words)}")
         return [int(w, 16) for w in words]
 
+    def write_memory(self, addr, width, values):
+        """Writes `values` of `width` bits to the chip's memory at `addr`."""
+        text = self.command("rp2350.ahb0 write_memory %d %d {%s}" % (
+            addr, width, " ".join(str(v) for v in values)))
+        if text.strip():
+            raise RuntimeError(f"write of {addr:#x}: {text.strip()}")
+
     def close(self):
         if self.sock:
             try:
@@ -439,6 +446,10 @@ proc rp6502_rtt_io {cb tx} {
         """`count` values of `width` bits from the chip's memory at `addr`."""
         return self.ocd.read_memory(addr, width, count)
 
+    def write_memory(self, addr, width, values):
+        """Writes `values` of `width` bits to the chip's memory at `addr`."""
+        self.ocd.write_memory(addr, width, values)
+
     def dropped(self):
         """The bytes of console output the firmware has had no room for."""
         return self.read_memory(self.cb + self.DROPPED, 32, 1)[0]
@@ -515,11 +526,11 @@ proc rp6502_rtt_io {cb tx} {
 
 
 class Probe:
-    """A debug probe on the SWD port of a Pico, for reads of its memory by
-    symbol. `elf` is the firmware on the chip, `serial` picks the probe when
-    there are several, and `board` is the Board whose RttDevice may already
-    hold this probe: only one OpenOCD can, so the reads then go through it.
-    Reads are made inside `with`."""
+    """A debug probe on the SWD port of a Pico, for reads and writes of its
+    memory by symbol. `elf` is the firmware on the chip, `serial` picks the
+    probe when there are several, and `board` is the Board whose RttDevice
+    may already hold this probe: only one OpenOCD can, so the reads and
+    writes then go through it. They are made inside `with`."""
 
     def __init__(self, elf, serial=None, board=None):
         self.elf = str(elf)
@@ -554,6 +565,10 @@ class Probe:
     def read(self, addr, width, count):
         """`count` values of `width` bits from memory at `addr`."""
         return (self.console() or self.ocd).read_memory(addr, width, count)
+
+    def write(self, addr, width, values):
+        """Writes `values` of `width` bits to memory at `addr`."""
+        (self.console() or self.ocd).write_memory(addr, width, values)
 
 
 class Board:

@@ -70,6 +70,8 @@ static draw_blinks_t draw_80;
  * for draw_task to publish. */
 static bool draw_stale;
 
+volatile uint32_t draw_bytes_in_jobs;
+
 // The layout the row words were last written from: the screen showing,
 // which row of memory each of its rows has, and the line size of each row
 // of memory. Only a scroll, a line size, a change of height, or another
@@ -298,6 +300,7 @@ static bool draw_sst_palette_ok(sst_cursor_t *c)
     X(U16S, vterm_specials)                                            \
     X(VALIDATE, draw_sst_palette_ok)                                   \
     X(SKIP, draw_stale, "the canvas's load publishes everything")      \
+    X(SKIP, draw_bytes_in_jobs, "a count for the hardware tests")      \
     X(SKIP, draw_published, "what the row words were last written "    \
                             "from, which the canvas's load compares")
 SST_TABLE(draw, DRAW_SST)
@@ -406,7 +409,8 @@ void draw_publish(void)
 
 // Every byte goes to the terminal, which follows it at both sizes, up to
 // one that has to wait for a smooth scroll still moving (term_holds), unless
-// force. Returns how many went. A cursor's blink starts again when a byte
+// force. A byte that comes while a job is pending finishes it first, and is
+// counted. Returns how many went. A cursor's blink starts again when a byte
 // moves it or changes how it looks: its style, or it coming back on.
 static int draw_out_chars(const char *buf, int length, bool force)
 {
@@ -417,6 +421,11 @@ static int draw_out_chars(const char *buf, int length, bool force)
     {
         if (!force && term_holds(term, (uint8_t)buf[i]))
             break;
+        if (term_job_pending(term))
+        {
+            draw_bytes_in_jobs++;
+            term_job_finish(term);
+        }
         term_pos_t was[2];
         for (int n = 0; n < 2; n++)
             was[n] = *term_pos(all[n]);
@@ -499,6 +508,7 @@ static bool draw_smooth_task(void)
 
 void draw_task(void)
 {
+    term_job_step(&vterm, TERM_JOB_ROWS);
     draw_stale |= draw_smooth_task();
     draw_stale |= draw_blink_cursor(&draw_40);
     draw_stale |= draw_blink_cursor(&draw_80);

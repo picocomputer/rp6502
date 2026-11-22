@@ -63,7 +63,9 @@ void vterm_init(cell_t *cells);
 
 // RIS, and the system's soft reset, which also sets the 40-column terminal
 // back to TERM_STD_HEIGHT: only a mode 0 on a 320-wide canvas sets its
-// height, so after either chip restarts alone the two could differ.
+// height, so after either chip restarts alone the two could differ. These,
+// vterm_place and vterm_unplace first finish the jobs pending
+// (term_job_finish), as draw.c does before a byte of the console.
 void vterm_RIS(void);
 void vterm_RIS_no_clear(void);
 

@@ -206,6 +206,35 @@ void term_drop_grid(term_t *t, term_grid_t *g)
         }
 }
 
+/* ---- jobs -------------------------------------------------------------- */
+
+bool term_job_pending(const term_t *t)
+{
+    for (uint8_t i = 0; i < t->grid_count; i++)
+        for (int s = 0; s < 2; s++)
+            if (screen_job_pending(&t->grids[i]->screen[s]))
+                return true;
+    return false;
+}
+
+void term_job_step(term_t *t, unsigned rows)
+{
+    for (uint8_t i = 0; i < t->grid_count; i++)
+        for (int s = 0; s < 2; s++)
+        {
+            screen_t *sc = &t->grids[i]->screen[s];
+            for (; rows && screen_job_pending(sc); rows--)
+                screen_job_step(sc, 1);
+        }
+}
+
+void term_job_finish(term_t *t)
+{
+    for (uint8_t i = 0; i < t->grid_count; i++)
+        for (int s = 0; s < 2; s++)
+            screen_job_finish(&t->grids[i]->screen[s]);
+}
+
 void term_init(term_t *t, term_grid_t *const *grids, uint8_t count)
 {
     assert(count <= TERM_MAX_GRIDS);
@@ -2026,6 +2055,7 @@ static void term_vt52_address(term_t *t, uint8_t ch)
 
 void term_write(term_t *t, uint8_t ch)
 {
+    assert(!term_job_pending(t));
     ansi_state_t state = t->ansi_state;
     if (ch == TERM_C0_ESC)
     {

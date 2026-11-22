@@ -60,8 +60,7 @@ void vterm_init(cell_t *cells)
                        TERM_MAX_HEIGHT);
         for (int b = 0; b < VTERM_SCREENS; b++)
         {
-            all[n]->bufs[b].mem = cells;
-            all[n]->bufs[b].width = n ? 80 : 40;
+            all[n]->bufs[b] = (screen_cells_t){.mem = cells, .width = n ? 80 : 40};
             cells += all[n]->bufs[b].width * TERM_MEM_ROWS;
             screen_set_cells(&all[n]->grid.screen[b], &all[n]->bufs[b]);
         }
@@ -73,11 +72,13 @@ void vterm_init(cell_t *cells)
 
 void vterm_RIS(void)
 {
+    term_job_finish(&vterm);
     term_RIS(&vterm);
 }
 
 void vterm_RIS_no_clear(void)
 {
+    term_job_finish(&vterm);
     term_set_height(&vterm, &vterm_40.grid, TERM_STD_HEIGHT);
     term_RIS_no_clear(&vterm);
 }
@@ -99,12 +100,14 @@ void vterm_place(uint8_t cols, uint8_t rows, int16_t begin, uint8_t row_px)
     p->rows = rows;
     p->row_px = row_px;
     p->placed = true;
+    term_job_finish(&vterm);
     term_set_height(&vterm, cols == 40 ? &vterm_40.grid : &vterm_80.grid, rows);
 }
 
 void vterm_unplace(void)
 {
     vterm_placement = (vterm_placement_t){.cols = 80};
+    term_job_finish(&vterm);
     term_set_height(&vterm, &vterm_80.grid, VTERM_SERIAL_ROWS);
 }
 

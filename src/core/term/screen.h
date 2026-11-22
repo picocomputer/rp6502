@@ -372,10 +372,12 @@ unsigned screen_row_text(screen_t *s, uint8_t y, uint16_t *out);
  * of the row, and with sized only on those its line has, as a rectangle's
  * are: fewer on a double-size line, and none past them. A screen has one
  * job at most, and the terminal takes no byte while one is pending, so the
- * rows, their line sizes and the pen stay as they were when it started.
- * Its rows are rows of the screen, not of memory, as nothing turns the
- * ring while it runs, counted round the ring, so a REP's can start above
- * row 0. The work is one of these: */
+ * rows, their line sizes and the pen stay as they were when it started,
+ * and nothing else the operation that starts it does changes its rows,
+ * their line sizes or the ring after it. Its rows are rows of the
+ * screen, not of memory, as nothing turns the ring while it runs, counted
+ * round the ring, so a REP's can start above row 0. The work is one of
+ * these: */
 enum
 {
     SCREEN_JOB_NONE,  // no job is pending
@@ -492,8 +494,9 @@ static inline bool screen_job_pending(const screen_t *s)
     return s->cells && s->cells->job.kind != SCREEN_JOB_NONE;
 }
 
-// The screen, which has no job pending, starts this one, which runs to
-// the end at once, inside the operation that starts it. A job of one row
+// The screen, which has no job pending, starts this one. It runs to the
+// end at once, inside the operation that starts it, or with TERM_JOB_ROWS
+// (term.h) is left pending for the machine's main loop. A job of one row
 // is that row's work done at once, as any change to one row is: only work
 // on more than one row is ever a job. A screen with no cells has no work
 // to do.

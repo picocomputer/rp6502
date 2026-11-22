@@ -3567,6 +3567,69 @@ UTEST(job, no_byte_comes_while_a_job_is_pending)
     }
 }
 
+/* A byte that comes while a job is pending, as the RIA's hold should never
+ * let one on the Pico VGA, finishes the job before it goes in, and is
+ * counted once. A byte with none pending is not counted. */
+UTEST(job, a_byte_during_a_job_finishes_it_first)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_FILL, 0, 5, 0, 0);
+    j.fill = job_char('x');
+    job_pending(&j);
+    draw_bytes_in_jobs = 0;
+    feed("\33[6;1Hy");
+    ASSERT_FALSE(job_any_pending());
+    ASSERT_EQ(draw_bytes_in_jobs, 1u);
+    ASSERT_STREQ(row(0), "xaaaaa");
+    ASSERT_STREQ(row(5), "yfffff");
+    feed("z");
+    ASSERT_EQ(draw_bytes_in_jobs, 1u);
+}
+
+/* A step does the next rows of every screen's job in turn, as many in all
+ * as it is given: the 40's, then the 80's. */
+UTEST(job, a_step_shares_its_rows_among_the_screens)
+{
+    job_rows();
+    screen_t *const s40 = vterm_40.grid.shown, *const s80 = vterm_80.grid.shown;
+    screen_job_t j = job(SCREEN_JOB_FILL, 0, 2, 0, 0);
+    j.fill = job_char('x');
+    s40->cells->job = j;
+    s80->cells->job = j;
+    term_job_step(&vterm, 2);
+    ASSERT_TRUE(screen_job_pending(s40));
+    ASSERT_TRUE(screen_job_pending(s80));
+    ASSERT_EQ(s40->cells->job.next, 2);
+    term_job_step(&vterm, 2);
+    ASSERT_FALSE(screen_job_pending(s40));
+    ASSERT_EQ(s80->cells->job.next, 1);
+    ASSERT_STREQ(row(0), "xaaaaa");
+    ASSERT_STREQ(row(1), "bbbbbb");
+    ASSERT_TRUE(term_job_pending(&vterm));
+    term_job_step(&vterm, 2);
+    ASSERT_FALSE(term_job_pending(&vterm));
+    ASSERT_STREQ(row(2), "xccccc");
+}
+
+/* What changes the screens outside the stream finishes the jobs pending
+ * first: a new height, and the soft reset that a change of display or of
+ * canvas makes. */
+UTEST(job, a_new_height_or_a_reset_finishes_the_job_first)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_FILL, 0, 5, 0, 0);
+    j.fill = job_char('x');
+    job_pending(&j);
+    vterm_place(80, 29, 0, 16);
+    ASSERT_FALSE(job_any_pending());
+    ASSERT_STREQ(row(0), "xaaaaa");
+    vterm_place(80, 30, 0, 16);
+    job_pending(&j);
+    vterm_RIS_no_clear();
+    ASSERT_FALSE(job_any_pending());
+    ASSERT_STREQ(row(5), "xfffff");
+}
+
 /* The character the store holds at a cell of the screen showing, with no
  * draw_task run. */
 static char job_held(int x, int y)
