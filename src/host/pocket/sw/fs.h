@@ -18,8 +18,9 @@
 
 #define FS_DRIVE "FS:"
 
-/* A relative name resolves under FS_ASSETS_PATH, the working directory,
- * and SAVE: opens under FS_SAVES_PATH. */
+/* A relative name resolves under FS_SAVES_PATH, the working directory, as
+ * a name on SAVE: does. The ROMs are in FS_ASSETS_PATH, and the relative
+ * path of an exec resolves there instead. */
 #define FS_SAVES_PATH "/Saves/rp6502/common"
 #define FS_ASSETS_PATH "/Assets/rp6502/common"
 
@@ -35,16 +36,16 @@ int fs_rom_adopt(api_errno *err);
 
 void fs_stop(void);
 
-void fs_restore(void);
+/* No pocket_file command is in flight. A command spans passes of the main
+ * loop, and a savestate is made only between them. */
+bool fs_idle(void);
 
-void fs_release(int desc);
-void fs_log(void);
+/* File commands that ended in an error or a timeout since boot. */
+uint32_t fs_failed_count(void);
 
 bool fs_slot_len(uint32_t slot, uint32_t *len);
 
 bool fs_getfile(uint32_t slot, char *out, size_t cap);
-
-uint32_t fs_rom_staged_len(void);
 
 const char *fs_strip_drive(const char *path);
 
@@ -53,6 +54,6 @@ const char *fs_strip_drive(const char *path);
  * resolved. It returns false when the result does not fit in cap. */
 bool fs_card_path(const char *path, const char *root, char *out, size_t cap);
 
-#define FS_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, fs_stop, nul_break, nul_config, nul_config, nul_sst)
+#define FS_POCKET_DRIVER DRIVER(STOP(fs_stop))
 
 #endif /* _HOST_POCKET_SW_FS_H_ */

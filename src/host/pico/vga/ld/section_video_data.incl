@@ -1,0 +1,59 @@
+/* The VGA's version of pico/ld/section_video_data.incl, read inside the
+ * SECTIONS of section_uninitialized_data.incl, so it claims these ahead of the
+ * catch-alls for .bss and .rodata. Moving each of them into the upper group
+ * of banks measured faster: the scanline buffers the most, the built-in
+ * palettes 5-7% at 4 and 8 bits per pixel, the fonts about 1%. The
+ * console's screens go there too, to leave the lower group to the code.
+ *
+ * The tables are placed by their symbols' sections, .bss.font8 being font8,
+ * and vga/CMakeLists.txt builds the files that hold them outside LTO, which
+ * would rename them. Each has an ASSERT below, so a table that stops matching
+ * fails the link instead of falling into .bss or .rodata. */
+
+/* The scanline buffers, and the RAM copies of the fonts that font_init fills,
+ * hold nothing until the code writes them. */
+.video_data (NOLOAD) : {
+    *(.video_data.*)
+    *(.bss.font16)
+    *(.bss.font8)
+} > VIDEO
+
+/* The built-in palettes are constant tables. The boot code fills only .text,
+ * .data and the scratch banks from flash, so init() in main.c copies these. */
+.video_rodata : {
+    __video_rodata_start__ = .;
+    *(.rodata.color_256)
+    *(.rodata.color_2)
+    . = ALIGN(4);
+    __video_rodata_end__ = .;
+} > VIDEO AT> RAM_STORE
+__video_rodata_source__ = LOADADDR(.video_rodata);
+
+/* The console's cells and mode 0's words, which C expects zeroed. The boot
+ * code zeroes only .bss, so init() in main.c zeroes these. */
+.video_bss (NOLOAD) : {
+    __video_bss_start__ = .;
+    *(.bss.mode0_regs)
+    *(.bss.mode0_palette)
+    *(.bss.mode0_colors)
+    *(.bss.mode0_cells)
+    . = ALIGN(4);
+    __video_bss_end__ = .;
+} > VIDEO
+
+ASSERT(font16 >= ADDR(.video_data) && font16 < ADDR(.video_data) + SIZEOF(.video_data),
+       "font16 is not in .video_data")
+ASSERT(font8 >= ADDR(.video_data) && font8 < ADDR(.video_data) + SIZEOF(.video_data),
+       "font8 is not in .video_data")
+ASSERT(color_256 >= ADDR(.video_rodata) && color_256 < ADDR(.video_rodata) + SIZEOF(.video_rodata),
+       "color_256 is not in .video_rodata")
+ASSERT(color_2 >= ADDR(.video_rodata) && color_2 < ADDR(.video_rodata) + SIZEOF(.video_rodata),
+       "color_2 is not in .video_rodata")
+ASSERT(mode0_regs >= ADDR(.video_bss) && mode0_regs < ADDR(.video_bss) + SIZEOF(.video_bss),
+       "mode0_regs is not in .video_bss")
+ASSERT(mode0_palette >= ADDR(.video_bss) && mode0_palette < ADDR(.video_bss) + SIZEOF(.video_bss),
+       "mode0_palette is not in .video_bss")
+ASSERT(mode0_colors >= ADDR(.video_bss) && mode0_colors < ADDR(.video_bss) + SIZEOF(.video_bss),
+       "mode0_colors is not in .video_bss")
+ASSERT(mode0_cells >= ADDR(.video_bss) && mode0_cells < ADDR(.video_bss) + SIZEOF(.video_bss),
+       "mode0_cells is not in .video_bss")

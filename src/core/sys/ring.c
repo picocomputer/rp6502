@@ -5,9 +5,10 @@
  */
 
 #include "core/sys/ring.h"
+#include "machine.h"
 #include <string.h>
 
-uint32_t ring_in(ring_t *i, void *buf, uint32_t size, size_t esize,
+uint32_t HOST_IN_RAM_FUNC ring_in(ring_t *i, void *buf, uint32_t size, size_t esize,
                  const void *src, uint32_t n)
 {
     const uint32_t avail = size - ring_len(i);
@@ -21,7 +22,7 @@ uint32_t ring_in(ring_t *i, void *buf, uint32_t size, size_t esize,
     return n;
 }
 
-uint32_t ring_out(ring_t *i, const void *buf, uint32_t size, size_t esize,
+uint32_t HOST_IN_RAM_FUNC ring_out(ring_t *i, const void *buf, uint32_t size, size_t esize,
                   void *dst, uint32_t n)
 {
     const uint32_t len = ring_len(i);

@@ -17,7 +17,18 @@ rp6502_add_script_test(NAME codepage COMMAND codepage.txt ${STDIO_ROM})
 
 rp6502_add_script_test(NAME console COMMAND console.txt ${STDIO_ROM})
 
+rp6502_add_script_test(NAME console_wrap COMMAND console_wrap.txt ${STDIO_ROM})
+
 rp6502_add_script_test(NAME eof COMMAND eof.txt ${STDIO_ROM})
+
+rp6502_add_script_test(NAME headless_eof COMMAND headless_eof.py ${STDIO_ROM})
+
+# A pty stands in for the host's terminal.
+if(NOT WIN32)
+    foreach(_name console_headless_terminal console_headless_pipe console_window)
+        rp6502_add_script_test(NAME ${_name} COMMAND console_roles.py ${STDIO_ROM})
+    endforeach()
+endif()
 
 rp6502_add_script_test(NAME ctrl COMMAND ctrl.txt ${TTY_KEYS_ROM})
 
@@ -48,6 +59,8 @@ set(_symbols --install ${CMAKE_CURRENT_BINARY_DIR}/symbols/other.rp6502
 rp6502_add_script_test(NAME symbols COMMAND symbols.txt ${_symbols})
 rp6502_add_script_test(NAME symbols_fail COMMAND symbols_fail.py ${_symbols})
 rp6502_add_script_test(NAME symbols_keys COMMAND symbols_keys.txt ${KEYBOARD_ROM})
+
+rp6502_add_script_test(NAME locks COMMAND locks.txt ${KEYBOARD_ROM})
 
 function(rp6502_add_cli_test name)
     add_test(NAME cli_${name} COMMAND rp6502-emu ${ARGN})
@@ -108,6 +121,8 @@ endif()
 
 rp6502_add_test(sys LIBS emu_core)
 
+rp6502_add_test(term LIBS emu_core)
+
 rp6502_add_test(sst LIBS emu_core ROM ${ADVENTURE_ROM})
 
 # YM3812-LLE, nukeykt's gate-level model of the die, is the oracle for the
@@ -119,7 +134,7 @@ if(RP6502_HAVE_LLE)
     rp6502_add_test(opl SPLIT TIMEOUT 120
         SOURCES test_opl.c opl_traced.c opl_lle.c opl_model.c
             opl_script.c ${_lle}/fmopl2.c
-        INCLUDES ${_lle} ${RP6502_GEN})
+        INCLUDES ${_lle} ${RP6502_GEN} ${RP6502_SRC}/host/sokol)
     add_dependencies(test_opl rp6502_gen_c)
     if(NOT WIN32)
         target_link_libraries(test_opl PRIVATE m)
@@ -139,30 +154,40 @@ else()
     message(WARNING "YM3812-LLE absent — the OPL2 test skipped.")
 endif()
 
-# The state_inventory test runs only with GCC because Clang can merge
-# file-scope statics into one MergedGlobals symbol, which leaves nothing to
-# count.
-if(CMAKE_EXPORT_COMPILE_COMMANDS
-   AND CMAKE_C_COMPILER_ID STREQUAL "GNU"
-   AND NOT APPLE AND NOT WIN32)
-    add_test(NAME state_inventory
-        COMMAND ${CMAKE_COMMAND} -E env python3
-            ${CMAKE_CURRENT_LIST_DIR}/state_inventory.py
+# Every static and global of the core is in a row of its unit's savestate
+# table. The check builds each unit again, so it needs the compile commands,
+# and it reads the objects with nm, which MSVC has not.
+if(CMAKE_EXPORT_COMPILE_COMMANDS AND NOT MSVC AND NOT EMSCRIPTEN)
+    add_test(NAME sst_inventory
+        COMMAND ${RP6502_PYTHON}
+            ${RP6502_ROOT}/tests/sst_inventory.py
             ${CMAKE_BINARY_DIR}/compile_commands.json
             ${RP6502_SRC}
-            ${CMAKE_CURRENT_LIST_DIR}/state_inventory.txt)
-    set_tests_properties(state_inventory PROPERTIES LABELS "gate;host.emu")
+            /emu_core.dir/)
+    set_tests_properties(sst_inventory PROPERTIES LABELS "gate;host.emu")
 endif()
 
 rp6502_add_test(roster INCLUDES ${CMAKE_CURRENT_LIST_DIR}/roster)
 
-rp6502_add_test(ring SOURCES test_ring.c ${RP6502_SRC}/core/sys/ring.c)
+rp6502_add_test(div64 SOURCES test_div64.c ${RP6502_SRC}/core/sys/div64.c
+    INCLUDES ${RP6502_SRC}/host/sokol)
+
+rp6502_add_test(pace SOURCES test_pace.c
+    INCLUDES ${RP6502_SRC}/host/sokol)
+
+rp6502_add_test(ring SOURCES test_ring.c ${RP6502_SRC}/core/sys/ring.c
+    INCLUDES ${RP6502_SRC}/host/sokol)
 
 rp6502_add_test(com LIBS emu_core)
 
 rp6502_add_test(rln LIBS emu_core)
 
+rp6502_add_test(tio SOURCES test_tio.c ${RP6502_SRC}/core/com/tio.c
+    INCLUDES ${RP6502_SRC}/host/sokol)
+
 rp6502_add_test(clk LIBS emu_core)
+
+rp6502_add_test(tim LIBS emu_core)
 
 rp6502_add_test(attr LIBS emu_core)
 
@@ -182,6 +207,10 @@ rp6502_add_test(mix SPLIT LIBS emu_core TIMEOUT 300
 
 rp6502_add_test(gamepad_input LIBS emu_core
     SOURCES test_gamepad_input.c ${RP6502_SRC}/host/sokol/app/gamepad.c)
+
+rp6502_add_test(input LIBS emu_core
+    SOURCES test_input.c ${RP6502_SRC}/host/sokol/app/input.c
+    INCLUDES ${RP6502_VENDOR})
 
 rp6502_add_test(dbg LIBS emu_core ROM ${ADVENTURE_ROM} TIMEOUT 60)
 
@@ -206,9 +235,9 @@ rp6502_add_test(w65c02dasm INCLUDES ${RP6502_SRC} ${RP6502_VENDOR})
 
 set(EXPR_CASES ${CMAKE_CURRENT_BINARY_DIR}/expr_cases.txt)
 add_custom_command(OUTPUT ${EXPR_CASES}
-    COMMAND ${CMAKE_COMMAND} -E env python3
+    COMMAND ${RP6502_PYTHON}
         ${CMAKE_CURRENT_LIST_DIR}/expr_cases.py --emit ${EXPR_CASES}
-    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/expr_cases.py
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/expr_cases.py ${RP6502_PYTHON_LIBS}
     COMMENT "Generating the expression test cases"
     VERBATIM)
 add_custom_target(expr_cases DEPENDS ${EXPR_CASES})

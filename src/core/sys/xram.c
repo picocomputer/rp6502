@@ -6,33 +6,37 @@
 
 #include "core/sys/xram.h"
 #include "core/sys/random.h"
-#include "machine.h"
-#include <stdalign.h>
 #include <string.h>
 
-/* The 64 KB is declared as sixteen 4 KB blocks because a single 64 KB array
- * crashes the debugger. */
-alignas(XRAM_ALIGN) static uint8_t HOST_UNINITIALIZED_RAM(xram_blocks)[16][0x1000];
-volatile uint8_t *const xram = (uint8_t *)xram_blocks;
+volatile uint8_t xram[0x10000];
 
 static bool xram_fill_random = true;
 static uint8_t xram_fill_value;
 static uint32_t xram_fill_seed;
 
-/* The cursor is given xram_blocks and not xram because xram points to
- * volatile bytes, and memcpy cannot take a volatile source. */
-void xram_sst_save(sst_cursor_t *c, unsigned flags)
+/* The savestate and the fill cast volatile away, because memcpy and memset
+ * take plain bytes. Nothing else writes xram while they run. The savestate is
+ * a FN row for that cast: BYTES would pass the volatile array as it is. */
+static void xram_sst_save(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    sst_put(c, xram_blocks, sizeof xram_blocks);
+    sst_put(c, (const void *)xram, sizeof xram);
 }
 
-bool xram_sst_load(sst_cursor_t *c, unsigned flags)
+static bool xram_sst_load(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    sst_get(c, xram_blocks, sizeof xram_blocks);
-    return sst_ok(c);
+    sst_get(c, (void *)xram, sizeof xram);
+    return true;
 }
+
+#define XRAM_SST(X)                                             \
+    X(FN, xram_sst_save, xram_sst_load, sizeof xram, 1)         \
+    X(IN_FN, xram)                                              \
+    X(SKIP, xram_fill_random, "a session's fill setting")       \
+    X(SKIP, xram_fill_value, "a session's fill setting")        \
+    X(SKIP, xram_fill_seed, "a session's fill setting")
+SST_TABLE(xram, XRAM_SST)
 
 void xram_set_fill(bool random, uint8_t value, uint32_t seed)
 {
@@ -47,9 +51,9 @@ void xram_init(void)
 {
     if (!xram_fill_random)
     {
-        memset(xram_blocks, xram_fill_value, sizeof xram_blocks);
+        memset((void *)xram, xram_fill_value, sizeof xram);
         return;
     }
     uint32_t state = xram_fill_seed ^ 0x3C6EF372u;
-    sys_random_fill(xram_blocks, sizeof xram_blocks, &state);
+    sys_random_fill((void *)xram, sizeof xram, &state);
 }

@@ -6,12 +6,12 @@
 
 #include "core/str/oem.h"
 #include "core/sys/sys.h"
+#include "core/api/proc.h"
 #include "core/sys/ria.h"
 #include "ria/mon/drive.h"
 #include "ria/mon/help.h"
 #include "ria/mon/mon.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
 #include "ria/sys/mbuf.h"
 #include "ria/sys/ria.h"
 #include "ria/usb/msc.h"
@@ -91,7 +91,7 @@ static char drive_label_old[24];
 static char drive_label_cur[24];
 static bool drive_label_changed;
 
-static bool HOST_IN_FLASH_FUNC("drive_parse_alloc") drive_parse_alloc(const char *tok, uint32_t *au)
+static bool HOST_IN_FLASH_FUNC drive_parse_alloc(const char *tok, uint32_t *au)
 {
     const char *p = tok + 1;
     if (!isdigit((unsigned char)*p))
@@ -123,7 +123,7 @@ static bool HOST_IN_FLASH_FUNC("drive_parse_alloc") drive_parse_alloc(const char
     return true;
 }
 
-static const char *HOST_IN_FLASH_FUNC("drive_fs_name") drive_fs_name(BYTE fs_type)
+static const char *HOST_IN_FLASH_FUNC drive_fs_name(BYTE fs_type)
 {
     switch (fs_type)
     {
@@ -143,7 +143,7 @@ static const char *HOST_IN_FLASH_FUNC("drive_fs_name") drive_fs_name(BYTE fs_typ
 // drive_is_fat_vbr repeats the tests that FatFs check_fs uses to recognize a
 // FAT or exFAT volume boot record. The 0x55AA signature alone does not identify
 // a volume boot record, because an MBR ends with the same signature.
-static bool HOST_IN_FLASH_FUNC("drive_is_fat_vbr") drive_is_fat_vbr(const uint8_t *w)
+static bool HOST_IN_FLASH_FUNC drive_is_fat_vbr(const uint8_t *w)
 {
     uint16_t sign = (uint16_t)(w[510] | (w[511] << 8));
 #if FF_FS_EXFAT
@@ -171,18 +171,18 @@ static bool HOST_IN_FLASH_FUNC("drive_is_fat_vbr") drive_is_fat_vbr(const uint8_
            (tot16 >= 64 || tot32 >= 0x10000) && fsz16 != 0;
 }
 
-static const char *HOST_IN_FLASH_FUNC("drive_scheme_word") drive_scheme_word(void)
+static const char *HOST_IN_FLASH_FUNC drive_scheme_word(void)
 {
-    if (!msc_drive_read(drive_vol, mbuf, 0, 1))
+    if (!msc_drive_read(drive_vol, buf1k, 0, 1))
         return NULL;
-    if (drive_is_fat_vbr(mbuf))
+    if (drive_is_fat_vbr(buf1k))
         return STR_SFD;
-    if (mbuf[510] == 0x55 && mbuf[511] == 0xAA)
-        return (mbuf[446 + 4] == 0xEE) ? STR_GPT : STR_MBR;
+    if (buf1k[510] == 0x55 && buf1k[511] == 0xAA)
+        return (buf1k[446 + 4] == 0xEE) ? STR_GPT : STR_MBR;
     return NULL;
 }
 
-static void HOST_IN_FLASH_FUNC("drive_fmt_desc") drive_fmt_desc(char *out, size_t size,
+static void HOST_IN_FLASH_FUNC drive_fmt_desc(char *out, size_t size,
                                                                 const char *scheme,
                                                                 const char *fsname,
                                                                 uint32_t au_bytes,
@@ -213,7 +213,7 @@ static void HOST_IN_FLASH_FUNC("drive_fmt_desc") drive_fmt_desc(char *out, size_
         snprintf(out + n, size - n, " (%s)", label);
 }
 
-static int HOST_IN_FLASH_FUNC("drive_preview_response") drive_preview_response(char *buf,
+static int HOST_IN_FLASH_FUNC drive_preview_response(char *buf,
                                                                                size_t size,
                                                                                int state, unsigned)
 {
@@ -238,7 +238,9 @@ static int HOST_IN_FLASH_FUNC("drive_preview_response") drive_preview_response(c
     case 1:
     {
         char serial[USB_DESC_STRING_BUF_SIZE];
-        if (msc_drive_serial(drive_vol, serial, sizeof(serial)))
+        if (!msc_drive_serial(drive_vol, serial, sizeof(serial)))
+            return 1;
+        if (serial[0])
             oem_snprintf(buf, size, S(STR_DISK_SERIAL), serial);
         return 2;
     }
@@ -306,7 +308,7 @@ static int HOST_IN_FLASH_FUNC("drive_preview_response") drive_preview_response(c
 // nonzero return makes f_mkfs stop there and return FR_OK.
 static bool drive_previewing;
 
-int HOST_IN_FLASH_FUNC("drive_mkfs_capture") drive_mkfs_capture(BYTE fsty, DWORD au_sectors)
+int HOST_IN_FLASH_FUNC drive_mkfs_capture(BYTE fsty, DWORD au_sectors)
 {
     if (!drive_previewing)
         return 0;
@@ -318,7 +320,7 @@ int HOST_IN_FLASH_FUNC("drive_mkfs_capture") drive_mkfs_capture(BYTE fsty, DWORD
 // The layout is forced exactly as drive_do_mkfs forces it, because f_mkfs
 // chooses the filesystem type and cluster size from the volume size, and the
 // volume size depends on the layout.
-static FRESULT HOST_IN_FLASH_FUNC("drive_preview_mkfs") drive_preview_mkfs(void)
+static FRESULT HOST_IN_FLASH_FUNC drive_preview_mkfs(void)
 {
     MKFS_PARM parm;
     memset(&parm, 0, sizeof(parm));
@@ -333,7 +335,7 @@ static FRESULT HOST_IN_FLASH_FUNC("drive_preview_mkfs") drive_preview_mkfs(void)
     drive_gpt_threshold = (drive_layout == DRIVE_LAYOUT_GPT) ? 0 : (LBA_t)-1;
 #endif
     drive_previewing = true;
-    FRESULT fr = f_mkfs(drive_path, &parm, mbuf, MBUF_SIZE);
+    FRESULT fr = f_mkfs(drive_path, &parm, buf1k, BUF1K_SIZE);
     drive_previewing = false;
 #if FF_LBA64
     drive_gpt_threshold = DRIVE_GPT_DEFAULT;
@@ -341,14 +343,14 @@ static FRESULT HOST_IN_FLASH_FUNC("drive_preview_mkfs") drive_preview_mkfs(void)
     return fr;
 }
 
-static FRESULT HOST_IN_FLASH_FUNC("drive_set_label") drive_set_label(const char *label)
+static FRESULT HOST_IN_FLASH_FUNC drive_set_label(const char *label)
 {
     char arg[sizeof(drive_path) + sizeof(drive_label_oem)];
     snprintf(arg, sizeof(arg), "%s%s", drive_path, label);
     return f_setlabel(arg);
 }
 
-static FRESULT HOST_IN_FLASH_FUNC("drive_do_mkfs") drive_do_mkfs(void)
+static FRESULT HOST_IN_FLASH_FUNC drive_do_mkfs(void)
 {
     MKFS_PARM parm;
     memset(&parm, 0, sizeof(parm));
@@ -371,7 +373,7 @@ static FRESULT HOST_IN_FLASH_FUNC("drive_do_mkfs") drive_do_mkfs(void)
 #if FF_LBA64
     drive_gpt_threshold = (drive_layout == DRIVE_LAYOUT_GPT) ? 0 : (LBA_t)-1;
 #endif
-    FRESULT fr = f_mkfs(drive_path, &parm, mbuf, MBUF_SIZE);
+    FRESULT fr = f_mkfs(drive_path, &parm, buf1k, BUF1K_SIZE);
 #if FF_LBA64
     drive_gpt_threshold = DRIVE_GPT_DEFAULT;
 #endif
@@ -385,7 +387,7 @@ static FRESULT HOST_IN_FLASH_FUNC("drive_do_mkfs") drive_do_mkfs(void)
 // head, the double-sided 320 KB (640) and 360 KB (720) formats have two, and
 // all four have 40 tracks. The 1.2 MB 5.25-inch format and the 3.5-inch
 // formats of 720 KB and larger have two heads and 80 tracks.
-static void HOST_IN_FLASH_FUNC("drive_floppy_geometry") drive_floppy_geometry(uint64_t blocks,
+static void HOST_IN_FLASH_FUNC drive_floppy_geometry(uint64_t blocks,
                                                                               uint8_t *tracks,
                                                                               uint8_t *heads)
 {
@@ -393,10 +395,10 @@ static void HOST_IN_FLASH_FUNC("drive_floppy_geometry") drive_floppy_geometry(ui
     *tracks = (blocks <= 720) ? 40 : 80;
 }
 
-// The Ctrl-C branches leave drive_state alone because, after sys_break(),
+// The Ctrl-C branches leave drive_state alone because, after proc_break(),
 // sys_commit() calls every driver's break handler and drive_break() sets
 // DRIVE_IDLE.
-static int HOST_IN_FLASH_FUNC("drive_run_response") drive_run_response(char *buf, size_t size,
+static int HOST_IN_FLASH_FUNC drive_run_response(char *buf, size_t size,
                                                                        int state, unsigned)
 {
     if (state < 0)
@@ -406,9 +408,8 @@ static int HOST_IN_FLASH_FUNC("drive_run_response") drive_run_response(char *buf
     case DRIVE_RUN_FORMAT_UNIT:
         if (ria_get_sigint())
         {
-            putchar('\n');
             msc_drive_reenumerate(drive_vol);
-            sys_break();
+            proc_break();
             return -1;
         }
         if (!msc_drive_format_track(drive_vol, drive_fmt_track, drive_fmt_head))
@@ -458,9 +459,8 @@ static int HOST_IN_FLASH_FUNC("drive_run_response") drive_run_response(char *buf
     case DRIVE_RUN_ERASE:
         if (ria_get_sigint())
         {
-            putchar('\n');
             msc_drive_reenumerate(drive_vol);
-            sys_break();
+            proc_break();
             return -1;
         }
         if (drive_lba >= drive_total)
@@ -471,10 +471,10 @@ static int HOST_IN_FLASH_FUNC("drive_run_response") drive_run_response(char *buf
             return -1;
         }
         {
-            uint32_t per = MBUF_SIZE / 512;
+            uint32_t per = BUF1K_SIZE / 512;
             uint64_t remain = drive_total - drive_lba;
             uint32_t n = remain < per ? (uint32_t)remain : per;
-            if (!msc_drive_write(drive_vol, mbuf, drive_lba, n))
+            if (!msc_drive_write(drive_vol, buf1k, drive_lba, n))
             {
                 mon_add_response_fatfs(FR_DISK_ERR);
                 msc_drive_reenumerate(drive_vol);
@@ -495,8 +495,7 @@ static int HOST_IN_FLASH_FUNC("drive_run_response") drive_run_response(char *buf
     case DRIVE_RUN_VERIFY:
         if (ria_get_sigint())
         {
-            putchar('\n');
-            sys_break();
+            proc_break();
             return -1;
         }
         if (drive_pin_n)
@@ -504,7 +503,7 @@ static int HOST_IN_FLASH_FUNC("drive_run_response") drive_run_response(char *buf
             while (drive_pin_i < drive_pin_n)
             {
                 uint64_t lba = drive_lba + drive_pin_i++;
-                if (!msc_drive_read(drive_vol, mbuf, lba, 1))
+                if (!msc_drive_read(drive_vol, buf1k, lba, 1))
                 {
                     drive_bad++;
                     buf[0] = '\r';
@@ -518,10 +517,10 @@ static int HOST_IN_FLASH_FUNC("drive_run_response") drive_run_response(char *buf
         }
         else if (drive_lba < drive_total)
         {
-            uint32_t per = MBUF_SIZE / 512;
+            uint32_t per = BUF1K_SIZE / 512;
             uint64_t remain = drive_total - drive_lba;
             uint32_t n = remain < per ? (uint32_t)remain : per;
-            if (!msc_drive_read(drive_vol, mbuf, drive_lba, n))
+            if (!msc_drive_read(drive_vol, buf1k, drive_lba, n))
             {
                 drive_pin_n = n;
                 drive_pin_i = 0;
@@ -557,7 +556,7 @@ static int HOST_IN_FLASH_FUNC("drive_run_response") drive_run_response(char *buf
 // device can take the same slot, so the mount generation captured at preview
 // must still match. The media and the write protection can also change during
 // the prompt.
-static bool HOST_IN_FLASH_FUNC("drive_run_revalidate") drive_run_revalidate(void)
+static bool HOST_IN_FLASH_FUNC drive_run_revalidate(void)
 {
     msc_drive_info_t info;
     if (!msc_drive_get_info(drive_vol, &info) || info.gen != drive_gen)
@@ -588,7 +587,7 @@ static bool HOST_IN_FLASH_FUNC("drive_run_revalidate") drive_run_revalidate(void
     return true;
 }
 
-static void HOST_IN_FLASH_FUNC("drive_run_format") drive_run_format(void)
+static void HOST_IN_FLASH_FUNC drive_run_format(void)
 {
     if (!drive_run_revalidate())
     {
@@ -609,7 +608,7 @@ static void HOST_IN_FLASH_FUNC("drive_run_format") drive_run_format(void)
     mon_add_response_fn(drive_run_response);
 }
 
-static void HOST_IN_FLASH_FUNC("drive_run_erase") drive_run_erase(void)
+static void HOST_IN_FLASH_FUNC drive_run_erase(void)
 {
     if (!drive_run_revalidate())
     {
@@ -618,13 +617,13 @@ static void HOST_IN_FLASH_FUNC("drive_run_erase") drive_run_erase(void)
     }
     drive_last_pct = -1;
     drive_lba = 0;
-    memset(mbuf, 0, MBUF_SIZE);
+    memset(buf1k, 0, BUF1K_SIZE);
     mon_add_response_utf8(S(STR_DISK_ERASING));
     drive_state = DRIVE_RUN_ERASE;
     mon_add_response_fn(drive_run_response);
 }
 
-static bool HOST_IN_FLASH_FUNC("drive_validate") drive_validate(uint8_t vol, msc_drive_info_t *info,
+static bool HOST_IN_FLASH_FUNC drive_validate(uint8_t vol, msc_drive_info_t *info,
                                                                 bool need_writable)
 {
     if (!msc_drive_get_info(vol, info))
@@ -646,8 +645,8 @@ static bool HOST_IN_FLASH_FUNC("drive_validate") drive_validate(uint8_t vol, msc
     }
     // Only 512-byte sectors are accepted because FatFs is built with FF_MIN_SS
     // and FF_MAX_SS set to 512 and never queries the drive for its sector size.
-    // The erase and verify passes also transfer MBUF_SIZE / 512 sectors at a
-    // time through mbuf, so a larger sector would run past the end of mbuf.
+    // The erase and verify passes also transfer BUF1K_SIZE / 512 sectors at a
+    // time through buf1k, so a larger sector would run past the end of buf1k.
     if (info->block_size != 512)
     {
         mon_add_response_utf8(S(STR_ERR_SECTOR_SIZE));
@@ -662,7 +661,7 @@ static bool HOST_IN_FLASH_FUNC("drive_validate") drive_validate(uint8_t vol, msc
     return true;
 }
 
-static bool HOST_IN_FLASH_FUNC("drive_match") drive_match(const char *t, int *vol)
+static bool HOST_IN_FLASH_FUNC drive_match(const char *t, int *vol)
 {
     int v;
     if (*vol < 0 && (v = msc_drive_vol_from_name(t)) >= 0)
@@ -673,14 +672,14 @@ static bool HOST_IN_FLASH_FUNC("drive_match") drive_match(const char *t, int *vo
     return false;
 }
 
-static void HOST_IN_FLASH_FUNC("drive_sub_help") drive_sub_help(const char *sub)
+static void HOST_IN_FLASH_FUNC drive_sub_help(const char *sub)
 {
     const char *prose = help_lookup(STR_DISK, sub, NULL);
     if (prose)
         mon_add_response_utf8(prose);
 }
 
-static int HOST_IN_FLASH_FUNC("drive_parse_only") drive_parse_only(const char *args,
+static int HOST_IN_FLASH_FUNC drive_parse_only(const char *args,
                                                                    const char *sub)
 {
     int vol = -1;
@@ -701,7 +700,7 @@ static int HOST_IN_FLASH_FUNC("drive_parse_only") drive_parse_only(const char *a
     return vol;
 }
 
-static void HOST_IN_FLASH_FUNC("drive_format") drive_format(const char *args)
+static void HOST_IN_FLASH_FUNC drive_format(const char *args)
 {
     drive_fs_req = 0;
     drive_full = false;
@@ -807,7 +806,7 @@ static void HOST_IN_FLASH_FUNC("drive_format") drive_format(const char *args)
     mon_response_confirm(drive_run_format);
 }
 
-static void HOST_IN_FLASH_FUNC("drive_erase") drive_erase(const char *args)
+static void HOST_IN_FLASH_FUNC drive_erase(const char *args)
 {
     int vol = drive_parse_only(args, STR_ERASE);
     if (vol < 0)
@@ -823,7 +822,7 @@ static void HOST_IN_FLASH_FUNC("drive_erase") drive_erase(const char *args)
     mon_response_confirm(drive_run_erase);
 }
 
-static void HOST_IN_FLASH_FUNC("drive_verify") drive_verify(const char *args)
+static void HOST_IN_FLASH_FUNC drive_verify(const char *args)
 {
     int vol = drive_parse_only(args, STR_VERIFY);
     if (vol < 0)
@@ -843,7 +842,7 @@ static void HOST_IN_FLASH_FUNC("drive_verify") drive_verify(const char *args)
     mon_add_response_fn(drive_run_response);
 }
 
-static int HOST_IN_FLASH_FUNC("drive_label_response") drive_label_response(char *buf, size_t size,
+static int HOST_IN_FLASH_FUNC drive_label_response(char *buf, size_t size,
                                                                            int state, unsigned)
 {
     if (state < 0)
@@ -855,7 +854,7 @@ static int HOST_IN_FLASH_FUNC("drive_label_response") drive_label_response(char 
     return -1;
 }
 
-static void HOST_IN_FLASH_FUNC("drive_label") drive_label(const char *args)
+static void HOST_IN_FLASH_FUNC drive_label(const char *args)
 {
     int vol = -1;
     const char *newlabel = NULL;
@@ -913,7 +912,7 @@ static void HOST_IN_FLASH_FUNC("drive_label") drive_label(const char *args)
     mon_add_response_fn(drive_label_response);
 }
 
-static void HOST_IN_FLASH_FUNC("drive_info") drive_info(const char *args)
+static void HOST_IN_FLASH_FUNC drive_info(const char *args)
 {
     int vol = drive_parse_only(args, STR_INFO);
     if (vol < 0)
@@ -936,7 +935,7 @@ void drive_break(void)
     drive_state = DRIVE_IDLE;
 }
 
-void HOST_IN_FLASH_FUNC("drive_mon_disk") drive_mon_disk(const char *args)
+void HOST_IN_FLASH_FUNC drive_mon_disk(const char *args)
 {
     const char *sub = str_parse_string(&args);
     if (!sub)

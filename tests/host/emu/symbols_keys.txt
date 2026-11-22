@@ -1,5 +1,6 @@
 # keyboard.rp6502 maps the keyboard bitmap at xram:$FF10. (4) is keycode 4,
 # the A key, and a bare 4 is the 4 key, keycode $21. Bit 1 is NumLock.
+lock num on
 run 20
 press (4) 4
 run 2

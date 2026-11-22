@@ -1,0 +1,146 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+#ifndef _CORE_COM_RLN_H_
+#define _CORE_COM_RLN_H_
+
+/* Readline-like line editor.
+ */
+
+#include <stddef.h>
+#include <stdint.h>
+#include "core/com/com.h"
+#include "core/sys/sst.h"
+#include <stdbool.h>
+
+/* Main events
+ */
+
+void rln_init(void);
+void rln_task(void);
+
+/* A key's reply is still going out at the console line's pace, or the read
+ * it ended is waiting to be handed its line. */
+bool rln_replying(void);
+void rln_run(void);
+void rln_stop(void);
+void rln_reset(void);
+
+// Timeout is true when input is idle too long.
+// Requesting a timeout of 0 ms will disable the idle timer.
+typedef void (*rln_read_callback_t)(bool timeout, const char *buf);
+
+#define RLN_LINE_MAX 256
+
+// The lines a read can bring back with the up and down keys. Its caller
+// owns it and says how many lines it has: `line` is that many, the first of
+// them the line being typed, kept while older ones are looked at, and the
+// rest the lines entered, newest first. A caller starts one with its lines
+// and their count and the rest zero, and hands it to each read that is to
+// use it.
+typedef struct
+{
+    char (*line)[RLN_LINE_MAX];
+    uint8_t lines;
+    uint8_t count; // the lines entered that it holds
+    uint8_t pos;   // the line showing, 0 for the one being typed
+} rln_history_t;
+
+// Prepare the line editor. The rln module can read entire
+// lines of input with editing on ANSI terminals. The line is recorded in
+// history, and the lines before it can be brought back; NULL for a read
+// with no history, such as a YES/no confirmation or a program's input.
+void rln_read_line(rln_read_callback_t callback, rln_history_t *history);
+
+// Read a line typed by a script, such as the monitor's UPLOAD chunk headers:
+// the line is laid out plainly, as rln_set_plain does, and it has no
+// history. The callback gets a timeout after timeout_ms with no input.
+void rln_read_line_script(rln_read_callback_t callback, uint32_t timeout_ms);
+
+// The source whose line end finished the line, for the callback to read the
+// bytes that follow from that source alone. COM_SOURCE_ANY when a poke, a
+// flush or the idle timeout finished it.
+com_source_t rln_line_source(void);
+
+// Give up a read in progress: the callback never fires.
+void rln_read_cancel(void);
+
+// Finish a read now, handing the line over through the callback. Returns
+// false when no read was in progress, or when the line is still empty.
+bool rln_read_flush(void);
+
+// 6502 applications may configure the max length
+void rln_set_max_length(uint8_t v);
+uint8_t rln_get_max_length(void);
+
+// Caps mode: 0=normal, 1=all caps, 2=invert
+void rln_set_caps(uint8_t v);
+uint8_t rln_get_caps(void);
+
+// Suppress the line-terminating newline on completion (0=off, 1=on), so
+// field input on the last line keeps the cursor on its row. Persists
+// across reads; reset on stop().
+void rln_set_suppress_nl(uint8_t v);
+uint8_t rln_get_suppress_nl(void);
+
+// Plain lines, for a console no one sees laid out, such as an emulator
+// printing to a pipe: the line is echoed and edited with backspaces, reprints
+// and spaces, with no prompt column, no row math and no escape sequence. The
+// host sets it once; it outlives every read and stop. A read that starts
+// while the console's terminal is in VT52 mode is plain too.
+void rln_set_plain(bool plain);
+
+/* The console's size: a program's own while it pins one, otherwise the
+ * screen's showing grid. The line editor lays its lines out at it. */
+uint16_t rln_get_term_width(void);
+uint16_t rln_get_term_height(void);
+
+/* A non-zero value pins the size, and 0 goes back to the screen's. A pinned
+ * size is a third grid of the console's terminal, up to RLN_GRID_ROWS rows,
+ * which the line editor and the terminal's answers use. Both return to 0
+ * when a program stops. */
+#define RLN_GRID_ROWS 255
+void rln_set_term_width(uint16_t v);
+void rln_set_term_height(uint16_t v);
+
+// The terminal on src went away, and the next one there is a different
+// terminal: the line end it last sent, which normally survives a read, and
+// what tio holds of an overlong sequence from it are forgotten.
+void rln_forget_source(com_source_t src);
+
+// Inject a sequence of input bytes into the active readline. CR ends
+// the line normally; any other C0 control byte (0x00-0x1F) except ESC
+// (which begins an escape sequence) also finishes the line, without adding
+// to history, unless it is CAN (0x18) or SUB (0x1A) inside a sequence, which
+// cancels the sequence. Controls other than CR echo as caret notation
+// (^@..^_, 0x03 as ^C) when rln_max_length is at least 2, without being
+// inserted. Poked bytes are dispatched in overwrite mode, and only poked
+// bytes run the editing commands DCH (CSI Ps P), ICH (CSI Ps @) and ECH
+// (CSI Ps X). An escape sequence still open at the end of the string is
+// dropped.
+void rln_poke(const char *str);
+
+// 6502 API entry points.
+bool rln_api_lastkey(void);
+bool rln_api_peek(void);
+bool rln_api_poke(void);
+
+/* The line being edited. console.c's stdin bridge reads the line it was
+ * handed from here. */
+const char *rln_line(void);
+
+extern const sst_table_t rln_sst;
+
+#define RLN_DRIVER DRIVER(                                  \
+    INIT(rln_init)                                          \
+    TASK_FATFS(rln_task)                                    \
+    RUN(rln_run)                                            \
+    STOP(rln_stop)                                          \
+    BREAK(rln_stop)                                         \
+    RESET(rln_reset)                                        \
+    SST("RLN_", rln))
+
+#endif /* _CORE_COM_RLN_H_ */

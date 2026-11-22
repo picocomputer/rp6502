@@ -14,18 +14,12 @@ static bool sram_fill_random = true;
 static uint8_t sram_fill_value;
 static uint32_t sram_fill_seed;
 
-void sram_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    sst_put(c, sram, sizeof sram);
-}
-
-bool sram_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    sst_get(c, sram, sizeof sram);
-    return sst_ok(c);
-}
+#define SRAM_SST(X)                                             \
+    X(BYTES, sram)                                              \
+    X(SKIP, sram_fill_random, "a session's fill setting")       \
+    X(SKIP, sram_fill_value, "a session's fill setting")        \
+    X(SKIP, sram_fill_seed, "a session's fill setting")
+SST_TABLE(sram, SRAM_SST)
 
 void sram_set_fill(bool random, uint8_t value, uint32_t seed)
 {

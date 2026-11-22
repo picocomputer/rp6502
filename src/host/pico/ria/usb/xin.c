@@ -8,6 +8,7 @@
 #include "core/hid/gamepad.h"
 #include "ria/usb/xin.h"
 #include "core/sys/debug_log.h"
+#include "machine.h"
 #include <tusb.h>
 #include <host/usbh_pvt.h>
 #include <string.h>
@@ -123,7 +124,7 @@ static const gamepad_connection_t xin_xbox_one_desc = {
 
 // clang-format on
 
-static int xin_find_index_by_dev_addr(uint8_t dev_addr)
+static int HOST_IN_RAM_FUNC xin_find_index_by_dev_addr(uint8_t dev_addr)
 {
     for (int i = 0; i < XIN_MAX_DEVICES; i++)
         if (xin_devices[i].active && xin_devices[i].dev_addr == dev_addr)
@@ -139,7 +140,7 @@ static int xin_find_free_index(void)
     return -1;
 }
 
-static bool xin_queue_in(xin_device_t *device, int idx)
+static bool HOST_IN_RAM_FUNC xin_queue_in(xin_device_t *device, int idx)
 {
     tuh_xfer_t xfer = {
         .daddr = device->dev_addr,
@@ -151,7 +152,7 @@ static bool xin_queue_in(xin_device_t *device, int idx)
     return tuh_edpt_xfer(&xfer);
 }
 
-bool __in_flash("xin_class_driver_init") xin_class_driver_init(void)
+bool HOST_IN_FLASH_FUNC xin_class_driver_init(void)
 {
     memset(xin_devices, 0, sizeof(xin_devices));
     return true;
@@ -296,7 +297,7 @@ uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
 }
 
 // Send the next applicable GIP init packet, returns true if one was sent
-static bool xin_send_next_init(xin_device_t *device)
+static bool HOST_IN_FLASH_FUNC xin_send_next_init(xin_device_t *device)
 {
     if (usbh_edpt_busy(device->dev_addr, device->ep_out))
         return false; // sent when the in-flight OUT completes
@@ -408,7 +409,7 @@ bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
     return true;
 }
 
-bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes)
+bool HOST_IN_RAM_FUNC xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes)
 {
     int idx = xin_find_index_by_dev_addr(dev_addr);
     if (idx < 0)

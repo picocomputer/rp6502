@@ -15,7 +15,9 @@
  *
  * An enabled slot in mode 0 runs no fill. It marks the plane whose
  * pixels come from the terminal engine instead; host/pocket/core/
- * wiring.sv selects on sched_term.
+ * wiring.sv selects on sched_term. When the sweep finds one, it starts
+ * mode0.sv on the row with sched_term_go and hands it the slot's config,
+ * the scanline the terminal begins at.
  */
 
 module sched (
@@ -53,7 +55,9 @@ module sched (
 
     output logic [1:0] sched_px_we[3],
     output logic [2:0] sched_done,
-    output logic [2:0] sched_term
+    output logic [2:0] sched_term,
+    output logic sched_term_go,
+    output logic [15:0] sched_term_cfg
 );
 
     logic [9:0] t /*verilator public_flat_rd*/;
@@ -63,15 +67,12 @@ module sched (
     logic dbl;
     always_comb dbl = cw == 10'd320;
     always_comb sched_dbl = dbl;
-    logic [9:0] v_next;
-    always_comb v_next = v == 10'd524 ? 10'd0 : v + 10'd1;
-    /* Lines pair as (0,1), (2,3) ... with (523,524) for row 0, so a row
-     * is started on the even line and has the whole pair to finish in, and
-     * is handed over on the even line after. Line 524 is the pair's second
-     * line, not a start, and 523 is a start, not an end. */
+    /* Lines pair as (0,1), (2,3) ..., so a row is started on the even
+     * line, has the whole pair to finish in, and is handed over on the
+     * even line after. Line 524 starts a pair that holds no row. */
     logic pair_start, pair_end;
-    always_comb pair_start = !dbl || (!v[0] && v != 10'd524) || v == 10'd523;
-    always_comb pair_end = !dbl || (v[0] && v != 10'd523) || v == 10'd524;
+    always_comb pair_start = !dbl || !v[0];
+    always_comb pair_end = !dbl || v[0];
     always_comb sched_pair_start = pair_start;
     always_comb sched_pair_end = pair_end;
     always_comb sched_t = t;
@@ -119,6 +120,9 @@ module sched (
     logic term_armed;
     always_comb term_dec = {pl_term[2], pl_term[1], pl_term[0]};
     always_comb sched_term = term_q;
+    /* mode0_prog books one plane, so the lowest marked one is it. */
+    always_comb sched_term_cfg = pl_term[0] ? pl_cfg[0]
+                               : pl_term[1] ? pl_cfg[1] : pl_cfg[2];
 
     always_comb begin
         sched_done = '0;
@@ -131,7 +135,7 @@ module sched (
     end
 
 `ifdef VERILATOR
-    /* The underrun check below arms at the first line 524 after reset,
+    /* The underrun check below arms at the first frame after reset,
      * because timing.sv takes no reset: a machine reset lands somewhere
      * inside a frame, and the fills it interrupts legitimately do not
      * finish. */
@@ -139,7 +143,7 @@ module sched (
     always_ff @(posedge clk or negedge rst_n)
         if (!rst_n)
             settled <= 1'b0;
-        else if (line_start && v == 10'd524)
+        else if (line_start && v == 10'd0)
             settled <= 1'b1;
 `endif
 
@@ -158,16 +162,17 @@ module sched (
         term_q = '0;
         term_armed = 1'b0;
         sched_e_start = 1'b0;
+        sched_term_go = 1'b0;
     end
     always_ff @(posedge clk) begin
         sched_e_start <= 1'b0;
+        sched_term_go <= 1'b0;
 `ifdef VERILATOR
         if (settled && h == 10'd799 && pair_end && state != SCH_IDLE)
             $fatal(1, "fill underrun");
 `endif
         if (line_start) begin
-            t <= dbl ? (v >= 10'd523 ? 10'd0 : 10'((v >> 1) + 10'd1))
-                     : v_next;
+            t <= dbl ? v >> 1 : v;
             if (pair_start) begin
                 rd_i <= '0;
                 plane_pending <= '0;
@@ -197,6 +202,7 @@ module sched (
                         if (rd_i == 3'd4) begin
                             plane_pending <= {pl_en[2], pl_en[1], pl_en[0]};
                             term_armed <= 1'b1;
+                            sched_term_go <= term_dec != 3'd0;
                             if (pl_en[0] || pl_en[1] || pl_en[2]) begin
                                 sched_e_start <= 1'b1;
                                 state <= SCH_RUN;

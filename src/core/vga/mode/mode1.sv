@@ -165,7 +165,7 @@ module mode1 (
 
     always_comb mode1_f_addr = fh16
         ? {2'b00, scanrow, gf_glyph}
-        : {2'b01, 1'b0, scanrow[2:0], gf_glyph};
+        : {3'b100, scanrow[2:0], gf_glyph};
     always_comb mode1_f_req = state == S1_SEG && fstate == F_FONT
         && !font_xram && !f_sent;
 

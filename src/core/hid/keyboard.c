@@ -7,27 +7,34 @@
 #include "core/sys/xram.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/hid.h"
-#include "core/hid/keymap.h"
 #include "machine.h"
 #include "core/hid/usage.h"
-#include <stdio.h>
 #include <string.h>
 
-/* An RP6502 boots with NumLock on, the way an IBM AT and Windows do. The
- * Raspberry Pi Keyboard has no keypad and uses NumLock to lay one over its
- * letter keys, because it was designed for Linux, which boots NumLock off. */
-static const struct
-{
-    uint16_t vid;
-    uint16_t pid;
-} keyboard_numlock_off_at_boot[] = {
-    {0x04D9, 0x0006}, // Raspberry Pi Keyboard
-};
-
 static uint16_t keyboard_xram;
-static uint8_t keyboard_hid_leds;
+static uint8_t keyboard_locks;
 static uint32_t keyboard_keys[8];
 static keyboard_connection_t keyboard_connections[KEYBOARD_MAX_KEYBOARDS];
+
+/* An address that would put the bitmap past the end of XRAM would have the
+ * next publish write past it. */
+static bool keyboard_xram_check(sst_cursor_t *c)
+{
+    if (keyboard_xram > 0x10000 - sizeof(keyboard_keys) &&
+        keyboard_xram != 0xFFFF)
+        return sst_refuse(c, "keyboard block past the end of XRAM");
+    return true;
+}
+
+/* The connection table is not saved, because it describes what is plugged
+ * in now rather than what the blob remembers. */
+#define KEYBOARD_SST(X)                                     \
+    X(U16, keyboard_xram)                                   \
+    X(U8, keyboard_locks)                                   \
+    X(U32S, keyboard_keys)                                  \
+    X(VALIDATE, keyboard_xram_check)                        \
+    X(SKIP, keyboard_connections)
+SST_TABLE(keyboard, KEYBOARD_SST)
 
 #define KEYBOARD_KEY_BIT_SET(data, keycode) ((data)[(keycode) >> 5] |= 1 << ((keycode) & 31))
 #define KEYBOARD_KEY_BIT_VAL(data, keycode) ((data)[(keycode) >> 5] & (1 << ((keycode) & 31)))
@@ -37,7 +44,7 @@ static keyboard_connection_t keyboard_connections[KEYBOARD_MAX_KEYBOARDS];
  * byte uses. */
 #define KEYBOARD_MODIFIER(keys) ((uint8_t *)keys)[HID_KEY_CONTROL_LEFT >> 3]
 
-static keyboard_connection_t *keyboard_get_connection_by_slot(int slot)
+static keyboard_connection_t *HOST_IN_RAM_FUNC keyboard_get_connection_by_slot(int slot)
 {
     for (int i = 0; i < KEYBOARD_MAX_KEYBOARDS; i++)
         if (keyboard_connections[i].valid && keyboard_connections[i].slot == slot)
@@ -51,7 +58,7 @@ uint8_t keyboard_get_report_id(int slot)
     return conn ? conn->report_id : 0;
 }
 
-static void keyboard_merge_keys(void)
+static void HOST_IN_RAM_FUNC keyboard_merge_keys(void)
 {
     memset(keyboard_keys, 0, sizeof(keyboard_keys));
     for (int k = 0; k < 8; k++)
@@ -60,9 +67,9 @@ static void keyboard_merge_keys(void)
 }
 
 /* Word 0's low four bits are not keys. Bit 0 says nothing is pressed and bits
- * 1 to 3 are the lock lamps, so both are restated every time the block is
+ * 1 to 3 are the locks, so both are restated every time the block is
  * published. */
-static void keyboard_publish(void)
+static void HOST_IN_RAM_FUNC keyboard_publish(void)
 {
     bool any_key = false;
     keyboard_keys[0] &= ~0xF;
@@ -71,143 +78,26 @@ static void keyboard_publish(void)
             any_key = true;
     if (!any_key)
         keyboard_keys[0] |= 1;
-    keyboard_keys[0] |= (keyboard_hid_leds & 7) << 1; // NUMLOCK CAPSLOCK SCROLLLOCK
+    keyboard_keys[0] |= (keyboard_locks & 7) << 1; // NUMLOCK CAPSLOCK SCROLLLOCK
     if (keyboard_xram != 0xFFFF)
         memcpy((uint8_t *)&xram[keyboard_xram], keyboard_keys, sizeof(keyboard_keys));
 }
 
-static void keyboard_send_leds()
-{
-    hid_set_leds(keyboard_hid_leds);
-}
-
-uint8_t keyboard_keypad_nav(uint8_t hid_usage)
-{
-    switch (hid_usage)
-    {
-    case HID_KEY_KEYPAD_1: return HID_KEY_END;
-    case HID_KEY_KEYPAD_2: return HID_KEY_ARROW_DOWN;
-    case HID_KEY_KEYPAD_3: return HID_KEY_PAGE_DOWN;
-    case HID_KEY_KEYPAD_4: return HID_KEY_ARROW_LEFT;
-    case HID_KEY_KEYPAD_6: return HID_KEY_ARROW_RIGHT;
-    case HID_KEY_KEYPAD_7: return HID_KEY_HOME;
-    case HID_KEY_KEYPAD_8: return HID_KEY_ARROW_UP;
-    case HID_KEY_KEYPAD_9: return HID_KEY_PAGE_UP;
-    case HID_KEY_KEYPAD_0: return HID_KEY_INSERT;
-    case HID_KEY_KEYPAD_DECIMAL: return HID_KEY_DELETE;
-    }
-    return HID_KEY_NONE;
-}
-
-int keyboard_vt_mod(bool shift, bool alt, bool ctrl, bool gui)
-{
-    return 1 + (shift ? 1 : 0) + (alt ? 2 : 0) + (ctrl ? 4 : 0) + (gui ? 8 : 0);
-}
-
-static size_t keyboard_vt100(char *out, size_t cap, char c0, char c1, int ansi_mod)
-{
-    if (ansi_mod == 1)
-        return (size_t)snprintf(out, cap, "\33%c%c", c0, c1);
-    return (size_t)snprintf(out, cap, "\33[1;%d%c", ansi_mod, c1);
-}
-
-static size_t keyboard_vt220(char *out, size_t cap, int num, int ansi_mod)
-{
-    if (ansi_mod == 1)
-        return (size_t)snprintf(out, cap, "\33[%d~", num);
-    return (size_t)snprintf(out, cap, "\33[%d;%d~", num, ansi_mod);
-}
-
-/* The keys are one contiguous span of HID usages, so the table is indexed
- * rather than searched. An intro of 'O' or '[' means the VT100 form and code
- * is its final character; an intro of 0 means the VT220 form and code is its
- * number. */
-static const struct
-{
-    char intro;
-    uint8_t code;
-} keyboard_vt_keys[] = {
-    /* 0x3A..0x45, F1 to F12 */
-    {'O', 'P'}, {'O', 'Q'}, {'O', 'R'}, {'O', 'S'},
-    {0, 15}, {0, 17}, {0, 18}, {0, 19},
-    {0, 20}, {0, 21}, {0, 23}, {0, 24},
-    /* 0x46..0x48, PrintScreen, ScrollLock and Pause send nothing */
-    {0, 0}, {0, 0}, {0, 0},
-    /* 0x49..0x52, Insert to Up */
-    {0, 2}, {'[', 'H'}, {0, 5}, {0, 3}, {'[', 'F'},
-    {0, 6}, {'[', 'C'}, {'[', 'D'}, {'[', 'B'}, {'[', 'A'}};
-
-size_t keyboard_vt_seq(char *out, size_t cap, uint8_t hid_usage, int ansi_mod)
-{
-    if (hid_usage < 0x3A || hid_usage > 0x52)
-        return 0;
-    const char intro = keyboard_vt_keys[hid_usage - 0x3A].intro;
-    const uint8_t code = keyboard_vt_keys[hid_usage - 0x3A].code;
-    if (intro)
-        return keyboard_vt100(out, cap, intro, (char)code, ansi_mod);
-    if (code)
-        return keyboard_vt220(out, cap, code, ansi_mod);
-    return 0;
-}
-
-int keyboard_ctrl_promote(char ch, uint8_t keycode)
-{
-    unsigned char c = (unsigned char)ch;
-    if (keycode == HID_KEY_BACKSPACE)
-        return '\b';
-    if (!c)
-        return -1;
-    if ((c >= '@' && c < 0x7F) || c == ' ')
-        return c & 0x1F;
-    if (c == '2')
-        return 0x00;
-    if (c >= '3' && c <= '7')
-        return c - '3' + 0x1B;
-    if (c == '8')
-        return 0x7F;
-    if (c == '/')
-        return 0x1F;
-    if (c < 0x20)
-        return c;
-    return -1;
-}
-
-void keyboard_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    sst_put_u16(c, keyboard_xram);
-    sst_put_u8(c, keyboard_hid_leds);
-    for (int i = 0; i < 8; i++)
-        sst_put_u32(c, keyboard_keys[i]);
-}
-
-bool keyboard_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    uint16_t at = sst_get_u16(c);
-    uint8_t leds = sst_get_u8(c);
-    uint32_t keys[8];
-    for (int i = 0; i < 8; i++)
-        keys[i] = sst_get_u32(c);
-    if (!sst_ok(c))
-        return false;
-    keyboard_xram = at;
-    keyboard_hid_leds = leds;
-    memcpy(keyboard_keys, keys, sizeof keyboard_keys);
-    keyboard_publish();
-    return true;
-}
-
-void HOST_IN_FLASH("keyboard_init") keyboard_init(void)
+void HOST_IN_FLASH_FUNC keyboard_init(void)
 {
     keyboard_stop();
-    keyboard_hid_leds = KEYBOARD_LED_NUMLOCK;
-    keyboard_send_leds();
+    keyboard_locks = 0;
 }
 
 void keyboard_stop(void)
 {
     keyboard_xram = 0xFFFF;
+}
+
+void keyboard_reset(void)
+{
+    keyboard_stop();
+    keyboard_release_all();
 }
 
 bool keyboard_mount(int slot, const keyboard_connection_t *desc,
@@ -221,16 +111,7 @@ bool keyboard_mount(int slot, const keyboard_connection_t *desc,
             continue;
         keyboard_connections[i] = *desc;
         keyboard_connections[i].slot = slot;
-
-        if (hid_boot_enumerating())
-            for (size_t k = 0; k < sizeof(keyboard_numlock_off_at_boot) / sizeof(keyboard_numlock_off_at_boot[0]); k++)
-                if (keyboard_numlock_off_at_boot[k].vid == vendor_id &&
-                    keyboard_numlock_off_at_boot[k].pid == product_id)
-                {
-                    keyboard_hid_leds &= ~KEYBOARD_LED_NUMLOCK;
-                    keyboard_send_leds();
-                    break;
-                }
+        keyboard_on_mount(vendor_id, product_id);
         return true;
     }
     return false;
@@ -244,10 +125,11 @@ bool keyboard_umount(int slot)
     conn->valid = false;
     memset(conn->keys, 0, sizeof(conn->keys));
     keyboard_merge_keys();
+    keyboard_publish();
     return true;
 }
 
-void keyboard_report(int slot, uint8_t const *data, size_t size)
+void HOST_IN_RAM_FUNC keyboard_report(int slot, uint8_t const *data, size_t size)
 {
     keyboard_connection_t *conn = keyboard_get_connection_by_slot(slot);
     if (conn == NULL)
@@ -293,24 +175,26 @@ void keyboard_report(int slot, uint8_t const *data, size_t size)
                 KEYBOARD_KEY_BIT_SET(conn->keys, run->usage_min + i);
     }
 
-    /* The merge comes first because the keymap is handed the merged modifier
-     * byte, and a modifier pressed in this same report has to be in it. */
+    /* The merge comes first because the machine's hook is handed the merged
+     * modifier byte, and a modifier pressed in this same report has to be in
+     * it. */
     keyboard_merge_keys();
 
-    for (int i = 0; i < 128; i++)
+    /* Every key below the modifiers, which have the hook after this one. */
+    for (int i = 0; i < HID_KEY_CONTROL_LEFT; i++)
     {
         bool curr = KEYBOARD_KEY_BIT_VAL(conn->keys, i);
         bool prev = KEYBOARD_KEY_BIT_VAL(old_keys, i);
         if (curr && !prev)
-            keymap_on_key(KEYBOARD_MODIFIER(keyboard_keys), i);
+            keyboard_on_press(KEYBOARD_MODIFIER(keyboard_keys), i);
     }
 
-    keymap_on_modifiers(KEYBOARD_MODIFIER(keyboard_keys));
+    keyboard_on_modifiers(KEYBOARD_MODIFIER(keyboard_keys));
 
     keyboard_publish();
 }
 
-bool keyboard_xreg(uint16_t word)
+bool HOST_IN_FLASH_FUNC keyboard_xreg(uint16_t word)
 {
     bool mapped = word <= 0x10000 - sizeof(keyboard_keys);
     keyboard_xram = mapped ? word : 0xFFFF;
@@ -323,35 +207,27 @@ bool keyboard_is_mapped(void)
     return keyboard_xram != 0xFFFF;
 }
 
-uint8_t keyboard_get_modifier(void)
+uint8_t HOST_IN_RAM_FUNC keyboard_get_modifier(void)
 {
     return KEYBOARD_MODIFIER(keyboard_keys);
 }
 
-bool keyboard_key_down(uint8_t keycode)
+bool HOST_IN_RAM_FUNC keyboard_key_down(uint8_t keycode)
 {
     return KEYBOARD_KEY_BIT_VAL(keyboard_keys, keycode) != 0;
 }
 
-uint8_t keyboard_get_leds(void)
+uint8_t HOST_IN_RAM_FUNC keyboard_get_locks(void)
 {
-    return keyboard_hid_leds;
+    return keyboard_locks;
 }
 
-void keyboard_toggle_lock(uint8_t bit)
+void HOST_IN_RAM_FUNC keyboard_set_locks(uint8_t locks)
 {
-    keyboard_hid_leds ^= bit;
-    keyboard_send_leds();
-    keyboard_publish();
-}
-
-void keyboard_set_locks(uint8_t leds)
-{
-    leds &= KEYBOARD_LED_NUMLOCK | KEYBOARD_LED_CAPSLOCK | KEYBOARD_LED_SCROLLLOCK;
-    if (leds == keyboard_hid_leds)
+    locks &= KEYBOARD_LED_NUMLOCK | KEYBOARD_LED_CAPSLOCK | KEYBOARD_LED_SCROLLLOCK;
+    if (locks == keyboard_locks)
         return;
-    keyboard_hid_leds = leds;
-    keyboard_send_leds();
+    keyboard_locks = locks;
     keyboard_publish();
 }
 
@@ -363,7 +239,7 @@ void keyboard_release_all(void)
 
 /* Usages 0 to 3 are None and the three error codes, and their bits in word 0
  * carry the no-keys and lock flags instead, so no key may touch them. */
-void keyboard_hid_set(uint8_t keycode, bool down)
+void keyboard_set_key(uint8_t keycode, bool down)
 {
     if (keycode < 4)
         return;

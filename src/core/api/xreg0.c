@@ -15,8 +15,9 @@
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
+#include "machine.h"
 
-bool xreg0(uint8_t channel, uint8_t index, uint16_t word)
+bool HOST_IN_FLASH_FUNC xreg0(uint8_t channel, uint8_t index, uint16_t word)
 {
     /* On channel 0 the word is the XRAM address of the device's report
      * block, or 0xFFFF to publish nothing. */

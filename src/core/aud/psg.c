@@ -6,6 +6,7 @@
 
 #include "core/aud/mix.h"
 #include "core/aud/psg.h"
+#include "machine.h"
 #include <stddef.h>
 #include <string.h>
 
@@ -32,7 +33,7 @@ enum
 /* Parked, so the eight are not mixed until a program maps the PSG. */
 static uint16_t psg_xaddr = 0xFFFF;
 
-static const uint32_t psg_vol_table[] = {
+static const uint32_t HOST_IN_RAM psg_vol_table[] = {
     256 << 16,
     204 << 16,
     168 << 16,
@@ -53,14 +54,14 @@ static const uint32_t psg_vol_table[] = {
 
 /* Phase 0 is the trough and phase 128 the peak, because a voice indexes
  * this with the top byte of its phase and opens its duty gate around 128. */
-static const int16_t psg_sine_table[256] = {
+static const int16_t HOST_IN_RAM psg_sine_table[256] = {
 #include "psg_sine.h"
 };
 
 /* The constant-power pan law, out of 4096: a voice at pan p weighs
  * psg_pan_table[63 - p] on the left and psg_pan_table[63 + p] on the
  * right. The centre, 1024, puts a full sine at one OPL2 channel's level. */
-static const uint16_t psg_pan_table[127] = {
+static const uint16_t HOST_IN_RAM psg_pan_table[127] = {
 #include "psg_pan.h"
 };
 
@@ -82,14 +83,14 @@ static inline uint32_t psg_phase_inc(uint16_t freq)
  * it out the same way. */
 #define PSG_STEP(ms) ((1u << 24) / (uint32_t)(((uint64_t)AUD_NATIVE_RATE * (ms)) / 1000))
 
-static const uint32_t psg_attack_table[16] = {
+static const uint32_t HOST_IN_RAM psg_attack_table[16] = {
     PSG_STEP(2), PSG_STEP(8), PSG_STEP(16), PSG_STEP(24),
     PSG_STEP(38), PSG_STEP(56), PSG_STEP(68), PSG_STEP(80),
     PSG_STEP(100), PSG_STEP(250), PSG_STEP(500), PSG_STEP(800),
     PSG_STEP(1000), PSG_STEP(3000), PSG_STEP(5000), PSG_STEP(8000),
 };
 
-static const uint32_t psg_decay_release_table[16] = {
+static const uint32_t HOST_IN_RAM psg_decay_release_table[16] = {
     PSG_STEP(6), PSG_STEP(24), PSG_STEP(48), PSG_STEP(72),
     PSG_STEP(114), PSG_STEP(168), PSG_STEP(204), PSG_STEP(240),
     PSG_STEP(300), PSG_STEP(750), PSG_STEP(1500), PSG_STEP(2400),
@@ -129,6 +130,34 @@ static struct
  * through psg_put. XRAM is the program's and is never read. */
 static struct psg_channel psg_regs[PSG_VOICES];
 
+/* psg_sample steps only the four envelope stages, and the block has to lie
+ * inside XRAM. */
+static bool psg_sst_valid(sst_cursor_t *c)
+{
+    if (psg_xaddr != 0xFFFF && !psg_block_ok(psg_xaddr))
+        return sst_refuse(c, "the channel block runs past XRAM");
+    for (unsigned i = 0; i < PSG_VOICES; i++)
+        if (psg_channel_state[i].adsr > PSG_ADSR_SUSTAIN)
+            return sst_refuse(c, "an envelope stage out of range");
+    return true;
+}
+
+/* The pointer, the eight channels behind it and the bell. XRAM need not
+ * hold what the engine does, so the registers are here too. */
+#define PSG_STATE_ROWS(Y, s)                                    \
+    Y(I16, s.sample) Y(U8, s.adsr) Y(U32, s.vol)                \
+    Y(U32, s.phase) Y(U16, s.noise1) Y(U16, s.noise2)
+#define PSG_REGS_ROWS(Y, r)                                     \
+    Y(U16, r.freq) Y(U8, r.duty) Y(U8, r.vol_attack)            \
+    Y(U8, r.vol_decay) Y(U8, r.wave_release) Y(U8, r.pan_gate)  \
+    Y(U8, r.unused)
+#define PSG_SST(X)                                              \
+    X(U16, psg_xaddr)                                           \
+    X(STRUCTS, psg_channel_state, PSG_STATE_ROWS)               \
+    X(STRUCTS, psg_regs, PSG_REGS_ROWS)                         \
+    X(VALIDATE, psg_sst_valid)
+SST_TABLE(psg, PSG_SST)
+
 /* A silent bell with no frequency and no noise steps to the same state
  * every sample, so the mix skips it. psg.sv's walk steps it anyway, to the
  * same end. */
@@ -141,7 +170,7 @@ bool psg_bel_idle(void)
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
-void psg_sample(int16_t *left, int16_t *right)
+void HOST_IN_RAM_FUNC psg_sample(int16_t *left, int16_t *right)
 {
     /* The eight while a program maps them, then the bell while it sounds. */
     const unsigned lo = psg_xaddr != 0xFFFF ? 0 : PSG_BEL;
@@ -165,10 +194,12 @@ void psg_sample(int16_t *left, int16_t *right)
                               * (int32_t)(psg_channel_state[i].vol >> 12)
                           + (1 << 11))
                          >> 12;
-        int8_t pan = (int8_t)ch->pan_gate / 2;
-        /* A pan_gate of 0x80 halves to -64, one past the documented
-         * -63 to 63, and drops the channel from the mix. psg.sv reads
-         * zero weights for the same value. */
+        /* Bits 7-1, shifted rather than divided, so the gate in bit 0
+         * leaves a negative pan where it is rather than a step nearer the
+         * centre. -64 is one past the documented -63 to 63 and drops the
+         * channel from the mix, gate or no gate. psg.sv reads zero weights
+         * for the same value. */
+        int8_t pan = (int8_t)ch->pan_gate >> 1;
         if (pan != -64)
         {
             acc_l += sample * psg_pan_table[63 - pan];
@@ -281,7 +312,7 @@ void psg_sample(int16_t *left, int16_t *right)
 /* Only the gate bit of pan_gate has to be caught as it happens, because it
  * starts and releases a note; every other byte lands in the structure and
  * takes effect on the next sample. */
-static void psg_gate(unsigned i, uint8_t val)
+static void HOST_IN_RAM_FUNC psg_gate(unsigned i, uint8_t val)
 {
     if (!(val & 0x01) && psg_channel_state[i].adsr != PSG_ADSR_RELEASE)
         psg_channel_state[i].adsr = PSG_ADSR_RELEASE;
@@ -289,7 +320,7 @@ static void psg_gate(unsigned i, uint8_t val)
         psg_channel_state[i].adsr = PSG_ADSR_ATTACK;
 }
 
-void psg_put(unsigned offset, uint8_t val)
+void HOST_IN_RAM_FUNC psg_put(unsigned offset, uint8_t val)
 {
     ((uint8_t *)psg_regs)[offset] = val;
     if (offset % sizeof(struct psg_channel) == offsetof(struct psg_channel, pan_gate))
@@ -297,56 +328,11 @@ void psg_put(unsigned offset, uint8_t val)
 }
 #pragma GCC pop_options
 
-uint16_t psg_xaddr_get(void) { return psg_xaddr; }
+uint16_t HOST_IN_RAM_FUNC psg_xaddr_get(void) { return psg_xaddr; }
 
-void psg_park(void) { psg_xaddr = 0xFFFF; }
+void HOST_IN_RAM_FUNC psg_park(void) { psg_xaddr = 0xFFFF; }
 
-void psg_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    sst_put_u16(c, psg_xaddr);
-    for (unsigned i = 0; i < PSG_VOICES; i++)
-    {
-        sst_put_u16(c, (uint16_t)psg_channel_state[i].sample);
-        sst_put_u8(c, psg_channel_state[i].adsr);
-        sst_put_u32(c, psg_channel_state[i].vol);
-        sst_put_u32(c, psg_channel_state[i].phase);
-        sst_put_u16(c, psg_channel_state[i].noise1);
-        sst_put_u16(c, psg_channel_state[i].noise2);
-    }
-    for (unsigned i = 0; i < sizeof psg_regs; i++)
-        sst_put_u8(c, ((const uint8_t *)psg_regs)[i]);
-}
-
-bool psg_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    uint16_t at = sst_get_u16(c);
-    __typeof__(psg_channel_state[0]) ch[PSG_VOICES];
-    for (unsigned i = 0; i < PSG_VOICES; i++)
-    {
-        ch[i].sample = (int16_t)sst_get_u16(c);
-        ch[i].adsr = sst_get_u8(c);
-        ch[i].vol = sst_get_u32(c);
-        ch[i].phase = sst_get_u32(c);
-        ch[i].noise1 = sst_get_u16(c);
-        ch[i].noise2 = sst_get_u16(c);
-        if (ch[i].adsr > PSG_ADSR_SUSTAIN)
-            return false;
-    }
-    uint8_t regs[sizeof psg_regs];
-    for (unsigned i = 0; i < sizeof regs; i++)
-        regs[i] = sst_get_u8(c);
-    if (!sst_ok(c) || (at != 0xFFFF && !psg_block_ok(at)))
-        return false;
-    psg_xaddr = at;
-    for (unsigned i = 0; i < PSG_VOICES; i++)
-        psg_channel_state[i] = ch[i];
-    memcpy(psg_regs, regs, sizeof regs);
-    return true;
-}
-
-void psg_map(uint16_t word)
+void HOST_IN_RAM_FUNC psg_map(uint16_t word)
 {
     /* Taking the engine and giving it up both reset it, so a program never
      * inherits the last one's envelopes. psg.sv does the same: it resets
@@ -367,4 +353,13 @@ void psg_map(uint16_t word)
     /* The registers start at zero, whatever XRAM holds. */
     memset(psg_regs, 0, PSG_REGS_SIZE);
     psg_xaddr = word;
+}
+
+/* psg_map leaves the bell's voice to the bell, but a failed load can leave
+ * it holding anything, so it takes voice 0's fresh state and registers. */
+void psg_reset(void)
+{
+    psg_map(0xFFFF);
+    psg_channel_state[PSG_BEL] = psg_channel_state[0];
+    psg_regs[PSG_BEL] = psg_regs[0];
 }

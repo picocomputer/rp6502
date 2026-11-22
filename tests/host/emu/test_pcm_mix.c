@@ -15,6 +15,7 @@
 #include "core/aud/mix.h"
 #include "core/aud/pcm.h"
 #include "core/sys/sst.h"
+#include "core/sys/sys.h"
 #include "core/sys/xram.h"
 #include "core/wdc/bus.h"
 
@@ -34,6 +35,7 @@
 #define FRAME 800
 
 static uint8_t blob[1 << 20];
+/* Where a load saves the machine it may have to put back. */
 static float out[FRAME * 2 * 120];
 
 /* Frames run and their sound taken, appended at at. */
@@ -91,6 +93,7 @@ static void fresh(void)
 {
     aud_set_enabled(true);
     aud_stop();
+    aud_end();
     table_at = 0;
 }
 
@@ -268,7 +271,7 @@ UTEST(pcm_mix, each_time_the_buffer_runs_dry_is_an_underrun)
     ASSERT_EQ(underruns(), 0);
     ASSERT_EQ(ssys_write_xram(fd, TABLE, 1000), 1000);
     pull(0, 4);
-    aud_stop();
+    aud_end();
     ASSERT_EQ(underruns(), 0);
     ASSERT_EQ(ssys_close(fd), 0);
 }
@@ -321,14 +324,107 @@ UTEST(pcm_mix, close_waits_for_the_sound)
     ASSERT_LE(frames, 7);
 }
 
-/* A program's end takes its sound with it, so std_stop's close is at once. */
-UTEST(pcm_mix, a_stop_ends_the_sound)
+/* A close as soon as the buffer is empty still plays out what the filter
+ * holds: the last 24 frames, half its taps, and then the fade to silence.
+ * Cut off at the close, 200 frames of DC at half scale came to 176 frames'
+ * worth of sound at the sink, about 191 samples' area. */
+UTEST(pcm_mix, a_close_plays_out_the_filter)
+{
+    fresh();
+    for (int i = 0; i < 400; i += 2)
+    {
+        xram[TABLE + i] = 0x00;
+        xram[TABLE + i + 1] = 0x40;
+    }
+    const int fd = ssys_open("PCM:22050,16,1", O_WR);
+    ASSERT_TRUE(fd >= 0);
+    ASSERT_EQ(ssys_write_xram(fd, TABLE, 400), 400);
+    /* The close comes on the scanline the buffer runs dry, as a program
+     * polling it would make it. */
+    while (ssys_lseek(fd, 0, WHENCE_CUR) > 0)
+        sys_task();
+    ASSERT_EQ(ssys_close(fd), 0);
+    size_t at = pull(0, 6);
+    double area = 0;
+    for (size_t i = 0; i < at; i++)
+        area += out[i * 2];
+    /* 200 frames at 22050 Hz are 435 samples at 48000, at half scale. */
+    ASSERT_GT(area, 230.0);
+    ASSERT_EQ(out[(at - 1) * 2], 0.0f);
+}
+
+/* A byte short of a frame never plays, so a close does not wait for it and
+ * drops it, and the next open starts on an empty buffer, its frames where
+ * they belong. */
+UTEST(pcm_mix, a_close_drops_a_partial_frame)
+{
+    fresh();
+    const int fd = ssys_open("PCM:22050,16,1", O_WR);
+    ASSERT_TRUE(fd >= 0);
+    ASSERT_EQ(ssys_write_xram(fd, TABLE, 1), 1);
+    ASSERT_EQ(ssys_lseek(fd, 0, WHENCE_CUR), 1);
+    ASSERT_EQ(ssys_close(fd), 0);
+    const int again = ssys_open("PCM:22050,16,1", O_WR);
+    ASSERT_TRUE(again >= 0);
+    ASSERT_EQ(ssys_lseek(again, 0, WHENCE_CUR), 0);
+    /* 0x4000 is half scale. A byte left behind would pair each 0x40 with
+     * the next 0x00 as 0x0040, a 512th of it. */
+    for (int i = 0; i < 400; i += 2)
+    {
+        xram[TABLE + i] = 0x00;
+        xram[TABLE + i + 1] = 0x40;
+    }
+    ASSERT_EQ(ssys_write_xram(again, TABLE, 400), 400);
+    const size_t at = pull(0, 2);
+    float most = 0;
+    for (size_t i = 0; i < at; i++)
+        most = out[i * 2] > most ? out[i * 2] : most;
+    ASSERT_GT(most, 0.45f);
+    ASSERT_EQ(ssys_close(again), 0);
+}
+
+/* dup2 onto PCM: closes it first, which waits for the sound like a close,
+ * and then the descriptor is the other file's. */
+UTEST(pcm_mix, dup2_onto_pcm_waits_for_its_close)
+{
+    fresh();
+    const int fd = ssys_open("PCM:22050,16,1", O_WR);
+    ASSERT_TRUE(fd >= 0);
+    ASSERT_EQ(ssys_write_xram(fd, TABLE, PCM_BUF_SIZE), PCM_BUF_SIZE);
+    const int con = ssys_open("CON:", O_WR);
+    ASSERT_TRUE(con >= 0);
+    int16_t from = (int16_t)con;
+    xstack_ptr = XSTACK_SIZE - 2;
+    memcpy(&xstack[xstack_ptr], &from, 2);
+    API_A = (uint8_t)fd;
+    int frames = 0;
+    while (std_api_dup2())
+    {
+        pull(0, 1);
+        frames++;
+    }
+    ASSERT_EQ(dsys_ax(), fd);
+    ASSERT_GE(frames, 5);
+    ASSERT_LE(frames, 7);
+    ASSERT_EQ(ssys_isatty(fd), 1);
+    const int again = ssys_open("PCM:22050,16,1", O_WR);
+    ASSERT_TRUE(again >= 0);
+    ASSERT_EQ(ssys_close(again), 0);
+    ASSERT_EQ(ssys_close(fd), 0);
+    ASSERT_EQ(ssys_close(con), 0);
+}
+
+/* A stop leaves PCM: playing, for the program an exec starts; the end of
+ * the chain takes the sound with it, so the close then is at once. */
+UTEST(pcm_mix, the_end_of_a_chain_ends_the_sound)
 {
     fresh();
     const int fd = ssys_open("PCM:22050,16,1", O_WR);
     ASSERT_TRUE(fd >= 0);
     ASSERT_EQ(ssys_write_xram(fd, TABLE, PCM_BUF_SIZE), PCM_BUF_SIZE);
     aud_stop();
+    ASSERT_EQ(ssys_lseek(fd, 0, WHENCE_CUR), PCM_BUF_SIZE);
+    aud_end();
     ASSERT_EQ(ssys_lseek(fd, 0, WHENCE_CUR), 0);
     ASSERT_EQ(ssys_close(fd), 0);
 }

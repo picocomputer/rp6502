@@ -11,11 +11,12 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/* The two a machine that is its own keyboard driver gives core/hid/keymap.c.
+ * The first lights the lock LEDs of every keyboard, in KEYBOARD_LED_ bits.
+ * The second is true while the platform is still enumerating the devices
+ * attached at boot, and false where nothing enumerates: the NumLock quirk
+ * is only for a keyboard that arrives during that window. */
 void hid_set_leds(uint8_t leds);
-
-/* True while the platform is still enumerating the devices attached at boot.
- * The keyboard driver applies its NumLock quirk only to a keyboard that
- * arrives during that window. False where nothing enumerates. */
 bool hid_boot_enumerating(void);
 
 /* An XREG write has just pointed a device at a new XRAM report block, and the

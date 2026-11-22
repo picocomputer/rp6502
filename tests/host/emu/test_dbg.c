@@ -9,7 +9,7 @@
 #include "core/wdc/sram.h"
 #include "host/host.h"
 #include "core/vga/vga_emu.h"
-#include "core/hid/vtkeys.h"
+#include "core/hid/paste.h"
 #include "core/aud/mix.h"
 #include "core/aud/bel.h"
 #include "emu_boot.h"
@@ -230,7 +230,6 @@ UTEST(dbg, a_stop_holds_the_cpu_and_not_the_screen)
     for (int i = 0; i < 200000; i++)
     {
         sys_task();
-        sys_io_task();
         sys_commit();
     }
     ASSERT_TRUE(dbg_is_stopped());
@@ -268,7 +267,7 @@ UTEST(dbg, continue_runs_to_exit)
     /* Adventure asks a yes-or-no question about instructions when it starts
      * and another to confirm "quit", so pasting "no", "quit" and "yes" ends the
      * program. */
-    vtkeys_paste("no\rquit\ryes\r");
+    paste_start("no\rquit\ryes\r");
     for (int i = 0; i < 600 && sys_running(); i++)
         emu_frames(1);
     ASSERT_FALSE(sys_running());

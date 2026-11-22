@@ -16,6 +16,12 @@ struct sapp_event;
  * input. */
 void input_event(const struct sapp_event *e);
 
+/* Take the three locks from the system, which owns them. A lock key changes
+ * nothing here: the system changes the lock and this reads it, once a frame
+ * and before each key press. Only a window calls this, so a headless or
+ * script run keeps its own locks. */
+void input_locks(void);
+
 /* sapp_mouse_locked(), limited on the web to the lock on Module.canvas. */
 bool input_mouse_locked(void);
 

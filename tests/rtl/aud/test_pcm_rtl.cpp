@@ -16,6 +16,7 @@
 
 #include "utest.h"
 
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -75,15 +76,17 @@ struct op_t
     fmt_t fmt;
 };
 
-/* Full-scale samples: Nyquist squares with phase flips, which reach the
- * filter's peak, and either rail held or at random. pos counts bytes from
- * the last open or clear, which is where pcm.c's frames start. */
+/* Full-scale samples: Nyquist squares with phase flips, either rail held
+ * or at random, and the signs of the filter's own sinc, which reach its
+ * peak. pos counts bytes from the last open or clear, which is where
+ * pcm.c's frames start. */
 struct rails_t
 {
     uint32_t pos, bps, frame;
     int32_t val;
     int seg, kind, flip;
     uint32_t k;
+    double c;
 };
 
 static char why[512];
@@ -102,8 +105,8 @@ struct sim_t
     long on_tick[7] = {}, in_work[7] = {};
     /* Bytes stored since the last commit, which pcm.c gets at it. */
     std::vector<uint8_t> staged;
-    /* Takes of a whole frame and of silence, ticks with the FIFO full,
-     * and underruns counted. */
+    /* Takes of a whole frame and dry takes, which fade, ticks with the FIFO
+     * full, and underruns counted. */
     long whole = 0, dry = 0, brim = 0, under = 0;
     /* This clock's underrun, and whether it opened the device. */
     uint32_t inc = 0;
@@ -168,7 +171,7 @@ static void apply(sim_t &s, const op_t &o)
     case OP_OPEN:
         dut->ctrl_we = 1;
         dut->wdata = 1u | (o.fmt.bits == 16 ? 2u : 0u) | (o.fmt.channels == 2 ? 4u : 0u);
-        shim_pcm_reset(o.fmt.rate, o.fmt.bits, o.fmt.channels);
+        shim_pcm_open(o.fmt.rate, o.fmt.bits, o.fmt.channels);
         s.staged.clear();
         s.opened = true;
         s.open = true;
@@ -177,6 +180,10 @@ static void apply(sim_t &s, const op_t &o)
     case OP_CLOSE:
         dut->ctrl_we = 1;
         dut->wdata = 0;
+        /* The FIFO is emptied, what was stored and not committed with it,
+         * and the player plays on. */
+        shim_pcm_clear();
+        s.staged.clear();
         s.open = false;
         break;
     case OP_DATA:
@@ -267,7 +274,7 @@ static const char *clock(sim_t &s)
         if (dut->rootp->tb_aud__DOT__pcm__DOT__state != S_IDLE)
             return "a tick found the player busy";
         s.want_l = s.want_r = 0;
-        if (s.open)
+        /* The player runs on every tick, open or closed. */
         {
             const uint64_t ph = dut->rootp->tb_aud__DOT__pcm__DOT__rst_pend
                                     ? 1ull << 32
@@ -335,7 +342,8 @@ static int32_t rails_next(rails_t &p)
     if (p.seg-- <= 0)
     {
         p.seg = rr(10, 70);
-        p.kind = rr(0, 5);
+        p.kind = rr(0, 6);
+        p.c = p.pos / p.frame + 24.5;
     }
     p.k++;
     if (p.kind <= 2 && rr(0, 40) == 0)
@@ -348,6 +356,12 @@ static int32_t rails_next(rails_t &p)
         return -32768;
     case 5:
         return rr(0, 1) ? 32767 : -32768;
+    case 6:
+    {
+        /* rsmp.py's FC, by frame, so both channels of a frame match. */
+        const double x = M_PI * 0.8975 * (p.pos / p.frame - p.c);
+        return (x == 0 || sin(x) / x >= 0) != (p.flip != 0) ? 32767 : -32768;
+    }
     default:
         return ((p.k ^ (uint32_t)p.flip) & 1) ? 32767 : -32768;
     }
@@ -440,6 +454,9 @@ struct case_t
     /* Ops on edge_c half the time; full-scale samples. */
     bool edges, rails;
     bool rsmp;
+    /* Samples a close lasts at most, with a step written while closed;
+     * 0 for a few. */
+    long closed;
     uint32_t seed;
 };
 
@@ -473,7 +490,12 @@ static const char *run(const case_t &k, int32_t *peak = NULL)
             {
                 fi = (fi + 1) % k.fmts.size();
                 push(s, any_clock(n, k.edges), OP_CLOSE);
-                const long at = s.last + (rr(0, 3) ? rr(1, 20) : rr(1, 3 * F));
+                if (k.closed)
+                    push(s, s.last + rr(1, k.closed * F / 2), OP_STEP, 0,
+                         k.fmts[(fi + 1) % k.fmts.size()]);
+                const long at = s.last + (k.closed ? rr(1, k.closed * F / 2)
+                                          : rr(0, 3) ? rr(1, 20)
+                                                     : rr(1, 3 * F));
                 push(s, at, OP_STEP, 0, k.fmts[fi]);
                 push(s, s.last + rr(1, 20), OP_OPEN, 0, k.fmts[fi]);
             }
@@ -621,6 +643,25 @@ UTEST(pcm_rtl, underrun_and_resume)
     ASSERT_OK(run(k));
 }
 
+/* Closes long enough for the player to play its filter out, fade to
+ * silence and stay there, with the step for the next open written while
+ * it does. */
+UTEST(pcm_rtl, a_close_plays_out_to_silence)
+{
+    case_t k = {};
+    k.fmts = {{8000, 8, 1}, {22050, 16, 2}, {44100, 16, 1}};
+    k.frames = 9000;
+    k.chunk = 300;
+    k.burst_frames = 60;
+    k.byte_pct = 30;
+    k.gap_lo = 1;
+    k.gap_hi = 6;
+    k.p_reopen = 1500;
+    k.closed = 4000;
+    k.seed = 0xC105E;
+    ASSERT_OK(run(k));
+}
+
 /* Every op on any clock: clears, closes and reopens in another format
  * landing on the tick, in the filter's work and between. */
 UTEST(pcm_rtl, events_on_any_clock)
@@ -663,9 +704,9 @@ UTEST(pcm_rtl, words_across_the_wrap)
     }
 }
 
-/* Full-scale samples at rates whose rows reach 64, where the filter
- * peaks: the dot, the difference and the output each need their every
- * bit, and the output passes 17 bits. */
+/* Full-scale samples at rates whose rows reach the middle, where the
+ * filter peaks: the dot, the difference and the output each need their
+ * every bit, and the output passes 17 bits. */
 static const char *rails_in(uint8_t bits, uint8_t channels, uint32_t seed)
 {
     static const uint32_t rails_rates[] = {1, 8000, 11025, 12000, 16000, 22050,

@@ -12,7 +12,8 @@
 #include "core/ria/regs.h"
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
-#include "core/sys/com.h"
+#include "core/com/com.h"
+#include "core/hid/paste.h"
 #include "core/str/str.h"
 #include "osal/dir.h"
 #include "osal/fs.h"
@@ -26,36 +27,30 @@ static bool queued;
  * somewhere other than the console. */
 static const char *boot_error = "";
 
-void proc_sst_save(sst_cursor_t *c, unsigned flags)
+/* proc_exec_task loads what argv[0] names, so an exec on its way with no
+ * argv[0] is refused. The ARG row loads before this one. */
+static bool proc_queued_valid(sst_cursor_t *c)
 {
-    (void)flags;
-    sst_put_bool(c, queued);
-    sst_put_i16(c, proc_get_exit_code());
-    sst_put_str(c, proc_running(), PROC_PATH_SLOT);
-    sst_put_str(c, proc_launcher(), PROC_PATH_SLOT);
-    sst_put(c, arg_data(), arg_bytes());
-}
-
-bool proc_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    bool pending = sst_get_bool(c);
-    int16_t code = sst_get_i16(c);
-    static char running[PROC_PATH_SLOT], launcher[PROC_PATH_SLOT];
-    sst_get_str(c, running, sizeof running);
-    sst_get_str(c, launcher, sizeof launcher);
-    static uint8_t argv[XSTACK_SIZE];
-    sst_get(c, argv, sizeof argv);
-    if (!sst_ok(c))
-        return false;
-    queued = pending;
-    proc_set_exit_code(code);
-    proc_restore_paths(running, launcher);
-    arg_set_data(argv);
+    if (queued && !arg_index(0))
+        return sst_refuse(c, "an exec is on its way with no program");
     return true;
 }
 
+#define PROC_SST(X)                                                       \
+    X(BOOL, queued)                                                       \
+    X(VALIDATE, proc_queued_valid)                                        \
+    X(SKIP, boot_error, "read right after the boot that sets it")
+SST_TABLE(proc, PROC_SST)
+
 void proc_exec_init(void)
+{
+    queued = false;
+}
+
+/* No exec is on its way, so proc_exec_task loads nothing. The chain is
+ * CHAN's to reset, and what ends a chain in other drivers is their own
+ * reset's job. */
+void proc_reset(void)
 {
     queued = false;
 }
@@ -128,24 +123,44 @@ const char *proc_boot_error(void)
     return boot_error;
 }
 
-static bool proc_boot_failed(const char *why)
+/* A failed exec ends its chain before the error prints, so the error comes
+ * out after the soft reset. */
+static bool proc_boot_failed(const char *why, int argc)
 {
     boot_error = why;
+    if (argc < 0)
+        proc_exec_failed();
+    com_clean_line();
     com_printf("%s", why);
     return false;
 }
 
-bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags)
+void proc_start_by_name(void)
 {
-    sys_stop_now(); /* before the load writes over what it was running on */
+    proc_cancel_launcher();
+    sys_stop_now();
     /* Cleared after that stop and not before, because the stop reaches
      * proc_stop, which reads proc_exec_inflight to decide whether the
-     * launcher comes back. Whatever the outgoing program had queued goes with
-     * it, since a start asked for by name is not its child. */
+     * launcher comes back. An exec it leaves queued ends with the chain. */
+    if (queued)
+    {
+        queued = false;
+        proc_chain_end();
+    }
+    paste_cancel();
+}
+
+bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags)
+{
+    /* Either stops what was running before the load writes over it. */
+    if (argc >= 0)
+        proc_start_by_name();
+    else
+        sys_stop_now();
     queued = false;
     boot_error = "";
     if (argc < 0 ? !argv0_absolute() : !proc_argv_fits(rom, argc, args))
-        return proc_boot_failed(S(STR_ERR_ROM_ARGV_OVERFLOW));
+        return proc_boot_failed(S(STR_ERR_ROM_ARGV_OVERFLOW), argc);
     if (argc < 0)
         rom = arg_index(0);
     if (flags & PROC_REFILL)
@@ -154,11 +169,9 @@ bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags)
         xram_init();
     }
     if (!rom_load(rom))
-        return proc_boot_failed(rom_load_error());
+        return proc_boot_failed(rom_load_error(), argc);
     if (argc >= 0)
         proc_set_argv(rom, argc, args);
-    if (flags & PROC_UNCHAIN)
-        proc_set_launcher(false);
     fs_save_start();
     sys_run();
     return true;
@@ -174,14 +187,30 @@ void proc_exec_relaunch(void)
     proc_exec_request();
 }
 
+void proc_exec_break(void)
+{
+    if (!queued)
+        return;
+    queued = false;
+    proc_chain_end();
+}
+
+void proc_shutdown(void)
+{
+    proc_break();
+    sys_commit();
+}
+
 bool proc_exec_inflight(void)
 {
     return queued;
 }
 
+/* The session's end waits for the program's output to go out at the
+ * console line's pace, and the program has exited once that is done. */
 bool proc_exited(void)
 {
-    return !sys_running() && !proc_exec_inflight();
+    return !sys_running() && !proc_exec_inflight() && !com_ending();
 }
 
 void proc_exec_task(void)
@@ -191,6 +220,5 @@ void proc_exec_task(void)
     /* argv[0] is still where the request left it, because the only thing that
      * rewrites argv on a stop is proc_stop arming a launcher relaunch, and it
      * does not do that while an exec is in flight. */
-    if (!proc_boot(arg_index(0), -1, NULL, 0))
-        proc_set_exit_code(1);
+    proc_boot(arg_index(0), -1, NULL, 0);
 }

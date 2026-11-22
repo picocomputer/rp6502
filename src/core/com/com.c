@@ -2,305 +2,321 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
  */
 
-#include "core/sys/ria.h"
 #include "core/com/com.h"
-#include "core/sys/com_term.h"
-#include "core/com/tty.h"
-#include "core/aud/bel.h"
+#include "core/str/oem.h"
 #include "core/str/str.h"
-#include "core/sys/driver.h"
-#include "core/sys/ring.h"
+#include "core/sys/ria.h"
+#include "core/sys/timer.h"
+#include "core/term/cells.h"
+#include "core/com/manifold.h"
 #include "machine.h"
+#include "drivers.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
-#define COM_ETX 0x03
+static const com_source_driver_t
+    com_sources[COM_SOURCE_COUNT] = {RP6502_COM_SOURCES};
 
-typedef RING(uint8_t, COM_RING_SIZE) com_ring_t;
+static uint8_t com_rx_held = COM_SOURCE_ANY;
+static timer_mach_t com_rx_deadline;
 
-static com_ring_t com_keyboard_ring;
-static com_ring_t com_uart_ring;
-static uint8_t com_reply_buf[32];
-static size_t com_reply_len;
-static bool com_term_reply_suppressed;
+/* The source of the byte staged in the 6502's receive register. Every
+ * source's read starts by taking that byte back, and only the source it came
+ * from gets it; otherwise the keyboard would be handed a byte typed at the
+ * UART. */
+static uint8_t com_rx_staged;
 
 static bool com_bel_enabled = true;
 
-static char com_crlf_last;
+/* An end of session waits for what the program wrote to go out at the
+ * line's pace, then its reset goes out at once. */
+bool com_end_pending;
 
-/* The count, then COM_RING_SIZE bytes oldest first. */
-static void com_ring_save(sst_cursor_t *c, com_ring_t *r)
-{
-    const uint32_t len = RING_LEN(r);
-    sst_put_u16(c, (uint16_t)len);
-    for (uint32_t i = 0; i < COM_RING_SIZE; i++)
-        sst_put_u8(c, i < len ? *RING_AT(r, i) : 0);
-}
+/* The console's terminal's answers, read from the UART's source. The first
+ * com_reply_at bytes have been read, and while any have, the rest are read
+ * before the UART's queue. A program asks many things at once as it
+ * starts, and an answer that does not fit is dropped, so this holds all
+ * that Neovim asks for with none of it read yet, 152 bytes, with room to
+ * spare. The longest single answer, DECRQSS's of a full pen, is 84. */
+static uint8_t com_reply_buf[256];
+static uint16_t com_reply_len;
+static uint16_t com_reply_at;
+static bool com_reply_quiet;
+static bool com_reply_default;
 
-static uint16_t com_ring_get(sst_cursor_t *c, uint8_t *buf)
+/* The picker's held source, the latch byte's source and the answer's
+ * indexes are checked, because each indexes an array. */
+static bool com_sst_valid(sst_cursor_t *c)
 {
-    const uint16_t len = sst_get_u16(c);
-    sst_get(c, buf, COM_RING_SIZE);
-    return len;
-}
-
-static void com_ring_set(com_ring_t *r, const uint8_t *buf, uint16_t len)
-{
-    RING_RESET(r);
-    RING_IN(r, buf, len);
-}
-
-void com_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    com_ring_save(c, &com_keyboard_ring);
-    com_ring_save(c, &com_uart_ring);
-    sst_put_u8(c, (uint8_t)com_reply_len);
-    sst_put(c, com_reply_buf, sizeof com_reply_buf);
-    sst_put_bool(c, com_bel_enabled);
-    sst_put_u8(c, (uint8_t)com_crlf_last);
-    com_rx_save(c);
-}
-
-bool com_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    uint8_t kb[COM_RING_SIZE], wire[COM_RING_SIZE];
-    const uint16_t kb_len = com_ring_get(c, kb);
-    const uint16_t wire_len = com_ring_get(c, wire);
-    uint8_t len = sst_get_u8(c);
-    uint8_t held[sizeof com_reply_buf];
-    sst_get(c, held, sizeof held);
-    bool bel = sst_get_bool(c);
-    uint8_t crlf = sst_get_u8(c);
-    if (!sst_ok(c) || kb_len > COM_RING_SIZE || wire_len > COM_RING_SIZE ||
-        len > sizeof com_reply_buf)
-        return false;
-    if (!com_rx_load(c))
-        return false;
-    com_ring_set(&com_keyboard_ring, kb, kb_len);
-    com_ring_set(&com_uart_ring, wire, wire_len);
-    com_reply_len = len;
-    memcpy(com_reply_buf, held, sizeof com_reply_buf);
-    com_bel_enabled = bel;
-    com_crlf_last = (char)crlf;
+    if (com_rx_held > COM_SOURCE_ANY || com_rx_staged >= COM_SOURCE_COUNT)
+        return sst_refuse(c, "a source the console does not have");
+    if (com_reply_len > sizeof com_reply_buf ||
+        (com_reply_at && com_reply_at >= com_reply_len))
+        return sst_refuse(c, "an answer past its buffer");
     return true;
 }
 
-/* A reply is held back while the ring still has bytes in it, because those
- * bytes can be the start of a sequence whose rest has not arrived yet, and
- * the reply would then be delivered in the middle of that sequence. */
-static void com_reply_promote(void)
+#define COM_SST_ROWS(X)                                  \
+    X(SKIP, com_sources, "the machine's, fixed")         \
+    X(U8, com_rx_held)                                   \
+    X(U64, com_rx_deadline)                              \
+    X(BOOL, com_bel_enabled)                             \
+    X(U8, com_rx_staged)                                 \
+    X(U16, com_reply_len)                                \
+    X(U16, com_reply_at)                                 \
+    X(BYTES, com_reply_buf)                              \
+    X(BOOL, com_reply_quiet)                             \
+    X(BOOL, com_end_pending)                             \
+    X(VALIDATE, com_sst_valid)                           \
+    X(SKIP, com_reply_default, "host wiring")
+SST_TABLE(com, COM_SST_ROWS)
+
+static size_t HOST_IN_RAM_FUNC com_reply_read(char *buf, size_t n)
 {
-    if (!com_reply_len || RING_LEN(&com_uart_ring))
-        return;
-    RING_IN(&com_uart_ring, com_reply_buf, (uint32_t)com_reply_len);
-    com_reply_len = 0;
+    size_t got = (size_t)(com_reply_len - com_reply_at);
+    if (got > n)
+        got = n;
+    memcpy(buf, &com_reply_buf[com_reply_at], got);
+    com_reply_at += (uint16_t)got;
+    if (com_reply_at == com_reply_len)
+        com_reply_len = com_reply_at = 0;
+    return got;
 }
 
-size_t com_keyboard_read(char *buf, size_t length)
+/* The UART's queue peeked empty at offset, so it holds offset bytes or
+ * fewer, and an answer not yet started follows its last one. */
+static int HOST_IN_RAM_FUNC com_reply_peek_past(size_t offset)
 {
-    return RING_OUT(&com_keyboard_ring, buf, (uint32_t)length);
+    size_t end = offset;
+    while (end && offset - end < com_reply_len &&
+           com_sources[COM_SOURCE_UART].peek(end - 1) < 0)
+        end--;
+    return offset - end < com_reply_len ? com_reply_buf[offset - end] : -1;
 }
 
-void com_keyboard_clear(void)
+/* A source's read that comes back short has emptied its queue, so a held
+ * answer that has not started is read next. */
+size_t HOST_IN_RAM_FUNC com_read(com_source_t src, char *buf, size_t n)
 {
-    RING_SKIP(&com_keyboard_ring, RING_LEN(&com_keyboard_ring));
+    size_t got = com_rx_reclaim(buf, n, src);
+    bool uart = src == COM_SOURCE_UART;
+    if (uart && com_reply_at)
+        got += com_reply_read(&buf[got], n - got);
+    if (got < n && com_sources[src].read)
+        got += com_sources[src].read(&buf[got], n - got);
+    if (uart && got < n)
+        got += com_reply_read(&buf[got], n - got);
+    return got;
 }
 
-size_t com_uart_read(char *buf, size_t length)
+int HOST_IN_RAM_FUNC com_peek(com_source_t src, size_t offset)
 {
-    size_t n = 0;
-    while (n < length)
+    int c = com_rx_peek(src);
+    if (c >= 0)
     {
-        com_reply_promote();
-        const uint32_t got = RING_OUT(&com_uart_ring, buf + n, (uint32_t)(length - n));
-        if (!got)
-            break;
-        n += got;
+        if (!offset)
+            return c;
+        offset--;
     }
+    bool uart = src == COM_SOURCE_UART;
+    if (uart && com_reply_at)
+    {
+        size_t left = (size_t)(com_reply_len - com_reply_at);
+        if (offset < left)
+            return com_reply_buf[com_reply_at + offset];
+        offset -= left;
+    }
+    c = com_sources[src].peek ? com_sources[src].peek(offset) : -1;
+    if (c < 0 && uart && !com_reply_at)
+        return com_reply_peek_past(offset);
+    return c;
+}
+
+size_t HOST_IN_RAM_FUNC com_queue_size(com_source_t src)
+{
+    return com_sources[src].size;
+}
+
+/* A source that read something holds the reader for the dwell it declares, so a
+ * byte from another source cannot land between two chunks of a burst. A source
+ * that declares no dwell is never held, because a deadline of zero microseconds
+ * has already passed. */
+static size_t HOST_IN_RAM_FUNC com_rx_pick(char *buf, size_t length, com_source_t *src_out)
+{
+    if (com_rx_held != COM_SOURCE_ANY && timer_mach_passed(com_rx_deadline))
+        com_rx_held = COM_SOURCE_ANY;
+    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
+    {
+        if (com_rx_held != COM_SOURCE_ANY && com_rx_held != s)
+            continue;
+        size_t n = com_read(s, buf, length);
+        if (n)
+        {
+            com_rx_held = s;
+            com_rx_deadline = timer_mach_in_us(com_sources[s].dwell_us);
+            if (src_out)
+                *src_out = s;
+            return n;
+        }
+        if (!com_sources[s].dwell_us)
+            com_rx_held = COM_SOURCE_ANY;
+    }
+    return 0;
+}
+
+int HOST_IN_RAM_FUNC com_getchar(com_source_t *src)
+{
+    char ch;
+    size_t n = *src == COM_SOURCE_ANY ? com_rx_pick(&ch, 1, src)
+                                      : com_read(*src, &ch, 1);
+    if (n)
+        return (unsigned char)ch;
+    *src = COM_SOURCE_ANY;
+    return -1;
+}
+
+size_t com_stdin_read(char *buf, size_t count)
+{
+    return com_rx_pick(buf, count, NULL);
+}
+
+bool HOST_IN_RAM_FUNC com_rx_stage(void)
+{
+    com_source_t src = COM_SOURCE_ANY;
+    int ch = com_getchar(&src);
+    if (ch < 0)
+        return false;
+    com_rx_staged = src;
+    ria_uart_rx_offer((uint8_t)ch);
+    return true;
+}
+
+size_t HOST_IN_RAM_FUNC com_rx_reclaim(char *buf, size_t length, com_source_t src)
+{
+    uint8_t ch;
+    if (!length || com_rx_staged != src || !ria_uart_rx_reclaim(&ch))
+        return 0;
+    buf[0] = (char)ch;
+    return 1;
+}
+
+int HOST_IN_RAM_FUNC com_rx_peek(com_source_t src)
+{
+    return com_rx_staged == src ? ria_uart_rx_peek() : -1;
+}
+
+/* A source's unread input, with the byte it has waiting in the RIA's RX
+ * latch, which is the head of that source's queue and goes with it. */
+void HOST_IN_FLASH_FUNC com_rx_clear_source(com_source_t s)
+{
+    if (com_rx_held == s)
+        com_rx_held = COM_SOURCE_ANY;
+    char waiting;
+    com_rx_reclaim(&waiting, 1, s);
+    if (com_sources[s].clear)
+        com_sources[s].clear();
+    if (s == COM_SOURCE_UART)
+        com_reply_len = com_reply_at = 0;
+}
+
+void HOST_IN_FLASH_FUNC com_rx_clear(void)
+{
+    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
+        com_rx_clear_source(s);
+}
+
+/* An answer that does not fit is dropped whole rather than cut short,
+ * because half of an escape sequence is a sequence the reader parses as
+ * something else. */
+void HOST_IN_FLASH_FUNC com_reply(const char *s, size_t n)
+{
+    if (com_reply_quiet || n > sizeof com_reply_buf - com_reply_len)
+        return;
+    memcpy(&com_reply_buf[com_reply_len], s, n);
+    com_reply_len += (uint16_t)n;
+}
+
+bool HOST_IN_FLASH_FUNC com_get_reply_quiet(void)
+{
+    return com_reply_quiet;
+}
+
+void HOST_IN_FLASH_FUNC com_set_reply_quiet(bool quiet)
+{
+    com_reply_quiet = quiet;
+}
+
+void HOST_IN_FLASH_FUNC com_set_reply_default(bool quiet)
+{
+    com_reply_default = quiet;
+    com_reply_quiet = quiet;
+}
+
+void HOST_IN_FLASH_FUNC com_run(void)
+{
+    com_reply_quiet = com_reply_default;
+}
+
+/* A failed load can leave the picker held by no source, which reads nothing
+ * ever again, the latch byte named for no source, and the answer's indexes
+ * past its buffer. This drops the input and answers waiting, holds no
+ * source, names the keyboard for the latch, turns the bell on and answers
+ * queries as the machine's default says, as a new program finds them. A
+ * latch byte named for no source is the RIA's RESET to drop. */
+void com_reset(void)
+{
+    com_rx_clear();
+    com_rx_held = COM_SOURCE_ANY;
+    com_rx_staged = COM_SOURCE_KEYBOARD;
+    com_bel_enabled = true;
+    com_end_pending = false;
+    com_run();
+}
+
+/* Where COM_LIBC_STDOUT says the C library's stdout is the console, this
+ * formats straight to it. Elsewhere it formats into a 1 KB buffer and cuts off
+ * what does not fit. */
+int HOST_IN_FLASH_FUNC com_printf(const char *fmt, ...)
+{
+    /* A session's end, still waiting for the program's output, goes out
+     * ahead of what the firmware writes. */
+    com_end_now();
+    va_list va;
+    va_start(va, fmt);
+#if COM_LIBC_STDOUT
+    int n = vprintf(fmt, va);
+#else
+    char buf[1024];
+    int n = vsnprintf(buf, sizeof(buf), fmt, va);
+    int w = n < (int)sizeof(buf) ? n : (int)sizeof(buf) - 1;
+    for (int i = 0; i < w; i++)
+        manifold_putchar(buf[i]);
+#endif
+    va_end(va);
     return n;
 }
 
-int com_uart_peek(void)
+#define COM_PRINTF_UTF8_SIZE 128
+
+int HOST_IN_FLASH_FUNC com_printf_utf8(const char *utf8_fmt, ...)
 {
-    com_reply_promote();
-    return RING_LEN(&com_uart_ring) ? *RING_AT(&com_uart_ring, 0) : -1;
-}
-
-void com_uart_clear(void)
-{
-    RING_SKIP(&com_uart_ring, RING_LEN(&com_uart_ring));
-    com_reply_len = 0;
-}
-
-static void (*com_term_out)(const char *buf, int len);
-
-void com_set_term_out(void (*out_chars)(const char *buf, int len))
-{
-    com_term_out = out_chars;
-}
-
-static void (*com_tx_tap)(const char *buf, int len);
-
-void com_set_tx_tap(void (*tap)(const char *buf, int len))
-{
-    com_tx_tap = tap;
-}
-
-static void (*com_std_tap)(int fd, const char *buf, int len);
-
-void com_set_std_tap(void (*tap)(int fd, const char *buf, int len))
-{
-    com_std_tap = tap;
-}
-
-static void (*com_stderr_sink)(const char *buf, int len);
-
-void com_set_stderr_sink(void (*sink)(const char *buf, int len))
-{
-    com_stderr_sink = sink;
-}
-
-void com_tx_write(const char *buf, int len)
-{
-    if (com_tx_tap)
-        com_tx_tap(buf, len);
-    if (com_bel_enabled)
-        for (int i = 0; i < len; i++)
-            if (buf[i] == '\a')
-                bel_add(&bel_teletype);
-    tty_write(buf, len);
-    if (com_term_out)
-        com_term_out(buf, len);
-}
-
-void com_crlf_write(const char *buf, int len)
-{
-    char out[2 * 64];
+    char buf[COM_PRINTF_UTF8_SIZE];
+    com_end_now();
+    va_list va;
+    va_start(va, utf8_fmt);
+    oem_vsnprintf(buf, sizeof(buf), utf8_fmt, va);
+    va_end(va);
     int n = 0;
-    for (int i = 0; i < len; i++)
-    {
-        char c = buf[i];
-        if (c == '\n' && com_crlf_last != '\r')
-            out[n++] = '\r';
-        out[n++] = c;
-        com_crlf_last = c;
-        if (n >= (int)sizeof(out) - 1)
-        {
-            com_tx_write(out, n);
-            n = 0;
-        }
-    }
-    if (n)
-        com_tx_write(out, n);
+    for (const char *p = buf; *p; p++, n++)
+        manifold_putchar(*p);
+    return n;
 }
 
-int com_putchar(int c)
-{
-    char ch = (char)c;
-    com_crlf_write(&ch, 1);
-    return (int)(unsigned char)c;
-}
-
-bool com_writable(void)
-{
-    return true;
-}
-
-void com_write(char ch)
-{
-    if (com_std_tap)
-        com_std_tap(1, &ch, 1);
-    com_tx_write(&ch, 1);
-}
-
-size_t com_stdout_write(const char *buf, size_t count)
-{
-    if (com_std_tap)
-        com_std_tap(1, buf, (int)count);
-    com_crlf_write(buf, (int)count);
-    return count;
-}
-
-size_t com_stderr_write(const char *buf, size_t count)
-{
-    if (com_std_tap)
-        com_std_tap(2, buf, (int)count);
-    if (com_stderr_sink)
-        com_stderr_sink(buf, (int)count);
-    com_crlf_write(buf, (int)count);
-    return count;
-}
-
-/* A reply that does not fit is dropped whole rather than truncated, because
- * half of an escape sequence is a sequence the reader parses as something
- * else. */
-void com_in_write_reply(const char *s, size_t n)
-{
-    if (com_term_reply_suppressed || n > sizeof com_reply_buf ||
-        com_reply_len > sizeof com_reply_buf - n)
-        return;
-    memcpy(com_reply_buf + com_reply_len, s, n);
-    com_reply_len += n;
-}
-
-void com_suppress_term_reply(bool suppress)
-{
-    com_term_reply_suppressed = suppress;
-}
-
-/* A Ctrl-C is scanned for before the byte is pushed, so a break is seen even
- * when the ring is full and the byte itself is dropped. */
-void com_uart_push(const char *s, size_t n)
-{
-    for (size_t i = 0; i < n; i++)
-        if (s[i] == COM_ETX)
-            ria_trigger_sigint();
-    RING_IN(&com_uart_ring, s, (uint32_t)n);
-}
-
-void com_stream_push(const char *s, size_t n)
-{
-    RING_IN(&com_uart_ring, s, (uint32_t)n);
-}
-
-size_t com_uart_free(void)
-{
-    return RING_AVAIL(&com_uart_ring);
-}
-
-bool com_input_idle(void)
-{
-    return !com_reply_len && !RING_LEN(&com_uart_ring) &&
-           !RING_LEN(&com_keyboard_ring);
-}
-
-void com_keyboard_push(const char *s, size_t n)
-{
-    for (size_t i = 0; i < n; i++)
-        if (s[i] == COM_ETX)
-            ria_trigger_sigint();
-    RING_IN(&com_keyboard_ring, s, (uint32_t)n);
-}
-
-void com_keyboard_push_byte(uint8_t b)
-{
-    if (b == COM_ETX)
-        ria_trigger_sigint();
-    RING_PUT(&com_keyboard_ring, b);
-}
-
-size_t com_keyboard_free(void)
-{
-    return RING_AVAIL(&com_keyboard_ring);
-}
-
-bool com_get_bel(void)
+bool HOST_IN_RAM_FUNC com_get_bel(void)
 {
     return com_bel_enabled;
 }
@@ -310,23 +326,90 @@ void com_set_bel(bool value)
     com_bel_enabled = value;
 }
 
-void com_init(void)
+/* The console's terminal has had every byte sent, so its cursor tells. At
+ * the last column, a pending wrap or not, CR LF is right. */
+static bool com_line_clean(void)
 {
-    com_rx_clear();
-    com_bel_enabled = true;
+    manifold_flush();
+    return term_pos(term_shown(&cells_term))->x == 0;
 }
 
-void com_run(void)
+void com_clean_line(void)
 {
-    com_bel_enabled = true;
+    com_end_now();
+    if (!com_line_clean())
+    {
+        manifold_putchar('\r');
+        manifold_putchar('\n');
+    }
 }
 
-void com_break(void)
+/* The cursor goes to a row with nothing on it or below it: the row after
+ * the last one in use, from the cursor's down. A CR LF for each row takes
+ * it there on a terminal of any size, and scrolls at the bottom, which is
+ * what makes the row when the last one is in use. It stays where it is
+ * when its own row and all below are clear, but for the first column. */
+static void com_clear_line(void)
 {
-    com_rx_clear();
+    manifold_flush();
+    term_grid_t *g = term_shown(&cells_term);
+    const uint8_t y = term_pos(g)->y;
+    uint8_t last = g->height;
+    while (last > y && !cells_row_used(&cells_term, g, last - 1))
+        last--;
+    if (last <= y)
+    {
+        com_clean_line();
+        return;
+    }
+    for (uint8_t row = y; row < last; row++)
+    {
+        manifold_putchar('\r');
+        manifold_putchar('\n');
+    }
 }
 
-void com_stop(void)
+/* The soft reset starts with CAN, which ends any escape sequence left half
+ * sent, and leaves the alternate screen, smooth scroll and the margins, the
+ * top and bottom ones with the cursor kept where it is, so the line feeds
+ * after it move the cursor down the whole screen, at once, and the cursor
+ * read after it is the one they move. The default cursor shape goes to
+ * the screen alone, because a terminal on the UART or telnet may print it.
+ * Then the code page comes back, after the output it was printed in, and
+ * the bell rings again. */
+void com_end_reset(void)
 {
-    com_printf("%s", STR_TERM_SOFT_RESET);
+    com_end_pending = true;
+}
+
+void com_end_now(void)
+{
+    static const char shape[] = "\33[0 q";
+    if (!com_end_pending)
+        return;
+    com_end_pending = false;
+    /* A smooth scroll the output started has finished, unless this is
+     * early, and then it snaps into place, the same on every machine. */
+    term_release_smooth(&cells_term);
+    manifold_flush();
+    for (const char *s = STR_TERM_SOFT_RESET; *s; s++)
+        manifold_putchar((unsigned char)*s);
+    manifold_write_to(COM_TERM_SCREEN, shape, sizeof shape - 1);
+    com_clear_line();
+    manifold_flush();
+    oem_restore_code_page();
+    com_set_bel(true);
+}
+
+void com_task(void)
+{
+    if (com_end_pending && manifold_drained())
+        com_end_now();
+}
+
+/* A program starting finds the session before it ended. */
+void com_start(void)
+{
+    com_end_now();
+    com_run();
 }

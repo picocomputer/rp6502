@@ -14,11 +14,13 @@
 #include "host/sokol/cli/cli.h"
 #include "tb_hostos.h"
 #include "core/hid/usage.h"
-#include "core/hid/vtkeys.h"
+#include "core/hid/hostkey.h"
+#include "core/hid/vtkey.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
-#include "core/str/rln.h"
-#include "core/term/term.h"
+#include "core/com/rln.h"
+#include "core/term/cells.h"
+#include "tb_screen.h"
 #include "core/vga/vga_emu.h"
 #include "core/vga/mode/mode0.h"
 #include "core/sys/sys.h"
@@ -29,6 +31,23 @@
 #include "utest.h"
 #include <stdio.h>
 #include <string.h>
+
+/* NumLock is the keyboard's, so a test asks for it with a bit beside a key's
+ * modifiers. A ch says the host has no text for the press, and is what a US
+ * keyboard then types. */
+#define NUM 16
+
+static int t_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t flags)
+{
+    keyboard_set_locks(flags & NUM ? KEYBOARD_LED_NUMLOCK : 0);
+    return vtkey_encode(out, usage, flags & VTKEY_MODIFIERS);
+}
+
+static hostkey_result_t t_press(uint8_t usage, uint8_t flags, char ch)
+{
+    keyboard_set_locks(flags & NUM ? KEYBOARD_LED_NUMLOCK : 0);
+    return hostkey_press(usage, flags & VTKEY_MODIFIERS, ch != 0);
+}
 
 UTEST(crc32, known_vectors)
 {
@@ -185,8 +204,8 @@ UTEST(vga, the_console_canvas_takes_the_size_the_host_gives_it)
     vga_canvas_size(&w, &h);
     ASSERT_EQ(w, 640);
     ASSERT_EQ(h, 400);
-    term_view_t tv;
-    term_view(&tv);
+    tb_screen_t tv;
+    tb_screen(&tv);
     ASSERT_EQ(tv.width, 80);
     ASSERT_EQ(tv.height, 25);
 
@@ -194,7 +213,7 @@ UTEST(vga, the_console_canvas_takes_the_size_the_host_gives_it)
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
     vga_canvas_size(&w, &h);
     ASSERT_EQ(h, 480);
-    term_view(&tv);
+    tb_screen(&tv);
     ASSERT_EQ(tv.height, 30);
 }
 
@@ -237,9 +256,9 @@ UTEST(vga, mode0_lays_the_terminal_out_by_the_canvas)
     ASSERT_FALSE(mode0_layout(640, 480, &begin, &end, &cols, &rows));
 }
 
-/* With no override, no NAWS and no CPR, the line editor takes its size from
- * the terminal the canvas holds. */
-UTEST(rln, falls_back_to_the_terminal_the_canvas_holds)
+/* With no pinned size, the size is the screen's showing grid: the canvas's
+ * width picks 40 or 80 columns, and mode 0 sets the rows. */
+UTEST(rln, the_size_is_the_terminal_mode_0_lays_out_on_the_canvas)
 {
     static const struct
     {
@@ -256,10 +275,11 @@ UTEST(rln, falls_back_to_the_terminal_the_canvas_holds)
     sys_init();
     rln_set_term_width(0);
     rln_set_term_height(0);
-    rln_set_naws_size(0, 0);
     for (size_t i = 0; i < sizeof want / sizeof want[0]; i++)
     {
         ASSERT_TRUE(xreg1(0, 0, want[i].canvas));
+        if (want[i].canvas != vga_canvas_console)
+            ASSERT_TRUE(xreg1(0, 1, 0)); /* mode 0, the tallest that fits */
         ASSERT_EQ(rln_get_term_width(), want[i].cols);
         ASSERT_EQ(rln_get_term_height(), want[i].rows);
     }
@@ -280,14 +300,29 @@ UTEST(vga, a_stop_puts_the_console_back_without_the_display_register)
     ASSERT_TRUE(vga_canvas_is_console());
     ASSERT_EQ(vga_canvas_width(), 640);
     ASSERT_EQ(vga_canvas_height(), 480);
-    term_view_t tv;
-    term_view(&tv);
+    tb_screen_t tv;
+    tb_screen(&tv);
     ASSERT_EQ(tv.width, 80);
     ASSERT_EQ(tv.height, 30);
-    uint8_t blob[XREG_SST_SIZE];
-    sst_cursor_t c = {blob, blob + sizeof blob, false};
-    xreg_sst_save(&c, 0);
-    for (size_t i = 0; i < sizeof blob; i++)
+    uint8_t blob[64];
+    ASSERT_LE((size_t)xreg_sst.size, sizeof blob);
+    sst_cursor_t c = {blob, blob + xreg_sst.size, false, NULL};
+    xreg_sst.save(&c, 0);
+    for (size_t i = 0; i < xreg_sst.size; i++)
+        ASSERT_EQ(blob[i], 0);
+}
+
+/* Channel 0 has eight registers, as on the VGA chip, so a write to $12 sets
+ * nothing rather than register 2. */
+UTEST(vga, channel_0_ignores_registers_it_lacks)
+{
+    sys_init();
+    ASSERT_TRUE(xreg1(0, 0x12, 1));
+    uint8_t blob[64];
+    ASSERT_LE((size_t)xreg_sst.size, sizeof blob);
+    sst_cursor_t c = {blob, blob + xreg_sst.size, false, NULL};
+    xreg_sst.save(&c, 0);
+    for (size_t i = 0; i < xreg_sst.size; i++)
         ASSERT_EQ(blob[i], 0);
 }
 
@@ -357,6 +392,17 @@ static int tablet_contact_y(void)
            (xram[0xFF00 + TABLET_OFF_CONTACTS + 3] >> 4) << 8;
 }
 
+static int tablet_contact_x(void)
+{
+    return xram[0xFF00 + TABLET_OFF_CONTACTS + 2] |
+           (xram[0xFF00 + TABLET_OFF_CONTACTS + 3] & 0x0F) << 8;
+}
+
+static uint8_t tablet_contact_flags(void)
+{
+    return xram[0xFF00 + TABLET_OFF_CONTACTS];
+}
+
 /* A relative mouse pushed past the bottom of a widescreen canvas stops there,
  * so the first move back up moves the pointer up. */
 UTEST(tablet, a_mouse_leaves_the_bottom_of_a_wide_canvas_at_once)
@@ -370,9 +416,14 @@ UTEST(tablet, a_mouse_leaves_the_bottom_of_a_wide_canvas_at_once)
         .tip_offset = HID_ABSENT,
         .inrange_offset = HID_ABSENT,
     };
+    /* On an SXGA display, 512 lines tall, whose bottom rows a reference
+     * space of 480 lines once left out of reach. Its 32-row console is the
+     * Pico's alone; this machine's terminal stops at 30 rows. The right edge
+     * is checked on every canvas too. */
     static const uint16_t canvases[] = {vga_canvas_640_360, vga_canvas_320_180,
                                         vga_canvas_640_400, vga_canvas_320_200};
     sys_init();
+    vga_set_console_size(640, 512);
     ASSERT_TRUE(tablet_mount(7, &mouse));
     ASSERT_TRUE(xreg0(0, 3, 0xFF00)); /* xreg_ria_tablet(0xFF00) */
     for (size_t i = 0; i < sizeof canvases / sizeof canvases[0]; i++)
@@ -390,10 +441,181 @@ UTEST(tablet, a_mouse_leaves_the_bottom_of_a_wide_canvas_at_once)
         const uint8_t up[] = {0, (uint8_t)-4};
         tablet_report(7, up, sizeof up);
         ASSERT_LT(tablet_contact_y(), h - 1);
+        const uint8_t right[] = {126, 0};
+        for (int n = 0; n < 20; n++)
+            tablet_report(7, right, sizeof right);
+        ASSERT_EQ(tablet_contact_x(), w - 1);
+        const uint8_t left[] = {(uint8_t)-4, 0};
+        tablet_report(7, left, sizeof left);
+        ASSERT_LT(tablet_contact_x(), w - 1);
+    }
+    ASSERT_TRUE(tablet_umount(7));
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+    vga_set_console_size(640, 480);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* An absolute device: the tip in bit 0, then 16-bit X and Y. */
+static void tablet_absolute(int slot, int x, int y, bool tip)
+{
+    const uint8_t r[] = {tip ? 1 : 0, (uint8_t)x, (uint8_t)(x >> 8),
+                         (uint8_t)y, (uint8_t)(y >> 8)};
+    tablet_report(slot, r, sizeof r);
+}
+
+static tablet_connection_t tablet_absolute_desc(int32_t x_max, int32_t y_max)
+{
+    tablet_connection_t d = {
+        .valid = true,
+        .button_offsets = {HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT},
+        .x_offset = 8, .x_size = 16, .x_min = 0, .x_max = x_max,
+        .y_offset = 24, .y_size = 16, .y_min = 0, .y_max = y_max,
+        .tip_offset = 0,
+        .inrange_offset = HID_ABSENT,
+    };
+    return d;
+}
+
+/* A square traced on a 16:10 pen tablet is a square on a 4:3 canvas. The
+ * tablet's height spans the canvas's, and its sides are a spare strip. */
+UTEST(tablet, a_pen_tablet_keeps_its_shape)
+{
+    sys_init();
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    /* By its logical extent, then by a physical extent that says the same
+     * shape while the logical extent is square. */
+    tablet_connection_t pens[2] = {tablet_absolute_desc(1599, 999),
+                                   tablet_absolute_desc(1599, 1599)};
+    pens[1].x_phys = 160;
+    pens[1].y_phys = 100;
+    for (int i = 0; i < 2; i++)
+    {
+        const int xs = pens[i].x_max, ys = pens[i].y_max;
+        const int pw = pens[i].x_phys ? pens[i].x_phys : xs;
+        const int ph = pens[i].y_phys ? pens[i].y_phys : ys;
+        ASSERT_TRUE(tablet_mount(7, &pens[i]));
+        const int mx = (xs + 1) / 2, my = (ys + 1) / 2;
+        tablet_absolute(7, mx, my, true);
+        ASSERT_EQ(tablet_contact_x(), 160);
+        ASSERT_EQ(tablet_contact_y(), 120);
+        /* One length across and down, in the tablet's own units. */
+        const int d = pw * 3 / 16;
+        tablet_absolute(7, mx + d * xs / pw, my + d * ys / ph, true);
+        const int dx = tablet_contact_x() - 160, dy = tablet_contact_y() - 120;
+        ASSERT_GT(dx, 60);
+        ASSERT_LE(dx - dy, 1);
+        ASSERT_GE(dx - dy, -1);
+        tablet_absolute(7, 0, ys, true);
+        ASSERT_EQ(tablet_contact_x(), 0);
+        ASSERT_EQ(tablet_contact_y(), 239);
+        tablet_absolute(7, xs, 0, true);
+        ASSERT_EQ(tablet_contact_x(), 319);
+        ASSERT_EQ(tablet_contact_y(), 0);
+        ASSERT_TRUE(tablet_umount(7));
+    }
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* A touchscreen covers the display, and a 16:9 canvas on a 4:3 display fills
+ * its middle 360 of 480 lines. A touch on the bands above and below is no
+ * touch, and one on the canvas lands where the canvas is drawn. */
+UTEST(tablet, a_touchscreen_maps_through_the_display)
+{
+    sys_init();
+    vga_set_console_size(640, 480);
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_360));
+    tablet_connection_t touch = tablet_absolute_desc(4799, 4799);
+    touch.touchscreen = true;
+    ASSERT_TRUE(tablet_mount(7, &touch));
+    /* Line 240 of 480 is canvas row 180, and line 70 is row 10. */
+    tablet_absolute(7, 2400, 2400, true);
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_LEFT);
+    ASSERT_EQ(tablet_contact_x(), 320);
+    ASSERT_EQ(tablet_contact_y(), 180);
+    tablet_absolute(7, 0, 700, true);
+    ASSERT_EQ(tablet_contact_x(), 0);
+    ASSERT_EQ(tablet_contact_y(), 10);
+    /* Line 30 is above the canvas, and line 450 below it. */
+    tablet_absolute(7, 2400, 300, true);
+    ASSERT_EQ(tablet_contact_flags(), 0);
+    ASSERT_EQ(tablet_contact_y(), 10);
+    tablet_absolute(7, 2400, 4500, true);
+    ASSERT_EQ(tablet_contact_flags(), 0);
+    /* On a 4:3 canvas the whole screen is the canvas. */
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    tablet_absolute(7, 4799, 4799, true);
+    ASSERT_EQ(tablet_contact_x(), 319);
+    ASSERT_EQ(tablet_contact_y(), 239);
+    ASSERT_TRUE(tablet_umount(7));
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* A KVM's mouse reports where the pointer is rather than how far it moved.
+ * It covers the display as a touchscreen does, and with no tip it always
+ * hovers. The same report twice is the same spot. */
+UTEST(tablet, an_absolute_mouse_points_and_hovers)
+{
+    sys_init();
+    vga_set_console_size(640, 480);
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    tablet_connection_t kvm = tablet_absolute_desc(32767, 32767);
+    kvm.button_offsets[0] = 0;
+    kvm.tip_offset = HID_ABSENT;
+    kvm.touchscreen = true;
+    ASSERT_TRUE(tablet_mount(7, &kvm));
+    tablet_absolute(7, 0, 0, false);
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER);
+    ASSERT_EQ(tablet_contact_x(), 0);
+    ASSERT_EQ(tablet_contact_y(), 0);
+    tablet_absolute(7, 32767, 32767, false);
+    ASSERT_EQ(tablet_contact_x(), 319);
+    ASSERT_EQ(tablet_contact_y(), 239);
+    for (int i = 0; i < 2; i++)
+    {
+        tablet_absolute(7, 16384, 16384, true);
+        ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_LEFT | TABLET_FLAG_HOVER);
+        ASSERT_EQ(tablet_contact_x(), 160);
+        ASSERT_EQ(tablet_contact_y(), 120);
     }
     ASSERT_TRUE(tablet_umount(7));
     ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* Contact 0 is one pointer that every device moves, so a button held on one
+ * mouse stays down while another moves, and is let go when its mouse is
+ * unplugged. */
+UTEST(tablet, buttons_of_two_mice_merge)
+{
+    static const tablet_connection_t mouse = {
+        .valid = true,
+        .button_offsets = {0, 1, 2, HID_ABSENT, HID_ABSENT},
+        .x_relative = true,
+        .x_offset = 8, .x_size = 8,
+        .y_offset = 16, .y_size = 8,
+        .tip_offset = HID_ABSENT,
+        .inrange_offset = HID_ABSENT,
+    };
+    sys_init();
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    ASSERT_TRUE(tablet_mount(5, &mouse));
+    ASSERT_TRUE(tablet_mount(6, &mouse));
+    const uint8_t left[] = {TABLET_FLAG_LEFT, 0, 0};
+    const uint8_t move[] = {0, 4, 4};
+    tablet_report(5, left, sizeof left);
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_LEFT | TABLET_FLAG_HOVER);
+    tablet_report(6, move, sizeof move);
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_LEFT | TABLET_FLAG_HOVER);
+    ASSERT_TRUE(tablet_umount(5));
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER);
+    ASSERT_TRUE(tablet_umount(6));
+    ASSERT_EQ(tablet_contact_flags(), 0);
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
 }
 
 static int keyboard_drain(char *buf, int max)
@@ -412,61 +634,61 @@ UTEST(keyboard, ansi_sequences)
 {
     char b[32];
 
-    com_init();
-    vtkeys_key(HID_KEY_ARROW_UP, false, false, false);
+    com_rx_clear();
+    t_press(HID_KEY_ARROW_UP, 0, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33[A", 3));
 
-    com_init();
-    vtkeys_key(HID_KEY_F1, false, false, false);
+    com_rx_clear();
+    t_press(HID_KEY_F1, 0, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33OP", 3));
 
-    com_init();
-    vtkeys_key(HID_KEY_F5, false, false, false);
+    com_rx_clear();
+    t_press(HID_KEY_F5, 0, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 5);
     ASSERT_EQ(0, memcmp(b, "\33[15~", 5));
 
-    com_init();
-    vtkeys_key(HID_KEY_F12, false, false, false);
+    com_rx_clear();
+    t_press(HID_KEY_F12, 0, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 5);
     ASSERT_EQ(0, memcmp(b, "\33[24~", 5));
 
-    com_init();
-    vtkeys_key(HID_KEY_INSERT, false, false, false);
+    com_rx_clear();
+    t_press(HID_KEY_INSERT, 0, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
     ASSERT_EQ(0, memcmp(b, "\33[2~", 4));
 
-    com_init();
-    vtkeys_key(HID_KEY_HOME, false, false, false);
+    com_rx_clear();
+    t_press(HID_KEY_HOME, 0, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33[H", 3));
 
     /* The xterm modifier parameter is 1 + shift + alt*2 + ctrl*4. */
-    com_init();
-    vtkeys_key(HID_KEY_ARROW_UP, true, false, false); /* ctrl -> 5 */
+    com_rx_clear();
+    t_press(HID_KEY_ARROW_UP, VTKEY_CTRL, 0); /* ctrl -> 5 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;5A", 6));
 
-    com_init();
-    vtkeys_key(HID_KEY_F1, false, true, false); /* shift -> 2 */
+    com_rx_clear();
+    t_press(HID_KEY_F1, VTKEY_SHIFT, 0); /* shift -> 2 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;2P", 6));
 
-    com_init();
-    vtkeys_key(HID_KEY_END, false, true, true); /* shift+alt -> 4 */
+    com_rx_clear();
+    t_press(HID_KEY_END, VTKEY_SHIFT | VTKEY_ALT, 0); /* shift+alt -> 4 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;4F", 6));
 
-    com_init();
-    vtkeys_key(HID_KEY_PAGE_UP, true, false, false); /* ctrl -> 5 */
+    com_rx_clear();
+    t_press(HID_KEY_PAGE_UP, VTKEY_CTRL, 0); /* ctrl -> 5 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[5;5~", 6));
 
-    com_init();
-    vtkeys_key(HID_KEY_ENTER, false, false, false);
-    vtkeys_key(HID_KEY_BACKSPACE, false, false, false);
-    vtkeys_key(HID_KEY_BACKSPACE, true, false, false);
+    com_rx_clear();
+    t_press(HID_KEY_ENTER, 0, 0);
+    t_press(HID_KEY_BACKSPACE, 0, 0);
+    t_press(HID_KEY_BACKSPACE, VTKEY_CTRL, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\r\x7f\x08", 3));
 }
@@ -475,48 +697,400 @@ UTEST(keyboard, ctrl_and_alt_on_control_keys)
 {
     char b[16];
 
-    com_init();
-    vtkeys_key(HID_KEY_ENTER, true, false, false);
-    vtkeys_key(HID_KEY_TAB, true, false, false);
-    vtkeys_key(HID_KEY_ESCAPE, true, false, false);
+    com_rx_clear();
+    t_press(HID_KEY_ENTER, VTKEY_CTRL, 0);
+    t_press(HID_KEY_TAB, VTKEY_CTRL, 0);
+    t_press(HID_KEY_ESCAPE, VTKEY_CTRL, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\r\t\x1b", 3));
 
-    com_init();
-    vtkeys_key(HID_KEY_ENTER, false, false, true);
-    vtkeys_key(HID_KEY_TAB, false, false, true);
-    vtkeys_key(HID_KEY_ESCAPE, false, false, true);
+    com_rx_clear();
+    t_press(HID_KEY_ENTER, VTKEY_ALT, 0);
+    t_press(HID_KEY_TAB, VTKEY_ALT, 0);
+    t_press(HID_KEY_ESCAPE, VTKEY_ALT, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\x1b\r\x1b\t\x1b\x1b", 6));
 
-    com_init();
-    vtkeys_key(HID_KEY_BACKSPACE, false, false, true);
-    vtkeys_key(HID_KEY_BACKSPACE, true, false, true);
+    com_rx_clear();
+    t_press(HID_KEY_BACKSPACE, VTKEY_ALT, 0);
+    t_press(HID_KEY_BACKSPACE, VTKEY_CTRL | VTKEY_ALT, 0);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
     ASSERT_EQ(0, memcmp(b, "\x1b\x7f\x1b\x08", 4));
 }
 
-UTEST(keyboard, text_to_oem)
+UTEST(keyboard, ctrl_and_alt_on_characters)
+{
+    char b[16];
+
+    com_rx_clear();
+    ASSERT_EQ(t_press(0x06, 0, 'c'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(0x04, VTKEY_CTRL, 'a'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(0x04, VTKEY_ALT | VTKEY_SHIFT, 'A'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(0x04, VTKEY_ALT | VTKEY_CTRL, 'a'), HOSTKEY_TYPED);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
+    ASSERT_EQ(0, memcmp(b, "c\x01\x1b" "A\x1b\x01", 6));
+
+    /* Ctrl has no byte for '1', so it is typed as it is. Ctrl-? is DEL. No
+     * character sends nothing. */
+    ASSERT_EQ(t_press(0x1E, VTKEY_CTRL, '1'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(0x04, 0, 0), HOSTKEY_NONE);
+    ASSERT_EQ(t_press(0x1E, VTKEY_ALT | VTKEY_CTRL, '1'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(0x38, VTKEY_CTRL | VTKEY_SHIFT, '?'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(0x25, VTKEY_CTRL, '8'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(0x1F, VTKEY_CTRL, '2'), HOSTKEY_TYPED);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
+    ASSERT_EQ(0, memcmp(b, "1\x1b" "1\x7f\x7f\0", 6));
+
+    /* A keypad key's character is typed whatever Ctrl and Alt say. */
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_DIVIDE, VTKEY_CTRL, '/'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_8, NUM | VTKEY_ALT, '8'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_ENTER, VTKEY_ALT, 0), HOSTKEY_TYPED);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
+    ASSERT_EQ(0, memcmp(b, "/8\r", 3));
+}
+
+/* The terminal modes a key's bytes depend on. */
+#define M_CKM 1  /* DECCKM, application cursor keys */
+#define M_KPAM 2 /* DECKPAM, application keypad */
+#define M_LNM 4  /* new line mode */
+#define M_VT52 8
+
+static void key_modes(unsigned modes)
+{
+    cells_term.app_cursor = modes & M_CKM;
+    cells_term.app_keypad = modes & M_KPAM;
+    cells_term.newline_mode = modes & M_LNM;
+    cells_term.vt52 = modes & M_VT52;
+}
+
+#define SH VTKEY_SHIFT
+#define CHR NULL /* VTKEY_CHAR */
+
+/* What vtkey_encode answers for a key class in the modes that matter to it:
+ * none set, then DECCKM, DECKPAM, LNM and VT52 alone, then VT52 with all of
+ * the other three. */
+static const struct
+{
+    uint8_t usage;
+    uint8_t flags;
+    const char *want[6];
+} key_table[] = {
+    /* Cursor keys, Home and End */
+    {HID_KEY_ARROW_UP, 0, {"\33[A", "\33OA", "\33[A", "\33[A", "\33A", "\33A"}},
+    {HID_KEY_ARROW_DOWN, 0, {"\33[B", "\33OB", "\33[B", "\33[B", "\33B", "\33B"}},
+    {HID_KEY_ARROW_RIGHT, 0, {"\33[C", "\33OC", "\33[C", "\33[C", "\33C", "\33C"}},
+    {HID_KEY_ARROW_LEFT, 0, {"\33[D", "\33OD", "\33[D", "\33[D", "\33D", "\33D"}},
+    {HID_KEY_HOME, 0, {"\33[H", "\33OH", "\33[H", "\33[H", "\33H", "\33H"}},
+    {HID_KEY_END, 0, {"\33[F", "\33OF", "\33[F", "\33[F", "\33F", "\33F"}},
+    {HID_KEY_ARROW_UP, VTKEY_CTRL, {"\33[1;5A", "\33[1;5A", "\33[1;5A", "\33[1;5A", "\33A", "\33A"}},
+    {HID_KEY_END, SH | VTKEY_ALT, {"\33[1;4F", "\33[1;4F", "\33[1;4F", "\33[1;4F", "\33F", "\33F"}},
+    /* F1 to F4 */
+    {HID_KEY_F1, 0, {"\33OP", "\33OP", "\33OP", "\33OP", "\33P", "\33P"}},
+    {HID_KEY_F4, 0, {"\33OS", "\33OS", "\33OS", "\33OS", "\33S", "\33S"}},
+    {HID_KEY_F1, SH, {"\33[1;2P", "\33[1;2P", "\33[1;2P", "\33[1;2P", "\33P", "\33P"}},
+    /* The keys a VT52 lacks send what they always do, without modifiers */
+    {HID_KEY_F5, 0, {"\33[15~", "\33[15~", "\33[15~", "\33[15~", "\33[15~", "\33[15~"}},
+    {HID_KEY_F12, 0, {"\33[24~", "\33[24~", "\33[24~", "\33[24~", "\33[24~", "\33[24~"}},
+    {HID_KEY_F12, 7, {"\33[24;8~", "\33[24;8~", "\33[24;8~", "\33[24;8~", "\33[24~", "\33[24~"}},
+    {HID_KEY_INSERT, 0, {"\33[2~", "\33[2~", "\33[2~", "\33[2~", "\33[2~", "\33[2~"}},
+    {HID_KEY_DELETE, 0, {"\33[3~", "\33[3~", "\33[3~", "\33[3~", "\33[3~", "\33[3~"}},
+    {HID_KEY_PAGE_UP, VTKEY_CTRL, {"\33[5;5~", "\33[5;5~", "\33[5;5~", "\33[5;5~", "\33[5~", "\33[5~"}},
+    {HID_KEY_PAGE_DOWN, 0, {"\33[6~", "\33[6~", "\33[6~", "\33[6~", "\33[6~", "\33[6~"}},
+    /* Enter, Tab, Escape and Backspace */
+    {HID_KEY_ENTER, 0, {"\r", "\r", "\r", "\r\n", "\r", "\r\n"}},
+    {HID_KEY_ENTER, VTKEY_CTRL, {"\r", "\r", "\r", "\r\n", "\r", "\r\n"}},
+    {HID_KEY_ENTER, VTKEY_ALT, {"\33\r", "\33\r", "\33\r", "\33\r\n", "\33\r", "\33\r\n"}},
+    {HID_KEY_TAB, 0, {"\t", "\t", "\t", "\t", "\t", "\t"}},
+    {HID_KEY_TAB, VTKEY_ALT, {"\33\t", "\33\t", "\33\t", "\33\t", "\33\t", "\33\t"}},
+    {HID_KEY_TAB, SH, {"\33[Z", "\33[Z", "\33[Z", "\33[Z", "\33[Z", "\33[Z"}},
+    {HID_KEY_TAB, SH | VTKEY_ALT, {"\33[Z", "\33[Z", "\33[Z", "\33[Z", "\33[Z", "\33[Z"}},
+    {HID_KEY_ESCAPE, 0, {"\33", "\33", "\33", "\33", "\33", "\33"}},
+    {HID_KEY_ESCAPE, VTKEY_ALT, {"\33\33", "\33\33", "\33\33", "\33\33", "\33\33", "\33\33"}},
+    {HID_KEY_BACKSPACE, 0, {"\x7f", "\x7f", "\x7f", "\x7f", "\x7f", "\x7f"}},
+    {HID_KEY_BACKSPACE, VTKEY_CTRL, {"\b", "\b", "\b", "\b", "\b", "\b"}},
+    {HID_KEY_BACKSPACE, VTKEY_CTRL | VTKEY_ALT, {"\33\b", "\33\b", "\33\b", "\33\b", "\33\b", "\33\b"}},
+    /* The keypad with NumLock on: characters whatever the keypad mode. */
+    {HID_KEY_KEYPAD_8, NUM, {CHR, CHR, CHR, CHR, CHR, CHR}},
+    {HID_KEY_KEYPAD_5, NUM, {CHR, CHR, CHR, CHR, CHR, CHR}},
+    {HID_KEY_KEYPAD_DECIMAL, NUM, {CHR, CHR, CHR, CHR, CHR, CHR}},
+    {HID_KEY_KEYPAD_DIVIDE, NUM, {CHR, CHR, CHR, CHR, CHR, CHR}},
+    {HID_KEY_KEYPAD_ADD, NUM | VTKEY_CTRL, {CHR, CHR, CHR, CHR, CHR, CHR}},
+    {HID_KEY_KEYPAD_EQUAL, NUM, {CHR, CHR, CHR, CHR, CHR, CHR}},
+    {HID_KEY_KEYPAD_COMMA, NUM, {",", ",", ",", ",", ",", ","}},
+    {HID_KEY_KEYPAD_ENTER, NUM, {"\r", "\r", "\r", "\r\n", "\r", "\r\n"}},
+    {HID_KEY_KEYPAD_ENTER, NUM | VTKEY_ALT, {"\r", "\r", "\r", "\r\n", "\r", "\r\n"}},
+    /* Shift with NumLock on is NumLock off, with the Shift used up. */
+    {HID_KEY_KEYPAD_8, NUM | SH, {"\33[A", "\33OA", "\33Ox", "\33[A", "\33A", "\33?x"}},
+    {HID_KEY_KEYPAD_8, NUM | SH | VTKEY_CTRL, {"\33[1;5A", "\33[1;5A", "\33O5x", "\33[1;5A", "\33A", "\33?x"}},
+    {HID_KEY_KEYPAD_0, NUM | SH, {"\33[2~", "\33[2~", "\33Op", "\33[2~", "\33[2~", "\33?p"}},
+    {HID_KEY_KEYPAD_5, NUM | SH, {"\33[E", "\33OE", "\33Ou", "\33[E", "\33E", "\33?u"}},
+    {HID_KEY_KEYPAD_ADD, NUM | SH, {CHR, CHR, "\33Ok", CHR, CHR, "\33?k"}},
+    /* The keypad with NumLock off: the navigation keys, or a VT100's keypad
+     * when the program asked for it, with plus as xterm has it. A modifier
+     * goes before the letter, and a VT52 has none. */
+    {HID_KEY_KEYPAD_8, 0, {"\33[A", "\33OA", "\33Ox", "\33[A", "\33A", "\33?x"}},
+    {HID_KEY_KEYPAD_8, SH, {"\33[1;2A", "\33[1;2A", "\33O2x", "\33[1;2A", "\33A", "\33?x"}},
+    {HID_KEY_KEYPAD_1, 0, {"\33[F", "\33OF", "\33Oq", "\33[F", "\33F", "\33?q"}},
+    {HID_KEY_KEYPAD_7, 0, {"\33[H", "\33OH", "\33Ow", "\33[H", "\33H", "\33?w"}},
+    {HID_KEY_KEYPAD_9, 0, {"\33[5~", "\33[5~", "\33Oy", "\33[5~", "\33[5~", "\33?y"}},
+    {HID_KEY_KEYPAD_0, 0, {"\33[2~", "\33[2~", "\33Op", "\33[2~", "\33[2~", "\33?p"}},
+    {HID_KEY_KEYPAD_DECIMAL, 0, {"\33[3~", "\33[3~", "\33On", "\33[3~", "\33[3~", "\33?n"}},
+    {HID_KEY_KEYPAD_5, 0, {"\33[E", "\33OE", "\33Ou", "\33[E", "\33E", "\33?u"}},
+    {HID_KEY_KEYPAD_5, VTKEY_CTRL, {"\33[1;5E", "\33[1;5E", "\33O5u", "\33[1;5E", "\33E", "\33?u"}},
+    {HID_KEY_KEYPAD_DIVIDE, 0, {CHR, CHR, "\33Oo", CHR, CHR, "\33?o"}},
+    {HID_KEY_KEYPAD_MULTIPLY, 0, {CHR, CHR, "\33Oj", CHR, CHR, "\33?j"}},
+    {HID_KEY_KEYPAD_SUBTRACT, 0, {CHR, CHR, "\33Om", CHR, CHR, "\33?m"}},
+    {HID_KEY_KEYPAD_ADD, 0, {CHR, CHR, "\33Ok", CHR, CHR, "\33?k"}},
+    {HID_KEY_KEYPAD_ADD, VTKEY_CTRL, {CHR, CHR, "\33O5k", CHR, CHR, "\33?k"}},
+    {HID_KEY_KEYPAD_COMMA, 0, {",", ",", "\33Ol", ",", ",", "\33?l"}},
+    {HID_KEY_KEYPAD_EQUAL, 0, {CHR, CHR, "\33OX", CHR, CHR, "\33?X"}},
+    {HID_KEY_KEYPAD_ENTER, 0, {"\r", "\r", "\33OM", "\r\n", "\r", "\33?M"}},
+    {HID_KEY_KEYPAD_ENTER, VTKEY_ALT, {"\r", "\r", "\33O3M", "\r\n", "\r", "\33?M"}},
+    /* Keys with a character, and keys that send nothing */
+    {0x04, 0, {CHR, CHR, CHR, CHR, CHR, CHR}},
+    {0x04, VTKEY_CTRL | VTKEY_ALT, {CHR, CHR, CHR, CHR, CHR, CHR}},
+    {HID_KEY_SPACE, 0, {CHR, CHR, CHR, CHR, CHR, CHR}},
+    {HID_KEY_NONE, 0, {CHR, CHR, CHR, CHR, CHR, CHR}},
+    {0x46, 0, {"", "", "", "", "", ""}},
+    {HID_KEY_SCROLL_LOCK, 0, {"", "", "", "", "", ""}},
+    {0x48, 0, {"", "", "", "", "", ""}},
+};
+
+UTEST(keyboard, every_key_class_in_every_mode)
+{
+    static const unsigned modes[6] = {
+        0, M_CKM, M_KPAM, M_LNM, M_VT52, M_VT52 | M_CKM | M_KPAM | M_LNM};
+    for (size_t i = 0; i < sizeof key_table / sizeof key_table[0]; i++)
+        for (int m = 0; m < 6; m++)
+        {
+            char out[VTKEY_MAX];
+            const char *want = key_table[i].want[m];
+            key_modes(modes[m]);
+            int n = t_encode(out, key_table[i].usage, key_table[i].flags);
+            key_modes(0);
+            int want_n = want ? (int)strlen(want) : VTKEY_CHAR;
+            if (n != want_n || (n > 0 && memcmp(out, want, (size_t)n)))
+            {
+                printf("key_table[%d] usage 0x%02X flags %d mode %d\n",
+                       (int)i, key_table[i].usage, key_table[i].flags, m);
+                ASSERT_TRUE(false);
+            }
+        }
+}
+
+/* A mode touches only its own keys, so every combination of modes agrees
+ * with the modes taken one at a time, and nothing outruns the buffer. */
+UTEST(keyboard, the_modes_do_not_cross)
+{
+    for (unsigned modes = 0; modes < 16; modes++)
+        for (unsigned usage = 0; usage < 256; usage++)
+            for (unsigned flags = 0; flags < 32; flags++)
+            {
+                char out[VTKEY_MAX + 1], alone[VTKEY_MAX + 1];
+                bool pad = (usage >= HID_KEY_KEYPAD_DIVIDE &&
+                            usage <= HID_KEY_KEYPAD_DECIMAL) ||
+                           usage == HID_KEY_KEYPAD_EQUAL ||
+                           usage == HID_KEY_KEYPAD_COMMA;
+                bool off = !(flags & NUM) || (flags & SH);
+                bool nav = pad && usage >= HID_KEY_KEYPAD_1 &&
+                           usage <= HID_KEY_KEYPAD_DECIMAL && off;
+                bool app = pad && off && (modes & M_KPAM);
+                bool enter = !app && (usage == HID_KEY_ENTER ||
+                                      usage == HID_KEY_KEYPAD_ENTER);
+                unsigned own = M_VT52;
+                if (app)
+                    own |= M_KPAM;
+                else if (enter)
+                    own |= M_LNM;
+                else if (!pad || nav)
+                    own |= M_CKM;
+                out[VTKEY_MAX] = alone[VTKEY_MAX] = 0x55;
+                key_modes(modes);
+                int n = t_encode(out, (uint8_t)usage, (uint8_t)flags);
+                key_modes(modes & own);
+                int n_alone = t_encode(alone, (uint8_t)usage, (uint8_t)flags);
+                key_modes(0);
+                ASSERT_GE(n, VTKEY_CHAR);
+                ASSERT_LE(n, VTKEY_MAX);
+                ASSERT_EQ(out[VTKEY_MAX], 0x55);
+                ASSERT_EQ(n, n_alone);
+                if (n > 0)
+                    ASSERT_EQ(0, memcmp(out, alone, (size_t)n));
+            }
+}
+
+/* xterm's modifyOtherKeys: what a key sends at levels 0 to 3. A key with a
+ * character goes through vtkey_char, the others through vtkey_encode. In a
+ * wanted string "\200" stands for a NUL. */
+static const struct
+{
+    uint8_t usage;
+    char ch;
+    uint8_t flags;
+    const char *want[4];
+} other_table[] = {
+    {0x04, 'a', 0, {"a", "a", "a", "\33[27;1;97~"}},
+    {0x04, 'A', SH, {"A", "A", "\33[27;2;65~", "\33[27;2;65~"}},
+    {0x04, 'a', VTKEY_CTRL, {"\1", "\1", "\33[27;5;97~", "\33[27;5;97~"}},
+    {0x04, 'A', VTKEY_CTRL | SH, {"\1", "\33[27;6;65~", "\33[27;6;65~", "\33[27;6;65~"}},
+    {0x04, 'a', VTKEY_ALT, {"\33a", "\33a", "\33[27;3;97~", "\33[27;3;97~"}},
+    {0x04, 'a', VTKEY_ALT | VTKEY_CTRL, {"\33\1", "\33\1", "\33[27;7;97~", "\33[27;7;97~"}},
+    {0x04, 'A', 7, {"\33\1", "\33\33[27;6;65~", "\33[27;8;65~", "\33[27;8;65~"}},
+    {0x1E, '1', 0, {"1", "1", "1", "\33[27;1;49~"}},
+    {0x1E, '!', SH, {"!", "!", "!", "\33[27;2;33~"}},
+    {0x1E, '1', VTKEY_CTRL, {"1", "\33[27;5;49~", "\33[27;5;49~", "\33[27;5;49~"}},
+    {0x1E, '1', VTKEY_ALT, {"\0331", "\0331", "\33[27;3;49~", "\33[27;3;49~"}},
+    {0x1F, '2', VTKEY_CTRL, {"\200", "\200", "\33[27;5;50~", "\33[27;5;50~"}},
+    {0x1F, '@', VTKEY_CTRL | SH, {"\200", "\33[27;6;64~", "\33[27;6;64~", "\33[27;6;64~"}},
+    {HID_KEY_SPACE, ' ', SH, {" ", " ", "\33[27;2;32~", "\33[27;2;32~"}},
+    {HID_KEY_SPACE, ' ', VTKEY_CTRL, {"\200", "\200", "\33[27;5;32~", "\33[27;5;32~"}},
+    {0x38, '/', VTKEY_CTRL, {"\37", "\37", "\33[27;5;47~", "\33[27;5;47~"}},
+    {0x38, '?', VTKEY_CTRL | SH, {"\177", "\33[27;6;63~", "\33[27;6;63~", "\33[27;6;63~"}},
+    {0x04, '\351', 0, {"\351", "\351", "\351", "\33[27;1;233~"}},
+    {HID_KEY_ENTER, 0, 0, {"\r", "\r", "\r", "\33[27;1;13~"}},
+    {HID_KEY_ENTER, 0, SH, {"\r", "\33[27;2;13~", "\33[27;2;13~", "\33[27;2;13~"}},
+    {HID_KEY_ENTER, 0, VTKEY_CTRL, {"\r", "\33[27;5;13~", "\33[27;5;13~", "\33[27;5;13~"}},
+    {HID_KEY_ENTER, 0, VTKEY_ALT, {"\33\r", "\33\r", "\33[27;3;13~", "\33[27;3;13~"}},
+    {HID_KEY_ENTER, 0, VTKEY_ALT | SH, {"\33\r", "\33\33[27;2;13~", "\33[27;4;13~", "\33[27;4;13~"}},
+    {HID_KEY_TAB, 0, 0, {"\t", "\t", "\t", "\33[27;1;9~"}},
+    {HID_KEY_TAB, 0, SH, {"\33[Z", "\33[Z", "\33[27;2;9~", "\33[27;2;9~"}},
+    {HID_KEY_TAB, 0, VTKEY_CTRL, {"\t", "\33[27;5;9~", "\33[27;5;9~", "\33[27;5;9~"}},
+    {HID_KEY_TAB, 0, VTKEY_CTRL | SH, {"\33[Z", "\33[27;6;9~", "\33[27;6;9~", "\33[27;6;9~"}},
+    {HID_KEY_ESCAPE, 0, 0, {"\33", "\33", "\33", "\33[27;1;27~"}},
+    {HID_KEY_ESCAPE, 0, SH, {"\33", "\33", "\33[27;2;27~", "\33[27;2;27~"}},
+    {HID_KEY_BACKSPACE, 0, 0, {"\177", "\177", "\177", "\33[27;1;127~"}},
+    {HID_KEY_BACKSPACE, 0, SH, {"\177", "\177", "\33[27;2;127~", "\33[27;2;127~"}},
+    {HID_KEY_BACKSPACE, 0, VTKEY_CTRL, {"\b", "\b", "\b", "\33[27;1;8~"}},
+    /* The keys with sequences of their own, and the keypad, are as ever. */
+    {HID_KEY_ARROW_UP, 0, VTKEY_CTRL, {"\33[1;5A", "\33[1;5A", "\33[1;5A", "\33[1;5A"}},
+    {HID_KEY_F5, 0, SH, {"\33[15;2~", "\33[15;2~", "\33[15;2~", "\33[15;2~"}},
+    {HID_KEY_DELETE, 0, 0, {"\33[3~", "\33[3~", "\33[3~", "\33[3~"}},
+    {HID_KEY_KEYPAD_ENTER, 0, SH, {"\r", "\r", "\r", "\r"}},
+    {HID_KEY_KEYPAD_ADD, '+', NUM | VTKEY_CTRL, {"+", "+", "+", "+"}},
+};
+
+static int other_send(char *out, size_t i)
+{
+    int n = t_encode(out, other_table[i].usage, other_table[i].flags);
+    if (n == VTKEY_CHAR)
+        n = vtkey_char(out, other_table[i].usage, other_table[i].ch,
+                       other_table[i].flags & VTKEY_MODIFIERS);
+    return n;
+}
+
+UTEST(keyboard, modify_other_keys_at_every_level)
+{
+    for (size_t i = 0; i < sizeof other_table / sizeof other_table[0]; i++)
+        for (unsigned level = 0; level < 4; level++)
+        {
+            char out[VTKEY_MAX + 1], want[VTKEY_MAX + 1];
+            strcpy(want, other_table[i].want[level]);
+            const int want_n = (int)strlen(want);
+            for (int k = 0; k < want_n; k++)
+                if (want[k] == '\200')
+                    want[k] = 0;
+            cells_term.modify_other_keys = (uint8_t)level;
+            const int n = other_send(out, i);
+            cells_term.modify_other_keys = 0;
+            if (n != want_n || memcmp(out, want, (size_t)n))
+            {
+                printf("other_table[%d] level %u\n", (int)i, level);
+                ASSERT_TRUE(false);
+            }
+        }
+}
+
+/* formatOtherKeys writes the same keys the shorter way, and VT52 mode has
+ * neither. */
+UTEST(keyboard, format_other_keys_and_vt52)
+{
+    char out[VTKEY_MAX];
+    cells_term.modify_other_keys = 2;
+    cells_term.format_other_keys = true;
+    ASSERT_EQ(vtkey_char(out, 0x04, 'a', VTKEY_CTRL), 7);
+    ASSERT_EQ(0, memcmp(out, "\33[97;5u", 7));
+    ASSERT_EQ(t_encode(out, HID_KEY_ENTER, SH), 7);
+    ASSERT_EQ(0, memcmp(out, "\33[13;2u", 7));
+    cells_term.format_other_keys = false;
+    cells_term.vt52 = true;
+    ASSERT_EQ(vtkey_char(out, 0x04, 'a', VTKEY_CTRL), 1);
+    ASSERT_EQ(out[0], 1);
+    ASSERT_EQ(t_encode(out, HID_KEY_ENTER, SH), 1);
+    cells_term.vt52 = false;
+    cells_term.modify_other_keys = 0;
+}
+
+UTEST(keyboard, hostkey_types_what_the_encoder_says)
+{
+    char b[16];
+
+    /* A keypad digit is the host's character with NumLock on and the
+     * navigation key with it off or with Shift. KP5 with NumLock off is
+     * Begin, even when the host has a character for it. */
+    com_rx_clear();
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_8, NUM, '8'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_8, 0, '8'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_8, NUM | SH, '8'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_5, 0, '5'), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_8, NUM, 0), HOSTKEY_NONE);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 10);
+    ASSERT_EQ(0, memcmp(b, "8\33[A\33[A\33[E", 10));
+
+    /* An operator is the host's character until the application keypad
+     * takes it, where plus is a VT100's comma. */
+    key_modes(M_KPAM);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_ADD, 0, 0), HOSTKEY_TYPED);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_ADD, NUM, 0), HOSTKEY_NONE);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_ADD, NUM, '+'), HOSTKEY_TYPED);
+    key_modes(0);
+    ASSERT_EQ(t_press(HID_KEY_KEYPAD_ADD, 0, 0), HOSTKEY_NONE);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
+    ASSERT_EQ(0, memcmp(b, "\33Ok+", 4));
+
+    /* The modes reach a host's keys. */
+    key_modes(M_CKM | M_LNM);
+    t_press(HID_KEY_ARROW_LEFT, 0, 0);
+    t_press(HID_KEY_ENTER, 0, 0);
+    key_modes(M_VT52);
+    t_press(HID_KEY_ARROW_LEFT, VTKEY_CTRL, 0);
+    ASSERT_EQ(t_press(HID_KEY_F5, VTKEY_CTRL, 0), HOSTKEY_TYPED);
+    key_modes(0);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 12);
+    ASSERT_EQ(0, memcmp(b, "\33OD\r\n\33D\33[15~", 12));
+
+    /* Alt puts ESC in front of a character or Enter, in VT52 mode too. */
+    t_press(0x38, VTKEY_ALT | SH, '?');
+    t_press(HID_KEY_ENTER, VTKEY_ALT, 0);
+    key_modes(M_VT52);
+    t_press(0x38, VTKEY_ALT | SH, '?');
+    t_press(HID_KEY_ENTER, VTKEY_ALT, 0);
+    key_modes(0);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 8);
+    ASSERT_EQ(0, memcmp(b, "\33?\33\r\33?\33\r", 8));
+}
+
+/* A machine asks this before it types a repeat. */
+UTEST(keyboard, repeat_follows_the_terminal)
+{
+    cells_term.autorepeat = false;
+    ASSERT_FALSE(vtkey_repeats());
+    cells_term.autorepeat = true;
+    ASSERT_TRUE(vtkey_repeats());
+}
+
+UTEST(keyboard, char_to_oem)
 {
     char b[32];
     str_init(); /* the default locale, EN, uses code page 437 */
 
-    com_init();
-    vtkeys_text("Hi!");
+    com_rx_clear();
+    hostkey_char('H');
+    hostkey_char(0xE9); /* 'é' -> cp437 0x82 */
+    /* DEL stands for a character the code page lacks, and the line editor
+     * reads DEL as a backspace, so '?' is queued. */
+    hostkey_char(0x1F600);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
-    ASSERT_EQ(0, memcmp(b, "Hi!", 3));
-
-    com_init();
-    vtkeys_text("\xC3\xA9"); /* U+00E9 'é' -> cp437 0x82 */
-    ASSERT_EQ(keyboard_drain(b, sizeof b), 1);
-    ASSERT_EQ((unsigned char)b[0], 0x82u);
-
-    com_init();
-    /* The decoder returns DEL for a character the code page lacks, and the
-     * line editor reads DEL as a backspace, so vtkeys_text queues '?'. */
-    vtkeys_text("\xF0\x9F\x98\x80"); /* U+1F600 */
-    ASSERT_EQ(keyboard_drain(b, sizeof b), 1);
-    ASSERT_EQ(b[0], '?');
+    ASSERT_EQ(0, memcmp(b, "H\x82?", 3));
 }
 
 /* font_init rebuilds the glyph store for code page 437, and oem_init then

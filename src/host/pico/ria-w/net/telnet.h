@@ -17,7 +17,6 @@
 
 uint16_t telnet_rx(int desc, char *buf, uint16_t len);
 uint16_t telnet_tx(int desc, const char *buf, uint16_t len);
-bool telnet_get_naws(int desc, uint16_t *w, uint16_t *h);
 bool telnet_open(int desc, const char *hostname, uint16_t port,
               void (*on_close)(int));
 void telnet_close(int desc);

@@ -21,13 +21,12 @@ typedef struct
 
 /* The packer caps every memory chunk at 1024 bytes and never lets one cross a
  * 64 KB page (tools/rp6502.py), so no record in a .rp6502 is larger than this.
- * A machine's record buffer is this big and the pump refuses anything bigger. */
+ * The pump refuses anything bigger. */
 #define ROM_RECORD_MAX 1024
 
-/* One .rp6502 being read, one record per rom_pump_next. rom_pump_open,
- * rom_pump_open_fd and rom_pump_next each take the caller's own
- * ROM_RECORD_MAX bytes as buf; the pump reads both the header lines and the
- * record data into it. */
+/* One .rp6502 being read, one record per rom_pump_next. The pump reads both
+ * the header lines and the record data into buf1k (core/sys/buf1k.h), where
+ * a record's data stays until the next read. */
 typedef struct
 {
     int fd;
@@ -45,9 +44,9 @@ typedef enum
     ROM_PUMP_ERROR, /* *err is the driver's, or ENOEXEC for a bad or short image */
 } rom_pump_result;
 
-bool rom_pump_open(rom_pump_t *p, const char *path, uint8_t *buf, api_errno *err);
-bool rom_pump_open_fd(rom_pump_t *p, int fd, uint8_t *buf, api_errno *err);
-rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_record_t *rec, api_errno *err);
+bool rom_pump_open(rom_pump_t *p, const char *path, api_errno *err);
+bool rom_pump_open_fd(rom_pump_t *p, int fd, api_errno *err);
+rom_pump_result rom_pump_next(rom_pump_t *p, rom_record_t *rec, api_errno *err);
 bool rom_pump_complete(const rom_pump_t *p); /* both reset-vector bytes arrived */
 void rom_pump_close(rom_pump_t *p);
 
@@ -104,28 +103,26 @@ long rom_read_asset(const char *name, char *buf, size_t bufsz);
  * tell that the ROM changed while its window was open. */
 uint32_t rom_generation(void);
 
-/* 1 byte for whether an image is open, 4 for the asset directory offset, 4 for
- * the image length, 4 for the generation. The path is not among them, because
- * proc already carries the running program's name; the length is the
- * cross-check that the file on disk is still the one the blob was made from. */
-#define ASSET_SST_SIZE 13
-void asset_sst_save(sst_cursor_t *c, unsigned flags);
-bool asset_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t asset_sst;
 
 /* A stop closes the image, as the Pico's monitor does, because the stop also
- * clears the running program's name that a savestate reopens it by. */
-#define ASSET_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, rom_assets_reset, nul_break, \
-    nul_config, nul_config, SST(ASET, 1, ASSET_SST_SIZE, asset_sst_save, asset_sst_load))
-
-#define ROM_STD_DRIVER           \
-    {                               \
-        .handles = rom_std_handles, \
-        .open = rom_std_open,       \
-        .close = rom_std_close,     \
-        .read = rom_std_read,       \
-        .sync = rom_std_sync,       \
-        .lseek = rom_std_lseek,     \
-        STD_SST_COLS(rom_std_ident, rom_std_reopen, false) \
-    }
+ * clears the running program's name that a savestate reopens it by. A failed
+ * savestate load closes it too: rom_fd is only ever what a load or the loader
+ * opened, so the close is safe, and STD's reset, later in the list and so run
+ * first, has already closed the ROM: windows that read through it. */
+#define ASSET_DRIVER DRIVER(          \
+    STOP(rom_assets_reset)            \
+    RESET(rom_assets_reset)           \
+    SST("ASET", asset)                \
+    STD(.handles = rom_std_handles,   \
+        .open = rom_std_open,         \
+        .close = rom_std_close,       \
+        .read = rom_std_read,         \
+        .sync = rom_std_sync,         \
+        .lseek = rom_std_lseek,       \
+        .refuses_exec = true)         \
+    STD_SST(.ident = rom_std_ident,   \
+            .reopen = rom_std_reopen, \
+            .resumes_writes = false))
 
 #endif /* _CORE_ROM_ROM_H_ */

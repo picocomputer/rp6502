@@ -4,15 +4,58 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mmio.h"
-
-#include "core/aud/bel.h"
-#include "core/aud/mix.h"
+#include "aud.h"
 
 /* The open PCM: device's AUD_PCM_CTRL, 0 while it is closed. */
 static uint32_t aud_pcm_ctrl;
-/* Bytes written since the open, which empties the FIFO, modulo 4. */
+/* The place in its word of the next byte written since the open, which
+ * empties the FIFO: 0 to 3. */
 static uint8_t aud_pcm_stage;
+
+/* aud_pcm_ctrl is AUD_PCM_CTRL's three bits, and aud_pcm_stage a place in a
+ * word. */
+static bool aud_pcm_check(sst_cursor_t *c)
+{
+    if (aud_pcm_ctrl > 7)
+        return sst_refuse(c, "PCM control out of range");
+    if (aud_pcm_stage > 3)
+        return sst_refuse(c, "PCM byte place out of range");
+    return true;
+}
+
+/* The engines' state, AUD_SST_WORDS words that AUD_OWN gives to AUD_SST
+ * while the machine is held. */
+static void aud_engines_put(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint8_t *p = sst_room(c, AUD_SST_WORDS * 4);
+    if (!p)
+        return;
+    AUD_OWN = 1;
+    for (uint32_t w = 0; w < AUD_SST_WORDS; w++, p += 4)
+        sst_be32_write(p, AUD_SST(w));
+    AUD_OWN = 0;
+}
+
+static bool aud_engines_get(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    const uint8_t *p = sst_view(c, AUD_SST_WORDS * 4);
+    if (!p)
+        return sst_refuse(c, "the engines' state is short");
+    AUD_OWN = 1;
+    for (uint32_t w = 0; w < AUD_SST_WORDS; w++, p += 4)
+        AUD_SST(w) = sst_be32_read(p);
+    AUD_OWN = 0;
+    return true;
+}
+
+#define AUD_FABRIC_SST(X)                                               \
+    X(U32, aud_pcm_ctrl)                                                \
+    X(U8, aud_pcm_stage)                                                \
+    X(VALIDATE, aud_pcm_check)                                          \
+    X(FN, aud_engines_put, aud_engines_get, AUD_SST_WORDS * 4, 2)
+SST_TABLE(aud_fabric, AUD_FABRIC_SST)
 
 /* The PSG, the OPL, the bell voice and PCM have no reset input, so they
  * keep sounding through a machine reset until their registers are written.
@@ -27,11 +70,28 @@ void aud_init(void)
     bel_init();
 }
 
-/* The bell waits out a wake, until wake_task has moved its deadlines. */
+/* A failed savestate load leaves the engines sounding from any registers
+ * and the bell's deadlines on any clock, with the machine held. The bell is
+ * silenced first, and the PSG's pointer write is not waited on, because a
+ * held PSG whose sample counter was loaded at zero starts no clearing pass
+ * until the hold ends; the pass zeroes only the eight voices, so the bell's
+ * writes ahead of it are kept. PCM:'s buffer is emptied, because the held
+ * buffer never drains, and std_sst_reset, which runs next, waits for it
+ * to play before it closes a PCM: descriptor. PCM: is closed, because
+ * aud_pcm_open refuses while aud_pcm_ctrl is set, which no closed
+ * descriptor would ever clear. */
+void aud_reset(void)
+{
+    bel_init();
+    AUD_PSG_XADDR = 0xFFFF;
+    aud_opl_map(0xFFFF);
+    aud_end();
+    aud_pcm_close();
+}
+
 void aud_task(void)
 {
-    if (!(SST_CTL & SST_RESTORED))
-        bel_task();
+    bel_task();
 }
 
 void aud_bel_put(unsigned i, uint8_t val) { AUD_BEL = i << 8 | val; }
@@ -49,12 +109,18 @@ void aud_psg_map(uint16_t word)
 /* The OPL holds writes in its queue while it clears its registers. */
 void aud_opl_map(uint16_t word) { AUD_OPL_XADDR = word; }
 
-/* A program's end takes its sound with it, so the close that std_stop makes
- * next has nothing to wait for. */
+/* A program's stop parks the engines it mapped. PCM: is a descriptor, which
+ * an exec hands on, so its sound plays on into the next program. */
 void aud_stop(void)
 {
     aud_psg_map(0xFFFF);
     aud_opl_map(0xFFFF);
+}
+
+/* The end of a chain takes its PCM: sound with it, so the close std_reset
+ * makes next has nothing to wait for. */
+void aud_end(void)
+{
     AUD_PCM_CLEAR = 0;
     /* A read clears the underrun count. */
     (void)AUD_PCM_UNDERRUNS;
@@ -71,9 +137,12 @@ bool aud_pcm_open(const pcm_fmt_t *fmt)
     return true;
 }
 
+/* The fabric empties its FIFO at the close, a partial frame and bytes
+ * stored and not committed with it, and starts it again at a word. */
 void aud_pcm_close(void)
 {
     aud_pcm_ctrl = 0;
+    aud_pcm_stage = 0;
     AUD_PCM_CTRL = 0;
 }
 
@@ -90,13 +159,19 @@ uint32_t aud_pcm_write(const uint8_t *buf, uint32_t n)
     if (n > room)
         n = room;
     uint32_t i = 0;
-    for (; i < n && (aud_pcm_stage & 3); i++, aud_pcm_stage++)
+    for (; i < n && aud_pcm_stage; i++)
+    {
         AUD_PCM_BYTE = src[i] * 0x01010101u;
+        aud_pcm_stage = (aud_pcm_stage + 1) & 3;
+    }
     for (; i + 4 <= n; i += 4)
         AUD_PCM_DATA = (uint32_t)src[i] | (uint32_t)src[i + 1] << 8 |
                        (uint32_t)src[i + 2] << 16 | (uint32_t)src[i + 3] << 24;
-    for (; i < n; i++, aud_pcm_stage++)
+    for (; i < n; i++)
+    {
         AUD_PCM_BYTE = src[i] * 0x01010101u;
+        aud_pcm_stage = (aud_pcm_stage + 1) & 3;
+    }
     AUD_PCM_COMMIT = 0;
     return n;
 }
@@ -108,3 +183,15 @@ void aud_pcm_clear(void) { AUD_PCM_CLEAR = 0; }
 uint32_t aud_opl_overruns(void) { return AUD_OPL_OVERRUNS; }
 
 uint32_t aud_pcm_underruns(void) { return AUD_PCM_UNDERRUNS; }
+
+/* The fabric is held for a savestate, and the hold parks the engines, so
+ * nothing stamped waits to be applied and there is no render to hold off. */
+void aud_sst_hold(bool load)
+{
+    (void)load;
+}
+
+void aud_sst_free(bool loaded)
+{
+    (void)loaded;
+}

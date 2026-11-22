@@ -25,9 +25,8 @@
  *
  * A savestate reads and writes the voices through the sst port at
  * savestate offsets: the structures at 0x640, the bell's at 0x6D0, the
- * voice words at 0x700 and the flops at 0x788. Both memories run on
- * clk_sys, the flops on clk. Between walks every other flop and every
- * registered read is dead, so only that state is kept.
+ * voice words at 0x700 and the flops at 0x788. Between walks every other
+ * flop and every registered read is dead, so only that state is kept.
  */
 
 module psg
@@ -40,7 +39,6 @@ module psg
     parameter int TICKS_PER_SAMPLE = 1050
 ) (
     input logic clk,
-    input logic clk_sys,
 
     /* The device register: the sw's validated pointer, 0xFFFF off. */
     input logic xaddr_we,
@@ -69,13 +67,13 @@ module psg
      * zero. A write to the block before then may be lost. */
     output logic psg_busy,
 
-    /* sst_own gives the memories' ports to sst_addr, written on sst_we.
-     * sst_st_we writes the flop word at sst_addr on clk. sst_park holds
-     * the sample counter, so no walk starts and psg_tick stays low. */
+    /* sst_own gives the memories' ports to sst_addr. sst_we writes the
+     * word at sst_addr, a memory's while sst_own is set and a flop word
+     * at any time. sst_park holds the sample counter, so no walk starts
+     * and psg_tick stays low. */
     input logic sst_own,
     input logic [10:0] sst_addr,
     input logic sst_we,
-    input logic sst_st_we,
     input logic [31:0] sst_wdata,
     input logic sst_park,
     output logic [31:0] psg_sst_rdata,
@@ -102,8 +100,8 @@ module psg
         st_k = sst_addr[2:0];
     end
 
-    /* A stop lands within a few clocks of psg_quiet, and no walk may
-     * start before it does. */
+    /* A savestate's hold parks the counter a clock after psg_quiet, and
+     * no walk may start before it does. */
     localparam int QUIET_LEAD = 24;
 
     /* The C's entries are all N << 16 with N no wider than nine bits, so
@@ -199,8 +197,9 @@ module psg
     end
 
     /* A bell byte that lands on a snooped byte's clock waits one clock.
-     * One is enough: the 6502 writes a PHI2 apart, the soft CPU's strobes
-     * are two clocks apart, and the soft CPU is halted before any stop. */
+     * One is enough: the 6502 writes a PHI2 apart, and the soft CPU's
+     * strobes are two clocks apart, so a savestate, which the soft CPU
+     * reads with more accesses, never finds one waiting. */
     logic hold_v;
     logic [2:0] hold_idx;
     logic [7:0] hold_val;
@@ -238,7 +237,7 @@ module psg
         if (cw_a[2:0] == 3'd7)
             cw_e = 1'b0;
     end
-    always_ff @(posedge clk_sys) begin
+    always_ff @(posedge clk) begin
         if (cw_e)
             cfg[cw_a] <= cw_d;
         if (snoop_cfg && bel_we) begin
@@ -253,7 +252,7 @@ module psg
     logic [7:0] cfg_q;
     logic [6:0] cr_a;
     always_comb cr_a = sst_own ? sst_cfg_a : {ch, t[2:0]};
-    always_ff @(posedge clk_sys)
+    always_ff @(posedge clk)
         cfg_q <= cfg[cr_a];
 
     /* The voice words, in a block for the same reason. The bell's noise
@@ -273,7 +272,7 @@ module psg
     logic [31:0] vq;
     logic [6:0] vr_a;
     always_comb vr_a = sst_own ? sst_addr[6:0] : {t[2:0], ch};
-    always_ff @(posedge clk_sys)
+    always_ff @(posedge clk)
         vq <= vm[vr_a];
 
     logic signed [15:0] r_smp;
@@ -282,19 +281,22 @@ module psg
     logic [31:0] w_inc;
     logic [VOL_W-1:0] w_vol;
 
-    /* Loaded a byte a clock, so cf_r is whole from clock 8. */
-    logic [55:0] cf_r;
+    /* Loaded a byte a clock, so both are whole from clock 8. The
+     * frequency takes its two bytes into a register of its own rather than
+     * down the shift: it feeds the DSP multiplier, and a fit that packs
+     * shift stages into the DSP's input registers, where the clock arrives
+     * late, breaks hold on the shift. */
+    logic [15:0] cf_freq;
+    logic [39:0] cf_r;
     logic clr;
 
-    logic [15:0] cf_freq;
     logic [7:0] cf_duty, cf_va, cf_vd, cf_wr, cf_pan;
     always_comb begin
-        cf_freq = cf_r[15:0];
-        cf_duty = cf_r[23:16];
-        cf_va = cf_r[31:24];
-        cf_vd = cf_r[39:32];
-        cf_wr = cf_r[47:40];
-        cf_pan = cf_r[55:48];
+        cf_duty = cf_r[7:0];
+        cf_va = cf_r[15:8];
+        cf_vd = cf_r[23:16];
+        cf_wr = cf_r[31:24];
+        cf_pan = cf_r[39:32];
     end
 
     typedef enum logic [1:0] {
@@ -309,11 +311,9 @@ module psg
      * to under 2^29. */
     localparam logic signed [29:0] MIX_ROUND = 30'sd2048;
     logic signed [29:0] mix_l, mix_r;
-    /* The oracle's int8 division truncates toward zero. */
+    /* Bits 7-1 of pan_gate, the pan from -64 to 63. */
     logic signed [7:0] pan_c;
-    always_comb pan_c = cf_pan[7]
-        ? 8'(($signed(cf_pan) + 8'sd1) >>> 1)
-        : 8'($signed(cf_pan) >>> 1);
+    always_comb pan_c = 8'($signed(cf_pan) >>> 1);
     /* The envelope's product, on clock 8. Thirteen bits of the Q24
      * envelope, not nine: at nine a long release moved the gain in 256
      * visible steps. */
@@ -531,7 +531,7 @@ module psg
         vw_a = sst_own ? sst_addr[6:0] : {wk, ch};
         vw_d = sst_own ? sst_wdata : w_d;
     end
-    always_ff @(posedge clk_sys)
+    always_ff @(posedge clk)
         if (vw_e)
             vm[vw_a] <= vw_d;
 
@@ -546,6 +546,7 @@ module psg
         w_noise1 = '0;
         w_noise2 = '0;
         w_vol = '0;
+        cf_freq = '0;
         cf_r = '0;
         ch = '0;
         t = '0;
@@ -605,8 +606,12 @@ module psg
             end
             P_VOICE: begin
                 /* The reads land a clock after their address. */
-                if (t >= 4'd1 && t <= 4'd7)
-                    cf_r <= {cfg_q, cf_r[55:8]};
+                if (t == 4'd1)
+                    cf_freq[7:0] <= cfg_q;
+                if (t == 4'd2)
+                    cf_freq[15:8] <= cfg_q;
+                if (t >= 4'd3 && t <= 4'd7)
+                    cf_r <= {cfg_q, cf_r[39:8]};
                 case (t)
                     4'd1: r_smp <= $signed(vq[15:0]);
                     4'd2: w_vol <= clr && !ch[3] ? '0 : vq[VOL_W-1:0];
@@ -674,7 +679,7 @@ module psg
             xreg_pend <= 1'b1;
         end
 
-        if (sst_st_we && sel_st)
+        if (sst_we && sel_st)
             case (st_k)
                 3'd1: clr <= sst_wdata[25];
                 3'd2: begin

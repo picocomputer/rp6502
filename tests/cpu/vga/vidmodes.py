@@ -6,6 +6,7 @@
 import argparse
 from pathlib import Path
 
+import build
 from rp6502_asm import Asm
 
 ap = argparse.ArgumentParser(description=__doc__)
@@ -65,13 +66,13 @@ def le16(*vals):
 
 def mode3(name, canvas, attr, bpp, w, h, x, y, xram_pal,
           x_wrap=False, y_wrap=False, config_ptr=0x0100, pal_ptr=0x0200,
-          data_ptr=0x0800):
+          data_ptr=0x0800, data=None):
     if not xram_pal:
         pal_ptr = 0xFFFF
     cfg = bytearray((1 if x_wrap else 0, 1 if y_wrap else 0)) \
         + le16(x, y, w, h, data_ptr, pal_ptr)
-    bm = bytes((i * 13 + 7) & 0xFF
-               for i in range(((w * bpp + 7) // 8) * h))
+    bm = data if data is not None else bytes(
+        (i * 13 + 7) & 0xFF for i in range(((w * bpp + 7) // 8) * h))
     chunks = [(config_ptr, cfg), (data_ptr, bm)]
     if xram_pal:
         chunks.append((pal_ptr, le16(*((0x0020 | (i * 2657))
@@ -120,10 +121,24 @@ def mode2_map(wt, ht):
     return bytes((i * 5 + 2) % MODE2_TILES for i in range(wt * ht))
 
 
+MODE2_CUSTOM = 0x1000
+MODE2_HDBL = 0x2000
+MODE2_VDBL = 0x4000
+
+
+def mode2_size(w, h):
+    return MODE2_CUSTOM | (w // 4 - 1) << 4 | (h // 4 - 1) << 8
+
+
 def mode2_tiles(attr):
     bpp = 1 << (attr & 3)
-    tile_size = 16 if attr & 8 else 8
-    mem_size = tile_size * bpp // 8 * tile_size
+    if attr & MODE2_CUSTOM:
+        w = ((attr >> 4 & 15) + 1) * 4
+        h = ((attr >> 8 & 15) + 1) * 4
+        mem_size = (w * bpp + 7) // 8 * h
+    else:
+        tile_size = 16 if attr & 8 else 8
+        mem_size = tile_size * bpp // 8 * tile_size
     return bytes((t // mem_size * 31 + t % mem_size * 7 + 3) & 0xFF
                  for t in range(MODE2_TILES * mem_size))
 
@@ -175,10 +190,13 @@ def mode5(name, canvas, attr, plane, sprites, n_pals=1,
         chunks.append((img_base + im * dsize,
                        bytes((im * 47 + t * 13 + 5) & 0xFF
                              for t in range(dsize))))
+    # A palette is followed by one more transparent entry, which a sprite
+    # whose palette starts a halfword in reads as its last color. XRAM
+    # holds whatever the last ROM left there, so it is written here.
     for pn in range(n_pals):
         chunks.append((pal_base + pn * 0x400,
                        le16(0, *((0x0020 | ((i * 2657 + pn * 97) & 0xFFFF))
-                                 for i in range(1, 1 << bpp)))))
+                                 for i in range(1, 1 << bpp)), 0)))
     chunks += list(extra_chunks)
     rom(name, canvas,
         list(extra_progs)
@@ -461,8 +479,64 @@ mode2("mode2_trimy", 2, 0x500, 24, 14, 6, 1, False, False, False)
 # A tile pointer high enough that the last tiles are addressed past the end of
 # XRAM. Those tiles are not drawn, in the renderer and in mode2.sv alike, and
 # the renderer never reads past the array.
+# Custom sizes. Rows that fill whole bytes take the byte walk; 20 pixels at
+# 1bpp and 4 at 1bpp end part way into a byte. The doubled ones start at odd
+# columns, so a doubled pixel is cut in half at the left edge.
+mode2("mode2_c24_1bpp", 1, mode2_size(24, 24) | 0, 16, 12, -5, -7,
+      False, False, True)
+mode2("mode2_c24_4bpp", 3, mode2_size(24, 24) | 2, 30, 22, 13, 9,
+      False, False, True)
+mode2("mode2_c20x12_1bpp", 1, mode2_size(20, 12) | 0, 18, 22, -3, 2,
+      False, False, False)
+mode2("mode2_c12x28_2bpp", 1, mode2_size(12, 28) | 1, 30, 10, 7, -11,
+      False, False, True)
+mode2("mode2_c4_8bpp", 2, mode2_size(4, 4) | 3, 7, 5, -2, 3,
+      True, True, True)
+mode2("mode2_c64_8bpp", 1, mode2_size(64, 64) | 3, 6, 5, -37, -21,
+      False, False, True)
+mode2("mode2_hdbl_4bpp8", 1, MODE2_HDBL | 0x002, 20, 12, -3, 4,
+      False, False, True)
+mode2("mode2_vdbl_2bpp16trim", 1, MODE2_VDBL | 0x309, 10, 8, 6, -5,
+      False, False, True)
+mode2("mode2_dbl_c24_1bpp", 3, MODE2_HDBL | MODE2_VDBL | mode2_size(24, 24),
+      7, 5, -27, -13, True, True, True)
+mode2("mode2_hdbl_trim8bpp", 1, MODE2_HDBL | 0x033, 12, 10, 11, 3,
+      False, False, True)
+mode2("mode2_hdbl_c4_1bpp", 2, MODE2_HDBL | mode2_size(4, 8), 30, 15, -1, 0,
+      False, True, False)
 mode2("mode2_tileoob", 1, 0x002, 20, 10, 5, 5, False, False, True,
       tile_ptr=0xFF80)
+
+# Layers that do not wrap, placed wholly off the canvas, so each frame is the
+# blank canvas. Off the left means a column past the right of the layer, which
+# once left a negative run: mode 2 at 4 or 8 bpp looped forever, mode 3 at
+# 16 bpp copied 128 KB, and the others cleared as many pixels as the layer was
+# off the left, so -30000 ran far past the line. Off the right at an odd column once wrote two pixels
+# past the line at 4 bpp. The trimmed map is 28 wide, so -29 is off the left
+# only when the trim is counted.
+rom("blank320", 1, [], [])
+mode3("mode3_offleft_1bpp", 1, 0, 1, 32, 16, -30000, 50, False)
+mode3("mode3_offleft_16bpp", 1, 4, 16, 32, 16, -33, 50, False)
+mode3("mode3_offright_4bpp", 1, 2, 4, 32, 16, 321, 50, False)
+mode1("mode1_offleft", 1, 0, 4, 2, -30000, 50, False, False)
+mode2("mode2_offleft_4bpp", 1, 0x002, 4, 2, -40, 50, False, False, True)
+mode2("mode2_offleft_8bpp", 1, 0x003, 4, 2, -40, 50, False, False, True)
+mode2("mode2_offleft_trim", 1, 0x012, 4, 2, -29, 50, False, False, True)
+
+# Sizes that do not fit, each drawn as nothing. A height of 0 or a width that
+# overflows to 0 once divided in the wrap, which faulted on x86 and hung the
+# Pico. A width over 32767 pixels went negative and ran off the line, even
+# for a mode 2 tile set past the end of XRAM. A negative count of rows once
+# wrapped the fit check of mode 1 to 64 bytes and read megabytes past XRAM.
+mode1("mode1_size_zero_h", 1, 0, 4, 0, 0, 0, False, False, y_wrap=True)
+mode1("mode1_size_zero_w", 1, 0, 8192, 1, 0, 0, False, False, x_wrap=True)
+mode1("mode1_size_neg_w", 1, 0, 4096, 2, 0, 0, False, False)
+mode1("mode1_size_neg_h", 1, 4, 21848, -32764, 0, 0, False, False)
+mode2("mode2_size_zero_h", 1, 0x000, 4, 0, 0, 0, False, True, False)
+mode2("mode2_size_zero_w", 1, 0x000, 8192, 1, 0, 0, True, False, False)
+mode2("mode2_size_neg_w", 1, 0x000, 5000, 1, 0, 0, False, False, False,
+      tile_ptr=0xFFF0)
+mode3("mode3_size_zero_h", 1, 3, 8, 32, 0, 0, 0, False, y_wrap=True)
 composite("mode2_composite")
 bands("prog_bands")
 
@@ -814,6 +888,98 @@ p.rom.add_binary_data(bytes((i * 13 + 7) & 0xFF for i in range(200 * 150)),
 note("mode0_return", 0)
 p.write(OUT / "mode0_return.rp6502")
 
+# Double-size lines and the reverse screen, with a steady cursor on them,
+# since a blinking one would make the frame depend on when it is captured.
+# Every attribute line is drawn on each size, so each follows the glyph row.
+MODE0_SIZES = ("\33[0m\33[2J\33[H"
+               "\33#6Wide \33[4mul\33[24m \33[9mst\33[29m "
+               "\33[53mov\33[55m \33[21mdu\33[24m\r\n"
+               "\33#3\33[1;31mTall\33[0m \33[7mrv\33[27m \33(0lqk\33(B\r\n"
+               "\33#4\33[1;31mTall\33[0m \33[7mrv\33[27m \33(0lqk\33(B\r\n"
+               "plain \33[3mitalic\33[23m \33[44;33mcolor\33[0m")
+
+
+def mode0text(name, canvas, text):
+    rom(name, canvas, [(0, 0, 0, 0)], [], speak=text)
+
+
+mode0text("mode0_dbl640", 3, MODE0_SIZES + "\33[1;3H\33[2 q")
+
+
+# Smooth scrolls (DECSCLM), drawn frame by frame. Every row has its own text,
+# the region holds a double-height pair, and the cursor is hidden, so every
+# step of a scroll is a picture of its own. The program waits after the text
+# for the boot to be over on any machine, then scrolls the region twice and
+# stops.
+def mode0smooth_text(width):
+    s = "\33[0m\33[2J\33[H\33[?25l"
+    for r in range(30):
+        s += f"\33[{r + 1};1H\33[{31 + r % 7}m{r:02} " + "abcdefghij"[r % 10] * (width // 2 - 4)
+    s += "\33[0m\33[9;1H\33#3\33[1;33mTall row\33[10;1H\33#4\33[1;33mTall row\33[0m"
+    return s + "\33[5;20r\33[?4h"
+
+
+def mode0smooth(name, canvas, width, scroll):
+    p = prog(canvas, [(0, 0, 0, 0)], stop=False)
+    say(p, mode0smooth_text(width))
+    frame, tick = p.local("frame"), p.local("tick")
+    p.ldx_imm(24)
+    p.symbol(frame)
+    p.lda_abs(0xFFE3)
+    p.symbol(tick)
+    p.cmp_abs(0xFFE3)
+    p.beq(tick)
+    p.dex()
+    p.bne(frame)
+    say(p, scroll)
+    p.stp()
+    note(name, canvas)
+    p.write(OUT / f"{name}.rp6502")
+
+
+mode0smooth("mode0_smooth_up640", 3, 80, "\33[20;1H\n\n")
+mode0smooth("mode0_smooth_down320", 1, 40, "\33[5;1H\33M\33M")
+
+
+# Thirty-three colored lines said as fast as the UART takes them, with smooth
+# scroll on, so the last four each wait for the one before to finish moving.
+# The picture they land on has every byte.
+def mode0flood_text():
+    s = "\33[0m\33[2J\33[H\33[?25l\33[?4h"
+    for r in range(33):
+        s += f"\33[{31 + r % 7}m{r:02} " + "abcdefghij"[r % 10] * 36 + "\r\n"
+    return s
+
+
+mode0text("mode0_smooth_flood640", 3, mode0flood_text())
+
+mode0text("mode0_dbl320", 1, MODE0_SIZES + "\33[2;2H\33[6 q")
+mode0text("mode0_rev640", 3, "\33[?5h" + MODE0_SIZES + "\33[3;4H\33[4 q")
+mode0text("mode0_rev320", 1, "\33[?5h" + MODE0_SIZES + "\33[1;3H\33[2 q")
+# A double-width row filled to its last column leaves a wrap pending, and
+# the cursor stays on that column in its own style, as on a VT100.
+mode0text("mode0_wrap640", 3,
+          "\33[0m\33[2J\33[H\33#6" + "0123456789" * 4 + "\33[6 q")
+mode0text("mode0_wrap320", 1,
+          "\33[0m\33[2J\33[H\33#6" + "0123456789" * 2 + "\33[6 q")
+# Every underline style in the foreground's color and in one of its own,
+# from the palette and as RGB, with a strike and an overline through one;
+# RGB and faint colors; a palette entry changed after cells were drawn in
+# it; and a cursor on an underlined cell.
+MODE0_LINES = ("\33[0m\33[2J\33[H"
+               "\33[31mentry\33[0m "
+               "\33[4:1mone\33[4:2mtwo\33[4:3mcurl\33[4:4mdots\33[4:5mdash"
+               "\33[0m\r\n"
+               "\33[58;5;9m\33[4:1mone\33[4:2mtwo\33[4:3mcurl\33[4:4mdots"
+               "\33[4:5mdash\33[0m\r\n"
+               "\33[58;2;0;255;128m\33[4:3;9;53mall\33[0m "
+               "\33[38;2;255;128;0;48;2;0;64;128mrgb\33[0m "
+               "\33[2;32mfaint\33[0m\r\n"
+               "\33#6\33[58;5;12;4:3mwide\33[4:5mjg\33[0m"
+               "\33]4;1;rgb:ff/80/00\33\\")
+mode0text("mode0_lines640", 3, MODE0_LINES + "\33[2;2H\33[2 q")
+mode0text("mode0_lines320", 1, MODE0_LINES + "\33[1;8H\33[4 q")
+
 cfg0 = bytearray((0, 0)) + le16(10, 20, 64, 64, 0x0800, 0x0200)
 cfg1 = bytearray((0, 0)) + le16(40, 30, 64, 64, 0x1800, 0x0600)
 rom("fill_heavy640", 3,
@@ -863,11 +1029,79 @@ rom("text_three640", 3,
      (0x0600, le16(*(((i >> 1 & 1) << 5 | (i * 733 + 9))
                      for i in range(256))))])
 
+# The console over two of those text planes, which wrap so they are on
+# every line: all three take glyphs from the one font store.
+cfg_a = bytearray((0, 1)) + le16(0, 0, 80, 4, 0x1000, 0x0200, 0xFFFF)
+cfg_b = bytearray((0, 1)) + le16(0, 0, 80, 4, 0x1400, 0x0400, 0xFFFF)
+rom("text_term640", 3,
+    [(1, 3, 0x0100, 0, 0, 0), (1, 3, 0x0140, 1, 0, 0), (0, 2, 0, 0)],
+    [(0x0100, cfg_a), (0x0140, cfg_b),
+     (0x1000, text_cells(80, 4, 0)), (0x1400, text_cells(80, 4, 7)),
+     (0x0200, le16(*((0x0020 | (i * 2657 + 5)) for i in range(256)))),
+     (0x0400, le16(*(((i & 1) << 5 | (i * 1031 + 5)) for i in range(256))))],
+    speak=MODE0_LINES + "\33[?25l\33[5;1H\33[4:3;58;5;10m" + "0123456789" * 8)
+
 # Sixteen-bit pixels at an odd byte, so every other pixel straddles a word,
 # and a wrap every 32 pixels, so each segment ends on a straddle and the
 # next segment starts right behind it.
 mode3("mode3_16odd_wrap", 4, 4, 16, 32, 16, -10, 50, False, x_wrap=True,
       data_ptr=0x0801)
+
+MODE3_REVERSE = 0x08
+MODE3_HDBL = 0x10
+MODE3_VDBL = 0x20
+
+
+def bits_reversed(data, bpp):
+    # Each byte's pixels in the other order: mode 3's reversed bitmaps keep
+    # their first pixel in the low bits.
+    if bpp >= 8:
+        return bytes(data)
+    mask = (1 << bpp) - 1
+    out = bytearray()
+    for b in data:
+        r = 0
+        for k in range(8 // bpp):
+            r = (r << bpp) | ((b >> (k * bpp)) & mask)
+        out.append(r)
+    return bytes(out)
+
+
+def mode3_pair(name, canvas, attr, bpp, w, h, x, y, xram_pal, **kw):
+    # <name> draws a bitmap doubled by its attributes, and <name>_ref draws
+    # the same picture from a bitmap doubled here, with the bits clear.
+    bm = bytes((i * 13 + 7) & 0xFF for i in range(((w * bpp + 7) // 8) * h))
+    mode3(name, canvas, attr, bpp, w, h, x, y, xram_pal, data=bm, **kw)
+    rev = bool(attr & MODE3_REVERSE) and bpp < 8
+    rows = img_rows(bits_reversed(bm, bpp) if rev else bm, w, h, bpp)
+    if attr & MODE3_HDBL:
+        rows = img_hdbl(rows)
+    if attr & MODE3_VDBL:
+        rows = img_vdbl(rows)
+    ref = img_pack(rows, bpp)
+    mode3(name + "_ref", canvas, attr & ~(MODE3_HDBL | MODE3_VDBL), bpp,
+          len(rows[0]), len(rows), x, y, xram_pal,
+          data=bits_reversed(ref, bpp) if rev else ref, **kw)
+
+
+# Doubled bitmaps against the same pictures doubled before they are drawn.
+# Odd positions start a line on the right half of a doubled pixel, odd widths
+# end a row part way into a byte, and the wraps fold at twice the width and
+# height.
+mode3_pair("mode3_dbl_1bpp", 1, MODE3_HDBL | MODE3_VDBL | 0, 1, 37, 20,
+           -3, 5, False)
+mode3_pair("mode3_hdbl_2bppr", 1, MODE3_HDBL | 9, 2, 50, 30, 7, -4, True,
+           x_wrap=True)
+mode3_pair("mode3_vdbl_4bpp", 1, MODE3_VDBL | 2, 4, 41, 25, 3, 11, True,
+           y_wrap=True)
+mode3_pair("mode3_hdbl_4bppr", 1, MODE3_HDBL | 10, 4, 33, 21, 9, 100, True)
+mode3_pair("mode3_dbl_8bpp_wrap", 3, MODE3_HDBL | MODE3_VDBL | 3, 8, 50, 40,
+           -37, -23, True, x_wrap=True, y_wrap=True)
+mode3_pair("mode3_dbl_16bpp", 2, MODE3_HDBL | MODE3_VDBL | 4, 16, 31, 16,
+           -5, 50, False, x_wrap=True)
+# A width that fits an int16_t only undoubled draws nothing doubled.
+mode3("mode3_dbl_size_w", 1, MODE3_HDBL | 0, 1, 20000, 1, 0, 0, False,
+      x_wrap=True)
 
 # Two 16bpp bitmaps on one line whose data pointers differ in byte parity. A
 # 16bpp bitmap at an odd byte is the only fill whose words start part way into
@@ -920,5 +1154,5 @@ rom("fill_three640_16bpp_spr", 3,
     + spr_img)
 
 if ARGS.emit_manifest:
-    ARGS.emit_manifest.write_text(
-        "".join(f"{n} {w} {h}\n" for n, w, h in sorted(MANIFEST)))
+    build.write_text(
+        ARGS.emit_manifest, "".join(f"{n} {w} {h}\n" for n, w, h in sorted(MANIFEST)))

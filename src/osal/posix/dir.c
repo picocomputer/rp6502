@@ -15,6 +15,7 @@
  */
 
 #include "osal/dir.h"
+#include "core/sys/sst.h"
 #include "core/str/oem.h"
 #include "core/str/path.h"
 #include "osal/os.h"
@@ -150,7 +151,7 @@ static bool posix_ok(bool ok, api_errno *err)
 static void fat_pack_time(time_t t, uint16_t *fdate, uint16_t *ftime)
 {
     struct tm tm;
-    os_localtime(t, &tm);
+    localtime_r(&t, &tm);
     int year = tm.tm_year + 1900;
     if (year < 1980)
     {
@@ -280,6 +281,10 @@ static struct
     void *dp;
     char path[API_PATH_MAX + 1];
 } dirs[DIR_MAX_OPEN];
+
+#define OSAL_DIR_SST(X) \
+    X(SKIP, dirs, "the DIR row reopens each by the path kept here")
+SST_TABLE(osal_dir, OSAL_DIR_SST)
 
 bool drive_validate(int des, api_errno *err)
 {

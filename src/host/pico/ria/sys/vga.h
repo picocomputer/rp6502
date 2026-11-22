@@ -16,7 +16,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define VGA_BACKCHANNEL_PIN COM_UART_TX_PIN
+#define VGA_BACKCHANNEL_PIN MANIFOLD_UART_TX_PIN
 #define VGA_BACKCHANNEL_BAUDRATE 115200
 #define VGA_BACKCHANNEL_PIO pio0
 #define VGA_BACKCHANNEL_SM 3
@@ -56,6 +56,9 @@ void vga_break(void);
 // Fully connected with backchannel.
 bool vga_connected(void);
 
+// The VGA's frames since boot, counted from its VSYNCs.
+uint32_t vga_frames(void);
+
 // Responders for status.
 int vga_boot_response(char *buf, size_t buf_size, int state, unsigned width);
 int vga_status_response(char *buf, size_t buf_size, int state, unsigned width);
@@ -68,9 +71,9 @@ uint8_t vga_get_display_type(void);
 bool vga_set_display_type(uint8_t display_type);
 const char *vga_get_display_type_verbose(void);
 
-void vga_set_canvas(uint16_t canvas_word);
-
-void vga_set_tel_console_active(bool active);
+/* A register of channel 0 as it is sent to the VGA: the canvas and mode
+ * xregs, which the console's terminal follows. */
+void vga_xreg(uint8_t index, uint16_t word);
 
 #define VGA_CONFIG_DISPLAY_TYPE CONFIG_INT(D, vga, display_type, uint8_t, 0, \
     vga_check_display_type, vga_apply_display_type, STR_VGA, \
@@ -79,7 +82,12 @@ void vga_set_tel_console_active(bool active);
  * because vga_init sends PIX messages and waits for the VGA's reply, and the
  * PIX transmitter shifts only on edges of the PHI2 clock that ria_init
  * starts. */
-#define VGA_DRIVER DRIVER(vga_init, vga_task, nul_task, vga_run, vga_stop, vga_break, \
-    VGA_CONFIG_DISPLAY_TYPE, nul_config, nul_sst)
+#define VGA_DRIVER DRIVER(   \
+    INIT(vga_init)           \
+    TASK_PUMPED(vga_task)    \
+    RUN(vga_run)             \
+    STOP(vga_stop)           \
+    BREAK(vga_break)         \
+    VGA_CONFIG_DISPLAY_TYPE)
 
 #endif /* _RIA_SYS_VGA_H_ */

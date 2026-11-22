@@ -4,26 +4,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "font.h"
 #include "mmio.h"
 #include "vga.h"
-#include "vid.h"
 
-#include "core/term/term.h"
+#include "core/vga/pixel_format.h"
+
+#include "core/term/cells.h"
+#include "core/term/font.h"
 
 static int16_t vga_highest_scanline;
-static uint8_t vga_pub_mode;
-static uint16_t vga_pub_attr;
 
 bool vga_connected(void)
 {
     return true;
-}
-
-void vga_mode_begin(uint8_t mode, uint16_t attr)
-{
-    vga_pub_mode = mode;
-    vga_pub_attr = attr;
 }
 
 bool vga_prog_valid(int16_t plane, int16_t scanline_begin,
@@ -31,7 +24,7 @@ bool vga_prog_valid(int16_t plane, int16_t scanline_begin,
 {
     if (!*scanline_end)
         *scanline_end = vga_canvas_height();
-    if (plane < 0 || plane >= 3 ||
+    if (plane < 0 || plane >= SCANVIDEO_PLANE_COUNT ||
         scanline_begin < 0 || *scanline_end > vga_canvas_height() ||
         *scanline_end - scanline_begin < 1)
         return false;
@@ -55,29 +48,71 @@ static void vga_publish_vsync(void)
     VID_VSYNC_LINE = (uint32_t)vga_vsync_line();
 }
 
-/* The soft CPU cannot read an entry back from the scanline table, so each
- * line programmed by the last successful vga_prog_exclusive call has a bit
- * here until a vga_prog_fill on the same plane replaces the line or
+/* Each line programmed by the last successful vga_prog_exclusive call has
+ * a bit here until a vga_prog_fill on the same plane replaces the line or
  * vga_canvas_reset clears the table. */
-static uint32_t vga_mode0_mask[16];
+#define VGA_MASK_WORDS (VGA_PROG_MAX / 32)
+static uint32_t vga_mode0_mask[VGA_MASK_WORDS];
 static int16_t vga_mode0_plane;
 
+/* The scanline table itself is the fabric's, which fab.c carries; these
+ * are this file's notes on it. A plane past the fabric's would write past
+ * VID_XPROG's planes. */
+static bool vga_fabric_check(sst_cursor_t *c)
+{
+    if (vga_highest_scanline < 0 || vga_highest_scanline > VGA_PROG_MAX ||
+        vga_mode0_plane < 0 || vga_mode0_plane >= SCANVIDEO_PLANE_COUNT)
+        return sst_refuse(c, "the scanline table's notes are out of range");
+    return true;
+}
+
+/* VID_VSYNC_LINE is written, not read, and is computed from the canvas,
+ * which loads before this row. */
+static void vga_vsync_put(sst_cursor_t *c, unsigned flags)
+{
+    (void)c;
+    (void)flags;
+}
+
+static bool vga_vsync_get(sst_cursor_t *c, unsigned flags)
+{
+    (void)c;
+    (void)flags;
+    vga_publish_vsync();
+    return true;
+}
+
+#define VGA_FABRIC_SST(X)                                               \
+    X(I16, vga_highest_scanline)                                        \
+    X(U32S, vga_mode0_mask)                                             \
+    X(I16, vga_mode0_plane)                                             \
+    X(VALIDATE, vga_fabric_check)                                       \
+    X(FN, vga_vsync_put, vga_vsync_get, 0, 1)
+SST_TABLE(vga_fabric, VGA_FABRIC_SST)
+
+/* The scanline table is prog.sv's: a word for a plane's fill and one for
+ * its sprites, each the mode and the options word of its XREG call under
+ * an enable bit. */
+static uint32_t vga_table_word(uint8_t mode, uint16_t options)
+{
+    return 0x80000000u | ((uint32_t)(mode & 7) << 16) | options;
+}
+
+/* Only the terminal books this way, and its mode and options are 0. */
 bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin,
                         int16_t scanline_end, uint16_t config_ptr,
-                        bool (*fill_fn)(int16_t, int16_t, int16_t,
-                                        uint16_t *, uint16_t))
+                        uint8_t mode, uint16_t options)
 {
-    (void)fill_fn;
     if (!vga_prog_valid(plane, scanline_begin, &scanline_end))
         return false;
-    for (int16_t i = 0; i < 512; i++)
+    for (int16_t i = 0; i < VGA_PROG_MAX; i++)
         if (vga_mode0_mask[i >> 5] & (1u << (i & 31)))
             VID_XPROG(i, vga_mode0_plane, 0) = 0;
-    for (int16_t i = 0; i < 16; i++)
+    for (int16_t i = 0; i < VGA_MASK_WORDS; i++)
         vga_mode0_mask[i] = 0;
     for (int16_t i = scanline_begin; i < scanline_end; i++)
     {
-        VID_XPROG(i, plane, 0) = 0x80000000u;
+        VID_XPROG(i, plane, 0) = vga_table_word(mode, options);
         VID_XPROG(i, plane, 1) = config_ptr;
         vga_mode0_mask[i >> 5] |= 1u << (i & 31);
     }
@@ -87,19 +122,15 @@ bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin,
 }
 
 bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
-                   uint16_t config_ptr,
-                   bool (*fill_fn)(int16_t, int16_t, int16_t,
-                                   uint16_t *, uint16_t))
+                   uint16_t config_ptr, uint8_t mode, uint16_t options)
 {
-    (void)fill_fn;
     if (vga_canvas_is_console())
         return false;
     if (!vga_prog_valid(plane, scanline_begin, &scanline_end))
         return false;
     for (int16_t i = scanline_begin; i < scanline_end; i++)
     {
-        VID_XPROG(i, plane, 0) = 0x80000000u
-            | ((uint32_t)(vga_pub_mode & 7) << 16) | vga_pub_attr;
+        VID_XPROG(i, plane, 0) = vga_table_word(mode, options);
         VID_XPROG(i, plane, 1) = config_ptr;
     }
     if (plane == vga_mode0_plane)
@@ -111,18 +142,15 @@ bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
 
 bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
                      uint16_t config_ptr, uint16_t length,
-                     void (*sprite_fn)(int16_t, int16_t, uint16_t *,
-                                       uint16_t, uint16_t))
+                     uint8_t mode, uint16_t options)
 {
-    (void)sprite_fn;
     if (vga_canvas_is_console())
         return false;
     if (!vga_prog_valid(plane, scanline_begin, &scanline_end))
         return false;
     for (int16_t i = scanline_begin; i < scanline_end; i++)
     {
-        VID_XPROG(i, plane, 2) = 0x80000000u
-            | ((uint32_t)(vga_pub_mode & 7) << 16) | vga_pub_attr;
+        VID_XPROG(i, plane, 2) = vga_table_word(mode, options);
         VID_XPROG(i, plane, 3) = ((uint32_t)length << 16) | config_ptr;
     }
     vga_publish_vsync();
@@ -131,11 +159,11 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
 
 void vga_canvas_reset(void)
 {
-    for (int16_t i = 0; i < 512; i++)
-        for (int16_t p = 0; p < 3; p++)
-            for (int16_t w = 0; w < 4; w++)
+    for (int16_t i = 0; i < VGA_PROG_MAX; i++)
+        for (int16_t p = 0; p < SCANVIDEO_PLANE_COUNT; p++)
+            for (int16_t w = 0; w < VID_XPROG_WORDS; w++)
                 VID_XPROG(i, p, w) = 0;
-    for (int16_t i = 0; i < 16; i++)
+    for (int16_t i = 0; i < VGA_MASK_WORDS; i++)
         vga_mode0_mask[i] = 0;
     vga_highest_scanline = 0;
     vga_publish_vsync();
@@ -146,23 +174,14 @@ void vga_canvas_publish(vga_canvas_t canvas)
     VID_CANVAS = canvas;
 }
 
-/* The blob does not contain VID_CANVAS or VID_VSYNC_LINE, so after a
- * restore they hold their power-on values or the values written before the
- * restore. The blob does contain the scanline table and the firmware state
- * both values come from. vga_canvas_select is not used here because it
- * clears the scanline table the blob has just restored. */
-void vga_restore(void)
-{
-    VID_CANVAS = (uint32_t)vga_get_canvas();
-    vga_publish_vsync();
-}
-
+/* font.c's tables are linked onto the font memories, so these write them. */
 void vga_set_code_page(uint16_t cp)
 {
     font_set_code_page(cp);
 }
+
 void vga_load_code_page(uint16_t cp)
 {
-    vga_set_code_page(cp);
+    font_load_code_page(cp);
 }
 

@@ -19,9 +19,11 @@
 #include "ria/mon/uf2.h"
 #include "ria-w/net/cyw.h"
 #include "osal/fs.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
+#include "core/com/com.h"
+#include "core/com/manifold.h"
+#include "core/com/tio.h"
 #include "ria/sys/resb.h"
 #include "ria/sys/ria.h"
 #include "ria/usb/usb.h"
@@ -47,8 +49,7 @@ static mon_response_fn mon_response_fn_list[MON_RESPONSE_FN_COUNT];
 static const char *mon_response_str[MON_RESPONSE_FN_COUNT];
 static int mon_response_state[MON_RESPONSE_FN_COUNT] =
     {[0 ... MON_RESPONSE_FN_COUNT - 1] = -1};
-// rln_get_term_height falls back to 24 rows when no other height is
-// available, and one row is kept for the prompt.
+// The console starts at 24 rows, and one row is kept for the prompt.
 static int mon_more_rows_left = 23;
 static int mon_response_col;
 static int mon_response_indent;
@@ -56,9 +57,18 @@ static int mon_response_indent_pending;
 static bool mon_response_width_aware;
 static int mon_response_pos = -1;
 static bool mon_needs_prompt = true;
+
+/* Set by a stop, cleared when the monitor next prompts. */
+static bool mon_program_stopped;
 static bool mon_needs_read_line = true;
 static bool mon_needs_break = false;
 static mon_confirm_fn mon_confirm_cb;
+
+// The command prompt's history: the line being typed and the last seven
+// entered.
+#define MON_HISTORY_LINES 8
+static char mon_history_lines[MON_HISTORY_LINES][RLN_LINE_MAX];
+static rln_history_t mon_history = {mon_history_lines, MON_HISTORY_LINES, 0, 0};
 static enum {
     MON_MORE_OFF,
     MON_MORE_START,
@@ -68,14 +78,14 @@ static enum {
     MON_MORE_WAIT_CSI,
 } mon_more_state;
 
-static void HOST_IN_FLASH_FUNC("mon_reboot") mon_reboot(const char *args)
+static void HOST_IN_FLASH_FUNC mon_reboot(const char *args)
 {
     (void)args;
     stdio_flush();
     watchdog_reboot(0, 0, 0);
 }
 
-static void HOST_IN_FLASH_FUNC("mon_reset") mon_reset(const char *args)
+static void HOST_IN_FLASH_FUNC mon_reset(const char *args)
 {
     (void)args;
     arg_clear();
@@ -84,7 +94,7 @@ static void HOST_IN_FLASH_FUNC("mon_reset") mon_reset(const char *args)
 }
 
 typedef void (*mon_command_fn)(const char *);
-__in_flash("mon_commands") static struct
+HOST_IN_FLASH static struct
 {
     const char *const cmd;
     mon_command_fn func;
@@ -119,7 +129,7 @@ __in_flash("mon_commands") static struct
 static const size_t MON_COMMANDS_COUNT = sizeof MON_COMMANDS / sizeof *MON_COMMANDS;
 
 // Returns NULL if not found. Advances buf to start of args.
-static mon_command_fn HOST_IN_FLASH_FUNC("mon_command_lookup") mon_command_lookup(const char **buf)
+static mon_command_fn HOST_IN_FLASH_FUNC mon_command_lookup(const char **buf)
 {
     while (**buf == ' ')
         (*buf)++;
@@ -160,12 +170,12 @@ static mon_command_fn HOST_IN_FLASH_FUNC("mon_command_lookup") mon_command_looku
     return NULL;
 }
 
-bool HOST_IN_FLASH_FUNC("mon_command_exists") mon_command_exists(const char *buf)
+bool HOST_IN_FLASH_FUNC mon_command_exists(const char *buf)
 {
     return !!mon_command_lookup(&buf);
 }
 
-static void HOST_IN_FLASH_FUNC("mon_enter") mon_enter(bool timeout, const char *buf)
+static void HOST_IN_FLASH_FUNC mon_enter(bool timeout, const char *buf)
 {
     (void)timeout;
     assert(!timeout);
@@ -188,7 +198,7 @@ static void HOST_IN_FLASH_FUNC("mon_enter") mon_enter(bool timeout, const char *
         mon_add_response_utf8(S(STR_ERR_UNKNOWN_COMMAND));
 }
 
-static void HOST_IN_FLASH_FUNC("mon_confirm_enter") mon_confirm_enter(bool timeout, const char *buf)
+static void HOST_IN_FLASH_FUNC mon_confirm_enter(bool timeout, const char *buf)
 {
     (void)timeout;
     assert(!timeout);
@@ -214,7 +224,7 @@ void mon_response_confirm(mon_confirm_fn cb)
     mon_confirm_cb = cb;
 }
 
-static int HOST_IN_FLASH_FUNC("mon_utf8_response") mon_utf8_response(char *buf, size_t buf_size,
+static int HOST_IN_FLASH_FUNC mon_utf8_response(char *buf, size_t buf_size,
                                                                      int state, unsigned)
 {
     if (state < 0)
@@ -230,7 +240,7 @@ static int HOST_IN_FLASH_FUNC("mon_utf8_response") mon_utf8_response(char *buf, 
     return (int)(p - str);
 }
 
-static const char *HOST_IN_FLASH_FUNC("mon_lfs_lookup") mon_lfs_lookup(int result)
+static const char *HOST_IN_FLASH_FUNC mon_lfs_lookup(int result)
 {
     switch (-result)
     {
@@ -267,7 +277,7 @@ static const char *HOST_IN_FLASH_FUNC("mon_lfs_lookup") mon_lfs_lookup(int resul
     }
 }
 
-static const char *HOST_IN_FLASH_FUNC("mon_fatfs_lookup") mon_fatfs_lookup(int fresult)
+static const char *HOST_IN_FLASH_FUNC mon_fatfs_lookup(int fresult)
 {
     switch (fresult)
     {
@@ -318,7 +328,7 @@ static const char *HOST_IN_FLASH_FUNC("mon_fatfs_lookup") mon_fatfs_lookup(int f
     }
 }
 
-static int HOST_IN_FLASH_FUNC("mon_err_response") mon_err_response(char *buf, size_t buf_size,
+static int HOST_IN_FLASH_FUNC mon_err_response(char *buf, size_t buf_size,
                                                                    int state,
                                                                    const char *(*lookup)(int))
 {
@@ -332,13 +342,13 @@ static int HOST_IN_FLASH_FUNC("mon_err_response") mon_err_response(char *buf, si
     return -1;
 }
 
-static int HOST_IN_FLASH_FUNC("mon_lfs_response") mon_lfs_response(char *buf, size_t buf_size,
+static int HOST_IN_FLASH_FUNC mon_lfs_response(char *buf, size_t buf_size,
                                                                    int state, unsigned)
 {
     return mon_err_response(buf, buf_size, state, mon_lfs_lookup);
 }
 
-static int HOST_IN_FLASH_FUNC("mon_fatfs_response") mon_fatfs_response(char *buf, size_t buf_size,
+static int HOST_IN_FLASH_FUNC mon_fatfs_response(char *buf, size_t buf_size,
                                                                        int state, unsigned)
 {
     return mon_err_response(buf, buf_size, state, mon_fatfs_lookup);
@@ -369,14 +379,14 @@ static void mon_append_response(mon_response_fn fn, const char *str, int state)
     mon_response_state[i] = 0;
 }
 
-static void HOST_IN_FLASH_FUNC("mon_clear_slot") mon_clear_slot(int i)
+static void HOST_IN_FLASH_FUNC mon_clear_slot(int i)
 {
     mon_response_fn_list[i] = NULL;
     mon_response_str[i] = NULL;
     mon_response_state[i] = -1;
 }
 
-static void HOST_IN_FLASH_FUNC("mon_next_response") mon_next_response(void)
+static void HOST_IN_FLASH_FUNC mon_next_response(void)
 {
     int i = 0;
     for (; i < MON_RESPONSE_FN_COUNT - 1; i++)
@@ -388,7 +398,7 @@ static void HOST_IN_FLASH_FUNC("mon_next_response") mon_next_response(void)
     mon_clear_slot(i);
 }
 
-static void HOST_IN_FLASH_FUNC("mon_break_response") mon_break_response(void)
+static void HOST_IN_FLASH_FUNC mon_break_response(void)
 {
     mon_needs_break = false;
     mon_response_pos = -1;
@@ -437,7 +447,7 @@ void mon_add_response_errno(api_errno err)
     mon_add_response_utf8(api_errno_str(err));
 }
 
-static void HOST_IN_FLASH_FUNC("mon_more") mon_more(void)
+static void HOST_IN_FLASH_FUNC mon_more(void)
 {
     if (mon_needs_break)
     {
@@ -496,7 +506,7 @@ static void HOST_IN_FLASH_FUNC("mon_more") mon_more(void)
     }
 }
 
-static void HOST_IN_FLASH_FUNC("mon_step") mon_step(void)
+static void HOST_IN_RAM_FUNC mon_step(void)
 {
     if (mon_more_state)
     {
@@ -537,7 +547,7 @@ static void HOST_IN_FLASH_FUNC("mon_step") mon_step(void)
     {
         int width = rln_get_term_width();
         char c;
-        while ((c = mon_response_cur[mon_response_pos]) && com_putchar_ready())
+        while ((c = mon_response_cur[mon_response_pos]) && manifold_cts())
         {
             // A BEL byte in a response is not printed. It marks the column
             // that wrapped lines are indented to, but wrapped lines are not
@@ -648,6 +658,8 @@ static void HOST_IN_FLASH_FUNC("mon_step") mon_step(void)
     // The monitor has control
     if (mon_needs_prompt)
     {
+        mon_program_stopped = false;
+        com_clean_line();
         if (mon_confirm_cb)
             com_printf_utf8(S(STR_MON_CONFIRM_PROMPT));
         else
@@ -662,13 +674,13 @@ static void HOST_IN_FLASH_FUNC("mon_step") mon_step(void)
         mon_response_width_aware = false;
         ria_get_sigint(); // discard any SIGINT raised while monitor was idle
         if (mon_confirm_cb)
-            rln_read_line_no_history(mon_confirm_enter);
+            rln_read_line(mon_confirm_enter, NULL);
         else
-            rln_read_line(mon_enter);
+            rln_read_line(mon_enter, &mon_history);
         return;
     }
-    // A Ctrl-C cancels the line once no input is pending.
-    if (com_peekchar(COM_SOURCE_ANY) < 0 && ria_get_sigint())
+    // A Ctrl-C cancels the line once no whole item is waiting.
+    if (tio_idle() && ria_get_sigint())
     {
         mon_needs_prompt = true;
         mon_needs_read_line = true;
@@ -676,7 +688,7 @@ static void HOST_IN_FLASH_FUNC("mon_step") mon_step(void)
     }
 }
 
-bool mon_busy(void)
+bool HOST_IN_RAM_FUNC mon_busy(void)
 {
     return !sys_active() &&
            (mon_response_state[0] >= 0 ||
@@ -689,32 +701,25 @@ bool mon_busy(void)
 
 /* The monitor runs from flash, so it also waits out the transfers that run
  * the 6502 while no program does. */
-void mon_task(void)
+void HOST_IN_RAM_FUNC mon_task(void)
 {
-    // The monitor must never print while 6502 is running.
-    if (!sys_active() && resb_held())
+    // The monitor must never print while 6502 is running, nor before a
+    // session's end or the line editor's last reply, which go out first.
+    if (!sys_active() && resb_held() && !com_ending() && !rln_replying())
         mon_step();
 }
 
-/* In a release build the startup banner begins by clearing the terminal, so
- * it must be queued before any other driver can queue an error that it would
- * erase. */
-void __in_flash("mon_init") mon_init(void)
+/* The VGA's connect has already sent the screen's terminal a hard reset. The
+ * banner starts with the soft reset, which every terminal gets. */
+void HOST_IN_FLASH_FUNC mon_init(void)
 {
-#ifdef NDEBUG
-    mon_add_response_utf8(STR_TERM_HARD_RESET);
-#else
-    // We can't soft reset cursor when ROMs stop because minicom
-    // will print the q, but one at startup is fine for debug.
-    mon_add_response_utf8("\30\33[0 q");
     mon_add_response_utf8(STR_TERM_SOFT_RESET);
-#endif
     mon_add_response_utf8("\n");
     status_add_boot_response();
     mon_add_response_utf8("\n");
 }
 
-void mon_stop(void)
+static void HOST_IN_FLASH_FUNC mon_rearm(void)
 {
     if (mon_more_state)
     {
@@ -726,8 +731,18 @@ void mon_stop(void)
     mon_needs_read_line = true;
 }
 
+void mon_stop(void)
+{
+    mon_program_stopped = true;
+    mon_rearm();
+}
+
+/* A break cancels the monitor's own output. A break that stopped a program
+ * finds only messages queued while it ran, and those still print. */
 void mon_break(void)
 {
-    mon_needs_break = true;
-    mon_stop();
+    if (!mon_program_stopped)
+        mon_needs_break = true;
+    mon_program_stopped = false;
+    mon_rearm();
 }

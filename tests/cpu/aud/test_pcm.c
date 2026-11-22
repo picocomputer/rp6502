@@ -179,11 +179,14 @@ UTEST(pcm, takes_counts_what_the_samples_take)
     }
 }
 
-UTEST(pcm, an_underrun_is_silence_and_play_resumes)
+UTEST(pcm, an_underrun_fades_to_silence_and_play_resumes)
 {
     const pcm_fmt_t fmt = {22050, 16, 1};
     pcm_reset(&stub, &fmt);
-    static uint8_t loud[64];
+    /* 256 frames. The last is taken by about sample 580 at either native
+     * rate, and the output, half the taps behind, is still near 0x4000 at
+     * 600. */
+    static uint8_t loud[512];
     for (size_t i = 0; i < sizeof loud; i += 2)
     {
         loud[i] = 0x00;
@@ -191,19 +194,52 @@ UTEST(pcm, an_underrun_is_silence_and_play_resumes)
     }
     pcm_put(&stub, loud, sizeof loud);
     int32_t l, r;
-    for (int i = 0; i < 200; i++)
+    for (int i = 0; i < 600; i++)
         pcm_sample(&stub, &l, &r);
     ASSERT_EQ(pcm_level(&stub), 0);
-    /* Twenty-four silent frames flush the filter. */
-    for (int i = 0; i < 200; i++)
+    ASSERT_GT(l, 0x3F00);
+    /* Stepping straight from 0x4000 to zero moved the output by over 4000
+     * from one sample to the next. The fade, 2^5 frames at this rate, moves
+     * it by a few hundred at most, and reaches zero exactly. */
+    int32_t last = l, most = 0;
+    for (int i = 0; i < 1000; i++)
+    {
         pcm_sample(&stub, &l, &r);
+        const int32_t d = l > last ? l - last : last - l;
+        most = d > most ? d : most;
+        last = l;
+    }
+    ASSERT_LT(most, 600);
     ASSERT_EQ(l, 0);
     ASSERT_EQ(r, 0);
-    pcm_put(&stub, loud, sizeof loud);
-    for (int i = 0; i < 40; i++)
+    pcm_put(&stub, loud, 64);
+    /* The filter delays by half its taps, 24 frames, 55 samples at this
+     * rate. */
+    for (int i = 0; i < 80; i++)
         pcm_sample(&stub, &l, &r);
     ASSERT_GT(l, 0x3000);
     ASSERT_EQ(l, r);
+}
+
+/* Every rate fades in about the same time: 2^k frames, k from the step. */
+UTEST(pcm, the_fade_takes_the_same_time_at_any_rate)
+{
+    static const struct
+    {
+        uint32_t rate;
+        int k;
+    } want[] = {{48000, 6}, {44100, 6}, {22050, 5}, {11025, 4}, {8000, 4},
+                {4000, 3}, {2000, 2}, {1000, 1}, {500, 0}, {1, 0}};
+    for (unsigned i = 0; i < sizeof want / sizeof *want; i++)
+    {
+        const uint64_t step = pcm_step(want[i].rate);
+        const int32_t v = 1 << 14;
+        ASSERT_EQ(pcm_fade(v, step), v - (v >> want[i].k));
+        ASSERT_EQ(pcm_fade(-v, step), -v + (v >> want[i].k));
+        ASSERT_EQ(pcm_fade(1, step), 0);
+        ASSERT_EQ(pcm_fade(-1, step), 0);
+        ASSERT_EQ(pcm_fade(0, step), 0);
+    }
 }
 
 /* The take that leaves less than a frame is an underrun, once each time

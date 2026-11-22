@@ -18,16 +18,17 @@
  * host calls it once and keeps the value as its run seed. */
 uint32_t os_random(void);
 
-bool os_localtime(time_t t, struct tm *out);
-bool os_gmtime(time_t t, struct tm *out);
+/* The host's zone at a time in UTC: the seconds it is east of UTC, whether
+ * that is summer time, and its short name in UTF-8, cut to fit name. */
+void os_zone(int64_t utc, int32_t *offset, bool *dst, char *name, size_t name_size);
 
-/* strftime in the locale the environment names, loaded into a locale_t of its
- * own so the rest of the process stays in the C locale. The Windows CRT has no
- * such load and answers in the C locale. */
+/* One of the words of the host's locale for a time, in UTF-8: a
+ * tim_word_t of core/tim/tim.h. NULL where the host has none to give. The
+ * locale is loaded into a handle of its own so the rest of the process
+ * stays in the C locale; os_locale_free gives it back. */
 void os_locale_reset(void);
 void os_locale_free(void);
-size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm);
-void os_tm_apply_zone(struct tm *tm, const struct tm *probe);
+const char *os_time_word(int word);
 
 /* Monotonic time, in nanoseconds from an origin only the OS knows. */
 uint64_t os_mono_ns(void);

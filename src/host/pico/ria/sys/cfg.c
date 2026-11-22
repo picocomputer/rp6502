@@ -5,7 +5,7 @@
  */
 
 #include "core/str/oem.h"
-#include "core/api/tim.h"
+#include "core/tim/tim.h"
 #include "ria/api/tim.h"
 #include "ria-w/ble/ble.h"
 #include "core/hid/keymap.h"
@@ -16,7 +16,6 @@
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
 #include "core/sys/config.h"
-#include "ria/sys/com.h"
 #include "ria/sys/phi2.h"
 #include "osal/pico/lfs.h"
 #include "ria/sys/mbuf.h"
@@ -92,14 +91,14 @@ static void cfg_save_with_boot_opt(const char *opt_str)
         return;
     if (!opt_str)
     {
-        opt_str = (char *)mbuf;
-        mbuf[0] = 0;
+        opt_str = (char *)buf1k;
+        buf1k[0] = 0;
         // Preserve the existing boot line across rewrite
-        while (lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file, NULL))
+        while (lfs_gets((char *)buf1k, BUF1K_SIZE, &lfs_volume, &lfs_file, NULL))
         {
-            if (mbuf[0] != '+')
+            if (buf1k[0] != '+')
                 break;
-            mbuf[0] = 0;
+            buf1k[0] = 0;
         }
     }
     /* The file is compared before it is written, so an unchanged config
@@ -136,39 +135,39 @@ static void cfg_save_with_boot_opt(const char *opt_str)
         lfs_remove(&lfs_volume, STR_CFG_FILENAME);
 }
 
-static void HOST_IN_FLASH_FUNC("cfg_load_with_boot_opt") cfg_load_with_boot_opt(bool boot_only)
+static void HOST_IN_FLASH_FUNC cfg_load_with_boot_opt(bool boot_only)
 {
     lfs_file_t lfs_file;
     LFS_FILE_CONFIG(lfs_file_config);
     int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, STR_CFG_FILENAME,
                                      LFS_O_RDONLY, &lfs_file_config);
-    mbuf[0] = 0;
+    buf1k[0] = 0;
     if (lfsresult < 0)
     {
         if (lfsresult != LFS_ERR_NOENT)
             mon_add_response_lfs(lfsresult);
         return;
     }
-    while (lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file, NULL))
+    while (lfs_gets((char *)buf1k, BUF1K_SIZE, &lfs_volume, &lfs_file, NULL))
     {
-        if (mbuf[0] != '+')
+        if (buf1k[0] != '+')
             break;
         if (boot_only)
             continue;
-        size_t len = strlen((char *)mbuf);
-        while (len && mbuf[len - 1] == '\n')
+        size_t len = strlen((char *)buf1k);
+        while (len && buf1k[len - 1] == '\n')
             len--;
-        mbuf[len] = 0;
+        buf1k[len] = 0;
         if (len < 2)
             continue;
-        const char *str = (char *)mbuf + 2;
-        config_load_line(mbuf[1], str);
+        const char *str = (char *)buf1k + 2;
+        config_load_line(buf1k[1], str);
     }
     lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
     mon_add_response_lfs(lfsresult);
 }
 
-void __in_flash("cfg_init") cfg_init(void)
+void HOST_IN_FLASH_FUNC cfg_init(void)
 {
     mon_add_response_lfs(lfs_mount_error);
     cfg_load_with_boot_opt(false);
@@ -179,13 +178,13 @@ void cfg_file_save(void)
     cfg_save_with_boot_opt(NULL);
 }
 
-void HOST_IN_FLASH_FUNC("cfg_save_boot") cfg_save_boot(const char *str)
+void HOST_IN_FLASH_FUNC cfg_save_boot(const char *str)
 {
     cfg_save_with_boot_opt(str);
 }
 
-const char *HOST_IN_FLASH_FUNC("cfg_load_boot") cfg_load_boot(void)
+const char *HOST_IN_FLASH_FUNC cfg_load_boot(void)
 {
     cfg_load_with_boot_opt(true);
-    return (char *)mbuf;
+    return (char *)buf1k;
 }

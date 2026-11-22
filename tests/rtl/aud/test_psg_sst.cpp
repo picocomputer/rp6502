@@ -6,8 +6,9 @@
  * psg.sv's savestate port, the bell included. Session A plays and stops at
  * a quiet point; session B has played something else, takes A's image,
  * and then both take one stream of writes and must agree on every sample.
- * B has random words written over everything first, so an item the
- * restore leaves out shows.
+ * Both are parked with their clocks running while the image is taken and
+ * put back, as wiring.sv's hold has them. B has random words written over
+ * its memories first, so an item the restore leaves out shows.
  */
 
 #include "Vpsg_sst.h"
@@ -66,26 +67,22 @@ static bool skipped(int skip, int a)
            && a < 0x710 + 16 * (skip - SKIP_VOICE);
 }
 
-static void edge(Vpsg_sst *d, bool mach)
+static void edge(Vpsg_sst *d)
 {
-    d->clk_sys = 1;
-    d->clk = mach;
+    d->clk = 1;
     d->eval();
-    d->clk_sys = 0;
     d->clk = 0;
     d->eval();
     d->q_we = 0;
     d->xaddr_we = 0;
     d->bel_we = 0;
     d->sst_we = 0;
-    d->sst_st_we = 0;
 }
 
 static Vpsg_sst *make(const char *name)
 {
     Vpsg_sst *d = new Vpsg_sst{name};
     d->clk = 0;
-    d->clk_sys = 0;
     d->eval();
     return d;
 }
@@ -95,7 +92,7 @@ static void snoop(Vpsg_sst *d, uint16_t addr, uint8_t val)
     d->q_we = 1;
     d->q_addr = addr;
     d->q_val = val;
-    edge(d, true);
+    edge(d);
 }
 
 /* Eight voices gated, voice 3 noise, and a long bell, struck or let go. */
@@ -103,9 +100,9 @@ static void program(Vpsg_sst *d, uint16_t at, std::mt19937 &r, bool bell)
 {
     d->xaddr_we = 1;
     d->xaddr_wdata = at;
-    edge(d, true);
+    edge(d);
     for (int k = 0; k < 2 * TICKS; k++)
-        edge(d, true);
+        edge(d);
     for (int v = 0; v < 8; v++)
     {
         uint16_t b = (uint16_t)(at + 8 * v);
@@ -126,7 +123,7 @@ static void program(Vpsg_sst *d, uint16_t at, std::mt19937 &r, bool bell)
         d->bel_we = 1;
         d->bel_idx = (uint8_t)i;
         d->bel_val = bell_bytes[i];
-        edge(d, true);
+        edge(d);
     }
 }
 
@@ -173,11 +170,11 @@ static std::vector<uint32_t> image(Vpsg_sst *d, const std::vector<int> &at)
     for (int a : at)
     {
         d->sst_addr = (uint16_t)a;
-        edge(d, false);
+        edge(d);
         img.push_back(d->psg_sst_rdata);
     }
     d->sst_own = 0;
-    edge(d, false);
+    edge(d);
     return img;
 }
 
@@ -187,36 +184,24 @@ static void restore(Vpsg_sst *d, const std::vector<uint32_t> &img, int skip,
                     int cut_at, uint32_t cut, std::mt19937 &r)
 {
     std::vector<int> arr = arrays(), fl = flops();
-    d->sst_own = 1;
-    for (int pass = 0; pass < 2; pass++)
-        for (size_t i = 0; i < arr.size(); i++)
-        {
-            if (pass && skipped(skip, arr[i]))
-                continue;
-            d->sst_addr = (uint16_t)arr[i];
-            d->sst_wdata = pass ? img[i] : (uint32_t)r();
-            d->sst_we = 1;
-            edge(d, false);
-        }
-    d->sst_own = 0;
-    edge(d, false);
     d->sst_park = 1;
-    for (int k = 0; k < 5; k++)
-        edge(d, true);
-    for (int pass = 0; pass < 2; pass++)
-        for (size_t i = 0; i < fl.size(); i++)
-        {
-            if (pass && skipped(skip, fl[i]))
-                continue;
-            d->sst_addr = (uint16_t)fl[i];
-            d->sst_wdata = pass ? img[arr.size() + i]
-                                      & ~(fl[i] == cut_at ? cut : 0u)
-                                : (uint32_t)r();
-            d->sst_st_we = 1;
-            edge(d, true);
-        }
+    d->sst_own = 1;
+    /* One pass in address order, as the firmware's AUD row writes them.
+     * A word left out takes a random word, so B does not keep a value
+     * that happens to be A's. */
+    for (size_t i = 0; i < arr.size() + fl.size(); i++)
+    {
+        int at = i < arr.size() ? arr[i] : fl[i - arr.size()];
+        d->sst_addr = (uint16_t)at;
+        d->sst_wdata = skipped(skip, at)
+            ? (uint32_t)r()
+            : img[i] & ~(at == cut_at ? cut : 0u);
+        d->sst_we = 1;
+        edge(d);
+    }
+    d->sst_own = 0;
     for (int k = 0; k < 50; k++)
-        edge(d, true);
+        edge(d);
 }
 
 struct Case
@@ -241,51 +226,52 @@ static long run_case(const Case &c, bool check_image = true)
     for (long i = 0; i < 55555 + (long)(c.seed % 5) * 3331; i++)
     {
         sb.drive(b);
-        edge(b, true);
+        edge(b);
     }
     program(a, 0x8000, pa, true);
     long pre = 100L * TICKS + (long)(c.seed % 7) * 101;
     for (long i = 0; i < pre; i++)
     {
         sa.drive(a);
-        edge(a, true);
+        edge(a);
         sb.drive(b);
-        edge(b, true);
+        edge(b);
     }
     while (a->rootp->psg__DOT__tickctr != 0)
     {
         sa.drive(a);
-        edge(a, true);
+        edge(a);
     }
     for (int i = 0; i < c.offset; i++)
     {
         sa.drive(a);
-        edge(a, true);
+        edge(a);
     }
     if (c.remap)
     {
         a->xaddr_we = 1;
         a->xaddr_wdata = 0x8000;
-        edge(a, true);
+        edge(a);
     }
     while (!a->psg_quiet)
     {
         sa.drive(a);
-        edge(a, true);
+        edge(a);
     }
     for (int i = 0; i < c.lag; i++)
     {
         sa.drive(a);
-        edge(a, true);
+        edge(a);
     }
     std::vector<int> at = arrays(), fl = flops();
     at.insert(at.end(), fl.begin(), fl.end());
+    a->sst_park = 1;
     std::vector<uint32_t> img = image(a, at);
 
     while (!b->psg_quiet)
     {
         sb.drive(b);
-        edge(b, true);
+        edge(b);
     }
     restore(b, img, c.skip, c.cut_at, c.cut, rr);
     if (check_image && c.skip == SKIP_NONE && !c.cut)
@@ -301,6 +287,7 @@ static long run_case(const Case &c, bool check_image = true)
                 return -2;
             }
     }
+    a->sst_park = 0;
     b->sst_park = 0;
 
     Stream s(c.seed + 555, 0x8000);
@@ -310,8 +297,8 @@ static long run_case(const Case &c, bool check_image = true)
         s.next();
         s.apply(a);
         s.apply(b);
-        edge(a, true);
-        edge(b, true);
+        edge(a);
+        edge(b);
         if (a->psg_tick != b->psg_tick
             || (a->psg_tick
                 && (a->psg_l != b->psg_l || a->psg_r != b->psg_r)))

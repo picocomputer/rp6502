@@ -10,65 +10,109 @@
 #include "core/sys/driver.h"
 
 #include "core/api/api.h"
-#include "core/api/clk.h"
+#include "core/tim/clk.h"
 #include "core/api/dir.h"
 #include "core/api/proc.h"
 #include "core/api/std.h"
-#include "core/api/tim.h"
+#include "core/com/console.h"
+#include "core/com/tty.h"
+#include "sw/tim.h"
+#include "core/api/xreg.h"
 #include "core/com/com.h"
+#include "core/com/manifold.h"
+#include "core/com/tio.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
 #include "core/hid/layout.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/str/str.h"
-#include "core/str/unicode.h"
-#include "core/term/term.h"
-#include "core/aud/mix.h"
+#include "core/sys/random.h"
+#include "core/term/cells.h"
 #include "sw/apf.h"
+#include "sw/aud.h"
 #include "core/wdc/resb.h"
 #include "core/wdc/phi2.h"
 #include "sw/proc.h"
-#include "sw/wake.h"
 #include "sw/cfg.h"
+#include "sw/fab.h"
 #include "sw/fs.h"
+#include "sw/log.h"
+#include "sw/ria.h"
 #include "sw/vid.h"
+#include "sw/vga.h"
+#include "core/api/arg.h"
+#include "core/aud/bel.h"
+#include "core/term/font.h"
+#include "core/vga/canvas.h"
+#include "core/vga/mode/mode0.h"
 #include "osal/fs.h"
 #include "core/rom/rom.h"
+#include "core/aud/pcm.h"
 
-/* VID_DRIVER follows TERM_DRIVER because vid_init selects the console canvas
- * through vga_canvas_select, and vga_canvas_select then calls mode0_prog,
- * which calls term_set_height on the terminal state that term_init sets up.
+/* LOG_DRIVER is first, so what log_init connects to the debug port is there
+ * before any other init runs.
  *
- * FS_DRIVER follows STD_DRIVER because stop hooks run in reverse, and fs_stop
- * has to collect a command that a stopped program left in flight before
- * std_stop's closes send their Flush. AUD_DRIVER follows them so that
- * aud_stop empties PCM before std_stop closes it, which would otherwise wait
- * for the buffer to play.
+ * VID_DRIVER follows CELLS_DRIVER because vid_init selects the console canvas
+ * through vga_canvas_select, and vga_canvas_select then calls mode0_prog,
+ * which calls cells_set_height on the terminals that cells_init sets up.
+ *
+ * AUD_FABRIC_DRIVER follows STD_DRIVER because END and RESET hooks run in
+ * reverse, so aud_end and aud_reset empty PCM before std_reset closes it,
+ * which would otherwise wait for the buffer to play.
+ *
+ * FONT_DRIVER follows CELLS_DRIVER because font_init resets the terminals
+ * that cells_init sets up, and comes before VID_DRIVER, whose canvas draws
+ * with the glyphs font_init writes.
+ *
+ * A savestate walks the list in order. FAB_DRIVER comes first, so the
+ * mtime it saves is the one the other rows' times were kept by. ARG_DRIVER
+ * comes before PROC_DRIVER, whose load checks the argv ARG_DRIVER loads.
+ * ASSET_DRIVER follows PROC_CHAIN_DRIVER, because its load reopens the
+ * running program's image by the name PROC_CHAIN_DRIVER loads, and
+ * AUD_FABRIC_DRIVER follows STD_DRIVER, because its load puts back the PCM:
+ * buffer that the STD row's reopen of PCM: empties. CANVAS_DRIVER follows
+ * CELLS_DRIVER and MODE0_DRIVER, because its load publishes the canvas to
+ * the cells, and VGA_FABRIC_DRIVER follows it, because its load computes the
+ * vsync line from the canvas.
  */
 #define RP6502_MACH_DRIVERS                             \
-    CFG_DRIVER, PROC_DRIVER,                            \
-    STR_DRIVER,                                         \
-    COM_DRIVER, STD_DRIVER, FS_DRIVER,                  \
-    AUD_DRIVER,                                         \
-    RLN_DRIVER, TERM_DRIVER,                            \
-    UNICODE_DRIVER, LAYOUT_DRIVER, KEYBOARD_DRIVER,     \
+    LOG_DRIVER, CFG_DRIVER, FAB_DRIVER,                 \
+    ARG_DRIVER, PROC_CHAIN_DRIVER, PROC_DRIVER,         \
+    ASSET_DRIVER, XREG_DRIVER,                          \
+    RANDOM_DRIVER, STR_DRIVER,                          \
+    MANIFOLD_DRIVER, MANIFOLD_TX_DRIVER,                \
+    RIA_DRIVER, COM_DRIVER,                             \
+    STD_DRIVER, CONSOLE_DRIVER, TTY_DRIVER,             \
+    FS_POCKET_DRIVER,                                   \
+    AUD_FABRIC_DRIVER, BEL_DRIVER,                      \
+    TIO_DRIVER, RLN_DRIVER, CELLS_DRIVER,               \
+    MODE0_DRIVER, FONT_DRIVER, CANVAS_DRIVER,           \
+    VGA_FABRIC_DRIVER,                                  \
+    LAYOUT_DRIVER, KEYBOARD_DRIVER,                     \
     APF_DRIVER, KEYMAP_DRIVER,                          \
     MOUSE_DRIVER, GAMEPAD_DRIVER, TABLET_DRIVER,        \
     VID_DRIVER, TIM_DRIVER,                             \
-    DIR_DRIVER, API_DRIVER, WAKE_DRIVER,                \
+    DIR_DRIVER, API_DRIVER,                             \
     CLK_DRIVER, PHI2_DRIVER
 
-/* open() tries these rows in order, and the filesystem row accepts every
- * path, so it is last. */
-#define RP6502_STD_DRIVERS ROM_STD_DRIVER, PCM_STD_DRIVER, SAVE_STD_DRIVER, FS_STD_DRIVER
+/* This machine makes savestates, so its stdio rows keep their STD_SST
+ * parts. */
+#define RP6502_SST
+
+/* open() tries these drivers' STD rows in order, and the filesystem's
+ * accepts every path, so it is last. */
+#define RP6502_STD_DRIVERS                           \
+    CONSOLE_DRIVER, TTY_DRIVER,                      \
+    ASSET_DRIVER, PCM_DRIVER,                        \
+    SAVE_DRIVER, FS_DRIVER
 
 /* No serial line feeds the UART row on this machine, but the row stays
  * because the terminal's replies to a program's queries arrive through it. */
 #define RP6502_COM_SOURCES                     \
     [COM_SOURCE_KEYBOARD] = KEYMAP_COM_SOURCE, \
-    [COM_SOURCE_UART] = COM_UART_SOURCE
+    [COM_SOURCE_UART] = MANIFOLD_UART_SOURCE
 
 #endif /* _HOST_DRIVERS_H_ */

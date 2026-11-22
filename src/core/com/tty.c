@@ -6,80 +6,87 @@
 
 #include "core/com/tty.h"
 #include "core/com/com.h"
-#include "core/sys/com.h"
-#include "core/sys/timer.h"
+#include "core/com/console.h"
+#include "core/com/manifold.h"
+#include "core/com/rln.h"
+#include "core/str/str.h"
 #include "machine.h"
+#include <strings.h>
 
-#include <stdarg.h>
-#include <stdio.h>
+static bool tty_was_asked;
 
-static void (*tty_tx)(const char *buf, int len);
-static size_t (*tty_rx)(char *buf, size_t max);
-static bool tty_stream;
-static bool tty_held;
-static timer_mach_t tty_hold;
+#define TTY_SST_ROWS(X) X(BOOL, tty_was_asked)
+SST_TABLE(tty, TTY_SST_ROWS)
 
-void tty_set_wire(void (*tx)(const char *buf, int len),
-                  size_t (*rx)(char *buf, size_t max), bool stream)
+bool tty_std_handles(const char *path)
 {
-    tty_tx = tx;
-    tty_rx = rx;
-    tty_stream = stream;
-    tty_held = false;
+    return strcasecmp(path, STR_TTY_COLON) == 0;
 }
 
-void tty_write(const char *buf, int len)
+int tty_std_open(const char *path, uint8_t mode, api_errno *err)
 {
-    if (tty_tx)
-        tty_tx(buf, len);
+    (void)path;
+    (void)mode;
+    (void)err;
+    return 0;
 }
 
-int com_printf(const char *fmt, ...)
+std_rw_result tty_std_close(int desc, api_errno *err)
 {
-    char buf[1024];
-    va_list ap;
-    va_start(ap, fmt);
-    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
-    va_end(ap);
-    if (n <= 0)
-        return n;
-    int w = (n < (int)sizeof(buf)) ? n : (int)sizeof(buf) - 1;
-    com_crlf_write(buf, w);
-    return n;
+    (void)desc;
+    (void)err;
+    return STD_OK;
 }
 
-/* A stream wire is not read while the ring is full. A console wire is left for
- * COM_WIRE_HOLD_MS and then read into the full ring, where the bytes are
- * dropped, because a Ctrl-C typed behind the type-ahead has to be seen even
- * though the rest of what was typed is lost. */
-void com_task(void)
+// The same wait as CON:'s: until what was written shows.
+std_rw_result tty_std_sync(int desc, api_errno *err)
 {
-    if (!tty_rx)
-        return;
-    char buf[COM_RING_SIZE];
-    size_t room = com_uart_free();
-    if (room)
-    {
-        tty_held = false;
-        size_t n = tty_rx(buf, room < sizeof buf ? room : sizeof buf);
-        if (!n)
-            return;
-        if (tty_stream)
-            com_stream_push(buf, n);
-        else
-            com_uart_push(buf, n);
-        return;
-    }
-    if (tty_stream)
-        return;
-    if (!tty_held)
-    {
-        tty_held = true;
-        tty_hold = timer_mach_in_ms(COM_WIRE_HOLD_MS);
-    }
-    if (!timer_mach_passed(tty_hold))
-        return;
-    size_t n = tty_rx(buf, sizeof buf);
-    if (n)
-        com_uart_push(buf, n);
+    (void)desc;
+    (void)err;
+    return console_rendered() ? STD_OK : STD_PENDING;
+}
+
+std_rw_result tty_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
+{
+    (void)desc;
+    (void)err;
+    tty_was_asked = true;
+    *bytes_read = (uint32_t)com_stdin_read(buf, count);
+    return STD_OK;
+}
+
+std_rw_result tty_std_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
+{
+    (void)desc;
+    (void)err;
+    uint32_t i = 0;
+    for (; i < count && manifold_cts() && !rln_replying(); i++)
+        manifold_putchar_raw(buf[i]);
+    *bytes_written = i;
+    return STD_OK;
+}
+
+bool tty_asked(void)
+{
+    return tty_was_asked;
+}
+
+void HOST_IN_FLASH_FUNC tty_stop(void)
+{
+    tty_was_asked = false;
+}
+
+bool tty_std_ident(int desc, sst_cursor_t *c)
+{
+    (void)desc;
+    (void)c;
+    return true;
+}
+
+int tty_std_reopen(sst_cursor_t *c, uint8_t mode, api_errno *err)
+{
+    (void)c;
+    (void)mode;
+    (void)err;
+    return 0;
 }

@@ -17,10 +17,10 @@ UTEST(pi2s, frames_and_samples_exact)
     dut->arst_n = 0;
     for (int i = 0; i < 4; i++)
     {
-        dut->clk_mach = 1;
+        dut->clk_sys = 1;
         dut->clk_74a = 1;
         dut->eval();
-        dut->clk_mach = 0;
+        dut->clk_sys = 0;
         dut->clk_74a = 0;
         dut->eval();
     }
@@ -33,13 +33,13 @@ UTEST(pi2s, frames_and_samples_exact)
     uint32_t word = 0;
     long sclk_falls_per_frame = 0;
 
-    /* One sample is fed every 1050 clk_mach cycles, which is 48 kHz at
+    /* One sample is fed every 1050 clk_sys cycles, which is 48 kHz at
      * 50.4 MHz. LRCK is the 12.288 MHz MCLK divided by 256, also 48 kHz,
      * so every fed sample must be decoded exactly once. */
     long sample_clk = 0;
     int sample_idx = 0;
 
-    /* The periods 330 and 224 give clk_mach and clk_74a the ratio of
+    /* The periods 330 and 224 give clk_sys and clk_74a the ratio of
      * 50.4 MHz to 74.25 MHz. */
     long wnext = 330, anext = 224;
     const long T_END = 330L * 1050 * 84;
@@ -70,9 +70,9 @@ UTEST(pi2s, frames_and_samples_exact)
                 fed_r.push_back((int16_t)r);
                 sample_idx++;
             }
-            dut->clk_mach = 1;
+            dut->clk_sys = 1;
             dut->eval();
-            dut->clk_mach = 0;
+            dut->clk_sys = 0;
             dut->eval();
             wnext += 330;
         }

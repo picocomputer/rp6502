@@ -19,10 +19,46 @@
 static char proc_argv0[API_PATH_MAX + 1];
 static bool proc_exec_pending;
 
-void proc_restage(void)
+/* proc_exec_take loads what argv[0] names, so an exec on its way with no
+ * argv[0] is refused. argv is the ARG row's, which loads before this one. */
+static bool proc_exec_check(sst_cursor_t *c)
+{
+    if (proc_exec_pending && !arg_index(0))
+        return sst_refuse(c, "an exec is on its way with no program");
+    return true;
+}
+
+#define PROC_POCKET_SST(X)                                              \
+    X(STR, proc_argv0, "the path a start by name staged")               \
+    X(BOOL, proc_exec_pending)                                          \
+    X(VALIDATE, proc_exec_check)
+SST_TABLE(proc_pocket, PROC_POCKET_SST)
+
+void proc_exec_drop(void)
+{
+    /* The stop an exec made did not end the chain, so it ends here. */
+    if (proc_exec_pending)
+    {
+        proc_exec_pending = false;
+        proc_chain_end();
+    }
+    proc_cancel_launcher();
+}
+
+/* No exec is on its way, so proc_exec_take starts nothing, and the chain is
+ * empty. proc_argv0 is only saved, and proc_restage writes it before the
+ * next start. What ends a chain in other drivers is their own reset's
+ * job. */
+void proc_reset(void)
 {
     proc_exec_pending = false;
-    proc_cancel_launcher();
+    proc_chain_reset();
+}
+
+void proc_restage(void)
+{
+    /* A start by name overrides an exec still on its way. */
+    proc_exec_drop();
     arg_clear();
     proc_run();
     memcpy(proc_argv0, FS_DRIVE, sizeof FS_DRIVE - 1);
@@ -31,11 +67,6 @@ void proc_restage(void)
         arg_append(proc_argv0);
     else
         proc_argv0[0] = 0;
-}
-
-const char *proc_staged_path(void)
-{
-    return proc_running()[0] ? proc_running() : proc_argv0;
 }
 
 void proc_exec_start(void)
@@ -55,10 +86,12 @@ bool proc_exec_inflight(void)
 }
 
 /* An exec leaves argv[0] as the program wrote it, so it is made absolute
- * against the working directory here, to record where the ROM was. A ':name'
- * is left as written, because it is not a path. The function is kept out of
- * line so that abs takes stack only during an exec, rather than in main's
- * frame for as long as the firmware runs. */
+ * here, to record where the ROM was. A relative path is taken under
+ * FS_ASSETS_PATH, where the ROMs are, and not under the working directory:
+ * an exec is the one call that does. A ':name' is left as written, because
+ * it is not a path. The function is kept out of line so that abs takes
+ * stack only during an exec, rather than in main's frame for as long as
+ * the firmware runs. */
 __attribute__((noinline)) static bool proc_argv0_absolute(void)
 {
     const char *path = arg_index(0);
@@ -79,12 +112,14 @@ bool proc_exec_take(void)
     proc_exec_pending = false;
     if (!proc_argv0_absolute())
     {
+        proc_exec_failed();
         printf("argv does not fit for ROM '%s'\n", arg_index(0));
         return false;
     }
     const char *path = arg_index(0);
     if (!rom_load(path))
     {
+        proc_exec_failed();
         printf("exec: no %s\n", path);
         return false;
     }

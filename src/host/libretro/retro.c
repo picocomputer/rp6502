@@ -23,7 +23,8 @@
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/vga/vga_emu.h"
-#include "core/api/std.h"
+#include "core/com/console.h"
+#include "core/com/tty.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
 #include "osal/os.h"
@@ -59,7 +60,9 @@ static char *loaded_rom;  /* the path or ":name" the last boot loaded */
 static char *save_dir;    /* the frontend's save folder + "/rp6502", or NULL */
 static bool machine_inited;
 static int geom_w, geom_h;
-static bool shutdown_sent;
+/* Frames run since the program stopped, up to 2, when the shutdown has gone
+ * to the frontend. */
+static uint8_t exit_frames;
 static bool hint_shown;
 
 /* Set by a proc_boot that succeeded. loaded_host and machine_inited cannot
@@ -267,19 +270,18 @@ static const struct retro_input_descriptor input_descriptors[] = {
     {0, 0, 0, 0, NULL},
 };
 
-/* Declaring the four ports is how a frontend learns they exist. A lightgun is
- * offered beside the gamepads because the machine's tablet is an absolute
- * pointer and so is a gun, and a player who owns one has nowhere else to plug
- * it in. */
+/* Declaring the four ports is how a frontend learns they exist. A gamepad
+ * always reports its sticks, so there is no separate analog type. A lightgun
+ * is offered beside it because the machine's tablet is an absolute pointer
+ * and so is a gun, and a player who owns one has nowhere else to plug it in. */
 static const struct retro_controller_description gamepad_types[] = {
     {"Gamepad", RETRO_DEVICE_JOYPAD},
-    {"Gamepad (Analog)", RETRO_DEVICE_ANALOG},
     {"Lightgun", RETRO_DEVICE_LIGHTGUN},
     {NULL, 0},
 };
 
 static const struct retro_controller_info controller_info[] = {
-    {gamepad_types, 3}, {gamepad_types, 3}, {gamepad_types, 3}, {gamepad_types, 3}, {NULL, 0},
+    {gamepad_types, 2}, {gamepad_types, 2}, {gamepad_types, 2}, {gamepad_types, 2}, {NULL, 0},
 };
 
 /* The same options a frontend too old for v2 can still read. A frontend is
@@ -362,16 +364,13 @@ void retro_init(void)
 void retro_deinit(void)
 {
     if (machine_inited)
-    {
-        sys_stop();
-        sys_commit();
-    }
+        proc_shutdown();
     machine_inited = false;
     forget_rom();
     free(loaded_host), loaded_host = NULL;
     free(save_dir), save_dir = NULL;
     fs_save_free();
-    shutdown_sent = false;
+    exit_frames = 0;
     geom_w = geom_h = 0;
     hint_shown = false;
     run_seed_taken = false;
@@ -467,6 +466,12 @@ const char *host_save_dir(void)
     return save_dir;
 }
 
+/* A frontend does not say what its window is doing. */
+bool host_minimized(void)
+{
+    return false;
+}
+
 /* The first load cold-boots the machine; every load after it refills RAM, so
  * no data from the last program remains in memory. The content path is
  * converted again on every boot, after sys_init has selected a code page,
@@ -474,7 +479,7 @@ const char *host_save_dir(void)
 static bool boot(void)
 {
     apply_options(machine_inited);
-    unsigned flags = PROC_UNCHAIN;
+    unsigned flags = 0;
     if (machine_inited)
         flags |= PROC_REFILL;
     else
@@ -496,7 +501,7 @@ static bool boot(void)
     vga_set_framebuffer(frame_buf);
     sys_commit();
     booted = true;
-    shutdown_sent = false;
+    exit_frames = 0;
     geom_w = geom_h = 0;
     return true;
 }
@@ -576,10 +581,7 @@ bool retro_load_game_special(unsigned type, const struct retro_game_info *info, 
 void retro_unload_game(void)
 {
     if (machine_inited)
-    {
-        sys_stop();
-        sys_commit();
-    }
+        proc_shutdown();
     forget_rom();
     free(loaded_host), loaded_host = NULL;
     free(save_dir), save_dir = NULL;
@@ -635,7 +637,7 @@ void retro_run(void)
     /* Not the gamepad or the tablet: a frontend polls pads and the pointer
      * with Game Focus on or off, and withholds only the keyboard and the
      * mouse. */
-    if (!hint_shown && (std_console_asked() || keyboard_is_mapped() ||
+    if (!hint_shown && (console_asked() || tty_asked() || keyboard_is_mapped() ||
                         mouse_is_mapped()))
         say_how_to_type();
 
@@ -685,12 +687,11 @@ void retro_run(void)
         push_audio();
 
     /* The program stopped and this host has no monitor to fall back to, so the
-     * core is finished. The frame above is the last thing it drew. */
-    if (proc_exited() && !shutdown_sent)
-    {
-        shutdown_sent = true;
+     * core is finished. The frame that saw the stop drew the rows above the
+     * beam before the program's last writes, so one more whole frame is the
+     * last picture, and the shutdown follows it. */
+    if (proc_exited() && exit_frames < 2 && ++exit_frames == 2)
         environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
-    }
 }
 
 void *retro_get_memory_data(unsigned id)
@@ -762,21 +763,20 @@ bool retro_unserialize(const void *data, size_t size)
     if (why)
     {
         RP6502_LOG(retro, ERROR, "cannot load state: %s", why);
-        /* A refused load rolls itself back, but a trusted load has no
-         * rollback and a rollback can itself fail. Either leaves no machine
-         * standing, and only this file has a ROM to stand one up with. */
+        /* A load refused partway leaves the machine reset, stopped and
+         * empty, and only this file has a ROM to stand one up with. */
         if (!sys_active() && loaded_host)
             boot();
         return false;
     }
-    /* Two things no savestate row can put back: shutdown_sent is kept in this
+    /* Two things no savestate row can put back: exit_frames is kept in this
      * file, and which devices are plugged in comes from the frontend. Neither
      * is done under either flag, because a same-session load has nothing to
      * re-announce, and injecting the devices plugged in on this peer into a
      * rolled-back netplay state is itself a desync. */
     if (!flags)
     {
-        shutdown_sent = proc_exited();
+        exit_frames = proc_exited() ? 2 : 0;
         input_state_restored();
     }
     /* The picture and the geometry need no repair: no savestate row touches

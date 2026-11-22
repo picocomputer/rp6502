@@ -5,6 +5,7 @@
  */
 
 #include "core/hid/hid.h"
+#include "core/sys/div64.h"
 #include "core/hid/tablet.h"
 #include "core/sys/debug_log.h"
 #include "core/sys/xram.h"
@@ -43,10 +44,35 @@ static int16_t tablet_ref_y;
 static int16_t tablet_sub_x;
 static int16_t tablet_sub_y;
 
-
 static tablet_connection_t tablet_connections[TABLET_MAX_MICE];
 
-static tablet_connection_t *tablet_get_connection_by_slot(int slot)
+/* An address that would put the block past the end of XRAM would have the
+ * next write of it go past it. */
+static bool tablet_xram_check(sst_cursor_t *c)
+{
+    if (tablet_xram > 0x10000 - TABLET_BLOCK_SIZE && tablet_xram != 0xFFFF)
+        return sst_refuse(c, "tablet block past the end of XRAM");
+    return true;
+}
+
+/* The whole block is saved, control byte included. The six counters behind
+ * it are not, because only tablet_report writes them and no machine that
+ * saves state has a report to give it. */
+#define TABLET_SST(X)                                       \
+    X(U16, tablet_xram)                                     \
+    X(BYTES, tablet_state)                                  \
+    X(BOOL, tablet_host_cursor)                             \
+    X(VALIDATE, tablet_xram_check)                          \
+    X(SKIP, tablet_x)                                       \
+    X(SKIP, tablet_y)                                       \
+    X(SKIP, tablet_ref_x)                                   \
+    X(SKIP, tablet_ref_y)                                   \
+    X(SKIP, tablet_sub_x)                                   \
+    X(SKIP, tablet_sub_y)                                   \
+    X(SKIP, tablet_connections, "nothing mounts on a machine that saves")
+SST_TABLE(tablet, TABLET_SST)
+
+static tablet_connection_t *HOST_IN_RAM_FUNC tablet_get_connection_by_slot(int slot)
 {
     for (int i = 0; i < TABLET_MAX_MICE; ++i)
         if (tablet_connections[i].valid && tablet_connections[i].slot == slot)
@@ -54,7 +80,7 @@ static tablet_connection_t *tablet_get_connection_by_slot(int slot)
     return NULL;
 }
 
-static int tablet_clamp(int v)
+static int HOST_IN_RAM_FUNC tablet_clamp(int v)
 {
     if (v < 0)
         return 0;
@@ -63,7 +89,7 @@ static int tablet_clamp(int v)
     return v;
 }
 
-static void tablet_put_contact(int i, uint8_t flags, int x, int y)
+static void HOST_IN_RAM_FUNC tablet_put_contact(int i, uint8_t flags, int x, int y)
 {
     uint8_t *c = &tablet_state[TABLET_OFF_CONTACTS + i * TABLET_CONTACT_SIZE];
     x = tablet_clamp(x);
@@ -81,7 +107,7 @@ static void tablet_clear_contact(int i)
 
 /* A 6502 reading the block during this memcpy can get bytes from two reports,
  * so a program reads the block until two reads match. */
-static void tablet_write_xram(void)
+static void HOST_IN_RAM_FUNC tablet_write_xram(void)
 {
     if (tablet_xram == 0xFFFF)
         return;
@@ -89,35 +115,9 @@ static void tablet_write_xram(void)
             TABLET_BLOCK_SIZE - TABLET_OFF_STATUS);
 }
 
-void HOST_IN_FLASH("tablet_init") tablet_init(void)
+void HOST_IN_FLASH_FUNC tablet_init(void)
 {
     tablet_stop();
-}
-
-/* The whole block is saved, control byte included, but a load publishes only
- * from the status byte on, because the control byte is the program's. */
-void tablet_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    sst_put_u16(c, tablet_xram);
-    sst_put(c, tablet_state, sizeof tablet_state);
-    sst_put_bool(c, tablet_host_cursor);
-}
-
-bool tablet_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    uint16_t at = sst_get_u16(c);
-    uint8_t block[TABLET_BLOCK_SIZE];
-    sst_get(c, block, sizeof block);
-    bool cursor = sst_get_bool(c);
-    if (!sst_ok(c))
-        return false;
-    tablet_xram = at;
-    memcpy(tablet_state, block, sizeof tablet_state);
-    tablet_host_cursor = cursor;
-    tablet_write_xram();
-    return true;
 }
 
 void tablet_stop(void)
@@ -125,7 +125,7 @@ void tablet_stop(void)
     tablet_xram = 0xFFFF;
 }
 
-bool tablet_xreg(uint16_t word)
+bool HOST_IN_FLASH_FUNC tablet_xreg(uint16_t word)
 {
     bool mapped = word <= 0x10000 - TABLET_BLOCK_SIZE;
     tablet_xram = mapped ? word : 0xFFFF;
@@ -155,32 +155,102 @@ bool tablet_mount(int slot, const tablet_connection_t *desc)
     return false;
 }
 
+/* Contact 0 is the one pointer that every device moves, so its flags are the
+ * buttons and hover of all of them, as the mouse merges its buttons. */
+static void HOST_IN_RAM_FUNC tablet_merge_flags(void)
+{
+    uint8_t merged = 0;
+    for (int i = 0; i < TABLET_MAX_MICE; ++i)
+        if (tablet_connections[i].valid)
+            merged |= tablet_connections[i].flags;
+    tablet_state[TABLET_OFF_CONTACTS] = merged;
+}
+
 bool tablet_umount(int slot)
 {
     tablet_connection_t *conn = tablet_get_connection_by_slot(slot);
     if (conn == NULL)
         return false;
     conn->valid = false;
-    /* Contact 0 is released once the last pointer is gone, so that a button
-     * held at unplug does not stay down. A pointer that is still plugged in
-     * refreshes the contact on its next report. */
-    for (int i = 0; i < TABLET_MAX_MICE; ++i)
-        if (tablet_connections[i].valid)
-            return true;
-    tablet_clear_contact(0);
+    /* A button held at unplug is let go at once, and the pointers still
+     * plugged in keep theirs. */
+    tablet_merge_flags();
     tablet_write_xram();
     return true;
 }
 
 /* An axis whose declared logical minimum is below zero is signed. */
-static int32_t tablet_axis_value(const uint8_t *r, uint16_t len, uint16_t off, uint8_t size, int32_t lmin)
+static int32_t HOST_IN_RAM_FUNC tablet_axis_value(const uint8_t *r, uint16_t len, uint16_t off, uint8_t size, int32_t lmin)
 {
     if (lmin < 0)
         return hid_extract_signed(r, len, off, size);
     return (int32_t)hid_extract_bits(r, len, off, size);
 }
 
-void tablet_report(int slot, uint8_t const *data, size_t size)
+/* A place on the canvas is a small number, and one past it is off the
+ * canvas however far, so the divide that finds it is the short one: 15 bits
+ * of answer, which is more than any canvas, and no call to the compiler's
+ * 64-bit divide. */
+static int64_t HOST_IN_RAM_FUNC tablet_divide(int64_t n, int64_t d)
+{
+    return div64_small((uint64_t)n, (uint64_t)d, 15);
+}
+
+/* An absolute device's report to canvas pixels, rounded down, and false for a
+ * touch off the canvas. A touchscreen covers the display, so a touch is placed
+ * on the picture and the canvas is found in it: the canvas fills the picture's
+ * width and is centred down it. A pen's tablet keeps its shape, so a circle
+ * traced on it is a circle on the canvas: one scale serves both axes, the
+ * largest that still reaches every pixel, with the canvas centred on the
+ * tablet and the tablet's spare strip held at the canvas's edge. */
+static bool HOST_IN_RAM_FUNC tablet_place(const tablet_connection_t *conn,
+                                          int32_t rx, int32_t ry, int cw, int ch)
+{
+    const int64_t xs = conn->x_max - conn->x_min;
+    const int64_t ys = conn->y_max - conn->y_min;
+    if (xs <= 0 || ys <= 0)
+        return true;
+    const int64_t dx = rx - conn->x_min;
+    const int64_t dy = ry - conn->y_min;
+    int64_t x, y;
+    if (conn->touchscreen)
+    {
+        /* The logical range is xs + 1 by ys + 1 cells across the display,
+         * so the last cell is still on it. The canvas is dw * ch / cw lines
+         * of the display's dh, centred. */
+        int dw, dh;
+        vga_display_size(&dw, &dh);
+        const int64_t xn = xs + 1, yn = ys + 1;
+        x = dx < 0 ? 0 : tablet_divide(dx * cw, xn);
+        int64_t num = 2 * dy * dh * cw - ((int64_t)dh * cw - (int64_t)ch * dw) * yn;
+        if (num < 0)
+            return false;
+        y = tablet_divide(num, 2 * yn * dw);
+        if (y >= ch)
+            return false;
+    }
+    else
+    {
+        /* The tablet's width and height, from its physical extent where the
+         * descriptor gives one, else from its logical extent. */
+        const int64_t pw = conn->x_phys > 0 ? conn->x_phys : xs;
+        const int64_t ph = conn->y_phys > 0 ? conn->y_phys : ys;
+        /* Canvas pixels per unit of tablet, kn / kd, the width's or the
+         * height's, whichever is larger. */
+        int64_t kn = cw, kd = pw;
+        if ((int64_t)ch * pw > (int64_t)cw * ph)
+            kn = ch, kd = ph;
+        int64_t nx = (2 * dx - xs) * pw * kn + (int64_t)cw * xs * kd;
+        int64_t ny = (2 * dy - ys) * ph * kn + (int64_t)ch * ys * kd;
+        x = nx < 0 ? 0 : tablet_divide(nx, 2 * xs * kd);
+        y = ny < 0 ? 0 : tablet_divide(ny, 2 * ys * kd);
+    }
+    tablet_x = (int16_t)(x > cw - 1 ? cw - 1 : x);
+    tablet_y = (int16_t)(y > ch - 1 ? ch - 1 : y);
+    return true;
+}
+
+void HOST_IN_RAM_FUNC tablet_report(int slot, uint8_t const *data, size_t size)
 {
     tablet_connection_t *conn = tablet_get_connection_by_slot(slot);
     if (conn == NULL)
@@ -200,6 +270,9 @@ void tablet_report(int slot, uint8_t const *data, size_t size)
     int cw, ch;
     vga_canvas_size(&cw, &ch);
 
+    /* A touch off the canvas, on the band of a touchscreen's display the
+     * canvas does not fill, is no touch at all. */
+    bool on_canvas = true;
     if (conn->x_relative)
     {
         tablet_sub_x += (int16_t)hid_extract_signed(report_data, report_data_len, conn->x_offset, conn->x_size);
@@ -232,12 +305,14 @@ void tablet_report(int slot, uint8_t const *data, size_t size)
     {
         int32_t rx = tablet_axis_value(report_data, report_data_len, conn->x_offset, conn->x_size, conn->x_min);
         int32_t ry = tablet_axis_value(report_data, report_data_len, conn->y_offset, conn->y_size, conn->y_min);
-        int32_t xs = conn->x_max - conn->x_min;
-        int32_t ys = conn->y_max - conn->y_min;
-        if (xs > 0)
-            tablet_x = (int16_t)(((int64_t)(rx - conn->x_min) * (cw - 1)) / xs);
-        if (ys > 0)
-            tablet_y = (int16_t)(((int64_t)(ry - conn->y_min) * (ch - 1)) / ys);
+        on_canvas = tablet_place(conn, rx, ry, cw, ch);
+    }
+    if (!on_canvas)
+    {
+        conn->flags = 0;
+        tablet_merge_flags();
+        tablet_write_xram();
+        return;
     }
     if (tablet_x < 0)
         tablet_x = 0;
@@ -268,9 +343,10 @@ void tablet_report(int slot, uint8_t const *data, size_t size)
         if (hid_extract_bits(report_data, report_data_len, conn->tip_offset, 1))
             buttons |= TABLET_FLAG_LEFT;
 
-    /* A mouse always hovers. An absolute pen hovers while it is In Range, and
-     * a touchscreen that reports a tip and no In Range never hovers. */
-    bool hover = conn->x_relative;
+    /* A mouse always hovers, and so does an absolute one, which has no tip. An
+     * absolute pen hovers while it is In Range, and a touchscreen that reports
+     * a tip and no In Range never hovers. */
+    bool hover = conn->x_relative || conn->tip_offset == 0xFFFF;
     if (!conn->x_relative && conn->inrange_offset != 0xFFFF)
         hover = hid_extract_bits(report_data, report_data_len, conn->inrange_offset, 1) != 0;
 
@@ -281,7 +357,9 @@ void tablet_report(int slot, uint8_t const *data, size_t size)
         tablet_state[TABLET_OFF_PAN] += hid_extract_signed(report_data, report_data_len,
                                                            conn->pan_offset, conn->pan_size);
 
-    tablet_put_contact(0, (uint8_t)(buttons | (hover ? TABLET_FLAG_HOVER : 0)), tablet_x, tablet_y);
+    conn->flags = (uint8_t)(buttons | (hover ? TABLET_FLAG_HOVER : 0));
+    tablet_put_contact(0, 0, tablet_x, tablet_y);
+    tablet_merge_flags();
     tablet_write_xram();
 }
 

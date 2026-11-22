@@ -22,6 +22,13 @@
 #error "RP6502_LOG_LEVEL"
 #endif
 
+/* Whether this build logs anything: some level is above NONE, the default
+ * or one category's. core/log.cmake knows the categories and says. A build
+ * that gives only RP6502_LOG_LEVEL has no category of its own. */
+#ifndef RP6502_LOG_ANY
+#define RP6502_LOG_ANY (RP6502_LOG_LEVEL > RP6502_LOG_NONE)
+#endif
+
 /* A category's level is RP6502_LOG_LEVEL_<category> when the build defined
  * one, else RP6502_LOG_LEVEL. A defined name pastes onto a placeholder macro
  * that expands to two arguments, and an undefined one pastes into a name that

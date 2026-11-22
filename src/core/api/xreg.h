@@ -33,19 +33,16 @@ extern "C"
 }
 #endif
 
-/* Sixteen staging registers of two bytes. A program sets its parameters one
- * register at a time and the CANVAS or MODE write consumes the lot and clears
- * them, so a save taken between the two holds a half-assembled mode program
- * that lives nowhere else. */
-#define XREG_SST_SIZE 32
-void xreg_sst_save(sst_cursor_t *c, unsigned flags);
-bool xreg_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t xreg_sst;
 
 /* Drops the staging registers, as a CANVAS or MODE write does after consuming
  * them. */
 void xreg1_clear(void);
 
-#define XREG_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, nul_stop, nul_break, \
-    nul_config, nul_config, SST(XREG, 1, XREG_SST_SIZE, xreg_sst_save, xreg_sst_load))
+/* RESET drops a half-assembled mode program, so a failed savestate load
+ * leaves nothing for the next program's MODE write to consume. */
+#define XREG_DRIVER DRIVER(                                    \
+    RESET(xreg1_clear)                                         \
+    SST("XREG", xreg))
 
 #endif /* _CORE_API_XREG_H_ */

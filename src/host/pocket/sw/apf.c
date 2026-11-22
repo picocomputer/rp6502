@@ -5,6 +5,7 @@
  */
 
 #include "apf.h"
+#include "core/sys/sst.h"
 #include "mmio.h"
 
 #include "core/hid/hid.h"
@@ -90,6 +91,10 @@ static struct
     uint16_t mouse_seen;
     bool mouse_have_seen;
 } apf_slots[MMIO_CONT_SLOTS];
+
+#define APF_SST(X) \
+    X(SKIP, apf_slots, "the host's controllers, which it reports again")
+SST_TABLE(apf, APF_SST)
 
 static void apf_mount(int slot, uint8_t type)
 {

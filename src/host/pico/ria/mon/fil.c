@@ -6,9 +6,11 @@
 
 #include "ria/mon/fil.h"
 #include "ria/mon/mon.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/sys/ria.h"
+#include "core/com/com.h"
 #include "core/sys/sys.h"
+#include "core/api/proc.h"
 #include "core/str/path.h"
 #include "core/str/str.h"
 #include "sys/path.h"
@@ -44,7 +46,7 @@ static FIL *fil_copy_wr;
 // COPY and MOVE put two paths in xstack.
 static_assert(2 * (FF_LFN_BUF + 1) <= XSTACK_SIZE);
 
-static FRESULT HOST_IN_FLASH_FUNC("fil_resolve_dst") fil_resolve_dst(const char *src,
+static FRESULT HOST_IN_FLASH_FUNC fil_resolve_dst(const char *src,
                                                                      const char *dst, char *out,
                                                                      size_t out_sz)
 {
@@ -76,7 +78,7 @@ static FRESULT HOST_IN_FLASH_FUNC("fil_resolve_dst") fil_resolve_dst(const char 
     return FR_OK;
 }
 
-bool HOST_IN_FLASH_FUNC("fil_drive_exists") fil_drive_exists(const char *args)
+bool HOST_IN_FLASH_FUNC fil_drive_exists(const char *args)
 {
     const char *tok = str_parse_string(&args);
     if (!tok)
@@ -91,7 +93,7 @@ bool HOST_IN_FLASH_FUNC("fil_drive_exists") fil_drive_exists(const char *args)
     return result != FR_INVALID_DRIVE;
 }
 
-static int HOST_IN_FLASH_FUNC("fil_paginate") fil_paginate(char *buf, size_t buf_size, int state,
+static int HOST_IN_FLASH_FUNC fil_paginate(char *buf, size_t buf_size, int state,
                                                            const char *src)
 {
     size_t width = rln_get_term_width();
@@ -111,32 +113,32 @@ static int HOST_IN_FLASH_FUNC("fil_paginate") fil_paginate(char *buf, size_t buf
     return state + 1;
 }
 
-static int HOST_IN_FLASH_FUNC("fil_cwd_response") fil_cwd_response(char *buf, size_t buf_size,
+static int HOST_IN_FLASH_FUNC fil_cwd_response(char *buf, size_t buf_size,
                                                                    int state, unsigned)
 {
     if (state < 0)
         return state;
-    char *cwd = (char *)mbuf;
-    FRESULT result = f_getcwd(cwd, MBUF_SIZE);
+    char *cwd = (char *)buf1k;
+    FRESULT result = f_getcwd(cwd, BUF1K_SIZE);
     mon_add_response_fatfs(result);
     if (result != FR_OK)
         return -1;
     return fil_paginate(buf, buf_size, state, cwd);
 }
 
-static int HOST_IN_FLASH_FUNC("fil_dir_path_response") fil_dir_path_response(char *buf,
+static int HOST_IN_FLASH_FUNC fil_dir_path_response(char *buf,
                                                                              size_t buf_size,
                                                                              int state, unsigned)
 {
     if (state < 0)
         return state;
-    char *path = (char *)mbuf;
+    char *path = (char *)buf1k;
     if (!path[0])
         return -1;
     return fil_paginate(buf, buf_size, state, path);
 }
 
-void HOST_IN_FLASH_FUNC("fil_mon_chdir") fil_mon_chdir(const char *args)
+void HOST_IN_FLASH_FUNC fil_mon_chdir(const char *args)
 {
     FRESULT result;
     DIR dir;
@@ -172,7 +174,7 @@ void HOST_IN_FLASH_FUNC("fil_mon_chdir") fil_mon_chdir(const char *args)
     }
 }
 
-void HOST_IN_FLASH_FUNC("fil_mon_mkdir") fil_mon_mkdir(const char *args)
+void HOST_IN_FLASH_FUNC fil_mon_mkdir(const char *args)
 {
     const char *path = str_parse_string(&args);
     if (!path || !str_parse_end(args))
@@ -184,7 +186,7 @@ void HOST_IN_FLASH_FUNC("fil_mon_mkdir") fil_mon_mkdir(const char *args)
     mon_add_response_fatfs(result);
 }
 
-void HOST_IN_FLASH_FUNC("fil_mon_chdrive") fil_mon_chdrive(const char *args)
+void HOST_IN_FLASH_FUNC fil_mon_chdrive(const char *args)
 {
     const char *tok = str_parse_string(&args);
     if (!tok || !str_parse_end(args))
@@ -207,7 +209,7 @@ void HOST_IN_FLASH_FUNC("fil_mon_chdrive") fil_mon_chdrive(const char *args)
     }
 }
 
-static int HOST_IN_FLASH_FUNC("fil_dir_entry_response") fil_dir_entry_response(char *buf,
+static int HOST_IN_FLASH_FUNC fil_dir_entry_response(char *buf,
                                                                                size_t buf_size,
                                                                                int state, unsigned)
 {
@@ -263,7 +265,7 @@ static int HOST_IN_FLASH_FUNC("fil_dir_entry_response") fil_dir_entry_response(c
     return 0;
 }
 
-void HOST_IN_FLASH_FUNC("fil_mon_dir") fil_mon_dir(const char *args)
+void HOST_IN_FLASH_FUNC fil_mon_dir(const char *args)
 {
     const char *raw = str_parse_string(&args);
     if (!str_parse_end(args))
@@ -272,21 +274,21 @@ void HOST_IN_FLASH_FUNC("fil_mon_dir") fil_mon_dir(const char *args)
         return;
     }
     const char *target = raw ? raw : ".";
-    memcpy(mbuf, target, strlen(target) + 1);
+    memcpy(buf1k, target, strlen(target) + 1);
 
-    FRESULT fresult = f_opendir(&fil_fatfs_dir, (char *)mbuf);
+    FRESULT fresult = f_opendir(&fil_fatfs_dir, (char *)buf1k);
     mon_add_response_fatfs(fresult);
     if (FR_OK != fresult)
         return;
 
-    const char *abs = path_abs((char *)mbuf);
+    const char *abs = path_abs((char *)buf1k);
     if (abs)
     {
-        memcpy(mbuf, abs, strlen(abs) + 1);
-        path_correct_basename((char *)mbuf, MBUF_SIZE);
+        memcpy(buf1k, abs, strlen(abs) + 1);
+        path_correct_basename((char *)buf1k, BUF1K_SIZE);
     }
     else
-        mbuf[0] = '\0';
+        buf1k[0] = '\0';
 
     mon_add_response_fn(fil_dir_path_response);
     mon_add_response_fn(fil_dir_entry_response);
@@ -294,7 +296,7 @@ void HOST_IN_FLASH_FUNC("fil_mon_dir") fil_mon_dir(const char *args)
 
 static void fil_upload_dispatch(bool timeout, const char *buf);
 
-static void HOST_IN_FLASH_FUNC("fil_upload_rx_mbuf") fil_upload_rx_mbuf(bool timeout)
+static void HOST_IN_FLASH_FUNC fil_upload_rx_mbuf(bool timeout)
 {
     FRESULT result = FR_OK;
     if (timeout)
@@ -302,7 +304,7 @@ static void HOST_IN_FLASH_FUNC("fil_upload_rx_mbuf") fil_upload_rx_mbuf(bool tim
         result = FR_INT_ERR;
         mon_add_response_utf8(S(STR_ERR_RX_TIMEOUT));
     }
-    else if (host_crc32(0, mbuf, mbuf_len) != fil_rx_crc)
+    else if (host_crc32(0, buf1k, mbuf_len) != fil_rx_crc)
     {
         result = FR_INT_ERR;
         mon_add_response_utf8(S(STR_ERR_CRC));
@@ -317,7 +319,7 @@ static void HOST_IN_FLASH_FUNC("fil_upload_rx_mbuf") fil_upload_rx_mbuf(bool tim
     if (result == FR_OK)
     {
         UINT bytes_written;
-        result = f_write(&fil_fatfs_fil, mbuf, mbuf_len, &bytes_written);
+        result = f_write(&fil_fatfs_fil, buf1k, mbuf_len, &bytes_written);
         if (result == FR_OK && bytes_written < mbuf_len)
             result = FR_NO_SPACE;
         mon_add_response_fatfs(result);
@@ -326,18 +328,18 @@ static void HOST_IN_FLASH_FUNC("fil_upload_rx_mbuf") fil_upload_rx_mbuf(bool tim
     {
         fil_state = FIL_COMMAND;
         putchar('}');
-        rln_read_line_timeout(fil_upload_dispatch, FIL_TIMEOUT_MS);
+        rln_read_line_script(fil_upload_dispatch, FIL_TIMEOUT_MS);
     }
     else
         fil_state = FIL_IDLE;
 }
 
-static void HOST_IN_FLASH_FUNC("fil_upload_dispatch") fil_upload_dispatch(bool timeout,
+static void HOST_IN_FLASH_FUNC fil_upload_dispatch(bool timeout,
                                                                           const char *buf)
 {
     if (timeout)
     {
-        puts("");
+        com_clean_line();
         mon_add_response_utf8(S(STR_ERR_RX_TIMEOUT));
         fil_state = FIL_IDLE;
         return;
@@ -361,13 +363,13 @@ static void HOST_IN_FLASH_FUNC("fil_upload_dispatch") fil_upload_dispatch(bool t
         str_parse_uint32(&args, &fil_rx_crc) &&
         str_parse_end(args))
     {
-        if (!fil_rx_size || fil_rx_size > MBUF_SIZE)
+        if (!fil_rx_size || fil_rx_size > BUF1K_SIZE)
         {
             fil_state = FIL_IDLE;
             mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
             return;
         }
-        mbuf_read(FIL_TIMEOUT_MS, fil_upload_rx_mbuf, fil_rx_size);
+        mbuf_read(rln_line_source(), FIL_TIMEOUT_MS, fil_upload_rx_mbuf, fil_rx_size);
         return;
     }
     mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
@@ -375,7 +377,7 @@ static void HOST_IN_FLASH_FUNC("fil_upload_dispatch") fil_upload_dispatch(bool t
     return;
 }
 
-void HOST_IN_FLASH_FUNC("fil_mon_upload") fil_mon_upload(const char *args)
+void HOST_IN_FLASH_FUNC fil_mon_upload(const char *args)
 {
     const char *path = str_parse_string(&args);
     if (!path || !str_parse_end(args))
@@ -393,10 +395,10 @@ void HOST_IN_FLASH_FUNC("fil_mon_upload") fil_mon_upload(const char *args)
     }
     fil_state = FIL_COMMAND;
     putchar('}');
-    rln_read_line_timeout(fil_upload_dispatch, FIL_TIMEOUT_MS);
+    rln_read_line_script(fil_upload_dispatch, FIL_TIMEOUT_MS);
 }
 
-void HOST_IN_FLASH_FUNC("fil_mon_unlink") fil_mon_unlink(const char *args)
+void HOST_IN_FLASH_FUNC fil_mon_unlink(const char *args)
 {
     const char *path = str_parse_string(&args);
     if (!path || !str_parse_end(args))
@@ -409,7 +411,7 @@ void HOST_IN_FLASH_FUNC("fil_mon_unlink") fil_mon_unlink(const char *args)
 }
 
 // The close of the destination is reported only for a complete copy.
-static int HOST_IN_FLASH_FUNC("fil_copy_end") fil_copy_end(bool complete)
+static int HOST_IN_FLASH_FUNC fil_copy_end(bool complete)
 {
     f_close(fil_copy_rd);
     FRESULT fr = f_close(fil_copy_wr);
@@ -418,23 +420,23 @@ static int HOST_IN_FLASH_FUNC("fil_copy_end") fil_copy_end(bool complete)
     return -1;
 }
 
-// One mbuf per step from fil_copy_rd to fil_copy_wr.
-static int HOST_IN_FLASH_FUNC("fil_copy_response") fil_copy_response(char *, size_t, int state,
+// One buf1k per step from fil_copy_rd to fil_copy_wr.
+static int HOST_IN_FLASH_FUNC fil_copy_response(char *, size_t, int state,
                                                                      unsigned)
 {
     if (state < 0)
         return fil_copy_end(false);
     if (ria_get_sigint())
     {
-        sys_break();
+        proc_break();
         return fil_copy_end(false);
     }
     UINT got, put;
-    FRESULT fr = f_read(fil_copy_rd, mbuf, MBUF_SIZE, &got);
+    FRESULT fr = f_read(fil_copy_rd, buf1k, BUF1K_SIZE, &got);
     if (fr == FR_OK && !got)
         return fil_copy_end(true);
     if (fr == FR_OK)
-        fr = f_write(fil_copy_wr, mbuf, got, &put);
+        fr = f_write(fil_copy_wr, buf1k, got, &put);
     if (fr == FR_OK && put < got)
         fr = FR_NO_SPACE;
     if (fr == FR_OK)
@@ -443,7 +445,7 @@ static int HOST_IN_FLASH_FUNC("fil_copy_response") fil_copy_response(char *, siz
     return fil_copy_end(false);
 }
 
-void HOST_IN_FLASH_FUNC("fil_mon_copy") fil_mon_copy(const char *args)
+void HOST_IN_FLASH_FUNC fil_mon_copy(const char *args)
 {
     char *src_path = (char *)&xstack[0];
     char *dst_path = (char *)&xstack[FF_LFN_BUF + 1];
@@ -483,7 +485,7 @@ void HOST_IN_FLASH_FUNC("fil_mon_copy") fil_mon_copy(const char *args)
     mon_add_response_fn(fil_copy_response);
 }
 
-void HOST_IN_FLASH_FUNC("fil_mon_move") fil_mon_move(const char *args)
+void HOST_IN_FLASH_FUNC fil_mon_move(const char *args)
 {
     char *src_path = (char *)&xstack[0];
     char *dst_path = (char *)&xstack[FF_LFN_BUF + 1];
@@ -508,7 +510,7 @@ void HOST_IN_FLASH_FUNC("fil_mon_move") fil_mon_move(const char *args)
     mon_add_response_fatfs(f_rename(src_path, dst_path));
 }
 
-void fil_task(void)
+void HOST_IN_RAM_FUNC fil_task(void)
 {
     // Close file after reset or error condition
     if (fil_state == FIL_IDLE && fil_fatfs_fil.obj.fs)

@@ -20,15 +20,9 @@ extern "C"
 
 UTEST(font, generated_rom_matches_font_init)
 {
-    for (int i = 0; i < 4096; i++)
+    for (size_t i = 0; i < sizeof(font16); i++)
         ASSERT_EQ(FONT16[i], font16[i]);
-    for (int i = 0; i < 512; i++)
-        ASSERT_EQ(FONT_DEC_16[i], font_dec_16[i]);
-    for (size_t i = 0; i < sizeof(font_dec_8); i++)
-        ASSERT_EQ(FONT_DEC_8[i], font_dec_8[i]);
-    for (int i = 0; i < 2048; i++)
-        ASSERT_EQ(ITALIC16[i], italic16[i]);
-    for (int i = 0; i < 2048; i++)
+    for (size_t i = 0; i < sizeof(font8); i++)
         ASSERT_EQ(FONT8[i], font8[i]);
 }
 

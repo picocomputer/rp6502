@@ -35,16 +35,15 @@ UTEST(pvideo, raster_and_pixels_exact)
         delete dut;
     }
     dut = new Vpocket_video;
-    dut->run = 1;
-    dut->clk_mach = 0;
+    dut->clk_sys = 0;
     dut->clk_vid = 0;
     dut->eval();
     for (int i = 0; i < 4; i++)
     {
-        dut->clk_mach = 1;
+        dut->clk_sys = 1;
         dut->clk_vid = 1;
         dut->eval();
-        dut->clk_mach = 0;
+        dut->clk_sys = 0;
         dut->clk_vid = 0;
         dut->eval();
     }
@@ -67,7 +66,7 @@ UTEST(pvideo, raster_and_pixels_exact)
                 dut->vid_de = de;
                 if (de)
                     dut->vid_pixel = pattern(f, c >> 1, line);
-                dut->clk_mach = 1;
+                dut->clk_sys = 1;
                 if ((c & 1) == 0)
                     dut->clk_vid = 1;
                 dut->eval();
@@ -115,7 +114,7 @@ UTEST(pvideo, raster_and_pixels_exact)
                     ASSERT_EQ(dut->pocket_video_skip, 0);
                 }
 
-                dut->clk_mach = 0;
+                dut->clk_sys = 0;
                 if ((c & 1) == 0)
                     dut->clk_vid = 0;
                 dut->eval();
@@ -133,7 +132,7 @@ UTEST(pvideo, raster_and_pixels_exact)
 }
 
 /* A canvas reaches the scaler at its own size: de spans its width on each of
- * its rows, a 320 wide canvas takes every other line of timing, and the cycle
+ * its rows, a 320 wide canvas takes every odd line of timing, and the cycle
  * after de falls carries the canvas's slot in video.json's scaler_modes. */
 static void canvas_native_de_skip_and_slot(int *utest_result, uint8_t code,
                                            int cw, int ch, uint32_t slot)
@@ -144,16 +143,15 @@ static void canvas_native_de_skip_and_slot(int *utest_result, uint8_t code,
         delete dut;
     }
     dut = new Vpocket_video;
-    dut->run = 1;
-    dut->clk_mach = 0;
+    dut->clk_sys = 0;
     dut->clk_vid = 0;
     dut->eval();
     for (int i = 0; i < 4; i++)
     {
-        dut->clk_mach = 1;
+        dut->clk_sys = 1;
         dut->clk_vid = 1;
         dut->eval();
-        dut->clk_mach = 0;
+        dut->clk_sys = 0;
         dut->clk_vid = 0;
         dut->eval();
     }
@@ -173,12 +171,12 @@ static void canvas_native_de_skip_and_slot(int *utest_result, uint8_t code,
             for (int c = 0; c < 1600; c++)
             {
                 dut->vid_frame = line == 0 && c == 0;
-                bool row = line % dbl == 0 && line < lines;
+                bool row = line % dbl == dbl - 1 && line < lines;
                 bool de = row && c < 2 * cw && (c & 1) == 1;
                 dut->vid_de = de;
                 if (de)
                     dut->vid_pixel = pattern(f, c >> 1, line / dbl);
-                dut->clk_mach = 1;
+                dut->clk_sys = 1;
                 if ((c & 1) == 0)
                     dut->clk_vid = 1;
                 dut->eval();
@@ -187,8 +185,10 @@ static void canvas_native_de_skip_and_slot(int *utest_result, uint8_t code,
                 {
                     if (dut->pocket_video_vs)
                     {
+                        /* The lock's VS comes on the line the first row
+                         * goes out on: line 1 on a 320 wide canvas. */
                         rx = 0;
-                        ry = 0;
+                        ry = !started && dbl == 2 ? 1 : 0;
                         started = true;
                     }
                     else if (rx >= 0 && ++rx == 800)
@@ -200,7 +200,7 @@ static void canvas_native_de_skip_and_slot(int *utest_result, uint8_t code,
                     {
                         int px = rx - 9;
                         int py = ry;
-                        bool dump = py % dbl == 0 && py < lines;
+                        bool dump = py % dbl == dbl - 1 && py < lines;
                         bool win = px >= 0 && px < cw && py < 480;
                         ASSERT_EQ(dut->pocket_video_de, win && dump);
                         ASSERT_EQ(dut->pocket_video_skip, 0);
@@ -208,7 +208,7 @@ static void canvas_native_de_skip_and_slot(int *utest_result, uint8_t code,
                          * the handed-over rows carry none. */
                         if (rx == 3)
                             ASSERT_EQ(dut->pocket_video_hs,
-                                      !(dbl == 2 && (py & 1) && py < lines));
+                                      !(dbl == 2 && !(py & 1) && py < lines));
                         if (dut->pocket_video_de)
                         {
                             int pf = (int)(latched / ((long)cw * ch));
@@ -231,7 +231,7 @@ static void canvas_native_de_skip_and_slot(int *utest_result, uint8_t code,
                     }
                 }
 
-                dut->clk_mach = 0;
+                dut->clk_sys = 0;
                 if ((c & 1) == 0)
                     dut->clk_vid = 0;
                 dut->eval();

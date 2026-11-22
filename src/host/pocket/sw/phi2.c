@@ -22,6 +22,20 @@ uint16_t phi2_get_khz_run(void)
     return (uint16_t)MMIO_PHI2;
 }
 
+/* The rate is the register itself, which reads back what was written. */
+static bool phi2_sst_valid(sst_cursor_t *c)
+{
+    uint16_t khz = (uint16_t)MMIO_PHI2;
+    if (MMIO_PHI2 > UINT16_MAX || !phi2_check_khz(&khz))
+        return sst_refuse(c, "a PHI2 rate out of range");
+    return true;
+}
+
+#define PHI2_SST(X)                                            \
+    X(U32, MMIO_PHI2)                                          \
+    X(VALIDATE, phi2_sst_valid)
+SST_TABLE(phi2, PHI2_SST)
+
 bool phi2_check_khz(uint16_t *v)
 {
     return *v >= PHI2_MIN_KHZ && *v <= PHI2_MAX_KHZ;

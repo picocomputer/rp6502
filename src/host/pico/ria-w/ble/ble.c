@@ -16,12 +16,13 @@
 #include "core/hid/gamepad.h"
 #include "ria-w/net/cyw.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/led.h"
 #include "core/sys/sys.h"
 #include <pico/time.h>
 #include <btstack.h>
+#include <pico/btstack_cyw43.h>
+#include <pico/cyw43_arch.h>
 
 static enum {
     BLE_OFF,
@@ -54,7 +55,7 @@ static absolute_time_t ble_retry_at;
 static hci_con_handle_t ble_connecting_handle;
 static uint16_t ble_connecting_cid;
 
-static const uint8_t __in_flash("ble_att_profile_data") ble_att_profile_data[] = {
+static const uint8_t HOST_IN_FLASH ble_att_profile_data[] = {
     // clang-format off
     // ATT DB Version
     1,
@@ -462,11 +463,33 @@ static void ble_init_stack(void)
     RP6502_LOG(ble, DEBUG, "Initialized with HIDS host");
 }
 
-void ble_task(void)
+/* Once HCI is off, BTstack's state for BLE goes. */
+static void ble_powered_off(void)
 {
-    if (ble_state != BLE_RUNNING)
+    assert(ble_count_keyboard == 0);
+    assert(ble_count_mouse == 0);
+    assert(ble_count_gamepad == 0);
+    hci_remove_event_handler(&hci_event_callback_registration);
+    sm_remove_event_handler(&sm_event_callback_registration);
+    hids_host_deinit();
+    sm_deinit();
+    l2cap_deinit();
+    btstack_memory_deinit();
+    btstack_crypto_deinit();
+    ble_state = BLE_OFF;
+}
+
+void HOST_IN_RAM_FUNC ble_task(void)
+{
+    if (ble_state == BLE_SHUTTING_DOWN)
     {
-        if (ble_state == BLE_OFF && cyw_get_rf_enable() && ble_get_enabled())
+        if (hci_get_state() == HCI_STATE_OFF)
+            ble_powered_off();
+        return;
+    }
+    if (ble_state == BLE_OFF)
+    {
+        if (cyw_get_rf_enable() && ble_get_enabled() && !cyw_resetting())
         {
             ble_init_stack();
             ble_state = BLE_RUNNING;
@@ -499,7 +522,7 @@ void ble_task(void)
     }
 }
 
-static void HOST_IN_FLASH_FUNC("ble_set_config") ble_set_config(uint8_t ble)
+static void HOST_IN_FLASH_FUNC ble_set_config(uint8_t ble)
 {
     switch (ble)
     {
@@ -552,25 +575,34 @@ void ble_shutdown(void)
         gap_stop_scan();
         gap_connect_cancel();
         gap_whitelist_clear();
-        // Poll until btstack completes the halting sequence.
         hci_power_control(HCI_POWER_OFF);
-        while (hci_get_state() != HCI_STATE_OFF)
-            sys_task();
-        assert(ble_count_keyboard == 0);
-        assert(ble_count_mouse == 0);
-        assert(ble_count_gamepad == 0);
-        hci_remove_event_handler(&hci_event_callback_registration);
-        sm_remove_event_handler(&sm_event_callback_registration);
-        hids_host_deinit();
-        sm_deinit();
-        l2cap_deinit();
-        btstack_memory_deinit();
-        btstack_crypto_deinit();
     }
-    ble_state = BLE_OFF;
 }
 
-int HOST_IN_FLASH_FUNC("ble_status_response") ble_status_response(char *buf, size_t buf_size,
+bool ble_is_off(void)
+{
+    return ble_state == BLE_OFF;
+}
+
+/* BTstack is in flash, so flashing leaves it unable to run: HCI powers off,
+ * waiting on the radio poll, a TASK_ALWAYS, and then BTstack's workers leave
+ * the radio's async context. ble_task does not run while flashing, so the
+ * hook finishes the power-off itself. */
+void HOST_IN_FLASH_FUNC ble_flashing(void)
+{
+    if (!cyw_started())
+        return;
+    ble_shutdown();
+    if (ble_state == BLE_SHUTTING_DOWN)
+    {
+        while (hci_get_state() != HCI_STATE_OFF)
+            sys_pump();
+        ble_powered_off();
+    }
+    btstack_cyw43_deinit(cyw43_arch_async_context());
+}
+
+int HOST_IN_FLASH_FUNC ble_status_response(char *buf, size_t buf_size,
                                                                   int state, unsigned)
 {
     (void)state;
@@ -611,7 +643,7 @@ void ble_init(void)
     ble_set_config(ble_get_enabled());
 }
 
-int HOST_IN_FLASH_FUNC("ble_enabled_response") ble_enabled_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC ble_enabled_response(char *buf, size_t buf_size,
                                                                     int state, unsigned width)
 {
     (void)state;

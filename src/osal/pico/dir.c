@@ -10,6 +10,7 @@
 #include "core/str/path.h"
 #include "osal/dir.h"
 #include "fatfs/ff.h"
+#include "machine.h"
 #include <assert.h>
 #include <string.h>
 
@@ -29,7 +30,7 @@ static DIR dirs[DIR_MAX_OPEN];
  * return to. */
 static char paths[2][FF_LFN_BUF + 1];
 
-char *os_dir_path_hold(const char *path)
+char *HOST_IN_RAM_FUNC os_dir_path_hold(const char *path)
 {
     size_t len = strlen(path);
     for (size_t i = 0; i < 2; i++)
@@ -41,7 +42,7 @@ char *os_dir_path_hold(const char *path)
     return NULL;
 }
 
-void os_dir_path_drop(char *path)
+void HOST_IN_RAM_FUNC os_dir_path_drop(char *path)
 {
     path[0] = '\0';
 }
@@ -61,13 +62,13 @@ static inline bool fat_ok(FRESULT fresult, api_errno *err)
 
 /* The part of a path after its drive name, which ends at a ':' ahead of any
  * separator. */
-static const char *fat_after_drive(const char *path)
+static const char *HOST_IN_RAM_FUNC fat_after_drive(const char *path)
 {
     const char *end = path + strcspn(path, ":/\\");
     return *end == ':' ? end + 1 : path;
 }
 
-bool fat_path_ok(const char *path, api_errno *err)
+bool HOST_IN_RAM_FUNC fat_path_ok(const char *path, api_errno *err)
 {
     return path_fat_ok(fat_after_drive(path), true, err);
 }

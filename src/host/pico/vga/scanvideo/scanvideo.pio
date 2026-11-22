@@ -22,8 +22,7 @@ public end_of_scanline_skip_ALIGN:              ; || jmp end_of_scanline_skip_AL
 public end_of_scanline_ALIGN:                   ; | jmp end_of_scanline_ALIGN ||
 
 public entry_point:
-  wait irq, 4                                   ; todo perhaps change this to out exec, 16... so that we can do multiple things (including setting black pixel)
-public nop_raw:
+  wait irq, 4
   out  pc, bpp
 
 public delay_h_0:
@@ -33,7 +32,6 @@ public color_run:                               ; | jmp color_run | color | coun
 color_loop:
 public delay_a_1:
   jmp  x-- color_loop  [extra1]
-public nop_extra1:
 public delay_b_1:
   out  pc, bpp   [extra1]
 
@@ -45,22 +43,10 @@ pixel_loop:
 public delay_d_0:
   out  pins, bpp [extra0]
   jmp  x-- pixel_loop
-.wrap_target
 public raw_1p:                                  ; | jmp raw_1p | color |
 public delay_e_0:
   out  pins, bpp [extra0]
   out  pc, bpp
-
-public raw_2p:                                  ; | jmp raw_2p | color | color |
-public delay_f_1:
-  out  pins, bpp  [extra1]
-.wrap
-
-public raw_1p_skip_ALIGN:                       ; | jmp raw_1p_skip_ALIGN | color | ignored ||
-  out  pins, 32 ; requires correct out mask
-public nop_extra0:
-public delay_g_0:
-  out  pc, bpp [extra0] ; note moved extra0 from above line, so we can use this instruction for
 
 
 .program video_htiming

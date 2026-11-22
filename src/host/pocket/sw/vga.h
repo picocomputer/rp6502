@@ -7,15 +7,17 @@
 #ifndef _HOST_POCKET_SW_VGA_H_
 #define _HOST_POCKET_SW_VGA_H_
 
+#include "core/sys/sst.h"
 #include "core/vga/vga.h"
 
 #include <stdint.h>
 #include <stdbool.h>
 
-bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin,
-                        int16_t scanline_end, uint16_t config_ptr,
-                        bool (*fill_fn)(int16_t, int16_t, int16_t,
-                                        uint16_t *, uint16_t));
-void vga_restore(void);
+/* What vga.c keeps of the fabric's scanline table. It loads after the
+ * canvas, which VID_VSYNC_LINE is computed from. */
+extern const sst_table_t vga_fabric_sst;
+
+#define VGA_FABRIC_DRIVER DRIVER(                              \
+    SST("VGA_", vga_fabric))
 
 #endif /* _HOST_POCKET_SW_VGA_H_ */

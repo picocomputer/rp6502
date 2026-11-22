@@ -13,7 +13,6 @@
 #include "core/api/proc.h"
 #include "ria/mon/mon.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
 #include "ria/sys/phi2.h"
 #include "core/ria/regs.h"
 #include "core/sys/xram.h"
@@ -72,7 +71,7 @@ void ria_trigger_vsync(void)
 // when no transfer is running, because the loop that the 6502 runs for a
 // transfer is written at $FFF0. ria_task rewrites $FFF0 and IRQB from the
 // pending flags once the transfer ends.
-void ria_trigger_sigint(void)
+void HOST_IN_RAM_FUNC ria_trigger_sigint(void)
 {
     sigint_pending = RIA_IRQ_SIGINT;
     if (action_state == action_state_idle)
@@ -84,7 +83,7 @@ void ria_trigger_sigint(void)
     }
 }
 
-bool ria_get_sigint(void)
+bool HOST_IN_RAM_FUNC ria_get_sigint(void)
 {
     if (!sigint_pending)
         return false;
@@ -100,7 +99,7 @@ void ria_run(void)
     REGS(0xFFF0) = 0;
 }
 
-static int HOST_IN_FLASH_FUNC("ria_verify_error_response") ria_verify_error_response(char *buf,
+static int HOST_IN_FLASH_FUNC ria_verify_error_response(char *buf,
                                                                                      size_t buf_size,
                                                                                      int state,
                                                                                      unsigned)
@@ -112,7 +111,7 @@ static int HOST_IN_FLASH_FUNC("ria_verify_error_response") ria_verify_error_resp
 /* The reset vector is saved here and restored by ria_action_close. ria_task
  * calls ria_action_close between the two halves of a write, so the verify half
  * compares the bytes above $FFF9 against what the write put there. */
-static void HOST_IN_FLASH_FUNC("ria_action_start") ria_action_start(void)
+static void HOST_IN_FLASH_FUNC ria_action_start(void)
 {
     saved_reset_vec = REGSW(0xFFFC);
     REGSW(0xFFFC) = 0xFFF0;
@@ -123,7 +122,7 @@ static void HOST_IN_FLASH_FUNC("ria_action_start") ria_action_start(void)
         // FFF2  8D 00 00  STA $0000
         // FFF5  80 F9     BRA $FFF0
         REGS(0xFFF0) = 0xA9;
-        REGS(0xFFF1) = mbuf[0];
+        REGS(0xFFF1) = buf1k[0];
         REGS(0xFFF2) = 0x8D;
         REGS(0xFFF3) = rw_addr & 0xFF;
         REGS(0xFFF4) = rw_addr >> 8;
@@ -170,14 +169,14 @@ static void ria_action_end(int32_t result)
     action_result = result;
 }
 
-static void HOST_IN_FLASH_FUNC("ria_verify_start") ria_verify_start(void)
+static void HOST_IN_FLASH_FUNC ria_verify_start(void)
 {
     action_state = action_state_verify;
     action_result = RIA_ACTION_RESULT_NONE;
     uint16_t addr = rw_addr;
     uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
-        if (addr + --len <= 0xFFFF && mbuf[len] != REGS(addr + len))
+        if (addr + --len <= 0xFFFF && buf1k[len] != REGS(addr + len))
             action_result = addr + len;
     while (len && (addr + len > 0xFF00))
         --len;
@@ -193,7 +192,7 @@ static void HOST_IN_FLASH_FUNC("ria_verify_start") ria_verify_start(void)
     ria_action_start();
 }
 
-void ria_task(void)
+void HOST_IN_RAM_FUNC ria_task(void)
 {
     if (action_state == action_state_idle)
     {
@@ -229,7 +228,7 @@ void ria_task(void)
     callback(ok);
 }
 
-void HOST_IN_FLASH_FUNC("ria_read_buf") ria_read_buf(uint16_t addr, ria_callback_t callback)
+void HOST_IN_FLASH_FUNC ria_read_buf(uint16_t addr, ria_callback_t callback)
 {
     assert(!sys_active());
     action_callback = callback;
@@ -238,11 +237,11 @@ void HOST_IN_FLASH_FUNC("ria_read_buf") ria_read_buf(uint16_t addr, ria_callback
     uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
         if (addr + --len <= 0xFFFF)
-            mbuf[len] = REGS(addr + len);
+            buf1k[len] = REGS(addr + len);
         else
-            mbuf[len] = 0;
+            buf1k[len] = 0;
     while (len && (addr + len > 0xFF00))
-        mbuf[--len] = 0;
+        buf1k[--len] = 0;
     action_state = action_state_read;
     if (!len)
     {
@@ -255,7 +254,7 @@ void HOST_IN_FLASH_FUNC("ria_read_buf") ria_read_buf(uint16_t addr, ria_callback
     ria_action_start();
 }
 
-void HOST_IN_FLASH_FUNC("ria_write_buf") ria_write_buf(uint16_t addr, ria_callback_t callback)
+void HOST_IN_FLASH_FUNC ria_write_buf(uint16_t addr, ria_callback_t callback)
 {
     assert(!sys_active());
     action_callback = callback;
@@ -264,7 +263,7 @@ void HOST_IN_FLASH_FUNC("ria_write_buf") ria_write_buf(uint16_t addr, ria_callba
     uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
         if (addr + --len <= 0xFFFF)
-            REGS(addr + len) = mbuf[len];
+            REGS(addr + len) = buf1k[len];
     while (len && (addr + len > 0xFF00))
         len--;
     rw_addr = addr;
@@ -274,33 +273,34 @@ void HOST_IN_FLASH_FUNC("ria_write_buf") ria_write_buf(uint16_t addr, ria_callba
         return;
     }
     rw_end = len;
-    // First write doesn't always write because ???
-    rw_pos = -1; // force a second write
+    rw_pos = 0;
     action_state = action_state_write;
     ria_action_start();
 }
 
-// The UART TX ring has a single producer, act_loop on core 1, and a single
-// consumer, com_tx_fanout on core 0 through ria_uart_tx_dequeue.
-static RING(uint8_t, 32) ria_uart_tx;
+// The TX register feeds a FIFO of 16 bytes, the depth of a 16550's. Its
+// producer is act_loop on core 1, and its consumer is the console on core 0
+// through ria_uart_tx_dequeue, which moves the bytes on into the ring that
+// keeps the wire busy.
+static RING(uint8_t, 16) ria_uart_tx;
 
-bool ria_uart_tx_dequeue(uint8_t *ch)
+bool HOST_IN_RAM_FUNC ria_uart_tx_dequeue(uint8_t *ch)
 {
     return RING_GET(&ria_uart_tx, ch);
 }
 
-bool ria_uart_tx_empty(void) { return !RING_LEN(&ria_uart_tx); }
+bool HOST_IN_RAM_FUNC ria_uart_tx_empty(void) { return !RING_LEN(&ria_uart_tx); }
 
 static volatile int ria_uart_rx_slot = -1;
 
-bool ria_uart_rx_offer_ready(void)
+bool HOST_IN_RAM_FUNC ria_uart_rx_offer_ready(void)
 {
     return ria_uart_rx_slot < 0 && !(REGS(0xFFE0) & 0b01000000);
 }
 
-void ria_uart_rx_offer(uint8_t ch) { ria_uart_rx_slot = ch; }
+void HOST_IN_RAM_FUNC ria_uart_rx_offer(uint8_t ch) { ria_uart_rx_slot = ch; }
 
-int ria_uart_rx_peek(void)
+int HOST_IN_RAM_FUNC ria_uart_rx_peek(void)
 {
     int c = ria_uart_rx_slot;
     if (c >= 0)
@@ -310,7 +310,7 @@ int ria_uart_rx_peek(void)
     return -1;
 }
 
-bool ria_uart_rx_reclaim(uint8_t *ch)
+bool HOST_IN_RAM_FUNC ria_uart_rx_reclaim(uint8_t *ch)
 {
     int c = ria_uart_rx_slot;
     if (c >= 0)
@@ -371,8 +371,11 @@ static inline __attribute__((always_inline)) void ria_aud_push(uint16_t addr, ui
 #define RIA_ADDR1 REGSW(0xFFEA)
 // 6502 writes to regs can arrive later than these events.
 // Make sure to use the FIFO event data in here instead.
-__attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_loop)(void)
+// Everything core 1 runs is flattened into this function, which sits in
+// SCRATCH_X with the registers.
+__attribute__((optimize("O3"), flatten)) static void __scratch_x("act_loop") act_loop(void)
 {
+    bool vectored = false;
     while (true)
     {
         RIA_RW0 = xram[RIA_ADDR0];
@@ -380,7 +383,13 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
         if (!(RIA_ACT_PIO->fstat & (1u << (PIO_FSTAT_RXEMPTY_LSB + RIA_ACT_SM))))
         {
             uint32_t rw_addr_data = RIA_ACT_PIO->rxf[RIA_ACT_SM];
-            if (((1u << CPU_RESB_PIN) & sio_hw->gpio_in))
+            // Until the reset vector is fetched, reads are the reset
+            // sequence repeating the address the 6502 stopped on.
+            if (!((1u << CPU_RESB_PIN) & sio_hw->gpio_in))
+                vectored = false;
+            else if (!vectored)
+                vectored = (rw_addr_data >> 8) == CASE_READ(0xFFFC);
+            else
             {
                 uint32_t data = rw_addr_data & 0xFF;
                 switch (rw_addr_data >> 8)
@@ -390,18 +399,20 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                     {
                         if (rw_pos == rw_end)
                             ria_action_end(RIA_ACTION_RESULT_FINISHED);
-                        else if (++rw_pos > 0 && rw_pos < rw_end)
+                        else if (++rw_pos < rw_end)
                         {
-                            REGS(0xFFF1) = mbuf[rw_pos];
+                            REGS(0xFFF1) = buf1k[rw_pos];
                             REGSW(0xFFF3) += 1;
                         }
+                        else // LDA, so RESB never drops in a write cycle
+                            REGS(0xFFF2) = 0xAD;
                     }
                     break;
                 case CASE_WRITE(0xFFFD): // action read
                     if (action_state == action_state_read)
                     {
                         REGSW(0xFFF1) += 1;
-                        mbuf[rw_pos] = data;
+                        buf1k[rw_pos] = data;
                         if (++rw_pos == rw_end)
                             ria_action_end(RIA_ACTION_RESULT_FINISHED);
                     }
@@ -410,7 +421,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                     if (action_state == action_state_verify)
                     {
                         REGSW(0xFFF1) += 1;
-                        if (mbuf[rw_pos] != data)
+                        if (buf1k[rw_pos] != data)
                             ria_action_end(REGSW(0xFFF1) - 1);
                         else if (++rw_pos == rw_end)
                             ria_action_end(RIA_ACTION_RESULT_FINISHED);
@@ -535,7 +546,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
     }
 }
 
-static void __in_flash("ria_cs_rwb_pio_init") ria_cs_rwb_pio_init(void)
+static void HOST_IN_FLASH_FUNC ria_cs_rwb_pio_init(void)
 {
     uint offset = pio_add_program(RIA_CS_RWB_PIO, &ria_cs_rwb_program);
     pio_sm_config config = ria_cs_rwb_program_get_default_config(offset);
@@ -550,7 +561,7 @@ static void __in_flash("ria_cs_rwb_pio_init") ria_cs_rwb_pio_init(void)
     pio_sm_set_enabled(RIA_CS_RWB_PIO, RIA_CS_RWB_SM, true);
 }
 
-static void __in_flash("ria_write_pio_init") ria_write_pio_init(void)
+static void HOST_IN_FLASH_FUNC ria_write_pio_init(void)
 {
     // PIO to manage PHI2 clock and 6502 writes
     uint offset = pio_add_program(RIA_WRITE_PIO, &ria_write_program);
@@ -600,7 +611,7 @@ static void __in_flash("ria_write_pio_init") ria_write_pio_init(void)
         true);
 }
 
-static void __in_flash("ria_read_pio_init") ria_read_pio_init(void)
+static void HOST_IN_FLASH_FUNC ria_read_pio_init(void)
 {
     // PIO for 6502 reads
     uint offset = pio_add_program(RIA_READ_PIO, &ria_read_program);
@@ -650,7 +661,7 @@ static void __in_flash("ria_read_pio_init") ria_read_pio_init(void)
         true);
 }
 
-static void __in_flash("ria_act_pio_init") ria_act_pio_init(void)
+static void HOST_IN_FLASH_FUNC ria_act_pio_init(void)
 {
     // PIO to supply action loop with events
     uint offset = pio_add_program(RIA_ACT_PIO, &ria_action_program);
@@ -666,7 +677,7 @@ static void __in_flash("ria_act_pio_init") ria_act_pio_init(void)
     multicore_launch_core1(act_loop);
 }
 
-void __in_flash("ria_init") ria_init(void)
+void HOST_IN_FLASH_FUNC ria_init(void)
 {
     // drive irq pin
     gpio_init(CPU_IRQB_PIN);
@@ -688,9 +699,12 @@ void __in_flash("ria_init") ria_init(void)
     }
 
     /* A 6502 read is served by two chained DMA transfers that must finish
-     * within one PHI2 cycle, so the DMA is given bus priority over both
-     * cores. */
-    bus_ctrl_hw->priority = BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
+     * within one PHI2 cycle. In RAM these bits put the DMA and core 0 ahead
+     * of core 1, which runs from SCRATCH_X. Erratum RP2350-E27 rewires them
+     * at the PIO, USB and DMA registers, where they put the DMA and core 1
+     * ahead of core 0. */
+    bus_ctrl_hw->priority = BUSCTRL_BUS_PRIORITY_PROC0_BITS |
+                            BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
                             BUSCTRL_BUS_PRIORITY_DMA_W_BITS;
 
     // the inits

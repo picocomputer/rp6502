@@ -9,17 +9,15 @@
 
 #include <pico.h>
 
-#define HOST_IN_FLASH(group) __in_flash(group)
-/* A function the compiler inlines lands where its caller is, so this one is
- * never inlined. */
-#define HOST_IN_FLASH_FUNC(group) __noinline __in_flash(group)
-#define HOST_NOT_IN_FLASH(group) __not_in_flash(group)
-#define HOST_UNINITIALIZED_RAM(name) __uninitialized_ram(name)
-
-/* The PIX DMA chain in pix.c writes each 16-bit xram address into the low
- * half of a pointer to xram, so xram must sit on a 64 KB boundary, which no
- * other machine needs. */
-#define XRAM_ALIGN 0x10000
+/* Code and data take separate sections, because GCC rejects both in one
+ * named section of a file. A function the compiler inlines lands where its
+ * caller is, so HOST_IN_FLASH_FUNC is never inlined. */
+#define HOST_IN_FLASH __in_flash("data")
+#define HOST_IN_FLASH_FUNC __noinline __in_flash("code")
+#define HOST_IN_RAM __not_in_flash("data")
+#define HOST_IN_RAM_FUNC __not_in_flash("code")
+/* An interrupt handler runs from RAM with everything it calls inlined. */
+#define HOST_ISR_FUNC __attribute__((flatten, optimize("O3"))) __not_in_flash("code")
 
 /* The SXGA console has 512 scanlines and a 16-line font, which gives 32
  * rows. */

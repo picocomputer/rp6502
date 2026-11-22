@@ -5,28 +5,49 @@
  */
 
 #include "ria/mon/mon.h"
-#include "core/str/rln.h"
+#include "core/sys/debug_log.h"
+#include "core/com/rln.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
+#include "core/com/com.h"
+#include "ria/com/manifold.h"
 #include "ria/sys/cfg.h"
 #include "core/ria/regs.h"
 #include "ria/sys/mbuf.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
+#include "ria/sys/rp2350.h"
 #include "ria/sys/vga.h"
 #include "core/sys/config.h"
+#include "core/str/oem.h"
+#include "core/term/font.h"
+#include "core/vga/mode/mode0.h"
+#include "ria/term/cells.h"
 #include "ria.pio.h"
 #include "machine.h"
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
 #include <hardware/timer.h>
+#include <string.h>
 #include <strings.h>
 #include <stdio.h>
 
 // How long to wait for ACK to backchannel enable request
 #define VGA_BACKCHANNEL_ACK_MS 3
+/* At power on the VGA starts with the RIA and is ready later: it runs from
+ * RAM, so it first copies itself there, and it builds its fonts and starts
+ * its display before it listens to PIX. A request sent before then is lost,
+ * since PIX has no handshake. On the bench the VGA first answers when the
+ * RIA has been up about 60 ms, so the RIA keeps asking until it has been up
+ * this long. A machine with no VGA waits all of it at every start. */
+#define VGA_BOOT_MS 100
+// The UART with nothing arriving for this long is idle: a byte takes 87 us.
+#define VGA_UART_IDLE_MS 1
 // How long to wait before aborting version string
 #define VGA_VERSION_WATCHDOG_MS 3
+// How many times the version is asked for, to have the same one twice
+#define VGA_VERSION_TRIES 5
+// How many times at least the VGA is asked for
+#define VGA_REQUEST_TRIES 3
 // Abandon backchannel after two missed vsync messages
 // with 10ms added for UART drain and safety margin
 // when changing canvas or timing.
@@ -44,8 +65,40 @@ static enum {
 static bool vga_needs_reset = true;
 static vga_canvas_t vga_canvas_current = vga_canvas_console;
 static volatile uint32_t vga_vsync_deadline;
-static absolute_time_t vga_version_timer;
 static uint8_t vga_vsync_frame;
+/* The frames counted from the VSYNCs, with no 8-bit wrap, and when the last
+ * one came: vga_frames. */
+static volatile uint32_t vga_vsync_frames;
+static volatile uint32_t vga_vsync_at_us;
+
+/* The frame number takes a new value, a step on or a correction. */
+static __force_inline void vga_vsync_set(uint8_t frame)
+{
+    vga_vsync_frames += (uint32_t)(int32_t)(int8_t)(uint8_t)(frame - vga_vsync_frame);
+    vga_vsync_at_us = time_us_32();
+    vga_vsync_frame = frame;
+    REGS(0xFFE3) = frame;
+}
+
+/* A VGA that stops sending VSYNCs is found lost only by vga_task, which a
+ * loop on core 0 waiting for the console may not run, so the count goes on
+ * by the clock once two frames pass with none: whatever waits on frames
+ * still sees them go by. The count and its time are read as a pair no VSYNC
+ * came between, and the clock after them: a wait that came out negative
+ * would read as a VGA silent for an hour. */
+uint32_t HOST_IN_RAM_FUNC vga_frames(void)
+{
+    uint32_t frames, at;
+    do
+    {
+        frames = vga_vsync_frames;
+        at = vga_vsync_at_us;
+    } while (frames != vga_vsync_frames);
+    uint32_t late = time_us_32() - at;
+    if (late > 2 * VGA_VSYNC_PERIOD_US)
+        frames += late / VGA_VSYNC_PERIOD_US;
+    return frames;
+}
 
 static int vga_vsync_alarm = -1;
 static bool vga_vsync_alarm_arms;
@@ -54,21 +107,69 @@ static volatile bool vga_vsync_trap_fired;
 
 #define VGA_VERSION_MESSAGE_SIZE 64
 static char vga_version_message[VGA_VERSION_MESSAGE_SIZE];
-static size_t vga_version_message_length;
 
 static inline void vga_pix_backchannel_disable(void)
 {
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x04, 0);
 }
 
-void vga_set_tel_console_active(bool active)
-{
-    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x02, active ? 1 : 0);
-}
+/* The console's terminal follows the VGA's (ria/term/cells.c). Every change
+ * the VGA makes to its terminal is made here at the moment the RIA sends what
+ * causes it. The console's bytes go to the VGA through the same PIX queue,
+ * so the two terminals take them all in the same order. */
+
+/* The code page the VGA's fonts hold, or VGA_CODE_PAGE_UNKNOWN. Choosing a
+ * different one resets its terminal. */
+#define VGA_CODE_PAGE_UNKNOWN 0xFFFF
+static uint16_t vga_code_page_sent = VGA_CODE_PAGE_UNKNOWN;
+
+/* The display type the VGA was last sent, which sizes its console. */
+static uint8_t vga_display_sent;
+
+/* The canvas and mode registers of channel 0 as the VGA holds them. */
+static uint16_t vga_xregs[8];
 
 void vga_set_code_page(uint16_t cp)
 {
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x01, cp);
+    if (!vga_connected())
+        return;
+    cp = font_code_page_of(cp);
+    if (cp != vga_code_page_sent)
+        cells_RIS();
+    vga_code_page_sent = cp;
+}
+
+/* The VGA's console terminal on a display: 32 rows on SXGA (2), otherwise 30. */
+static uint8_t vga_console_rows(uint8_t display)
+{
+    uint16_t xregs[8] = {0};
+    int16_t begin, end;
+    uint8_t cols, rows = 0;
+    mode0_place(640, display == 2 ? 512 : 480, xregs, &begin, &end, &cols, &rows);
+    return rows;
+}
+
+/* DISPLAY: the VGA goes back to the console canvas, which sizes the console
+ * for the old display, sizes it for the new one, and does the system's soft
+ * reset. */
+static void vga_follow_display(uint8_t display)
+{
+    if (vga_canvas_current != vga_canvas_console)
+        cells_set_height(80, vga_console_rows(vga_display_sent));
+    cells_set_height(80, vga_console_rows(display));
+    cells_RIS_no_clear();
+    vga_display_sent = display;
+}
+
+/* With no VGA the console is a terminal on the UART, taken to be 80x24,
+ * and that terminal answers the queries, so the console's terminal is quiet
+ * by default. */
+static void vga_follow_none(void)
+{
+    cells_RIS();
+    cells_set_height(80, 24);
+    com_set_reply_default(true);
 }
 void vga_load_code_page(uint16_t cp)
 {
@@ -98,7 +199,7 @@ static inline void vga_backchannel_irq_disable(void)
                                 pis_sm3_rx_fifo_not_empty, false);
 }
 
-static void vga_vsync_trap_disarm(void)
+static void HOST_IN_RAM_FUNC vga_vsync_trap_disarm(void)
 {
     if (!vga_vsync_trap_armed)
         return;
@@ -109,8 +210,21 @@ static void vga_vsync_trap_disarm(void)
     irq_clear(VGA_VSYNC_TRAP_IRQ);
 }
 
-static void vga_vsync_alarm_handler(uint alarm)
+/* The alarm is driven through TIMER0's registers rather than the SDK's alarm
+ * callbacks, so everything its interrupt runs is in RAM. Returns true when
+ * us has already passed, with the alarm disarmed. */
+static bool HOST_IN_RAM_FUNC vga_vsync_alarm_at(uint32_t us)
 {
+    timer_hw->alarm[vga_vsync_alarm] = us;
+    if ((int32_t)(us - timer_hw->timerawl) > 0)
+        return false;
+    timer_hw->armed = 1u << vga_vsync_alarm;
+    return true;
+}
+
+static void HOST_ISR_FUNC vga_vsync_alarm_irq_handler(void)
+{
+    timer_hw->intr = 1u << vga_vsync_alarm;
     if (!vga_vsync_alarm_arms)
     {
         vga_vsync_trap_disarm();
@@ -125,26 +239,21 @@ static void vga_vsync_alarm_handler(uint alarm)
     vga_vsync_alarm_arms = false;
     pio_interrupt_clear(VGA_BACKCHANNEL_PIO, 0);
     pio_set_irq0_source_enabled(VGA_BACKCHANNEL_PIO, pis_interrupt0, true);
-    if (hardware_alarm_set_target(alarm, from_us_since_boot(
-                                             time_us_64() + 2 * VGA_VSYNC_WINDOW_US)))
+    if (vga_vsync_alarm_at(time_us_32() + 2 * VGA_VSYNC_WINDOW_US))
         vga_vsync_trap_disarm();
 }
 
-static void vga_vsync_reschedule(void)
+static void HOST_IN_RAM_FUNC vga_vsync_reschedule(void)
 {
     if (vga_vsync_alarm < 0)
         return;
     vga_vsync_trap_disarm();
     vga_vsync_alarm_arms = true;
-    hardware_alarm_set_target((uint)vga_vsync_alarm,
-                              from_us_since_boot(time_us_64() - VGA_VSYNC_TRANSIT_US +
-                                                 VGA_VSYNC_PERIOD_US - VGA_VSYNC_WINDOW_US));
+    vga_vsync_alarm_at(time_us_32() - VGA_VSYNC_TRANSIT_US +
+                       VGA_VSYNC_PERIOD_US - VGA_VSYNC_WINDOW_US);
 }
 
-static void
-    __attribute__((optimize("O3")))
-    __isr
-    __time_critical_func(vga_vsync_trap_irq_handler)(void)
+static void HOST_ISR_FUNC vga_vsync_trap_irq_handler(void)
 {
     pio_set_irq0_source_enabled(VGA_BACKCHANNEL_PIO, pis_interrupt0, false);
     vga_vsync_trap_armed = false;
@@ -153,11 +262,11 @@ static void
     // VSYNC arrives about 74 us later, and when its frame number differs,
     // vga_backchannel_command writes the corrected number and calls
     // ria_trigger_vsync again.
-    REGS(0xFFE3) = ++vga_vsync_frame;
+    vga_vsync_set((uint8_t)(vga_vsync_frame + 1));
     ria_trigger_vsync();
 }
 
-static inline void vga_backchannel_command(uint8_t byte)
+static __force_inline void vga_backchannel_command(uint8_t byte)
 {
     switch (byte & 0xF0)
     {
@@ -172,10 +281,10 @@ static inline void vga_backchannel_command(uint8_t byte)
             if ((vga_vsync_frame & 0xF) == frame)
                 break;
         }
-        if (frame < (vga_vsync_frame & 0xF))
-            vga_vsync_frame += 0x10;
-        vga_vsync_frame = (vga_vsync_frame & 0xF0) | frame;
-        REGS(0xFFE3) = vga_vsync_frame;
+        uint8_t next = vga_vsync_frame;
+        if (frame < (next & 0xF))
+            next += 0x10;
+        vga_vsync_set((uint8_t)((next & 0xF0) | frame));
         ria_trigger_vsync();
         break;
     }
@@ -188,10 +297,7 @@ static inline void vga_backchannel_command(uint8_t byte)
     }
 }
 
-static void
-    __attribute__((optimize("O3")))
-    __isr
-    __time_critical_func(vga_backchannel_irq_handler)(void)
+static void HOST_ISR_FUNC vga_backchannel_irq_handler(void)
 {
     while (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
     {
@@ -204,84 +310,171 @@ static void
 static void vga_rln_callback(bool timeout)
 {
     // VGA1 means VGA on PIX 1
-    if (!timeout && mbuf_len == 4 && !strncasecmp(STR_VGA1, (char *)mbuf, 4))
+    if (!timeout && mbuf_len == 4 && !strncasecmp(STR_VGA1, (char *)buf1k, 4))
         vga_state = VGA_FOUND;
     else
         vga_state = VGA_NOT_FOUND;
 }
 
-static void HOST_IN_FLASH_FUNC("vga_connect") vga_connect(void)
+// The line is idle when a read of one byte times out.
+static bool vga_uart_idle;
+static void vga_idle_callback(bool timeout)
 {
-    vga_backchannel_irq_disable();
-    while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)
-        tight_loop_contents();
+    vga_uart_idle = timeout;
+    vga_state = VGA_NOT_FOUND;
+}
 
-    // Test if VGA connected
-    mbuf_read(VGA_BACKCHANNEL_ACK_MS, vga_rln_callback, 4);
-    vga_pix_backchannel_request();
+// Until the read in progress calls back.
+static void HOST_IN_FLASH_FUNC vga_mbuf_wait(void)
+{
     vga_state = VGA_TESTING;
     while (vga_state == VGA_TESTING)
-        mbuf_task();
-    if (vga_state == VGA_NOT_FOUND)
     {
+        manifold_uart_drain_rx();
+        mbuf_task();
+    }
+}
+
+/* One version off the backchannel into vga_version_message. Returns a hash
+ * of it that is never 0, or 0 when the VGA stops sending before a whole one
+ * came. A version is "VGA ", then printable characters, then a CR. A vsync,
+ * an ACK or a NAK may come between its bytes. Anything else is noise, or
+ * the end of a byte the line was part way through, and the read starts over
+ * at the next V. Only a character that is kept gives the VGA more time, so
+ * noise cannot hold the read. */
+static uint32_t HOST_IN_FLASH_FUNC vga_read_version(void)
+{
+    static const char begins[] = "VGA ";
+    size_t length = 0;
+    uint32_t hash = 0;
+    absolute_time_t timer = make_timeout_time_ms(VGA_VERSION_WATCHDOG_MS);
+    while (!time_reached(timer))
+    {
+        if (pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
+            continue;
+        uint8_t byte = pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM) >> 24;
+        if (byte >= 0x80 && byte < 0xB0)
+        {
+            vga_backchannel_command(byte);
+            continue;
+        }
+        if (byte == '\r' && length > sizeof begins - 1)
+            return hash | 1;
+        if (byte < ' ' || byte > '~' || length == VGA_VERSION_MESSAGE_SIZE - 1u ||
+            (length < sizeof begins - 1 && byte != begins[length]))
+        {
+            length = 0;
+            hash = 0;
+            if (byte != begins[0])
+                continue;
+        }
+        else
+            timer = make_timeout_time_ms(VGA_VERSION_WATCHDOG_MS);
+        vga_version_message[length] = byte;
+        vga_version_message[++length] = 0;
+        hash = (hash ^ byte) * 16777619u; // FNV-1a
+    }
+    return 0;
+}
+
+/* Only the UART, the VGA's own link, is cleared and read, so a reconnect at
+ * the run after a lost link keeps the keyboard and telnet type-ahead. */
+static void HOST_IN_FLASH_FUNC vga_connect(void)
+{
+    vga_backchannel_irq_disable();
+    const bool was_lost = vga_state == VGA_CONNECTION_LOST;
+
+    /* Test if VGA connected. The request repeats a few times, so one answer
+     * spoiled by noise is not the end of it, and at power on for as long as
+     * a VGA that started with the RIA may still be on its way up. */
+    for (unsigned asked = 1;; asked++)
+    {
+        com_rx_clear_source(COM_SOURCE_UART);
+        mbuf_read(COM_SOURCE_UART, VGA_BACKCHANNEL_ACK_MS, vga_rln_callback, 4);
+        vga_pix_backchannel_request();
+        vga_mbuf_wait();
+        if (vga_state == VGA_FOUND)
+            break;
+        /* An answer that began as the wait ended, or came behind a stray
+         * byte, is still arriving. Asked again now, the VGA would answer
+         * straight after it and every read would be as far out of step, so
+         * the line goes idle first, or the time runs out on a line that
+         * never does. What came is not something typed. */
+        const absolute_time_t noisy = make_timeout_time_ms(VGA_BACKCHANNEL_ACK_MS);
+        do
+        {
+            mbuf_read(COM_SOURCE_UART, VGA_UART_IDLE_MS, vga_idle_callback, 1);
+            vga_mbuf_wait();
+        } while (!vga_uart_idle && !time_reached(noisy));
+        if (asked >= VGA_REQUEST_TRIES && time_us_64() >= VGA_BOOT_MS * 1000)
+            break;
+    }
+    if (vga_state != VGA_FOUND)
+    {
+        /* A VGA that was lost is asked for again at the next run. */
+        vga_state = was_lost ? VGA_CONNECTION_LOST : VGA_NOT_FOUND;
+        com_rx_clear_source(COM_SOURCE_UART);
         vga_pix_backchannel_disable();
+        gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
+        vga_follow_none();
         return;
     }
 
     // Turn on the backchannel
     pio_gpio_init(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_PIN);
-    // Drain bytes the PIO sampled off the pin while it was driven by UART TX
+    // Drain bytes the PIO sampled off the pin before the VGA took it
     while (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
         (void)pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM);
-    vga_pix_backchannel_enable();
 
-    // Wait for version
-    vga_version_message_length = 0;
-    vga_version_timer = make_timeout_time_ms(VGA_VERSION_WATCHDOG_MS);
-    while (true)
+    /* The version is asked for until one comes that has come before, since
+     * a line that took in noise gives a different wrong one each time. The
+     * state stays found until then, which keeps the vsync trap from arming
+     * on a version byte's start bit. */
+    uint32_t seen[VGA_VERSION_TRIES];
+    bool same = false;
+    for (unsigned asked = 0; asked < VGA_VERSION_TRIES && !same; asked++)
     {
-        if (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
-        {
-            uint8_t byte = pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM) >> 24;
-            if (byte & 0x80)
-            {
-                vga_backchannel_command(byte);
-            }
-            else
-            {
-                vga_version_timer = make_timeout_time_ms(VGA_VERSION_WATCHDOG_MS);
-                if (byte == '\r' || byte == '\n')
-                {
-                    if (vga_version_message_length > 0)
-                    {
-                        vga_state = VGA_CONNECTED;
-                        break;
-                    }
-                }
-                else if (vga_version_message_length < VGA_VERSION_MESSAGE_SIZE - 1u)
-                {
-                    vga_version_message[vga_version_message_length] = byte;
-                    vga_version_message[++vga_version_message_length] = 0;
-                }
-            }
-        }
-        if (time_reached(vga_version_timer))
-        {
-            vga_state = VGA_NO_VERSION;
-            break;
-        }
+        vga_pix_backchannel_enable();
+        seen[asked] = vga_read_version();
+        for (unsigned i = 0; seen[asked] && i < asked; i++)
+            same |= seen[i] == seen[asked];
     }
+    if (!same)
+        vga_version_message[0] = 0;
+    vga_state = same ? VGA_CONNECTED : VGA_NO_VERSION;
+
+    /* A VGA that answered a request late answers the next one too, and the
+     * second answer is not something typed. It is on the wire before the
+     * version is, so it has all arrived by now. */
+    com_rx_clear_source(COM_SOURCE_UART);
 
     // Enable backchannel IRQ now that version string phase is complete
     vga_backchannel_irq_enable();
     vga_vsync_deadline = time_us_32() + VGA_VSYNC_WATCHDOG_MS * 1000;
+
+    /* The VGA may have kept its state while the RIA restarted, or started
+     * fresh while the RIA ran. DISPLAY and the code page are sent again, and
+     * a hard reset follows them to both terminals, so the two start alike.
+     * A build that logs has its log on that screen, which the hard reset
+     * would erase, so there the screen has only the soft reset the banner
+     * starts with, as every other terminal has. */
+    vga_needs_reset = true;
+    vga_code_page_sent = VGA_CODE_PAGE_UNKNOWN;
+    if (oem_get_code_page_run()) /* at boot oem_init sends it */
+        vga_set_code_page(oem_get_code_page_run());
+    if (!RP6502_LOG_ANY)
+        manifold_write_to(COM_TERM_SCREEN, STR_TERM_HARD_RESET, STR_TERM_HARD_RESET_LEN);
+    com_set_reply_default(false);
+    /* A VGA of the firmware before the RIA answered the queries still has
+     * its own answers on; this turns them off, so an update of either chip
+     * first works. A VGA since then ignores it. */
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x02, 1);
 }
 
-void __in_flash("vga_init") vga_init(void)
+void HOST_IN_FLASH_FUNC vga_init(void)
 {
     // Disable backchannel for the case where RIA reboots and VGA doesn't
     vga_pix_backchannel_disable();
-    vga_set_tel_console_active(false);
 
     // Program a UART Rx in PIO
     pio_sm_set_consecutive_pindirs(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM,
@@ -299,20 +492,22 @@ void __in_flash("vga_init") vga_init(void)
 
     // Set up PIO IRQ for backchannel RX, source stays disabled until connect
     irq_set_exclusive_handler(VGA_BACKCHANNEL_IRQ, vga_backchannel_irq_handler);
-    irq_set_priority(VGA_BACKCHANNEL_IRQ, PICO_DEFAULT_IRQ_PRIORITY - 0x20);
+    irq_set_priority(VGA_BACKCHANNEL_IRQ, RP2350_IRQ_PRIORITY_VGA);
     irq_set_enabled(VGA_BACKCHANNEL_IRQ, true);
 
     // The trap's source stays disabled until an alarm arms it
     irq_set_exclusive_handler(VGA_VSYNC_TRAP_IRQ, vga_vsync_trap_irq_handler);
-    irq_set_priority(VGA_VSYNC_TRAP_IRQ, PICO_DEFAULT_IRQ_PRIORITY - 0x20);
+    irq_set_priority(VGA_VSYNC_TRAP_IRQ, RP2350_IRQ_PRIORITY_VGA);
     irq_set_enabled(VGA_VSYNC_TRAP_IRQ, true);
     vga_vsync_alarm = (int)hardware_alarm_claim_unused(true);
-    hardware_alarm_set_callback((uint)vga_vsync_alarm, vga_vsync_alarm_handler);
+    const uint alarm_irq = hardware_alarm_get_irq_num((uint)vga_vsync_alarm);
+    irq_set_exclusive_handler(alarm_irq, vga_vsync_alarm_irq_handler);
     // The alarm has the same priority as the backchannel and trap interrupts,
     // so none of the three handlers can preempt another in the middle of arming
     // or disarming the trap.
-    irq_set_priority(hardware_alarm_get_irq_num((uint)vga_vsync_alarm),
-                     PICO_DEFAULT_IRQ_PRIORITY - 0x20);
+    irq_set_priority(alarm_irq, RP2350_IRQ_PRIORITY_VGA);
+    hw_set_bits(&timer_hw->inte, 1u << vga_vsync_alarm);
+    irq_set_enabled(alarm_irq, true);
 
     // Re-send in case the first disable was lost
     vga_pix_backchannel_disable();
@@ -321,7 +516,7 @@ void __in_flash("vga_init") vga_init(void)
     vga_connect();
 }
 
-void vga_task(void)
+void HOST_IN_RAM_FUNC vga_task(void)
 {
     if ((vga_state == VGA_CONNECTED || vga_state == VGA_NO_VERSION) &&
         (int32_t)(time_us_32() - vga_vsync_deadline) >= 0)
@@ -329,21 +524,30 @@ void vga_task(void)
         vga_backchannel_irq_disable();
         vga_vsync_alarm_arms = false;
         if (vga_vsync_alarm >= 0)
-            hardware_alarm_cancel((uint)vga_vsync_alarm);
+            timer_hw->armed = 1u << vga_vsync_alarm;
         vga_vsync_trap_disarm();
         vga_pix_backchannel_disable();
         gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
         vga_state = VGA_CONNECTION_LOST;
         mon_add_response_utf8(S(STR_ERR_VGA_CONNECTION_LOST));
+        vga_follow_none();
     }
 
     if (vga_needs_reset)
     {
         vga_needs_reset = false;
+        // DISPLAY resets the terminal, so everything printed before the stop
+        // goes out first: an escape sequence cut in half by the reset would
+        // print the rest of itself as text.
+        manifold_flush();
         // VGA-side pix_ch15_xreg DISPLAY case calls vga_xreg_canvas(NULL),
         // which resets canvas to vga_canvas_console. Mirror that here.
+        uint8_t display = vga_get_display_type();
+        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, display);
+        if (vga_connected())
+            vga_follow_display(display);
         vga_canvas_current = vga_canvas_console;
-        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, vga_get_display_type());
+        memset(vga_xregs, 0, sizeof vga_xregs);
     }
 }
 
@@ -370,33 +574,82 @@ vga_canvas_t vga_get_canvas(void)
     return vga_canvas_current;
 }
 
-void vga_canvas_size(int *w, int *h)
+void HOST_IN_RAM_FUNC vga_canvas_size(int *w, int *h)
 {
     vga_canvas_geometry(vga_canvas_current, w, h);
 }
 
 // The VGA draws the console on a 1280x1024 display as a 640x512 view, and on
 // every other display as 640x480.
-void vga_console_size(int *w, int *h)
+void HOST_IN_RAM_FUNC vga_console_size(int *w, int *h)
 {
     *w = 640;
     *h = vga_get_display_type() == 2 ? 512 : 480;
 }
 
-void vga_set_canvas(uint16_t canvas_word)
+/* The VGA's timing for the display type and canvas: SXGA for every canvas on a
+ * 5:4 display, 720p for a 16:9 canvas on an HD display, and VGA otherwise. */
+void HOST_IN_RAM_FUNC vga_display_size(int *w, int *h)
 {
-    // VGA side naks unknown canvas values and does nothing
-    if (canvas_word < VGA_CANVAS_COUNT)
-        vga_canvas_current = (vga_canvas_t)canvas_word;
+    uint8_t type = vga_get_display_type();
+    if (type == 2)
+    {
+        *w = 1280;
+        *h = 1024;
+    }
+    else if (type == 1 && (vga_canvas_current == vga_canvas_320_180 ||
+                           vga_canvas_current == vga_canvas_640_360))
+    {
+        *w = 1280;
+        *h = 720;
+    }
+    else
+    {
+        *w = 640;
+        *h = 480;
+    }
 }
 
-bool vga_connected(void)
+/* Channel 0's CANVAS and MODE as the VGA takes them. A canvas the VGA does
+ * not know it naks and ignores. Going back to the console sizes the
+ * console. Mode 0 sizes the terminal of the canvas's width, when it fits:
+ * the VGA works that out with the same mode0_place. */
+void vga_xreg(uint8_t index, uint16_t word)
+{
+    if (index < 8)
+        vga_xregs[index] = word;
+    if (index == 0)
+    {
+        if (word < VGA_CANVAS_COUNT)
+        {
+            bool to_console = word == vga_canvas_console &&
+                              vga_canvas_current != vga_canvas_console;
+            vga_canvas_current = (vga_canvas_t)word;
+            if (to_console && vga_connected())
+                cells_set_height(80, vga_console_rows(vga_display_sent));
+        }
+        memset(vga_xregs, 0, sizeof vga_xregs);
+    }
+    else if (index == 1)
+    {
+        int w, h;
+        int16_t begin, end;
+        uint8_t cols, rows;
+        if (word == 0 && vga_connected() && vga_canvas_current != vga_canvas_console &&
+            vga_canvas_geometry(vga_canvas_current, &w, &h) &&
+            mode0_place((int16_t)w, (int16_t)h, vga_xregs, &begin, &end, &cols, &rows))
+            cells_set_height(cols, rows);
+        memset(vga_xregs, 0, sizeof vga_xregs);
+    }
+}
+
+bool HOST_IN_RAM_FUNC vga_connected(void)
 {
     return vga_state == VGA_CONNECTED ||
            vga_state == VGA_NO_VERSION;
 }
 
-int HOST_IN_FLASH_FUNC("vga_boot_response") vga_boot_response(char *buf, size_t buf_size, int state,
+int HOST_IN_FLASH_FUNC vga_boot_response(char *buf, size_t buf_size, int state,
                                                               unsigned width)
 {
     if (!vga_connected())
@@ -404,7 +657,7 @@ int HOST_IN_FLASH_FUNC("vga_boot_response") vga_boot_response(char *buf, size_t 
     return vga_status_response(buf, buf_size, state, width);
 }
 
-int HOST_IN_FLASH_FUNC("vga_status_response") vga_status_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC vga_status_response(char *buf, size_t buf_size,
                                                                   int state, unsigned)
 {
     (void)state;
@@ -443,7 +696,7 @@ void vga_apply_display_type(uint8_t display_type, bool changed)
         vga_needs_reset = true;
 }
 
-int HOST_IN_FLASH_FUNC("vga_display_type_response") vga_display_type_response(char *buf,
+int HOST_IN_FLASH_FUNC vga_display_type_response(char *buf,
                                                                               size_t buf_size,
                                                                               int state,
                                                                               unsigned width)

@@ -5,16 +5,18 @@
  */
 
 #include "vga/main.h"
-#include "core/sys/com_term.h"
+#include "core/com/manifold.h"
 #include "vga.pio.h"
-#include "vga/sys/com.h"
+#include "vga/com/manifold.h"
 #include "core/sys/xram.h"
 #include "vga/sys/pix.h"
 #include "vga/sys/ria.h"
 #include "vga/sys/flash.h"
 #include "vga/sys/vga.h"
+#include "vga/usb/cdc.h"
+#include "vga/usb/usb.h"
 #include "core/term/font.h"
-#include "core/term/term.h"
+#include "core/term/cells.h"
 #include <pico/stdlib.h>
 #include <hardware/dma.h>
 #include <hardware/watchdog.h>
@@ -62,26 +64,37 @@ static bool pix_ch15_xreg(uint8_t index, uint16_t word)
         // Also performs a reset.
         vga_xreg_canvas(NULL);
         vga_set_display(word);
-        term_RIS_no_clear();
+        cells_RIS_no_clear();
         memset(xregs, 0, sizeof(xregs));
         return true;
     case 0x01: // CODE_PAGE
         font_set_code_page(word);
         return true;
-    case 0x02: // SUPPRESS_TERM_REPLY
-        com_suppress_term_reply(word != 0);
-        return false;
     case 0x03: // UART_TX
-        putchar_raw(word);
+        manifold_out_write((char)word);
         return false;
     case 0x04: // BACKCHAN
         ria_backchan(word);
         return false;
+    case 0x05: // TERM_TX
+        manifold_term_putc((char)word);
+        return false;
     case 0x06: // REBOOT_OR_LOCKUP
         if (word == 0)
             watchdog_reboot(0, 0, 0);
+        /* A failed flash leaves the fonts and the view table, which stay in
+         * flash, erased or foreign, and the RIA's reboot button does not
+         * reset the VGA. So nothing from the RIA is heard again until
+         * power-off, and core 1 keeps the error on the screen. USB, which
+         * runs from RAM, goes on so the CDC console delivers the error too.
+         * The backchannel pin goes back to the UART first, so a RIA that
+         * resets never drives its Tx against a VGA that can't let go. */
+        ria_backchan(0);
         for (;;)
-            tight_loop_contents();
+        {
+            usb_task();
+            cdc_task();
+        }
     case 0x07: // FLASH_PROGRAM
         if (!flash_program_request(word))
             ria_nak();

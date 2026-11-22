@@ -17,7 +17,7 @@
 #include "fatfs/diskio.h"
 #include "ria/usb/msc.h"
 #include "ria/usb/usb.h"
-#include "pico/aon_timer.h"
+#include "core/tim/tim.h"
 #include "pico/time.h"
 #include "utest.h"
 #include <ctype.h>
@@ -38,9 +38,16 @@ static uint64_t now_us;
 
 absolute_time_t get_absolute_time(void) { return now_us; }
 uint32_t tusb_time_millis_api(void) { return (uint32_t)(now_us / 1000); }
-bool aon_timer_get_time(struct timespec *ts)
+/* No clock, so a file is stamped with the first day FAT has. */
+bool tim_get_time(tim_spec_t *ts)
 {
     (void)ts;
+    return false;
+}
+
+bool tim_localtime(int64_t t, tim_tm_t *out)
+{
+    (void)t, (void)out;
     return false;
 }
 
@@ -209,7 +216,7 @@ static void drive_command(const uint8_t cdb[12])
     }
 }
 
-/* The fake USB host. Completions are queued and delivered by sys_task. */
+/* The fake USB host. Completions are queued and delivered by sys_pump. */
 
 typedef struct
 {
@@ -375,7 +382,7 @@ void usbh_driver_set_config_complete(uint8_t daddr, uint8_t itf_num)
     (void)itf_num;
 }
 
-void sys_task(void)
+void sys_pump(void)
 {
     now_us += 1000;
     if (!event_count)
@@ -668,7 +675,7 @@ UTEST(msc, timed_out_read_resets_and_clears_every_pipe)
     ASSERT_EQ((int)disk_read(0, buf, 100, 1), RES_NOTRDY);
     drive.hang_reads = false;
     for (int i = 0; i < 100; i++)
-        sys_task();
+        sys_pump();
     EXPECT_GE(drive.clears[EP_IN & 0x0F], 1u);
     EXPECT_GE(drive.clears[EP_OUT & 0x0F], 1u);
     EXPECT_GE(drive.clears[EP_STATUS & 0x0F], 1u);

@@ -206,19 +206,20 @@ class SerialDevice:
             ):
                 raise OSError("kernel32.WriteFile failed")
 
-    def read(self, size: int = 1) -> bytes:
-        """Read up to size bytes from the serial port."""
+    def read(self, size: int = 1, timeout: float = RESPONSE_TIMEOUT) -> bytes:
+        """Read up to size bytes; gives up after `timeout` of silence. On
+        Windows the port's own timeout, a millisecond, is the only one."""
         if self._is_posix:
-            return self._read_posix(size)
+            return self._read_posix(size, timeout)
         else:
             return self._read_windows(size)
 
-    def _read_posix(self, size: int) -> bytes:
+    def _read_posix(self, size: int, timeout: float) -> bytes:
         """Read with timeout on POSIX systems."""
         start = time.monotonic()
         data = b""
         while len(data) < size:
-            if time.monotonic() - start > RESPONSE_TIMEOUT:
+            if time.monotonic() - start > timeout:
                 break
             try:
                 chunk = os.read(self._fd, size - len(data))
@@ -666,7 +667,7 @@ class Console:
         ctrl_a_pressed = False
         while True:
             try:
-                data = self.serial.read(1)
+                data = self.serial.read(1, timeout=0.001)
                 if len(data) > 0:
                     try:
                         sys.stdout.write(data.decode(cp))
@@ -831,14 +832,16 @@ class Console:
     def send_break(self):
         """Stop the 6502 and return to monitor."""
         # Try twice in case RIA is writing
+        # What arrives first can be the tail of an escape sequence the
+        # program was sending, so it is not the start of a line.
         try:
             self.serial.flush_read_bufs()
             self.serial.send_break()
-            self.wait_for_prompt("]")
+            self.wait_for_prompt("]", at_line_start=False)
         except TimeoutError:
             self.serial.flush_read_bufs()
             self.serial.send_break()
-            self.wait_for_prompt("]")
+            self.wait_for_prompt("]", at_line_start=False)
 
     def command(self, cmd: str, timeout: float = RESPONSE_TIMEOUT):
         """Send one command and wait for next monitor prompt."""
@@ -891,11 +894,11 @@ class Console:
             addr += len(data)
             addr, data = rom.next_rom_data(addr)
 
-    def wait_for_prompt(self, prompt: str, timeout: float = RESPONSE_TIMEOUT):
+    def wait_for_prompt(self, prompt: str, timeout: float = RESPONSE_TIMEOUT,
+                        at_line_start: bool = True):
         """Wait for a specific prompt from the device."""
         prompt_bytes = bytes(prompt, "ascii")
         start = time.monotonic()
-        at_line_start = True
         while True:
             if len(prompt) == 1:
                 data = self.serial.read(1)
@@ -1390,8 +1393,10 @@ class Symbols(dict):
         return pairs
 
     @staticmethod
-    def _elf_symbols(path: str) -> list:
-        """The (name, value) pairs of the symbol table of an ELF32 file."""
+    def elf_symbols(path: str) -> list:
+        """The (name, value) pairs of the symbol table of a little-endian
+        ELF32 file, such as a program llvm-mos links or a Picocomputer's
+        firmware. Section and file symbols are left out."""
         with open(path, "rb") as f:
             data = f.read()
         (shoff,) = struct.unpack_from("<I", data, 0x20)
@@ -1426,7 +1431,7 @@ class Symbols(dict):
                 errors.append(f'rp6502_align({target} "{regex}"): {e}')
 
         cc65 = linked.endswith(".dbg")
-        pairs = Symbols._dbg_symbols(linked) if cc65 else Symbols._elf_symbols(linked)
+        pairs = Symbols._dbg_symbols(linked) if cc65 else Symbols.elf_symbols(linked)
         work = os.path.abspath(work)
         os.makedirs(work, exist_ok=True)
         sources = Symbols._sources(commands, objects)

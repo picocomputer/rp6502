@@ -20,7 +20,7 @@
 // technically incorrect for FTDI, CP210X, CH34X, and PL2303.
 // VCP (Virtual COM Port) is a better umbrella term.
 
-__in_flash("vcp_string") static const char vcp_string[] = "VCP";
+HOST_IN_RAM static const char vcp_string[] = "VCP";
 static_assert(sizeof(vcp_string) == 3 + 1);
 
 // An open port configures after open returns. A port has at most one
@@ -54,15 +54,15 @@ static_assert(CFG_TUH_CDC <= 10); // one char 0-9 in "VCP0:"
 
 static int vcp_nfc_device_idx = -1;
 
-__in_flash("vcp_ftdi_list") static const uint16_t vcp_ftdi_list[][2] = {CFG_TUH_CDC_FTDI_VID_PID_LIST};
-__in_flash("vcp_cp210x_list") static const uint16_t vcp_cp210x_list[][2] = {CFG_TUH_CDC_CP210X_VID_PID_LIST};
-__in_flash("vcp_ch34x_list") static const uint16_t vcp_ch34x_list[][2] = {CFG_TUH_CDC_CH34X_VID_PID_LIST};
-__in_flash("vcp_pl2303_list") static const uint16_t vcp_pl2303_list[][2] = {CFG_TUH_CDC_PL2303_VID_PID_LIST};
-__in_flash("vcp_ftdi_name") static const char vcp_ftdi_name[] = "FTDI";
-__in_flash("vcp_cp210x_name") static const char vcp_cp210x_name[] = "CP210X";
-__in_flash("vcp_ch34x_name") static const char vcp_ch34x_name[] = "CH34X";
-__in_flash("vcp_pl2303_name") static const char vcp_pl2303_name[] = "PL2303";
-__in_flash("vcp_cdc_acm_name") static const char vcp_cdc_acm_name[] = "CDC ACM";
+HOST_IN_FLASH static const uint16_t vcp_ftdi_list[][2] = {CFG_TUH_CDC_FTDI_VID_PID_LIST};
+HOST_IN_FLASH static const uint16_t vcp_cp210x_list[][2] = {CFG_TUH_CDC_CP210X_VID_PID_LIST};
+HOST_IN_FLASH static const uint16_t vcp_ch34x_list[][2] = {CFG_TUH_CDC_CH34X_VID_PID_LIST};
+HOST_IN_FLASH static const uint16_t vcp_pl2303_list[][2] = {CFG_TUH_CDC_PL2303_VID_PID_LIST};
+HOST_IN_FLASH static const char vcp_ftdi_name[] = "FTDI";
+HOST_IN_FLASH static const char vcp_cp210x_name[] = "CP210X";
+HOST_IN_FLASH static const char vcp_ch34x_name[] = "CH34X";
+HOST_IN_FLASH static const char vcp_pl2303_name[] = "PL2303";
+HOST_IN_FLASH static const char vcp_cdc_acm_name[] = "CDC ACM";
 
 // Determine fallback vendor name using the same VID/PID lists as TinyUSB.
 static const char *vcp_alt_vendor_name(uint16_t vid, uint16_t pid)
@@ -82,7 +82,7 @@ static const char *vcp_alt_vendor_name(uint16_t vid, uint16_t pid)
     return vcp_cdc_acm_name;
 }
 
-int HOST_IN_FLASH_FUNC("vcp_status_response") vcp_status_response(char *buf, size_t buf_size,
+int HOST_IN_FLASH_FUNC vcp_status_response(char *buf, size_t buf_size,
                                                                   int state, unsigned)
 {
     if (state < 0 || state >= CFG_TUH_CDC)
@@ -90,31 +90,31 @@ int HOST_IN_FLASH_FUNC("vcp_status_response") vcp_status_response(char *buf, siz
     vcp_t *dev = &vcp_mounts[state];
     if (dev->mounted)
     {
+        const void *maker = usb_string_fetch_manufacturer(dev->daddr);
+        const void *model = usb_string_fetch_product(dev->daddr);
+        if (!maker || !model)
+            return state;
         uint16_t vid, pid;
         tuh_vid_pid_get(dev->daddr, &vid, &pid);
         char vendor[USB_DESC_STRING_MAX_CHAR_LEN + 1];
         char product[USB_DESC_STRING_MAX_CHAR_LEN + 1];
         char comname[sizeof(vcp_string) + 1];
-        vendor[0] = '\0';
-        product[0] = '\0';
-        const void *desc = usb_string_fetch_manufacturer(dev->daddr);
-        if (desc)
-            usb_desc_string_to_oem(desc, USB_DESC_STRING_BUF_SIZE, vendor, sizeof(vendor));
-        desc = usb_string_fetch_product(dev->daddr);
-        if (desc)
-            usb_desc_string_to_oem(desc, USB_DESC_STRING_BUF_SIZE, product, sizeof(product));
+        usb_desc_string_to_oem(maker, USB_DESC_STRING_BUF_SIZE, vendor, sizeof(vendor));
+        usb_desc_string_to_oem(model, USB_DESC_STRING_BUF_SIZE, product, sizeof(product));
         snprintf(comname, sizeof(comname), "%s%d", vcp_string, state);
         // vendor/product are OEM, oem_snprintf would mangle high bytes
         int n = snprintf(buf, buf_size, STR_STATUS_CDC, comname,
                          vendor[0] ? vendor : vcp_alt_vendor_name(vid, pid),
                          product);
-        if (state == vcp_nfc_device_idx && n >= 1 && n < (int)buf_size && buf[n - 1] == '\n')
+        // Marked only while NFC is on, as only then is the port reserved.
+        if (state == vcp_nfc_device_idx && nfc_get_enabled() &&
+            n >= 1 && n < (int)buf_size && buf[n - 1] == '\n')
             snprintf(buf + n - 1, buf_size - (n - 1), "%s", STR_STATUS_NFC);
     }
     return state + 1;
 }
 
-bool vcp_std_handles(const char *name)
+bool HOST_IN_RAM_FUNC vcp_std_handles(const char *name)
 {
     if (strncasecmp(name, vcp_string, sizeof(vcp_string) - 1) != 0)
         return false;
@@ -128,7 +128,7 @@ bool vcp_std_handles(const char *name)
 // The port of an open descriptor, or -1 when its device is gone. A descriptor
 // holds the session of its open above the port index, so a descriptor kept
 // across a close or an unplug does not resolve to a later open of that port.
-static int vcp_desc_idx(int desc)
+static int HOST_IN_RAM_FUNC vcp_desc_idx(int desc)
 {
     int idx = desc & 0xF;
     const vcp_t *dev = &vcp_mounts[idx];
@@ -245,7 +245,9 @@ int vcp_std_open(const char *name, uint8_t flags, api_errno *err)
         *err = API_ENODEV;
         return -1;
     }
-    if ((int)idx == vcp_nfc_device_idx || vcp_mounts[idx].opened)
+    /* The paired reader's port is reserved while NFC is on, so that a program
+     * cannot take it while the reader waits to open it. */
+    if (((int)idx == vcp_nfc_device_idx && nfc_get_enabled()) || vcp_mounts[idx].opened)
     {
         *err = API_EBUSY;
         return -1;
@@ -383,7 +385,7 @@ std_rw_result vcp_std_close(int desc, api_errno *err)
 
 // STD_PENDING while the port configures, STD_ERROR with EINVAL when the
 // configuration failed, or EIO when a request timed out or the device is gone.
-std_rw_result vcp_std_opening(int desc, api_errno *err)
+std_rw_result HOST_IN_RAM_FUNC vcp_std_opening(int desc, api_errno *err)
 {
     int idx = vcp_desc_idx(desc);
     if (idx < 0 || vcp_mounts[idx].cfg == VCP_CFG_TIMEOUT)
@@ -399,7 +401,7 @@ std_rw_result vcp_std_opening(int desc, api_errno *err)
     return vcp_mounts[idx].cfg == VCP_CFG_READY ? STD_OK : STD_PENDING;
 }
 
-std_rw_result vcp_std_read(int desc, char *buf, uint32_t count,
+std_rw_result HOST_IN_RAM_FUNC vcp_std_read(int desc, char *buf, uint32_t count,
                            uint32_t *bytes_read, api_errno *err)
 {
     *bytes_read = 0;
@@ -409,8 +411,8 @@ std_rw_result vcp_std_read(int desc, char *buf, uint32_t count,
     return result;
 }
 
-std_rw_result vcp_std_write(int desc, const char *buf, uint32_t count,
-                            uint32_t *bytes_written, api_errno *err)
+std_rw_result HOST_IN_RAM_FUNC vcp_std_write(int desc, const char *buf, uint32_t count,
+                                             uint32_t *bytes_written, api_errno *err)
 {
     *bytes_written = 0;
     std_rw_result result = vcp_std_opening(desc, err);
@@ -424,7 +426,7 @@ std_rw_result vcp_std_write(int desc, const char *buf, uint32_t count,
     return result;
 }
 
-void vcp_task(void)
+void HOST_IN_RAM_FUNC vcp_task(void)
 {
     if (!vcp_get_nfc_device_hash()[0] || vcp_nfc_device_idx >= 0)
         return;
@@ -476,8 +478,9 @@ void tuh_cdc_umount_cb(uint8_t idx)
 /* vcp_check_nfc_device_hash is given a port name such as "VCP0:" from nfc.c,
  * the stored hash when the config file is read, or an empty string from
  * either. Only a port name is converted, to the hash of the device mounted on
- * that port. A stored hash cannot be taken for a port name, because a hash
- * begins with four hex digits and V is not a hex digit. */
+ * that port, and the check fails until that device's strings have arrived. A
+ * stored hash cannot be taken for a port name, because a hash begins with
+ * four hex digits and V is not a hex digit. */
 bool vcp_check_nfc_device_hash(const char *in, char *out)
 {
     if (!in[0])

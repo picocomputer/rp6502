@@ -4,20 +4,51 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/api/api.h"
 #include "core/str/oem.h"
+#include "core/wdc/phi2.h"
 #include "core/hid/hid.h"
+#include "core/api/proc.h"
 #include "core/sys/sys.h"
+#include "core/term/cells.h"
 #include "core/vga/vga.h"
 #include "osal/os.h"
 
 #include <stdint.h>
 
-static uint8_t apf_host_xram[0x10000];
-volatile uint8_t *const xram = apf_host_xram;
+volatile uint8_t xram[0x10000];
+
+/* The console's terminal, whose key modes the test sets by hand. */
+term_t cells_term = {.autorepeat = true};
 
 bool hid_boot_enumerating(void)
 {
     return false;
+}
+
+/* What the sources linked here name and the test never reaches: the
+ * settings beside the keyboard's in config.c, and the errno of an API
+ * call. */
+bool phi2_check_khz(uint16_t *v)
+{
+    (void)v;
+    return false;
+}
+
+void phi2_apply_khz(uint16_t phi2_khz, bool changed)
+{
+    (void)phi2_khz;
+    (void)changed;
+}
+
+void oem_locale_changed(uint16_t cp)
+{
+    (void)cp;
+}
+
+uint16_t api_platform_errno(api_errno num)
+{
+    return (uint16_t)num;
 }
 
 void hid_set_leds(uint8_t leds)
@@ -44,6 +75,12 @@ void vga_canvas_size(int *w, int *h)
     *h = 480;
 }
 
+void vga_display_size(int *w, int *h)
+{
+    *w = 640;
+    *h = 480;
+}
+
 void ria_trigger_sigint(void)
 {
 }
@@ -53,18 +90,21 @@ uint64_t host_clock_us(void)
     return 0;
 }
 
+/* The clock auto-repeat runs on, which the test moves. */
+uint64_t apf_host_ns;
+
 uint64_t os_mono_ns(void)
 {
-    return 0;
+    return apf_host_ns;
 }
 
+/* Ctrl-Alt-Delete, counted in place of breaking to the monitor. */
+int apf_host_chords;
 
-bool sys_break(void)
+bool proc_key_chord(uint8_t keycode, bool ctrl, bool alt)
 {
-    return false;
-}
-
-bool sys_break_to_launcher(void)
-{
-    return false;
+    if ((keycode != 0x4C && keycode != 0x63) || !ctrl || !alt)
+        return false;
+    apf_host_chords++;
+    return true;
 }

@@ -10,7 +10,7 @@
 #include "host/sokol/cli/png.h"
 #include "host/sokol/cli/state.h"
 #include "core/api/api.h"
-#include "core/api/std.h"
+#include "core/com/console.h"
 #include "core/rom/rom.h"
 #include "core/str/oem.h"
 #include "core/sys/sys.h"
@@ -21,11 +21,14 @@
 #include "core/sys/random.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
-#include "core/hid/vtkeys.h"
+#include "core/hid/vtkey.h"
+#include "core/hid/hostkey.h"
+#include "core/hid/paste.h"
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
-#include "core/com/com.h"
+#include "core/com/manifold.h"
+#include "core/com/tio.h"
 #include "core/wdc/cpu.h"
 #include "core/wdc/sram.h"
 #include "core/wdc/via.h"
@@ -41,6 +44,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <unistd.h>
 
 #define SCRIPT_LINE_MAX 1024
 #define SCRIPT_CAP_SIZE 65536
@@ -171,11 +175,11 @@ static void script_cap_put(script_cap_t *cap, const char *buf, int len)
 
 static void script_std_tap(int fd, const char *buf, int len)
 {
-    if (fd != 1 && fd != 2)
+    if (fd != STDOUT_FILENO && fd != STDERR_FILENO)
         return;
-    if (fd == 2 && len)
+    if (fd == STDERR_FILENO && len)
         script_stderr_midline = buf[len - 1] != '\n';
-    script_cap_put(&script_cap[fd - 1], buf, len);
+    script_cap_put(fd == STDOUT_FILENO ? SCRIPT_STDOUT : SCRIPT_STDERR, buf, len);
 }
 
 static void script_console_tap(const char *buf, int len)
@@ -1043,65 +1047,62 @@ static bool script_cmd_tablet(char *p)
     return script_error("tablet wants at, touch, wheel or clear");
 }
 
-/* The keys with a name instead of a character, and what each one types on a
- * US keyboard without and with shift. Letters, digits, function keys and the
- * keypad are computed below rather than listed. A key that types nothing, and
- * the four vtkeys_key answers for itself, carry 0. Only the script language
- * takes a key as text, so the table lives here and not in core. */
+/* The keys with a name instead of a character. Letters, digits, function
+ * keys and the keypad's digits are computed below rather than listed. Only
+ * the script language takes a key as text, so the table lives here and not in
+ * core. */
 static const struct
 {
     const char *name;
     uint8_t hid;
-    char plain;
-    char shifted;
 } script_named[] = {
-    {"enter", 0x28, 0, 0},
-    {"escape", 0x29, 0, 0},
-    {"backspace", 0x2A, 0, 0},
-    {"tab", 0x2B, 0, 0},
-    {"up", 0x52, 0, 0},
-    {"down", 0x51, 0, 0},
-    {"left", 0x50, 0, 0},
-    {"right", 0x4F, 0, 0},
-    {"home", 0x4A, 0, 0},
-    {"end", 0x4D, 0, 0},
-    {"insert", 0x49, 0, 0},
-    {"delete", 0x4C, 0, 0},
-    {"pageup", 0x4B, 0, 0},
-    {"pagedown", 0x4E, 0, 0},
-    {"kpenter", 0x58, 0, 0},
-    {"space", 0x2C, ' ', ' '},
-    {"minus", 0x2D, '-', '_'},
-    {"equal", 0x2E, '=', '+'},
-    {"leftbracket", 0x2F, '[', '{'},
-    {"rightbracket", 0x30, ']', '}'},
-    {"backslash", 0x31, '\\', '|'},
-    {"semicolon", 0x33, ';', ':'},
-    {"apostrophe", 0x34, '\'', '"'},
-    {"grave", 0x35, '`', '~'},
-    {"comma", 0x36, ',', '<'},
-    {"period", 0x37, '.', '>'},
-    {"slash", 0x38, '/', '?'},
-    {"capslock", 0x39, 0, 0},
-    {"printscreen", 0x46, 0, 0},
-    {"scrolllock", 0x47, 0, 0},
-    {"pause", 0x48, 0, 0},
-    {"numlock", 0x53, 0, 0},
-    {"menu", 0x65, 0, 0},
-    {"kpdivide", 0x54, '/', '/'},
-    {"kpmultiply", 0x55, '*', '*'},
-    {"kpsubtract", 0x56, '-', '-'},
-    {"kpadd", 0x57, '+', '+'},
-    {"kpdecimal", 0x63, '.', '.'},
-    {"kpequal", 0x67, '=', '='},
-    {"lctrl", 0xE0, 0, 0},
-    {"lshift", 0xE1, 0, 0},
-    {"lalt", 0xE2, 0, 0},
-    {"lsuper", 0xE3, 0, 0},
-    {"rctrl", 0xE4, 0, 0},
-    {"rshift", 0xE5, 0, 0},
-    {"ralt", 0xE6, 0, 0},
-    {"rsuper", 0xE7, 0, 0},
+    {"enter", 0x28},
+    {"escape", 0x29},
+    {"backspace", 0x2A},
+    {"tab", 0x2B},
+    {"up", 0x52},
+    {"down", 0x51},
+    {"left", 0x50},
+    {"right", 0x4F},
+    {"home", 0x4A},
+    {"end", 0x4D},
+    {"insert", 0x49},
+    {"delete", 0x4C},
+    {"pageup", 0x4B},
+    {"pagedown", 0x4E},
+    {"kpenter", 0x58},
+    {"space", 0x2C},
+    {"minus", 0x2D},
+    {"equal", 0x2E},
+    {"leftbracket", 0x2F},
+    {"rightbracket", 0x30},
+    {"backslash", 0x31},
+    {"semicolon", 0x33},
+    {"apostrophe", 0x34},
+    {"grave", 0x35},
+    {"comma", 0x36},
+    {"period", 0x37},
+    {"slash", 0x38},
+    {"capslock", 0x39},
+    {"printscreen", 0x46},
+    {"scrolllock", 0x47},
+    {"pause", 0x48},
+    {"numlock", 0x53},
+    {"menu", 0x65},
+    {"kpdivide", 0x54},
+    {"kpmultiply", 0x55},
+    {"kpsubtract", 0x56},
+    {"kpadd", 0x57},
+    {"kpdecimal", 0x63},
+    {"kpequal", 0x67},
+    {"lctrl", 0xE0},
+    {"lshift", 0xE1},
+    {"lalt", 0xE2},
+    {"lsuper", 0xE3},
+    {"rctrl", 0xE4},
+    {"rshift", 0xE5},
+    {"ralt", 0xE6},
+    {"rsuper", 0xE7},
 };
 
 static int script_fkey_num(const char *name)
@@ -1121,15 +1122,9 @@ static int script_fkey_num(const char *name)
     return (n >= 1 && n <= 12) ? n : 0;
 }
 
-/* The usage a name means, and the characters that key types. plain and
- * shifted may be NULL, and are 0 for a key that types nothing. */
-static uint8_t script_key_from_name(const char *name, char *plain, char *shifted)
+/* The usage a name means, or 0. */
+static uint8_t script_key_from_name(const char *name)
 {
-    static const char digit_shifted[] = ")!@#$%^&*(";
-    if (plain)
-        *plain = 0;
-    if (shifted)
-        *shifted = 0;
     if (!name || !name[0])
         return 0;
     if (!name[1])
@@ -1138,45 +1133,34 @@ static uint8_t script_key_from_name(const char *name, char *plain, char *shifted
         if (c >= 'A' && c <= 'Z')
             c = (char)(c + 32);
         if (c >= 'a' && c <= 'z')
-        {
-            if (plain)
-                *plain = c;
-            if (shifted)
-                *shifted = (char)(c - 32);
             return (uint8_t)(0x04 + c - 'a');
-        }
         if (c >= '0' && c <= '9')
-        {
-            if (plain)
-                *plain = c;
-            if (shifted)
-                *shifted = digit_shifted[c - '0'];
             return c == '0' ? 0x27 : (uint8_t)(0x1E + c - '1');
-        }
         return 0;
     }
     if ((name[0] == 'k' || name[0] == 'K') && (name[1] == 'p' || name[1] == 'P') &&
         name[2] >= '0' && name[2] <= '9' && !name[3])
-    {
-        /* A keypad digit is a digit, because keyboard_init turns NumLock on. */
-        if (plain)
-            *plain = name[2];
-        if (shifted)
-            *shifted = name[2];
         return name[2] == '0' ? 0x62 : (uint8_t)(0x59 + name[2] - '1');
-    }
     int f = script_fkey_num(name);
     if (f)
         return (uint8_t)(0x3A + f - 1);
     for (size_t i = 0; i < sizeof script_named / sizeof script_named[0]; i++)
         if (!strcasecmp(name, script_named[i].name))
-        {
-            if (plain)
-                *plain = script_named[i].plain;
-            if (shifted)
-                *shifted = script_named[i].shifted;
             return script_named[i].hid;
-        }
+    return 0;
+}
+
+/* The lock a script names, as its KEYBOARD_LED_ bit, or 0. */
+static uint8_t script_lock_from_name(const char *name)
+{
+    if (!name)
+        return 0;
+    if (!strcasecmp(name, "num"))
+        return KEYBOARD_LED_NUMLOCK;
+    if (!strcasecmp(name, "caps"))
+        return KEYBOARD_LED_CAPSLOCK;
+    if (!strcasecmp(name, "scroll"))
+        return KEYBOARD_LED_SCROLLLOCK;
     return 0;
 }
 
@@ -1271,6 +1255,26 @@ static bool script_command(const char *line)
                 return script_error("did not expect exit code %d", got);
             return true;
         }
+        if (script_keyword(&p, "lock"))
+        {
+            char *which = script_word(&p);
+            uint8_t bit = script_lock_from_name(which);
+            if (!bit)
+                return script_error("%s lock wants num, caps or scroll", cmd);
+            bool on = script_keyword(&p, "on");
+            if (!on && !script_keyword(&p, "off"))
+                return script_error("%s lock wants on or off", cmd);
+            if (!script_end(p))
+                return false;
+            bool got = keyboard_get_locks() & bit;
+            if (want && got != on)
+                return script_error("%s lock is %s, expected %s", which,
+                                    got ? "on" : "off", on ? "on" : "off");
+            if (!want && got == on)
+                return script_error("did not expect %s lock %s", which,
+                                    on ? "on" : "off");
+            return true;
+        }
         script_cap_t *cap = script_stream(&p);
         char text[256], shown[4 * sizeof text];
         size_t len;
@@ -1350,8 +1354,8 @@ static bool script_command(const char *line)
             return script_error("type wants a frame budget");
         if (!script_end(p))
             return false;
-        vtkeys_paste(text);
-        /* Waiting for the text to drain, because vtkeys_paste replaces
+        paste_start(text);
+        /* Waiting for the text to drain, because paste_start replaces
          * whatever is still being delivered and back-to-back type commands
          * would otherwise truncate each other. */
         script_wait = SCRIPT_TYPING;
@@ -1379,35 +1383,18 @@ static bool script_command(const char *line)
             else
                 return script_error("unknown modifier '%s'", plus + 1);
         }
-        char plain, shifted;
-        uint8_t hid = script_key_from_name(name, &plain, &shifted);
+        uint8_t hid = script_key_from_name(name);
         if (!hid)
             return script_error("unknown key '%s'", name);
         if (!script_end(p))
             return false;
-        if (vtkeys_key(hid, ctrl, shift, alt))
+        /* A script has no system to give the key's character, so every key
+         * is a US keyboard's. */
+        uint8_t flags = (uint8_t)((shift ? VTKEY_SHIFT : 0) |
+                                  (alt ? VTKEY_ALT : 0) | (ctrl ? VTKEY_CTRL : 0));
+        if (hostkey_press(hid, flags, true) != HOSTKEY_NONE)
             return true;
-        /* vtkeys_key is false for a key that types a character, which the
-         * window hosts deliver as a chord built from the character their own
-         * host resolved. A script has no host, so the character comes from
-         * the table above. */
-        char ch = shift ? shifted : plain;
-        if (!ch)
-            return script_error("'%s' sends nothing", name);
-        if (ctrl && !alt)
-        {
-            /* Not vtkeys_ctrl_letter, which drops a key that has no control
-             * byte. A key that sends nothing is an error instead. */
-            int byte = keyboard_ctrl_promote(ch, HID_KEY_NONE);
-            if (byte < 0)
-                return script_error("'%s' has no control byte", name);
-            com_keyboard_push_byte((uint8_t)byte);
-        }
-        else if (alt)
-            vtkeys_alt_char(ch, ctrl);
-        else
-            com_keyboard_push_byte((uint8_t)ch);
-        return true;
+        return script_error("'%s' sends nothing", name);
     }
 
     if (!strcasecmp(cmd, "press") || !strcasecmp(cmd, "release"))
@@ -1417,7 +1404,7 @@ static bool script_command(const char *line)
         int count = 0;
         while ((name = script_word(&p)) != NULL)
         {
-            uint8_t hid = script_key_from_name(name, NULL, NULL);
+            uint8_t hid = script_key_from_name(name);
             if (!hid)
             {
                 /* A word that is neither a key nor a known name is an
@@ -1432,7 +1419,7 @@ static bool script_command(const char *line)
                     return script_error("unknown key '%s'", name);
                 hid = (uint8_t)usage;
             }
-            keyboard_hid_set(hid, down);
+            keyboard_set_key(hid, down);
             count++;
         }
         if (!count)
@@ -1442,21 +1429,17 @@ static bool script_command(const char *line)
 
     if (!strcasecmp(cmd, "lock"))
     {
-        char *which = script_word(&p);
-        if (!which)
-            which = "";
-        uint8_t led;
-        if (!strcasecmp(which, "num"))
-            led = KEYBOARD_LED_NUMLOCK;
-        else if (!strcasecmp(which, "caps"))
-            led = KEYBOARD_LED_CAPSLOCK;
-        else if (!strcasecmp(which, "scroll"))
-            led = KEYBOARD_LED_SCROLLLOCK;
-        else
+        uint8_t bit = script_lock_from_name(script_word(&p));
+        if (!bit)
             return script_error("lock wants num, caps or scroll");
+        uint8_t locks = keyboard_get_locks() ^ bit;
+        if (script_keyword(&p, "on"))
+            locks |= bit;
+        else if (script_keyword(&p, "off"))
+            locks &= (uint8_t)~bit;
         if (!script_end(p))
             return false;
-        keyboard_toggle_lock(led);
+        keyboard_set_locks(locks);
         return true;
     }
 
@@ -1730,8 +1713,7 @@ static bool script_command(const char *line)
          * so a load happens only between programs. */
         if (sys_active())
             return script_error("load wants a stopped machine");
-        vtkeys_paste_cancel();
-        if (!proc_boot(oem, 0, NULL, PROC_UNCHAIN))
+        if (!proc_boot(oem, 0, NULL, 0))
         {
             const char *why = proc_boot_error();
             return script_error("%.*s", (int)strcspn(why, "\n"), why);
@@ -1777,7 +1759,7 @@ static bool script_command(const char *line)
         else if (!strcasecmp(what, "stop"))
             sys_stop();
         else
-            sys_break_request();
+            proc_break();
         sys_commit();
         return true;
     }
@@ -1832,7 +1814,7 @@ static bool script_settle(void)
                             script_addr, script_addr_want, got);
     }
     case SCRIPT_TYPING:
-        if (!vtkeys_paste_busy())
+        if (!paste_busy())
             break;
         if (script_spend())
             return false;
@@ -1845,10 +1827,10 @@ static bool script_settle(void)
         return script_error("timed out waiting for the program to exit");
     case SCRIPT_EOF:
         /* The moment console.c ends a piped stdin: a read is waiting and
-         * everything typed has been taken, so no typed byte is lost. */
-        if (std_stdin_waiting() && com_input_idle())
+         * every whole item typed has been taken, so no typed key is lost. */
+        if (console_waiting() && tio_idle())
         {
-            std_stdin_eof();
+            console_eof();
             break;
         }
         if (script_spend())
@@ -1925,7 +1907,8 @@ void script_usage(FILE *out)
             "  type \"text\" [frames]      type it (\\r = Enter, \\t = Tab)\n"
             "  key <key>[+ctrl][+shift][+alt]    send what a terminal sends\n"
             "  press/release <key>...    the direct HID bitmap, by name or 0xNN\n"
-            "  lock num|caps|scroll      toggle a lock LED\n"
+            "  lock num|caps|scroll [on|off]     set a lock, or toggle it; all\n"
+            "                                      three start off\n"
             "  pad <n> connect [western|eastern|playstation] [sticks] | disconnect\n"
             "  pad <n> press|release <button>...   a b c x y z l1 r1 l2 r2 l3 r3\n"
             "                                      select start home up down left right\n"
@@ -1939,6 +1922,8 @@ void script_usage(FILE *out)
             "                                      match (default stdout)\n"
             "  expect exit <code>        check the exit code of the program\n"
             "  expect-not exit <code>\n"
+            "  expect lock num|caps|scroll on|off  check a lock\n"
+            "  expect-not lock num|caps|scroll on|off\n"
             "  discard [stdout|stderr|console]     drop what no check has taken\n"
             "                                      (default all three)\n"
             "  eof [frames]              end stdin once the program has read what was typed\n"
@@ -1996,8 +1981,8 @@ bool script_load(const char *path, const char *rom)
         }
         script_path = path;
     }
-    com_set_std_tap(script_std_tap);
-    com_set_tx_tap(script_console_tap);
+    manifold_set_std_tap(script_std_tap);
+    manifold_set_tx_tap(script_console_tap);
     script_line_no = 0;
     script_wait = SCRIPT_IDLE;
     script_budget = 0;

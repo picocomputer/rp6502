@@ -39,5 +39,10 @@ bool net_accept(int desc, uint16_t port, void (*on_close)(int));
 void net_reject(uint16_t port);
 bool net_has_pending(uint16_t port);
 bool net_is_closed(int desc);
+// What Nagle's algorithm is holding goes out now.
+void net_flush(int desc);
+void net_task(void);
+
+#define NET_DRIVER DRIVER(TASK_PUMPED(net_task))
 
 #endif /* _RIA_W_NET_NET_H_ */

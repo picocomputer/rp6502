@@ -8,6 +8,8 @@
 #include "ria-w/net/net.h"
 #include "core/sys/debug_log.h"
 #include "core/sys/ring.h"
+#include "core/sys/timer.h"
+#include "machine.h"
 #include <lwip/ip.h>
 #include <lwip/tcp.h>
 #include <lwip/dns.h>
@@ -19,6 +21,17 @@
 #define NET_KEEP_IDLE_MS 60000
 #define NET_KEEP_INTVL_MS 10000
 #define NET_KEEP_CNT 3
+
+/* What is written goes out with Nagle's algorithm: at once when nothing is
+ * waiting for an ACK, and otherwise gathered into the next segment. All
+ * output is paced at the console's 115200 baud, so without that a byte or
+ * three went out in each segment. The peer delays its ACK, by up to 200 ms
+ * on Windows, so what is gathered is sent anyway once the writer has paused
+ * for NET_TX_IDLE_MS, or has waited NET_TX_HOLD_MS, as stdio flushes a
+ * buffer. A 6502 program that prints slowly, BASIC for one, pauses for no
+ * longer than the idle time between its characters. */
+#define NET_TX_IDLE_MS 5
+#define NET_TX_HOLD_MS 10
 
 _Static_assert(MEMP_NUM_TCP_PCB >= NET_MAX_CONNECTIONS,
                "MEMP_NUM_TCP_PCB must be >= NET_MAX_CONNECTIONS");
@@ -43,6 +56,8 @@ typedef struct
     uint16_t pbuf_pos;
     uint16_t dns_gen;
     void (*on_close)(int);
+    bool tx_held; // tcp_output left data unsent
+    timer_deadline_t tx_idle, tx_hold;
 } net_conn_t;
 
 static net_conn_t net_conns[NET_MAX_CONNECTIONS];
@@ -200,6 +215,49 @@ uint16_t net_rx(int desc, char *buf, uint16_t len)
     return total;
 }
 
+// Sends what Nagle allows, and holds the rest for net_task.
+static void net_output(net_conn_t *nc)
+{
+    tcp_output(nc->pcb);
+    if (!nc->pcb->unsent)
+    {
+        nc->tx_held = false;
+        return;
+    }
+    nc->tx_idle = timer_in_ms(NET_TX_IDLE_MS);
+    if (!nc->tx_held)
+        nc->tx_hold = timer_in_ms(NET_TX_HOLD_MS);
+    nc->tx_held = true;
+}
+
+void net_flush(int desc)
+{
+    net_conn_t *nc = &net_conns[desc];
+    if (!nc->tx_held)
+        return;
+    if (!nc->pcb || !nc->pcb->unsent)
+    {
+        nc->tx_held = false;
+        return;
+    }
+    tcp_nagle_disable(nc->pcb);
+    tcp_output(nc->pcb);
+    tcp_nagle_enable(nc->pcb);
+    // A full window keeps the rest until an ACK makes room.
+    nc->tx_held = nc->pcb->unsent != NULL;
+    nc->tx_hold = nc->tx_idle = timer_in_ms(NET_TX_IDLE_MS);
+}
+
+void net_task(void)
+{
+    for (int desc = 0; desc < NET_MAX_CONNECTIONS; desc++)
+    {
+        net_conn_t *nc = &net_conns[desc];
+        if (nc->tx_held && (timer_passed(nc->tx_idle) || timer_passed(nc->tx_hold)))
+            net_flush(desc);
+    }
+}
+
 uint16_t net_tx(int desc, const char *buf, uint16_t len)
 {
     net_conn_t *nc = &net_conns[desc];
@@ -215,7 +273,7 @@ uint16_t net_tx(int desc, const char *buf, uint16_t len)
         err_t err = tcp_write(nc->pcb, buf, len, TCP_WRITE_FLAG_COPY);
         if (err == ERR_OK)
         {
-            tcp_output(nc->pcb);
+            net_output(nc);
             return len;
         }
         if (err == ERR_MEM)
@@ -242,7 +300,7 @@ bool net_tx_all(int desc, const char *buf, uint16_t len)
         net_close(desc);
         return false;
     }
-    tcp_output(nc->pcb);
+    net_output(nc);
     return true;
 }
 
@@ -343,7 +401,6 @@ static void net_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
     RP6502_LOG(net, DEBUG, "connecting");
     nc->state = net_state_connecting;
     tcp_arg(nc->pcb, nc);
-    tcp_nagle_disable(nc->pcb);
     tcp_err(nc->pcb, net_err);
     tcp_recv(nc->pcb, net_recv);
     net_arm_keepalive(nc->pcb);
@@ -355,8 +412,8 @@ static void net_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
     }
 }
 
-bool net_open(int desc, const char *hostname, uint16_t port,
-              void (*on_close)(int))
+bool HOST_IN_FLASH_FUNC net_open(int desc, const char *hostname, uint16_t port,
+                                 void (*on_close)(int))
 {
     net_conn_t *nc = &net_conns[desc];
     assert(nc->state == net_state_closed);
@@ -509,7 +566,7 @@ void net_listen_close(uint16_t port)
     }
 }
 
-bool net_accept(int desc, uint16_t port, void (*on_close)(int))
+bool HOST_IN_FLASH_FUNC net_accept(int desc, uint16_t port, void (*on_close)(int))
 {
     net_listener_t *nl = net_find_listener(port);
     if (!nl || !nl->pending_pcb)
@@ -520,7 +577,6 @@ bool net_accept(int desc, uint16_t port, void (*on_close)(int))
     nc->state = net_state_connected;
     nc->on_close = on_close;
     tcp_arg(nc->pcb, nc);
-    tcp_nagle_disable(nc->pcb);
     tcp_err(nc->pcb, net_err);
     tcp_recv(nc->pcb, net_recv);
     net_arm_keepalive(nc->pcb);
@@ -533,7 +589,7 @@ bool net_is_closed(int desc)
     return net_conns[desc].state == net_state_closed;
 }
 
-void net_reject(uint16_t port)
+void HOST_IN_FLASH_FUNC net_reject(uint16_t port)
 {
     net_listener_t *nl = net_find_listener(port);
     if (nl && nl->pending_pcb)

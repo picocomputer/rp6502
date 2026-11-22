@@ -11,6 +11,7 @@
 #include "osal/pico/fs.h"
 #include "fatfs/ff.h"
 #include "osal/pico/lfs.h"
+#include "machine.h"
 #include <assert.h>
 #include <stdio.h> /* SEEK_SET/CUR/END */
 #include <string.h>
@@ -37,7 +38,7 @@ static bool rom_wr_live;
 static lfs_file_t rom_wr_lfs;
 LFS_FILE_CONFIG(rom_wr_lfs_cfg, static);
 
-FIL *fs_fat_spare(void)
+FIL *HOST_IN_FLASH_FUNC fs_fat_spare(void)
 {
     for (int i = 0; i < FAT_FIL_MAX; i++)
         if (!fat_fil_pool[i].obj.fs)
@@ -54,7 +55,7 @@ static FIL *fat_validate_fil(int desc)
     return &fat_fil_pool[desc];
 }
 
-int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
+int HOST_IN_FLASH_FUNC fs_rom_open(const char *path, uint8_t flags, api_errno *err)
 {
     if (flags == (FS_WR | FS_CREAT | FS_EXCL))
     {
@@ -106,7 +107,7 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
     return FS_DESC_ROM;
 }
 
-bool fs_rom_remove(const char *name, api_errno *err)
+bool HOST_IN_FLASH_FUNC fs_rom_remove(const char *name, api_errno *err)
 {
     if (name[0] == ':')
         name++;
@@ -208,7 +209,7 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
  * empty when no drive was mounted then. */
 static char save_dir[API_PATH_MAX + 1];
 
-void fs_save_start(void)
+void HOST_IN_FLASH_FUNC fs_save_start(void)
 {
     if (f_getcwd(save_dir, sizeof save_dir) != FR_OK)
         save_dir[0] = '\0';

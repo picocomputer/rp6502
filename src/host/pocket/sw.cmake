@@ -2,8 +2,8 @@ include(${RP6502_SRC}/core/gen.cmake)
 rp6502_gen_c()
 rp6502_gen_assets()
 include(${RP6502_SRC}/core/log.cmake)
-if(NOT RP6502_SW_TTY)
-    set(RP6502_SW_TTY ${CMAKE_CURRENT_LIST_DIR}/sw/tty.c)
+if(NOT RP6502_SW_LOG)
+    set(RP6502_SW_LOG ${CMAKE_CURRENT_LIST_DIR}/sw/log.c)
 endif()
 
 find_program(RISCV_GCC riscv64-unknown-elf-gcc)
@@ -21,25 +21,28 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/host/*.h)
     list(APPEND SW_HEADERS ${SW_SEAMS})
     set(SW_SOURCES
-        ${SW_SRC}/crt0.S ${SW_SRC}/main.c
+        ${SW_SRC}/crt0.S ${SW_SRC}/ver.c ${SW_SRC}/main.c
         ${SW_SRC}/apf.c ${SW_SRC}/aud.c
-        ${SW_SRC}/wake.c
+        ${SW_SRC}/sleep.c ${SW_SRC}/fab.c
         ${SW_SRC}/cfg.c
-        ${RP6502_SRC}/core/com/com.c ${RP6502_SRC}/core/com/pick.c ${SW_SRC}/com.c ${SW_SRC}/phi2.c ${SW_SRC}/resb.c ${SW_SRC}/font.c ${SW_SRC}/hid.c
+        ${RP6502_SRC}/core/com/com.c ${RP6502_SRC}/core/com/manifold.c ${RP6502_SRC}/core/com/manifold_tx.c ${RP6502_SRC}/core/com/tio.c ${RP6502_SRC}/core/com/rln.c ${SW_SRC}/ria.c ${SW_SRC}/phi2.c ${SW_SRC}/resb.c ${SW_SRC}/hid.c
         ${SW_SRC}/mem.c ${RP6502_SRC}/core/sys/timer.c
         ${RP6502_SRC}/core/sys/crc32.c
+        ${RP6502_SRC}/core/sys/sst.c
         ${SW_SRC}/dir.c ${SW_SRC}/fs.c
         ${SW_SRC}/proc.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
-        ${SW_SRC}/trap.c ${RP6502_SW_TTY} ${SW_SRC}/unicode.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
+        ${SW_SRC}/trap.c ${RP6502_SW_LOG} ${SW_SRC}/vga.c ${SW_SRC}/vid.c
         ${RP6502_SRC}/core/aud/pcm.c
         ${RP6502_SRC}/core/aud/bel.c
         ${RP6502_SRC}/core/sys/pix.c
         ${RP6502_SRC}/core/rom/alias.c
         ${RP6502_SRC}/core/rom/asset.c
         ${RP6502_SRC}/core/rom/pump.c
+        ${RP6502_SRC}/core/sys/buf1k.c
         ${RP6502_SRC}/core/api/xreg0.c
         ${RP6502_SRC}/core/api/xreg1.c
         ${RP6502_SRC}/core/sys/random.c
+        ${RP6502_SRC}/core/sys/div64.c
         ${RP6502_SRC}/core/sys/ring.c
         ${RP6502_SRC}/core/sys/sys.c
         ${RP6502_SRC}/core/api/api.c
@@ -47,60 +50,106 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/api/attr.c
         ${RP6502_SRC}/core/api/proc.c
         ${RP6502_SRC}/core/api/save.c
-        ${RP6502_SRC}/core/api/clk.c
+        ${RP6502_SRC}/core/tim/clk.c
+        ${RP6502_SRC}/core/tim/tim.c
         ${RP6502_SRC}/core/api/std.c
+        ${RP6502_SRC}/core/com/console.c
+        ${RP6502_SRC}/core/com/tty.c
         ${RP6502_SRC}/core/api/dir.c
         ${RP6502_SRC}/core/api/ops.c
         ${RP6502_SRC}/core/str/path.c
         ${RP6502_SRC}/core/str/unicode.c
+        ${RP6502_GEN}/unicode_oem.c
         ${RP6502_SRC}/core/hid/hid.c
         ${RP6502_SRC}/core/hid/keyboard.c
         ${RP6502_SRC}/core/hid/layout.c
+        ${RP6502_GEN}/layout_db.c
         ${RP6502_SRC}/core/hid/keymap.c
+        ${RP6502_SRC}/core/hid/vtkey.c
         ${RP6502_SRC}/core/hid/mouse.c
         ${RP6502_SRC}/core/hid/gamepad.c
         ${RP6502_SRC}/core/hid/tablet.c
-        ${RP6502_SRC}/core/str/rln.c
         ${RP6502_SRC}/core/str/str.c
         ${RP6502_SRC}/core/sys/config.c
         ${RP6502_SRC}/core/vga/canvas.c
         ${RP6502_SRC}/core/vga/mode/mode.c
+        ${RP6502_SRC}/core/vga/mode/mode0.c
         ${RP6502_SRC}/core/vga/mode/mode1.c
         ${RP6502_SRC}/core/vga/mode/mode2.c
         ${RP6502_SRC}/core/vga/mode/mode3.c
         ${RP6502_SRC}/core/vga/mode/mode4.c
         ${RP6502_SRC}/core/vga/mode/mode5.c
         ${RP6502_SRC}/core/term/color.c
-        ${RP6502_SRC}/core/term/term.c)
+        ${RP6502_SRC}/core/term/font.c
+        ${RP6502_SRC}/core/term/term.c
+        ${RP6502_SRC}/core/term/grid.c
+        ${RP6502_SRC}/core/term/cells.c
+        ${RP6502_SRC}/core/sys/version.c)
     rp6502_log_flags(SW_LOG_FLAGS)
     # AUD_NATIVE_RATE is the 48 kHz the fabric mixes at, which pcm_step
     # divides by.
+    set(SW_CFLAGS -march=rv32imac_zicsr_zifencei -mabi=ilp32
+        -msave-restore
+        -Os -ffreestanding
+        --specs=picolibc.specs -DPICOLIBC_INTEGER_PRINTF_SCANF
+        -ffunction-sections -fdata-sections -flto=auto
+        -Werror=implicit-function-declaration
+        -I ${CMAKE_CURRENT_LIST_DIR}
+        -I ${RP6502_SRC}
+        -I ${RP6502_GEN}
+        -I ${RP6502_ASSETS}
+        "-DPICO_PROGRAM_NAME=\"RP6502-FPGA\""
+        -DRP6502_EXFAT=0
+        -DRP6502_LOCALE=EN
+        -DRP6502_VGA_FABRIC
+        -DAUD_NATIVE_RATE=48000
+        ${SW_LOG_FLAGS})
+    # The firmware's version, for XTVERSION, is stamped as it is built.
     add_custom_command(OUTPUT ${SW_BIN}
-        COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
-            -msave-restore
-            -Os -ffreestanding -nostartfiles
-            --specs=picolibc.specs -DPICOLIBC_INTEGER_PRINTF_SCANF
-            -ffunction-sections -fdata-sections -Wl,--gc-sections -flto
-            -Werror=implicit-function-declaration
-            -I ${CMAKE_CURRENT_LIST_DIR}
-            -I ${RP6502_SRC}
-            -I ${RP6502_GEN}
-            "-DPICO_PROGRAM_NAME=\"RP6502-FPGA\""
-            -DRP6502_EXFAT=0
-            -DRP6502_LOCALE=EN
-            -DRP6502_VGA_FABRIC
-            -DRP6502_CRC32_SMALL
-            -DAUD_NATIVE_RATE=48000
-            ${SW_LOG_FLAGS}
-            -T ${SW_SRC}/link.ld -Wl,--no-warn-rwx-segments
+        COMMAND ${CMAKE_COMMAND}
+            -DOUTPUT=${RP6502_ASSETS}/rp6502_version.h
+            -DSTAMP_SCRIPT=${RP6502_STAMP_SCRIPT}
+            "-DSTAMP_VERSION=${RP6502_VERSION_VALUE}"
+            "-DSTAMP_CI=${RP6502_CI_VALUE}"
+            "-DSTAMP_GIT=${RP6502_GIT_VALUE}"
+            -P ${RP6502_GEN_VERSION_SCRIPT}
+        COMMAND ${RISCV_GCC} ${SW_CFLAGS}
+            -nostartfiles -Wl,--gc-sections
+            -T ${SW_SRC}/link.ld
             -o ${RP6502_ASSETS}/sw.elf
             ${SW_SOURCES}
         COMMAND ${RISCV_OBJCOPY} -O binary ${RP6502_ASSETS}/sw.elf ${SW_BIN}
         DEPENDS ${SW_SOURCES} ${SW_HEADERS} ${SW_SRC}/link.ld
-            ${RP6502_GEN}/font_rom.h ${RP6502_GEN}/rsmp_half.h
+            ${RP6502_GEN}/rsmp_half.h
+            ${RP6502_GEN}/pocket_version.h
         COMMENT "Cross-compiling the soft CPU firmware"
         VERBATIM)
     add_custom_target(sw_bin DEPENDS ${SW_BIN})
+
+    # One command builds the whole firmware, so compile_commands.json has no
+    # entry for each of its units. sw_units.json gives each one in that form,
+    # for tests/sst_inventory.py, which builds every unit again. sw/log.c is
+    # among them even where a test build links its own log in its place.
+    set(SW_UNITS ${SW_SOURCES} ${SW_SRC}/log.c)
+    list(REMOVE_DUPLICATES SW_UNITS)
+    set(_entries "")
+    foreach(_src IN LISTS SW_UNITS)
+        if(NOT _src MATCHES "\\.c$")
+            continue()
+        endif()
+        set(_args "")
+        foreach(_arg ${RISCV_GCC} ${SW_CFLAGS} -c ${_src})
+            string(REPLACE "\\" "\\\\" _arg "${_arg}")
+            string(REPLACE "\"" "\\\"" _arg "${_arg}")
+            string(APPEND _args "\"${_arg}\", ")
+        endforeach()
+        string(APPEND _entries "  {\"directory\": \"${CMAKE_BINARY_DIR}\", "
+            "\"file\": \"${_src}\", \"output\": \"sw_units/unit.o\", "
+            "\"arguments\": [${_args}\"-o\", \"sw_units/unit.o\"]},\n")
+    endforeach()
+    string(REGEX REPLACE ",\n$" "\n" _entries "${_entries}")
+    file(GENERATE OUTPUT ${CMAKE_BINARY_DIR}/sw_units.json
+        CONTENT "[\n${_entries}]\n")
 else()
     message(WARNING
         "riscv64-unknown-elf-gcc not found — soft CPU tests skipped.\n"

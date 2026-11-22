@@ -14,8 +14,13 @@
  * the strings are in ascending offset order, so str[i] always precedes
  * str[i+1].
  *
- * arg has no driver row, so no run or stop walk touches this buffer. */
+ * arg's driver row has only its savestate, so no run or stop walk touches
+ * this buffer. The offsets are stored little endian whatever the host is, so
+ * the savestate carries the bytes as they are. */
 static uint8_t arg_buf[XSTACK_SIZE];
+
+#define ARG_SST(X) X(BYTES, arg_buf)
+SST_TABLE(arg, ARG_SST)
 
 static uint16_t arg_count(void)
 {
@@ -28,21 +33,6 @@ static uint16_t arg_count(void)
 void arg_clear(void)
 {
     arg_buf[0] = arg_buf[1] = 0;
-}
-
-size_t arg_bytes(void)
-{
-    return sizeof arg_buf;
-}
-
-const uint8_t *arg_data(void)
-{
-    return arg_buf;
-}
-
-void arg_set_data(const uint8_t *buf)
-{
-    memcpy(arg_buf, buf, sizeof arg_buf);
 }
 
 static uint16_t arg_offset_read(uint16_t i)
@@ -65,24 +55,9 @@ static uint16_t arg_size(void)
     return offset + (uint16_t)strlen((const char *)&arg_buf[offset]) + 1;
 }
 
-static bool arg_validate(uint16_t size)
+size_t arg_size_append(size_t size, const char *str)
 {
-    uint16_t count = arg_count();
-    uint16_t pos = (count + 1) * 2;
-    if (pos >= XSTACK_SIZE)
-        return false;
-    for (uint16_t i = 0; i < count; i++)
-    {
-        if (arg_offset_read(i) != pos)
-            return false;
-        while (pos < XSTACK_SIZE && arg_buf[pos] != 0)
-            pos++;
-        if (pos >= XSTACK_SIZE)
-            return false;
-        pos++;
-    }
-    // The last string may leave out its terminator.
-    return pos == size || pos == size + 1;
+    return size + 2 + strlen(str) + 1;
 }
 
 bool arg_append(const char *str)
@@ -92,7 +67,7 @@ bool arg_append(const char *str)
     uint16_t old_size = arg_size();
     uint16_t strings_len = old_size - old_strings_start;
     uint16_t new_str_len = (uint16_t)strlen(str) + 1;
-    if (old_size + 2 + new_str_len > XSTACK_SIZE)
+    if (arg_size_append(old_size, str) > XSTACK_SIZE)
         return false;
     memmove(&arg_buf[old_strings_start + 2], &arg_buf[old_strings_start], strings_len);
     for (uint16_t i = 0; i < count; i++)
@@ -153,17 +128,43 @@ uint16_t arg_push_xstack(void)
     return size;
 }
 
-bool arg_pull_xstack(void)
+/* Byte i of the ARGV data on the XSTACK, zero past its end, as a pull from
+ * the empty XSTACK reads. */
+static uint8_t arg_xstack_at(uint16_t i)
 {
-    size_t ptr = xstack_ptr;
-    uint16_t size = (uint16_t)(XSTACK_SIZE - ptr);
-    memcpy(arg_buf, &xstack[ptr], size);
-    memset(&arg_buf[size], 0, XSTACK_SIZE - size);
-    xstack_ptr = XSTACK_SIZE;
-    if (!arg_validate(size) || !arg_count())
+    size_t at = xstack_ptr + i;
+    return at < XSTACK_SIZE ? xstack[at] : 0;
+}
+
+/* The data is checked where it lies on the XSTACK and copied only once it
+ * passes, so a refused request leaves the running program's arguments as
+ * they were. */
+bool arg_pull_xstack(uint16_t first_max)
+{
+    const uint16_t size = (uint16_t)(XSTACK_SIZE - xstack_ptr);
+    uint16_t count = 0;
+    while (count < XSTACK_SIZE / 2 &&
+           (arg_xstack_at(count * 2) || arg_xstack_at(count * 2 + 1)))
+        count++;
+    uint16_t pos = (count + 1) * 2;
+    bool valid = count && pos < XSTACK_SIZE;
+    for (uint16_t i = 0; valid && i < count; i++)
     {
-        arg_clear();
-        return false;
+        uint16_t offset = arg_xstack_at(i * 2) | (uint16_t)arg_xstack_at(i * 2 + 1) << 8;
+        uint16_t start = pos;
+        valid = offset == pos;
+        while (pos < XSTACK_SIZE && arg_xstack_at(pos))
+            pos++;
+        valid = valid && pos < XSTACK_SIZE && (i || pos - start <= first_max);
+        pos++;
     }
-    return true;
+    // The last string may leave out its terminator.
+    valid = valid && (pos == size || pos == size + 1);
+    if (valid)
+    {
+        memcpy(arg_buf, &xstack[xstack_ptr], size);
+        memset(&arg_buf[size], 0, XSTACK_SIZE - size);
+    }
+    xstack_ptr = XSTACK_SIZE;
+    return valid;
 }

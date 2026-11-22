@@ -42,9 +42,9 @@ endfunction()
 # rp6502_msvc_dialect(<target>)
 #
 # What MSVC alone needs to compile the shared sources, including a <strings.h>
-# it has no system header for. Everything that links the osal gets it from
-# there; a unit test that compiles shared sources on its own takes it here.
-# MinGW needs none of it.
+# and a <unistd.h> it has no system headers for. Everything that links the
+# osal gets it from there; a unit test that compiles shared sources on its own
+# takes it here. MinGW needs none of it.
 function(rp6502_msvc_dialect target)
     if(NOT MSVC)
         return()

@@ -21,9 +21,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-cmake_path(SET RP6502_ROOT NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../..)
-set(RP6502_SRC ${RP6502_ROOT}/src)
-set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
+include(${CMAKE_CURRENT_LIST_DIR}/../../src/core/build.cmake)
 
 include(${RP6502_ROOT}/version.cmake)
 
@@ -31,7 +29,7 @@ find_package(verilator CONFIG REQUIRED
     HINTS $ENV{VERILATOR_ROOT} /usr/share/verilator)
 
 include(${RP6502_SRC}/host/pocket/machine.cmake)
-set(RP6502_SW_TTY ${CMAKE_CURRENT_LIST_DIR}/pocket/tty.c)
+set(RP6502_SW_LOG ${CMAKE_CURRENT_LIST_DIR}/pocket/log.c)
 include(${RP6502_SRC}/host/pocket/sw.cmake)
 
 if(WIN32)
@@ -44,6 +42,11 @@ else()
     set(RP6502_OSAL ${RP6502_SRC}/osal/linux)
 endif()
 include(${RP6502_SRC}/core/emu.cmake)
+# No link-time optimization here. This tree links 79 test programs, and with
+# it each link compiles the simulation again: 2,050 seconds of processor to
+# build where this takes 340, for tests that then run 2.5% faster.
+set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION OFF)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
 include(${RP6502_SRC}/osal/posix/posix.cmake)
 rp6502_osal_posix(emu_core TRANSPORT aio)
 target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c)
@@ -53,10 +56,10 @@ target_include_directories(emu_core PUBLIC ${RP6502_ROOT}/src/host/sokol)
 enable_testing()
 
 add_test(NAME w65c02_gen
-    COMMAND ${Python3_EXECUTABLE} ${RP6502_SRC}/core/wdc/cpu.py --report)
+    COMMAND ${RP6502_PYTHON} ${RP6502_SRC}/core/wdc/cpu.py --report)
 set_tests_properties(w65c02_gen PROPERTIES LABELS "gate;rtl")
 add_test(NAME rbf_r
-    COMMAND ${CMAKE_COMMAND} -E env python3
+    COMMAND ${RP6502_PYTHON}
         ${RP6502_SRC}/host/pocket/gen/rbf_r_gen.py --check)
 set_tests_properties(rbf_r PROPERTIES LABELS "gate;rtl")
 

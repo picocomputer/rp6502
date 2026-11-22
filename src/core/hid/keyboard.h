@@ -39,6 +39,11 @@ typedef struct keyboard_connection
 
 void keyboard_init(void);
 void keyboard_stop(void);
+/* After a failed load the bitmap's address and its keys hold whatever the
+ * load left. This unmaps the bitmap and releases every key, so no stuck
+ * modifier reaches the next program. The locks are masked wherever they are
+ * read, so they stay. */
+void keyboard_reset(void);
 
 bool keyboard_mount(int slot, const keyboard_connection_t *desc,
                     uint16_t vendor_id, uint16_t product_id);
@@ -46,6 +51,16 @@ bool keyboard_mount(int slot, const keyboard_connection_t *desc,
 bool keyboard_umount(int slot);
 
 void keyboard_report(int slot, uint8_t const *data, size_t size);
+
+/* The machine's hooks. keyboard_mount calls the first for a keyboard it
+ * takes. keyboard_report calls the second on every new key press, with the
+ * modifier byte all keyboards hold between them, and the third after every
+ * report. A machine that is its own keyboard driver answers them in
+ * core/hid/keymap.c; one whose host already decoded the key answers with
+ * nothing. */
+void keyboard_on_mount(uint16_t vendor_id, uint16_t product_id);
+void keyboard_on_press(uint8_t modifier, uint8_t keycode);
+void keyboard_on_modifiers(uint8_t modifier);
 
 uint8_t keyboard_get_report_id(int slot);
 
@@ -55,14 +70,16 @@ bool keyboard_is_mapped(void);
 
 uint8_t keyboard_get_modifier(void);
 bool keyboard_key_down(uint8_t keycode);
-uint8_t keyboard_get_leds(void);
-void keyboard_toggle_lock(uint8_t bit);
 
-/* A host that receives the lock state from its platform passes it here, in
- * KEYBOARD_LED_ bits. */
-void keyboard_set_locks(uint8_t leds);
+/* NumLock, CapsLock and ScrollLock, in KEYBOARD_LED_ bits. This file only
+ * keeps them, for the program's bitmap and for what the keys type. Their
+ * owner sets them: core/hid/keymap.c on a machine that is its own keyboard
+ * driver, where a lock key flips its lock and its light, and otherwise the
+ * host, from the system that drives its keyboard. They start off. */
+uint8_t keyboard_get_locks(void);
+void keyboard_set_locks(uint8_t locks);
 
-void keyboard_hid_set(uint8_t keycode, bool down);
+void keyboard_set_key(uint8_t keycode, bool down);
 
 /* Releases every key and leaves the locks alone. A host that has just
  * restored a savestate calls this because the keys the blob remembers were
@@ -71,36 +88,12 @@ void keyboard_hid_set(uint8_t keycode, bool down);
  * next report. */
 void keyboard_release_all(void);
 
-/* What a keypad key navigates to when NumLock is off. Zero for KP5 and for
- * any usage NumLock does not remap. */
-uint8_t keyboard_keypad_nav(uint8_t hid_usage);
+extern const sst_table_t keyboard_sst;
 
-int keyboard_vt_mod(bool shift, bool alt, bool ctrl, bool gui);
-
-/* The escape sequence a key with no character of its own sends, written into
- * the caller's buffer. Zero for any other usage, including Enter, Tab, Escape
- * and Backspace, which have characters, and which character is the machine's
- * to say. The VT220 numbering that makes F5 15 and F6 17 is a table nobody can
- * check by eye, so it lives in one place. */
-size_t keyboard_vt_seq(char *out, size_t cap, uint8_t hid_usage, int ansi_mod);
-
-/* What Ctrl makes of a character, as xterm and the Linux console make it:
- * Ctrl-@ through Ctrl-_ and Ctrl-` through Ctrl-~ are 0x00 to 0x1F, Space and
- * 2 are 0x00, 3 to 7 are ESC to 0x1F, 8 is DEL and / is 0x1F. Backspace is BS
- * where DEL was, and a byte that is C0 already types itself. -1 when Ctrl has
- * nothing to say, which a ch of 0, meaning no character, always gets.
- * Backspace needs the keycode because DEL is outside every promotable range;
- * pass HID_KEY_NONE where there is a character but no key. */
-int keyboard_ctrl_promote(char ch, uint8_t keycode);
-
-/* The blob carries where the program asked for its bitmap and what is in it.
- * The connection table is not saved, because it describes what is plugged in
- * now rather than what the blob remembers. */
-#define KEYBOARD_SST_SIZE 35
-void keyboard_sst_save(sst_cursor_t *c, unsigned flags);
-bool keyboard_sst_load(sst_cursor_t *c, unsigned flags);
-
-#define KEYBOARD_DRIVER DRIVER(keyboard_init, nul_task, nul_task, nul_run, keyboard_stop, nul_break, \
-    nul_config, nul_config, SST(KEYB, 1, KEYBOARD_SST_SIZE, keyboard_sst_save, keyboard_sst_load))
+#define KEYBOARD_DRIVER DRIVER(                                            \
+    INIT(keyboard_init)                                                    \
+    STOP(keyboard_stop)                                                    \
+    RESET(keyboard_reset)                                                  \
+    SST("KEYB", keyboard))
 
 #endif /* _CORE_HID_KEYBOARD_H_ */

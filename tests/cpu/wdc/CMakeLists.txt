@@ -48,10 +48,10 @@ set(SSVEC_COUNT 100 CACHE STRING "SingleStepTests cases per opcode")
 if(RP6502_HAVE_SSTESTS)
     set(VECTORS ${CMAKE_CURRENT_BINARY_DIR}/wdc65c02.vec)
     add_custom_command(OUTPUT ${VECTORS}
-        COMMAND ${CMAKE_COMMAND} -E env python3
+        COMMAND ${RP6502_PYTHON}
             ${CMAKE_CURRENT_LIST_DIR}/ssvec.py
             --src ${SSTESTS} --out ${VECTORS} --count ${SSVEC_COUNT}
-        DEPENDS ${CMAKE_CURRENT_LIST_DIR}/ssvec.py
+        DEPENDS ${CMAKE_CURRENT_LIST_DIR}/ssvec.py ${RP6502_PYTHON_LIBS}
         COMMENT "Encoding SingleStepTests vectors (${SSVEC_COUNT}/opcode)"
         VERBATIM)
     add_custom_target(cpu_vectors DEPENDS ${VECTORS})

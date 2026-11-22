@@ -11,31 +11,42 @@
 #include "core/api/api.h"
 #include "core/api/xreg.h"
 #include "core/sys/random.h"
-#include "core/api/clk.h"
+#include "core/tim/clk.h"
 #include "core/api/dir.h"
 #include "osal/fs.h"
 #include "core/api/proc.h"
 #include "core/sys/proc.h"
 #include "core/api/std.h"
-#include "core/api/tim.h"
+#include "core/com/console.h"
+#include "core/com/tty.h"
+#include "core/tim/os.h"
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
 #include "core/com/com.h"
+#include "core/com/manifold.h"
+#include "core/com/tio.h"
 #include "core/hid/gamepad.h"
-#include "core/hid/vtkeys.h"
+#include "core/hid/paste.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/ria/ria.h"
+#include "core/ria/regs.h"
+#include "core/api/arg.h"
+#include "core/aud/bel.h"
+#include "core/vga/canvas.h"
+#include "core/vga/mode/mode0.h"
+#include "core/vga/prog.h"
 #include "core/rom/rom.h"
+#include "core/aud/pcm.h"
 #include "core/str/oem.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/term/font.h"
-#include "core/term/term.h"
+#include "core/term/cells.h"
 #include "core/vga/vga_emu.h"
 #include "core/wdc/bus.h"
 #include "core/wdc/cpu.h"
@@ -43,27 +54,35 @@
 #include "core/wdc/phi2.h"
 
 /* VGA comes before BUS because vga_task advances the beam one scanline and
- * bus_task then runs the 6502 up to it. TERM comes before VGA because
+ * bus_task then runs the 6502 up to it. CELLS comes before VGA because
  * vga_init programs the console canvas, which sets the terminal's height. */
-#define RP6502_MACH_DRIVERS                                                  \
-    RIA_DRIVER, SRAM_DRIVER, XRAM_DRIVER,                     \
-    PROC_DRIVER, STR_DRIVER, ASSET_DRIVER,\
-    COM_DRIVER, STD_DRIVER, RLN_DRIVER,              \
-    API_DRIVER, XREG_DRIVER, TERM_DRIVER,                                 \
-    KEYBOARD_DRIVER, MOUSE_DRIVER,                           \
-    GAMEPAD_DRIVER, TABLET_DRIVER, FONT_DRIVER,      \
-    OEM_DRIVER, VGA_DRIVER, VTKEYS_DRIVER,           \
-    PSG_DRIVER, OPL_DRIVER, AUD_DRIVER, TIM_DRIVER, DIR_DRIVER,              \
-    CLK_DRIVER, RANDOM_DRIVER, PHI2_DRIVER,                 \
-    CPU_DRIVER, VIA_DRIVER, BUS_DRIVER
+#define RP6502_MACH_DRIVERS                                    \
+    RIA_DRIVER, REGS_DRIVER, SRAM_DRIVER, XRAM_DRIVER,         \
+    ARG_DRIVER, PROC_CHAIN_DRIVER, PROC_DRIVER, STR_DRIVER,    \
+    ASSET_DRIVER, MANIFOLD_DRIVER, MANIFOLD_TX_DRIVER,         \
+    COM_DRIVER, STD_DRIVER, CONSOLE_DRIVER, TTY_DRIVER,        \
+    TIO_DRIVER, RLN_DRIVER, API_DRIVER, XREG_DRIVER,           \
+    CELLS_DRIVER, MODE0_DRIVER, KEYBOARD_DRIVER, MOUSE_DRIVER, \
+    GAMEPAD_DRIVER, TABLET_DRIVER, FONT_DRIVER, OEM_DRIVER,    \
+    VGA_DRIVER, CANVAS_DRIVER, PROG_DRIVER, PASTE_DRIVER,      \
+    PSG_DRIVER, OPL_DRIVER, AUD_DRIVER, BEL_DRIVER,            \
+    TIM_DRIVER, DIR_DRIVER, CLK_DRIVER, RANDOM_DRIVER,         \
+    PHI2_DRIVER, CPU_DRIVER, VIA_DRIVER, BUS_DRIVER
 
-#define RP6502_STD_DRIVERS ROM_STD_DRIVER, PCM_STD_DRIVER, SAVE_STD_DRIVER, FS_STD_DRIVER
+#define RP6502_SST
+
+/* open() tries these drivers' STD rows in order, and the filesystem's
+ * accepts every path, so it is last. */
+#define RP6502_STD_DRIVERS                           \
+    CONSOLE_DRIVER, TTY_DRIVER,                      \
+    ASSET_DRIVER, PCM_DRIVER,                        \
+    SAVE_DRIVER, FS_DRIVER
 
 /* No host attaches a serial port to this machine, so the only bytes that ever
  * reach the UART source are the terminal's replies to a program's queries,
- * which core/com/com.c promotes into that ring. */
+ * which core/com/manifold.c promotes into that ring. */
 #define RP6502_COM_SOURCES                       \
-    [COM_SOURCE_KEYBOARD] = VTKEYS_COM_SOURCE, \
-    [COM_SOURCE_UART] = COM_UART_SOURCE
+    [COM_SOURCE_KEYBOARD] = PASTE_COM_SOURCE,  \
+    [COM_SOURCE_UART] = MANIFOLD_UART_SOURCE
 
 #endif /* _HOST_DRIVERS_H_ */

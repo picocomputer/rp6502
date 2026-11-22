@@ -23,7 +23,7 @@
         {
             "label": "Run Project",
             "type": "process",
-            "command": "${env:HOME}/.pico-sdk/picotool/2.3.0/picotool/picotool",
+            "command": "${env:HOME}/.pico-sdk/picotool/2.3.1/picotool/picotool",
             "args": [
                 "load",
                 "${command:cmake.launchTargetPath}",
@@ -35,7 +35,7 @@
             },
             "problemMatcher": [],
             "windows": {
-                "command": "${env:USERPROFILE}/.pico-sdk/picotool/2.3.0/picotool/picotool.exe"
+                "command": "${env:USERPROFILE}/.pico-sdk/picotool/2.3.1/picotool/picotool.exe"
             }
         },
         {
@@ -49,10 +49,13 @@
                 "interface/cmsis-dap.cfg",
                 "-f",
                 "target/${command:raspberry-pi-pico.getTarget}.cfg",
+                "-f",
+                "${workspaceFolder}/src/host/pico/check.cfg",
                 "-c",
-                // Cold reset through the DP after programming, pass or fail:
-                // the chip reboots with USB reset and DHCSR.C_DEBUGEN clear.
-                "adapter speed 5000; catch {program \"${command:cmake.launchTargetPath}\" verify} err; poll off; rp2350.dap dpreg 4 0x54000000; rp2350.dap dpreg 4 0x50000000; if {$err ne {}} {shutdown error} else {shutdown}"
+                // check.cfg: nothing is written unless the chip already runs
+                // firmware of the ELF's name, and the chip reboots cold after,
+                // so it runs on its own with debug disabled.
+                "adapter speed 5000; rp6502_program {${command:cmake.launchTargetPath}}"
             ],
             "problemMatcher": [],
             "windows": {

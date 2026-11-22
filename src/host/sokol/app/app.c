@@ -9,6 +9,8 @@
 #include "osal/os.h"
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
+#include "host/sokol/app/pace.h"
+#include "host/host.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_glue.h"
@@ -33,9 +35,9 @@
 #include "core/aud/mix.h"
 #include "core/dap/dbg.h"
 #include "core/sys/proc.h"
-#include "core/sys/com.h"
+#include "core/api/proc.h"
+#include "core/com/com.h"
 #include "core/str/oem.h"
-#include "core/hid/vtkeys.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/rom/rom.h"
@@ -72,9 +74,11 @@ void app_set_unpaced(bool on)
     app.unpaced = on;
 }
 
-/* debt_ns is the wall time owed to the machine, repaid in whole frames, and
- * cleared outright under app.unpaced and on a debugger hold. */
-static uint64_t entered_ns, returned_ns, debt_ns, machine_ns;
+/* The pace's debt is the wall time owed to the machine, repaid in whole
+ * frames (pace.h), and cleared outright under app.unpaced and on a debugger
+ * hold. */
+static uint64_t entered_ns, returned_ns, machine_ns;
+static pace_t pace;
 static bool paced, ran_frame, held;
 /* A present that waits for the display holds the thread for milliseconds and
  * one that waits for nothing returns in microseconds, so two milliseconds
@@ -115,7 +119,7 @@ static void update_title(void)
     }
 }
 
-/* Called on the audio device's own thread on WASAPI, ALSA, CoreAudio and
+/* Called on the audio device's own thread on WASAPI, PulseAudio, CoreAudio and
  * AAudio, and on the browser's main thread on WebAudio. It makes what it
  * plays on the spot, from what the frames have stamped. */
 static void stream_cb(float *buffer, int num_frames, int num_channels)
@@ -137,15 +141,40 @@ void app_init(void)
     if (aud_enabled())
     {
         /* Most devices run at 48000 Hz, so asking for it keeps the resampler's
-         * ratio near one. ALSA and WebAudio write back the rate they actually
-         * got and the machine resamples from its own rate to that; WASAPI and
-         * CoreAudio keep the 48000 asked for and the OS resamples. 512 frames
-         * of that rate is 10.7 ms of device latency, where sokol's default of
-         * 2048 is 43. On the web, ScriptProcessorNode runs on the main thread,
-         * which stops while the window moves, and its size must be a power of
-         * two, so the web build uses 1024 frames, 21.3 ms. */
-#ifdef __EMSCRIPTEN__
+         * ratio near one. WebAudio writes back the rate it actually got and
+         * the machine resamples from its own rate to that; WASAPI, PulseAudio
+         * and CoreAudio keep the 48000 asked for and the OS resamples.
+         *
+         * buffer_frames is what the callback is asked for at a time, and
+         * the sound plays that far behind the machine. What the device
+         * holds beyond that is each backend's own. The sizes are the least
+         * that measured clean:
+         *
+         * WASAPI in shared mode takes 480 frames every 10 ms from a buffer of
+         * its own choosing, about 22 ms for any size asked for up to that. So
+         * 480 is one callback for each period it takes; 512 would skip every
+         * sixteenth and leave the mix a beat to cover.
+         *
+         * PulseAudio is asked to hold buffer_frames in all, and holds three
+         * quarters of it in the stream, 8 ms at 512. That ran minutes
+         * without running dry on a host with little else to do, where 256
+         * did not, and ran dry a few times a minute beside a compiler.
+         *
+         * CoreAudio's queue is two buffers of buffer_frames, a callback for
+         * each. 512 is 94 callbacks a second with 10.7 ms in hand; fewer
+         * frames would be more calls into the OS for nothing.
+         *
+         * On the web, ScriptProcessorNode runs on the main thread with the
+         * machine and the drawing, and its size must be a power of two. In
+         * Chrome 1024 frames, 21.3 ms, still went silent for a 128th of a
+         * second once in a while, and 512 twice as often.
+         *
+         * Sokol wants buffer_frames a multiple of its packets, which only
+         * its push model uses, so they are a frame each. */
+#if defined(__EMSCRIPTEN__)
         const int buffer_frames = 1024;
+#elif defined(_WIN32)
+        const int buffer_frames = 480;
 #else
         const int buffer_frames = 512;
 #endif
@@ -154,6 +183,7 @@ void app_init(void)
             .sample_rate = 48000,
             .num_channels = 2,
             .buffer_frames = buffer_frames,
+            .packet_frames = 1,
             .stream_cb = stream_cb,
             .logger.func = app_log,
         });
@@ -161,6 +191,7 @@ void app_init(void)
     }
     gfx_setup();
     host_window_init();
+    input_locks();
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
         dbgui_init(sapp_dpi_scale());
@@ -172,18 +203,15 @@ void app_frame(void)
     const uint64_t now = os_mono_ns();
     /* Once the display has been seen to pace the callbacks it keeps that
      * standing while frames are still coming, because a callback whose own work
-     * fills the display period leaves the present nothing left to wait for. */
-    paced = !returned_ns || now - returned_ns >= PRESENT_WAIT_NS || (paced && ran_frame);
-    uint64_t dt = entered_ns ? now - entered_ns : VGA_FRAME_NS;
+     * fills the display period leaves the present nothing left to wait for;
+     * and while the pace follows the display, whose callbacks at 240 Hz are
+     * so close that one late leaves the next present little to wait for. A
+     * display that stops pacing is seen by the pace first. */
+    paced = !returned_ns || now - returned_ns >= PRESENT_WAIT_NS || (paced && (ran_frame || pace.follows));
+    const uint64_t dt = entered_ns ? now - entered_ns : VGA_FRAME_NS;
+    pace_add(&pace, dt, paced);
+    aud_set_speed(pace_speed(&pace));
     entered_ns = now;
-    /* A 59.94 Hz display delivers a callback every 16.68 ms against the
-     * emulated 16.67, so an interval within a tenth of a frame counts as
-     * exactly one frame and the two rates do not beat against each other. */
-    if (paced && dt > VGA_FRAME_NS - VGA_FRAME_NS / 10 && dt < VGA_FRAME_NS + VGA_FRAME_NS / 10)
-        dt = VGA_FRAME_NS;
-    if (dt > 3 * VGA_FRAME_NS) /* a longer stall is dropped, not replayed as a burst */
-        dt = 3 * VGA_FRAME_NS;
-    debt_ns += dt;
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
     {
@@ -195,6 +223,7 @@ void app_frame(void)
         }
     }
 #endif
+    input_locks();
 #ifdef RP6502_PAD_HOST
     /* Sokol has delivered this frame's key and pointer events before the frame
      * callback, so polling the gamepads here gives them the same age as every
@@ -205,11 +234,11 @@ void app_frame(void)
     /* Nothing limits the callback rate when the present does not wait, and
      * nothing runs at all while a debugger holds the machine, so sleep out the
      * rest of the frame period rather than spinning. */
-    if (!app.unpaced && (!paced || held) && debt_ns < VGA_FRAME_NS)
+    if (!app.unpaced && (!paced || held) && pace.debt_ns < (int64_t)VGA_FRAME_NS)
     {
-        os_sleep_ns(VGA_FRAME_NS - debt_ns);
+        os_sleep_ns((uint64_t)((int64_t)VGA_FRAME_NS - pace.debt_ns));
         const uint64_t woke = os_mono_ns();
-        debt_ns += woke - entered_ns;
+        pace_slept(&pace, woke - entered_ns);
         entered_ns = woke;
     }
     ran_frame = held = false;
@@ -225,20 +254,20 @@ void app_frame(void)
             }
             ran_frame = true;
         } while (os_mono_ns() - t0 < VGA_FRAME_NS);
-        debt_ns = 0;
+        pace.debt_ns = 0;
     }
     else
-        while (debt_ns >= VGA_FRAME_NS)
+        while (pace_due(&pace))
         {
             /* A debugger hold clears the debt, so the machine does not run a
              * burst of catch-up frames when it resumes. */
             if (!vga_run_frame())
             {
-                debt_ns = 0;
+                pace.debt_ns = 0;
                 held = true;
                 break;
             }
-            debt_ns -= VGA_FRAME_NS;
+            pace_ran(&pace);
             ran_frame = true;
         }
     machine_ns += os_mono_ns() - t0;
@@ -310,6 +339,10 @@ void app_frame(void)
      * the display happens on the next GL write rather than in the swap. */
     returned_ns = os_mono_ns();
     gfx_upload(ran_frame);
+#ifdef EMU_WITH_DEBUGGER
+    if (dbg_is_active())
+        dbgui_flush();
+#endif
     gfx_begin_pass();
     gfx_blit();
     host_window_menu_draw();
@@ -372,11 +405,10 @@ bool app_boot_rom(const char *path)
      * image, on that one descriptor, so it goes to the loader unchecked. */
     if (rom[0] != ':')
     {
-        uint8_t buf[ROM_RECORD_MAX];
         rom_pump_t pump;
         api_errno err;
         int fd = fs_std_open(rom, FS_RD, &err);
-        if (fd < 0 || !rom_pump_open_fd(&pump, fd, buf, &err))
+        if (fd < 0 || !rom_pump_open_fd(&pump, fd, &err))
         {
             com_printf(err == API_ENOEXEC ? "not a .rp6502 file (bad magic)\n"
                                           : "cannot read dropped file\n");
@@ -385,8 +417,7 @@ bool app_boot_rom(const char *path)
         }
         rom_pump_close(&pump);
     }
-    vtkeys_paste_cancel(); /* the new program must not receive the old one's paste */
-    bool ok = proc_boot(rom, 0, NULL, PROC_UNCHAIN);
+    bool ok = proc_boot(rom, 0, NULL, 0);
     /* The install from the previous drop is removed once proc_boot has
      * stopped the machine, whether or not this boot succeeded, unless this
      * drop installed a ROM of the same name, which replaced it. */
@@ -406,8 +437,22 @@ bool app_boot_rom(const char *path)
     return true;
 }
 
+/* Sokol says when the window is minimized and when it is back. The web
+ * player's page has neither, and its machine stops while the page is
+ * hidden, so there it is never minimized. */
+static bool app_minimized;
+
+bool host_minimized(void)
+{
+    return app_minimized;
+}
+
 void app_input(const struct sapp_event *e)
 {
+    if (e->type == SAPP_EVENTTYPE_ICONIFIED)
+        app_minimized = true;
+    else if (e->type == SAPP_EVENTTYPE_RESTORED)
+        app_minimized = false;
     if (e->type == SAPP_EVENTTYPE_FILES_DROPPED)
     {
         host_window_files_dropped();
@@ -447,16 +492,13 @@ int app_exit_code(void)
 
 void app_cleanup(void)
 {
-    /* sys_stop and sys_commit run before saudio, gfx and sg shut down, so every
+    /* proc_shutdown runs before saudio, gfx and sg shut down, so every
      * driver's stop hook still has the host under it. Reaching here without
      * app_quit_asked means the close button stopped a machine that was still
      * running, which is a break. */
     if (!app_quit_asked)
         app_broke = true;
-    if (app_broke)
-        sys_break_request();
-    sys_stop();
-    sys_commit();
+    proc_shutdown();
     /* app_break_leave does not return, so buffered output is flushed before
      * it. */
     if (app_broke && app_break_leave && app_break_asked && app_break_asked())

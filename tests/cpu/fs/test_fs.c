@@ -59,7 +59,7 @@ static bool fresh_cwd(void)
     char dir[TEST_PATH_MAX];
     if (!host_make_tmpdir(dir, sizeof(dir)))
         return false;
-    std_stop();
+    std_reset();
     if (!drive_chdir_to(dir) || !drive_cwd(g_dir, sizeof(g_dir)))
         return false;
     fs_save_start();
@@ -100,6 +100,10 @@ static void make_file(const char *rel, const char *data, uint16_t n)
 #define AM_DIR 0x10
 #define AM_ARC 0x20
 
+
+/* More than the STD chunk holds, which sst.h's table gives only at run
+ * time. */
+#define STD_SST_MAX 8192
 
 UTEST(fs, drive_write_read_seek)
 {
@@ -538,11 +542,53 @@ UTEST(fs, a_call_refuses_more_than_its_arguments)
 UTEST(fs, exec_data_takes_its_last_string_with_or_without_a_terminator)
 {
     push_bytes("\4\0\0\0a\0", 6);
-    ASSERT_TRUE(arg_pull_xstack());
+    ASSERT_TRUE(arg_pull_xstack(API_PATH_MAX));
     ASSERT_STREQ(arg_index(0), "a");
     push_bytes("\4\0\0\0a", 5);
-    ASSERT_TRUE(arg_pull_xstack());
+    ASSERT_TRUE(arg_pull_xstack(API_PATH_MAX));
     ASSERT_STREQ(arg_index(0), "a");
+    arg_clear();
+}
+
+/* A refused EXEC leaves the running program's arguments as they were. */
+UTEST(fs, a_refused_exec_keeps_the_arguments)
+{
+    /* ["/a.rp6502", "x"] */
+    push_bytes("\6\0\20\0\0\0/a.rp6502\0x", 17);
+    ASSERT_TRUE(arg_pull_xstack(API_PATH_MAX));
+    /* An offset that points past the strings. */
+    push_bytes("\4\0\0\0b\0\7", 7);
+    proc_api_exec();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_STREQ(arg_index(0), "/a.rp6502");
+    /* A first string over API_PATH_MAX. */
+    char big[4 + API_PATH_MAX + 1];
+    big[0] = 4, big[1] = 0, big[2] = 0, big[3] = 0;
+    memset(&big[4], 'p', API_PATH_MAX + 1);
+    push_bytes(big, sizeof big);
+    proc_api_exec();
+    ASSERT_EQ(dsys_ax(), -1);
+    ASSERT_STREQ(arg_index(0), "/a.rp6502");
+    ASSERT_STREQ(arg_index(1), "x");
+    arg_clear();
+}
+
+/* arg_size_append sizes ARGV data the way arg_append builds it, so a caller
+ * can tell before it writes anything whether the strings will fit. */
+UTEST(fs, arg_sizes_match_what_append_builds)
+{
+    for (int n = 0; n < 200; n++)
+    {
+        arg_clear();
+        size_t size = arg_size_append(ARG_SIZE_EMPTY, "MSC0:/G");
+        bool built = arg_append("MSC0:/G");
+        for (int i = 0; i < n; i++)
+        {
+            size = arg_size_append(size, "1");
+            built = built && arg_append("1");
+        }
+        ASSERT_TRUE(built == (size <= XSTACK_SIZE));
+    }
     arg_clear();
 }
 
@@ -706,15 +752,18 @@ UTEST(fs, a_read_of_nothing_writes_nothing)
 
     /* A received byte is staged in the RX register at $FFE2 so that the
      * zero-length TTY read has a byte it could write. */
-    std_init();
+    std_reset();
+    int tty = ssys_open("TTY:", O_RD);
+    ASSERT_TRUE(tty >= 0);
     regs[0x02] = 'X';
     regs[0x00] |= 0x40; /* RIA_UART_RX_READY */
-    ASSERT_EQ(ssys_read(4 /* STD_FD_TTY */, buf, 0), 0);
+    ASSERT_EQ(ssys_read(tty, buf, 0), 0);
     ASSERT_EQ(xstack[XSTACK_SIZE], 0);
     ASSERT_TRUE(regs[0x00] & 0x40);
 
-    ASSERT_EQ(ssys_read(4, buf, 1), 1);
+    ASSERT_EQ(ssys_read(tty, buf, 1), 1);
     ASSERT_EQ(buf[0], 'X');
+    ssys_close(tty);
 
     dsys_path("zero.txt");
     dir_api_stat();
@@ -1107,13 +1156,19 @@ UTEST(fs, a_read_or_a_write_the_open_did_not_ask_for_fails_with_ebadf)
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_EBADF));
     ssys_close(r);
 
-    ASSERT_TRUE(ssys_write(0, "x", 1) < 0);
-    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EBADF));
+    /* 0, 1 and 2 are the console, read and write, as a terminal is. A file
+     * opened for writing alone and put on 1 is not read. */
+    ASSERT_EQ(ssys_write(0, "x", 1), 1);
+    w = ssys_open("w.txt", O_WR);
+    ASSERT_EQ(ssys_dup2(w, 1), 1);
     ASSERT_TRUE(ssys_read(1, buf, 1) < 0);
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_EBADF));
+    ssys_close(w);
 }
 
-UTEST(fs, the_console_cannot_seek_or_sync)
+/* The console cannot seek. Its sync returns once what was written shows,
+ * which with nothing waiting is at once. */
+UTEST(fs, the_console_cannot_seek_and_syncs_at_once)
 {
     ASSERT_TRUE(fresh_cwd());
     ASSERT_EQ(ssys_lseek(0, 0, SEEK_SET), -1);
@@ -1121,8 +1176,7 @@ UTEST(fs, the_console_cannot_seek_or_sync)
     xstack_ptr = XSTACK_SIZE;
     API_A = 1;
     ssys_dispatch(std_api_syncfs);
-    ASSERT_EQ(dsys_ax(), -1);
-    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EINVAL));
+    ASSERT_EQ(dsys_ax(), 0);
 }
 
 UTEST(fs, an_empty_path_fails_with_enoent)
@@ -1196,18 +1250,18 @@ UTEST(fs, a_file_open_for_writing_refuses_a_savestate)
         ASSERT_TRUE(fresh_cwd());
         int w = ssys_open(cases[i].path, O_WR | O_CREAT_);
         ASSERT_TRUE(w >= 0);
-        static uint8_t blob[STD_SST_SIZE];
-        sst_cursor_t c = {blob, blob + sizeof blob, false};
-        std_sst_save(&c, cases[i].flags);
+        static uint8_t blob[STD_SST_MAX];
+        sst_cursor_t c = {blob, blob + std_sst.size, false, NULL};
+        std_sst.save(&c, cases[i].flags);
         ASSERT_FALSE(sst_ok(&c));
         ASSERT_EQ(ssys_close(w), 0);
-        c = (sst_cursor_t){blob, blob + sizeof blob, false};
-        std_sst_save(&c, cases[i].flags);
+        c = (sst_cursor_t){blob, blob + std_sst.size, false, NULL};
+        std_sst.save(&c, cases[i].flags);
         ASSERT_TRUE(sst_ok(&c));
     }
 }
 
-static uint8_t g_blob[STD_SST_SIZE];
+static uint8_t g_blob[STD_SST_MAX];
 static int g_save_fd, g_plain_fd;
 
 /* A save and a plain file, each open with its position partway in, are
@@ -1226,8 +1280,8 @@ static bool take_two_files(unsigned flags, sst_cursor_t *c)
     if (g_save_fd < 0 || g_plain_fd < 0 ||
         ssys_read(g_save_fd, buf, 2) != 2 || ssys_read(g_plain_fd, buf, 3) != 3)
         return false;
-    *c = (sst_cursor_t){g_blob, g_blob + sizeof g_blob, false};
-    std_sst_save(c, flags);
+    *c = (sst_cursor_t){g_blob, g_blob + std_sst.size, false, NULL};
+    std_sst.save(c, flags);
     if (!sst_ok(c) || !fresh_cwd())
         return false;
     make_file("SAVE:slot.sav", "abcdefgh", 8);
@@ -1238,8 +1292,8 @@ UTEST(fs, a_savestate_reopens_a_save_by_its_name)
 {
     sst_cursor_t c;
     ASSERT_TRUE(take_two_files(0, &c));
-    sst_cursor_t r = {g_blob, c.at, false};
-    ASSERT_TRUE(std_sst_load(&r, 0));
+    sst_cursor_t r = {g_blob, c.at, false, NULL};
+    ASSERT_TRUE(std_sst.load(&r, 0));
 
     char buf[4] = {0};
     ASSERT_EQ(ssys_read(g_save_fd, buf, 2), 2);
@@ -1252,14 +1306,227 @@ UTEST(fs, a_shared_savestate_carries_saves_and_closes_host_files)
 {
     sst_cursor_t c;
     ASSERT_TRUE(take_two_files(SST_SHARED, &c));
-    sst_cursor_t r = {g_blob, c.at, false};
-    ASSERT_TRUE(std_sst_load(&r, SST_SHARED));
+    sst_cursor_t r = {g_blob, c.at, false, NULL};
+    ASSERT_TRUE(std_sst.load(&r, SST_SHARED));
 
     char buf[4] = {0};
     ASSERT_EQ(ssys_read(g_save_fd, buf, 2), 2);
     ASSERT_EQ(memcmp(buf, "cd", 2), 0);
     ASSERT_TRUE(ssys_read(g_plain_fd, buf, 1) < 0);
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_EBADF));
+}
+
+/* ---------------- descriptors as POSIX has them ---------------- */
+
+/* A chain starts with the console on 0, 1 and 2, so a file opens on 3, and a
+ * closed 0 is the lowest free descriptor after that. */
+UTEST(fs, open_takes_the_lowest_free_descriptor)
+{
+    ASSERT_TRUE(fresh_cwd());
+    make_file("a.txt", "abc", 3);
+    ASSERT_EQ(ssys_open("a.txt", O_RD), 3);
+    ASSERT_EQ(ssys_close(0), 0);
+    ASSERT_EQ(ssys_open("a.txt", O_RD), 0);
+    ASSERT_EQ(ssys_open("CON:0", O_RD | O_WR), 4);
+}
+
+/* Two descriptors of one open file share its position, and the file stays
+ * open until the last of them is closed. */
+UTEST(fs, a_dup_shares_the_position_and_the_last_close_closes)
+{
+    ASSERT_TRUE(fresh_cwd());
+    make_file("a.txt", "abcdef", 6);
+    int f = ssys_open("a.txt", O_RD);
+    int d = ssys_dup(f);
+    ASSERT_EQ(d, f + 1);
+    char buf[4] = {0};
+    ASSERT_EQ(ssys_read(f, buf, 2), 2);
+    ASSERT_EQ(ssys_read(d, buf, 2), 2);
+    ASSERT_EQ(memcmp(buf, "cd", 2), 0);
+    ASSERT_EQ(ssys_close(f), 0);
+    ASSERT_EQ(ssys_read(d, buf, 2), 2);
+    ASSERT_EQ(memcmp(buf, "ef", 2), 0);
+    ASSERT_EQ(ssys_close(d), 0);
+    ASSERT_TRUE(ssys_read(d, buf, 1) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EBADF));
+    ASSERT_TRUE(ssys_dup(d) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EBADF));
+}
+
+/* dup2 closes what is on its target first, gives the target the same open
+ * file, and does nothing to a descriptor put on itself. */
+UTEST(fs, dup2_replaces_what_is_on_the_target)
+{
+    ASSERT_TRUE(fresh_cwd());
+    make_file("a.txt", "abc", 3);
+    make_file("b.txt", "xyz", 3);
+    int a = ssys_open("a.txt", O_RD);
+    int b = ssys_open("b.txt", O_RD);
+    ASSERT_EQ(ssys_dup2(a, b), b);
+    char buf[2] = {0};
+    ASSERT_EQ(ssys_read(b, buf, 1), 1);
+    ASSERT_EQ(buf[0], 'a');
+    ASSERT_EQ(ssys_read(a, buf, 1), 1);
+    ASSERT_EQ(buf[0], 'b');
+    ASSERT_EQ(ssys_dup2(a, a), a);
+    ASSERT_EQ(ssys_dup2(a, 0), 0);
+    ASSERT_EQ(ssys_read(0, buf, 1), 1);
+    ASSERT_EQ(buf[0], 'c');
+    ASSERT_TRUE(ssys_dup2(a, 16) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EBADF));
+    ASSERT_TRUE(ssys_dup2(15, a) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EBADF));
+}
+
+/* Eight files of the filesystem, SAVE: among them, are open at once on every
+ * machine. A dup is no more files, and sixteen descriptors are all there is. */
+UTEST(fs, eight_files_and_sixteen_descriptors)
+{
+    ASSERT_TRUE(fresh_cwd());
+    make_file("a.txt", "abc", 3);
+    int f[8];
+    for (int i = 0; i < 8; i++)
+    {
+        f[i] = ssys_open(i < 4 ? "a.txt" : "SAVE:a.sav", i < 4 ? O_RD : O_WR | O_CREAT_);
+        ASSERT_TRUE(f[i] >= 0);
+    }
+    ASSERT_TRUE(ssys_open("a.txt", O_RD) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EMFILE));
+    ASSERT_TRUE(ssys_open("CON:", O_RD) >= 0);
+    for (int i = 0; i < 4; i++)
+        ASSERT_TRUE(ssys_dup(f[0]) >= 0);
+    ASSERT_TRUE(ssys_dup(f[0]) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EMFILE));
+    ASSERT_EQ(ssys_close(f[7]), 0);
+    ASSERT_EQ(ssys_open("a.txt", O_RD), f[7]);
+}
+
+/* isatty is 1 for the console wherever it is, 0 for a file, and an error
+ * for a closed descriptor. */
+UTEST(fs, isatty_tells_the_console_from_a_file)
+{
+    ASSERT_TRUE(fresh_cwd());
+    make_file("a.txt", "abc", 3);
+    ASSERT_EQ(ssys_isatty(0), 1);
+    ASSERT_EQ(ssys_isatty(2), 1);
+    int f = ssys_open("a.txt", O_RD);
+    ASSERT_EQ(ssys_isatty(f), 0);
+    ASSERT_EQ(ssys_dup2(f, 1), 1);
+    ASSERT_EQ(ssys_isatty(1), 0);
+    int t = ssys_open("TTY:", O_RD);
+    ASSERT_EQ(ssys_isatty(t), 1);
+    ASSERT_EQ(ssys_close(t), 0);
+    ASSERT_TRUE(ssys_isatty(t) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EBADF));
+}
+
+/* An open SAVE: file, which is the running program's own, refuses an exec;
+ * a plain file and the console pass to the next program. */
+UTEST(fs, a_save_file_open_refuses_an_exec)
+{
+    ASSERT_TRUE(fresh_cwd());
+    make_file("a.txt", "abc", 3);
+    int f = ssys_open("a.txt", O_RD);
+    ASSERT_FALSE(std_exec_refused());
+    int s = ssys_open("SAVE:a.sav", O_WR | O_CREAT_);
+    ASSERT_TRUE(std_exec_refused());
+    ASSERT_EQ(ssys_dup2(s, 0), 0);
+    ASSERT_EQ(ssys_close(s), 0);
+    ASSERT_TRUE(std_exec_refused());
+    ASSERT_EQ(ssys_close(0), 0);
+    ASSERT_FALSE(std_exec_refused());
+    ssys_close(f);
+}
+
+/* Whether path opens as a console that takes a write, closed again. */
+static bool opens_as_console(const char *path)
+{
+    int fd = ssys_open(path, O_RD | O_WR);
+    if (fd < 0)
+        return false;
+    bool wrote = ssys_write(fd, "", 0) == 0;
+    ssys_close(fd);
+    return wrote;
+}
+
+/* CON:0, CON:1 and CON:2 are the waiting console; no other number is. */
+UTEST(fs, con_takes_0_1_or_2)
+{
+    ASSERT_TRUE(fresh_cwd());
+    ASSERT_TRUE(opens_as_console("CON:0"));
+    ASSERT_TRUE(opens_as_console("CON:1"));
+    ASSERT_TRUE(opens_as_console("CON:2"));
+    ASSERT_TRUE(ssys_open("CON:3", O_RD | O_WR) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOENT));
+    ASSERT_TRUE(ssys_open("CON:12", O_RD | O_WR) < 0);
+}
+
+/* The end of a chain closes every file and puts the console back. */
+UTEST(fs, the_end_of_a_chain_puts_the_console_back)
+{
+    ASSERT_TRUE(fresh_cwd());
+    make_file("a.txt", "abc", 3);
+    int f = ssys_open("a.txt", O_RD);
+    ASSERT_EQ(ssys_dup2(f, 1), 1);
+    ASSERT_EQ(ssys_close(2), 0);
+    std_reset();
+    char buf[1];
+    ASSERT_TRUE(ssys_read(f, buf, 1) < 0);
+    ASSERT_EQ(ssys_write(1, "", 0), 0);
+    ASSERT_EQ(ssys_write(2, "", 0), 0);
+    ASSERT_EQ(ssys_open("a.txt", O_RD), 3);
+}
+
+/* A savestate carries which descriptors share an open file, so after a load
+ * they still share its position. */
+UTEST(fs, a_savestate_keeps_two_descriptors_on_one_file)
+{
+    ASSERT_TRUE(fresh_cwd());
+    make_file("a.txt", "abcdef", 6);
+    int f = ssys_open("a.txt", O_RD);
+    ASSERT_EQ(ssys_dup2(f, 0), 0);
+    char buf[2] = {0};
+    ASSERT_EQ(ssys_read(f, buf, 1), 1);
+    sst_cursor_t c = {g_blob, g_blob + std_sst.size, false, NULL};
+    std_sst.save(&c, 0);
+    ASSERT_TRUE(sst_ok(&c));
+    std_reset();
+    sst_cursor_t r = {g_blob, c.at, false, NULL};
+    ASSERT_TRUE(std_sst.load(&r, 0));
+    ASSERT_EQ(ssys_read(0, buf, 1), 1);
+    ASSERT_EQ(buf[0], 'b');
+    ASSERT_EQ(ssys_read(f, buf, 1), 1);
+    ASSERT_EQ(buf[0], 'c');
+    ASSERT_TRUE(ssys_write(1, "", 0) == 0);
+}
+
+/* A load that fails partway closes what it reopened before the failure:
+ * otherwise PCM:, which only one descriptor may hold, would stay open with
+ * nothing to close it, and every open of it after would be refused. */
+UTEST(fs, a_failed_load_closes_what_it_reopened)
+{
+    ASSERT_TRUE(fresh_cwd());
+    make_file("a.txt", "abc", 3);
+    int pcm = ssys_open("PCM:22050,16,1", O_WR);
+    ASSERT_TRUE(pcm >= 0);
+    int f = ssys_open("a.txt", O_RD);
+    ASSERT_TRUE(f > pcm);
+    ASSERT_EQ(ssys_close(pcm), 0);
+    pcm = ssys_open("PCM:22050,16,1", O_WR);
+    ASSERT_TRUE(pcm >= 0);
+    sst_cursor_t c = {g_blob, g_blob + std_sst.size, false, NULL};
+    std_sst.save(&c, 0);
+    ASSERT_TRUE(sst_ok(&c));
+    std_reset();
+    char p[512];
+    snprintf(p, sizeof p, "%s/a.txt", host_dir());
+    ASSERT_EQ(remove(p), 0);
+    sst_cursor_t r = {g_blob, c.at, false, NULL};
+    ASSERT_FALSE(std_sst.load(&r, 0));
+    std_reset();
+    pcm = ssys_open("PCM:22050,16,1", O_WR);
+    ASSERT_TRUE(pcm >= 0);
+    ASSERT_EQ(ssys_close(pcm), 0);
 }
 
 UTEST_MAIN()

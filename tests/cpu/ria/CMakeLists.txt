@@ -1,8 +1,8 @@
 set(ASM_REF ${CMAKE_CURRENT_BINARY_DIR}/asm_ref.bin)
 add_custom_command(OUTPUT ${ASM_REF}
-    COMMAND ${RP6502_TEST_PYTHON}
+    COMMAND ${RP6502_PYTHON}
         ${CMAKE_CURRENT_LIST_DIR}/asm_ref.py --emit-bin ${ASM_REF}
-    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/asm_ref.py ${RP6502_TEST_LIB_FILES}
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/asm_ref.py ${RP6502_PYTHON_LIBS}
     COMMENT "Assembling the reference image"
     VERBATIM)
 add_custom_target(asm_ref DEPENDS ${ASM_REF})
@@ -10,11 +10,11 @@ rp6502_add_test(asm SOURCES test_asm.cpp DEFS ASM_REF="${ASM_REF}")
 add_dependencies(test_asm asm_ref)
 
 add_test(NAME asm_opcodes
-    COMMAND ${RP6502_TEST_PYTHON} ${RP6502_TEST_LIB}/rp6502_asm.py --check)
+    COMMAND ${RP6502_PYTHON} ${RP6502_TEST_LIB}/rp6502_asm.py --check)
 set_tests_properties(asm_opcodes PROPERTIES LABELS "gate;cpu.ria")
 
 add_test(NAME rom_tool
-    COMMAND ${RP6502_TEST_PYTHON}
+    COMMAND ${RP6502_PYTHON}
         ${CMAKE_CURRENT_LIST_DIR}/rom_tool_check.py
         --scratch ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(rom_tool PROPERTIES LABELS "gate;cpu.ria")
@@ -87,28 +87,12 @@ set_source_files_properties(${RP6502_VENDOR}/fatfs/ffunicode.c
     "ff_oem2uni=ref_oem2uni;ff_uni2oem=ref_uni2oem;ff_wtoupper=ref_wtoupper")
 
 set_source_files_properties(${RP6502_GEN}/layout_db.c PROPERTIES GENERATED TRUE)
+set(LAYOUT_TEST_DEFS PICO_PROGRAM_NAME="RP6502-FPGA" RP6502_LOCALE=EN RP6502_EXFAT=0)
 rp6502_add_test(layout
     SOURCES test_layout.c ${RP6502_SRC}/core/hid/layout.c ${RP6502_GEN}/layout_db.c
-    INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC} ${RP6502_GEN})
+    INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC} ${RP6502_GEN}
+    DEFS ${LAYOUT_TEST_DEFS})
 add_dependencies(test_layout rp6502_gen_c)
-
-if(TARGET rp6502_gen_assets)
-    rp6502_add_test(unicode_bin
-        SOURCES test_unicode.c ${RP6502_SRC}/core/str/unicode.c unicode_bin.c
-            ${RP6502_VENDOR}/fatfs/ffunicode.c
-        INCLUDES ${RP6502_SRC} ${RP6502_VENDOR} ${RP6502_GEN}
-        DEFS UNICODE_OEM_BIN_PATH="${RP6502_ASSETS}/unicode_oem.bin")
-    add_dependencies(test_unicode_bin rp6502_gen_c rp6502_gen_assets)
-    set_source_files_properties(${RP6502_VENDOR}/fatfs/ffunicode.c
-        TARGET_DIRECTORY test_unicode_bin PROPERTIES COMPILE_DEFINITIONS
-        "ff_oem2uni=ref_oem2uni;ff_uni2oem=ref_uni2oem;ff_wtoupper=ref_wtoupper")
-
-    rp6502_add_test(layout_bin
-        SOURCES test_layout.c ${RP6502_SRC}/core/hid/layout.c layout_bin.c
-        INCLUDES ${RP6502_SRC} ${RP6502_GEN}
-        DEFS LAYOUT_DB_BIN_PATH="${RP6502_ASSETS}/layout_db.bin")
-    add_dependencies(test_layout_bin rp6502_gen_c rp6502_gen_assets)
-endif()
 
 if(COMMAND rp6502_add_machine_test)
     rp6502_add_machine_test(hello TIMEOUT 120)
@@ -127,6 +111,19 @@ else()
         TIMEOUT 60)
 endif()
 
+if(COMMAND rp6502_add_machine_test)
+    if(RP6502_SOFT_CPU)
+        rp6502_add_machine_test(exitop FIRMWARE
+            SOURCES test_exitop.cpp ${RP6502_BENCH}/mut_rtl.cpp
+            TIMEOUT 900)
+    endif()
+else()
+    rp6502_add_test(exitop LIBS emu_core
+        SOURCES test_exitop.cpp ${RP6502_BENCH}/mut_emu.c
+        INCLUDES ${RP6502_BENCH}
+        TIMEOUT 60)
+endif()
+
 if(RP6502_SOFT_CPU)
     rp6502_add_machine_test(rom FIRMWARE TIMEOUT 900)
 endif()
@@ -136,8 +133,11 @@ if(TARGET rp6502-emu)
     rp6502_add_script_test(NAME args COMMAND argv.py)
     rp6502_add_script_test(NAME argv COMMAND argv.py)
     rp6502_add_script_test(NAME exec_long COMMAND argv.py)
+    rp6502_add_script_test(NAME exec_passes_descriptors COMMAND fds.py)
     rp6502_add_script_test(NAME canvas COMMAND canvas.py)
     rp6502_add_script_test(NAME chain COMMAND chain.py)
+    rp6502_add_script_test(NAME chain_quit COMMAND chain.py)
+    rp6502_add_script_test(NAME chain_break COMMAND chain.py)
     rp6502_add_script_test(NAME clk COMMAND clk.py)
     rp6502_add_script_test(NAME eof_empty COMMAND stdio.py)
     rp6502_add_script_test(NAME seed COMMAND seed.py)

@@ -3,38 +3,52 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * MTIME is the soft CPU's microsecond counter. host_clock_us reads the high
- * word, the low word and the high word again, so a carry between the reads
- * never produces a torn value.
+ * MTIME is the machine's microsecond counter, which stands still while
+ * the machine is held and which a savestate carries. UPTIME counts real
+ * microseconds and nothing stops it. Each is read as the high word, the
+ * low word and the high word again, so a carry between the reads never
+ * produces a torn value.
  *
- * Wall time comes from command 0x0090, which the host sends once at core
- * boot with the local time in seconds since 1970 and which sets RTC_VALID.
- * The command has no time zone field, so the UTC offset from the interact
- * menu converts that local reading to the UTC the API returns.
+ * Wall time is the RTC reading plus UPTIME since boot, so it follows real
+ * time through a save's hold and a load. The RTC reading comes from
+ * command 0x0090, which the host sends once at core boot with the local
+ * time in seconds since 1970 and which sets RTC_VALID. The command has no
+ * time zone field, so the UTC offset from the interact menu converts that
+ * local reading to the UTC the API returns.
  */
 
+#include "core/sys/div64.h"
 #include "mmio.h"
 
-#include "main.h"
+#include "tim.h"
 
-#include "core/api/tim.h"
+#include "core/tim/tim.h"
+#include "core/sys/sst.h"
 
 #include "host/host.h"
 #include "osal/os.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
 
-uint64_t host_clock_us(void)
+static uint64_t tim_read(volatile const uint32_t *lo_reg,
+                         volatile const uint32_t *hi_reg)
 {
     uint32_t hi, lo;
     do
     {
-        hi = MTIME_HI;
-        lo = MTIME_LO;
-    } while (hi != MTIME_HI);
+        hi = *hi_reg;
+        lo = *lo_reg;
+    } while (hi != *hi_reg);
     return ((uint64_t)hi << 32) | lo;
+}
+
+uint64_t host_clock_us(void)
+{
+    return tim_read(&MTIME_LO, &MTIME_HI);
+}
+
+static uint64_t tim_uptime_us(void)
+{
+    return tim_read(&UPTIME_LO, &UPTIME_HI);
 }
 
 #define TIM_DEFAULT_EPOCH 43200
@@ -44,19 +58,19 @@ static int64_t tim_local_boot;
 static int64_t tim_base_sec;
 static uint64_t tim_base_us;
 
-/* Only an offset is set for the zone, so the zone's name in the TZ string is
- * the offset in angle brackets, "<-0700>+7:00" for UTC-7. The name is written
- * east positive. The offset after it is west positive, because a POSIX offset
- * is the amount added to local time to get UTC, as in PST8 for UTC-8. */
+/* Only an offset is set for the zone, so the zone's name is the offset,
+ * east positive: "-0700" for UTC-7. */
+static char tim_zone_name[6];
+
 static void tim_apply_tz(void)
 {
-    char tz[24];
-    int32_t west = -tim_tz_min;
-    snprintf(tz, sizeof tz, "<%+03ld%02ld>%+ld:%02ld",
-             (long)(tim_tz_min / 60), labs((long)(tim_tz_min % 60)),
-             (long)(west / 60), labs((long)(west % 60)));
-    setenv("TZ", tz, 1);
-    tzset();
+    const int32_t min = tim_tz_min < 0 ? -tim_tz_min : tim_tz_min;
+    tim_zone_name[0] = tim_tz_min < 0 ? '-' : '+';
+    tim_zone_name[1] = (char)('0' + min / 600 % 10);
+    tim_zone_name[2] = (char)('0' + min / 60 % 10);
+    tim_zone_name[3] = (char)('0' + min % 60 / 10);
+    tim_zone_name[4] = (char)('0' + min % 10);
+    tim_zone_name[5] = 0;
 }
 
 void tim_init(void)
@@ -64,11 +78,9 @@ void tim_init(void)
     tim_local_boot = RTC_VALID ? (int64_t)RTC_EPOCH : TIM_DEFAULT_EPOCH;
     tim_tz_min = set_tz_minutes();
     tim_base_sec = tim_local_boot - (int64_t)tim_tz_min * 60;
-    tim_base_us = host_clock_us();
+    tim_base_us = tim_uptime_us();
     tim_apply_tz();
 }
-
-void tim_stop(void) {}
 
 /* A program cannot set the time, so recomputing tim_base_sec from
  * tim_local_boot when the offset changes discards nothing. */
@@ -81,45 +93,46 @@ void tim_set_tz_minutes(int32_t min)
     tim_apply_tz();
 }
 
-bool tim_get_time(struct timespec *ts)
+bool tim_get_time(tim_spec_t *ts)
 {
-    uint64_t us = host_clock_us() - tim_base_us;
-    ts->tv_sec = tim_base_sec + (int64_t)(us / 1000000u);
-    ts->tv_nsec = (long)(us % 1000000u) * 1000;
+    uint64_t us = tim_uptime_us() - tim_base_us;
+    uint32_t into;
+    ts->sec = tim_base_sec + (int64_t)div64(us, 1000000, &into);
+    ts->nsec = into * 1000;
     return true;
 }
 
-bool tim_set_time(const struct timespec *ts)
+bool tim_set_time(const tim_spec_t *ts)
 {
     (void)ts;
     return false;
 }
 
-void tim_get_time_res(struct timespec *ts)
+/* The Pocket's zone is one offset, the year round. */
+void tim_zone(int64_t utc, tim_zone_t *zone)
 {
-    ts->tv_sec = 0;
-    ts->tv_nsec = 1000;
+    (void)utc;
+    zone->offset = tim_tz_min * 60;
+    zone->dst = false;
+    zone->name = tim_zone_name;
 }
 
-bool tim_gmtime(time_t t, struct tm *out)
+/* The words of the C locale. The Pocket has no setting for its language,
+ * and the strings of core/str would bring every one of them, in every
+ * language, into its firmware. */
+const char *tim_word(tim_word_t word)
 {
-    return gmtime_r(&t, out) != NULL;
+    return tim_c_word(word);
 }
 
-bool tim_localtime(time_t t, struct tm *out)
+/* A savestate's load puts mtime back where it stood at the save. The wall
+ * time is this session's and does not move with it. */
+void tim_clock_set(uint64_t us)
 {
-    return localtime_r(&t, out) != NULL;
+    MTIME_LO = (uint32_t)us;
+    MTIME_HI = (uint32_t)(us >> 32);
 }
 
-size_t tim_strftime(char *dst, size_t max, const char *format,
-                    const struct tm *tm)
-{
-    return strftime(dst, max, format, tm);
-}
-
-/* MTIME stops only while the soft CPU is halted at its debug port for a
- * savestate, when no firmware runs, and a restore writes back the value it
- * had when the blob was made. */
 uint64_t os_mono_ns(void)
 {
     return host_clock_us() * 1000;
@@ -130,8 +143,23 @@ uint32_t os_random(void)
     return RTC_VALID ? (uint32_t)RTC_EPOCH : 0;
 }
 
+bool host_minimized(void)
+{
+    return false;
+}
+
 static uint32_t seed;
 static bool seed_taken;
+
+#define TIM_POCKET_SST(X)                                               \
+    X(SKIP, tim_tz_min, "wall time, which is this session's")           \
+    X(SKIP, tim_local_boot)                                             \
+    X(SKIP, tim_base_sec)                                               \
+    X(SKIP, tim_base_us)                                                \
+    X(SKIP, tim_zone_name)                                              \
+    X(SKIP, seed, "taken once from the RTC for this session")           \
+    X(SKIP, seed_taken)
+SST_TABLE(tim_pocket, TIM_POCKET_SST)
 
 uint32_t host_seed(void)
 {

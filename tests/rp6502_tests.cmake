@@ -24,29 +24,17 @@ set(RP6502_TEST_ROM_DIR ${CMAKE_BINARY_DIR}/roms)
 set(RP6502_TEST_CORPUS ${RP6502_TEST_ROM_DIR})
 
 # The Python files of the tests import the assembler and the test runner
-# from lib, and rp6502 from tools. PYTHONPATH separates folders with ; on
-# Windows and with : on other hosts.
+# from lib, which RP6502_PYTHON gives them.
 set(RP6502_TEST_LIB ${RP6502_TESTS_DIR}/lib)
-if(CMAKE_HOST_WIN32)
-    set(RP6502_TEST_PYTHONPATH "${RP6502_TEST_LIB}$<SEMICOLON>${RP6502_ROOT}/tools")
-else()
-    set(RP6502_TEST_PYTHONPATH "${RP6502_TEST_LIB}:${RP6502_ROOT}/tools")
-endif()
-set(RP6502_TEST_PYTHON ${CMAKE_COMMAND} -E env
-    PYTHONPATH=${RP6502_TEST_PYTHONPATH} PYTHONDONTWRITEBYTECODE=1 python3)
-set(RP6502_TEST_LIB_FILES
-    ${RP6502_TEST_LIB}/rp6502_asm.py
-    ${RP6502_TEST_LIB}/rp6502_rom.py
-    ${RP6502_ROOT}/tools/rp6502.py)
 
 if(NOT TARGET rp6502_test_corpus)
     set(RP6502_CORPUS_GEN ${RP6502_TESTS_DIR}/cpu/vga/vidmodes.py)
     add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/roms.stamp
-        COMMAND ${RP6502_TEST_PYTHON}
+        COMMAND ${RP6502_PYTHON}
             ${RP6502_CORPUS_GEN} --out ${RP6502_TEST_CORPUS}
             --emit-manifest ${RP6502_TEST_CORPUS}/manifest.txt
         COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_BINARY_DIR}/roms.stamp
-        DEPENDS ${RP6502_CORPUS_GEN} ${RP6502_TEST_LIB_FILES}
+        DEPENDS ${RP6502_CORPUS_GEN} ${RP6502_PYTHON_LIBS}
         COMMENT "Generating the video-mode ROM corpus"
         VERBATIM)
     add_custom_target(rp6502_test_corpus DEPENDS ${CMAKE_BINARY_DIR}/roms.stamp)
@@ -73,9 +61,9 @@ function(rp6502_test_roms target file)
         set(${var}_ROM ${path} PARENT_SCOPE)
     endforeach()
     add_custom_command(OUTPUT ${outputs}
-        COMMAND ${RP6502_TEST_PYTHON} ${RP6502_TESTS_DIR}/${file}
+        COMMAND ${RP6502_PYTHON} ${RP6502_TESTS_DIR}/${file}
             --emit ${RP6502_TEST_ROM_DIR}
-        DEPENDS ${RP6502_TESTS_DIR}/${file} ${RP6502_TEST_LIB_FILES}
+        DEPENDS ${RP6502_TESTS_DIR}/${file} ${RP6502_PYTHON_LIBS}
         COMMENT "Assembling the ROMs of ${file}"
         VERBATIM)
     add_custom_target(${target} DEPENDS ${outputs})
@@ -84,7 +72,7 @@ endfunction()
 
 rp6502_test_roms(aud_roms cpu/aud/aud.py
     psg psg_pre opl opl_exit opl_init opl_spread opl_flat opl_overruns bel bel_off
-    opl_bel pcm pcm_rules pcm_order pcm_dry aud_sst aud_snoop)
+    opl_bel pcm pcm_rules pcm_order pcm_dry aud_sst aud_sst_odd)
 rp6502_test_roms(dir_roms cpu/fs/dir.py dir)
 rp6502_test_roms(drive_roms cpu/fs/drive.py drive)
 rp6502_test_roms(execrel_roms cpu/fs/execrel.py execrel)
@@ -95,22 +83,24 @@ rp6502_test_roms(gamepad_roms cpu/hid/gamepad.py gamepad gamepad_bounds)
 rp6502_test_roms(keyboard_roms cpu/hid/keyboard.py keyboard)
 rp6502_test_roms(pointer_roms cpu/hid/pointer.py mouse tablet)
 rp6502_test_roms(argv_roms cpu/ria/argv.py argv)
-rp6502_test_roms(chain_roms cpu/ria/chain.py launcher child)
+rp6502_test_roms(chain_roms cpu/ria/chain.py launcher child waiter waitlaunch)
 rp6502_test_roms(clk_roms cpu/ria/clk.py clk)
 rp6502_test_roms(seed_roms cpu/ria/seed.py seed)
 rp6502_test_roms(exec_roms cpu/ria/exec.py exec)
+rp6502_test_roms(fds_roms cpu/ria/fds.py fds fds_child)
 rp6502_test_roms(sigint_roms cpu/ria/sigint.py sigint)
 rp6502_test_roms(stdio_roms cpu/ria/stdio.py stdio)
 rp6502_test_roms(strftime_roms cpu/ria/strftime.py strftime)
 rp6502_test_roms(tty_keys_roms cpu/ria/tty_keys.py tty_keys)
+rp6502_test_roms(smooth_roms cpu/term/smooth.py
+    smooth_full smooth_box smooth_snow smooth_split smooth_forty)
 rp6502_test_roms(tty_pipe_roms cpu/ria/tty_pipe.py tty_pipe)
 rp6502_test_roms(zeroread_roms cpu/ria/zeroread.py zeroread)
 rp6502_test_roms(vsync_roms cpu/vga/vsync.py vsync)
 rp6502_test_roms(bigfile_roms host/pocket/bigfile.py bigfile)
 rp6502_test_roms(probe_roms host/pocket/probe.py probe)
 rp6502_test_roms(wakeclk_roms host/pocket/wakeclk.py wakeclk)
-rp6502_test_roms(sleepasset_roms host/pocket/sleepasset.py
-    sleepasset-a sleepasset-b)
+rp6502_test_roms(sleepasset_roms host/pocket/sleepasset.py sleepasset)
 rp6502_test_roms(sleepfile_roms host/pocket/sleepfile.py sleepfile)
 
 # rp6502_add_script_test(NAME <name> COMMAND <file> [<arg>...]
@@ -148,8 +138,7 @@ function(rp6502_add_script_test)
         add_test(NAME script.${S_NAME}
             COMMAND ${CMAKE_COMMAND} -E env RP6502_EMU=$<TARGET_FILE:rp6502-emu>
                 RP6502_ROMS=${RP6502_TEST_ROM_DIR}
-                PYTHONPATH=${RP6502_TEST_PYTHONPATH} PYTHONDONTWRITEBYTECODE=1
-                python3 ${file} ${S_NAME} --save-dir ${_work} ${args})
+                ${RP6502_PYTHON} ${file} ${S_NAME} --save-dir ${_work} ${args})
     else()
         add_test(NAME script.${S_NAME}
             COMMAND rp6502-emu --save-dir ${_work} --script ${file} ${args})
@@ -178,7 +167,8 @@ function(rp6502_add_test name)
         set(T_SOURCES test_${name}.c)
     endif()
 
-    list(APPEND T_SOURCES ${RP6502_BENCH}/tb_seed.c ${RP6502_SRC}/core/sys/crc32.c)
+    list(APPEND T_SOURCES ${RP6502_BENCH}/tb_seed.c ${RP6502_BENCH}/tb_version.c
+        ${RP6502_SRC}/core/sys/crc32.c)
     if(NOT T_SINK)
         list(APPEND T_SOURCES ${RP6502_BENCH}/tb_log.c)
     endif()

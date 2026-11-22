@@ -5,6 +5,7 @@
  */
 
 #include "osal/console.h"
+#include "core/sys/sst.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -26,6 +27,15 @@ static bool con_ended;
 /* Which signal asked to end the process, so the exit can be that same signal.
  * A volatile sig_atomic_t because a signal handler writes it. */
 static volatile sig_atomic_t con_break_sig;
+
+/* The host's terminal, not the machine's. */
+#define OSAL_CON_SST(X)                                                   \
+    X(SKIP, con_saved)                                                    \
+    X(SKIP, con_raw)                                                      \
+    X(SKIP, con_raw_on)                                                   \
+    X(SKIP, con_ended)                                                    \
+    X(SKIP, con_break_sig)
+SST_TABLE(osal_con, OSAL_CON_SST)
 
 static bool con_same_file(int a, int b)
 {

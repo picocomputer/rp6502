@@ -44,6 +44,31 @@ static gamepad_xram_t gamepad_reports[GAMEPAD_MAX_PLAYERS];
 
 static gamepad_connection_t gamepad_connections[GAMEPAD_MAX_PLAYERS];
 
+/* An address that would put the reports past the end of XRAM would have the
+ * next publish write past it. */
+static bool gamepad_xram_check(sst_cursor_t *c)
+{
+    if (gamepad_xram > 0x10000 - sizeof gamepad_reports &&
+        gamepad_xram != 0xFFFF)
+        return sst_refuse(c, "gamepad block past the end of XRAM");
+    return true;
+}
+
+/* A report stands on its own, because a host that decodes its own controller
+ * writes the feature bits straight into one rather than keeping a connection
+ * to read them from. The connections describe what is plugged in now, which
+ * the host announces again after a load. */
+#define GAMEPAD_REPORT_ROWS(Y, r)                           \
+    Y(U8, r.dpad) Y(U8, r.sticks) Y(U8, r.button0)          \
+    Y(U8, r.button1) Y(U8, r.lx) Y(U8, r.ly) Y(U8, r.rx)    \
+    Y(U8, r.ry) Y(U8, r.lt) Y(U8, r.rt)
+#define GAMEPAD_SST(X)                                      \
+    X(U16, gamepad_xram)                                    \
+    X(STRUCTS, gamepad_reports, GAMEPAD_REPORT_ROWS)        \
+    X(VALIDATE, gamepad_xram_check)                         \
+    X(SKIP, gamepad_connections)
+SST_TABLE(gamepad, GAMEPAD_SST)
+
 static inline void gamepad_swap_buttons(gamepad_connection_t *conn, int b0, int b1)
 {
     uint16_t temp = conn->button_offsets[b0];
@@ -326,7 +351,7 @@ static void gamepad_distill(
     conn->features |= GAMEPAD_FEAT_CONNECTED;
 }
 
-static uint8_t gamepad_encode_stick(int8_t x, int8_t y)
+static uint8_t HOST_IN_RAM_FUNC gamepad_encode_stick(int8_t x, int8_t y)
 {
     if (x >= -GAMEPAD_DEADZONE && x <= GAMEPAD_DEADZONE &&
         y >= -GAMEPAD_DEADZONE && y <= GAMEPAD_DEADZONE)
@@ -354,7 +379,7 @@ static uint8_t gamepad_encode_stick(int8_t x, int8_t y)
     return result;
 }
 
-static void gamepad_parse_report(int player, uint8_t const *data, uint16_t report_len, gamepad_xram_t *report)
+static void HOST_IN_RAM_FUNC gamepad_parse_report(int player, uint8_t const *data, uint16_t report_len, gamepad_xram_t *report)
 {
     memset(report, 0, sizeof(gamepad_xram_t));
 
@@ -412,7 +437,7 @@ static void gamepad_parse_report(int player, uint8_t const *data, uint16_t repor
     if (conn->hat_size == 4 && conn->hat_max - conn->hat_min == 7)
     {
         // A HID hat runs clockwise from north; these are the direction bits.
-        static const uint8_t hat_to_gamepad[] = {1, 9, 8, 10, 2, 6, 4, 5};
+        static const uint8_t HOST_IN_RAM hat_to_gamepad[] = {1, 9, 8, 10, 2, 6, 4, 5};
         uint32_t raw_hat = hid_extract_bits(data, report_len, conn->hat_offset, conn->hat_size);
         unsigned index = raw_hat - conn->hat_min;
         if (index < 8)
@@ -445,7 +470,7 @@ static void gamepad_parse_report(int player, uint8_t const *data, uint16_t repor
         report->button1 |= (1 << 1);
 }
 
-void HOST_IN_FLASH("gamepad_init") gamepad_init(void)
+void HOST_IN_FLASH_FUNC gamepad_init(void)
 {
     gamepad_stop();
 }
@@ -455,61 +480,12 @@ void gamepad_stop(void)
     gamepad_xram = 0xFFFF;
 }
 
-static void gamepad_publish(int player)
+static void HOST_IN_RAM_FUNC gamepad_publish(int player)
 {
     if (gamepad_xram == 0xFFFF)
         return;
     memcpy((uint8_t *)&xram[gamepad_xram + player * (sizeof(gamepad_xram_t))],
            &gamepad_reports[player], sizeof(gamepad_xram_t));
-}
-
-void gamepad_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    sst_put_u16(c, gamepad_xram);
-    for (int p = 0; p < GAMEPAD_MAX_PLAYERS; p++)
-    {
-        const gamepad_xram_t *r = &gamepad_reports[p];
-        sst_put_u8(c, r->dpad);
-        sst_put_u8(c, r->sticks);
-        sst_put_u8(c, r->button0);
-        sst_put_u8(c, r->button1);
-        sst_put_u8(c, (uint8_t)r->lx);
-        sst_put_u8(c, (uint8_t)r->ly);
-        sst_put_u8(c, (uint8_t)r->rx);
-        sst_put_u8(c, (uint8_t)r->ry);
-        sst_put_u8(c, r->lt);
-        sst_put_u8(c, r->rt);
-    }
-}
-
-/* The XRAM address is assigned rather than passed to gamepad_xreg, because
- * that would blank all four reports before the saved ones are put back. */
-bool gamepad_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    uint16_t at = sst_get_u16(c);
-    gamepad_xram_t in[GAMEPAD_MAX_PLAYERS];
-    for (int p = 0; p < GAMEPAD_MAX_PLAYERS; p++)
-    {
-        in[p].dpad = sst_get_u8(c);
-        in[p].sticks = sst_get_u8(c);
-        in[p].button0 = sst_get_u8(c);
-        in[p].button1 = sst_get_u8(c);
-        in[p].lx = (int8_t)sst_get_u8(c);
-        in[p].ly = (int8_t)sst_get_u8(c);
-        in[p].rx = (int8_t)sst_get_u8(c);
-        in[p].ry = (int8_t)sst_get_u8(c);
-        in[p].lt = sst_get_u8(c);
-        in[p].rt = sst_get_u8(c);
-    }
-    if (!sst_ok(c))
-        return false;
-    gamepad_xram = at;
-    memcpy(gamepad_reports, in, sizeof gamepad_reports);
-    for (int p = 0; p < GAMEPAD_MAX_PLAYERS; p++)
-        gamepad_publish(p);
-    return true;
 }
 
 /* A report of nothing but the connection's feature bits, published when the
@@ -520,7 +496,7 @@ static void gamepad_reset_xram(int player)
     gamepad_publish(player);
 }
 
-bool gamepad_xreg(uint16_t word)
+bool HOST_IN_FLASH_FUNC gamepad_xreg(uint16_t word)
 {
     bool mapped = word <= 0x10000 - sizeof(gamepad_xram_t) * GAMEPAD_MAX_PLAYERS;
     gamepad_xram = mapped ? word : 0xFFFF;
@@ -567,7 +543,7 @@ bool gamepad_mount(int slot, const gamepad_connection_t *desc,
     return false;
 }
 
-int gamepad_get_player_num(int slot)
+int HOST_IN_RAM_FUNC gamepad_get_player_num(int slot)
 {
     for (int i = 0; i < GAMEPAD_MAX_PLAYERS; i++)
         if (gamepad_connections[i].slot == slot && gamepad_connections[i].valid)
@@ -586,7 +562,7 @@ bool gamepad_umount(int slot)
     return true;
 }
 
-void gamepad_report(int slot, uint8_t const *data, uint16_t len)
+void HOST_IN_RAM_FUNC gamepad_report(int slot, uint8_t const *data, uint16_t len)
 {
     int player = gamepad_get_player_num(slot);
     if (player < 0)
@@ -607,7 +583,7 @@ void gamepad_report(int slot, uint8_t const *data, uint16_t len)
     gamepad_publish(player);
 }
 
-void gamepad_home_button(int slot, bool pressed)
+void HOST_IN_RAM_FUNC gamepad_home_button(int slot, bool pressed)
 {
     int player = gamepad_get_player_num(slot);
     if (player < 0)

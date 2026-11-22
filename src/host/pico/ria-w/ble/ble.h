@@ -28,8 +28,11 @@ bool ble_is_pairing(void);
 // Sends LED info to keyboards
 void ble_set_hid_leds(uint8_t leds);
 
-// Turn off BLE, will restart if not disabled
+// Starts turning BLE off; ble_task finishes once HCI is off. BLE then starts
+// again unless it is disabled.
 void ble_shutdown(void);
+bool ble_is_off(void);
+void ble_flashing(void);
 
 // Status command printer
 int ble_status_response(char *buf, size_t buf_size, int state, unsigned width);
@@ -43,7 +46,10 @@ int ble_enabled_response(char *buf, size_t buf_size, int state, unsigned width);
 #define BLE_CONFIG_ENABLED CONFIG_INT(B, ble, enabled, uint8_t, 1, \
     ble_check_enabled, ble_apply_enabled, STR_BLE, ble_enabled_response, \
     STR_HELP_SET_BLE, NULL)
-#define BLE_DRIVER DRIVER(ble_init, ble_task, nul_task, nul_run, nul_stop, nul_break, \
-    BLE_CONFIG_ENABLED, nul_config, nul_sst)
+#define BLE_DRIVER DRIVER( \
+    INIT(ble_init)         \
+    TASK_PUMPED(ble_task)  \
+    FLASHING(ble_flashing) \
+    BLE_CONFIG_ENABLED)
 
 #endif /* _RIA_W_BLE_BLE_H_ */

@@ -61,6 +61,54 @@ static void run_case(int *utest_result, const char *name, uint32_t expect,
         ASSERT_EQ((int)b, (int)claim);
 }
 
+/* A smooth scroll, drawn frame by frame. Frames in a row that are the same
+ * are one picture, so the boot, which takes a different number of frames on
+ * each machine, falls away. The scroll's pictures, between the one it starts
+ * from and the one it lands on, each last per_step frames; there are steps
+ * of them, and the CRC of their CRCs and the landed picture's is pinned. */
+static void run_smooth(int *utest_result, const char *name, int steps, int per_step,
+                       uint32_t expect)
+{
+    enum
+    {
+        FRAMES = 100
+    };
+    int w, h;
+    ASSERT_TRUE(corpus_size(name, &w, &h));
+    const size_t px = (size_t)w * (size_t)h;
+    char path[256];
+    snprintf(path, sizeof(path), "%s/%s.rp6502", ROMS_DIR, name);
+    ASSERT_TRUE(mut_boot(path));
+    static uint32_t crcs[FRAMES];
+    static int runs[FRAMES];
+    int n = 0;
+    for (int f = 0; f < FRAMES; f++)
+    {
+        uint32_t c = host_crc32(0, mut_frame(w, h), px * sizeof(uint32_t));
+        if (n && crcs[n - 1] == c)
+            runs[n - 1]++;
+        else
+        {
+            crcs[n] = c;
+            runs[n++] = 1;
+        }
+    }
+    /* The landed picture holds to the end, and before the scroll's
+     * pictures is the one it started from, which held while it waited. */
+    ASSERT_GT(runs[n - 1], per_step);
+    int moving = 0;
+    while (moving < n - 1 && runs[n - 2 - moving] == per_step)
+        moving++;
+    ASSERT_LT(moving, n - 1);
+    ASSERT_GT(runs[n - 2 - moving], per_step);
+    ASSERT_EQ(moving, steps);
+    uint32_t got = host_crc32(0, &crcs[n - 1 - moving], (size_t)(moving + 1) * sizeof(uint32_t));
+    if (getenv("RP6502_BLESS_CRC"))
+        printf("    0x%08X,  /* %s */\n", got, name);
+    else
+        ASSERT_EQ(got, expect);
+}
+
 /* The reference frame is pinned by CRC and the frame under test has to match
  * it pixel for pixel, which names the first pixel that is off. run_case leaves
  * the reference's frame in settled, so only the frame under test boots here. */
@@ -165,6 +213,65 @@ UTEST(mode2, bpp1_8px_ytrim_320x180)
     run_case(utest_result, "mode2_trimy", 0x70ABB716, MUT_BUDGET_NONE);
 }
 
+/* Custom sizes, packed rows that start on a new byte. 24 pixels at 1bpp and
+ * 12 at 2bpp fill whole bytes; 20 and 4 at 1bpp end part way into one. */
+UTEST(mode2, custom_24_1bpp_320x240)
+{
+    run_case(utest_result, "mode2_c24_1bpp", 0xA17B5847, MUT_BUDGET_NONE);
+}
+
+UTEST(mode2, custom_24_4bpp_640x480)
+{
+    run_case(utest_result, "mode2_c24_4bpp", 0x00233A1A, MUT_BUDGET_NONE);
+}
+
+UTEST(mode2, custom_20x12_1bpp_320x240)
+{
+    run_case(utest_result, "mode2_c20x12_1bpp", 0x6E7F4548, MUT_BUDGET_NONE);
+}
+
+UTEST(mode2, custom_12x28_2bpp_320x240)
+{
+    run_case(utest_result, "mode2_c12x28_2bpp", 0x068FAFA5, MUT_BUDGET_NONE);
+}
+
+UTEST(mode2, custom_4_8bpp_wrap_320x180)
+{
+    run_case(utest_result, "mode2_c4_8bpp", 0xC08078B6, MUT_BUDGET_NONE);
+}
+
+UTEST(mode2, custom_64_8bpp_320x240)
+{
+    run_case(utest_result, "mode2_c64_8bpp", 0xE5045373, MUT_BUDGET_NONE);
+}
+
+/* Doubling draws a tile's pixel 2 wide, 2 high, or both. The map starts at an
+ * odd column, so the first doubled pixel is cut in half. */
+UTEST(mode2, hdouble_4bpp_8px_320x240)
+{
+    run_case(utest_result, "mode2_hdbl_4bpp8", 0x6A9AC35D, MUT_BUDGET_NONE);
+}
+
+UTEST(mode2, vdouble_2bpp_16px_trimmed_320x240)
+{
+    run_case(utest_result, "mode2_vdbl_2bpp16trim", 0x1A9E5203, MUT_BUDGET_NONE);
+}
+
+UTEST(mode2, double_custom_24_1bpp_wrap_640x480)
+{
+    run_case(utest_result, "mode2_dbl_c24_1bpp", 0xC655D2EE, MUT_BUDGET_NONE);
+}
+
+UTEST(mode2, hdouble_8bpp_xtrim_320x240)
+{
+    run_case(utest_result, "mode2_hdbl_trim8bpp", 0xC5BCF402, MUT_BUDGET_NONE);
+}
+
+UTEST(mode2, hdouble_custom_4_1bpp_320x180)
+{
+    run_case(utest_result, "mode2_hdbl_c4_1bpp", 0x959B8BFA, MUT_BUDGET_NONE);
+}
+
 /* The tile pointer is not checked when the mode is programmed, because mode 2
  * does not require a full tile set in XRAM. The last tiles here are addressed
  * past the end, so this pins the tile both the renderer and mode2.sv leave
@@ -172,6 +279,50 @@ UTEST(mode2, bpp1_8px_ytrim_320x180)
 UTEST(mode2, tile_off_the_end_320x240)
 {
     run_case(utest_result, "mode2_tileoob", 0xD03C4762, MUT_BUDGET_NONE);
+}
+
+/* A layer that does not wrap and lies wholly off the canvas draws nothing, so
+ * each of these frames is the blank canvas. */
+#define BLANK320_CRC 0x8D083400
+
+UTEST(mode1, off_left_320x240)
+{
+    run_pair(utest_result, "mode1_offleft", "blank320", BLANK320_CRC);
+}
+
+UTEST(mode2, off_left_320x240)
+{
+    run_pair(utest_result, "mode2_offleft_4bpp", "blank320", BLANK320_CRC);
+    run_pair(utest_result, "mode2_offleft_8bpp", "blank320", BLANK320_CRC);
+    run_pair(utest_result, "mode2_offleft_trim", "blank320", BLANK320_CRC);
+}
+
+UTEST(mode3, off_canvas_320x240)
+{
+    run_pair(utest_result, "mode3_offleft_1bpp", "blank320", BLANK320_CRC);
+    run_pair(utest_result, "mode3_offleft_16bpp", "blank320", BLANK320_CRC);
+    run_pair(utest_result, "mode3_offright_4bpp", "blank320", BLANK320_CRC);
+}
+
+/* A layer whose size is under 1 pixel or over 32767 draws nothing. */
+UTEST(mode1, size_out_of_range_320x240)
+{
+    run_pair(utest_result, "mode1_size_zero_h", "blank320", BLANK320_CRC);
+    run_pair(utest_result, "mode1_size_zero_w", "blank320", BLANK320_CRC);
+    run_pair(utest_result, "mode1_size_neg_w", "blank320", BLANK320_CRC);
+    run_pair(utest_result, "mode1_size_neg_h", "blank320", BLANK320_CRC);
+}
+
+UTEST(mode2, size_out_of_range_320x240)
+{
+    run_pair(utest_result, "mode2_size_zero_h", "blank320", BLANK320_CRC);
+    run_pair(utest_result, "mode2_size_zero_w", "blank320", BLANK320_CRC);
+    run_pair(utest_result, "mode2_size_neg_w", "blank320", BLANK320_CRC);
+}
+
+UTEST(mode3, size_out_of_range_320x240)
+{
+    run_pair(utest_result, "mode3_size_zero_h", "blank320", BLANK320_CRC);
 }
 
 UTEST(mode3, bpp8_xram_palette_640x480)
@@ -192,6 +343,11 @@ UTEST(mode3, three_bpp8_fills_serial_640x480)
 UTEST(mode1, three_bpp8_8x8_text_planes_640x480)
 {
     run_case(utest_result, "text_three640", 0x982FCF90, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode0, console_over_two_text_planes_640x480)
+{
+    run_case(utest_result, "text_term640", 0x5BC1F518, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode3, three_bpp16_fills_serial_640x480)
@@ -218,6 +374,79 @@ UTEST(mode3, two_bpp16_planes_of_opposite_byte_parity_640x480)
 UTEST(mode3, bpp16_odd_data_wrap_640x360)
 {
     run_case(utest_result, "mode3_16odd_wrap", 0xFA27DA4F, MUT_BUDGET_NONE);
+}
+
+/* Each doubled bitmap draws what the same picture doubled before it is drawn
+ * does: odd positions cut the first doubled pixel in half, odd widths end a
+ * row part way into a byte, and the wraps fold at twice the size. */
+UTEST(mode3, dbl_1bpp_matches_doubled_bitmap_320x240)
+{
+    run_pair(utest_result, "mode3_dbl_1bpp", "mode3_dbl_1bpp_ref", 0x59E617EC);
+}
+
+UTEST(mode3, hdbl_2bpp_reversed_wrap_matches_doubled_bitmap_320x240)
+{
+    run_pair(utest_result, "mode3_hdbl_2bppr", "mode3_hdbl_2bppr_ref", 0xF1A897B1);
+}
+
+UTEST(mode3, vdbl_4bpp_wrap_matches_doubled_bitmap_320x240)
+{
+    run_pair(utest_result, "mode3_vdbl_4bpp", "mode3_vdbl_4bpp_ref", 0x064B98AC);
+}
+
+UTEST(mode3, hdbl_4bpp_reversed_matches_doubled_bitmap_320x240)
+{
+    run_pair(utest_result, "mode3_hdbl_4bppr", "mode3_hdbl_4bppr_ref", 0x91312121);
+}
+
+UTEST(mode3, dbl_8bpp_wrap_matches_doubled_bitmap_640x480)
+{
+    run_pair(utest_result, "mode3_dbl_8bpp_wrap", "mode3_dbl_8bpp_wrap_ref",
+             0x42A43F2E);
+}
+
+UTEST(mode3, dbl_16bpp_wrap_matches_doubled_bitmap_320x180)
+{
+    run_pair(utest_result, "mode3_dbl_16bpp", "mode3_dbl_16bpp_ref", 0xDECC35F4);
+}
+
+/* 20000 pixels fit an int16_t, and 40000 doubled do not. */
+UTEST(mode3, dbl_size_out_of_range_320x240)
+{
+    run_pair(utest_result, "mode3_dbl_size_w", "blank320", BLANK320_CRC);
+}
+
+/* Two lines of an upward scroll on the 80-column terminal: a scanline a
+ * frame, fifteen pictures a line on the way and the one it lands on. */
+UTEST(mode0, smooth_scroll_up_640x480)
+{
+    run_smooth(utest_result, "mode0_smooth_up640", 31, 1, 0xC8785F4F);
+}
+
+/* Two lines of a downward scroll on the 40-column terminal: a scanline every
+ * second frame, seven pictures a line on the way and the one it lands on. */
+UTEST(mode0, smooth_scroll_down_320x240)
+{
+    run_smooth(utest_result, "mode0_smooth_down320", 15, 2, 0x4DE10E86);
+}
+
+/* Lines said faster than a smooth scroll moves them wait for it, and none of
+ * their bytes are lost on the way: four scrolls of sixteen frames, and then
+ * the picture they land on. */
+UTEST(mode0, smooth_scroll_flood_640x480)
+{
+    const char *name = "mode0_smooth_flood640";
+    char path[256];
+    snprintf(path, sizeof(path), "%s/%s.rp6502", ROMS_DIR, name);
+    ASSERT_TRUE(mut_boot(path));
+    for (int f = 0; f < 4 * 16 + 60; f++)
+        mut_frame(640, 480);
+    ASSERT_TRUE(settle(settled, 640, 480));
+    uint32_t got = host_crc32(0, settled, 640 * 480 * sizeof(uint32_t));
+    if (getenv("RP6502_BLESS_CRC"))
+        printf("    0x%08X,  /* %s */\n", got, name);
+    else
+        ASSERT_EQ(got, 0x30794435u);
 }
 
 UTEST(mode3, bpp1_builtin_320x240)
@@ -444,37 +673,77 @@ UTEST(mode4, long_list_one_on_the_row_320x240)
 
 UTEST(mode0, overlay_windowed_640x480)
 {
-    run_case(utest_result, "mode0_overlay", 0x3AE0CA64, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_overlay", 0x3AE0CA64, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, defaults_640x360)
 {
-    run_case(utest_result, "mode0_win360", 0x51B1630D, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_win360", 0x51B1630D, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, forty_column_320x240)
 {
-    run_case(utest_result, "mode0_win240", 0x0B292E81, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_win240", 0x0B292E81, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, forty_column_320x180)
 {
-    run_case(utest_result, "mode0_win180", 0x33775BC1, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_win180", 0x33775BC1, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, forty_column_320x200)
 {
-    run_case(utest_result, "mode0_win200", 0x8BBE101A, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_win200", 0x8BBE101A, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, defaults_640x400)
 {
-    run_case(utest_result, "mode0_win400", 0x267E530C, MUT_BUDGET_NONE);
+    run_case(utest_result, "mode0_win400", 0x267E530C, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, console_return_restores_vsync_line)
 {
     run_case(utest_result, "mode0_return", 0x4D27B447, MUT_BUDGET_NONE);
+}
+
+UTEST(mode0, double_size_lines_640x480)
+{
+    run_case(utest_result, "mode0_dbl640", 0xFC26F94F, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode0, double_size_lines_320x240)
+{
+    run_case(utest_result, "mode0_dbl320", 0x755D87BF, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode0, reverse_screen_640x480)
+{
+    run_case(utest_result, "mode0_rev640", 0xEFBC7BF6, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode0, reverse_screen_320x240)
+{
+    run_case(utest_result, "mode0_rev320", 0x109371F8, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode0, wrap_on_a_double_width_row_640x480)
+{
+    run_case(utest_result, "mode0_wrap640", 0x3A9DBBA2, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode0, wrap_on_a_double_width_row_320x240)
+{
+    run_case(utest_result, "mode0_wrap320", 0x119D062C, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode0, underlines_and_colors_640x480)
+{
+    run_case(utest_result, "mode0_lines640", 0xC67D21CE, MUT_BUDGET_UNDER);
+}
+
+UTEST(mode0, underlines_and_colors_320x240)
+{
+    run_case(utest_result, "mode0_lines320", 0xD86E55AB, MUT_BUDGET_UNDER);
 }
 
 UTEST(prog, bands_switch_modes_on_one_plane_320x240)

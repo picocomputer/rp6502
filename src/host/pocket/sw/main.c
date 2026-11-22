@@ -5,29 +5,28 @@
  */
 
 #include "core/api/xreg.h"
+#include "core/com/com.h"
 #include "drivers.h"
 
 #include "apf.h"
 #include "cfg.h"
-#include "com.h"
-#include "font.h"
-#include "main.h"
+#include "tim.h"
 #include "mmio.h"
 #include "fs.h"
 #include "proc.h"
 #include "rom.h"
+#include "sleep.h"
 #include "core/rom/rom.h"
 #include "vga.h"
 #include "vid.h"
-#include "wake.h"
 #include "core/api/api.h"
 #include "core/api/attr.h"
-#include "core/api/clk.h"
+#include "core/tim/clk.h"
 #include "core/api/proc.h"
 #include "osal/dir.h"
 #include "core/api/std.h"
-#include "core/api/tim.h"
-#include "core/str/unicode.h"
+#include "core/tim/tim.h"
+#include "core/com/manifold.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
 #include "core/hid/layout.h"
@@ -36,81 +35,40 @@
 #include "core/hid/tablet.h"
 #include "core/sys/sys.h"
 #include "core/sys/debug_log.h"
-#include "core/str/rln.h"
+#include "core/com/rln.h"
 #include "core/sys/pix.h"
-#include "core/term/term.h"
+#include "core/term/cells.h"
 
 
 #include <stdint.h>
+#include <stdio.h>
 
-size_t com_rx_reclaim(char *buf, size_t length, com_source_t src)
+/* The C library's stdout and stderr are the console. */
+static int main_stdio_putc(char c, FILE *f)
 {
-    (void)buf;
-    (void)length;
-    (void)src;
-    return 0;
+    (void)f;
+    /* A session's end, still waiting for the program's output, goes out
+     * ahead of what the firmware prints. */
+    com_end_now();
+    return manifold_putchar((unsigned char)c);
 }
 
-int com_rx_peek(com_source_t src)
-{
-    (void)src;
-    return -1;
-}
-
-static bool ria_sigint;
-
-void ria_trigger_sigint(void)
-{
-    ria_sigint = true;
-}
-
-bool ria_get_sigint(void)
-{
-    bool latched = ria_sigint;
-    ria_sigint = false;
-    return latched;
-}
+static FILE main_stdio = FDEV_SETUP_STREAM(main_stdio_putc, NULL, NULL,
+                                           _FDEV_SETUP_WRITE);
+FILE *const stdout = &main_stdio;
+FILE *const stderr = &main_stdio;
 
 static uint8_t main_upd_seen;
 
-bool sys_break(void)
-{
-    return false;
-}
+/* A start of the staged ROM asked for and not yet made. The boot asks for
+ * the first one. */
+static bool main_restaging;
 
-bool sys_break_to_launcher(void)
-{
-    if (!proc_has_launcher() || proc_is_launcher())
-        return false;
-    api_set_ax(0xFFFF);
-    sys_stop();
-    return true;
-}
-
-static void main_stage(void);
-
-static bool main_wake_pending;
-
-static bool main_boot_declined;
-
-bool main_boot_wake;
-uint32_t main_boot_slot;
-uint8_t main_boot_upd;
-
-void main_restored(void)
-{
-    main_wake_pending = false;
-    main_upd_seen = (uint8_t)MMIO_UPD_N;
-    MMIO_SLOT = 0;
-}
-
-void main_wake_failed(void)
-{
-    if (!main_boot_declined)
-        return;
-    main_boot_declined = false;
-    main_stage();
-}
+#define MAIN_SST(X)                                                     \
+    X(SKIP, main_stdio)                                                 \
+    X(SKIP, main_upd_seen, "the host's ROM requests, not the machine's")  \
+    X(SKIP, main_restaging)
+SST_TABLE(main, MAIN_SST)
 
 static void main_stage(void)
 {
@@ -134,65 +92,66 @@ int main(void)
 {
     sys_init();
 
-    main_wake_pending = wake_pending();
-    main_boot_wake = main_wake_pending;
-    main_boot_declined = main_wake_pending;
-    main_boot_slot = MMIO_SLOT;
-    main_boot_upd = (uint8_t)MMIO_UPD_N;
-    if (!main_wake_pending)
-        main_stage();
     main_upd_seen = (uint8_t)MMIO_UPD_N;
+    main_restaging = true;
 
     for (;;)
     {
-        bool restage = false;
-
+        /* DROP is done in the fabric. EXIT holds the 6502 until
+         * proc_exit has it in reset. */
         if (API_PENDING)
         {
             API_PENDING = 0;
-            if (API_OP == 0x00)
-            {
-                xstack_ptr = XSTACK_SIZE;
-                api_return_ax(0);
-            }
-            else if (API_OP == 0xFF)
+            if (API_OP == 0xFF)
             {
                 proc_exit((int16_t)API_AX);
                 api_return_ax(0);
             }
         }
         sys_task();
-        sys_io_task();
-        /* The program is stopped as soon as a blob starts to arrive,
-         * because the restore replaces the machine's memory but not a
-         * file the program creates or truncates before the load. */
-        bool wake = wake_pending();
-        if (wake && !main_wake_pending)
-            sys_stop();
-        main_wake_pending = wake;
 
+        /* The host asks for a start by loading a ROM, which changes
+         * MMIO_UPD_N and MMIO_SLOT. The host of a wake sets both as well,
+         * so neither is acted on while a load is on its way, and a load
+         * that lands marks both as handled. */
+        bool wake = sleep_waking();
+        /* A new ROM is being written over the old one's file. The bitstream
+         * already holds the 6502; the program stops here and nothing
+         * starts until the image has landed and MMIO_SLOT says so. */
+        bool coming = ROM_COMING != 0;
         uint8_t upd = (uint8_t)MMIO_UPD_N;
-        if (upd != main_upd_seen && !main_wake_pending)
+        if (!wake && (MMIO_SLOT != 0 || upd != main_upd_seen))
         {
             main_upd_seen = upd;
-            restage = true;
-            sys_stop();
+            main_restaging = true;
         }
-        if (MMIO_SLOT && !main_wake_pending)
+        if ((main_restaging || coming) && !wake)
         {
-            restage = true;
+            proc_cancel_launcher();
             sys_stop();
         }
         sys_commit();
-        /* The restage starts after sys_commit rather than from a stop hook,
-         * because the stop hooks run only when a running machine is
-         * stopped, so a restage requested while the machine is already
-         * stopped would never start. */
-        if (!sys_active())
+        if (sleep_task())
         {
-            if (restage)
+            /* The wake's ROM is handled here, before the load is answered,
+             * and not after it is made: a load that fails can print for
+             * long enough that the host has loaded the next ROM by then. */
+            main_upd_seen = (uint8_t)MMIO_UPD_N;
+            MMIO_SLOT = 0;
+            main_restaging = false;
+            sleep_load();
+            continue;
+        }
+        /* The start comes after sys_commit rather than from a stop hook,
+         * because the stop hooks run only when a running machine is
+         * stopped, so a start asked for while the machine is already
+         * stopped would never be made. Nothing starts while a load is on
+         * its way, because the load replaces the machine. */
+        if (!sys_active() && !sleep_waking() && !coming)
+        {
+            if (main_restaging)
             {
-                com_putchar('\n');
+                main_restaging = false;
                 main_stage();
             }
             else if (proc_exec_take())

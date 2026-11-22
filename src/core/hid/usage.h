@@ -18,11 +18,14 @@
 #define _CORE_HID_USAGE_H_
 
 #define HID_KEY_NONE 0x00
+#define HID_KEY_A 0x04
+#define HID_KEY_Z 0x1D
 #define HID_KEY_ENTER 0x28
 #define HID_KEY_ESCAPE 0x29
 #define HID_KEY_BACKSPACE 0x2A
 #define HID_KEY_TAB 0x2B
 #define HID_KEY_SPACE 0x2C
+#define HID_KEY_SLASH 0x38
 #define HID_KEY_CAPS_LOCK 0x39
 #define HID_KEY_F1 0x3A
 #define HID_KEY_F2 0x3B
@@ -48,6 +51,10 @@
 #define HID_KEY_ARROW_DOWN 0x51
 #define HID_KEY_ARROW_UP 0x52
 #define HID_KEY_NUM_LOCK 0x53
+#define HID_KEY_KEYPAD_DIVIDE 0x54
+#define HID_KEY_KEYPAD_MULTIPLY 0x55
+#define HID_KEY_KEYPAD_SUBTRACT 0x56
+#define HID_KEY_KEYPAD_ADD 0x57
 #define HID_KEY_KEYPAD_ENTER 0x58
 #define HID_KEY_KEYPAD_1 0x59
 #define HID_KEY_KEYPAD_2 0x5A
@@ -60,6 +67,8 @@
 #define HID_KEY_KEYPAD_9 0x61
 #define HID_KEY_KEYPAD_0 0x62
 #define HID_KEY_KEYPAD_DECIMAL 0x63
+#define HID_KEY_KEYPAD_EQUAL 0x67
+#define HID_KEY_KEYPAD_COMMA 0x85
 #define HID_KEY_CONTROL_LEFT 0xE0
 
 /* The modifier byte of a keyboard report, and the lock lamps of its

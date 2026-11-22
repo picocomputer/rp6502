@@ -10,7 +10,6 @@
 #include "tb_asm.h"
 #include "tb_rom.h"
 #include "tb_stage.h"
-#include "tb_tcm.h"
 #include "utest.h"
 
 #include <cstdio>
@@ -25,20 +24,37 @@ static long a_next, s_next, g_sys;
 static uint32_t dt_pipe[2];
 static uint32_t g_dt[64];
 
+/* The host's side of the file commands, and where each piece comes from:
+ * - The commands, their parameters and result codes: Analogue's docs,
+ *   https://www.analogue.co/developer/docs/openfpga/host-target-commands
+ * - The handshake and the parameter and response structs: Analogue's
+ *   template, core_bridge_cmd.v in vendor/openfpga,
+ *   https://github.com/open-fpga/core-template
+ * - A relative name is a malformed path; a file is made only with the
+ *   create and resize bits both set, and the create bit alone answers
+ *   created and makes nothing; the struct's integers are read as whole
+ *   bridge words: measured on a Pocket, as the README tells it.
+ * - Flush, 0x0188: no reply, measured on the owner's Pocket; the core never
+ *   sends it.
+ * - The bytes a resize adds: not known. The model fills them with 0xA5
+ *   (our guess).
+ * - Reads served while a Memory is written: not modelled. A community
+ *   PlayStation core, https://github.com/GuardianSoul/openfpga-PlayStation,
+ *   reports the Pocket serves none then. */
 static std::map<std::string, std::vector<uint8_t>> g_files;
 static std::set<std::string> g_dirs;
 static std::string g_bound[16];
 static std::string g_console;
 static std::string g_rv;
-static int g_opens, g_reads, g_writes, g_flushes, g_getfiles;
+static int g_opens, g_reads, g_writes, g_getfiles;
 
 /* Each data slot request line from pocket_file is high for one clk_74a
  * cycle. The handlers clock the DUT through tick(), so tick() latches
  * each rising edge, and a request raised while a handler runs is served
  * by the next step(). */
-enum { REQ_NONE = 0, REQ_OPEN, REQ_FLUSH, REQ_GETFILE, REQ_READ, REQ_WRITE };
+enum { REQ_NONE = 0, REQ_OPEN, REQ_GETFILE, REQ_READ, REQ_WRITE };
 static int g_req, g_servicing;
-static int g_prev_r, g_prev_w, g_prev_o, g_prev_f, g_prev_g;
+static int g_prev_r, g_prev_w, g_prev_o, g_prev_g;
 
 static void tick()
 {
@@ -49,10 +65,7 @@ static void tick()
     {
         dut->clk_sys = 1;
         if ((g_sys & 1) == 0)
-        {
             dut->clk_vid = 1;
-            dut->clk_rv = 1;
-        }
     }
     if (aedge)
     {
@@ -72,12 +85,9 @@ static void tick()
 
     {
         int r = dut->tb_pocket_ds_read, w = dut->tb_pocket_ds_write,
-            o = dut->tb_pocket_ds_openfile, f = dut->tb_pocket_ds_flush,
-            g = dut->tb_pocket_ds_getfile;
+            o = dut->tb_pocket_ds_openfile, g = dut->tb_pocket_ds_getfile;
         if (o && !g_prev_o)
             g_req = REQ_OPEN;
-        else if (f && !g_prev_f)
-            g_req = REQ_FLUSH;
         else if (g && !g_prev_g)
             g_req = REQ_GETFILE;
         else if (r && !g_prev_r)
@@ -87,14 +97,12 @@ static void tick()
         g_prev_r = r;
         g_prev_w = w;
         g_prev_o = o;
-        g_prev_f = f;
         g_prev_g = g;
     }
     if (sedge)
     {
         dut->clk_sys = 0;
         dut->clk_vid = 0;
-        dut->clk_rv = 0;
         s_next += 330;
         g_sys++;
     }
@@ -286,15 +294,6 @@ static void do_slotwrite()
     target_done();
 }
 
-static void do_flush()
-{
-    dut->target_dataslot_done = 0;
-    g_flushes++;
-    for (int k = 0; k < 4; k++)
-        a_edge();
-    target_done();
-}
-
 static int g_getfile_seen;
 static int g_getfile_wrote;
 
@@ -331,7 +330,6 @@ static void step()
     switch (req)
     {
     case REQ_OPEN: do_openfile(); break;
-    case REQ_FLUSH: do_flush(); break;
     case REQ_GETFILE: do_getfile(); break;
     case REQ_READ: do_slotread(); break;
     default: do_slotwrite(); break;
@@ -367,7 +365,7 @@ static void boot(const std::vector<uint8_t> &rom, bool homeless)
         g_dirs.insert("/Saves/rp6502");
         g_dirs.insert("/Saves/rp6502/common");
     }
-    g_opens = g_reads = g_writes = g_flushes = g_getfiles = 0;
+    g_opens = g_reads = g_writes = g_getfiles = 0;
     memset(g_dt, 0, sizeof g_dt);
     for (auto &b : g_bound)
         b.clear();
@@ -386,12 +384,8 @@ static void boot(const std::vector<uint8_t> &rom, bool homeless)
     for (int i = 0; i < 40; i++)
         tick();
 
-    auto *r = dut->rootp;
-    tb_load_tcm(r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm0,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm1,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm2,
-                r->tb_pocket__DOT__core__DOT__machine__DOT__soc__DOT__tcm3,
-                SW_BIN);
+    tb_stage_poke_firmware(dut->rootp->tb_pocket__DOT__chip__DOT__mem,
+                           SW_BIN);
 
     dut->rst_n = 1;
     dut->arst_n = 1;
@@ -401,10 +395,6 @@ static void boot(const std::vector<uint8_t> &rom, bool homeless)
     for (int i = 0; i < 40000 && !dut->tb_pocket_ready; i++)
         tick();
 
-    std::vector<uint8_t> fonts = read_file(FONTS_BIN);
-    host_put_bytes(TB_STAGE_FONT_BASE, fonts.data(), fonts.size());
-    std::vector<uint8_t> oemcp = read_file(OEMCP_BIN);
-    host_put_bytes(TB_STAGE_OEMCP_BASE, oemcp.data(), oemcp.size());
     host_put_bytes(TB_STAGE_ROM_BASE, rom.data(), rom.size());
     dt_set(0, (uint32_t)rom.size());
     dut->rtc_epoch = 1000000000u;
@@ -443,10 +433,8 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
 
     if (g_console.find(want) == std::string::npos)
         fprintf(stderr,
-                "console: [%s] opens=%d reads=%d writes=%d flushes=%d "
-                "getfiles=%d\n",
-                g_console.c_str(), g_opens, g_reads, g_writes, g_flushes,
-                g_getfiles);
+                "console: [%s] opens=%d reads=%d writes=%d getfiles=%d\n",
+                g_console.c_str(), g_opens, g_reads, g_writes, g_getfiles);
     ASSERT_TRUE(g_console.find(want) != std::string::npos);
 
     size_t made = 0;
@@ -468,10 +456,6 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
     ASSERT_EQ(memcmp(f->data(), want.data(), want.size()), 0);
     ASSERT_GT(g_writes, 0);
     ASSERT_GT(g_reads, 0);
-    /* The ROM opens its file once for writing and once for reading, and
-     * it closes each descriptor without a sync. fs_std_close flushes only
-     * a descriptor opened for writing, so exactly one flush is sent. */
-    ASSERT_EQ(g_flushes, 1);
     ASSERT_EQ(g_getfiles, 1);
 
     teardown();
@@ -587,9 +571,13 @@ UTEST(pfile, a_read_is_not_answered_by_someone_elses_command)
     for (int u = 0; u < 64; u++)
         for (const char *c = "0123456789ABCDEF"; *c; c++)
             dat.push_back((uint8_t)*c);
-    g_files["/Assets/rp6502/common/probe.dat"] = dat;
+    g_files["/Saves/rp6502/common/probe.dat"] = dat;
 
-    for (long i = 0; i < 40000000L && g_console.size() < 4000; i++)
+    /* The open and the two Slot Reads that fill the file's window come
+     * before the 500th byte. After them the host sees no command, and the
+     * program reads the window over and over, rewinding at its end, three
+     * times in 1000 bytes. */
+    for (long i = 0; i < 40000000L && g_console.size() < 1000; i++)
         step();
 
     if (g_console.find("CROOKED") != std::string::npos
@@ -667,19 +655,79 @@ UTEST(pfile, a_seek_past_the_end_fills_the_gap_with_zeros)
     teardown();
 }
 
+/* The ROM reads four bytes at the start of a file, four at TWICE_AT, and
+ * the first four again. Every read has the host fill the file's window
+ * from its start, so the three reads are of the same four bytes of the
+ * SDRAM with a host write between them. */
+#define TWICE_AT 0x2000u
+
+static std::vector<uint8_t> twice_rom(void)
+{
+    tb_asm p;
+    p.push_str("twice.dat");
+    p.store(TB_API_A, 0x01); /* O_RDONLY */
+    p.call(0x14);            /* OP_OPEN */
+    p.sta(PFILE_FD);
+    for (int pass = 0; pass < 3; pass++)
+    {
+        if (pass)
+        {
+            p.pushl(pass == 1 ? TWICE_AT : 0);
+            p.push(2);              /* SEEK_SET in cc65's numbering */
+            pfile_fd_call(p, 0x1A); /* OP_LSEEK */
+        }
+        p.pushw(4);
+        pfile_fd_call(p, 0x16); /* OP_READ_XSTACK */
+        for (int i = 0; i < 4; i++)
+        {
+            p.lda_abs(TB_XSTACK);
+            p.putc_a();
+        }
+    }
+    for (const char *c = "\r\n"; *c; c++)
+    {
+        p.lda((uint8_t)*c);
+        p.putc_a();
+    }
+    p.stp();
+    return tb_rom_image(TB_ORG, p.b);
+}
+
+/* The look-ahead holds the line of the first read when the host writes
+ * the window again. The write throws the line away, so the second read
+ * is of the bytes the host just wrote. */
+UTEST(pfile, a_window_filled_again_is_read_again)
+{
+    boot(twice_rom(), false);
+    std::vector<uint8_t> f(TWICE_AT + 512, 0);
+    memcpy(f.data(), "old!", 4);
+    memcpy(f.data() + TWICE_AT, "new!", 4);
+    g_files["/Saves/rp6502/common/twice.dat"] = f;
+
+    for (long i = 0; i < 40000000L && g_console.find('\n') == std::string::npos;
+         i++)
+        step();
+    if (g_console != "old!new!old!\r\n")
+        fprintf(stderr, "console: [%s] opens=%d reads=%d\n", g_console.c_str(),
+                g_opens, g_reads);
+    ASSERT_TRUE(g_console == "old!new!old!\r\n");
+    /* The host filled the window for every read. */
+    ASSERT_EQ(g_reads, 3);
+    teardown();
+}
+
 /* The name starts with four .. segments, one more than the depth of the
- * working directory, and the last of them stays at the card root. '\'
- * separates as '/' does, so the name resolves to argv.rp6502 in the working
- * directory. */
+ * ROM folder, where an exec's relative path starts, and the last of them
+ * stays at the card root. '\' separates as '/' does, so the name resolves
+ * to argv.rp6502 in the ROM folder. */
 #define EXEC_NAME "..\\../../..\\Assets/rp6502/common/./argv.rp6502"
 
-static std::vector<uint8_t> exec_rom(void)
+static std::vector<uint8_t> exec_rom(const char *name)
 {
     tb_asm p;
     /* The argv block is one offset, the zero pair that ends the table, then
      * the name, all pushed from the end so that they land in reading
      * order. */
-    const char *name = EXEC_NAME;
     size_t n = strlen(name);
     p.push(0);
     while (n--)
@@ -691,11 +739,14 @@ static std::vector<uint8_t> exec_rom(void)
     return tb_rom_image(TB_ORG, p.b);
 }
 
-UTEST(pfile, an_exec_by_relative_path_records_where_the_rom_was)
+/* Runs argv.rp6502 from the ROM folder by an exec of name, and returns
+ * whether its argv[0] is the absolute path of the ROM. */
+static bool exec_finds_the_rom(const char *name)
 {
     std::vector<uint8_t> argv = read_file(ARGV_ROM);
-    ASSERT_GT(argv.size(), 0u);
-    boot(exec_rom(), false);
+    if (argv.empty())
+        return false;
+    boot(exec_rom(name), false);
     /* boot() only ticks the clocks and serves no request, so the file is in
      * place before the exec opens it. */
     g_files["/Assets/rp6502/common/argv.rp6502"] = argv;
@@ -704,8 +755,21 @@ UTEST(pfile, an_exec_by_relative_path_records_where_the_rom_was)
     for (long i = 0; i < 60000000L && g_console.find("]") == std::string::npos;
          i++)
         step();
-    if (g_console.find(want) == std::string::npos)
+    bool found = g_console.find(want) != std::string::npos;
+    if (!found)
         fprintf(stderr, "console: [%s]\n", g_console.c_str());
-    ASSERT_TRUE(g_console.find(want) != std::string::npos);
     teardown();
+    return found;
+}
+
+UTEST(pfile, an_exec_by_relative_path_records_where_the_rom_was)
+{
+    ASSERT_TRUE(exec_finds_the_rom(EXEC_NAME));
+}
+
+/* A relative path of an exec starts in the ROM folder, though the working
+ * directory is the saves folder, so a file name alone runs a ROM. */
+UTEST(pfile, an_exec_by_file_name_finds_the_rom_folder)
+{
+    ASSERT_TRUE(exec_finds_the_rom("argv.rp6502"));
 }

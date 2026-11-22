@@ -316,4 +316,36 @@ UTEST(freeze, a_stopped_core_is_restored_stopped)
     ASSERT_TRUE((int)dut->cpu_stp);
 }
 
+/* RDY high stalls a read cycle, so the fabric can hold the 6502 at the
+ * opcode fetch after the store that asks for it: no instruction runs while
+ * it is high, and the program goes on as before once it drops. */
+UTEST(freeze, rdy_holds_the_fetch_after_a_store)
+{
+    const std::vector<uint8_t> prog = {
+        0xA9, 0xFF,       // LDA #$FF
+        0x8D, 0x00, 0x02, // STA $0200
+        0xEE, 0x01, 0x02, // INC $0201
+        0x4C, 0x08, 0x40, // JMP *
+    };
+    load(0x4000, prog);
+    make_dut();
+    Cycle c;
+    do
+        c = step();
+    while (!(c.we && c.addr == 0x0200));
+    dut->rdy_i = 1;
+    for (int i = 0; i < 20; i++)
+    {
+        c = step();
+        ASSERT_FALSE(c.we);
+        ASSERT_EQ(c.addr, 0x4005);
+    }
+    ASSERT_EQ(mem[0x0201], 0);
+    dut->rdy_i = 0;
+    for (int i = 0; i < 20; i++)
+        step();
+    ASSERT_EQ(mem[0x0200], 0xFF);
+    ASSERT_EQ(mem[0x0201], 1);
+}
+
 UTEST_MAIN()

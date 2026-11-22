@@ -33,7 +33,9 @@
 // HCI_OUTGOING_PRE_BUFFER_SIZE and HCI_ACL_CHUNK_SIZE_ALIGNMENT are required
 // by pico_btstack_hci_transport_cyw43 (4-byte header, multiple-of-4 alignment).
 #define HCI_OUTGOING_PRE_BUFFER_SIZE 4
-#define HCI_ACL_PAYLOAD_SIZE (1691 + HCI_OUTGOING_PRE_BUFFER_SIZE)
+// BLE only: with Data Length Extension an LE ACL packet carries at most 251
+// bytes, its L2CAP header included.
+#define HCI_ACL_PAYLOAD_SIZE (251 + HCI_OUTGOING_PRE_BUFFER_SIZE)
 #define HCI_ACL_CHUNK_SIZE_ALIGNMENT 4
 
 #define MAX_NR_BTSTACK_LINK_KEY_DB_MEMORY_ENTRIES 4

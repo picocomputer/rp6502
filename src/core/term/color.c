@@ -15,12 +15,6 @@ const uint16_t color_2[2] = {
     SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(229, 229, 229), // 1  ANSI White
 };
 
-// The terminal resolves palette indices through its own copy of the palette
-// in RAM, because OSC 4 and OSC 104 change entries at run time. Colors are
-// resolved when a cell is written, so an OSC 4 does not recolor glyphs
-// already on screen.
-uint16_t color_256_term[256];
-
 // This is the ANSI color palette, not the web safe palette.
 // Index 0, Black, carries no alpha bit and renders transparent; index 16,
 // Grey0, has the same RGB and is opaque.

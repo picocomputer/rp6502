@@ -8,6 +8,7 @@
 #include "core/sys/config.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/resb.h"
+#include "machine.h"
 #include <pico/stdlib.h>
 #include <hardware/sync.h>
 
@@ -15,14 +16,14 @@ static volatile bool release_pending;
 
 static absolute_time_t hold_end;
 
-void __in_flash("resb_init") resb_init(void)
+void HOST_IN_FLASH_FUNC resb_init(void)
 {
     gpio_init(CPU_RESB_PIN);
     gpio_put(CPU_RESB_PIN, false);
     gpio_set_dir(CPU_RESB_PIN, GPIO_OUT);
 }
 
-void resb_assert(void)
+void HOST_IN_RAM_FUNC resb_assert(void)
 {
     /* resb_assert is called on both cores, on core 1 through act_loop. The
      * barrier makes release_pending false visible to resb_task on core 0
@@ -47,7 +48,7 @@ void resb_release(void)
 /* The PHI2 rate a program set is put back to the configured rate here rather
  * than in resb_assert, because resb_assert also runs on core 1 and every other
  * reclock runs on core 0 without a lock. */
-void resb_task(void)
+void HOST_IN_RAM_FUNC resb_task(void)
 {
     if (gpio_get(CPU_RESB_PIN))
         return;

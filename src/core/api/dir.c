@@ -7,6 +7,7 @@
  */
 
 #include "core/api/dir.h"
+#include "machine.h"
 
 #include <string.h>
 
@@ -75,10 +76,8 @@ void dir_stop(void)
  * than failing. */
 #define DIR_SLOT (API_PATH_MAX + 1)
 
-void dir_sst_save(sst_cursor_t *c, unsigned flags)
+static void dir_paths_put(sst_cursor_t *c, unsigned flags)
 {
-    for (int i = 0; i < DIR_MAX_OPEN; i++)
-        sst_put_i32(c, tells[i]);
     for (int i = 0; i < DIR_MAX_OPEN; i++)
     {
         char path[DIR_SLOT];
@@ -94,20 +93,16 @@ void dir_sst_save(sst_cursor_t *c, unsigned flags)
     sst_put_str(c, cwd, DIR_SLOT);
 }
 
-bool dir_sst_load(sst_cursor_t *c, unsigned flags)
+static bool dir_paths_get(sst_cursor_t *c, unsigned flags)
 {
-    int32_t at[DIR_MAX_OPEN];
-    for (int i = 0; i < DIR_MAX_OPEN; i++)
-        at[i] = sst_get_i32(c);
     bool open[DIR_MAX_OPEN];
-    char paths[DIR_MAX_OPEN][DIR_SLOT];
+    const char *paths[DIR_MAX_OPEN];
     for (int i = 0; i < DIR_MAX_OPEN; i++)
     {
         open[i] = sst_get_bool(c);
-        sst_get_str(c, paths[i], DIR_SLOT);
+        paths[i] = sst_view_str(c, DIR_SLOT);
     }
-    char cwd[DIR_SLOT];
-    sst_get_str(c, cwd, DIR_SLOT);
+    const char *cwd = sst_view_str(c, DIR_SLOT);
     if (!sst_ok(c))
         return false;
 
@@ -116,13 +111,11 @@ bool dir_sst_load(sst_cursor_t *c, unsigned flags)
      * SST_TRUSTED or SST_SHARED shares that process with something else. */
     api_errno err;
     if (!flags && cwd[0] && !drive_chdir(cwd, &err))
-        return false;
-
+        return sst_refuse(c, "the working directory is gone");
+    if (flags & SST_SHARED)
+        return true;
     for (int i = 0; i < DIR_MAX_OPEN; i++)
     {
-        tells[i] = at[i];
-        if (flags & SST_SHARED)
-            continue;
         if (!open[i])
         {
             if (drive_validate(i, &err))
@@ -130,19 +123,27 @@ bool dir_sst_load(sst_cursor_t *c, unsigned flags)
             continue;
         }
         if (!drive_reopendir(i, paths[i], &err))
-            return false;
+            return sst_refuse(c, "an open directory is gone");
         /* POSIX does not promise a host lists a directory in the same order
          * twice, so this winds to the same count and not to the same
          * entries. */
         f_stat_t info;
-        for (int32_t n = 0; n < at[i]; n++)
+        for (int32_t n = 0; n < tells[i]; n++)
             if (!drive_readdir(i, &info, &err) || !info.fname[0])
-                return false;
+                return sst_refuse(c, "an open directory has fewer entries");
     }
     return true;
 }
 
-bool dir_api_stat(void)
+/* The open directories themselves are the drive's, which keeps them in
+ * osal/<host>/dir.c; dir_paths_put names them. */
+#define DIR_SST(X)                                                        \
+    X(U32S, tells)                                                        \
+    X(FN, dir_paths_put, dir_paths_get,                                   \
+      DIR_MAX_OPEN * (1 + DIR_SLOT) + DIR_SLOT, 1)
+SST_TABLE(dir, DIR_SST)
+
+bool HOST_IN_FLASH_FUNC dir_api_stat(void)
 {
     api_errno err;
     const char *path = api_pop_path_end(&err);
@@ -153,7 +154,7 @@ bool dir_api_stat(void)
     return api_return_ax(0);
 }
 
-bool dir_api_opendir(void)
+bool HOST_IN_FLASH_FUNC dir_api_opendir(void)
 {
     const char *path = api_pop_str_end(API_PATH_MAX);
     int des;
@@ -164,7 +165,7 @@ bool dir_api_opendir(void)
     return api_return_ax((uint16_t)des);
 }
 
-bool dir_api_readdir(void)
+bool HOST_IN_FLASH_FUNC dir_api_readdir(void)
 {
     if (xstack_ptr != XSTACK_SIZE)
         return api_return_errno(API_EINVAL);
@@ -179,7 +180,7 @@ bool dir_api_readdir(void)
     return api_return_ax(0);
 }
 
-bool dir_api_closedir(void)
+bool HOST_IN_FLASH_FUNC dir_api_closedir(void)
 {
     int des = API_A;
     api_errno err;
@@ -188,7 +189,7 @@ bool dir_api_closedir(void)
     return dir_return(drive_closedir(des, &err), &err);
 }
 
-bool dir_api_telldir(void)
+bool HOST_IN_FLASH_FUNC dir_api_telldir(void)
 {
     int des = API_A;
     api_errno err;
@@ -197,7 +198,7 @@ bool dir_api_telldir(void)
     return api_return_axsreg((uint32_t)tells[des]);
 }
 
-bool dir_api_seekdir(void)
+bool HOST_IN_FLASH_FUNC dir_api_seekdir(void)
 {
     int des = API_A;
     int32_t loc;
@@ -225,7 +226,7 @@ bool dir_api_seekdir(void)
     return api_return_ax(0);
 }
 
-bool dir_api_rewinddir(void)
+bool HOST_IN_FLASH_FUNC dir_api_rewinddir(void)
 {
     int des = API_A;
     api_errno err;
@@ -237,14 +238,14 @@ bool dir_api_rewinddir(void)
     return api_return_ax(0);
 }
 
-bool dir_api_remove(void)
+bool HOST_IN_FLASH_FUNC dir_api_remove(void)
 {
     api_errno err;
     const char *path = api_pop_path_end(&err);
     return dir_return(path && drive_unlink(path, &err), &err);
 }
 
-bool dir_api_rename(void)
+bool HOST_IN_FLASH_FUNC dir_api_rename(void)
 {
     /* The xstack holds newname, then oldname, which is the reverse of the
      * order drive_rename takes them. */
@@ -258,7 +259,7 @@ bool dir_api_rename(void)
     return dir_return(drive_rename(oldname, newname, &err), &err);
 }
 
-bool dir_api_chmod(void)
+bool HOST_IN_FLASH_FUNC dir_api_chmod(void)
 {
     uint8_t mask = API_A;
     uint8_t attr;
@@ -269,7 +270,7 @@ bool dir_api_chmod(void)
     return dir_return(path && drive_chmod(path, attr, mask, &err), &err);
 }
 
-bool dir_api_utime(void)
+bool HOST_IN_FLASH_FUNC dir_api_utime(void)
 {
     /* All four fields are taken whether or not this drive stores creation
      * times, because the 6502 sent all four: crtime in the registers and the
@@ -285,14 +286,14 @@ bool dir_api_utime(void)
     return dir_return(path && drive_utime(path, &info, &err), &err);
 }
 
-bool dir_api_mkdir(void)
+bool HOST_IN_FLASH_FUNC dir_api_mkdir(void)
 {
     api_errno err;
     const char *path = api_pop_path_end(&err);
     return dir_return(path && drive_mkdir(path, &err), &err);
 }
 
-bool dir_api_chdir(void)
+bool HOST_IN_FLASH_FUNC dir_api_chdir(void)
 {
     api_errno err;
     const char *path = api_pop_path_end(&err);
@@ -301,7 +302,7 @@ bool dir_api_chdir(void)
 
 /* The drive writes the path at the bottom of the xstack; it is relocated to
  * the top so the 6502 pops it in order. */
-bool dir_api_getcwd(void)
+bool HOST_IN_FLASH_FUNC dir_api_getcwd(void)
 {
     if (xstack_ptr != XSTACK_SIZE)
         return api_return_errno(API_EINVAL);
@@ -324,14 +325,14 @@ static const char *dir_after_drive(const char *path)
     return colon && colon != path ? colon + 1 : NULL;
 }
 
-bool dir_api_setlabel(void)
+bool HOST_IN_FLASH_FUNC dir_api_setlabel(void)
 {
     const char *path = api_pop_str_end(API_PATH_MAX);
     api_errno err = API_EINVAL;
     return dir_return(dir_after_drive(path) && drive_setlabel(path, &err), &err);
 }
 
-bool dir_api_getlabel(void)
+bool HOST_IN_FLASH_FUNC dir_api_getlabel(void)
 {
     const char *path = api_pop_str_end(API_PATH_MAX);
     const char *rest = dir_after_drive(path);
@@ -347,7 +348,7 @@ bool dir_api_getlabel(void)
 
 /* The path goes back on the xstack while drive_getfree returns STD_PENDING,
  * because the op is dispatched again with it. */
-bool dir_api_getfree(void)
+bool HOST_IN_FLASH_FUNC dir_api_getfree(void)
 {
     size_t at = xstack_ptr;
     const char *path = api_pop_str_end(API_PATH_MAX);
