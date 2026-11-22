@@ -417,13 +417,16 @@ void draw_publish(void)
 
 // Every byte goes to the terminal, which follows it at both sizes, up to
 // one that has to wait for a smooth scroll still moving (term_holds), unless
-// force. A byte that comes while a job is pending finishes it first, and is
-// counted. Returns how many went. A cursor's blink starts again when a byte
-// moves it or changes how it looks: its style, or it coming back on.
+// force, or up to and with one that changes the terminal's speed (DECSCS),
+// so the console paces the bytes after it at the new one. A byte that comes
+// while a job is pending finishes it first, and is counted. Returns how many
+// went. A cursor's blink starts again when a byte moves it or changes how it
+// looks: its style, or it coming back on.
 static int draw_out_chars(const char *buf, int length, bool force)
 {
     term_t *term = &vterm;
     const term_grid_t *const all[2] = {&vterm_40.grid, &vterm_80.grid};
+    const uint8_t speed = term->speed;
     int i = 0;
     for (; i < length; i++)
     {
@@ -447,6 +450,11 @@ static int draw_out_chars(const char *buf, int length, bool force)
             if (look || now->x != was[n].x || now->y != was[n].y ||
                 now->wrap_pending != was[n].wrap_pending)
                 draw_cursor_restart_blink(draw_blinks(all[n]));
+        }
+        if (term->speed != speed)
+        {
+            i++;
+            break;
         }
     }
     if (DRAW_PUBLISH_PER_FRAME)

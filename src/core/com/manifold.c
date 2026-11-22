@@ -10,6 +10,8 @@
 #include "core/sys/ria.h"
 #include "core/sys/ring.h"
 #include "core/sys/timer.h"
+#include "core/term/term.h"
+#include "core/term/vterm.h"
 #include "host/host.h"
 #include "machine.h"
 
@@ -34,8 +36,11 @@ static void (*manifold_stderr_sink)(const char *buf, int len);
  * carries it and a machine that falls behind real time falls behind with
  * it. A tick is a 11520th of a microsecond, so a byte is a million ticks
  * and none of it rounds. Each direction keeps the tick its line is free
- * from. */
+ * from. A byte to the terminals takes longer at a speed the console's
+ * terminal keeps below the line's (DECSCS), one byte every 10 bits of it,
+ * still a whole number of ticks at every speed it can keep. */
 #define MANIFOLD_BYTES_PER_S 11520u
+#define MANIFOLD_BITS_PER_BYTE 10u
 #define MANIFOLD_BYTE_TICKS 1000000u
 static bool manifold_paced = true;
 static uint64_t manifold_tx_free;
@@ -95,17 +100,27 @@ void manifold_set_paced(bool paced)
     manifold_line_idle(&manifold_rx_free);
 }
 
-/* How many bytes the line can have started by now. An unpaced line takes
- * all of them. */
-static size_t manifold_line_room(uint64_t free)
+/* How many bytes, each taking the given ticks, the line can have started
+ * by now. An unpaced line takes all of them. */
+static size_t manifold_line_room(uint64_t free, uint64_t ticks)
 {
     if (!manifold_paced)
         return SIZE_MAX;
     const uint64_t now = host_clock_us() * MANIFOLD_BYTES_PER_S;
     if (free > now)
         return 0;
-    const uint64_t n = (now - free) / MANIFOLD_BYTE_TICKS + 1;
+    const uint64_t n = (now - free) / ticks + 1;
     return n < SIZE_MAX ? (size_t)n : SIZE_MAX;
+}
+
+/* A byte's time going out at a speed the console's terminal keeps
+ * (term_speed): the line's, or longer below it, whose fastest is the line's
+ * own. Keyboard input comes in at the line's pace whatever the speed. */
+static uint64_t manifold_tx_byte_ticks(uint32_t speed)
+{
+    if (!speed)
+        return MANIFOLD_BYTE_TICKS;
+    return (uint64_t)MANIFOLD_BYTE_TICKS * MANIFOLD_BYTES_PER_S * MANIFOLD_BITS_PER_BYTE / speed;
 }
 
 /* A line with nothing to send is idle, and its next byte starts no earlier
@@ -168,9 +183,9 @@ void manifold_set_wire(void (*tx)(const char *buf, int len),
 /* The UART is the only terminal here besides term.c. The UART's sinks are the
  * tx tap, the host wire and term.c; COM_TERM_SCREEN's is term.c alone. The
  * terminal takes bytes until one has to wait for a smooth scroll still
- * moving, unless force, and the other sinks get only what it took, so every
- * terminal shows the same output at the same time. Returns how many of buf
- * went out. */
+ * moving, unless force, or after one that changes its speed, and the other
+ * sinks get only what it took, so every terminal shows the same output at
+ * the same time. Returns how many of buf went out. */
 static size_t manifold_emit(uint8_t to, const char *buf, size_t len, bool force)
 {
     size_t took = len;
@@ -187,15 +202,22 @@ static size_t manifold_emit(uint8_t to, const char *buf, size_t len, bool force)
 }
 
 /* What waits goes out, oldest first and in runs for the same terminals, as
- * far as the line and the terminal take it. With force, it all goes out at
- * once, line or no line, and a byte the terminal holds goes out all the
- * same, which ends the scroll it waits for. */
+ * far as the line and the terminal take it, each run's bytes at the speed
+ * the terminal keeps as it starts: the terminal ends a run after a byte that
+ * changes it. With force, it all goes out at once, line or no line, and a
+ * byte the terminal holds goes out all the same, which ends the scroll it
+ * waits for. */
 static void manifold_drain(bool force)
 {
-    size_t room = force ? SIZE_MAX : manifold_line_room(manifold_tx_free);
+    const bool paced = !force && manifold_paced;
     size_t len;
-    while ((len = manifold_tx_len()) && room)
+    while ((len = manifold_tx_len()))
     {
+        const uint32_t speed = term_speed(&vterm);
+        const uint64_t ticks = manifold_tx_byte_ticks(speed);
+        const size_t room = paced ? manifold_line_room(manifold_tx_free, ticks) : SIZE_MAX;
+        if (!room)
+            return;
         char run[MANIFOLD_TX_SIZE];
         const uint8_t to = manifold_tx_at(0).to;
         size_t n = 0;
@@ -206,24 +228,27 @@ static void manifold_drain(bool force)
                 break;
             run[n] = (char)e.ch;
         }
-        size_t sent = manifold_emit(to, run, n, force);
+        const size_t sent = manifold_emit(to, run, n, force);
         manifold_tx_skip(sent);
-        if (!force && manifold_paced)
+        const uint32_t next_speed = term_speed(&vterm);
+        /* The byte after one waits out its time at the speed it went at,
+         * as SyncTERM's next character, but unlimited has no wait to keep:
+         * the byte after one that ends a speed goes at the line's pace. */
+        if (paced && sent)
+            manifold_tx_free += (sent - 1) * ticks +
+                                (next_speed ? ticks : MANIFOLD_BYTE_TICKS);
+        if (sent < n && next_speed == speed)
         {
-            manifold_tx_free += sent * MANIFOLD_BYTE_TICKS;
-            room -= sent;
-        }
-        if (sent < n)
-        {
-            /* A line held for a smooth scroll is busy, not free: its next
-             * byte goes a byte's time after the scroll lets it, as a UART
+            /* A run cut short with the speed unchanged was held for a
+             * smooth scroll; one cut short by a new speed goes on at it.
+             * A line held for a scroll is busy, not free: its next byte
+             * goes a byte's time after the scroll lets it, as a UART
              * waiting on the terminal sends it. */
             manifold_line_idle(&manifold_tx_free);
             return;
         }
     }
-    if (!manifold_tx_len())
-        manifold_line_idle(&manifold_tx_free);
+    manifold_line_idle(&manifold_tx_free);
 }
 
 /* A write from inside a task cannot wait for frames, so a byte that must go
@@ -320,7 +345,7 @@ void manifold_task(void)
     if (room)
     {
         manifold_wire_held = false;
-        size_t line = manifold_line_room(manifold_rx_free);
+        size_t line = manifold_line_room(manifold_rx_free, MANIFOLD_BYTE_TICKS);
         if (room > line)
             room = line;
         if (!room)

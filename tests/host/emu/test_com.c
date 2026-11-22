@@ -911,6 +911,151 @@ UTEST(com, the_line_carries_11520_bytes_a_second_in)
     ASSERT_LE(got, (size_t)11521);
 }
 
+/* A speed the console's terminal keeps (DECSCS) slows the bytes going out to
+ * one every 10 bits of it: at 300 baud a byte is a thirtieth of a second,
+ * 1050 lines of the beam, where at the line's pace it is under 3. The byte
+ * that sets a speed goes at the one before it, and the next byte at its own,
+ * as SyncTERM's; but unlimited has no wait, so the byte after the one that
+ * sets it goes at the line's pace at once. speed_send writes to a paced
+ * line, idles a few lines first so its first byte goes at once, and runs the
+ * beam until it has all gone out, keeping the line each byte was sent on.
+ * The line is drained again only after late lines, when the bytes that
+ * waited go together. */
+static uint64_t speed_lines[16];
+static size_t speed_count;
+
+static void speed_tap(const char *buf, int len)
+{
+    (void)buf;
+    for (int i = 0; i < len && speed_count < 16; i++)
+        speed_lines[speed_count++] = vga_beam_lines();
+}
+
+static void speed_send(const char *s, int late)
+{
+    const size_t n = strlen(s);
+    for (int line = 0; line < 4; line++)
+    {
+        manifold_task();
+        vga_task();
+    }
+    speed_count = 0;
+    manifold_set_tx_tap(speed_tap);
+    for (size_t i = 0; i < n; i++)
+        manifold_putchar_raw(s[i]);
+    for (int line = 0; line < late; line++)
+        vga_task();
+    for (int line = 0; speed_count < n && line < 31500; line++)
+    {
+        manifold_task();
+        vga_task();
+    }
+    manifold_set_tx_tap(NULL);
+}
+
+/* The lines from the byte at i to the one after it. */
+static uint64_t speed_gap(size_t i)
+{
+    return speed_lines[i + 1] - speed_lines[i];
+}
+
+UTEST(com, a_speed_paces_the_bytes_after_the_one_that_sets_it)
+{
+    manifold_flush();
+    draw_init();
+    manifold_set_paced(true);
+    speed_send("\33[0;1*rabc", 0);
+    ASSERT_EQ(speed_count, (size_t)10);
+    for (size_t i = 0; i < 7; i++)
+        ASSERT_LE(speed_gap(i), (uint64_t)3);
+    for (size_t i = 7; i < 9; i++)
+    {
+        ASSERT_GE(speed_gap(i), (uint64_t)1049);
+        ASSERT_LE(speed_gap(i), (uint64_t)1051);
+    }
+    /* Unlimited is the line's pace again, from the byte that sets it. */
+    speed_send("\33[0;0*rab", 0);
+    ASSERT_EQ(speed_count, (size_t)9);
+    for (size_t i = 0; i < 6; i++)
+    {
+        ASSERT_GE(speed_gap(i), (uint64_t)1049);
+        ASSERT_LE(speed_gap(i), (uint64_t)1051);
+    }
+    for (size_t i = 6; i < 8; i++)
+        ASSERT_LE(speed_gap(i), (uint64_t)3);
+    /* And so is 115200, the fastest. */
+    speed_send("\33[0;11*rab", 0);
+    ASSERT_EQ(speed_count, (size_t)10);
+    for (size_t i = 0; i < 9; i++)
+        ASSERT_LE(speed_gap(i), (uint64_t)3);
+    draw_init();
+    manifold_set_paced(false);
+}
+
+/* Bytes that waited go together as far as their times have passed: the
+ * ones up to the byte after the speed's, which started at the line's pace
+ * 19 lines after the first, and the next one a thirtieth of a second
+ * after that. */
+UTEST(com, bytes_that_waited_together_keep_the_speed_s_pace)
+{
+    manifold_flush();
+    draw_init();
+    manifold_set_paced(true);
+    speed_send("\33[0;1*rab", 40);
+    ASSERT_EQ(speed_count, (size_t)9);
+    ASSERT_EQ(speed_lines[7] - speed_lines[0], (uint64_t)40);
+    ASSERT_GE(speed_lines[8] - speed_lines[0], (uint64_t)1068);
+    ASSERT_LE(speed_lines[8] - speed_lines[0], (uint64_t)1070);
+    manifold_flush();
+    draw_init();
+    manifold_set_paced(false);
+}
+
+/* RIS sets the speed back to unlimited, and the byte after it goes at the
+ * line's pace. */
+UTEST(com, a_reset_ends_the_speed)
+{
+    manifold_flush();
+    draw_init();
+    manifold_set_paced(true);
+    manifold_write_to(COM_TERM_ALL, "\33[0;1*r", 7);
+    manifold_flush();
+    speed_send("\33cab", 0);
+    ASSERT_EQ(speed_count, (size_t)4);
+    ASSERT_GE(speed_gap(0), (uint64_t)1049);
+    ASSERT_LE(speed_gap(0), (uint64_t)1051);
+    for (size_t i = 1; i < 3; i++)
+        ASSERT_LE(speed_gap(i), (uint64_t)3);
+    manifold_set_paced(false);
+}
+
+/* A flush sends all that waits past a byte that changes the speed, 115200
+ * from unlimited included, whose byte time is the line's either way. */
+UTEST(com, a_flush_goes_past_a_new_speed)
+{
+    manifold_flush();
+    draw_init();
+    manifold_set_paced(true);
+    manifold_write_to(COM_TERM_ALL, "\33[0;11*rab\33[0;1*rcd", 22);
+    manifold_flush();
+    ASSERT_TRUE(manifold_drained());
+    ASSERT_EQ(term_speed(&vterm), (uint32_t)300);
+    draw_init();
+    manifold_set_paced(false);
+}
+
+/* A line with no pace to keep keeps no speed either. */
+UTEST(com, an_unpaced_line_keeps_no_speed)
+{
+    manifold_flush();
+    draw_init();
+    manifold_set_paced(false);
+    speed_send("\33[0;1*rabc", 0);
+    ASSERT_EQ(speed_count, (size_t)10);
+    ASSERT_EQ(speed_lines[9], speed_lines[0]);
+    draw_init();
+}
+
 /* A session's end waits for what the program wrote to go out at the line's
  * pace, then goes out whole, behind it. */
 UTEST(com, a_session_end_waits_for_the_output_then_follows_it)

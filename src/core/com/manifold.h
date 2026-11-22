@@ -44,7 +44,9 @@ void manifold_write_to(uint8_t to, const char *buf, size_t n);
 
 /* The console's line runs at 115200 baud, 8N1, each way, on the machine's
  * clock: a byte goes out to the terminals and comes in from the host's wire
- * no faster. A machine run flat out, with no pace to keep, turns it off. */
+ * no faster, and goes out no faster than the speed the console's terminal
+ * keeps (term_speed) either. A machine run flat out, with no pace to keep,
+ * turns it off. */
 void manifold_set_paced(bool paced);
 
 /* Returns once every byte queued so far has gone out. */
@@ -65,7 +67,9 @@ void manifold_uart_clear(void);
 
 /* The terminal emulator's input: every byte the console sends to the UART or
  * to COM_TERM_SCREEN. It returns how many it took: it stops at a byte that
- * has to wait for a smooth scroll still moving, unless force. */
+ * has to wait for a smooth scroll still moving, unless force, and after a
+ * byte that changes its speed (term_speed), so the bytes after it go at
+ * the new one. */
 void manifold_set_term_out(int (*out_chars)(const char *buf, int len, bool force));
 
 /* Software console: the UART ring of a machine with no serial port, the host
