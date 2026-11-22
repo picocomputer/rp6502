@@ -216,7 +216,7 @@ bool screen_moved;
 SST_TABLE(screen_store, SCREEN_SST)
 
 /* A record is padded to SCREEN_SST_RECORD bytes with zeros. */
-_Static_assert(4 + 2 * CELL_SIDE_SST_SIZE <= SCREEN_SST_RECORD && 5 <= SCREEN_SST_RECORD,
+_Static_assert(4 + 2 * CELL_SIDE_SST_SIZE <= SCREEN_SST_RECORD,
                "a record the size of what it is owed");
 
 static void screen_sst_zeros(sst_cursor_t *c, unsigned n)
@@ -249,7 +249,7 @@ void screen_sst_put(sst_cursor_t *c, screen_t *s)
         sst_put_u8(c, b->owed[i]);
         if (b->owed[i] == SCREEN_OWED_SHIFT)
         {
-            const screen_shift_t *h = &b->what[i].shift;
+            const screen_shift_t *h = &b->what[i];
             sst_put_u8(c, h->from);
             sst_put_u8(c, h->to);
             sst_put_u8(c, h->end);
@@ -257,16 +257,6 @@ void screen_sst_put(sst_cursor_t *c, screen_t *s)
             cell_side_put(c, &h->left);
             cell_side_put(c, &h->right);
             screen_sst_zeros(c, SCREEN_SST_RECORD - 4 - 2 * CELL_SIDE_SST_SIZE);
-        }
-        else if (b->owed[i] == SCREEN_OWED_MARKS)
-        {
-            const screen_marks_t *k = &b->what[i].marks;
-            sst_put_u8(c, k->from);
-            sst_put_u8(c, k->to);
-            sst_put_u8(c, k->set);
-            sst_put_u8(c, k->clear);
-            sst_put_u8(c, k->toggle);
-            screen_sst_zeros(c, SCREEN_SST_RECORD - 5);
         }
         else
             screen_sst_zeros(c, SCREEN_SST_RECORD);
@@ -292,7 +282,7 @@ bool screen_sst_get(sst_cursor_t *c, screen_t *s)
         memset(&b->what[i], 0, sizeof(b->what[i]));
         if (b->owed[i] == SCREEN_OWED_SHIFT)
         {
-            screen_shift_t *h = &b->what[i].shift;
+            screen_shift_t *h = &b->what[i];
             h->from = sst_get_u8(c);
             h->to = sst_get_u8(c);
             h->end = sst_get_u8(c);
@@ -303,18 +293,6 @@ bool screen_sst_get(sst_cursor_t *c, screen_t *s)
             /* The record indexes the row's cells. */
             ok &= h->cols <= b->width && h->end <= h->cols && h->to <= h->end &&
                   h->from + h->end - h->to <= h->cols;
-        }
-        else if (b->owed[i] == SCREEN_OWED_MARKS)
-        {
-            screen_marks_t *k = &b->what[i].marks;
-            k->from = sst_get_u8(c);
-            k->to = sst_get_u8(c);
-            k->set = sst_get_u8(c);
-            k->clear = sst_get_u8(c);
-            k->toggle = sst_get_u8(c);
-            screen_sst_skip(c, SCREEN_SST_RECORD - 5);
-            /* The record indexes the row's cells. */
-            ok &= k->from <= k->to && k->to <= b->width;
         }
         else
         {
@@ -403,25 +381,19 @@ static void screen_pay(screen_cells_t *buf, uint8_t m)
     cell_t *row = buf->mem + (uint32_t)m * buf->width;
     const uint8_t owed = buf->owed[m];
     buf->owed[m] = SCREEN_OWED_NONE;
-    if (owed == SCREEN_OWED_MARKS)
+    if (owed != SCREEN_OWED_SHIFT)
+        return;
+    const screen_shift_t *s = &buf->what[m];
+    cell_run_move(row + s->to, row + s->from, (unsigned)(s->end - s->to));
+    if (s->to)
     {
-        const screen_marks_t *k = &buf->what[m].marks;
-        cell_marks(row, k->from, k->to, k->set, k->clear, k->toggle);
+        const cell_fill_t e = cell_blank(' ', s->left, false, true);
+        cell_run_fill(row, s->to, &e);
     }
-    else if (owed == SCREEN_OWED_SHIFT)
+    if (s->end < s->cols)
     {
-        const screen_shift_t *s = &buf->what[m].shift;
-        cell_run_move(row + s->to, row + s->from, (unsigned)(s->end - s->to));
-        if (s->to)
-        {
-            const cell_fill_t e = cell_blank(' ', s->left, false, true);
-            cell_run_fill(row, s->to, &e);
-        }
-        if (s->end < s->cols)
-        {
-            const cell_fill_t e = cell_blank(' ', s->right, false, false);
-            cell_run_fill(row + s->end, (unsigned)(s->cols - s->end), &e);
-        }
+        const cell_fill_t e = cell_blank(' ', s->right, false, false);
+        cell_run_fill(row + s->end, (unsigned)(s->cols - s->end), &e);
     }
 }
 
@@ -627,24 +599,17 @@ void screen_copy_cells(term_t *term, screen_t *s, uint8_t sy, unsigned sx, uint8
     cell_marks(row, dx, dx + n, SCREEN_MARK_WRITTEN, 0, 0);
 }
 
-// The row is only owed the change, after whatever it was owed before: no
-// cell changes until the row is paid. The cursor's row is never left owing.
-void screen_attrs(screen_t *s, uint8_t y, unsigned from, unsigned to, unsigned set,
-                  unsigned clear, unsigned toggle)
+void screen_attrs(screen_t *s, uint8_t top, uint8_t bot, uint8_t left, uint8_t right,
+                  unsigned set, unsigned clear, unsigned toggle)
 {
-    if (!screen_settled(s))
-        return;
-    screen_cells_t *buf = s->cells;
-    const uint8_t m = screen_mem(s, y);
-    if (buf->owed[m])
-        screen_pay(buf, m);
-    const screen_marks_t marks = {(uint8_t)from, (uint8_t)to, (uint8_t)set, (uint8_t)clear,
-                                  (uint8_t)toggle};
-    buf->what[m].marks = marks;
-    buf->owed[m] = SCREEN_OWED_MARKS;
-    buf->all_clean = false;
-    if (y == s->pos.y)
-        screen_pay(buf, m);
+    const screen_job_t j = {.kind = SCREEN_JOB_ATTRS,
+                            .first = top,
+                            .last = bot,
+                            .left = left,
+                            .right = right,
+                            .sized = true,
+                            .attrs = {(uint8_t)set, (uint8_t)clear, (uint8_t)toggle}};
+    screen_job_start(s, &j);
 }
 
 // One more shift of n columns, with this blank, added to the shift a row of
@@ -677,8 +642,8 @@ static inline void screen_shift_add(screen_shift_t *s, uint8_t cols, uint8_t n, 
 // SL and SR only mark the rows: each is owed the shift, and no cell moves
 // until the row is paid. A row that already owes a shift has this one
 // added to its record. It is paid first only when this shift's blanks
-// would sit beside blanks unlike them on the same side. A change of
-// attributes is paid first. The cursor's row is never left owing. A row
+// would sit beside blanks unlike them on the same side. The cursor's row
+// is never left owing. A row
 // of the full width that owes nothing, which is most rows, takes a record
 // made once for them all. Between left and right margins a row is owed
 // nothing new: the cells between them move now.
@@ -713,7 +678,7 @@ void screen_shift(term_t *term, screen_t *sc, uint8_t top, uint8_t bot, unsigned
     for (uint8_t y = top; y <= bot; y++)
     {
         const uint8_t m = screen_mem(sc, y);
-        screen_shift_t *s = &buf->what[m].shift;
+        screen_shift_t *s = &buf->what[m];
         const uint8_t owed = buf->owed[m];
         const uint8_t size = screen_size(sc, y);
         if (owed == SCREEN_OWED_NONE && !size)
@@ -736,8 +701,6 @@ void screen_shift(term_t *term, screen_t *sc, uint8_t top, uint8_t bot, unsigned
             else
                 r = *s;
         }
-        else if (owed == SCREEN_OWED_MARKS)
-            screen_pay(buf, m);
         screen_shift_add(&r, cols, n, left, side);
         buf->owed[m] = SCREEN_OWED_SHIFT;
         *s = r;

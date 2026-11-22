@@ -3598,4 +3598,38 @@ UTEST(job, a_fill_of_many_rows_is_done_by_its_byte)
     ASSERT_EQ(job_held(79, 29), ' ');
 }
 
+/* Whether the store holds a cell of the screen showing as bold, with no
+ * draw_task to pay a row what it is owed. */
+static bool job_bold(int x, int y)
+{
+    return screen_row(job_screen(), (uint8_t)y)[x].attributes & MODE0_ATTR_BOLD;
+}
+
+/* A change of attributes of many rows is done by the byte that asks for
+ * it, and no row is left owing it: DECCARA's and DECRARA's rectangle, and
+ * their stream, whose first and last rows are changed from and to its
+ * corners and the rows between from the first column to the last. A row
+ * of double width has its own columns of them. */
+UTEST(job, a_change_of_attributes_of_many_rows_is_done_by_its_byte)
+{
+    job_rows();
+    feed("\33[4;1H\33#6\33[H\33[2;3;5;70;1$r");
+    ASSERT_FALSE(job_bold(1, 1));
+    ASSERT_TRUE(job_bold(2, 1));
+    ASSERT_TRUE(job_bold(79, 1));
+    ASSERT_TRUE(job_bold(0, 2));
+    ASSERT_TRUE(job_bold(39, 3));
+    ASSERT_FALSE(job_bold(40, 3));
+    ASSERT_TRUE(job_bold(69, 4));
+    ASSERT_FALSE(job_bold(70, 4));
+    feed("\33[2*x\33[2;3;5;70;1$t");
+    ASSERT_FALSE(job_bold(2, 1));
+    ASSERT_TRUE(job_bold(79, 1));
+    ASSERT_TRUE(job_bold(1, 2));
+    ASSERT_FALSE(job_bold(2, 2));
+    ASSERT_FALSE(job_bold(69, 2));
+    ASSERT_TRUE(job_bold(70, 2));
+    ASSERT_FALSE(job_bold(39, 3));
+}
+
 UTEST_MAIN();

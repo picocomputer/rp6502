@@ -202,7 +202,8 @@ static inline void screen_forget(screen_t *s)
  * has only its ring: a scroll, an index, a clear, a reset and a change of
  * height move it, and the rest leave it be. A fill of more than one row,
  * an erase of rows, a rectangle, DECALN, a clear and the rows a scroll
- * brings in, is a job (below). */
+ * brings in, is a job (below), as is a wipe or a change of attributes of
+ * more than one row. */
 
 // Row y is about to be written or have the cursor on it: what it is still
 // owed is done now.
@@ -258,18 +259,19 @@ void screen_shift(term_t *t, screen_t *s, uint8_t top, uint8_t bot, unsigned fro
 void screen_copy_cells(term_t *t, screen_t *s, uint8_t sy, unsigned sx, uint8_t dy,
                        unsigned dx, unsigned n);
 
-// DECCARA and DECRARA: columns [from, to) of row y have these attributes
-// set, cleared, then reversed, whatever else the cells hold, when the row
-// is next touched or the store gets to it. SCREEN_MARK_WRITTEN set makes
-// the cells written; SCREEN_MARK_ALL does not include it.
+// DECCARA and DECRARA: columns [left, right] of rows [top, bot] have these
+// attributes set, cleared, then reversed, whatever else the cells hold,
+// with the columns of a rectangle as screen_fill_rect has them.
+// SCREEN_MARK_WRITTEN set makes the cells written; SCREEN_MARK_ALL does not
+// include it.
 #define SCREEN_MARK_BOLD 1u
 #define SCREEN_MARK_UNDERLINE 2u
 #define SCREEN_MARK_BLINK 4u
 #define SCREEN_MARK_REVERSE 8u
 #define SCREEN_MARK_ALL 15u
 #define SCREEN_MARK_WRITTEN 16u
-void screen_attrs(screen_t *s, uint8_t y, unsigned from, unsigned to, unsigned set,
-                  unsigned clear, unsigned toggle);
+void screen_attrs(screen_t *s, uint8_t top, uint8_t bot, uint8_t left, uint8_t right,
+                  unsigned set, unsigned clear, unsigned toggle);
 
 // Erase rows [from, to), every column of their rows of memory, selectively
 // or not, to blanks never written.
@@ -350,31 +352,12 @@ typedef struct
     cell_side_t right;
 } screen_shift_t;
 
-// A change of attributes owed to a row, DECCARA's and DECRARA's: the
-// columns [from, to), and the SCREEN_MARK_ attributes to set, to clear, and
-// then to reverse.
-typedef struct
-{
-    _Alignas(4) uint8_t from;
-    uint8_t to;
-    uint8_t set;
-    uint8_t clear;
-    uint8_t toggle;
-} screen_marks_t;
-
-// What a row is owed: nothing, a shift, or a change of attributes.
+// What a row is owed: nothing, or a shift.
 enum
 {
     SCREEN_OWED_NONE,
     SCREEN_OWED_SHIFT,
-    SCREEN_OWED_MARKS,
 };
-
-typedef union
-{
-    screen_shift_t shift;
-    screen_marks_t marks;
-} screen_owed_t;
 
 // A scroll between left and right margins owed to a screen: columns
 // [from, end) of rows [top, bot] move n rows up or down, and this blank
@@ -466,9 +449,9 @@ typedef struct
 } screen_job_t;
 
 // The cells of a screen and what its rows are still owed. A row of the
-// screen is in a row of memory, which the screen's ring gives. A shift or
-// a change of attributes is owed to the row of memory, so it goes where
-// the row goes and a scroll moves none of them. The screen has
+// screen is in a row of memory, which the screen's ring gives. A shift is
+// owed to the row of memory, so it goes where the row goes and a scroll
+// moves none of them. The screen has
 // TERM_SPARE_ROWS more rows of memory than slots: the ring's spare is the
 // one in no slot, which a smooth scroll gives the row coming in while the
 // row going out still shows. Its job is the one pending, if any.
@@ -477,7 +460,7 @@ typedef struct screen_cells
     cell_t *mem;
     uint8_t width;
     uint8_t owed[TERM_MEM_ROWS];
-    screen_owed_t what[TERM_MEM_ROWS];
+    screen_shift_t what[TERM_MEM_ROWS];
     screen_later_t later;
     bool all_clean;
     screen_job_t job;

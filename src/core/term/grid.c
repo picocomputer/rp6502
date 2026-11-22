@@ -1050,14 +1050,6 @@ static bool grid_rect_parse(term_t *t, const term_grid_t *g, unsigned i, unsigne
     return r->top <= r->bot && r->left <= r->right;
 }
 
-// The columns of a rectangle on row y, as [r->left, end): fewer on a
-// double-size line.
-static unsigned grid_rect_end(const term_grid_t *g, const grid_rect_t *r, uint8_t y)
-{
-    unsigned cols = term_cols(g, y);
-    return r->right < cols ? r->right + 1u : cols;
-}
-
 // DECFRA, CSI Pch ; Pt ; Pl ; Pb ; Pr $ x: the rectangle full of a
 // character, as the pen writes it. Any byte that prints is taken.
 static void grid_DECFRA(term_t *t, term_grid_t *g)
@@ -1114,7 +1106,9 @@ static void grid_DECCRA(term_t *t, term_grid_t *g)
 // DECSACE 2 they change the rectangle, and its cells are written, as
 // xterm's are. Without, they change the stream of cells from its top left
 // to its bottom right: the rows between those two are changed from the
-// first column to the last.
+// first column to the last. The stream's first and last rows are each a
+// change to one row, done at once, and the rows between them a job, which
+// starts last because a screen starts a job only with none pending.
 static void grid_rect_attrs(term_t *t, term_grid_t *g, bool reverse)
 {
     grid_rect_t r;
@@ -1163,21 +1157,17 @@ static void grid_rect_attrs(term_t *t, term_grid_t *g, bool reverse)
     } while (++i < t->csi_param_count);
     if (t->rect_attrs)
         set |= SCREEN_MARK_WRITTEN;
-    for (unsigned y = r.top; y <= r.bot; y++)
+    screen_t *s = g->shown;
+    if (t->rect_attrs || r.top == r.bot)
     {
-        grid_rect_t row = r;
-        if (!t->rect_attrs)
-        {
-            if (y != r.top)
-                row.left = 0;
-            if (y != r.bot)
-                row.right = (uint8_t)(g->width - 1);
-        }
-        unsigned end = grid_rect_end(g, &row, (uint8_t)y);
-        if (row.left >= end)
-            continue;
-        screen_attrs(g->shown, (uint8_t)y, row.left, end, set, clear, toggle);
+        screen_attrs(s, r.top, r.bot, r.left, r.right, set, clear, toggle);
+        return;
     }
+    const uint8_t last = (uint8_t)(g->width - 1);
+    screen_attrs(s, r.top, r.top, r.left, last, set, clear, toggle);
+    screen_attrs(s, r.bot, r.bot, 0, r.right, set, clear, toggle);
+    if (r.bot - r.top > 1)
+        screen_attrs(s, (uint8_t)(r.top + 1), (uint8_t)(r.bot - 1), 0, last, set, clear, toggle);
 }
 
 static void grid_rect(term_t *t, term_grid_t *g, uint8_t ch)
