@@ -280,7 +280,7 @@ static bool draw_sst_palette_ok(sst_cursor_t *c)
     X(STRUCT, vterm_placement, DRAW_PLACEMENT_SST_ROWS)                \
     X(VALIDATE, draw_sst_placement_ok)                                 \
     X(FN, draw_sst_put_bufs, draw_sst_get_bufs,                        \
-      2 * MODE0_SCREENS * SCREEN_SST_SIZE, 8)                          \
+      2 * MODE0_SCREENS * SCREEN_SST_SIZE, 9)                          \
     X(IN_FN, vterm_40.lines)                                           \
     X(IN_FN, vterm_40.row_idx)                                         \
     X(IN_FN, vterm_40.bufs)                                            \
@@ -500,13 +500,9 @@ static bool draw_smooth_task(void)
     return draw_published.smooth && !shows;
 }
 
-// Do a scroll between left and right margins either screen of a size is
-// owed, or else pay one row at most what it is owed: the screen showing
-// first, and the other only once the one showing is clean. The cursor's row
-// of the screen showing never owes anything (the terminal touches every row
-// it puts the cursor on), so this never changes the cell under the cursor
-// and never has to restart its blink.
-static void draw_tidy(term_grid_t *g)
+// Do a scroll between left and right margins one screen of a size is owed,
+// if either is owed one.
+static void draw_settle(term_grid_t *g)
 {
     for (int b = 0; b < 2; b++)
         if (g->screen[b].cells && g->screen[b].cells->later.n)
@@ -514,11 +510,6 @@ static void draw_tidy(term_grid_t *g)
             screen_settle(&g->screen[b]);
             return;
         }
-    if (screen_tidy(g->shown, g->height))
-        return;
-    screen_t *other = &g->screen[g->shown == &g->screen[0] ? 1 : 0];
-    if (other->cells)
-        screen_tidy(other, g->height);
 }
 
 void draw_task(void)
@@ -532,6 +523,6 @@ void draw_task(void)
     if (draw_stale || screen_moved || vterm_palette_changed ||
         draw_published.screen != vterm_get_shown(&vterm)->shown)
         draw_publish();
-    draw_tidy(&vterm_40.grid);
-    draw_tidy(&vterm_80.grid);
+    draw_settle(&vterm_40.grid);
+    draw_settle(&vterm_80.grid);
 }

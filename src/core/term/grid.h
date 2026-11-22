@@ -117,7 +117,7 @@ typedef enum
     GRID_SAVE,    // DECSC: the position
     GRID_RESTORE, // DECRC: the position
     GRID_HOME,    // the top left, or the region's under DECOM
-    GRID_STAY,    // the cursor where it is, its row touched and its wrap ended
+    GRID_STAY,    // the cursor where it is, inside its row's columns, its wrap ended
     GRID_ALT_IN,  // the alternate screen's cursor takes the primary's
     GRID_ALT_OUT, // the primary screen's cursor takes the alternate's
     GRID_CLEAR,   // the screen showing erased, every line blank

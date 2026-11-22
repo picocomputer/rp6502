@@ -23,7 +23,6 @@
  * as mode 0's does. Bold, faint and the blinks are colors and drawing, so
  * the cell holds none of them. */
 
-#include "core/sys/sst.h"
 #include "core/term/term.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -47,7 +46,7 @@ typedef struct
     bool selective;
 } cell_fill_t;
 
-// The blank a shift brings in: a space, with the pen's paper or none.
+// The colors of a blank (cell_blank): the pen's paper or none.
 typedef struct
 {
     cell_t cell;
@@ -57,9 +56,6 @@ typedef struct
 {
     cell_t cell[CELL_STRIP_MAX];
 } cell_strip_t;
-
-// A side in the savestate: its cell.
-#define CELL_SIDE_SST_SIZE 2
 
 /* ---- fills and sides --------------------------------------------------- */
 
@@ -83,11 +79,6 @@ static inline cell_side_t cell_side_default(void)
 {
     const cell_side_t side = {0};
     return side;
-}
-
-static inline bool cell_side_same(const cell_side_t *a, const cell_side_t *b)
-{
-    return a->cell == b->cell;
 }
 
 static inline cell_fill_t cell_blank(uint8_t code, cell_side_t side, bool selective,
@@ -166,25 +157,6 @@ static inline uint16_t cell_text(const cell_t *cell)
 {
     return (uint16_t)(*cell & (CELL_TEXT_CODE | CELL_TEXT_SET | CELL_TEXT_WRITTEN |
                                CELL_TEXT_GUARD));
-}
-
-/* ---- savestate --------------------------------------------------------- */
-
-// A cell names a set there is.
-static inline bool cell_ok(cell_t cell)
-{
-    return (cell & CELL_TEXT_SET) >> CELL_TEXT_SET_SHIFT < CELL_SET_ITALIC;
-}
-
-static inline void cell_side_put(sst_cursor_t *c, const cell_side_t *side)
-{
-    sst_put_u16(c, side->cell);
-}
-
-static inline bool cell_side_get(sst_cursor_t *c, cell_side_t *side)
-{
-    side->cell = sst_get_u16(c);
-    return cell_ok(side->cell);
 }
 
 #endif /* _CORE_TERM_CELL_TEXT_H_ */

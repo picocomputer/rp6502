@@ -23,7 +23,6 @@
  * palette or default color that changes afterwards is one write to the
  * palette, which every cell drawn with it shows on the next frame. */
 
-#include "core/sys/sst.h"
 #include "core/term/term.h"
 #include "core/vga/mode/mode0.h"
 #include "core/vga/pixel_format.h"
@@ -42,7 +41,7 @@ typedef struct
     bool selective;
 } cell_fill_t;
 
-// The blank a shift brings in: a space in these colors.
+// The colors of a blank (cell_blank).
 typedef struct
 {
     uint16_t fg;
@@ -54,9 +53,6 @@ typedef struct
     mode0_cell_t cell[CELL_STRIP_MAX];
     mode0_colors_t colors[CELL_STRIP_MAX];
 } cell_strip_t;
-
-// A side in the savestate: its two colors.
-#define CELL_SIDE_SST_SIZE 4
 
 /* ---- colors ------------------------------------------------------------ */
 
@@ -122,11 +118,6 @@ static inline cell_side_t cell_side_default(void)
     const cell_side_t side = {MODE0_ENTRY(MODE0_DEFAULT_FG, false),
                               MODE0_ENTRY(MODE0_DEFAULT_BG, false)};
     return side;
-}
-
-static inline bool cell_side_same(const cell_side_t *a, const cell_side_t *b)
-{
-    return a->fg == b->fg && a->bg == b->bg;
 }
 
 // A blank cell in these colors, with no attributes and no guard, written
@@ -260,21 +251,6 @@ static inline uint16_t cell_text(const mode0_cell_t *cell)
     return (uint16_t)(mode0_glyph_code(glyph) | set << CELL_TEXT_SET_SHIFT |
                       (cell->attributes & MODE0_ATTR_WRITTEN) |
                       (cell_guarded(cell) ? CELL_TEXT_GUARD : 0));
-}
-
-/* ---- savestate --------------------------------------------------------- */
-
-static inline void cell_side_put(sst_cursor_t *c, const cell_side_t *side)
-{
-    sst_put_u16(c, side->fg);
-    sst_put_u16(c, side->bg);
-}
-
-static inline bool cell_side_get(sst_cursor_t *c, cell_side_t *side)
-{
-    side->fg = sst_get_u16(c);
-    side->bg = sst_get_u16(c);
-    return mode0_color_ok(side->fg) && mode0_color_ok(side->bg);
 }
 
 #endif /* _CORE_TERM_CELL_MODE0_H_ */

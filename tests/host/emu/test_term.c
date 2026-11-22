@@ -1427,12 +1427,11 @@ UTEST(term, a_guard_moves_with_its_cell)
     ASSERT_EQ(mode0_color(ink(4, 0)->bg_color), color_256[1]);
 }
 
-/* SL and SR against a model of the row. A row is owed its shifts, and a
- * second shift only changes what it is owed, so each run of one to six
- * shifts, in three colors, is checked as one: the glyphs that are left,
- * the color of every blank, and the guard beside every cell. The row is the
- * cursor's on every fourth run, where it is paid at each shift. */
-UTEST(term, shifts_owed_to_a_row_are_the_shifts_done)
+/* SL and SR against a model of the row: each run of one to six shifts, in
+ * three colors, is checked as one, the glyphs that are left, the color of
+ * every blank, and the guard beside every cell. The row is the cursor's on
+ * every fourth run. */
+UTEST(term, a_run_of_shifts_is_the_shifts_done)
 {
     uint32_t state = 1;
     for (int run = 0; run < 3000; run++)
@@ -1537,11 +1536,12 @@ UTEST(term, a_run_of_cells_moves_whole_at_every_length)
             }
 }
 
-/* What a row is owed is never seen once it is paid. The same bytes are fed
- * twice: once with everything owed paid after each sequence, and once with
- * them left owing until the end, through every scroll, insert, erase, shift,
- * rectangle and change of height that comes meanwhile. The two screens are
- * the same, cell for cell, written or not, with the guards beside them. */
+/* What a screen is owed is never seen once it is done. The same bytes are
+ * fed twice: once with the scroll between margins a screen is owed done
+ * after each sequence, and once with it left owing until the end, through
+ * every scroll, insert, erase, shift, rectangle and change of height that
+ * comes meanwhile. The two screens are the same, cell for cell, written or
+ * not, with the guards beside them. */
 static uint32_t owed_state;
 static unsigned owed_rand(unsigned n)
 {
@@ -1662,7 +1662,7 @@ static bool owed_differs(void)
     return memcmp(owed_paid, owed_left, sizeof owed_paid) != 0;
 }
 
-UTEST(term, what_a_row_is_owed_is_never_seen)
+UTEST(term, what_a_screen_is_owed_is_never_seen)
 {
     for (uint32_t seed = 1; seed <= 2000; seed++)
     {
@@ -1680,7 +1680,7 @@ UTEST(term, what_a_row_is_owed_is_never_seen)
         int at = 0;
         while (owed_paid[at] == owed_left[at])
             at++;
-        printf("seed %u: row %d, byte %d is %02x paid at once and %02x left owing, after:\n",
+        printf("seed %u: row %d, byte %d is %02x done at once and %02x left owing, after:\n",
                (unsigned)seed, at / 800, at % 800, owed_paid[at], owed_left[at]);
         for (int k = 0; k < OWED_OPS; k++)
         {
@@ -1771,24 +1771,6 @@ UTEST(term, the_palette_and_the_guards_come_back)
     ASSERT_EQ(mode0_color(ink(1, 0)->fg_color), rgb(0x40, 0x50, 0x60));
     feed("\33[?2K");
     ASSERT_STREQ(row(0), "  G");
-}
-
-/* A shift a row is still owed is saved with the row and paid after the
- * load: the survivors, and the blank color for each side. */
-UTEST(term, a_shift_still_owed_comes_back)
-{
-    static uint8_t blob[1 << 20];
-    fresh();
-    feed("\33[3;1HABCDEF\33[10;1H\33[41m\33[2 A\33[42m\33[3 @");
-    ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
-    feed("\33c");
-    ASSERT_STREQ(row(2), "");
-    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
-    ASSERT_STREQ(row(2), "BCDEF");
-    ASSERT_EQ(mode0_color(ink(79, 2)->bg_color), color_256[2]);
-    feed("\33[3;1H\33[43m\33[2 A");
-    ASSERT_STREQ(row(2), "  BCDEF");
-    ASSERT_EQ(mode0_color(ink(0, 2)->bg_color), color_256[3]);
 }
 
 /* Printing and DCH ignore protection, and DECSTR ends it. */
@@ -2427,8 +2409,8 @@ UTEST(term, a_scroll_between_margins_is_right_at_every_width)
             }
 }
 
-/* A change of attributes a row is owed is saved with the row. */
-UTEST(term, attributes_still_owed_come_back)
+/* A change of attributes is saved with the row. */
+UTEST(term, a_change_of_attributes_comes_back)
 {
     static uint8_t blob[1 << 20];
     fresh();
@@ -2442,9 +2424,9 @@ UTEST(term, attributes_still_owed_come_back)
     ASSERT_EQ(attrs(4, 2), 0);
 }
 
-/* What a row is owed is paid in order: a change of attributes, then a
- * shift, a selective erase or an erase over it. */
-UTEST(term, attributes_owed_are_paid_before_what_comes_after)
+/* A change of attributes, then a shift, a selective erase or an erase over
+ * it, are done in that order. */
+UTEST(term, a_change_of_attributes_is_done_before_what_comes_after)
 {
     fresh();
     feed("\33[3;1HABCDEF\33[4;1H\33[1\"qGH\33[0\"qIJ\33[5;1HKLMN\33[10;1H\33[2*x");
@@ -3559,7 +3541,7 @@ UTEST(job, no_byte_comes_while_a_job_is_pending)
 }
 
 /* The character the store holds at a cell of the screen showing, with no
- * draw_task to pay a row what it is owed. */
+ * draw_task run. */
 static char job_held(int x, int y)
 {
     return (char)mode0_glyph_code(screen_row(job_screen(), (uint8_t)y)[x].glyph);
@@ -3599,7 +3581,7 @@ UTEST(job, a_fill_of_many_rows_is_done_by_its_byte)
 }
 
 /* Whether the store holds a cell of the screen showing as bold, with no
- * draw_task to pay a row what it is owed. */
+ * draw_task run. */
 static bool job_bold(int x, int y)
 {
     return screen_row(job_screen(), (uint8_t)y)[x].attributes & MODE0_ATTR_BOLD;
@@ -3630,6 +3612,46 @@ UTEST(job, a_change_of_attributes_of_many_rows_is_done_by_its_byte)
     ASSERT_FALSE(job_bold(69, 2));
     ASSERT_TRUE(job_bold(70, 2));
     ASSERT_FALSE(job_bold(39, 3));
+}
+
+/* A shift of many rows is done by the byte that asks for it, and no row is
+ * left owing it: SL and SR of the whole width, where a row of double width
+ * has its own columns, and SL and DECIC between margins, which leave the
+ * rows and columns outside them. */
+UTEST(job, a_shift_of_many_rows_is_done_by_its_byte)
+{
+    job_rows();
+    feed("\33[4;1H\33#6\33[H\33[2 @");
+    ASSERT_EQ(job_held(3, 0), 'a');
+    ASSERT_EQ(job_held(4, 0), ' ');
+    ASSERT_EQ(job_held(3, 3), 'd');
+    ASSERT_EQ(job_held(4, 3), ' ');
+    ASSERT_EQ(job_held(3, 5), 'f');
+    ASSERT_EQ(job_held(4, 5), ' ');
+    feed("\33[39 A");
+    ASSERT_EQ(job_held(38, 0), ' ');
+    ASSERT_EQ(job_held(39, 0), 'a');
+    ASSERT_EQ(job_held(42, 0), 'a');
+    ASSERT_EQ(job_held(39, 3), 'd');
+    ASSERT_EQ(job_held(40, 3), ' ');
+    ASSERT_FALSE(screen_job_pending(job_screen()));
+    job_rows();
+    feed("\33[?69h\33[2;5r\33[3;8s\33[2;3H\33[2 @");
+    ASSERT_EQ(job_held(3, 1), 'b');
+    ASSERT_EQ(job_held(4, 1), ' ');
+    ASSERT_EQ(job_held(3, 4), 'e');
+    ASSERT_EQ(job_held(4, 4), ' ');
+    ASSERT_EQ(job_held(5, 0), 'a');
+    ASSERT_EQ(job_held(5, 5), 'f');
+    feed("\33[2'}");
+    ASSERT_EQ(job_held(1, 1), 'b');
+    ASSERT_EQ(job_held(2, 1), ' ');
+    ASSERT_EQ(job_held(4, 1), 'b');
+    ASSERT_EQ(job_held(5, 1), 'b');
+    ASSERT_EQ(job_held(6, 1), ' ');
+    ASSERT_EQ(job_held(5, 4), 'e');
+    ASSERT_EQ(job_held(5, 5), 'f');
+    ASSERT_FALSE(screen_job_pending(job_screen()));
 }
 
 UTEST_MAIN();

@@ -8,9 +8,8 @@
 #define _CORE_TERM_CELL_H_
 
 /* What a cell of the cell store (screen.c) holds, which is the machine's
- * kind of cell. The store moves rows and runs of cells, and keeps what each
- * row is owed, and it reads or writes what is in a cell only through the
- * kind. There is one kind: mode 0's (cell_mode0.h), the cell as mode 0
+ * kind of cell. The store moves rows and runs of cells, and it reads or
+ * writes what is in a cell only through the kind. There is one kind: mode 0's (cell_mode0.h), the cell as mode 0
  * draws it, with its colors.
  *
  * A kind gives the store these:
@@ -19,8 +18,7 @@
  * cell_fill_t: a fill, the cell every cell of a run becomes, and whether
  *   it is selective, which leaves the guarded cells. Its cell is .cell and
  *   its flag .selective; the rest is the kind's.
- * cell_side_t: the blank a shift brings in either side of the cells that
- *   survive it, the pen's at the time.
+ * cell_side_t: the colors of a blank, the pen's or the default's.
  * cell_strip_t: the cells either side of some columns of a row,
  *   CELL_STRIP_MAX at most, kept while a margin scroll moves the rows.
  *
@@ -30,8 +28,8 @@
  *   colors' blank.
  * cell_blank(code, side, selective, written): the fill of a blank, a space
  *   or DECALN's E, as side has it, written or not (CELL_TEXT_WRITTEN).
- * cell_fill_same, cell_side_same: two that leave a row the same, whether
- *   the cells are written included.
+ * cell_fill_same: two that leave a row the same, whether the cells are
+ *   written included.
  * cell_guarded(cell): DECSCA or SPA guards it.
  * cell_put1(at, fill): one cell written.
  * cell_run_fill(at, n, fill): n cells become the fill's cell, guarded or
@@ -49,9 +47,7 @@
  *   to another row.
  * cell_shows(cell): the cell shows something on the screen.
  * cell_text(cell): the cell's text, a CELL_TEXT_ word, the same on every
- *   kind.
- * cell_side_put, cell_side_get: a side in the savestate, in
- *   CELL_SIDE_SST_SIZE bytes; a get says whether it is one. */
+ *   kind. */
 
 #include "core/term/term.h"
 #include <stdint.h>

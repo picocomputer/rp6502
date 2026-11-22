@@ -32,8 +32,7 @@ static inline uint16_t grid_param(const term_t *t, uint8_t i, uint16_t dflt)
 /* ---- the cursor -------------------------------------------------------- */
 
 // Move the cursor, 0-indexed, clamped to the screen and to the columns of its
-// row. Every move ends a pending wrap, and the destination row is touched so a
-// glyph can land on it.
+// row. Every move ends a pending wrap.
 static void grid_goto(term_grid_t *g, unsigned x, unsigned y)
 {
     term_pos_t *pos = term_pos(g);
@@ -45,7 +44,6 @@ static void grid_goto(term_grid_t *g, unsigned x, unsigned y)
     pos->x = (uint8_t)x;
     pos->y = (uint8_t)y;
     pos->wrap_pending = false;
-    screen_touch(g->shown, (uint8_t)y);
 }
 
 static void grid_reset_tabs(term_grid_t *g)
@@ -237,7 +235,7 @@ static void grid_copy(term_t *t, term_grid_t *g, unsigned sy, unsigned sx,
 }
 
 // Scroll the inclusive region [top, bot] up or down by count rows, erased rows
-// coming in. The caller places the cursor and touches its row. Between left
+// coming in. The caller places the cursor. Between left
 // and right margins only the cells between them move. A scroll of all the
 // columns returns the row of memory the row that went out at the edge is
 // in, which keep keeps (screen_scroll). Between margins nothing is kept
@@ -260,12 +258,11 @@ static uint8_t grid_scroll(term_t *t, term_grid_t *g, uint8_t top, uint8_t bot,
     return 0;
 }
 
-// A scroll can bring a double-size line under the cursor: the cursor's row
-// is touched and the cursor kept inside the line's columns.
+// A scroll can bring a double-size line under the cursor: the cursor is
+// kept inside the line's columns.
 static void grid_after_scroll(term_grid_t *g)
 {
     term_pos_t *pos = term_pos(g);
-    screen_touch(g->shown, pos->y);
     unsigned cols = term_cols(g, pos->y);
     if (pos->x >= cols)
         pos->x = (uint8_t)(cols - 1);
@@ -302,16 +299,12 @@ static bool grid_smooths(const term_t *t, const term_grid_t *g)
 }
 
 // An index or a reverse index on its margin scrolls the region a row up or
-// down. A smooth one pays the row going out what it is owed first, such as
-// a shift, and keeps it as it is, because it still shows while it goes;
-// then the rows [top, bot] start moving.
+// down. A smooth one keeps the row going out as it is, because it still
+// shows while it goes; then the rows [top, bot] start moving.
 static void grid_scroll_one(term_t *t, term_grid_t *g, bool up)
 {
     const uint8_t top = g->margin_top, bot = g->margin_bot;
-    const uint8_t edge = up ? top : bot;
     const bool keep = grid_smooths(t, g);
-    if (keep)
-        screen_touch(g->shown, edge);
     uint8_t ghost;
     if (grid_full_region(g))
     {
@@ -478,18 +471,12 @@ static unsigned grid_rep_pass(term_t *t, term_grid_t *g, unsigned n, bool write,
             if (out > end)
                 out = end;
             if (out > x)
-            {
-                screen_touch(g->shown, pos->y);
                 screen_glyphs(t, g->shown, pos->y, (uint8_t)x, t->last_glyph, out - x);
-            }
             int y = pos->y;
             if (y >= g->margin_top && y <= g->margin_bot)
                 y -= (int)(total - done);
             if (end > out && (y >= g->margin_top || pos->y < g->margin_top))
-            {
-                screen_touch(g->shown, (uint8_t)y);
                 screen_glyphs(t, g->shown, (uint8_t)y, (uint8_t)out, t->last_glyph, end - out);
-            }
         }
         n -= run;
         if (pos->x + run <= stop)
@@ -543,7 +530,6 @@ static void grid_REP(term_t *t, term_grid_t *g)
         *pos = from;
         grid_scroll(t, g, g->margin_top, g->margin_bot, (uint16_t)scrolls, true, false);
         grid_rep_pass(t, g, n, true, scrolls);
-        screen_touch(g->shown, pos->y);
         return;
     }
     while (n)

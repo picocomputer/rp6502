@@ -190,9 +190,9 @@ void screen_ring_fit(screen_t *s, uint8_t height)
 }
 
 // The cell store: the cells of a screen that has them, which the grid
-// (grid.c) changes through the screen_ functions, and what each row of them
-// is still owed. draw.c makes the words mode 0 draws the size showing from,
-// and keeps the colors, the blinks and the smooth scrolls.
+// (grid.c) changes through the screen_ functions. draw.c makes the words
+// mode 0 draws the size showing from, and keeps the colors, the blinks and
+// the smooth scrolls.
 //
 // Designed to keep up with 115200 bps without flow control.
 // The logic herein will make more sense if you remember this:
@@ -204,8 +204,8 @@ void screen_ring_fit(screen_t *s, uint8_t height)
 //    is a job (screen.h), the same work done on each of its rows. A
 //    change to one row is done at once.
 // 3. What a cell holds is the machine's kind of cell (cell.h). The store
-//    moves rows and runs of cells, and keeps what is owed, and reads or
-//    writes what is in a cell only through the kind.
+//    moves rows and runs of cells, and reads or writes what is in a cell
+//    only through the kind.
 
 bool screen_moved;
 
@@ -215,55 +215,19 @@ bool screen_moved;
     X(SKIP, screen_moved, "the canvas's load publishes everything")
 SST_TABLE(screen_store, SCREEN_SST)
 
-/* A record is padded to SCREEN_SST_RECORD bytes with zeros. */
-_Static_assert(4 + 2 * CELL_SIDE_SST_SIZE <= SCREEN_SST_RECORD,
-               "a record the size of what it is owed");
-
-static void screen_sst_zeros(sst_cursor_t *c, unsigned n)
-{
-    for (; n; n--)
-        sst_put_u8(c, 0);
-}
-
-static void screen_sst_skip(sst_cursor_t *c, unsigned n)
-{
-    for (; n; n--)
-        sst_get_u8(c);
-}
-
 /* The cells' addresses are never written, because the kind's cells are
  * the same in every build of a machine. */
 void screen_sst_put(sst_cursor_t *c, screen_t *s)
 {
     const uint8_t *const start = c->at;
-    screen_cells_t *b = s->cells;
     screen_job_finish(s);
     screen_settle(s);
     for (int i = 0; i < s->rows; i++)
         sst_put_u8(c, s->row_idx[i]);
     sst_put_u8(c, s->spare);
     sst_put(c, s->line, s->mem_rows);
-    /* What each row of memory is owed, and its record in 12 bytes. */
-    for (int i = 0; i < s->mem_rows; i++)
-    {
-        sst_put_u8(c, b->owed[i]);
-        if (b->owed[i] == SCREEN_OWED_SHIFT)
-        {
-            const screen_shift_t *h = &b->what[i];
-            sst_put_u8(c, h->from);
-            sst_put_u8(c, h->to);
-            sst_put_u8(c, h->end);
-            sst_put_u8(c, h->cols);
-            cell_side_put(c, &h->left);
-            cell_side_put(c, &h->right);
-            screen_sst_zeros(c, SCREEN_SST_RECORD - 4 - 2 * CELL_SIDE_SST_SIZE);
-        }
-        else
-            screen_sst_zeros(c, SCREEN_SST_RECORD);
-    }
     sst_put_u8(c, s->y_offset);
     sst_put_u8(c, s->hidden);
-    sst_put_bool(c, b->all_clean);
     assert(!sst_ok(c) || c->at - start == SCREEN_SST_SIZE);
     (void)start;
 }
@@ -271,38 +235,12 @@ void screen_sst_put(sst_cursor_t *c, screen_t *s)
 bool screen_sst_get(sst_cursor_t *c, screen_t *s)
 {
     screen_cells_t *b = s->cells;
-    bool ok = true;
     for (int i = 0; i < s->rows; i++)
         s->row_idx[i] = sst_get_u8(c);
     s->spare = sst_get_u8(c);
     sst_get(c, s->line, s->mem_rows);
-    for (int i = 0; i < s->mem_rows; i++)
-    {
-        b->owed[i] = sst_get_u8(c);
-        memset(&b->what[i], 0, sizeof(b->what[i]));
-        if (b->owed[i] == SCREEN_OWED_SHIFT)
-        {
-            screen_shift_t *h = &b->what[i];
-            h->from = sst_get_u8(c);
-            h->to = sst_get_u8(c);
-            h->end = sst_get_u8(c);
-            h->cols = sst_get_u8(c);
-            ok &= cell_side_get(c, &h->left);
-            ok &= cell_side_get(c, &h->right);
-            screen_sst_skip(c, SCREEN_SST_RECORD - 4 - 2 * CELL_SIDE_SST_SIZE);
-            /* The record indexes the row's cells. */
-            ok &= h->cols <= b->width && h->end <= h->cols && h->to <= h->end &&
-                  h->from + h->end - h->to <= h->cols;
-        }
-        else
-        {
-            ok &= b->owed[i] == SCREEN_OWED_NONE;
-            screen_sst_skip(c, SCREEN_SST_RECORD);
-        }
-    }
     s->y_offset = sst_get_u8(c);
     s->hidden = sst_get_u8(c);
-    b->all_clean = sst_get_bool(c);
     b->later.n = 0;
     b->job.kind = SCREEN_JOB_NONE;
     /* Everything here indexes the cell array. row_idx is the ring and
@@ -311,7 +249,7 @@ bool screen_sst_get(sst_cursor_t *c, screen_t *s)
      * row, the spare is none. */
     if (!sst_ok(c))
         return false;
-    if (!ok || s->y_offset >= s->rows || s->hidden >= s->rows)
+    if (s->y_offset >= s->rows || s->hidden >= s->rows)
         return sst_refuse(c, "a screen's layout out of range");
     bool seen[TERM_MEM_ROWS] = {false};
     for (int i = 0; i < s->mem_rows; i++)
@@ -372,61 +310,6 @@ static void screen_fill_erased(term_t *term, cell_t *row, unsigned start, unsign
     fill_glyph(row, start, end, &e);
 }
 
-// Pay row m of memory what it is owed. A shift moves the survivors, then
-// blanks the columns either side of where they landed: those on the left
-// came in with a shift right, so are written, and those on the right are
-// not (screen_shift).
-static void screen_pay(screen_cells_t *buf, uint8_t m)
-{
-    cell_t *row = buf->mem + (uint32_t)m * buf->width;
-    const uint8_t owed = buf->owed[m];
-    buf->owed[m] = SCREEN_OWED_NONE;
-    if (owed != SCREEN_OWED_SHIFT)
-        return;
-    const screen_shift_t *s = &buf->what[m];
-    cell_run_move(row + s->to, row + s->from, (unsigned)(s->end - s->to));
-    if (s->to)
-    {
-        const cell_fill_t e = cell_blank(' ', s->left, false, true);
-        cell_run_fill(row, s->to, &e);
-    }
-    if (s->end < s->cols)
-    {
-        const cell_fill_t e = cell_blank(' ', s->right, false, false);
-        cell_run_fill(row + s->end, (unsigned)(s->cols - s->end), &e);
-    }
-}
-
-// Make sure you call this any time you change rows.
-// It pays the row what it is still owed.
-static void screen_clean_line(screen_t *s, uint8_t y)
-{
-    const uint8_t m = screen_mem(s, y);
-    if (s->cells->owed[m])
-        screen_pay(s->cells, m);
-}
-
-// Clean one dirty row of a screen. Returns true if a row was cleaned this
-// call, false if the screen was already fully clean. Operates on an
-// explicit screen so the draw task can pay the screen not showing too.
-bool screen_tidy(screen_t *s, uint8_t height)
-{
-    screen_cells_t *buf = s->cells;
-    if (buf->all_clean)
-        return false;
-    for (uint8_t i = 0; i < height; i++)
-    {
-        const uint8_t m = screen_mem(s, i);
-        if (buf->owed[m])
-        {
-            screen_pay(buf, m);
-            return true;
-        }
-    }
-    buf->all_clean = true;
-    return false;
-}
-
 // Columns [left, right] of rows [top, bot] become the fill's, with sized
 // only those a row's line has: a job, or the row's work at once for one
 // row. For a screen with cells.
@@ -454,7 +337,7 @@ static void screen_fill_rows(screen_t *s, uint8_t from, uint8_t to, const cell_f
 
 // The screen's ring in order, and its height rows erased to the fill. A
 // scroll the screen was owed is forgotten with the cells it would have
-// moved, and what each row was owed with the row.
+// moved.
 static void screen_erased(screen_t *s, uint8_t height, const cell_fill_t *e)
 {
     screen_ring_clear(s);
@@ -462,18 +345,10 @@ static void screen_erased(screen_t *s, uint8_t height, const cell_fill_t *e)
     if (!b)
         return;
     b->later.n = 0;
-    for (uint8_t m = 0; m < s->mem_rows; m++)
-        b->owed[m] = SCREEN_OWED_NONE;
     screen_fill_rows(s, 0, height, e);
 }
 
 /* ---- what the grid asks of the cells ----------------------------------- */
-
-void screen_touch(screen_t *s, uint8_t y)
-{
-    if (s->cells)
-        screen_clean_line(s, y);
-}
 
 // The cell a glyph lands as on a screen, in the pen, through the active
 // character set: DEC Special Graphics for that set's 0x5F to 0x7E, DEC
@@ -592,8 +467,6 @@ void screen_copy_cells(term_t *term, screen_t *s, uint8_t sy, unsigned sx, uint8
     (void)term;
     if (!screen_settled(s))
         return;
-    screen_clean_line(s, sy);
-    screen_clean_line(s, dy);
     cell_t *row = screen_row(s, dy);
     cell_run_move(row + dx, screen_row(s, sy) + sx, n);
     cell_marks(row, dx, dx + n, SCREEN_MARK_WRITTEN, 0, 0);
@@ -612,101 +485,23 @@ void screen_attrs(screen_t *s, uint8_t top, uint8_t bot, uint8_t left, uint8_t r
     screen_job_start(s, &j);
 }
 
-// One more shift of n columns, with this blank, added to the shift a row of
-// cols columns is owed.
-static inline void screen_shift_add(screen_shift_t *s, uint8_t cols, uint8_t n, bool left,
-                                    cell_side_t side)
-{
-    if (left)
-    {
-        if (s->to >= n)
-            s->to = (uint8_t)(s->to - n);
-        else
-        {
-            s->from = (uint8_t)(s->from + n - s->to);
-            s->to = 0;
-        }
-        s->end = s->end > n ? (uint8_t)(s->end - n) : 0;
-        s->right = side;
-    }
-    else
-    {
-        s->to = (uint8_t)(s->to + n < cols ? s->to + n : cols);
-        s->end = (uint8_t)(s->end + n < cols ? s->end + n : cols);
-        s->left = side;
-    }
-    if (s->to == s->end)
-        s->from = 0;
-}
-
-// SL and SR only mark the rows: each is owed the shift, and no cell moves
-// until the row is paid. A row that already owes a shift has this one
-// added to its record. It is paid first only when this shift's blanks
-// would sit beside blanks unlike them on the same side. The cursor's row
-// is never left owing. A row
-// of the full width that owes nothing, which is most rows, takes a record
-// made once for them all. Between left and right margins a row is owed
-// nothing new: the cells between them move now.
-void screen_shift(term_t *term, screen_t *sc, uint8_t top, uint8_t bot, unsigned from,
+// SL, SR and the rest, over rows [top, bot]: a job, or the row's work at
+// once for one row. A count of a row's columns or more empties the row's
+// columns, so the job keeps it to what its uint8_t holds, which is more
+// than any row has.
+void screen_shift(term_t *term, screen_t *s, uint8_t top, uint8_t bot, unsigned from,
                   unsigned end, unsigned count, bool left)
 {
-    if (!screen_settled(sc))
-        return;
-    screen_cells_t *buf = sc->cells;
-    const cell_side_t side = cell_side_pen(term);
-    const cell_fill_t in = cell_blank(' ', side, false, !left);
-    if (from || end != buf->width)
-    {
-        for (uint8_t y = top; y <= bot; y++)
-        {
-            const unsigned cols = screen_cols(sc, y);
-            const unsigned e = end < cols ? end : cols;
-            if (from >= e)
-                continue;
-            const unsigned n = count < e - from ? count : e - from;
-            screen_clean_line(sc, y);
-            if (left)
-                screen_row_delete(screen_row(sc, y), from, e, n, &in);
-            else
-                screen_row_insert(screen_row(sc, y), from, e, n, &in);
-        }
-        return;
-    }
-    const uint8_t width = buf->width;
-    screen_shift_t whole = {0, 0, width, width, side, side};
-    screen_shift_add(&whole, width, count < width ? (uint8_t)count : width, left, side);
-    for (uint8_t y = top; y <= bot; y++)
-    {
-        const uint8_t m = screen_mem(sc, y);
-        screen_shift_t *s = &buf->what[m];
-        const uint8_t owed = buf->owed[m];
-        const uint8_t size = screen_size(sc, y);
-        if (owed == SCREEN_OWED_NONE && !size)
-        {
-            buf->owed[m] = SCREEN_OWED_SHIFT;
-            *s = whole;
-            continue;
-        }
-        const uint8_t cols = size ? width / 2u : width;
-        const uint8_t n = count < cols ? (uint8_t)count : cols;
-        screen_shift_t r = {0, 0, cols, cols, side, side};
-        if (owed == SCREEN_OWED_SHIFT)
-        {
-            // A shift owed from when the row had another line size pays
-            // first: its columns are not this shift's.
-            if (s->cols != cols ||
-                (n < cols && (left ? s->end < cols && !cell_side_same(&s->right, &side)
-                                   : s->to && !cell_side_same(&s->left, &side))))
-                screen_pay(buf, m);
-            else
-                r = *s;
-        }
-        screen_shift_add(&r, cols, n, left, side);
-        buf->owed[m] = SCREEN_OWED_SHIFT;
-        *s = r;
-    }
-    buf->all_clean = false;
-    screen_clean_line(sc, sc->pos.y);
+    const screen_job_t j = {
+        .kind = SCREEN_JOB_SHIFT,
+        .first = top,
+        .last = bot,
+        .left = (uint8_t)from,
+        .right = (uint8_t)(end - 1),
+        .sized = true,
+        .shift = {count < UINT8_MAX ? (uint8_t)count : UINT8_MAX, left,
+                  cell_blank(' ', cell_side_pen(term), false, !left)}};
+    screen_job_start(s, &j);
 }
 
 void screen_erase_rows(term_t *term, screen_t *s, uint8_t from, uint8_t to, bool selective)
@@ -726,10 +521,9 @@ void screen_align(term_t *term, screen_t *s, uint8_t height)
     screen_fill_rows(s, 0, height, &e);
 }
 
-// The rows move round the ring, which takes what each row of memory is
-// owed with it, and the n rows coming in are erased in the pen's colors,
-// after the ring has kept the row going out. A screen with no cells has
-// only its ring.
+// The rows move round the ring, and the n rows coming in are erased in the
+// pen's colors, after the ring has kept the row going out. A screen with no
+// cells has only its ring.
 uint8_t screen_scroll(term_t *term, screen_t *s, uint8_t top, uint8_t bot, uint8_t n, bool up,
                       bool keep)
 {
@@ -749,10 +543,8 @@ uint8_t screen_scroll(term_t *term, screen_t *s, uint8_t top, uint8_t bot, uint8
 // it. So the cells between the columns are copied up or down a row at a
 // time; or, when there are fewer cells either side, the rows move and the
 // cells either side, and the line attributes, go back to the rows they were
-// on, each row's to the next round the region. No row of the region is owed
-// anything: they were
-// paid when the scroll came to be owed, and everything that changes a cell
-// does the scroll first.
+// on, each row's to the next round the region. Everything that changes a
+// cell does the scroll first.
 void screen_settle(screen_t *s)
 {
     screen_cells_t *buf = s->cells;
@@ -811,8 +603,7 @@ void screen_settle(screen_t *s)
 }
 
 // The screen is only owed the scroll. One of the same columns the same way
-// that it already owes is added to; any other is done first. Every row of
-// the region is paid what it is owed, which is owed to a whole row.
+// that it already owes is added to; any other is done first.
 void screen_scroll_cols(term_t *term, screen_t *s, uint8_t top, uint8_t bot, unsigned from,
                         unsigned end, uint8_t n, bool up)
 {
@@ -828,8 +619,6 @@ void screen_scroll_cols(term_t *term, screen_t *s, uint8_t top, uint8_t bot, uns
         return;
     }
     screen_settle(s);
-    for (unsigned y = top; y <= bot; y++)
-        screen_clean_line(s, (uint8_t)y);
     const screen_later_t later = {top, bot, (uint8_t)from, (uint8_t)end, n, up, in};
     *l = later;
 }
@@ -862,20 +651,14 @@ void screen_height(screen_t *s, uint8_t height, bool grow, bool top)
         return;
     }
     screen_moved = true;
-    // Other rows are in view now, and one of them may be owed something
-    // from before it left.
-    s->cells->all_clean = false;
     // With top, a grow moves everything down a row and the row above comes
-    // into view: a row of scrollback, which comes back as it left with what
-    // it was still owed, or else a blank one. A shrink sends the top row out
-    // of view to join the scrollback.
+    // into view: a row of scrollback, which comes back as it left, or else
+    // a blank one. A shrink sends the top row out of view to join the
+    // scrollback.
     const cell_fill_t e = cell_blank(' ', cell_side_default(), false, false);
     if (screen_ring_height(s, height, grow, top))
         screen_fill_rows(s, 0, 1, &e);
-    if (top)
-        // The cursor's row is another row now, and never owes anything.
-        screen_clean_line(s, s->pos.y);
-    else if (grow)
+    if (!top && grow)
         // A blank row comes in at the bottom.
         screen_fill_rows(s, (uint8_t)(height - 1), height, &e);
     // Otherwise the bottom row is out of view, and a later grow that brings
@@ -883,13 +666,10 @@ void screen_height(screen_t *s, uint8_t height, bool grow, bool top)
 }
 
 // The rows above the view and the rows below it share the ring, so the
-// scrollback is at most what the view leaves over. Other rows are in view
-// now, and one of them may be owed something from before it left.
+// scrollback is at most what the view leaves over.
 void screen_fit(screen_t *s, uint8_t height)
 {
     screen_ring_fit(s, height);
-    if (s->cells)
-        s->cells->all_clean = false;
 }
 
 void screen_reset(screen_t *s, uint8_t height)
@@ -902,7 +682,6 @@ bool screen_row_used(screen_t *s, uint8_t y)
 {
     if (!screen_settled(s))
         return false;
-    screen_clean_line(s, y);
     const cell_t *row = screen_row(s, y);
     for (unsigned x = 0; x < s->cells->width; x++)
         if (cell_shows(&row[x]))
@@ -914,7 +693,6 @@ unsigned screen_row_text(screen_t *s, uint8_t y, uint16_t *out)
 {
     if (!screen_settled(s))
         return 0;
-    screen_clean_line(s, y);
     const cell_t *row = screen_row(s, y);
     const unsigned cols = screen_cols(s, y);
     for (unsigned x = 0; x < cols; x++)
@@ -941,8 +719,7 @@ static unsigned screen_job_end(const screen_t *s, const screen_job_t *j, uint8_t
     return end < cols ? end : cols;
 }
 
-// A move's row y: the cells of its source row, or the fill coming in. The
-// source row is paid what it is owed before it is read.
+// A move's row y: the cells of its source row, or the fill coming in.
 static void screen_job_move(screen_t *s, const screen_job_t *j, uint8_t y, cell_t *row,
                             unsigned end)
 {
@@ -963,19 +740,17 @@ static void screen_job_move(screen_t *s, const screen_job_t *j, uint8_t y, cell_
         if (n > cols - v->col)
             n = cols - v->col;
     }
-    screen_clean_line(s, sy);
     cell_run_move(row + j->left, screen_row(s, sy) + v->col, n);
     if (v->written)
         cell_marks(row, j->left, j->left + n, SCREEN_MARK_WRITTEN, 0, 0);
 }
 
-// The job's work on row y, which is paid what it is owed first.
+// The job's work on row y.
 static void screen_job_row(screen_t *s, const screen_job_t *j, uint8_t y)
 {
     const unsigned left = j->left, end = screen_job_end(s, j, y);
     if (left >= end)
         return;
-    screen_clean_line(s, y);
     cell_t *row = screen_row(s, y);
     switch (j->kind)
     {

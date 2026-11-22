@@ -291,7 +291,8 @@ static void vt_row(int y, char *out, size_t size)
     out[last] = 0;
 }
 
-/* Pays what the rows are owed, and shows blinking text in its lit phase. */
+/* Does the scrolls the screens are owed, and shows blinking text in its lit
+ * phase. */
 static void vt_settle(void)
 {
     for (int i = 0; i < TB_SCREEN_SETTLE; i++)
@@ -1071,8 +1072,8 @@ static bool vt_drain(void)
     }
 }
 
-/* Waits for vttest to want a key, with what the rows are owed paid so the
- * cells are what the screen shows. */
+/* Waits for vttest to want a key, with the scrolls the screens are owed
+ * done so the cells are what the screen shows. */
 static bool vt_wait(void)
 {
     if (!vt_drain())
