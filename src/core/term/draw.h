@@ -49,6 +49,13 @@ extern volatile uint32_t draw_bytes_in_jobs;
  * do nothing. */
 void draw_reset(void);
 
+/* The console's terminal started a job (screen.h): a byte or a change of
+ * the console's size or code page works on more than one row. A machine
+ * that draws the console does its own jobs, so it has it do nothing. The
+ * RIA, whose VGA does the same job a few rows a pass of its main loop,
+ * holds its console bytes for the VGA a while (ria/sys/vga.c). */
+void draw_job_started(void);
+
 /* The chunk holds the console's terminal (term.h) and both sizes in full:
  * each one's grid, where mode 0 sits (vterm.h), the layout of its screens'
  * cells (the scroll remap) and its blinks, then the smooth scroll and the

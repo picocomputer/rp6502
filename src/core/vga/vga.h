@@ -31,6 +31,13 @@ unsigned long vga_frame_count(void);
  * unplugged. */
 bool vga_connected(void);
 
+/* The VGA is still at work on what the console sent it, so it may not show
+ * yet: a Pico RIA awaits the VGA's answer to a message, has a code page
+ * still to go, or holds its console for a job (core/term/screen.h) that the
+ * VGA does over passes of its main loop. False with no VGA connected, and
+ * on a machine that draws its own console, whose jobs run at once. */
+bool vga_console_busy(void);
+
 vga_canvas_t vga_get_canvas(void);
 
 void vga_canvas_size(int *w, int *h);

@@ -29,6 +29,11 @@ unsigned long vga_frame_count(void) { return 0; }
 void com_reply(const char *s, size_t n) { (void)s, (void)n; }
 void draw_reset(void) {}
 
+/* The jobs the terminal started, which ria/sys/vga.c holds the VGA's
+ * console for. */
+static unsigned jobs;
+void draw_job_started(void) { jobs++; }
+
 /* The bell's voice is the PSG's ninth, and register 6 is its gate
  * (core/aud/bel.c); the bell sounds while the gate is up. Its deadlines
  * never fall due, as the clock stands still. */
@@ -147,6 +152,24 @@ UTEST(cells, the_rows_move_with_a_scroll)
     ASSERT_FALSE(screen_row_used(vterm_get_shown(&vterm)->shown, 0));
     ASSERT_TRUE(screen_row_used(vterm_get_shown(&vterm)->shown, (uint8_t)(bottom - 1)));
     ASSERT_FALSE(screen_row_used(vterm_get_shown(&vterm)->shown, (uint8_t)bottom));
+}
+
+/* Work on more than one row is a job at each size, which the RIA holds
+ * the VGA's console for. Work on one row, and a line feed that turns the
+ * ring at full width, are done at once and hold nothing. */
+UTEST(cells, work_on_more_than_one_row_is_a_job)
+{
+    fresh();
+    say("one\r\ntwo\r\nthree");
+    jobs = 0;
+    say("\33[2K\33[3;2H\33[P\33[99;1H\n");
+    ASSERT_EQ(0u, jobs);
+    say("\33[2J");
+    ASSERT_EQ(2u, jobs);
+    say("\33[1;1;9;9;1$r");
+    ASSERT_EQ(4u, jobs);
+    say("\33[3;9r\33[3;1H\33[2L\33[r");
+    ASSERT_EQ(6u, jobs);
 }
 
 UTEST(cells, each_screen_has_its_own_rows)

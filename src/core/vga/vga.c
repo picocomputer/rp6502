@@ -65,6 +65,11 @@ bool vga_connected(void)
     return true;
 }
 
+bool vga_console_busy(void)
+{
+    return false;
+}
+
 void vga_canvas_reset(void)
 {
     vga_prog_reset();

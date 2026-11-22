@@ -82,6 +82,15 @@ static volatile bool vga_own_awaited;
 static volatile vga_answer_t vga_answer_state = VGA_ANSWER_ACK;
 static uint32_t vga_answer_deadline;
 
+/* A job the console's terminal started (draw_job_started), which the VGA's
+ * terminal starts at the same byte and does TERM_JOB_ROWS rows a pass of its
+ * main loop. The console sends the VGA no byte until this time, so none
+ * comes while the VGA still works on it. The hold is flat, the same for a
+ * job of any size, and generous for a whole screen at both sizes. Set only
+ * while a VGA is connected. */
+#define VGA_JOB_HOLD_US 1000
+static uint64_t vga_job_hold_end_us;
+
 /* Set when a flash of either chip begins, and never cleared: a flash ends in
  * a reboot or a lockup. From then on vga.c sends nothing it awaits, so
  * FLASH_PROGRAM's answer is the only one. */
@@ -584,15 +593,27 @@ vga_answer_t vga_answer(void)
     return vga_answer_state;
 }
 
-/* A console held for an answer or a code page moves on here, since a flush
- * of the console waits on nothing else. A wait whose time is up holds it
- * until it is a timeout. While the RIA rewrites its flash nothing is awaited
- * or still to go (vga_flashing), so the console never calls into flash. */
-bool HOST_IN_RAM_FUNC vga_console_ready(void)
+/* The console of a connected VGA is held: an answer is awaited, a code page
+ * is still to go, or the VGA is at work on a job. A console held for an
+ * answer or a code page moves on here, since a flush of the console waits on
+ * nothing else. A wait whose time is up holds it until it is a timeout.
+ * While the RIA rewrites its flash nothing is awaited or still to go
+ * (vga_flashing), so the console never calls into flash. */
+static bool HOST_IN_RAM_FUNC vga_console_held(void)
 {
     if (vga_awaiting() || vga_code_page_owed)
         vga_tell_code_page();
-    return !vga_awaiting() && !vga_code_page_owed && vga_connected() && pix_ready();
+    return vga_awaiting() || vga_code_page_owed || time_us_64() < vga_job_hold_end_us;
+}
+
+bool HOST_IN_RAM_FUNC vga_console_ready(void)
+{
+    return !vga_console_held() && vga_connected() && pix_ready();
+}
+
+bool vga_console_busy(void)
+{
+    return vga_connected() && vga_console_held();
 }
 
 /* A connected VGA whose VSYNCs stop is lost. One that FLASH linked again and
@@ -738,6 +759,14 @@ void vga_flashing(void)
 /* The VGA draws the console, so the RIA has no blinks to start again. */
 void draw_reset(void)
 {
+}
+
+/* The VGA does the same job over passes of its main loop: its console is
+ * held until it is surely done. */
+void draw_job_started(void)
+{
+    if (vga_connected())
+        vga_job_hold_end_us = time_us_64() + VGA_JOB_HOLD_US;
 }
 
 void HOST_IN_FLASH_FUNC vga_init(void)

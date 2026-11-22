@@ -332,6 +332,11 @@ void draw_reset(void)
     draw_stale = true;
 }
 
+// The jobs are this machine's own: draw_task does them, or they ran at once.
+void draw_job_started(void)
+{
+}
+
 /* ---- the stream -------------------------------------------------------- */
 
 // n bytes compared a word at a time, only the bits of each byte in mask.

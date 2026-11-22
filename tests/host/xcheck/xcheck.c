@@ -49,6 +49,7 @@ bool vga_connected(void) { return true; }
 void com_reply(const char *s, size_t n) { (void)s, (void)n; }
 void bel_term(void) {}
 void draw_reset(void) {}
+void draw_job_started(void) {}
 bool host_minimized(void) { return false; }
 
 #if TERM_CELL_TEXT

@@ -18,6 +18,11 @@ bool vga_connected(void)
     return true;
 }
 
+bool vga_console_busy(void)
+{
+    return false;
+}
+
 bool vga_prog_valid(int16_t plane, int16_t scanline_begin,
                     int16_t *scanline_end)
 {

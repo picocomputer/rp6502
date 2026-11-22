@@ -35,8 +35,9 @@ bool console_waiting(void);
 void console_eof(void);
 
 /* Everything written to the console has reached its terminals, the RIA's
- * copy included, and no smooth scroll is still moving: what a sync of the
- * console waits for, on CON: and TTY: alike. */
+ * copy included, the VGA is no longer at work on it (vga_console_busy), and
+ * no smooth scroll is still moving: what a sync of the console waits for,
+ * on CON: and TTY: alike. */
 bool console_rendered(void);
 
 /* True once the running program has read CON:. It stays true until the

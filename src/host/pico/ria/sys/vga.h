@@ -58,7 +58,8 @@ void vga_flashing(void);
 bool vga_connected(void);
 
 /* Room on PIX for a byte of the console of a connected VGA. None goes while
- * an answer is awaited or a code page is still to go. */
+ * an answer is awaited, a code page is still to go, or the VGA is at work on
+ * a job the console's terminal started (draw_job_started). */
 bool vga_console_ready(void);
 
 // Responders for status.

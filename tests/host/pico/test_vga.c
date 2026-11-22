@@ -26,6 +26,7 @@
 #include "core/str/oem.h"
 #include "core/str/str.h"
 #include "core/sys/xram.h"
+#include "core/term/draw.h"
 #include "core/term/vterm.h"
 #include "utest.h"
 #include <hardware/dma.h>
@@ -497,6 +498,64 @@ UTEST(vga, xreg_waits_for_the_code_page)
     deliver();
     ASSERT_TRUE(pix_api_xreg());
     ASSERT_GE(sent_find(0, 0, from), 0);
+}
+
+/* ---- the console's wait for the VGA ----------------------------------- */
+
+/* A job the console's terminal started holds the console's bytes for the
+ * VGA a millisecond (vga.c's VGA_JOB_HOLD_US), and a sync waits for it. */
+UTEST(vga, a_job_holds_the_console_a_while)
+{
+    boot_settled();
+    ASSERT_TRUE(vga_console_ready());
+    ASSERT_FALSE(vga_console_busy());
+    draw_job_started();
+    ASSERT_FALSE(vga_console_ready());
+    ASSERT_TRUE(vga_console_busy());
+    now_us += 999;
+    ASSERT_FALSE(vga_console_ready());
+    ASSERT_TRUE(vga_console_busy());
+    now_us += 1;
+    ASSERT_TRUE(vga_console_ready());
+    ASSERT_FALSE(vga_console_busy());
+}
+
+/* A sync waits for an answer, and for a code page still to go. */
+UTEST(vga, the_console_is_busy_while_an_answer_is_awaited)
+{
+    boot(true, false);
+    ASSERT_TRUE(vga_console_busy()); // the code page, then its answer
+    deliver();
+    vga_task(); // DISPLAY
+    ASSERT_TRUE(vga_console_busy());
+    deliver();
+    ASSERT_FALSE(vga_console_busy());
+    ASSERT_TRUE(vga_ask(0, 0, 1, VGA_ANSWER_MS));
+    ASSERT_TRUE(vga_console_busy());
+    deliver();
+    ASSERT_FALSE(vga_console_busy());
+}
+
+/* With no VGA nothing waits: a job holds nothing. */
+UTEST(vga, no_vga_no_wait)
+{
+    boot(false, false);
+    ASSERT_FALSE(vga_console_busy());
+    draw_job_started();
+    ASSERT_FALSE(vga_console_busy());
+}
+
+/* A VGA lost to an answer it did not give holds nothing either. */
+UTEST(vga, a_lost_vga_no_wait)
+{
+    boot(true, true);
+    vga_task(); // CODE_PAGE, never answered
+    ASSERT_TRUE(vga_console_busy());
+    advance_ms(VGA_ANSWER_MS);
+    ASSERT_FALSE(vga_console_busy());
+    ASSERT_FALSE(vga_connected());
+    draw_job_started();
+    ASSERT_FALSE(vga_console_busy());
 }
 
 /* ---- FLASH ------------------------------------------------------------- */

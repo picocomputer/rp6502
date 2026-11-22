@@ -5,6 +5,7 @@
  */
 
 #include "core/term/screen.h"
+#include "core/term/draw.h"
 #include "core/term/term.h"
 #include "machine.h"
 #include <assert.h>
@@ -783,6 +784,7 @@ void screen_job_start(screen_t *s, const screen_job_t *job)
     screen_job_t *j = &s->cells->job;
     *j = *job;
     j->next = j->first;
+    draw_job_started();
     if (!TERM_JOB_ROWS)
         screen_job_finish(s);
 }

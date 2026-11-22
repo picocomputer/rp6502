@@ -498,8 +498,8 @@ static inline bool screen_job_pending(const screen_t *s)
 // end at once, inside the operation that starts it, or with TERM_JOB_ROWS
 // (term.h) is left pending for the machine's main loop. A job of one row
 // is that row's work done at once, as any change to one row is: only work
-// on more than one row is ever a job. A screen with no cells has no work
-// to do.
+// on more than one row is ever a job, and draw_job_started (draw.h) hears
+// of it. A screen with no cells has no work to do.
 void screen_job_start(screen_t *s, const screen_job_t *job);
 
 // The next rows, up to rows of them, of the job the screen has pending,
