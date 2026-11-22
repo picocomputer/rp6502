@@ -21,7 +21,8 @@
 // character sets (DEC Special Graphics and DEC Technical, in G0 to G3), with
 // what xterm adds: 256 colors and truecolor, the alternate screen, the
 // dynamic colors of OSC 4/10/11/12, bracketed paste, and DECRQSS, which is
-// how a program finds kitty's underlines. The parser follows the DEC/xterm
+// how a program finds kitty's underlines. From SyncTERM it takes DECSCS,
+// the speed ANSI art is drawn at. The parser follows the DEC/xterm
 // state machine (vt100.net), so unknown sequences and strings are taken
 // apart the way xterm does. Inside a sequence BS-SI and BEL act and the
 // sequence goes on, as in xterm; any other control ends it silently, as in
@@ -123,6 +124,7 @@ static void term_reset_core(term_t *t)
     t->smooth_released = false;
     t->cursor_enabled = true;
     t->cursor_style = 0;
+    t->speed = 0;
     term_reset_parser(t);
     for (int s = 0; s < 2; s++)
     {
@@ -801,6 +803,27 @@ static void term_out_DECREQTPARM(term_t *t)
         term_replyf("\33[%u;1;1;128;128;1;0x", ps + 2u, 0, 0);
 }
 
+// DECSCS, CSI Ps1 ; Ps2 * r, as SyncTERM has it: the speed the console's
+// bytes reach the screen at, where DEC's VT510 sets a serial port's. Empty
+// parameters are 0. Ps1 is the line, and only an empty, 0 or 1 (the host's
+// transmit) is taken; Ps2 is the speed, 0 for unlimited. Any other
+// sequence is ignored and the speed kept, as SyncTERM ignores it. RIS sets
+// it back to unlimited, as SyncTERM's reset does; DECSTR leaves it, as on
+// DEC.
+static void term_out_DECSCS(term_t *t)
+{
+    const uint16_t ps2 = t->csi_param_count > 1 ? t->csi_param[1] : 0;
+    if (t->csi_param[0] <= 1 && ps2 <= TERM_SPEED_MAX)
+        t->speed = (uint8_t)ps2;
+}
+
+uint32_t term_speed(const term_t *t)
+{
+    static const uint32_t bps[TERM_SPEED_MAX + 1] = {
+        0, 300, 600, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 76800, 115200};
+    return bps[t->speed];
+}
+
 // A pen color as SGR sets it, for DECRQSS: 30-37 and 90-97 (or 40s and
 // 100s) for the first sixteen palette entries, otherwise the colon forms
 // 38:5:n and 38:2::r:g:b. `base` is 30, 40, or 0 for the underline's, which
@@ -822,9 +845,9 @@ static int term_format_color(char *buf, size_t size, const term_color_t *c, unsi
 // DECRQSS, DCS $ q Pt ST: what a setting is now, as the sequence that would
 // set it. Pt is the end of that sequence: m for SGR, r for DECSTBM, s for
 // DECSLRM, SP q for DECSCUSR, " q for DECSCA, * x for DECSACE, " p for
-// DECSCL, with ;1 for 7-bit controls above a VT100, and t, $ | and * | for
+// DECSCL, with ;1 for 7-bit controls above a VT100, t, $ | and * | for
 // the rows and columns (DECSLPP, DECSCPP and DECSNLS), which only say what
-// they are. The
+// they are, and * r for DECSCS, its Ps1 empty as SyncTERM answers it. The
 // answer is DCS 1 $ r, the setting, Pt and ST; for any other Pt it is
 // DCS 0 $ r ST, as on xterm. SGR is the pen, after a 0 as xterm has it: a
 // program learns from it that an underline style or an RGB color it just
@@ -885,6 +908,8 @@ static void term_out_DECRQSS(term_t *t, const char *pt, unsigned len)
         n += snprintf(buf + n, size - (size_t)n, "%u$|", (unsigned)g->width);
     else if (len == 2 && pt[0] == '*' && pt[1] == '|')
         n += snprintf(buf + n, size - (size_t)n, "%u*|", (unsigned)g->height);
+    else if (len == 2 && pt[0] == '*' && pt[1] == 'r')
+        n += snprintf(buf + n, size - (size_t)n, ";%u*r", (unsigned)t->speed);
     else
         n = snprintf(buf, size, "\33P0$r");
     if (n >= (int)size)
@@ -1887,6 +1912,8 @@ static void term_csi_final(term_t *t, uint8_t ch)
             // DECSACE: DECCARA and DECRARA change a rectangle (2) or the
             // stream of cells from its first corner to its last (0, 1).
             t->rect_attrs = t->csi_param[0] == 2;
+        else if (inter == '*' && ch == 'r')
+            term_out_DECSCS(t);
         break;
     case '?':
         if (!inter && (ch == 'h' || ch == 'l'))
@@ -2180,7 +2207,8 @@ bool term_sst_ok(sst_cursor_t *c, const term_t *t)
         t->level < 61 || t->level > 64 || t->osc_stage > 2 ||
         (t->last_ss != 0 && t->last_ss != 2 && t->last_ss != 3) || !term_pen_ok(&t->pen[0]) || !term_pen_ok(&t->pen[1]) ||
         !term_pen_ok(&t->saved[0]) || !term_pen_ok(&t->saved[1]) ||
-        t->modify_other_keys > 3 || t->csi_param_count > TERM_CSI_PARAM_MAX_LEN ||
+        t->modify_other_keys > 3 || t->speed > TERM_SPEED_MAX ||
+        t->csi_param_count > TERM_CSI_PARAM_MAX_LEN ||
         t->osc_len > TERM_OSC_SPEC_MAX + 1 || t->osc_asks > TERM_OSC_ASK_MAX)
         return sst_refuse(c, "the terminal's parser out of range");
     for (int i = 0; i < TERM_OSC_ASK_MAX; i++)

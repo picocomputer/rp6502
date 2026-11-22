@@ -2795,6 +2795,96 @@ UTEST(term, decrqss_answers_with_the_other_settings)
     ASSERT_STREQ(ask("\33P$qz\33\\"), "\33P0$r\33\\");
 }
 
+/* DECSCS, CSI Ps1 ; Ps2 * r, keeps the speed SyncTERM's table gives Ps2,
+ * 0 unlimited. An empty parameter is 0, and Ps1 is empty, 0 or 1. */
+UTEST(term, decscs_sets_the_speed)
+{
+    static const uint32_t bps[] = {0, 300, 600, 1200, 2400, 4800, 9600,
+                                   19200, 38400, 57600, 76800, 115200};
+    fresh();
+    ASSERT_EQ(term_speed(&vterm), 0u);
+    for (unsigned i = 0; i < sizeof bps / sizeof bps[0]; i++)
+    {
+        char seq[16];
+        snprintf(seq, sizeof seq, "\33[%u;%u*r", i % 2, i);
+        feed(seq);
+        ASSERT_EQ(term_speed(&vterm), bps[i]);
+    }
+    feed("\33[;6*r");
+    ASSERT_EQ(term_speed(&vterm), 9600u);
+    feed("\33[*r");
+    ASSERT_EQ(term_speed(&vterm), 0u);
+    feed("\33[0;3*r\33[1*r");
+    ASSERT_EQ(term_speed(&vterm), 0u);
+    feed("\33[0;3*r\33[1;5;9*r");
+    ASSERT_EQ(term_speed(&vterm), 4800u);
+}
+
+/* Any other DECSCS is ignored and the speed kept: another line, a speed
+ * past the table, and sequences that are not DECSCS. */
+UTEST(term, decscs_ignores_what_it_does_not_take)
+{
+    fresh();
+    feed("\33[0;3*r");
+    const char *const ignored[] = {
+        "\33[2;6*r", "\33[3*r", "\33[5;1*r", "\33[0;12*r", "\33[;99999*r",
+        "\33[?0;6*r", "\33[0:6*r", "\33[0;6**r", "\33[0;6+r"};
+    for (unsigned i = 0; i < sizeof ignored / sizeof ignored[0]; i++)
+    {
+        feed(ignored[i]);
+        ASSERT_EQ(term_speed(&vterm), 1200u);
+    }
+    ASSERT_STREQ(row(0), "");
+}
+
+/* DECRQSS answers DECSCS's speed as SyncTERM does, Ps1 empty. */
+UTEST(term, decrqss_answers_with_the_speed)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33P$q*r\33\\"), "\33P1$r;0*r\33\\");
+    ASSERT_STREQ(ask("\33[0;6*r\33P$q*r\33\\"), "\33P1$r;6*r\33\\");
+    ASSERT_STREQ(ask("\33[1;11*r\33P$q*r\33\\"), "\33P1$r;11*r\33\\");
+    ASSERT_STREQ(ask("\33[0;12*r\33P$q*r\33\\"), "\33P1$r;11*r\33\\");
+}
+
+/* RIS and the system's soft reset set the speed back to unlimited; DECSTR,
+ * and DECSCL with it, leave it. */
+UTEST(term, the_resets_and_the_speed)
+{
+    fresh();
+    feed("\33[0;3*r\33[!p");
+    ASSERT_EQ(term_speed(&vterm), 1200u);
+    feed("\33[63\"p");
+    ASSERT_EQ(term_speed(&vterm), 1200u);
+    feed("\33c");
+    ASSERT_EQ(term_speed(&vterm), 0u);
+    feed("\33[0;3*r");
+    vterm_RIS_no_clear();
+    ASSERT_EQ(term_speed(&vterm), 0u);
+}
+
+/* A savestate carries the speed and refuses one past the table. */
+UTEST(term, a_savestate_carries_the_speed)
+{
+    static uint8_t blob[1 << 18];
+    fresh();
+    feed("\33[0;7*r");
+    ASSERT_LE((size_t)draw_sst.size, sizeof blob);
+    sst_cursor_t c = {blob, blob + draw_sst.size, false, NULL};
+    draw_sst.save(&c, 0);
+    ASSERT_TRUE(sst_ok(&c));
+    feed("\33c");
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    ASSERT_TRUE(draw_sst.load(&c, 0));
+    ASSERT_EQ(term_speed(&vterm), 19200u);
+    vterm.speed = TERM_SPEED_MAX + 1;
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    draw_sst.save(&c, 0);
+    feed("\33c");
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    ASSERT_FALSE(draw_sst.load(&c, 0));
+}
+
 /* DECRQPSR reports the cursor (DECCIR) and the tab stops (DECTABSR), and
  * DECRSPS takes the reports back. */
 UTEST(term, decrqpsr_and_decrsps)

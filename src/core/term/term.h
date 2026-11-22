@@ -161,6 +161,11 @@ typedef enum
     ansi_state_count
 } ansi_state_t;
 
+// DECSCS, CSI Ps1 ; Ps2 * r, as SyncTERM has it: Ps2 picks the speed the
+// console's bytes reach the screen at, 0 for unlimited and 1 to this for
+// 300 to 115200 baud (term_speed).
+#define TERM_SPEED_MAX 11
+
 // The character sets that G0 to G3 can hold.
 #define TERM_CS_ASCII 0 // ESC ( B, and the null and user maps ESC ( U / K
 #define TERM_CS_DEC 1   // ESC ( 0, DEC Special Graphics
@@ -247,6 +252,7 @@ typedef struct
     bool smooth_released; // term_release_smooth: nothing waits for a smooth scroll until DECSCLM is set again
     bool cursor_enabled;  // DECTCEM, ?25
     uint8_t cursor_style; // DECSCUSR Ps: 0/1/2 block, 3/4 underline, 5/6 bar
+    uint8_t speed;        // DECSCS's Ps2, 0 (unlimited) to TERM_SPEED_MAX: term_speed
     uint8_t last_glyph;   // for REP
     uint8_t last_ss;      // and the single shift it was drawn with, 0, 2 or 3
     bool rep_valid;       // the last thing written was a glyph
@@ -309,6 +315,11 @@ bool term_holds(const term_t *t, uint8_t ch);
 // snaps it into place. It lasts until DECSCLM is set or reset again, which
 // the soft reset at the end of a chain does.
 void term_release_smooth(term_t *t);
+
+// The speed DECSCS set, in bits a second, 0 for unlimited: one byte every
+// 10 bits at it reaches the terminal. The machine that feeds the terminal
+// paces the console's bytes to it; the terminal only keeps it.
+uint32_t term_speed(const term_t *t);
 
 // RIS, and the system's soft reset: RIS leaving the screen and the cursor.
 void term_RIS(term_t *t);
@@ -397,6 +408,7 @@ static inline bool term_erase_selective(const term_t *t, bool dec)
     X(BOOL, t.smooth_released)                                         \
     X(BOOL, t.cursor_enabled)                                          \
     X(U8, t.cursor_style)                                              \
+    X(U8, t.speed)                                                     \
     X(U8, t.last_glyph)                                                \
     X(U8, t.last_ss)                                                   \
     X(BOOL, t.rep_valid)                                               \
