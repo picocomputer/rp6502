@@ -128,8 +128,18 @@ def test_tput(r):
 def test_term(r):
     """The console's terminal keeps up with the UART: the slowest things it
     does, each followed at once by a probe whose answer shows a lost byte."""
+    term_run(r, "hil-term")
+
+
+def test_termload(r):
+    """term, with two 8-bit bitmaps drawn over the whole canvas under the
+    terminal, the most a program can load the VGA."""
+    term_run(r, "hil-term-loaded")
+
+
+def term_run(r, name):
     b = r.board
-    rom = r.rom("hil-term")
+    rom = r.rom(name)
     t0, bad, end = time.monotonic(), [], "no output for 20 s"
     with contextlib.ExitStack() as stack:
         video = stack.enter_context(rig.LateLines(r.args.video)) if r.args.video else None

@@ -151,6 +151,15 @@ With `--video`, a capture device on the VGA output is watched during the run,
 every frame, and a late scanline fails the test. A late scanline is a row of
 scanvideo's missing-line blue, so the test draws no blue of its own.
 
+## termload
+
+The term test with the VGA as busy as a program can make it: a 640x480
+canvas with two 8-bit bitmaps in mode 3 over the whole of it, and the
+terminal in mode 0 above them. Run it with `--video`, since the late
+scanlines are what it finds.
+
+    python3 tests/hil/pico/hil.py -d 192.168.1.93 -k key --video /dev/video0 termload
+
 ## Cautions
 
 - A restart of the RIA while a ROM streams from a USB drive can hang the

@@ -58,7 +58,9 @@ def load_summary(rows):
 class LateLines:
     """Watches the VGA output on a capture device while the block runs and
     counts the frames with a late scanline: a row drawn in scanvideo's
-    missing-line blue across most of the screen. Every frame is checked, so
+    missing-line blue across an eighth of the screen or more. A late
+    scanline can be blue across part of the row only, such as its left
+    half, and the capture blends it with the rows beside it. Every frame is checked, so
     the capture must keep up at the display's rate. The test's own colors
     must not include that blue."""
 
@@ -89,8 +91,9 @@ class LateLines:
             if len(buf) < size:
                 return
             a = np.frombuffer(buf, np.uint8).reshape(self.HEIGHT, self.WIDTH, 3)
-            blue = (a[:, :, 2] > 150) & (a[:, :, 0] < 90) & (a[:, :, 1] < 90)
-            rows = np.count_nonzero(blue.sum(axis=1) > self.WIDTH // 2)
+            a = a.astype(np.int16)
+            blue = (a[:, :, 2] > 100) & (a[:, :, 2] > a[:, :, 0] + 50) & (a[:, :, 2] > a[:, :, 1] + 50)
+            rows = np.count_nonzero(blue.sum(axis=1) > self.WIDTH // 8)
             self.frames += 1
             if rows:
                 self.late += 1
