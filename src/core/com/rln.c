@@ -1055,9 +1055,10 @@ static void rln_cursor_shape(uint8_t ps)
 
 // The read is over, or given up: nothing more is read for it, the callback
 // never fires, its selection's highlight is off, a paste key it had still to
-// take pastes, bracketed paste is off if it asked for it, and the cursor has
-// its default shape again.
-void rln_read_cancel(void)
+// take pastes, and the cursor has its default shape again. A completed line
+// then gets its newline (rln_complete). Bracketed paste goes off last, so
+// every terminal sees the line and its newline as typed, unbroken.
+static void rln_read_end(bool completed)
 {
     rln_unselect();
     rln_key_end();
@@ -1065,12 +1066,19 @@ void rln_read_cancel(void)
     rln_idle_timeout_ms = 0;
     tio_read_end();
     rln_cursor_shape(0);
+    if (completed && !rln_suppress_newline && !rln_below_line())
+        rln_out_c('\n');
     if (rln_bracketing)
     {
         rln_bracketing = false;
         rln_out_s("\33[?2004l");
     }
     rln_out_send(false);
+}
+
+void rln_read_cancel(void)
+{
+    rln_read_end(false);
 }
 
 /* The line is done at Enter: nothing is read after it, so whatever follows
@@ -1080,9 +1088,7 @@ void rln_read_cancel(void)
 static void rln_complete(bool timed_out)
 {
     rln_read_callback_t cc = rln_callback;
-    rln_read_cancel();
-    if (!rln_suppress_newline && !rln_below_line())
-        rln_out_c('\n');
+    rln_read_end(true);
     rln_out_then = cc;
     rln_out_timed_out = timed_out;
     rln_out_send(false);

@@ -1617,7 +1617,8 @@ UTEST(rln, vt52_has_no_shift_selection)
 /* ----- Bracketed paste (step 28) ----- */
 
 /* A read with history asks for bracketed paste, and turns it off when it
- * ends. */
+ * ends, after the line's newline, so a terminal sees the echo and its line
+ * end unbroken, as a monitor command's output follows them (build.py). */
 UTEST(rln, a_history_read_brackets_its_pastes_while_it_reads)
 {
     fresh();
@@ -1630,7 +1631,7 @@ UTEST(rln, a_history_read_brackets_its_pastes_while_it_reads)
     wire("a\r");
     manifold_set_tx_tap(NULL);
     ASSERT_EQ(lines, 1);
-    ASSERT_TRUE(strstr(shown, "\33[?2004l") != NULL);
+    ASSERT_TRUE(strstr(shown, "a\r\n\33[?2004l") != NULL);
     ASSERT_FALSE(vterm.bracketed_paste);
 }
 
