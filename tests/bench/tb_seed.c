@@ -27,6 +27,13 @@ bool host_minimized(void)
     return false;
 }
 
+/* The test bench's host is a desktop's window, which gains and loses
+ * focus, so every walk of vttest answers ?1004 as xterm does. */
+bool host_focusable(void)
+{
+    return true;
+}
+
 /* The test bench's host is a Mac when a test says so (tb_seed.h). */
 bool tb_mac_keys;
 

@@ -769,7 +769,8 @@ UTEST(com, a_stream_never_signals_and_never_loses_a_byte)
     unwire();
 }
 
-static char sent[128];
+/* What went out: the soft reset and what comes around it. */
+static char sent[STR_TERM_SOFT_RESET_LEN + 128];
 static size_t sent_len;
 
 static void sent_tap(const char *buf, int len)
@@ -968,7 +969,8 @@ UTEST(com, a_write_to_one_terminal_lands_between_the_output_around_it)
     untap();
 }
 
-static char screen[128];
+/* What reached the screen: the soft reset and what comes around it. */
+static char screen[STR_TERM_SOFT_RESET_LEN + 128];
 static size_t screen_len;
 
 static int screen_out(const char *buf, int len, bool force)

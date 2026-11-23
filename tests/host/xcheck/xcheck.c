@@ -63,6 +63,7 @@ void bel_term(void) {}
 void draw_reset(void) {}
 void draw_job_started(void) {}
 bool host_minimized(void) { return false; }
+bool host_focusable(void) { return true; }
 
 #if TERM_CELL_TEXT
 static cell_t xc_cells[VTERM_CELLS];

@@ -275,6 +275,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/hid/paste.c
     ${RP6502_ROOT}/src/core/hid/clip_byte.c
     ${RP6502_ROOT}/src/core/hid/vtkey.c
+    ${RP6502_ROOT}/src/core/hid/vtmouse.c
     ${RP6502_GEN}/layout_db.c
     ${RP6502_ROOT}/src/core/hid/mouse.c
     ${RP6502_ROOT}/src/core/hid/gamepad.c

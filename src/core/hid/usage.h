@@ -73,6 +73,7 @@
 #define HID_KEY_KEYPAD_COMMA 0x85
 #define HID_KEY_CONTROL_LEFT 0xE0
 #define HID_KEY_SHIFT_LEFT 0xE1
+#define HID_KEY_ALT_LEFT 0xE2
 
 /* The modifier byte of a keyboard report, and the lock lamps of its
  * output report. */

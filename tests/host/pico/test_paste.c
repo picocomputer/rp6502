@@ -7,7 +7,7 @@
 /* A paste from the machine's own buffers as the RIA has it: the buffers in
  * code page bytes (clip_byte.c), the text cells of its terminal, and the
  * keyboard row, KEYMAP_COM_SOURCE, reading through the paste stage in front
- * of a typed queue of 16 bytes, with keymap_abandon its clear. Keys are
+ * of a typed queue of 32 bytes, with keymap_abandon its clear. Keys are
  * typed through keymap.c and vtkey.c on a layout of the letters alone. */
 
 #include "core/aud/bel.h"
@@ -26,7 +26,7 @@
 #include <string.h>
 
 /* The RIA's machine.h, which a host build cannot include. */
-_Static_assert(TERM_MAX_HEIGHT == 32 && TERM_CELL_TEXT == 1 && TYPED_QUEUE_SIZE == 16,
+_Static_assert(TERM_MAX_HEIGHT == 32 && TERM_CELL_TEXT == 1 && TYPED_QUEUE_SIZE == 32,
                "the RIA's terminal and typed queue");
 
 bool vga_connected(void) { return false; }
@@ -203,8 +203,9 @@ UTEST(paste, keys_past_a_full_queue_are_dropped)
     say("0123456789012345678901234567890123456789");
     clip_copy(CLIP_PRIMARY, shown(), 0, 0, 0, 40);
     clip_paste(CLIP_PRIMARY);
-    press("abcdefghijklmnopq", false);
-    ASSERT_STREQ(keyboard(), "0123456789012345678901234567890123456789abcdefghijklmnop");
+    press("abcdefghijklmnopqrstuvwxyzabcdefg", false);
+    ASSERT_STREQ(keyboard(), "0123456789012345678901234567890123456789"
+                             "abcdefghijklmnopqrstuvwxyzabcdef");
 }
 
 /* A Ctrl-C raises the SIGINT at once and ends the paste: what was staged
@@ -221,7 +222,7 @@ UTEST(paste, a_ctrl_c_ends_the_paste_with_its_closing_bracket)
     ASSERT_STREQ(head, "\33[200~");
     press("c", true);
     ASSERT_EQ(sigints, 1u);
-    ASSERT_STREQ(keyboard(), "0123456789012345\33[201~\3");
+    ASSERT_STREQ(keyboard(), "01234567890123456789012345678901\33[201~\3");
 }
 
 /* The row's clear drops the paste, its brackets and the keys behind it. */
@@ -249,7 +250,7 @@ UTEST(paste, a_copy_into_the_buffer_ends_its_paste)
     clip_paste(CLIP_PRIMARY);
     paste_task();
     clip_copy(CLIP_PRIMARY, shown(), 0, 0, 0, 2);
-    ASSERT_STREQ(keyboard(), "\33[200~0123456789012345\33[201~");
+    ASSERT_STREQ(keyboard(), "\33[200~01234567890123456789012345678901\33[201~");
 }
 
 /* A paste started while another goes in cuts that one short, and starts
@@ -263,7 +264,7 @@ UTEST(paste, a_second_paste_follows_the_first_one_s_closing_bracket)
     clip_paste(CLIP_PRIMARY);
     paste_task();
     clip_paste(CLIP_CLIPBOARD);
-    ASSERT_STREQ(keyboard(), "\33[200~0123456789012345\33[201~\33[200~012\33[201~");
+    ASSERT_STREQ(keyboard(), "\33[200~01234567890123456789012345678901\33[201~\33[200~012\33[201~");
 }
 
 /* An empty buffer pastes nothing, not even brackets, but still ends the
@@ -280,7 +281,7 @@ UTEST(paste, an_empty_buffer_pastes_nothing)
     clip_paste(CLIP_PRIMARY);
     paste_task();
     clip_paste(CLIP_CLIPBOARD);
-    ASSERT_STREQ(keyboard(), "\33[200~0123456789012345\33[201~");
+    ASSERT_STREQ(keyboard(), "\33[200~01234567890123456789012345678901\33[201~");
 }
 
 /* DEC Special Graphics is kept as the code page's nearest character. */

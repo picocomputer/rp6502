@@ -24,8 +24,9 @@
  * this machine. core/com/manifold.c queues at most 32 bytes of them, so a
  * ring of 32 takes a full one. */
 #define MANIFOLD_RING_SIZE 32
-/* The size of the typed queue. */
-#define TYPED_QUEUE_SIZE 16
+/* The size of the typed queue: a mouse report (core/hid/vtmouse.h) goes
+ * in whole beside the keys typed. */
+#define TYPED_QUEUE_SIZE 32
 /* The C library's stdout is the console, so com_printf formats straight to
  * it. */
 #define COM_LIBC_STDOUT 1

@@ -917,4 +917,194 @@ UTEST(mouse, a_paste_key_waits_for_a_slow_echo)
     ASSERT_STREQ(line_got, "xaXY defghijklmnopqrstuvwxyzghijklmnopqrstuvwxyz");
 }
 
+/* ---- reports (step 31) ---------------------------------------------------- */
+
+/* X10's events tell a press of a button, with no release and no motion,
+ * and nothing is selected. */
+UTEST(mouse, x10_events_tell_a_press)
+{
+    start();
+    show(TEXT "\33[?9h");
+    drag(2, 1, 5, 1);
+    at(5, 1, TABLET_FLAG_RIGHT);
+    at(5, 1, 0);
+    ASSERT_STREQ(typed(), "\33[M #\"\33[M\"&\"");
+    ASSERT_FALSE(vterm_selection.shows);
+}
+
+/* The normal events tell a press and its release, and no motion. */
+UTEST(mouse, normal_events_tell_a_press_and_its_release)
+{
+    start();
+    show(TEXT "\33[?1000h");
+    drag(2, 1, 5, 1);
+    ASSERT_STREQ(typed(), "\33[M #\"\33[M#&\"");
+    ASSERT_FALSE(vterm_selection.shows);
+}
+
+/* The button events tell motion with a button held, once a cell, and a
+ * drag out of mode 0 goes on at its last row and column. */
+UTEST(mouse, button_events_tell_a_drag)
+{
+    start();
+    show(TEXT "\33[?1002h");
+    at(2, 1, 0);
+    at(2, 1, TABLET_FLAG_LEFT);
+    tablet_host_pointer(2 * 8 + 5, 16 + 7, TABLET_FLAG_LEFT, true);
+    vterm_mouse_task();
+    at(5, 1, TABLET_FLAG_LEFT);
+    tablet_host_pointer(700, 600, TABLET_FLAG_LEFT, true);
+    vterm_mouse_task();
+    tablet_host_pointer(700, 600, 0, true);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "\33[M #\"\33[M@&\"\33[M@p>\33[M#p>");
+}
+
+/* The any events tell every motion, in SGR's form here, and the pixel
+ * form puts the pointer's pixel in them. A press somewhere new is motion
+ * there first. */
+UTEST(mouse, any_events_tell_every_motion)
+{
+    start();
+    show(TEXT "\33[?1003;1006h");
+    at(2, 1, 0);
+    at(3, 1, 0);
+    at(3, 1, TABLET_FLAG_LEFT);
+    at(3, 1, 0);
+    ASSERT_STREQ(typed(), "\33[<35;3;2M\33[<35;4;2M\33[<0;4;2M\33[<0;4;2m");
+    show("\33[?1016h");
+    at(4, 1, 0);
+    tablet_host_pointer(4 * 8 + 4, 16 + 7, 0, true);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "\33[<35;36;24M\33[<35;37;24M");
+    show("\33[?1015h");
+    click(0, 0);
+    ASSERT_STREQ(typed(), "\33[67;1;1M\33[32;1;1M\33[35;1;1M");
+}
+
+/* The wheel is told a notch at a time, as buttons 4 to 7, from the normal
+ * events on, and the terminal claims it only then. */
+UTEST(mouse, the_wheel_is_told_a_notch_at_a_time)
+{
+    start();
+    show(TEXT);
+    at(2, 1, 0);
+    ASSERT_FALSE(tablet_wheel_claimed());
+    tablet_host_wheel(1, 0);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "");
+    ASSERT_FALSE(vterm_selection.shows);
+    show("\33[?9h");
+    ASSERT_FALSE(tablet_wheel_claimed());
+    tablet_host_wheel(1, 0);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "");
+    show("\33[?1000h");
+    ASSERT_TRUE(tablet_wheel_claimed());
+    tablet_host_wheel(2, -1);
+    vterm_mouse_task();
+    tablet_host_wheel(-1, 1);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "\33[M`#\"\33[M`#\"\33[Mb#\"\33[Ma#\"\33[Mc#\"");
+}
+
+/* A report goes in whole or waits, with the edges after it, until the
+ * keys before it are read; then they all go, in order. */
+UTEST(mouse, a_full_queue_keeps_the_edges)
+{
+    start();
+    show(TEXT "\33[?1000h");
+    static char fill[TYPED_QUEUE_SIZE];
+    memset(fill, 'k', sizeof fill);
+    typed_push(fill, typed_free() - 7);
+    at(2, 1, TABLET_FLAG_LEFT);
+    at(2, 1, 0);
+    at(2, 1, TABLET_FLAG_RIGHT);
+    at(2, 1, 0);
+    ASSERT_EQ(typed_free(), (size_t)1);
+    const char *got = typed();
+    ASSERT_EQ(strlen(got), TYPED_QUEUE_SIZE - 1);
+    ASSERT_STREQ(got + TYPED_QUEUE_SIZE - 7, "\33[M #\"");
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "\33[M##\"\33[M\"#\"\33[M##\"");
+}
+
+/* The longest report there is on the console, a drag of the fifth button
+ * with Ctrl and Alt held past the corner in pixels, goes in whole once
+ * there is room for all of it. Shift is never told, so 185 is the largest
+ * code. */
+UTEST(mouse, the_longest_report_arrives_whole)
+{
+    start();
+    show(TEXT "\33[?1003;1016h");
+    at(79, 29, TABLET_FLAG_BTN5);
+    ASSERT_STREQ(typed(), "\33[<35;636;472M\33[<129;636;472M");
+    static char fill[TYPED_QUEUE_SIZE];
+    memset(fill, 'k', sizeof fill);
+    const char *want = "\33[<185;640;480M";
+    typed_push(fill, typed_free() - (strlen(want) - 1));
+    keyboard_set_key(HID_KEY_CONTROL_LEFT, true);
+    keyboard_set_key(HID_KEY_ALT_LEFT, true);
+    tablet_host_pointer(700, 600, TABLET_FLAG_BTN5, true);
+    keyboard_set_key(HID_KEY_CONTROL_LEFT, false);
+    keyboard_set_key(HID_KEY_ALT_LEFT, false);
+    vterm_mouse_task();
+    ASSERT_EQ(typed_free(), strlen(want) - 1);
+    char drop[TYPED_QUEUE_SIZE];
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, drop, 1), (size_t)1);
+    vterm_mouse_task();
+    const char *got = typed();
+    ASSERT_STREQ(got + strlen(got) - strlen(want), want);
+}
+
+/* With a mouse mode set, Shift makes a press the terminal's, never told:
+ * Shift with the left button selects, and with the right extends. */
+UTEST(mouse, shift_selects_under_a_mouse_mode)
+{
+    start();
+    show(TEXT "\33[?1000h");
+    keyboard_set_key(HID_KEY_SHIFT_LEFT, true);
+    drag(6, 0, 11, 0);
+    ASSERT_TRUE(selected(6, 0, 11, 0));
+    at(15, 0, TABLET_FLAG_RIGHT);
+    at(15, 0, 0);
+    ASSERT_TRUE(selected(6, 0, 15, 0));
+    keyboard_set_key(HID_KEY_SHIFT_LEFT, false);
+    ASSERT_STREQ(typed(), "");
+    ASSERT_STREQ(primary(), "world foo");
+}
+
+/* A program that maps the tablet and clears its share bit is told nothing
+ * by the terminal: the clicks are its own. */
+UTEST(mouse, a_program_that_does_not_share_is_told_nothing)
+{
+    start();
+    show(TEXT "\33[?1000h");
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    xram[0xFF00 + TABLET_OFF_STATUS] = 0;
+    drag(6, 0, 11, 0);
+    ASSERT_STREQ(typed(), "");
+    xram[0xFF00 + TABLET_OFF_STATUS] = TABLET_STATUS_SHARED;
+    drag(6, 0, 11, 0);
+    ASSERT_STREQ(typed(), "\33[M '!\33[M#,!");
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+}
+
+/* Under a mouse mode the line editor's line is the program's too: a click
+ * there is told, and Shift selects the primary, never in the line. */
+UTEST(mouse, the_line_s_selection_stays_off_under_a_mouse_mode)
+{
+    editing();
+    show("\33[?1000h");
+    drag(2, 2, 5, 2);
+    ASSERT_STREQ(typed(), "\33[M ##\33[M#&#");
+    keyboard_set_key(HID_KEY_SHIFT_LEFT, true);
+    drag(2, 2, 5, 2);
+    keyboard_set_key(HID_KEY_SHIFT_LEFT, false);
+    loop();
+    ASSERT_TRUE(selected(2, 2, 5, 2));
+    ASSERT_STREQ(line_copy(), "");
+    ASSERT_FALSE(rev(2, 2));
+}
+
 UTEST_MAIN();

@@ -31,8 +31,9 @@
 #define COM_LIBC_STDOUT 1
 /* The size of the UART's input ring. */
 #define MANIFOLD_RING_SIZE 32
-/* The size of the typed queue. */
-#define TYPED_QUEUE_SIZE 16
+/* The size of the typed queue: a mouse report (core/hid/vtmouse.h) goes
+ * in whole beside the keys typed. */
+#define TYPED_QUEUE_SIZE 32
 
 /* The console's terminal follows the VGA's, which is this tall. */
 #define TERM_MAX_HEIGHT 32

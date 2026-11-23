@@ -18,6 +18,7 @@
 #include "core/hid/usage.h"
 #include "core/hid/hostkey.h"
 #include "core/hid/vtkey.h"
+#include "core/hid/vtmouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/com/rln.h"
@@ -1838,6 +1839,85 @@ UTEST(keyboard, repeat_follows_the_terminal)
     ASSERT_FALSE(vtkey_repeats());
     vterm.autorepeat = true;
     ASSERT_TRUE(vtkey_repeats());
+}
+
+/* What vtmouse_encode writes, against xterm's EditorButton: the form, the
+ * event, the button, the VTKEY_ modifiers, the cell and the pixel. In a
+ * wanted string "\1" stands for a NUL. */
+static const struct
+{
+    uint8_t form, event, button, mods;
+    uint16_t col, row, x, y;
+    const char *want;
+} vtmouse_table[] = {
+    /* The X10 form: a byte each, from 32, a release 3. */
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_LEFT, 0, 0, 0, 0, 0, "\33[M !!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_MIDDLE, 0, 4, 2, 0, 0, "\33[M!%#"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_RELEASE, VTMOUSE_RIGHT, 0, 79, 29, 0, 0, "\33[M#p>"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_LEFT, VTKEY_SHIFT, 0, 0, 0, 0, "\33[M$!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_RIGHT, VTKEY_ALT | VTKEY_CTRL, 0, 0, 0, 0,
+     "\33[M:!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_MOTION, VTMOUSE_NONE, 0, 0, 0, 0, 0, "\33[MC!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_MOTION, VTMOUSE_LEFT, VTKEY_CTRL, 0, 0, 0, 0, "\33[MP!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_WHEEL_UP, 0, 0, 0, 0, 0, "\33[M`!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_WHEEL_DOWN, 0, 0, 0, 0, 0, "\33[Ma!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_WHEEL_LEFT, 0, 0, 0, 0, 0, "\33[Mb!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_WHEEL_RIGHT, 0, 0, 0, 0, 0, "\33[Mc!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_BTN4, 0, 0, 0, 0, 0, "\33[M\240!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_BTN5, 0, 0, 0, 0, 0, "\33[M\241!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_RELEASE, VTMOUSE_BTN5, 0, 0, 0, 0, 0, "\33[M#!!"},
+    /* The wheel's up and down keep their number in a release. */
+    {TERM_MOUSE_FORM_X10, VTMOUSE_RELEASE, VTMOUSE_WHEEL_UP, 0, 0, 0, 0, 0, "\33[M`!!"},
+    /* Column or row 222 is the last a byte holds, and beyond is a NUL. */
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_LEFT, 0, 222, 223, 0, 0, "\33[M \377\1"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_LEFT, 0, 1000, 0, 0, 0, "\33[M \1!"},
+    /* X10's events: the button alone, and nothing for the others. */
+    {TERM_MOUSE_FORM_X10, VTMOUSE_X10, VTMOUSE_RIGHT, VTKEY_CTRL, 1, 1, 0, 0, "\33[M\"\"\""},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_X10, VTMOUSE_WHEEL_UP, 0, 0, 0, 0, 0, ""},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_X10, VTMOUSE_BTN4, 0, 0, 0, 0, 0, ""},
+    {TERM_MOUSE_FORM_SGR, VTMOUSE_X10, VTMOUSE_MIDDLE, 0, 0, 0, 0, 0, "\33[<1;1;1M"},
+    /* UTF-8: a byte below 128, two from it, up to 2014, beyond a NUL. */
+    {TERM_MOUSE_FORM_UTF8, VTMOUSE_PRESS, VTMOUSE_LEFT, 0, 94, 95, 0, 0, "\33[M \177\302\200"},
+    {TERM_MOUSE_FORM_UTF8, VTMOUSE_PRESS, VTMOUSE_BTN4, 0, 2014, 2015, 0, 0,
+     "\33[M\302\240\337\277\1"},
+    /* SGR: numbers from 0 and 1, the release 'm' with its button. */
+    {TERM_MOUSE_FORM_SGR, VTMOUSE_PRESS, VTMOUSE_LEFT, 0, 0, 0, 0, 0, "\33[<0;1;1M"},
+    {TERM_MOUSE_FORM_SGR, VTMOUSE_RELEASE, VTMOUSE_RIGHT, 0, 79, 29, 0, 0, "\33[<2;80;30m"},
+    {TERM_MOUSE_FORM_SGR, VTMOUSE_RELEASE, VTMOUSE_BTN5, VTKEY_CTRL, 0, 0, 0, 0,
+     "\33[<145;1;1m"},
+    {TERM_MOUSE_FORM_SGR, VTMOUSE_MOTION, VTMOUSE_NONE, 0, 300, 1000, 0, 0, "\33[<35;301;1001M"},
+    {TERM_MOUSE_FORM_SGR, VTMOUSE_PRESS, VTMOUSE_WHEEL_DOWN, VTKEY_ALT, 3, 4, 0, 0,
+     "\33[<73;4;5M"},
+    /* urxvt: numbers, the button's from 32, a release 3. */
+    {TERM_MOUSE_FORM_URXVT, VTMOUSE_PRESS, VTMOUSE_LEFT, 0, 0, 0, 0, 0, "\33[32;1;1M"},
+    {TERM_MOUSE_FORM_URXVT, VTMOUSE_RELEASE, VTMOUSE_LEFT, 0, 9, 99, 0, 0, "\33[35;10;100M"},
+    /* SGR in pixels takes the pixel, the longest report there is. */
+    {TERM_MOUSE_FORM_PIXELS, VTMOUSE_PRESS, VTMOUSE_LEFT, 0, 5, 5, 0, 0, "\33[<0;1;1M"},
+    {TERM_MOUSE_FORM_PIXELS, VTMOUSE_MOTION, VTMOUSE_BTN5, VTKEY_MODIFIERS, 79, 31, 639, 511,
+     "\33[<189;640;512M"},
+    {TERM_MOUSE_FORM_PIXELS, VTMOUSE_MOTION, VTMOUSE_NONE, VTKEY_MODIFIERS, 0, 0, 65534, 65534,
+     "\33[<63;65535;65535M"},
+};
+
+UTEST(vtmouse, xterm_s_bytes)
+{
+    for (size_t i = 0; i < sizeof vtmouse_table / sizeof *vtmouse_table; i++)
+    {
+        char out[VTMOUSE_MAX + 1];
+        out[VTMOUSE_MAX] = 0x55;
+        const uint8_t n = vtmouse_encode(out, vtmouse_table[i].form, vtmouse_table[i].event,
+                                         vtmouse_table[i].button, vtmouse_table[i].mods,
+                                         vtmouse_table[i].col, vtmouse_table[i].row,
+                                         vtmouse_table[i].x, vtmouse_table[i].y);
+        char want[VTMOUSE_MAX + 1];
+        size_t len = strlen(vtmouse_table[i].want);
+        for (size_t j = 0; j < len; j++)
+            want[j] = vtmouse_table[i].want[j] == '\1' ? 0 : vtmouse_table[i].want[j];
+        EXPECT_EQ_MSG((size_t)n, len, vtmouse_table[i].want);
+        ASSERT_EQ(out[VTMOUSE_MAX], 0x55);
+        if (n == len)
+            EXPECT_EQ_MSG(0, memcmp(out, want, len), vtmouse_table[i].want);
+    }
 }
 
 UTEST(keyboard, char_to_oem)

@@ -30,6 +30,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/gamepad.c
     ${RP6502_SRC}/core/hid/tablet.c
     ${RP6502_SRC}/core/hid/vtkey.c
+    ${RP6502_SRC}/core/hid/vtmouse.c
     ${RP6502_SRC}/core/hid/hostkey.c
     ${RP6502_SRC}/core/hid/paste.c
     ${RP6502_SRC}/core/hid/paste_host.c

@@ -55,10 +55,7 @@ hostkey_result_t hostkey_press(uint8_t usage, uint8_t modifier, bool repeat, boo
 {
     if (key_chord(usage, modifier, repeat))
         return HOSTKEY_CHORD;
-    const uint8_t flags = (uint8_t)(
-        ((modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT)) ? VTKEY_SHIFT : 0) |
-        ((modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT)) ? VTKEY_ALT : 0) |
-        ((modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL)) ? VTKEY_CTRL : 0));
+    const uint8_t flags = vtkey_modifiers(modifier);
     char out[VTKEY_MAX];
     int n = vtkey_encode(out, usage, flags);
     if (n == VTKEY_CHAR)

@@ -112,6 +112,10 @@ static void term_reset_core(term_t *t)
     t->ice_colors = false;
     t->blink_off = false;
     t->bracketed_paste = false;
+    t->mouse_event = TERM_MOUSE_OFF;
+    t->mouse_form = TERM_MOUSE_FORM_X10;
+    t->focus_events = false;
+    t->alt_scroll = false;
     t->modify_other_keys = 0;
     t->format_other_keys = false;
     t->lr_margins = false;
@@ -157,7 +161,8 @@ void term_RIS_no_clear(term_t *t)
 // resets with the margins, as on xterm. The pen's
 // protection goes with SGR, and no erase spares a protected cell until a
 // DECSCA or SPA again, as on xterm. The cursor style, iCE colors,
-// autorepeat, the palette, the tab stops and the screen are left alone.
+// autorepeat, the mouse's events and form, focus events, alternate scroll,
+// the palette, the tab stops and the screen are left alone, as on xterm.
 static void term_out_DECSTR(term_t *t)
 {
     t->protect_mode = TERM_PROTECT_OFF;
@@ -675,6 +680,27 @@ static void term_out_window(term_t *t)
     }
 }
 
+// The setting one of the mouse's DEC private modes is a value of, and that
+// value: mouse_event for 9 and 1000 to 1003, mouse_form for 1005, 1006,
+// 1015 and 1016. NULL for any other mode. Each setting's 0 is none: no
+// events, and X10's form.
+_Static_assert(TERM_MOUSE_OFF == 0 && TERM_MOUSE_FORM_X10 == 0, "a mouse setting's none is 0");
+static uint8_t *term_mouse_setting(term_t *t, unsigned mode, uint8_t *value)
+{
+    if (mode == 9 || (mode >= 1000 && mode <= 1003))
+    {
+        *value = mode == 9 ? TERM_MOUSE_X10 : (uint8_t)(mode - 1000 + TERM_MOUSE_NORMAL);
+        return &t->mouse_event;
+    }
+    if (mode == 1005 || mode == 1006 || mode == 1015 || mode == 1016)
+    {
+        *value = mode < 1015 ? (uint8_t)(mode - 1005 + TERM_MOUSE_FORM_UTF8)
+                             : (uint8_t)(mode - 1015 + TERM_MOUSE_FORM_URXVT);
+        return &t->mouse_form;
+    }
+    return NULL;
+}
+
 // Request Mode (DECRQM). Reply: CSI ? Ps ; Pm $ y (private) or CSI Ps ; Pm $ y
 // (ANSI). Pm: 0 not recognized, 1 set, 2 reset, 3 permanently set,
 // 4 permanently reset.
@@ -741,6 +767,12 @@ static void term_out_DECRQM(term_t *t, bool private)
         case 2004: // bracketed paste
             pm = t->bracketed_paste ? 1 : 2;
             break;
+        case 1004: // focus events, where the window can lose focus
+            pm = !host_focusable() ? 4 : t->focus_events ? 1 : 2;
+            break;
+        case 1007: // alternate scroll
+            pm = t->alt_scroll ? 1 : 2;
+            break;
         case 47:
         case 1047:
         case 1049:
@@ -749,6 +781,14 @@ static void term_out_DECRQM(term_t *t, bool private)
         case 1048:
             pm = t->has_saved[t->alt_active] ? 1 : 2;
             break;
+        default: // the mouse's events and forms
+        {
+            uint8_t value;
+            const uint8_t *setting = term_mouse_setting(t, ps, &value);
+            if (setting)
+                pm = *setting == value ? 1 : 2;
+        }
+        break;
         }
     }
     else
@@ -1248,6 +1288,13 @@ static void term_out_DECSET(term_t *t, bool set)
         case 2004: // bracketed paste
             t->bracketed_paste = set;
             break;
+        case 1004: // focus events, which a host that never loses focus
+                   // keeps reset, as DECRQM answers
+            t->focus_events = set && host_focusable();
+            break;
+        case 1007: // alternate scroll
+            t->alt_scroll = set;
+            break;
         case 47: /* the alternate screen, swap only */
             if (set)
                 term_enter_alt(t, false);
@@ -1275,6 +1322,17 @@ static void term_out_DECSET(term_t *t, bool set)
             else
                 term_leave_alt(t, false, true);
             break;
+        default: // the mouse's events and forms
+        {
+            // Setting one replaces the others. Resetting any event tells
+            // none, and resetting the form set goes back to X10's, while
+            // resetting another form changes nothing, as xterm.
+            uint8_t value;
+            uint8_t *setting = term_mouse_setting(t, t->csi_param[i], &value);
+            if (setting && (set || setting == &t->mouse_event || *setting == value))
+                *setting = set ? value : 0;
+        }
+        break;
         }
     }
 }
@@ -2209,6 +2267,7 @@ bool term_sst_ok(sst_cursor_t *c, const term_t *t)
         (t->last_ss != 0 && t->last_ss != 2 && t->last_ss != 3) || !term_pen_ok(&t->pen[0]) || !term_pen_ok(&t->pen[1]) ||
         !term_pen_ok(&t->saved[0]) || !term_pen_ok(&t->saved[1]) ||
         t->modify_other_keys > 3 || t->speed > TERM_SPEED_MAX ||
+        t->mouse_event > TERM_MOUSE_ANY || t->mouse_form > TERM_MOUSE_FORM_PIXELS ||
         t->csi_param_count > TERM_CSI_PARAM_MAX_LEN ||
         t->osc_len > TERM_OSC_SPEC_MAX + 1 || t->osc_asks > TERM_OSC_ASK_MAX)
         return sst_refuse(c, "the terminal's parser out of range");

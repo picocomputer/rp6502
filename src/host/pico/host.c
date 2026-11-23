@@ -51,6 +51,11 @@ bool host_minimized(void)
     return false;
 }
 
+bool host_focusable(void)
+{
+    return false;
+}
+
 bool host_mac_keys(void)
 {
     return false;

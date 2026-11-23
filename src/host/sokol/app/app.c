@@ -443,6 +443,12 @@ bool host_minimized(void)
     return app_minimized;
 }
 
+/* The desktop's window and the web player both gain and lose focus. */
+bool host_focusable(void)
+{
+    return true;
+}
+
 #ifndef __EMSCRIPTEN__
 /* The clipboard is the desktop's while the window runs. sokol hands back the
  * text it last had when the desktop's is too big for its buffer, so then

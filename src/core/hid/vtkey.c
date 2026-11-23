@@ -326,3 +326,11 @@ bool HOST_IN_RAM_FUNC vtkey_repeats(void)
 {
     return vterm.autorepeat;
 }
+
+uint8_t vtkey_modifiers(uint8_t modifier)
+{
+    return (uint8_t)(
+        ((modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT)) ? VTKEY_SHIFT : 0) |
+        ((modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT)) ? VTKEY_ALT : 0) |
+        ((modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL)) ? VTKEY_CTRL : 0));
+}

@@ -9,7 +9,10 @@
 #include "core/hid/clip.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/tablet.h"
+#include "core/hid/typed.h"
 #include "core/hid/usage.h"
+#include "core/hid/vtkey.h"
+#include "core/hid/vtmouse.h"
 #include "core/sys/timer.h"
 #include "core/term/cell.h"
 #include "core/term/vterm.h"
@@ -22,9 +25,16 @@ vterm_mouse_queue_t vterm_mouse_queue;
 
 /* Contact 0's flags as the task last took them, and whether the terminal
  * took the last change: decided at a press and held to the release, and
- * otherwise at every change. */
+ * otherwise at every change. Whether the program that asked for the
+ * mouse's events took it is decided with it. */
 static uint8_t vterm_mouse_flags;
 static bool vterm_mouse_acting;
+static bool vterm_mouse_reporting;
+
+/* Where the last report put the pointer: its cell, or its pixel in the
+ * pixel form, from which motion is told only when it moves on, as xterm's
+ * mouse_row and mouse_col. */
+static uint16_t vterm_mouse_sent_x, vterm_mouse_sent_y;
 
 /* The buttons, which make a press: hover alone is none. */
 #define VTERM_MOUSE_BUTTONS (TABLET_FLAG_LEFT | TABLET_FLAG_RIGHT | TABLET_FLAG_MIDDLE | \
@@ -44,7 +54,10 @@ static bool vterm_mouse_acting;
  * characters again. The right button, and Shift with the left, extend the
  * selection from its nearer end, in the unit it was made in. The release
  * fills the primary with what is selected. The middle button pastes the
- * primary as it comes up.
+ * primary as it comes up. While a mouse mode is set, the buttons alone are
+ * the program's and the terminal takes them with Shift: Shift with the left
+ * button then selects as the left alone does, Shift with the right extends
+ * and Shift with the middle pastes.
  *
  * The points are the store's marks (screen.h), on the screen the gesture
  * is on: rows of memory, as the selection is, so output that scrolls the
@@ -132,6 +145,8 @@ static bool vterm_mouse_sst_valid(sst_cursor_t *c)
 {
     if (RING_LEN(&vterm_mouse_queue) > VTERM_MOUSE_QUEUE)
         return sst_refuse(c, "more mouse changes queued than the queue holds");
+    if (vterm_mouse_reporting && !vterm_mouse_acting)
+        return sst_refuse(c, "a program told of a change the terminal did not take");
     const vterm_mouse_gesture_t *gs = &vterm_mouse_gesture;
     if (gs->screen > 3 || gs->unit > VTERM_MOUSE_LINE || gs->clicks > 3 ||
         (gs->button & ~(TABLET_FLAG_LEFT | TABLET_FLAG_RIGHT)) || (gs->button && !gs->clicks) ||
@@ -174,6 +189,9 @@ static bool vterm_mouse_sst_valid(sst_cursor_t *c)
     X(STRUCT, vterm_mouse_gesture.save_end, VTERM_MOUSE_CELL_ROWS)            \
     X(STRUCT, vterm_mouse_gesture.click, VTERM_MOUSE_CELL_ROWS)               \
     X(U64, vterm_mouse_gesture.click_by)                                      \
+    X(BOOL, vterm_mouse_reporting)                                            \
+    X(U16, vterm_mouse_sent_x)                                                \
+    X(U16, vterm_mouse_sent_y)                                                \
     X(U8, vterm_mouse_flags)                                                  \
     X(BOOL, vterm_mouse_acting)                                               \
     X(VALIDATE, vterm_mouse_sst_valid)
@@ -186,6 +204,8 @@ void vterm_mouse_reset(void)
     RING_RESET(&vterm_mouse_queue);
     vterm_mouse_flags = 0;
     vterm_mouse_acting = false;
+    vterm_mouse_reporting = false;
+    vterm_mouse_sent_x = vterm_mouse_sent_y = UINT16_MAX;
     vterm_mouse_gesture = (vterm_mouse_gesture_t){0};
     vterm_mouse_mark();
 }
@@ -195,10 +215,12 @@ bool tablet_claimed(void)
     return vterm_placement.placed;
 }
 
-/* The terminal has no scrollback, so the wheel does nothing here. */
+/* The terminal has no scrollback, so the wheel does something here only
+ * for a program that asked for the mouse's events, which tell the wheel
+ * from the normal events on. */
 bool tablet_wheel_claimed(void)
 {
-    return false;
+    return vterm_placement.placed && vterm.mouse_event >= TERM_MOUSE_NORMAL;
 }
 
 /* A sum of two deltas, held at the ends of an int8_t. *fits is cleared when
@@ -278,6 +300,11 @@ static bool vterm_mouse_over(int x, int y)
 static bool vterm_mouse_takes(const vterm_mouse_event_t *e)
 {
     return (e->flags & VTERM_MOUSE_PRESENT) && e->shared && vterm_mouse_over(e->x, e->y);
+}
+
+static bool vterm_mouse_shift(const vterm_mouse_event_t *e)
+{
+    return e->modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
 }
 
 bool vterm_mouse_acts(void)
@@ -621,10 +648,10 @@ static void vterm_mouse_start(const vterm_mouse_view_t *v, vterm_mouse_pos_t at,
     vterm_mouse_compute(v);
 }
 
-/* A press of the right button, or Shift with the left, takes the
- * selection's nearer end to the cell, as xterm's start-extend, in the unit
- * it was made in. With no selection showing there, it selects from the
- * cell as the left button does. */
+/* A press of the right button, or Shift with the left while no mouse mode
+ * is set, takes the selection's nearer end to the cell, as xterm's
+ * start-extend, in the unit it was made in. With no selection showing
+ * there, it selects from the cell as the left button does. */
 static void vterm_mouse_extend(const vterm_mouse_view_t *v, vterm_mouse_pos_t at, uint8_t button)
 {
     if (!vterm_selection.shows || vterm_selection.screen != v->s ||
@@ -762,12 +789,17 @@ static void vterm_mouse_act(const vterm_mouse_event_t *e, uint8_t was)
         clip_paste(CLIP_PRIMARY);
     if (vterm_mouse_gesture.button)
         return;
-    const bool shift = e->modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
+    /* While a program has asked for the mouse's events, what reaches the
+     * terminal comes with Shift (vterm_mouse_asked): Shift with the left
+     * button then selects, as the left button alone does with none asked,
+     * and never in the line editor's line. */
+    const bool shift = vterm_mouse_shift(e);
+    const bool extends = shift && vterm.mouse_event == TERM_MOUSE_OFF;
     const int index = (down & TABLET_FLAG_LEFT) && !shift ? rln_index_at((uint8_t)at.y, (uint8_t)at.x)
                                                            : -1;
     if (index >= 0)
         vterm_mouse_line(&v, at, (uint8_t)index);
-    else if ((down & TABLET_FLAG_LEFT) && !shift)
+    else if ((down & TABLET_FLAG_LEFT) && !extends)
         vterm_mouse_start(&v, at, TABLET_FLAG_LEFT, true);
     else if (down & TABLET_FLAG_LEFT)
         vterm_mouse_extend(&v, at, TABLET_FLAG_LEFT);
@@ -775,18 +807,169 @@ static void vterm_mouse_act(const vterm_mouse_event_t *e, uint8_t was)
         vterm_mouse_extend(&v, at, TABLET_FLAG_RIGHT);
 }
 
+/* ---- reports ------------------------------------------------------------
+ *
+ * The reports a program asks for with a mouse mode (term.h's mouse_event),
+ * as xterm's, in the form the terminal is in (vtmouse.h): X10's events tell
+ * a press of the left, middle or right button; the normal events, and
+ * highlight tracking's, every press and release and the wheel a notch at a
+ * time; the button events those and motion with a button held; and the any
+ * events every motion too. Motion is told only to a new cell, or pixel in
+ * the pixel form, after the last report. A change with Shift held is told
+ * nothing: it is the terminal's, as xterm's. The positions are mode 0's,
+ * a pointer outside its rows on the nearest, as a drag that leaves them
+ * goes on to tell. The reports are typed (typed.h) in order with the keys,
+ * each whole: one with no room waits there, with what is left of its
+ * change, for the keys before it to be read. */
+
+/* The buttons that make a report, in the order motion names the one held:
+ * each one's TABLET_FLAG_ and its VTMOUSE_. */
+static const struct
+{
+    uint8_t flag, button;
+} vterm_mouse_buttons[] = {
+    {TABLET_FLAG_LEFT, VTMOUSE_LEFT},
+    {TABLET_FLAG_MIDDLE, VTMOUSE_MIDDLE},
+    {TABLET_FLAG_RIGHT, VTMOUSE_RIGHT},
+    {TABLET_FLAG_BTN4, VTMOUSE_BTN4},
+    {TABLET_FLAG_BTN5, VTMOUSE_BTN5},
+};
+
+/* Whether the program that asked for the mouse's events takes a change
+ * the terminal takes: one with Shift held stays the terminal's. */
+static bool vterm_mouse_asked(const vterm_mouse_event_t *e)
+{
+    return vterm.mouse_event != TERM_MOUSE_OFF && !vterm_mouse_shift(e);
+}
+
+/* Where a report puts canvas pixel x, y: mode 0's cell there, and its
+ * pixel from mode 0's first, held to mode 0's rows and columns. */
+typedef struct
+{
+    uint16_t col, row, x, y;
+} vterm_mouse_spot_t;
+
+static vterm_mouse_spot_t vterm_mouse_spot(int x, int y)
+{
+    const vterm_placement_t *p = &vterm_placement;
+    const int width = p->cols * 8;
+    const int height = p->rows * p->row_px;
+    y -= p->begin;
+    x = x < 0 ? 0 : x < width ? x : width - 1;
+    y = y < 0 ? 0 : y < height ? y : height - 1;
+    return (vterm_mouse_spot_t){(uint16_t)(x / 8), (uint16_t)(y / p->row_px), (uint16_t)x,
+                                (uint16_t)y};
+}
+
+/* One report, typed whole: false, with nothing typed, when the queue has no
+ * room for it. X10's events carry no modifiers. A button the events do not
+ * tell makes none, and leaves where the last report put the pointer. */
+static bool vterm_mouse_send(uint8_t event, uint8_t button, uint8_t modifier,
+                             const vterm_mouse_spot_t *at)
+{
+    char out[VTMOUSE_MAX];
+    const uint8_t form = vterm.mouse_form;
+    const uint8_t mods = event == VTMOUSE_X10 ? 0 : vtkey_modifiers(modifier);
+    const uint8_t n = vtmouse_encode(out, form, event, button, mods, at->col, at->row, at->x, at->y);
+    if (n > typed_free())
+        return false;
+    if (!n)
+        return true;
+    typed_push(out, n);
+    const bool pixels = form == TERM_MOUSE_FORM_PIXELS;
+    vterm_mouse_sent_x = pixels ? at->x : at->col;
+    vterm_mouse_sent_y = pixels ? at->y : at->row;
+    return true;
+}
+
+/* The reports of a change the program takes: motion, then each button that
+ * went down or up, then the wheel's notches. False when one waits for room:
+ * vterm_mouse_flags then holds the buttons told so far, and the change the
+ * notches still to tell, so the next pass tells the rest. */
+static bool vterm_mouse_report(vterm_mouse_event_t *e)
+{
+    const uint8_t mode = vterm.mouse_event;
+    if (!vterm_placement.placed || !vterm_mouse_asked(e))
+    {
+        vterm_mouse_flags = e->flags;
+        return true;
+    }
+    const vterm_mouse_spot_t at = vterm_mouse_spot(e->x, e->y);
+    const uint8_t held = vterm_mouse_flags & VTERM_MOUSE_BUTTONS;
+    if (e->moved && (mode == TERM_MOUSE_ANY || (mode == TERM_MOUSE_BUTTON && held)))
+    {
+        const bool pixels = vterm.mouse_form == TERM_MOUSE_FORM_PIXELS;
+        uint8_t button = VTMOUSE_NONE;
+        for (size_t i = sizeof vterm_mouse_buttons / sizeof *vterm_mouse_buttons; i--;)
+            if (held & vterm_mouse_buttons[i].flag)
+                button = vterm_mouse_buttons[i].button;
+        if ((pixels ? at.x : at.col) != vterm_mouse_sent_x ||
+            (pixels ? at.y : at.row) != vterm_mouse_sent_y)
+            if (!vterm_mouse_send(VTMOUSE_MOTION, button, e->modifier, &at))
+                return false;
+    }
+    for (size_t i = 0; i < sizeof vterm_mouse_buttons / sizeof *vterm_mouse_buttons; i++)
+    {
+        const uint8_t flag = vterm_mouse_buttons[i].flag;
+        if (!((vterm_mouse_flags ^ e->flags) & flag))
+            continue;
+        const bool down = e->flags & flag;
+        const uint8_t event = !down                    ? VTMOUSE_RELEASE
+                              : mode == TERM_MOUSE_X10 ? VTMOUSE_X10
+                                                       : VTMOUSE_PRESS;
+        if ((down || mode != TERM_MOUSE_X10) &&
+            !vterm_mouse_send(event, vterm_mouse_buttons[i].button, e->modifier, &at))
+            return false;
+        vterm_mouse_flags ^= flag;
+    }
+    if (mode != TERM_MOUSE_X10)
+    {
+        while (e->wheel)
+        {
+            if (!vterm_mouse_send(VTMOUSE_PRESS, e->wheel > 0 ? VTMOUSE_WHEEL_UP : VTMOUSE_WHEEL_DOWN,
+                                  e->modifier, &at))
+                return false;
+            e->wheel = (int8_t)(e->wheel > 0 ? e->wheel - 1 : e->wheel + 1);
+        }
+        while (e->pan)
+        {
+            if (!vterm_mouse_send(VTMOUSE_PRESS, e->pan > 0 ? VTMOUSE_WHEEL_RIGHT : VTMOUSE_WHEEL_LEFT,
+                                  e->modifier, &at))
+                return false;
+            e->pan = (int8_t)(e->pan > 0 ? e->pan - 1 : e->pan + 1);
+        }
+    }
+    vterm_mouse_flags = e->flags;
+    return true;
+}
+
+/* The changes are taken in order. One the program takes, whose report waits
+ * for room, stays first in the queue, where only motion merges into it, and
+ * the rest wait behind it. */
 void HOST_IN_FLASH_FUNC vterm_mouse_task(void)
 {
-    vterm_mouse_event_t e;
-    while (RING_GET(&vterm_mouse_queue, &e))
+    while (RING_LEN(&vterm_mouse_queue))
     {
+        vterm_mouse_event_t *e = RING_AT(&vterm_mouse_queue, 0);
         const uint8_t was = vterm_mouse_flags;
         /* With no button held, this change decides, a press included; a
          * release goes where its press went. */
         if (!(was & VTERM_MOUSE_BUTTONS))
-            vterm_mouse_acting = vterm_mouse_takes(&e);
-        vterm_mouse_flags = e.flags;
-        if (vterm_mouse_acting)
-            vterm_mouse_act(&e, was);
+        {
+            vterm_mouse_acting = vterm_mouse_takes(e);
+            vterm_mouse_reporting = vterm_mouse_acting && vterm_mouse_asked(e);
+        }
+        if (vterm_mouse_reporting)
+        {
+            if (!vterm_mouse_report(e))
+                return;
+        }
+        else
+        {
+            vterm_mouse_flags = e->flags;
+            if (vterm_mouse_acting)
+                vterm_mouse_act(e, was);
+        }
+        RING_SKIP(&vterm_mouse_queue, 1);
     }
 }

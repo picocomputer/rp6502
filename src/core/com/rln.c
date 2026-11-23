@@ -2235,11 +2235,11 @@ void rln_poke(const char *str)
             rln_finish_line(ch == '\r');
             break;
         }
-        tio_step_t step = tio_frame(&frame, ch);
+        tio_step_t step = tio_frame(&frame, ch, false);
         if (step == TIO_AGAIN)
         {
             len = 0;
-            step = tio_frame(&frame, ch);
+            step = tio_frame(&frame, ch, false);
         }
         if (len < TIO_ITEM_MAX)
             item[len] = (char)ch;

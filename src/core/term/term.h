@@ -169,6 +169,24 @@ typedef enum
 // 300 to 115200 baud (term_speed).
 #define TERM_SPEED_MAX 11
 
+// The mouse's events a program asks to be told of, as xterm's
+// send_mouse_pos: one at a time, set by its DEC private mode. The console's
+// mouse sends the reports (core/term/vterm_mouse.h).
+#define TERM_MOUSE_OFF 0
+#define TERM_MOUSE_X10 1    // ?9: a press
+#define TERM_MOUSE_NORMAL 2 // ?1000: a press and a release, and the wheel
+#define TERM_MOUSE_HILITE 3 // ?1001: highlight tracking
+#define TERM_MOUSE_BUTTON 4 // ?1002: those, and motion with a button held
+#define TERM_MOUSE_ANY 5    // ?1003: those, and every motion
+
+// The form of a mouse report, as xterm's extend_coords: one at a time, set
+// by its DEC private mode, the X10 form while none is.
+#define TERM_MOUSE_FORM_X10 0    // a byte each, from 32
+#define TERM_MOUSE_FORM_UTF8 1   // ?1005: a byte or two of UTF-8 each
+#define TERM_MOUSE_FORM_SGR 2    // ?1006: numbers, and the release its own
+#define TERM_MOUSE_FORM_URXVT 3  // ?1015: numbers
+#define TERM_MOUSE_FORM_PIXELS 4 // ?1016: SGR's, in pixels
+
 // The character sets that G0 to G3 can hold.
 #define TERM_CS_ASCII 0 // ESC ( B, and the null and user maps ESC ( U / K
 #define TERM_CS_DEC 1   // ESC ( 0, DEC Special Graphics
@@ -243,6 +261,10 @@ typedef struct
     bool ice_colors;      // SyncTERM's ?33: SGR 5/6 also brighten the background
     bool blink_off;       // SyncTERM's ?35: no cell blinks
     bool bracketed_paste; // ?2004: a paste comes between ESC [ 200 ~ and ESC [ 201 ~
+    uint8_t mouse_event;  // TERM_MOUSE_: the mouse's events a program is told of
+    uint8_t mouse_form;   // TERM_MOUSE_FORM_: the form they are told in
+    bool focus_events;    // ?1004: the window gaining and losing focus is told
+    bool alt_scroll;      // ?1007: on the alternate screen the wheel sends the cursor keys
     uint8_t modify_other_keys; // xterm's modifyOtherKeys, 0 to 3: CSI > 4 ; n m
     bool format_other_keys;    // xterm's formatOtherKeys: CSI > 4 ; 1 f
     bool lr_margins;      // DECLRMM, ?69: CSI s sets the left and right margins
@@ -400,6 +422,10 @@ static inline bool term_erase_selective(const term_t *t, bool dec)
     X(BOOL, t.ice_colors)                                              \
     X(BOOL, t.blink_off)                                               \
     X(BOOL, t.bracketed_paste)                                         \
+    X(U8, t.mouse_event)                                               \
+    X(U8, t.mouse_form)                                                \
+    X(BOOL, t.focus_events)                                            \
+    X(BOOL, t.alt_scroll)                                              \
     X(U8, t.modify_other_keys)                                         \
     X(BOOL, t.format_other_keys)                                       \
     X(BOOL, t.lr_margins)                                              \

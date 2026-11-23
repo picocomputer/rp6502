@@ -10,8 +10,9 @@
 /* The console's mouse: the terminal's share of the tablet (core/hid/tablet.h),
  * on every machine that has one. It owns the tablet's hooks. It claims the
  * tablet while mode 0 shows the terminal (vterm_placement), so the pointer
- * is the arrow there with no program on the tablet. It claims no wheel
- * (tablet_wheel_claimed): with no scrollback, the wheel does nothing in the
+ * is the arrow there with no program on the tablet. It claims the wheel
+ * (tablet_wheel_claimed) only while a program asks for the mouse's events
+ * that tell it: with no scrollback, the wheel does nothing else in the
  * terminal, and a page around the machine keeps it. It acts on contact 0
  * where that is over mode 0's cells:
  *
@@ -27,7 +28,11 @@
  * tablet_on_contact only queues what changed, with the share bit and the
  * keyboard's modifiers as they were then, from RAM: every press and release
  * is kept, and motion between them is merged. vterm_mouse_task takes the
- * queue, decides who acts, and acts for the terminal, as xterm does:
+ * queue, decides who acts, and acts for the terminal, as xterm does. While
+ * a program has a mouse mode set (term.h's mouse_event), what the terminal
+ * takes is the program's, and the task types its reports (vtmouse.h) in
+ * order with the keys; only a change with Shift held is the terminal's, and
+ * that is never told:
  *
  * - the left button selects: a drag selects characters, a double click
  *   words and a triple click lines, and a drag after them goes by words or
@@ -38,9 +43,11 @@
  *   it is laid out at that moment (rln_index_at), selects in the line
  *   instead (core/com/rln.h), and its drag stays in the line. A press
  *   anywhere else is the primary's, even one a drag then takes into the
- *   line. Starting either selection ends the other's highlight;
- * - the right button, and Shift with the left, extend the selection from
- *   its nearer end, in the unit it was made in;
+ *   line. Starting either selection ends the other's highlight. With a
+ *   mouse mode set, Shift with the left button selects as the left button
+ *   alone does, and only the primary;
+ * - the right button, and Shift with the left while no mouse mode is set,
+ *   extend the selection from its nearer end, in the unit it was made in;
  * - the release that ends a drag fills the primary (clip.h) with what is
  *   selected;
  * - the middle button pastes the primary as it comes up.

@@ -472,6 +472,11 @@ bool host_minimized(void)
     return false;
 }
 
+bool host_focusable(void)
+{
+    return false;
+}
+
 /* A core built for macOS runs on a Mac. */
 bool host_mac_keys(void)
 {

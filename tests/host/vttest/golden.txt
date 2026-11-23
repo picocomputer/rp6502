@@ -810,8 +810,8 @@ m08_9-02 8D570223 cursor 13,20 style 0
 11.7_6-01 FE4EBC43 cursor 13,29 style 0
 11.8-menu-01 0E23C960 cursor 39,17 style 0
 11.8.2-menu-01 D8C2F7DB cursor 39,10 style 0
-11.8.2_2-01 57C47C55 cursor 13,28 style 0
-11.8.2_2-02 A5FB38CE cursor 13,28 style 0
+11.8.2_2-01 16B1F3E4 cursor 13,28 style 0
+11.8.2_2-02 970B1AE4 cursor 13,28 style 0
 11.8.2_2-03 C66F5A6F cursor 13,28 style 0
 11.8_3-01 A9A857C9 cursor 0,1 style 0
 11.8_3-02 B8B03B40 cursor 0,2 style 0

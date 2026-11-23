@@ -1357,6 +1357,90 @@ UTEST(term, bracketed_paste_is_a_mode)
     ASSERT_STREQ(ask("\33[?2004$p"), "\33[?2004;2$y");
 }
 
+/* The mouse's modes: DECRQM tells each, set and reset. */
+UTEST(term, the_mouse_modes_are_modes)
+{
+    static const char *const modes[] = {"9", "1000", "1001", "1002", "1003", "1004",
+                                        "1005", "1006", "1007", "1015", "1016"};
+    char q[16], a[16];
+    fresh();
+    for (size_t i = 0; i < sizeof modes / sizeof *modes; i++)
+    {
+        snprintf(q, sizeof q, "\33[?%s$p", modes[i]);
+        snprintf(a, sizeof a, "\33[?%s;2$y", modes[i]);
+        ASSERT_STREQ(ask(q), a);
+        snprintf(q, sizeof q, "\33[?%sh", modes[i]);
+        feed(q);
+        snprintf(q, sizeof q, "\33[?%s$p", modes[i]);
+        snprintf(a, sizeof a, "\33[?%s;1$y", modes[i]);
+        ASSERT_STREQ(ask(q), a);
+        snprintf(q, sizeof q, "\33[?%sl", modes[i]);
+        feed(q);
+        snprintf(q, sizeof q, "\33[?%s$p", modes[i]);
+        snprintf(a, sizeof a, "\33[?%s;2$y", modes[i]);
+        ASSERT_STREQ(ask(q), a);
+    }
+}
+
+/* One mouse event is told at a time: setting one replaces the others, and
+ * resetting any of them, another included, tells none, as xterm. */
+UTEST(term, resetting_another_mouse_event_tells_none)
+{
+    fresh();
+    feed("\33[?1000h\33[?1002h");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_BUTTON);
+    ASSERT_STREQ(ask("\33[?1000$p"), "\33[?1000;2$y");
+    feed("\33[?9l");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_OFF);
+    feed("\33[?9h");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_X10);
+    feed("\33[?1003h");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_ANY);
+}
+
+/* One form at a time too, but resetting one that is not set changes
+ * nothing, as xterm. */
+UTEST(term, resetting_another_mouse_form_keeps_the_form)
+{
+    fresh();
+    feed("\33[?1005h\33[?1006h");
+    ASSERT_EQ(vterm.mouse_form, TERM_MOUSE_FORM_SGR);
+    feed("\33[?1005l\33[?1015l\33[?1016l");
+    ASSERT_EQ(vterm.mouse_form, TERM_MOUSE_FORM_SGR);
+    feed("\33[?1006l");
+    ASSERT_EQ(vterm.mouse_form, TERM_MOUSE_FORM_X10);
+    feed("\33[?1016h");
+    ASSERT_EQ(vterm.mouse_form, TERM_MOUSE_FORM_PIXELS);
+    feed("\33[?1015h");
+    ASSERT_EQ(vterm.mouse_form, TERM_MOUSE_FORM_URXVT);
+}
+
+/* RIS clears the mouse's modes and DECSTR leaves them, as xterm; the
+ * system's soft reset clears them. */
+UTEST(term, the_resets_and_the_mouse_modes)
+{
+    fresh();
+    const char *set = "\33[?1003;1004;1006;1007h";
+    feed(set);
+    feed("\33[!p");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_ANY);
+    ASSERT_EQ(vterm.mouse_form, TERM_MOUSE_FORM_SGR);
+    ASSERT_TRUE(vterm.focus_events);
+    ASSERT_TRUE(vterm.alt_scroll);
+    feed("\33c");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_OFF);
+    ASSERT_EQ(vterm.mouse_form, TERM_MOUSE_FORM_X10);
+    ASSERT_FALSE(vterm.focus_events);
+    ASSERT_FALSE(vterm.alt_scroll);
+    feed(set);
+    feed("\33[?1016h");
+    feed(STR_TERM_SOFT_RESET);
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_OFF);
+    ASSERT_EQ(vterm.mouse_form, TERM_MOUSE_FORM_X10);
+    ASSERT_FALSE(vterm.focus_events);
+    ASSERT_FALSE(vterm.alt_scroll);
+}
+
 /* Linux's palette sequences are not taken: ESC ] P begins an OSC like any
  * other, which runs to its terminator. */
 UTEST(term, linux_palette_is_an_osc_like_any_other)
