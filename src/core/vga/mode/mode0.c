@@ -117,25 +117,48 @@ static inline __attribute__((always_inline)) unsigned mode0_distance(uint16_t a,
 
 /* The ink, in bits 15:0, and the paper, in bits 31:16, of a cell of ink f
  * and paper b that the selection takes (sel) or that is reversed
- * (inverse), or both, as xterm's updatedXtermGC draws them, with highlight
- * the selection's color as published (mode0.h). Out of line, as few cells
- * are either. */
+ * (inverse), or both, as xterm's updatedXtermGC draws them with
+ * highlightColorMode and highlightReverse on, with highlight and
+ * highlight_text the selection's colors as published (mode0.h). Out of
+ * line, as few cells are either. */
 static __attribute__((noinline)) uint32_t mode0_reversed(uint16_t f, uint16_t b, bool sel,
-                                                         bool inverse, uint32_t highlight)
+                                                         bool inverse, uint32_t highlight,
+                                                         uint32_t highlight_text)
 {
-    const uint16_t h = (uint16_t)highlight;
-    if ((highlight & MODE0_HIGHLIGHT) && !mode0_same(h, f) && !mode0_same(h, b))
-        return sel && inverse ? (uint32_t)h | (uint32_t)f << 16 : (uint32_t)f | (uint32_t)h << 16;
-    return sel != inverse ? (uint32_t)b | (uint32_t)f << 16 : (uint32_t)f | (uint32_t)b << 16;
+    const uint16_t hb = (uint16_t)highlight, ht = (uint16_t)highlight_text;
+    /* xterm's use_selbg and use_selfg: the color counts, and is neither of
+     * the cell's own. */
+    const bool use_bg = (highlight & MODE0_HIGHLIGHT) && !mode0_same(hb, f) && !mode0_same(hb, b);
+    const bool use_fg =
+        (highlight_text & MODE0_HIGHLIGHT) && !mode0_same(ht, f) && !mode0_same(ht, b);
+    uint16_t ink, paper;
+    if (sel != inverse)
+    {
+        /* xterm's ReverseOrHilite: the two swapped, then the text color
+         * for the ink, and the background color for the paper only where
+         * the text color is not used, as its code has it. */
+        ink = use_fg ? ht : use_bg ? f : b;
+        paper = use_bg ? (use_fg ? b : hb) : f;
+    }
+    else
+    {
+        /* A reversed cell in the selection: the two as they are, or the
+         * background color for the ink and the text color for the paper. */
+        ink = use_bg ? hb : f;
+        paper = use_fg ? ht : use_bg ? f : b;
+    }
+    return (uint32_t)ink | (uint32_t)paper << 16;
 }
 
 /* The ink and the paper a cell of attributes attr and colors fg and bg
  * shows, as pixels, by mode0.h's rule, xterm's updatedXtermGC: rev is
- * DECSCNM, sel whether the selection takes the cell, highlight the
- * selection's color as published, and blink_mask the blink phase. */
+ * DECSCNM, sel whether the selection takes the cell, highlight and
+ * highlight_text the selection's colors as published, and blink_mask the
+ * blink phase. */
 static inline __attribute__((always_inline)) void
 mode0_cell_pixels(uint16_t attr, uint16_t fg, uint16_t bg, bool rev, bool sel,
-                  uint32_t highlight, uint8_t blink_mask, uint16_t *ink, uint16_t *paper)
+                  uint32_t highlight, uint32_t highlight_text, uint8_t blink_mask,
+                  uint16_t *ink, uint16_t *paper)
 {
     uint16_t f = mode0_color(attr & MODE0_ATTR_BOLD ? mode0_bold(fg) : fg);
     uint16_t b = mode0_color(bg);
@@ -145,7 +168,7 @@ mode0_cell_pixels(uint16_t attr, uint16_t fg, uint16_t bg, bool rev, bool sel,
     const bool inverse = attr & MODE0_ATTR_REVERSE;
     if (sel || inverse)
     {
-        const uint32_t both = mode0_reversed(f, b, sel, inverse, highlight);
+        const uint32_t both = mode0_reversed(f, b, sel, inverse, highlight, highlight_text);
         f = (uint16_t)both;
         b = (uint16_t)(both >> 16);
     }
@@ -160,13 +183,14 @@ mode0_cell_pixels(uint16_t attr, uint16_t fg, uint16_t bg, bool rev, bool sel,
 static inline __attribute__((always_inline)) void
 mode0_row_pairs(uint32_t *pair, const mode0_cell_t *cell, const mode0_colors_t *colors,
                 int cols, uint8_t blink_mask, bool rev, unsigned from, unsigned to,
-                uint32_t highlight)
+                uint32_t highlight, uint32_t highlight_text)
 {
     for (int i = 0; i < cols; i++, cell++, colors++, pair += 4)
     {
         uint16_t fg, bg;
         mode0_cell_pixels(cell->attributes, colors->fg_color, colors->bg_color, rev,
-                          (unsigned)i - from < to - from, highlight, blink_mask, &fg, &bg);
+                          (unsigned)i - from < to - from, highlight, highlight_text, blink_mask,
+                          &fg, &bg);
         mode_pair_set(pair, bg, fg);
     }
 }
@@ -264,14 +288,15 @@ static inline __attribute__((always_inline)) bool mode0_is_default(uint16_t colo
  * draws it, from the colors the cell shows, by the rule its pairs are
  * built by (mode0_cell_pixels). `cw` is the cell's scanline, `cell` and
  * `colors` the cell's, `cursor` the cursor's word, `rev` DECSCNM, `sel`
- * whether the selection takes the cell, `highlight` the selection's color,
- * `blink_mask` the blink phase, `scanrow` the scanline of the row and
- * `last` the row's last, and `bits` the row of the glyph and its lines a
- * block shows. One cell of a scanline at most, so out of line, once for
- * both fonts. */
+ * whether the selection takes the cell, `highlight` and `highlight_text`
+ * the selection's colors, `blink_mask` the blink phase, `scanrow` the
+ * scanline of the row and `last` the row's last, and `bits` the row of the
+ * glyph and its lines a block shows. One cell of a scanline at most, so out
+ * of line, once for both fonts. */
 static __attribute__((noinline)) void
 mode0_draw_cursor(mode_word_t *cw, const mode0_cell_t *cell, const mode0_colors_t *colors,
-                  uint32_t cursor, bool rev, bool sel, uint32_t highlight, uint8_t blink_mask,
+                  uint32_t cursor, bool rev, bool sel, uint32_t highlight,
+                  uint32_t highlight_text, uint8_t blink_mask,
                   bool wide, uint8_t scanrow, uint8_t last, uint8_t bits)
 {
     const uint16_t attr = cell->attributes;
@@ -288,7 +313,8 @@ mode0_draw_cursor(mode_word_t *cw, const mode0_cell_t *cell, const mode0_colors_
                           !(fgc & SCANVIDEO_ALPHA_MASK) &&
                               ((fgc >> MODE0_ENTRY_SHIFT) & MODE0_CODE_FAINT));
     uint16_t fg, bg;
-    mode0_cell_pixels(attr, fgc, colors->bg_color, rev, sel, highlight, blink_mask, &fg, &bg);
+    mode0_cell_pixels(attr, fgc, colors->bg_color, rev, sel, highlight, highlight_text, blink_mask,
+                      &fg, &bg);
     /* A cell whose ink is its background shows no ink, so it takes as its
      * ink whichever default color is further from that background. */
     if (mode0_same(fg, bg))
@@ -431,16 +457,17 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
     const unsigned sel_from = MODE0_ROW_FROM(row_word), sel_to = MODE0_ROW_TO(row_word);
     /* The row's pairs are built for the first of its scanlines a thread
      * draws in a frame, and again when the row, the selection's columns of
-     * it, or the screen's look, which holds the blink phase and DECSCNM,
-     * changes part way down it. */
+     * it, the screen's look, which holds the blink phase and DECSCNM, or
+     * the selection's colors change part way down it. */
     /* The rest of the key is zero, as it is for a row built here. */
     const uint32_t highlight = mode0_regs.highlight;
+    const uint32_t highlight_text = mode0_regs.highlight_text;
     const uint32_t key[9] = {VGA_FILL_MODE0_ROW, row_word, screen, (uint32_t)vga_frame_count(),
-                             highlight};
+                             highlight, highlight_text};
     if (memcmp(cache->key, key, sizeof(key)))
     {
         mode0_row_pairs(cache->row_pair[0], cell, colors, cols, blink_mask, reverse, sel_from,
-                        sel_to, highlight);
+                        sel_to, highlight, highlight_text);
         memcpy(cache->key, key, sizeof(key));
     }
     const uint32_t *pair = cache->row_pair[0];
@@ -482,8 +509,8 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
         }
         mode0_draw_cursor((mode_word_t *)(rgb + (uint32_t)cx * (wide ? 16 : 8)), &cell[cx],
                           &colors[cx], cursor, reverse,
-                          (unsigned)cx - sel_from < sel_to - sel_from, highlight, blink_mask,
-                          wide, scanrow, last, bits);
+                          (unsigned)cx - sel_from < sel_to - sel_from, highlight, highlight_text,
+                          blink_mask, wide, scanrow, last, bits);
     }
     return true;
 }

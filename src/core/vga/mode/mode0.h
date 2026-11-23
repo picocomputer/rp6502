@@ -267,25 +267,33 @@ extern mode0_colors_t mode0_colors[MODE0_CELLS];
  * cursor: x; y; the DECSCUSR style; whether its blink has it lit; whether
  *   it is shown at all; and whether the host's window has lost the focus.
  * cursor_color: OSC 12's color.
- * highlight: OSC 17's color, xterm's highlightColor, in bits 15:0, a
- *   pixel, and MODE0_HIGHLIGHT when it counts: when it is neither the
- *   default foreground as DECSCNM shows it now nor the default foreground
- *   at power-up, as xterm's updatedXtermGC has it. OSC 19's color is never
- *   drawn: xterm draws its highlightTextColor only in highlightColorMode,
- *   which it decides once, at startup, from its resources, and the
- *   console's, at their defaults, leave it off.
+ * highlight: OSC 17's color, xterm's highlightColor, the selection's
+ *   background, in bits 15:0, a pixel, and MODE0_HIGHLIGHT when it
+ *   counts: when it is neither the default foreground as DECSCNM shows it
+ *   now nor the default foreground at power-up, as xterm's updatedXtermGC
+ *   has it (use_selbg, with T_COLOR(TEXT_FG) and dft_foreground).
+ * highlight_text: OSC 19's color, xterm's highlightTextColor, the
+ *   selection's text, the same way: MODE0_HIGHLIGHT when it is neither the
+ *   default background as DECSCNM shows it now nor the default background
+ *   at power-up (use_selfg, with T_COLOR(TEXT_BG) and dft_background).
  *
  * A cell shows its colors as xterm's updatedXtermGC draws them, with
- * highlightReverse on and highlightColorMode off, as xterm starts. Its ink
- * is made bright when it is bold, and the two are swapped by DECSCNM. A
- * cell that the selection takes, or that is reversed, but not both, shows
- * its ink on the highlight color when that counts and is neither of its
- * two colors, and otherwise its two colors swapped: so a reversed cell
- * outside the selection takes the highlight color too, as on xterm. A
- * reversed cell in the selection shows the highlight color on its ink when
- * that counts and is neither of its colors, and otherwise its two colors
- * as they are. Last, a cell concealed, or blinking in its off phase, shows
- * its paper for its ink.
+ * highlightColorMode and highlightReverse on. Its ink is made bright when
+ * it is bold, and the two are swapped by DECSCNM. A selection color is
+ * used on a cell when it counts and is neither of the cell's two colors.
+ * A cell that the selection takes, or that is reversed, but not both, so
+ * a reversed cell outside the selection too, as on xterm, shows:
+ *   both colors used: the text color on its paper;
+ *   the background color alone: its ink on the background color;
+ *   the text color alone: the text color on its ink;
+ *   neither: its two colors swapped.
+ * A reversed cell in the selection shows:
+ *   both used: the background color on the text color;
+ *   the background color alone: the background color on its ink;
+ *   the text color alone: its ink on the text color;
+ *   neither: its two colors as they are.
+ * Last, a cell concealed, or blinking in its off phase, shows its paper
+ * for its ink.
  *
  * The cursor is drawn as xterm draws it, from the colors its cell shows,
  * but a blank cell with an ink of its own on the default background shows
@@ -326,6 +334,7 @@ typedef struct
     uint32_t cursor;
     uint32_t cursor_color;
     uint32_t highlight;
+    uint32_t highlight_text;
     uint32_t screen;
     uint32_t smooth;
     uint32_t smooth_frame;

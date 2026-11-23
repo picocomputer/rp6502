@@ -1508,23 +1508,42 @@ static void term_osc_ask(term_t *t, unsigned which)
 /* The dynamic colors of xterm's OSC 10 to 19 the console has, each at its
  * number less 10: the default foreground and background, the cursor's,
  * and the selection's background and text, 17 and 19. The pointer's (13
- * and 14) and the Tektronix window's (15, 16 and 18) it has not. */
-static const uint16_t term_osc_dynamic[10] = {
-    VTERM_COLOR_FG, VTERM_COLOR_BG, VTERM_COLOR_CURSOR, 0, 0,
-    0, 0, VTERM_COLOR_HIGHLIGHT_BG, 0, VTERM_COLOR_HIGHLIGHT_FG,
+ * and 14) and the Tektronix window's (15, 16 and 18) it has not. OSC 110
+ * to 119 reset the same colors.
+ *
+ * The second row is what each names under DECSCNM, as xterm's
+ * ChangeColorsRequest, ResetColorsRequest and ReportColorRequest name it
+ * then: its ReverseVideo swaps the default foreground and background but
+ * not the selection's two, and its oppositeColor swaps the selection's two
+ * but not the default foreground and background. Here DECSCNM swaps each
+ * cell's two colors as it is drawn and no color that is kept, so the
+ * default foreground xterm then has is the one kept as the background,
+ * and the selection's two are each other's. */
+static const uint16_t term_osc_dynamic[2][10] = {
+    {VTERM_COLOR_FG, VTERM_COLOR_BG, VTERM_COLOR_CURSOR, 0, 0, 0, 0,
+     VTERM_COLOR_HIGHLIGHT_BG, 0, VTERM_COLOR_HIGHLIGHT_FG},
+    {VTERM_COLOR_BG, VTERM_COLOR_FG, VTERM_COLOR_CURSOR, 0, 0, 0, 0,
+     VTERM_COLOR_HIGHLIGHT_FG, 0, VTERM_COLOR_HIGHLIGHT_BG},
 };
 
 _Static_assert(VTERM_COLORS == VTERM_COLOR_HIGHLIGHT_FG + 1,
                "every special color is a dynamic color of xterm's");
 
-// The OSC number of a color: 4 for an entry of the palette, else its
-// dynamic color's.
-static unsigned term_osc_number(unsigned which)
+// The color OSC 10 to 19, or 110 to 119, names now, by its number less 10
+// or 110, or 0 for one the console has not.
+static unsigned term_osc_color(const term_t *t, unsigned n)
+{
+    return n < 10 ? term_osc_dynamic[t->reverse_screen][n] : 0;
+}
+
+// The OSC number of a color: 4 for an entry of the palette, else the
+// dynamic color's that names it now, as xterm's ReportColorRequest answers.
+static unsigned term_osc_number(const term_t *t, unsigned which)
 {
     if (which < VTERM_PALETTE)
         return 4;
     unsigned n = 0;
-    while (term_osc_dynamic[n] != which)
+    while (term_osc_color(t, n) != which)
         n++;
     return 10 + n;
 }
@@ -1532,10 +1551,10 @@ static unsigned term_osc_number(unsigned which)
 // The answer: the OSC that would set the color, with each channel as four
 // hex digits, as xterm answers. The console shows five bits of a channel,
 // so those are the bits it gives back.
-static void term_reply_color(unsigned which, uint16_t color, const char *end)
+static void term_reply_color(const term_t *t, unsigned which, uint16_t color, const char *end)
 {
     char buf[TERM_REPLY_MAX];
-    const unsigned number = term_osc_number(which);
+    const unsigned number = term_osc_number(t, which);
     const int entry = which < 256 ? (int)which : -1;
     const unsigned r = SCANVIDEO_R5_FROM_PIXEL(color) * 0xFFFFu / 31u;
     const unsigned g = SCANVIDEO_G5_FROM_PIXEL(color) * 0xFFFFu / 31u;
@@ -1555,7 +1574,8 @@ static void term_reply_color(unsigned which, uint16_t color, const char *end)
 //                                     next one up to 19, as xterm does,
 //                                     those the console has not taken and
 //                                     ignored
-// A spec of "?" asks for the color instead.
+// A spec of "?" asks for the color instead. Under DECSCNM each dynamic
+// color is the one xterm names then (term_osc_dynamic).
 static void term_osc_item(term_t *t)
 {
     unsigned len = t->osc_len;
@@ -1596,7 +1616,7 @@ static void term_osc_item(term_t *t)
     case 19:
     {
         const unsigned number = t->osc_ps + t->osc_item;
-        const unsigned which = number <= 19 ? term_osc_dynamic[number - 10] : 0;
+        const unsigned which = term_osc_color(t, number - 10);
         if (!which)
             break;
         if (ask)
@@ -1613,7 +1633,9 @@ static void term_osc_item(term_t *t)
 //   OSC 104   reset the palette     OSC 110   reset the default foreground
 //   OSC 111   the default background  OSC 112   the cursor color
 //   OSC 117   the selection's background  OSC 119   its text
-// Other commands, such as the titles, are taken and ignored.
+// Under DECSCNM each of these is the color xterm resets then
+// (term_osc_dynamic). Other commands, such as the titles, are taken and
+// ignored.
 static void term_osc_end(term_t *t, const char *end)
 {
     t->rep_valid = false;
@@ -1621,33 +1643,19 @@ static void term_osc_end(term_t *t, const char *end)
     {
         term_osc_item(t);
         for (unsigned i = 0; i < t->osc_asks; i++)
-            term_reply_color(t->osc_ask[i].which, t->osc_ask[i].color, end);
+            term_reply_color(t, t->osc_ask[i].which, t->osc_ask[i].color, end);
         t->osc_asks = 0;
     }
-    else if (t->osc_stage == 0)
+    else if (t->osc_stage == 0 && t->osc_ps == 104)
     {
-        switch (t->osc_ps)
-        {
-        case 104:
-            for (unsigned i = 0; i < 256; i++)
-                vterm_reset_color(t, i);
-            break;
-        case 110:
-            vterm_reset_color(t, VTERM_COLOR_FG);
-            break;
-        case 111:
-            vterm_reset_color(t, VTERM_COLOR_BG);
-            break;
-        case 112:
-            vterm_reset_color(t, VTERM_COLOR_CURSOR);
-            break;
-        case 117:
-            vterm_reset_color(t, VTERM_COLOR_HIGHLIGHT_BG);
-            break;
-        case 119:
-            vterm_reset_color(t, VTERM_COLOR_HIGHLIGHT_FG);
-            break;
-        }
+        for (unsigned i = 0; i < 256; i++)
+            vterm_reset_color(t, i);
+    }
+    else if (t->osc_stage == 0 && t->osc_ps >= 110)
+    {
+        const unsigned which = term_osc_color(t, t->osc_ps - 110);
+        if (which)
+            vterm_reset_color(t, which);
     }
 }
 

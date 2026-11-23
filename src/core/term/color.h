@@ -24,9 +24,8 @@ extern const uint16_t color_256[256];
  * special colors are kept apart from the palette, at that number less
  * VTERM_PALETTE. Mode 0 draws the console from them. The selection's two
  * start as xterm's do, the default foreground and the default background
- * at power-up. Mode 0 draws the selection's background where xterm draws
- * it, and its text never, as xterm draws it only in a highlightColorMode
- * its defaults leave off (draw.c, mode0.h). */
+ * at power-up. Mode 0 draws both where xterm draws them with its
+ * highlightColorMode on (draw.c, mode0.h). */
 #define VTERM_PALETTE 256
 #define VTERM_COLOR_FG 256
 #define VTERM_COLOR_BG 257

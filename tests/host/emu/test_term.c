@@ -3393,6 +3393,17 @@ UTEST(term, osc_colors_can_be_asked_for)
     /* No entry 256, and a reset gives the first colors back. */
     ASSERT_STREQ(ask("\33]4;256;?\7"), "");
     ASSERT_STREQ(ask("\33c\33]4;1;?\7"), color_answer("\33]4;1", color_256[1], "\7"));
+    /* Under DECSCNM each dynamic color asked for is the one its own
+     * command sets then, as xterm's oppositeColor pairs them, under the
+     * number asked: OSC 10's the default background kept, the foreground
+     * shown, and OSC 17's the selection's text. The answer is the colour
+     * now; xterm's ReportColorRequest can answer from a cache filled
+     * before the DECSCNM, which is not copied. */
+    ASSERT_STREQ(ask("\33]19;#ff0000\7\33]11;#00ff00\7\33[?5h\33]17;?\7\33]10;?\7"),
+                 "\33]17;rgb:ffff/0000/0000\7\33]10;rgb:0000/ffff/0000\7");
+    ASSERT_STREQ(ask("\33]19;?\33\\"), color_answer("\33]19", color_256[7], "\33\\"));
+    ASSERT_STREQ(ask("\33]11;?\7"), color_answer("\33]11", color_256[7], "\7"));
+    ASSERT_STREQ(ask("\33[?5l\33]17;?\7"), color_answer("\33]17", color_256[7], "\7"));
 }
 
 /* As on xterm, the cursor's color starts as the default foreground and
@@ -5321,9 +5332,10 @@ UTEST(cursor, draws_on_a_double_height_row_and_in_the_last_column)
 /* ---- the selection's colors, OSC 17 and OSC 19 ----
  *
  * xterm's highlightColor and highlightTextColor: set, asked for and reset
- * as the other dynamic colors are, and drawn as xterm draws them as it
- * starts, with highlightReverse on and highlightColorMode off: OSC 17's
- * color is the selection's background, and OSC 19's is never drawn. */
+ * as the other dynamic colors are, and drawn as xterm draws them with
+ * highlightColorMode and highlightReverse on: OSC 17's color is the
+ * selection's background and OSC 19's its text, by updatedXtermGC's rule
+ * (mode0.h). */
 
 /* OSC 17 and OSC 19 set and answer the selection's background and text,
  * which start as the default foreground and background; OSC 117 and OSC
@@ -5356,113 +5368,229 @@ static uint32_t rgb_pixel(int r, int g, int b)
     return SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(r, g, b);
 }
 
-/* The color mode 0 is given for the selection, as xterm's updatedXtermGC
- * counts it: OSC 17's, once it is neither the default foreground as
- * DECSCNM shows it now nor the default foreground at power-up. OSC 19's
- * counts for nothing, as with xterm's highlightColorMode off. */
-UTEST(term, the_selection_s_color_counts_as_xterm_s_does)
+/* The colors mode 0 is given for the selection, as xterm's updatedXtermGC
+ * counts them: OSC 17's once it is neither the default foreground as
+ * DECSCNM shows it now nor the default foreground at power-up, and OSC
+ * 19's once it is neither the default background as DECSCNM shows it now
+ * nor the default background at power-up. */
+UTEST(term, the_selection_s_colors_count_as_xterm_s_do)
 {
     fresh();
-    const uint32_t blue = rgb_pixel(0, 0, 255);
+    const uint32_t blue = rgb_pixel(0, 0, 255), red = rgb_pixel(255, 0, 0);
     draw_task();
     ASSERT_EQ(mode0_regs.highlight, 0u);
+    ASSERT_EQ(mode0_regs.highlight_text, 0u);
     feed("\33]19;#ff0000\7");
     draw_task();
     ASSERT_EQ(mode0_regs.highlight, 0u);
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | red);
     feed("\33]17;#0000ff\7");
     draw_task();
     ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | red);
     feed("\33]119\7");
     draw_task();
     ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
-    /* Not while it is the default foreground. */
-    feed("\33]10;#0000ff\7");
+    ASSERT_EQ(mode0_regs.highlight_text, 0u);
+    feed("\33]19;#ff0000\7\33]117\7");
     draw_task();
     ASSERT_EQ(mode0_regs.highlight, 0u);
-    feed("\33]110\7");
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | red);
+    feed("\33]17;#0000ff\7");
+    /* Not while each is its default color. */
+    feed("\33]10;#0000ff\7\33]11;#ff0000\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, 0u);
+    ASSERT_EQ(mode0_regs.highlight_text, 0u);
+    feed("\33]110\7\33]111\7");
     draw_task();
     ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
-    /* Under DECSCNM the default foreground shows as the background. */
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | red);
+    /* Under DECSCNM the default background set before shows as the
+     * foreground, which OSC 17's color is held against. */
     feed("\33]11;#0000ff\7\33[?5h");
     draw_task();
     ASSERT_EQ(mode0_regs.highlight, 0u);
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | red);
+    feed("\33[?5l\33]111\7\33]10;#ff0000\7\33[?5h");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
+    ASSERT_EQ(mode0_regs.highlight_text, 0u);
     feed("\33[?5l");
     draw_task();
     ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
-    /* Nor while it is the default foreground at power-up, whatever that
-     * is now. */
-    feed("\33]10;#ff0000\7\33]117\7");
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | red);
+    feed("\33]110\7");
+    /* As xterm's ReverseVideo swaps its default foreground and background,
+     * under DECSCNM OSC 10 and 11 name the colors shown, and OSC 110 and
+     * 111 reset them, so the background and the foreground they were. */
+    feed("\33[?5h\33]10;#0000ff\7");
     draw_task();
     ASSERT_EQ(mode0_regs.highlight, 0u);
-    feed("\33]17;#0000ff\7\33c");
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | red);
+    ASSERT_EQ(vterm_get_color(&vterm, VTERM_COLOR_BG), blue);
+    feed("\33]110\7\33]11;#ff0000\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
+    ASSERT_EQ(mode0_regs.highlight_text, 0u);
+    ASSERT_EQ(vterm_get_color(&vterm, VTERM_COLOR_FG), red);
+    feed("\33]111\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | red);
+    ASSERT_EQ(vterm_get_color(&vterm, VTERM_COLOR_FG), vterm_default_color(VTERM_COLOR_FG));
+    ASSERT_EQ(vterm_get_color(&vterm, VTERM_COLOR_BG), vterm_default_color(VTERM_COLOR_BG));
+    /* Its ReverseVideo does not swap the selection's two, but its
+     * oppositeColor does, so OSC 17 names the selection's text, and OSC 19
+     * its background, and so do OSC 117 and 119. */
+    const uint32_t green = rgb_pixel(0, 255, 0);
+    feed("\33]17;#00ff00\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | green);
+    feed("\33]19;#ff0000\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | red);
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | green);
+    feed("\33]117\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | red);
+    ASSERT_EQ(mode0_regs.highlight_text, 0u);
+    feed("\33]119\7");
     draw_task();
     ASSERT_EQ(mode0_regs.highlight, 0u);
+    ASSERT_EQ(mode0_regs.highlight_text, 0u);
+    feed("\33[?5l\33]17;#0000ff\7\33]19;#ff0000\7");
+    /* Nor while each is its default color at power-up, whatever that is
+     * now. */
+    feed("\33]10;#00ff00\7\33]11;#00ff00\7\33]117\7\33]119\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, 0u);
+    ASSERT_EQ(mode0_regs.highlight_text, 0u);
+    feed("\33]17;#0000ff\7\33]19;#ff0000\7\33c");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, 0u);
+    ASSERT_EQ(mode0_regs.highlight_text, 0u);
 }
 
-/* The selection in its color, on plain and reversed cells in it and out of
- * it, as xterm's updatedXtermGC draws them. Unset, a cell in the selection
- * shows reversed, and a reversed one in it shows plain. With OSC 17 set, a
- * plain cell in it shows its ink on that color, and so does a reversed
- * cell outside it, as on xterm; a reversed cell in it shows that color on
- * its ink. A cell whose own background is the color shows reversed, and a
- * concealed cell shows the color alone. OSC 19 changes nothing. */
-UTEST(highlight, the_selection_is_drawn_in_its_color)
+/* The selection in its colors, on plain and reversed cells in it and out
+ * of it, as xterm's updatedXtermGC draws them with highlightColorMode on.
+ * Row 2 is a plain cell, a reversed one, a plain one, a reversed one, one
+ * on blue and one concealed; the selection takes the first two. Unset, a
+ * cell in the selection shows reversed, and a reversed one in it plain. */
+UTEST(highlight, the_selection_is_drawn_in_its_colors)
 {
     for (int forty = 0; forty < 2; forty++)
     {
         cur_fresh(forty);
         feed("\33[3;1HA\33[7mB\33[mC\33[7mD\33[m\33[48;2;0;0;255mE\33[m\33[8mF\33[m\33[4;1H");
         cur_draw(false);
-        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0(), blue = cur_blue();
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0(), blue = cur_blue(), white = cur_white();
         sel(2, 0, 2, 2);
         cur_draw(false);
         ASSERT_GT(cur_two(0, 2, 8, fg0, bg0), 0);
         ASSERT_GT(cur_two(1, 2, 8, bg0, fg0), 0);
         ASSERT_GT(cur_two(2, 2, 8, bg0, fg0), 0);
         ASSERT_GT(cur_two(3, 2, 8, fg0, bg0), 0);
+        /* The background color alone: a plain cell in it shows its ink on
+         * that color, and so does a reversed cell outside it, as on xterm;
+         * a reversed cell in it shows that color on its ink. */
         feed("\33]17;#0000ff\7");
         cur_draw(false);
         ASSERT_GT(cur_two(0, 2, 8, blue, fg0), 0);
         ASSERT_GT(cur_two(1, 2, 8, fg0, blue), 0);
         ASSERT_GT(cur_two(2, 2, 8, bg0, fg0), 0);
         ASSERT_GT(cur_two(3, 2, 8, blue, fg0), 0);
-        feed("\33]19;#ffffff\7");
+        /* The text color alone: a plain cell in it, or a reversed one
+         * outside, shows that color on its ink, and a reversed cell in it
+         * its ink on that color. */
+        feed("\33]117\7\33]19;#ffffff\7");
         cur_draw(false);
-        ASSERT_GT(cur_two(0, 2, 8, blue, fg0), 0);
-        ASSERT_GT(cur_two(1, 2, 8, fg0, blue), 0);
-        /* Unset again, the reversed cell outside is reversed as ever. */
-        feed("\33]117\7");
-        cur_draw(false);
-        ASSERT_GT(cur_two(0, 2, 8, fg0, bg0), 0);
-        ASSERT_GT(cur_two(3, 2, 8, fg0, bg0), 0);
+        ASSERT_GT(cur_two(0, 2, 8, fg0, white), 0);
+        ASSERT_GT(cur_two(1, 2, 8, white, fg0), 0);
+        ASSERT_GT(cur_two(2, 2, 8, bg0, fg0), 0);
+        ASSERT_GT(cur_two(3, 2, 8, fg0, white), 0);
+        /* Both: a plain cell in it, or a reversed one outside, shows the
+         * text color on its own paper, as xterm's code has it, and a
+         * reversed cell in it the background color on the text color. */
         feed("\33]17;#0000ff\7");
+        cur_draw(false);
+        ASSERT_GT(cur_two(0, 2, 8, bg0, white), 0);
+        ASSERT_GT(cur_two(1, 2, 8, white, blue), 0);
+        ASSERT_GT(cur_two(2, 2, 8, bg0, fg0), 0);
+        ASSERT_GT(cur_two(3, 2, 8, bg0, white), 0);
+        /* A color that is one of the cell's own is not used on it: on
+         * blue, only the text color is, on the cell's ink; and a concealed
+         * cell shows its paper alone. */
         sel(2, 4, 2, 6);
         cur_draw(false);
-        ASSERT_GT(cur_two(4, 2, 8, fg0, blue), 0);
-        ASSERT_EQ(cur_two(5, 2, 8, blue, fg0), 0);
+        ASSERT_GT(cur_two(4, 2, 8, fg0, white), 0);
+        ASSERT_EQ(cur_two(5, 2, 8, bg0, white), 0);
+        /* Under DECSCNM a cell's two colors are swapped first. */
+        sel(2, 0, 2, 2);
+        feed("\33[?5h");
+        cur_draw(false);
+        ASSERT_GT(cur_two(0, 2, 8, fg0, white), 0);
+        ASSERT_GT(cur_two(1, 2, 8, white, blue), 0);
+        ASSERT_GT(cur_two(2, 2, 8, fg0, bg0), 0);
+        feed("\33[?5l");
+        /* Reset, the selection inverts again. */
+        feed("\33]117\7\33]119\7");
+        cur_draw(false);
+        ASSERT_GT(cur_two(0, 2, 8, fg0, bg0), 0);
+        ASSERT_GT(cur_two(1, 2, 8, bg0, fg0), 0);
+        ASSERT_GT(cur_two(3, 2, 8, fg0, bg0), 0);
         cur_done();
     }
 }
 
-/* A block on a selected cell works from the colors the cell shows: the
- * cell's ink on the selection's color. The cell shows reversed, by the
- * selection, so the cursor's color, the default foreground, is its default
- * paper: the block fills with the default ink, the default background, and
- * draws the glyph in the selection's color. */
-UTEST(highlight, the_cursor_works_from_the_selection_s_color)
+/* A cell whose ink is the text color is drawn with the background color
+ * alone: white text in the selection, with OSC 19 white, shows on the
+ * background color. */
+UTEST(highlight, a_selection_color_that_is_the_cell_s_own_is_not_used)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1H\33[97mA\33[m\33[4;1H");
+        cur_draw(false);
+        const uint32_t blue = cur_blue(), white = cur_white();
+        feed("\33]17;#0000ff\7\33]19;#ffffff\7");
+        sel(2, 0, 2, 1);
+        cur_draw(false);
+        ASSERT_GT(cur_two(0, 2, 8, blue, white), 0);
+        cur_done();
+    }
+}
+
+/* A block on a selected cell works from the colors the cell shows. With
+ * the background color alone, the cell is its ink on that color; it shows
+ * reversed, by the selection, so the cursor's color, the default
+ * foreground, is its default paper: the block fills with the default ink,
+ * the default background, and draws the glyph in the selection's color.
+ * With both colors, the cell is the text color on its own paper, the
+ * default background: the default ink is that background too, so the
+ * block fills with the cell's ink, the text color, and draws the glyph in
+ * the default background. */
+UTEST(highlight, the_cursor_works_from_the_selection_s_colors)
 {
     for (int forty = 0; forty < 2; forty++)
     {
         cur_fresh(forty);
         feed("\33[3;1HA\33[3;1H\33[2 q");
         cur_draw(false);
-        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0(), blue = cur_blue();
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0(), blue = cur_blue(), white = cur_white();
         feed("\33]17;#0000ff\7");
         sel(2, 0, 2, 1);
         cur_draw(false);
         ASSERT_GT(cur_two(0, 2, 8, blue, fg0), 0);
         cur_draw(true);
         ASSERT_GT(cur_two(0, 2, 8, bg0, blue), 0);
+        feed("\33]19;#ffffff\7");
+        cur_draw(false);
+        ASSERT_GT(cur_two(0, 2, 8, bg0, white), 0);
+        cur_draw(true);
+        ASSERT_GT(cur_two(0, 2, 8, white, bg0), 0);
         cur_done();
     }
 }

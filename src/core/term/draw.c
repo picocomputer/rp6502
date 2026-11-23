@@ -405,17 +405,20 @@ static uint32_t draw_row_selection(const screen_t *s, uint8_t m)
     return from < to ? MODE0_ROW_SELECT(from, to) : 0;
 }
 
-/* OSC 17's color as mode 0 is given it (mode0.h): counted where xterm's
- * updatedXtermGC counts its highlightColor with highlightColorMode off,
- * apart from the default foreground as DECSCNM shows it now, xterm's
- * T_COLOR(TEXT_FG), and from the default foreground at power-up, xterm's
- * dft_foreground. Mode 0 holds it against each cell's own colors. */
-static uint32_t draw_highlight(void)
+/* A selection color as mode 0 is given it (mode0.h): which, OSC 17's or
+ * OSC 19's, counted where xterm's updatedXtermGC counts its highlightColor
+ * (use_selbg) or its highlightTextColor (use_selfg), apart from the default
+ * color against, the foreground for OSC 17's and the background for OSC
+ * 19's, as DECSCNM shows it now, xterm's T_COLOR(TEXT_FG) or
+ * T_COLOR(TEXT_BG), and as at power-up, xterm's dft_foreground or
+ * dft_background. Mode 0 holds it against each cell's own colors. */
+static uint32_t draw_highlight(unsigned which, unsigned against)
 {
-    const uint16_t h = vterm_specials[VTERM_COLOR_HIGHLIGHT_BG - VTERM_PALETTE];
-    const uint16_t fg =
-        vterm_specials[(vterm.reverse_screen ? VTERM_COLOR_BG : VTERM_COLOR_FG) - VTERM_PALETTE];
-    if (mode0_same(h, fg) || mode0_same(h, vterm_default_color(VTERM_COLOR_FG)))
+    const uint16_t h = vterm_specials[which - VTERM_PALETTE];
+    const unsigned other = against == VTERM_COLOR_FG ? VTERM_COLOR_BG : VTERM_COLOR_FG;
+    const unsigned shown = vterm.reverse_screen ? other : against;
+    if (mode0_same(h, vterm_specials[shown - VTERM_PALETTE]) ||
+        mode0_same(h, vterm_default_color(against)))
         return 0;
     return MODE0_HIGHLIGHT | h;
 }
@@ -456,7 +459,8 @@ void draw_publish(void)
                         (d->cursor_lit ? MODE0_CURSOR_LIT : 0) |
                         (draw_published.focused ? 0 : MODE0_CURSOR_UNFOCUSED);
     mode0_regs.cursor_color = vterm_specials[VTERM_COLOR_CURSOR - VTERM_PALETTE];
-    mode0_regs.highlight = draw_highlight();
+    mode0_regs.highlight = draw_highlight(VTERM_COLOR_HIGHLIGHT_BG, VTERM_COLOR_FG);
+    mode0_regs.highlight_text = draw_highlight(VTERM_COLOR_HIGHLIGHT_FG, VTERM_COLOR_BG);
     // With ?35 the phase stays at none, so no cell blinks.
     mode0_regs.screen = (vterm.blink_off ? 0u : d->cell_blink_phase) |
                         (vterm.reverse_screen ? MODE0_SCREEN_REVERSE : 0);

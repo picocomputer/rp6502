@@ -302,6 +302,7 @@ UTEST(sst, the_palette_and_its_faint_twins_come_back)
     ASSERT_EQ(vterm_get_color(&vterm, VTERM_COLOR_HIGHLIGHT_FG), text);
     draw_publish();
     ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | lit);
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | text);
     ASSERT_EQ(mode0_color(MODE0_ENTRY(1, false)), red);
     ASSERT_EQ(mode0_color(MODE0_ENTRY(1, true)), mode0_faint(red));
     ASSERT_EQ(mode0_color(MODE0_ENTRY(MODE0_DEFAULT_BG, false)), paper);
