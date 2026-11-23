@@ -906,16 +906,18 @@ static void term_out_DECSCA(term_t *t)
 }
 
 // DECREQTPARM, CSI 0 x or CSI 1 x: the VT100's line settings -- no parity,
-// 8 bits, 38400 baud both ways, clock multiplier 1, no flags. The VT100's
-// speeds go up by 8 from 0 for 50 baud to 120 for 19200; 128 is xterm's
-// next step, 38400, the fastest the report can say. CSI 0 x asks for a
-// report unsolicited reports may follow (2); CSI 1 x, for one only on
-// request (3).
+// 8 bits, the DECSCS speed both ways, clock multiplier 1, no flags. The
+// VT100's speed codes run from 0 for 50 baud to 120 for 19200; 128 is
+// xterm's next step, 38400, the fastest the report can say, so faster
+// speeds and unlimited report 128. CSI 0 x asks for a report unsolicited
+// reports may follow (2); CSI 1 x, for one only on request (3).
 static void term_out_DECREQTPARM(term_t *t)
 {
+    static const uint8_t code[TERM_SPEED_MAX + 1] = {
+        128, 48, 56, 64, 88, 104, 112, 120, 128, 128, 128, 128};
     uint16_t ps = t->csi_param[0];
     if (ps <= 1)
-        term_replyf("\33[%u;1;1;128;128;1;0x", ps + 2u, 0, 0);
+        term_replyf("\33[%u;1;1;%u;%u;1;0x", ps + 2u, code[t->speed], code[t->speed]);
 }
 
 // DECSCS, CSI Ps1 ; Ps2 * r, as SyncTERM has it: the speed the console's

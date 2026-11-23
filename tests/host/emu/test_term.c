@@ -622,6 +622,27 @@ UTEST(term, decreqtparm)
     ASSERT_STREQ(ask("\33[2x"), "");
 }
 
+/* DECREQTPARM reports the DECSCS speed both ways, in the VT100's codes;
+ * 38400 and faster, and unlimited, are 128. RIS puts it back to 128. */
+UTEST(term, decreqtparm_reports_the_speed)
+{
+    static const unsigned code[] = {128, 48, 56, 64, 88, 104, 112, 120,
+                                    128, 128, 128, 128};
+    fresh();
+    for (unsigned i = 0; i < sizeof code / sizeof code[0]; i++)
+    {
+        char seq[16], want[32];
+        snprintf(seq, sizeof seq, "\33[0;%u*r", i);
+        feed(seq);
+        snprintf(want, sizeof want, "\33[2;1;1;%u;%u;1;0x", code[i], code[i]);
+        ASSERT_STREQ(ask("\33[x"), want);
+    }
+    feed("\33[0;6*r");
+    ASSERT_STREQ(ask("\33[1x"), "\33[3;1;1;112;112;1;0x");
+    feed("\33c");
+    ASSERT_STREQ(ask("\33[x"), "\33[2;1;1;128;128;1;0x");
+}
+
 /* The DEC status reports, CSI ? Ps n, as xterm's VT420 answers them. */
 UTEST(term, dec_status_reports)
 {
