@@ -10,6 +10,7 @@
 #include "core/term/screen.h"
 #include "core/term/term.h"
 #include "core/term/vterm.h"
+#include "core/term/vterm_mouse.h"
 #include "core/vga/mode/mode0.h"
 #include "core/vga/vga.h"
 #include "machine.h"
@@ -77,10 +78,11 @@ volatile uint32_t draw_bytes_in_jobs;
 // of memory. Only a scroll, a line size, a change of height, or another
 // screen showing changes it, so most bytes leave the row words as they are.
 // The selection's own flag (vterm_selection.changed) says when it changed.
-// And whether the words showed a smooth scroll moving, and the frame they
-// were written in.
+// And whether the words showed a smooth scroll moving, the frame they were
+// written in, and whether the host's window had the focus.
 static struct
 {
+    bool focused;
     bool smooth;
     uint32_t frame;
     const screen_t *screen;
@@ -214,27 +216,29 @@ static bool draw_sst_get_bufs(sst_cursor_t *c, unsigned flags)
     return true;
 }
 
-/* The selection, as the two words the RIA sends the VGA
+/* The selection, as the three words the RIA sends the VGA
  * (vterm_select_words), which the load checks against the rows it loaded
  * above: a selection that shows is on rows of its grid's height, in order.
  * Its count of the user's changes is the RIA's alone, and not saved. */
 static void draw_sst_put_selection(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    uint16_t start, end;
-    vterm_select_words(&start, &end);
-    sst_put_u16(c, start);
-    sst_put_u16(c, end);
+    const vterm_select_words_t w = vterm_select_words();
+    sst_put_u16(c, w.start);
+    sst_put_u16(c, w.sides);
+    sst_put_u16(c, w.end);
 }
 
 static bool draw_sst_get_selection(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    const uint16_t start = sst_get_u16(c);
-    const uint16_t end = sst_get_u16(c);
+    vterm_select_words_t w;
+    w.start = sst_get_u16(c);
+    w.sides = sst_get_u16(c);
+    w.end = sst_get_u16(c);
     if (!sst_ok(c))
         return false;
-    if (!vterm_select_apply(start, end))
+    if (!vterm_select_apply(w))
         return sst_refuse(c, "a selection of no rows of its screen");
     return true;
 }
@@ -316,7 +320,7 @@ static bool draw_sst_palette_ok(sst_cursor_t *c)
     X(IN_FN, vterm_80.row_idx)                                         \
     X(IN_FN, vterm_80.bufs)                                            \
     X(VALIDATE, draw_sst_lines_ok)                                     \
-    X(FN, draw_sst_put_selection, draw_sst_get_selection, 4, 1)        \
+    X(FN, draw_sst_put_selection, draw_sst_get_selection, 6, 2)        \
     X(IN_FN, vterm_selection)                                          \
     X(STRUCT, draw_40, DRAW_BLINK_SST_ROWS)                            \
     X(STRUCT, draw_80, DRAW_BLINK_SST_ROWS)                            \
@@ -387,18 +391,33 @@ static inline bool draw_bytes_differ(const uint8_t *a, const uint8_t *b, unsigne
 }
 
 // The columns of row of memory m of s the selection takes, as mode 0's
-// row word carries them, while it shows on s: all of the row's but on its
-// first row and its last, each row's own columns, half the width on a row
-// of double width. None otherwise.
+// row word carries them, while it shows on s: those between its sides but
+// on its first row and its last (screen_selection_cols), each row's own
+// columns, half the width on a row of double width. None otherwise.
 static uint32_t draw_row_selection(const screen_t *s, uint8_t m)
 {
     const screen_selection_t *v = &vterm_selection;
     if (!screen_selection_on(s) || !((v->rows >> m) & 1))
         return 0;
-    const unsigned cols = screen_mem_size(s, m) ? s->cells->width / 2u : s->cells->width;
-    const unsigned from = m == v->start_row ? v->start_col : 0;
-    const unsigned to = m == v->end_row ? v->end_col : cols;
+    unsigned from, to;
+    screen_selection_cols(m, screen_mem_size(s, m) ? s->cells->width / 2u : s->cells->width,
+                          &from, &to);
     return from < to ? MODE0_ROW_SELECT(from, to) : 0;
+}
+
+/* OSC 17's color as mode 0 is given it (mode0.h): counted where xterm's
+ * updatedXtermGC counts its highlightColor with highlightColorMode off,
+ * apart from the default foreground as DECSCNM shows it now, xterm's
+ * T_COLOR(TEXT_FG), and from the default foreground at power-up, xterm's
+ * dft_foreground. Mode 0 holds it against each cell's own colors. */
+static uint32_t draw_highlight(void)
+{
+    const uint16_t h = vterm_specials[VTERM_COLOR_HIGHLIGHT_BG - VTERM_PALETTE];
+    const uint16_t fg =
+        vterm_specials[(vterm.reverse_screen ? VTERM_COLOR_BG : VTERM_COLOR_FG) - VTERM_PALETTE];
+    if (mode0_same(h, fg) || mode0_same(h, vterm_default_color(VTERM_COLOR_FG)))
+        return 0;
+    return MODE0_HIGHLIGHT | h;
 }
 
 // The row words are written again for a new layout, and for a change of
@@ -431,10 +450,13 @@ void draw_publish(void)
     }
     const term_pos_t *pos = term_pos(g);
     // A cursor with a wrap pending is on the column it wrote, as on a VT100.
+    draw_published.focused = vterm_focused();
     mode0_regs.cursor = MODE0_CURSOR(pos->x, pos->y, vterm.cursor_style) |
                         (vterm.cursor_enabled ? MODE0_CURSOR_ENABLED : 0) |
-                        (d->cursor_lit ? MODE0_CURSOR_LIT : 0);
+                        (d->cursor_lit ? MODE0_CURSOR_LIT : 0) |
+                        (draw_published.focused ? 0 : MODE0_CURSOR_UNFOCUSED);
     mode0_regs.cursor_color = vterm_specials[VTERM_COLOR_CURSOR - VTERM_PALETTE];
+    mode0_regs.highlight = draw_highlight();
     // With ?35 the phase stays at none, so no cell blinks.
     mode0_regs.screen = (vterm.blink_off ? 0u : d->cell_blink_phase) |
                         (vterm.reverse_screen ? MODE0_SCREEN_REVERSE : 0);
@@ -584,12 +606,12 @@ void draw_task(void)
     draw_stale |= draw_cell_blink_phase_task(&draw_40);
     draw_stale |= draw_cell_blink_phase_task(&draw_80);
     // Another size or screen showing is published too, a new height, which
-    // moves the rows, a color changed, and the selection changed, which may
-    // come with no byte of the console. With DRAW_PUBLISH_PER_FRAME, once a
-    // frame at most.
+    // moves the rows, a color changed, the selection changed, and the focus
+    // came or went, which may come with no byte of the console. With
+    // DRAW_PUBLISH_PER_FRAME, once a frame at most.
     const term_grid_t *g = vterm_get_shown(&vterm);
     if ((draw_stale || vterm_palette_changed || vterm_selection.changed ||
-         draw_published.screen != g->shown ||
+         draw_published.focused != vterm_focused() || draw_published.screen != g->shown ||
          draw_published.height != g->height) &&
         !(DRAW_PUBLISH_PER_FRAME && draw_published.frame == draw_frame()))
         draw_publish();

@@ -87,18 +87,29 @@ static bool vterm_focus_told = true;
  * and a drag after them goes by words and by lines; a fourth and a fifth
  * select by characters, and a sixth by words again, as xterm's clicks go
  * with its default on2Clicks and on3Clicks. The right button, and Shift
- * with the left, extend the
- * selection from its nearer end, in the unit it was made in. The release
- * fills the primary with what is selected. The middle button pastes the
- * primary as it comes up. While a mouse mode is set, the buttons alone are
- * the program's and the terminal takes them with Shift: Shift with the left
- * button then selects as the left alone does, Shift with the right extends
- * and Shift with the middle pastes.
+ * with the left, extend the selection from its nearer end, in the unit it
+ * was made in. The release fills the primary with what is selected. The
+ * middle button pastes the primary as it comes up. While a mouse mode is
+ * set, the buttons alone are the program's and the terminal takes them
+ * with Shift: Shift with the left button then selects as the left alone
+ * does, Shift with the right extends and Shift with the middle pastes.
+ *
+ * By characters, a selection's ends are the gaps between characters, as
+ * Windows Terminal's are: the press's character is the selection's start,
+ * taken whole as soon as the pointer moves from the press, by a pixel, any
+ * way, but not when the press was in its last pixel column and the
+ * pointer goes on past it, or its first and the pointer goes back before
+ * it; and the end the drag moves is the gap nearest the pointer, so a
+ * further character joins once the pointer passes its middle. A press that
+ * does not move selects nothing. The pointer is on the row it is over,
+ * past the row's text too. An end that extends, or a highlight a program
+ * started, holds at its gap.
  *
  * The points are the store's marks (screen.h), on the screen the gesture
  * is on: rows of memory, as the selection is, so output that scrolls the
  * screen during a drag keeps them on their text, and one whose row leaves
- * the screen goes to the edge it left by, as xterm's do. */
+ * the screen goes to the edge it left by, as xterm's do. A point keeps its
+ * place inside its cell, as the press's must. */
 
 #define VTERM_MOUSE_CLICK_MS 250
 
@@ -119,7 +130,8 @@ static const uint8_t vterm_mouse_units[] = {VTERM_MOUSE_CHAR, VTERM_MOUSE_WORD, 
 /* The console's widest grid. */
 #define VTERM_MOUSE_MAX_COLS 80
 
-/* A point of a screen: a row of memory, and a column of that row's own. */
+/* A point of a screen: a row of memory, a column of that row's own, and
+ * where in that column's cell, 0 for its left edge (screen.h). */
 typedef screen_mark_t vterm_mouse_cell_t;
 
 /* The points the gesture holds, which the store keeps in step as the
@@ -134,16 +146,17 @@ typedef struct
     uint8_t clicks;  // its place in the left button's run, 1 to VTERM_MOUSE_CLICKS, or 0 before any
     bool left;       // the drag moves the start, xterm's LEFTEXTENSION
     bool clicked;    // the last press was a left click that counts, and no other button went down or up since
-    bool line;       // the drag selects in the line editor's line (core/com/rln.h)
+    bool line;       // the last press selected in the line editor's line (core/com/rln.h)
     bool ended_left; // the last drag ended was the left button's (vterm_mouse_ended), xterm's lastButton
+    bool dragged;    // the pointer has moved since the last press, which then drags
     union
     {
         struct
         {
             vterm_mouse_cell_t ext_start, ext_end;   // what is selected between, as the unit has not widened it
-            vterm_mouse_cell_t save_start, save_end; // ext_start and ext_end as the drag began
+            vterm_mouse_cell_t save_start, save_end; // ext_start and ext_end as the drag began, or the press
             vterm_mouse_cell_t raw;                  // where the run's first click started, xterm's rawPos
-            vterm_mouse_cell_t click;                // where the left button last went down
+            vterm_mouse_cell_t click;                // where the left button last went down, its pixel's place
         };
         vterm_mouse_cell_t points[VTERM_MOUSE_POINTS]; // the same, for the store
     };
@@ -202,7 +215,7 @@ static bool vterm_mouse_sst_valid(sst_cursor_t *c)
     const vterm_mouse_gesture_t *gs = &vterm_mouse_gesture;
     if (gs->screen > 3 || gs->unit > VTERM_MOUSE_LINE || gs->clicks > VTERM_MOUSE_CLICKS ||
         (gs->button & ~(TABLET_FLAG_LEFT | TABLET_FLAG_RIGHT)) || (gs->button && !gs->clicks) ||
-        (gs->line && gs->button != TABLET_FLAG_LEFT) ||
+        (gs->line && gs->button && gs->button != TABLET_FLAG_LEFT) ||
         (vterm_mouse_tracking == VTERM_MOUSE_TRACK_ON && (gs->button != TABLET_FLAG_LEFT || gs->line)))
         return sst_refuse(c, "a mouse gesture off the console's screens");
     if (gs->clicks)
@@ -213,7 +226,7 @@ static bool vterm_mouse_sst_valid(sst_cursor_t *c)
             return sst_refuse(c, "a mouse gesture on a screen with no cells");
         for (unsigned i = 0; i < VTERM_MOUSE_POINTS; i++)
             if (!vterm_mouse_shown_row(g, s, gs->points[i].row) ||
-                gs->points[i].col > VTERM_MOUSE_MAX_COLS)
+                gs->points[i].col > VTERM_MOUSE_MAX_COLS || gs->points[i].sub > SCREEN_MARK_SUBS)
                 return sst_refuse(c, "a mouse gesture off its screen's rows");
     }
     vterm_mouse_mark();
@@ -224,7 +237,7 @@ static bool vterm_mouse_sst_valid(sst_cursor_t *c)
     Y(I16, e.x) Y(I16, e.y) Y(U8, e.flags) Y(U8, e.modifier) \
     Y(U8, e.wheel) Y(U8, e.pan) Y(BOOL, e.edge)              \
     Y(BOOL, e.moved) Y(BOOL, e.shared)
-#define VTERM_MOUSE_CELL_ROWS(Y, p) Y(U8, p.row) Y(U8, p.col)
+#define VTERM_MOUSE_CELL_ROWS(Y, p) Y(U8, p.row) Y(U8, p.col) Y(U8, p.sub)
 #define VTERM_MOUSE_SST(X)                                                    \
     X(U32, vterm_mouse_queue.idx.wr)                                          \
     X(U32, vterm_mouse_queue.idx.rd)                                          \
@@ -237,6 +250,7 @@ static bool vterm_mouse_sst_valid(sst_cursor_t *c)
     X(BOOL, vterm_mouse_gesture.clicked)                                      \
     X(BOOL, vterm_mouse_gesture.line)                                         \
     X(BOOL, vterm_mouse_gesture.ended_left)                                   \
+    X(BOOL, vterm_mouse_gesture.dragged)                                      \
     X(STRUCT, vterm_mouse_gesture.ext_start, VTERM_MOUSE_CELL_ROWS)           \
     X(STRUCT, vterm_mouse_gesture.ext_end, VTERM_MOUSE_CELL_ROWS)             \
     X(STRUCT, vterm_mouse_gesture.save_start, VTERM_MOUSE_CELL_ROWS)          \
@@ -464,9 +478,54 @@ static vterm_mouse_pos_t vterm_mouse_pos(const vterm_mouse_view_t *v, vterm_mous
     return (vterm_mouse_pos_t){y, c.col < cols ? c.col : cols};
 }
 
+/* Whether two points are on the same cell, or gap, wherever in it. */
 static bool vterm_mouse_cell_eq(vterm_mouse_cell_t a, vterm_mouse_cell_t b)
 {
     return a.row == b.row && a.col == b.col;
+}
+
+/* The pixels across a cell of row y of the screen: 16 on a row of double
+ * width. */
+static int vterm_mouse_cell_px(const vterm_mouse_view_t *v, int y)
+{
+    return screen_size(v->s, (uint8_t)y) ? 16 : 8;
+}
+
+/* The point of canvas pixel x, over the cell at, mode 0 placed: inside the
+ * cell, at its place; past the row's columns, the edge past its last. */
+static vterm_mouse_cell_t vterm_mouse_point(const vterm_mouse_view_t *v, vterm_mouse_pos_t at,
+                                            int x)
+{
+    vterm_mouse_cell_t c = vterm_mouse_cell(v, at);
+    const int w = vterm_mouse_cell_px(v, at.y);
+    if (at.x < v->g->width * 8 / w && x >= at.x * w)
+        c.sub = (uint8_t)(1 + (x - at.x * w) * SCREEN_MARK_SUBS / w);
+    return c;
+}
+
+/* Where in its cell point c is now, as vterm_mouse_pos puts it at p: its
+ * left edge for one past the row's columns now. */
+static int vterm_mouse_sub(vterm_mouse_cell_t c, vterm_mouse_pos_t p)
+{
+    return p.x == c.col ? c.sub : 0;
+}
+
+/* Which point comes first on the screen, to the place in a cell: below 0
+ * for a, above for b. */
+static int vterm_mouse_point_cmp(const vterm_mouse_view_t *v, vterm_mouse_cell_t a,
+                                 vterm_mouse_cell_t b)
+{
+    const vterm_mouse_pos_t pa = vterm_mouse_pos(v, a), pb = vterm_mouse_pos(v, b);
+    const int d = vterm_mouse_cmp(pa, pb);
+    return d ? d : vterm_mouse_sub(a, pa) - vterm_mouse_sub(b, pb);
+}
+
+/* The pixel of its cell's width point c is in, at p, from 0, or -1 for a
+ * point at a cell's edge. */
+static int vterm_mouse_px(const vterm_mouse_view_t *v, vterm_mouse_cell_t c, vterm_mouse_pos_t p)
+{
+    const int sub = vterm_mouse_sub(c, p);
+    return sub ? (sub - 1) * vterm_mouse_cell_px(v, p.y) / SCREEN_MARK_SUBS : -1;
 }
 
 /* One row of the screen as the walks below read it: its text, and the
@@ -588,8 +647,8 @@ static bool vterm_mouse_more(const vterm_mouse_view_t *v, int y)
     return y < v->g->height - 1;
 }
 
-/* xterm's okPosition: a point past a row's text, but on its last row, is
- * the start of the next row. False when it moved. */
+/* xterm's okPosition, for words: a point past a row's text, but on its
+ * last row, is the start of the next row. False when it moved. */
 static bool vterm_mouse_settle(vterm_mouse_line_t *l, vterm_mouse_pos_t *p)
 {
     if (p->x <= l->last + 1 || !vterm_mouse_more(l->v, p->y))
@@ -600,8 +659,11 @@ static bool vterm_mouse_settle(vterm_mouse_line_t *l, vterm_mouse_pos_t *p)
 }
 
 /* What is selected between two points, as the unit widens them, as xterm's
- * ComputeSelect: by words, out to the ends of the words under them, across
- * a row that wrapped; by lines, from the first row of the line under the
+ * ComputeSelect: by characters, just that, but for a highlight a program
+ * tracks, as by words; by words, out to the ends of the
+ * words under them, across a row that wrapped, a point past a row's text,
+ * but on its last row, first going to the start of the next row
+ * (vterm_mouse_settle); by lines, from the first row of the line under the
  * first to the start of the row after the line under the last, or to the
  * end of its text on the screen's last row. */
 static void vterm_mouse_widen(const vterm_mouse_view_t *v, uint8_t unit,
@@ -613,8 +675,13 @@ static void vterm_mouse_widen(const vterm_mouse_view_t *v, uint8_t unit,
     switch (unit)
     {
     case VTERM_MOUSE_CHAR:
-        vterm_mouse_settle(&ls, start);
-        vterm_mouse_settle(&le, end);
+        /* A highlight a program tracks keeps xterm's rule, so its reports
+         * name what xterm's would. */
+        if (vterm_mouse_tracking == VTERM_MOUSE_TRACK_ON)
+        {
+            vterm_mouse_settle(&ls, start);
+            vterm_mouse_settle(&le, end);
+        }
         break;
     case VTERM_MOUSE_WORD:
         if (vterm_mouse_settle(&ls, start))
@@ -684,19 +751,43 @@ static void vterm_mouse_span(const vterm_mouse_view_t *v, vterm_mouse_pos_t *sta
     vterm_mouse_widen(v, vterm_mouse_gesture.unit, start, end);
 }
 
-/* The selection becomes what the gesture selects. One that is already so,
- * showing or empty, is left as it is, so the RIA sends only a change. */
+/* Whether the selection is what the gesture selects, a and b: showing, or
+ * empty. */
+static bool vterm_mouse_is(const vterm_mouse_view_t *v, vterm_mouse_cell_t a,
+                           vterm_mouse_cell_t b)
+{
+    const screen_selection_t *sel = &vterm_selection;
+    return sel->screen == v->s && sel->start_row == a.row && sel->start_col == a.col &&
+           sel->end_row == b.row && sel->end_col == b.col && !sel->left &&
+           sel->right == SCREEN_SELECTION_EDGE && (sel->shows || vterm_mouse_cell_eq(a, b));
+}
+
+/* The selection becomes what the gesture selects, the primary's, which
+ * ends the line editor's: the terminal has one selection, which the two
+ * share. One that is already so, showing or empty, is left as it is, so
+ * the RIA sends only a change. */
 static void vterm_mouse_compute(const vterm_mouse_view_t *v)
 {
     vterm_mouse_pos_t start, end;
     vterm_mouse_span(v, &start, &end);
     const vterm_mouse_cell_t a = vterm_mouse_cell(v, start), b = vterm_mouse_cell(v, end);
-    const screen_selection_t *sel = &vterm_selection;
-    if (sel->screen == v->s && sel->start_row == a.row && sel->start_col == a.col &&
-        sel->end_row == b.row && sel->end_col == b.col &&
-        (sel->shows || vterm_mouse_cell_eq(a, b)))
+    if (vterm_mouse_is(v, a, b))
         return;
-    vterm_select(v->g, v->code & 1, a.row, a.col, b.row, b.col);
+    rln_unselect();
+    vterm_select(v->g, v->code & 1, a.row, a.col, b.row, b.col, 0, SCREEN_SELECTION_EDGE);
+}
+
+/* Whether the selection showing on the screen showing is the gesture's,
+ * the primary's, and not the line editor's, which the last press made
+ * when it was in the line. */
+static bool vterm_mouse_shows(const vterm_mouse_view_t *v)
+{
+    if (!vterm_selection.shows || !vterm_mouse_gesture.clicks || vterm_mouse_gesture.line ||
+        vterm_mouse_gesture.screen != v->code)
+        return false;
+    vterm_mouse_pos_t start, end;
+    vterm_mouse_span(v, &start, &end);
+    return vterm_mouse_is(v, vterm_mouse_cell(v, start), vterm_mouse_cell(v, end));
 }
 
 /* Whether a press of the left button at the cell is another click of the
@@ -709,69 +800,161 @@ static bool vterm_mouse_again(const vterm_mouse_view_t *v, vterm_mouse_pos_t at)
            !timer_mach_passed(vterm_mouse_gesture.click_by);
 }
 
-/* A press at the cell, held by button: the next click of the run when it
+/* A press at point p, held by button: the next click of the run when it
  * goes on (again), else the first, and the unit that makes; counted, it
  * counts for the next by the selection's rule. A press on another screen
- * than the gesture's puts all the gesture's points at the cell, so the
+ * than the gesture's puts all the gesture's points at the point, so the
  * store keeps none on a screen they are not of. */
-static vterm_mouse_cell_t vterm_mouse_press(const vterm_mouse_view_t *v, vterm_mouse_pos_t at,
-                                            uint8_t button, bool counted, bool again)
+static void vterm_mouse_press(const vterm_mouse_view_t *v, vterm_mouse_cell_t p, uint8_t button,
+                              bool counted, bool again)
 {
-    const vterm_mouse_cell_t c = vterm_mouse_cell(v, at);
     vterm_mouse_gesture.clicks =
         (uint8_t)(again ? vterm_mouse_gesture.clicks % VTERM_MOUSE_CLICKS + 1 : 1);
     if (vterm_mouse_gesture.screen != v->code)
         for (unsigned i = 0; i < VTERM_MOUSE_POINTS; i++)
-            vterm_mouse_gesture.points[i] = c;
+            vterm_mouse_gesture.points[i] = p;
     vterm_mouse_gesture.unit = vterm_mouse_units[vterm_mouse_gesture.clicks - 1];
     vterm_mouse_gesture.clicked = counted;
-    vterm_mouse_gesture.click = c;
+    vterm_mouse_gesture.click = p;
     vterm_mouse_gesture.screen = v->code;
     vterm_mouse_mark();
     vterm_mouse_gesture.button = button;
     vterm_mouse_gesture.line = false;
-    return c;
+    vterm_mouse_gesture.dragged = false;
 }
 
-/* A selection starts, as xterm's StartSelect: from raw, where the run's
- * first click started, which a first click sets, to the cell at, in the
+/* By characters, the end the drag moves goes to the gap nearest point at,
+ * from the press's character, or the gap an end that extends holds at:
+ * xterm's ExtendExtend, whose drag that crosses the end it holds turns
+ * round to hold the other end as the drag began, held as the rule of the
+ * gesture says (the comment at its start). The point the drag holds from
+ * is save_start going on and save_end going back: both the press, or the
+ * two ends of a selection extended. */
+static void vterm_mouse_chars(const vterm_mouse_view_t *v, vterm_mouse_cell_t at)
+{
+    vterm_mouse_gesture_t *gs = &vterm_mouse_gesture;
+    if (gs->left && vterm_mouse_point_cmp(v, at, gs->save_end) > 0)
+        gs->left = false;
+    else if (!gs->left && vterm_mouse_point_cmp(v, at, gs->save_start) < 0)
+        gs->left = true;
+    const bool back = gs->left;
+    const vterm_mouse_cell_t from = back ? gs->save_end : gs->save_start;
+    const vterm_mouse_pos_t f = vterm_mouse_pos(v, from);
+    const int px = vterm_mouse_px(v, from, f);
+    const int d = vterm_mouse_point_cmp(v, at, from);
+    /* The gap held, and the gap the end the drag moves goes no nearer to it
+     * than. From a gap, as an end that extends holds at, both that gap.
+     * From a press inside a character, the character is taken whole: held
+     * from its left edge going on, or its right edge going back, and the
+     * end out to its other edge. But from a press in its last pixel column
+     * with the pointer past it going on, or its first with the pointer
+     * before it going back, it is not taken: the gap held is its edge on
+     * the pointer's side. */
+    vterm_mouse_pos_t held = f, edge = f;
+    if (px >= 0)
+    {
+        const bool margin =
+            back ? px == 0 && d < 0 : px == vterm_mouse_cell_px(v, f.y) - 1 && d > 0;
+        held.x += back != margin;
+        edge.x += !back;
+    }
+    /* Nothing is selected until the pointer is away from the point held
+     * from: for a press, once the drag has moved, by any pixel, any way. */
+    vterm_mouse_pos_t to = held;
+    if (px >= 0 ? gs->dragged : d != 0)
+    {
+        /* The gap nearest the pointer, a character joining once the
+         * pointer passes its middle, but never nearer than edge. */
+        to = vterm_mouse_pos(v, at);
+        if (vterm_mouse_sub(at, to) > SCREEN_MARK_SUBS / 2)
+            to.x++;
+        if (back ? vterm_mouse_cmp(to, edge) > 0 : vterm_mouse_cmp(to, edge) < 0)
+            to = edge;
+    }
+    gs->ext_start = vterm_mouse_cell(v, back ? to : held);
+    gs->ext_end = vterm_mouse_cell(v, back ? held : to);
+}
+
+/* The end the drag moves goes to point at: by characters by
+ * vterm_mouse_chars's rule, and by words and lines to its cell. */
+static void vterm_mouse_move(const vterm_mouse_view_t *v, vterm_mouse_cell_t at)
+{
+    if (vterm_mouse_gesture.unit == VTERM_MOUSE_CHAR)
+    {
+        vterm_mouse_chars(v, at);
+        return;
+    }
+    at.sub = 0;
+    if (vterm_mouse_gesture.left)
+        vterm_mouse_gesture.ext_start = at;
+    else
+        vterm_mouse_gesture.ext_end = at;
+}
+
+/* The gesture holds from point raw: where the run's first click started,
+ * and the press the drag holds from, with nothing selected yet. */
+static void vterm_mouse_hold(const vterm_mouse_view_t *v, vterm_mouse_cell_t raw)
+{
+    vterm_mouse_gesture_t *gs = &vterm_mouse_gesture;
+    gs->raw = gs->save_start = gs->save_end = raw;
+    gs->ext_start = gs->ext_end = vterm_mouse_cell(v, vterm_mouse_pos(v, raw));
+    gs->left = false;
+}
+
+/* A selection starts, as xterm's StartSelect: from point raw, where the
+ * run's first click started, which a first click sets, to point at, in the
  * unit the clicks made, and the line editor's ends: one selection at a
  * time. */
-static void vterm_mouse_begin(const vterm_mouse_view_t *v, vterm_mouse_pos_t raw,
-                              vterm_mouse_pos_t at)
+static void vterm_mouse_begin(const vterm_mouse_view_t *v, vterm_mouse_cell_t raw,
+                              vterm_mouse_cell_t at)
 {
-    const vterm_mouse_cell_t c = vterm_mouse_cell(v, raw);
     rln_unselect();
-    vterm_mouse_gesture.raw = c;
-    vterm_mouse_gesture.ext_start = vterm_mouse_gesture.ext_end = c;
-    vterm_mouse_gesture.save_start = vterm_mouse_gesture.save_end = c;
-    vterm_mouse_gesture.left = vterm_mouse_cmp(at, raw) < 0;
-    if (vterm_mouse_gesture.left)
-        vterm_mouse_gesture.ext_start = vterm_mouse_cell(v, at);
-    else
-        vterm_mouse_gesture.ext_end = vterm_mouse_cell(v, at);
+    vterm_mouse_hold(v, raw);
+    vterm_mouse_gesture.left = vterm_mouse_gesture.unit != VTERM_MOUSE_CHAR &&
+                               vterm_mouse_cmp(vterm_mouse_pos(v, at), vterm_mouse_pos(v, raw)) < 0;
+    vterm_mouse_move(v, at);
     vterm_mouse_compute(v);
 }
 
-/* A press starts a selection at the cell, by the unit its clicks make: a
- * counted one by the selection's rule. */
-static void vterm_mouse_start(const vterm_mouse_view_t *v, vterm_mouse_pos_t at, uint8_t button,
+/* A press at point p starts a selection there, by the unit its clicks make:
+ * a counted one by the selection's rule. */
+static void vterm_mouse_start(const vterm_mouse_view_t *v, vterm_mouse_cell_t p, uint8_t button,
                               bool counted)
 {
-    vterm_mouse_press(v, at, button, counted, counted && vterm_mouse_again(v, at));
-    vterm_mouse_begin(v, at, at);
+    vterm_mouse_press(v, p, button, counted,
+                      counted && vterm_mouse_again(v, vterm_mouse_pos(v, p)));
+    vterm_mouse_begin(v, p, p);
+}
+
+/* What the drag selects goes to the line editor, for a drag in its line:
+ * the end it holds and the end it moves, each a gap by characters and a
+ * cell by words and lines, which the line takes as it lays them out
+ * (rln_mouse_drag). Otherwise it is the selection. */
+static void vterm_mouse_show(const vterm_mouse_view_t *v)
+{
+    const vterm_mouse_gesture_t *gs = &vterm_mouse_gesture;
+    if (!gs->line)
+    {
+        vterm_mouse_compute(v);
+        return;
+    }
+    const vterm_mouse_pos_t start = vterm_mouse_pos(v, gs->ext_start);
+    const vterm_mouse_pos_t end = vterm_mouse_pos(v, gs->ext_end);
+    const vterm_mouse_pos_t held = gs->left ? end : start, to = gs->left ? start : end;
+    rln_mouse_drag((uint8_t)held.y, (uint8_t)held.x, (uint8_t)to.y, (uint8_t)to.x);
 }
 
 /* A press of the right button, or Shift with the left while no mouse mode
- * is set, takes the selection's nearer end to the cell, as xterm's
- * start-extend, in the unit it was made in. With no selection showing
- * there, it selects from the cell as the left button does. */
-static void vterm_mouse_extend(const vterm_mouse_view_t *v, vterm_mouse_pos_t at, uint8_t button)
+ * is set, takes the selection's nearer end to point p, at the cell at, as
+ * xterm's start-extend, in the unit it was made in. With no selection of
+ * the primary's showing there, it selects from the point as the left
+ * button does. */
+static void vterm_mouse_extend(const vterm_mouse_view_t *v, vterm_mouse_pos_t at,
+                               vterm_mouse_cell_t p, uint8_t button)
 {
-    if (!vterm_selection.shows || vterm_selection.screen != v->s ||
-        vterm_mouse_gesture.screen != v->code)
+    if (!vterm_mouse_shows(v))
     {
-        vterm_mouse_start(v, at, button, false);
+        vterm_mouse_start(v, p, button, false);
         return;
     }
     vterm_mouse_gesture.clicks = 1;
@@ -794,36 +977,34 @@ static void vterm_mouse_extend(const vterm_mouse_view_t *v, vterm_mouse_pos_t at
     const int to_start = abs(here - (start.y * across + start.x));
     const int to_end = abs(here - (end.y * across + end.x));
     vterm_mouse_gesture.left = to_start < to_end || vterm_mouse_cmp(at, start) < 0;
-    if (vterm_mouse_gesture.left)
-        vterm_mouse_gesture.ext_start = vterm_mouse_cell(v, at);
-    else
-        vterm_mouse_gesture.ext_end = vterm_mouse_cell(v, at);
+    vterm_mouse_move(v, p);
     vterm_mouse_compute(v);
 }
 
-/* A drag takes the end it moves to the cell, as xterm's ExtendExtend: one
+/* A drag takes the end it moves to point at, as xterm's ExtendExtend: one
  * that crosses the other end turns round, and the other end goes back to
- * where it was as the drag began. */
-static void vterm_mouse_drag(const vterm_mouse_view_t *v, vterm_mouse_pos_t at)
+ * where it was as the drag began. By characters, vterm_mouse_chars
+ * judges the crossing to the place in a cell. */
+static void vterm_mouse_drag(const vterm_mouse_view_t *v, vterm_mouse_cell_t at)
 {
-    vterm_mouse_pos_t start, end;
-    vterm_mouse_span(v, &start, &end);
-    if (vterm_mouse_gesture.left &&
-        vterm_mouse_cmp(at, end) >= (vterm_mouse_gesture.unit == VTERM_MOUSE_CHAR))
+    if (vterm_mouse_gesture.unit != VTERM_MOUSE_CHAR)
     {
-        vterm_mouse_gesture.left = false;
-        vterm_mouse_gesture.ext_start = vterm_mouse_gesture.save_start;
+        const vterm_mouse_pos_t p = vterm_mouse_pos(v, at);
+        vterm_mouse_pos_t start, end;
+        vterm_mouse_span(v, &start, &end);
+        if (vterm_mouse_gesture.left && vterm_mouse_cmp(p, end) >= 0)
+        {
+            vterm_mouse_gesture.left = false;
+            vterm_mouse_gesture.ext_start = vterm_mouse_gesture.save_start;
+        }
+        else if (!vterm_mouse_gesture.left && vterm_mouse_cmp(p, start) < 0)
+        {
+            vterm_mouse_gesture.left = true;
+            vterm_mouse_gesture.ext_end = vterm_mouse_gesture.save_end;
+        }
     }
-    else if (!vterm_mouse_gesture.left && vterm_mouse_cmp(at, start) < 0)
-    {
-        vterm_mouse_gesture.left = true;
-        vterm_mouse_gesture.ext_end = vterm_mouse_gesture.save_end;
-    }
-    if (vterm_mouse_gesture.left)
-        vterm_mouse_gesture.ext_start = vterm_mouse_cell(v, at);
-    else
-        vterm_mouse_gesture.ext_end = vterm_mouse_cell(v, at);
-    vterm_mouse_compute(v);
+    vterm_mouse_move(v, at);
+    vterm_mouse_show(v);
 }
 
 /* The drag ends: the primary takes what it selected, if anything. A
@@ -834,9 +1015,9 @@ static void vterm_mouse_keep(const vterm_mouse_view_t *v)
         return;
     const screen_selection_t *sel = &vterm_selection;
     const vterm_mouse_pos_t start =
-        vterm_mouse_pos(v, (vterm_mouse_cell_t){sel->start_row, sel->start_col});
+        vterm_mouse_pos(v, (vterm_mouse_cell_t){sel->start_row, sel->start_col, 0});
     const vterm_mouse_pos_t end =
-        vterm_mouse_pos(v, (vterm_mouse_cell_t){sel->end_row, sel->end_col});
+        vterm_mouse_pos(v, (vterm_mouse_cell_t){sel->end_row, sel->end_col, 0});
     clip_copy(CLIP_PRIMARY, v->s, (uint8_t)start.y, (uint8_t)start.x, (uint8_t)end.y,
               (uint8_t)end.x);
 }
@@ -855,15 +1036,16 @@ static void vterm_mouse_ended(bool left)
 static void vterm_mouse_let_go(void)
 {
     vterm_mouse_gesture.button = 0;
-    vterm_mouse_gesture.line = false;
 }
 
 /* A press of the left button on the line the line editor is editing, at
- * index of the line, selects in the line, judged against the line as it
- * is laid out now, and ends the primary's highlight. */
-static void vterm_mouse_line(const vterm_mouse_view_t *v, vterm_mouse_pos_t at, uint8_t index)
+ * point p and index of the line, selects in the line, judged against the
+ * line as it is laid out now, and ends the primary's highlight. The
+ * gesture holds from the press, as a drag on the screen does. */
+static void vterm_mouse_line(const vterm_mouse_view_t *v, vterm_mouse_cell_t p, uint8_t index)
 {
-    vterm_mouse_press(v, at, TABLET_FLAG_LEFT, true, vterm_mouse_again(v, at));
+    vterm_mouse_press(v, p, TABLET_FLAG_LEFT, true, vterm_mouse_again(v, vterm_mouse_pos(v, p)));
+    vterm_mouse_hold(v, p);
     vterm_mouse_gesture.line = true;
     if (vterm_selection.shows)
         vterm_unselect();
@@ -882,6 +1064,7 @@ static void vterm_mouse_act(const vterm_mouse_event_t *e, uint8_t was)
     }
     const vterm_mouse_view_t v = vterm_mouse_view();
     const vterm_mouse_pos_t at = vterm_mouse_at(&v, e->x, e->y);
+    const vterm_mouse_cell_t p = vterm_mouse_point(&v, at, e->x);
     /* A drag on a screen no longer showing goes no further. */
     if (vterm_mouse_gesture.button && vterm_mouse_gesture.screen != v.code)
         vterm_mouse_let_go();
@@ -891,10 +1074,8 @@ static void vterm_mouse_act(const vterm_mouse_event_t *e, uint8_t was)
     if (vterm_mouse_gesture.button && (e->flags & VTERM_MOUSE_PRESENT) &&
         (e->moved || (up & vterm_mouse_gesture.button)))
     {
-        if (vterm_mouse_gesture.line)
-            rln_mouse_drag((uint8_t)at.y, (uint8_t)at.x);
-        else
-            vterm_mouse_drag(&v, at);
+        vterm_mouse_gesture.dragged |= e->moved;
+        vterm_mouse_drag(&v, p);
     }
     if (up & vterm_mouse_gesture.button)
     {
@@ -930,13 +1111,13 @@ static void vterm_mouse_act(const vterm_mouse_event_t *e, uint8_t was)
     const int index = (down & TABLET_FLAG_LEFT) && !shift ? rln_index_at((uint8_t)at.y, (uint8_t)at.x)
                                                            : -1;
     if (index >= 0)
-        vterm_mouse_line(&v, at, (uint8_t)index);
+        vterm_mouse_line(&v, p, (uint8_t)index);
     else if ((down & TABLET_FLAG_LEFT) && !extends)
-        vterm_mouse_start(&v, at, TABLET_FLAG_LEFT, true);
+        vterm_mouse_start(&v, p, TABLET_FLAG_LEFT, true);
     else if (down & TABLET_FLAG_LEFT)
-        vterm_mouse_extend(&v, at, TABLET_FLAG_LEFT);
+        vterm_mouse_extend(&v, at, p, TABLET_FLAG_LEFT);
     else if (down & TABLET_FLAG_RIGHT)
-        vterm_mouse_extend(&v, at, TABLET_FLAG_RIGHT);
+        vterm_mouse_extend(&v, at, p, TABLET_FLAG_RIGHT);
 }
 
 /* ---- reports ------------------------------------------------------------
@@ -1078,11 +1259,14 @@ void vterm_mouse_track(int func, int col, int row, int first, int last)
     const int cols = screen_size(v.s, (uint8_t)at.y) ? v.g->width / 2 : v.g->width;
     at.x = col < 0 ? 0 : col > cols ? cols : col;
     /* The press counted its click on the screen showing then: on another
-     * now, the run starts again. */
+     * now, the run starts again. The highlight's ends are cells, as
+     * xterm's reports name them, so it holds at the gap before the cell
+     * the program said. */
+    const vterm_mouse_cell_t c = vterm_mouse_cell(&v, at);
     if (vterm_mouse_gesture.screen != v.code)
-        vterm_mouse_press(&v, at, TABLET_FLAG_LEFT, false, false);
+        vterm_mouse_press(&v, c, TABLET_FLAG_LEFT, false, false);
     vterm_mouse_gesture.button = TABLET_FLAG_LEFT;
-    vterm_mouse_begin(&v, at, at);
+    vterm_mouse_begin(&v, c, c);
     vterm_mouse_tracking = VTERM_MOUSE_TRACK_ON;
 }
 
@@ -1101,8 +1285,9 @@ static bool vterm_mouse_track_down(const vterm_mouse_event_t *e)
     if (!vterm_mouse_gesture.ended_left || vterm_mouse_gesture.screen != v.code ||
         timer_mach_passed(vterm_mouse_gesture.click_by))
         return false;
-    const vterm_mouse_pos_t at = vterm_mouse_track_at(&v, e->x, e->y);
-    const vterm_mouse_pos_t raw = vterm_mouse_pos(&v, vterm_mouse_gesture.raw);
+    const vterm_mouse_cell_t at = vterm_mouse_cell(&v, vterm_mouse_track_at(&v, e->x, e->y));
+    const vterm_mouse_cell_t raw =
+        vterm_mouse_cell(&v, vterm_mouse_pos(&v, vterm_mouse_gesture.raw));
     vterm_mouse_press(&v, at, TABLET_FLAG_LEFT, true, true);
     vterm_mouse_begin(&v, raw, at);
     vterm_mouse_tracking = VTERM_MOUSE_TRACK_ON;
@@ -1115,7 +1300,7 @@ static bool vterm_mouse_track_down(const vterm_mouse_event_t *e)
 static void vterm_mouse_track_wait(const vterm_mouse_event_t *e)
 {
     const vterm_mouse_view_t v = vterm_mouse_view();
-    vterm_mouse_press(&v, vterm_mouse_at(&v, e->x, e->y), 0, true, false);
+    vterm_mouse_press(&v, vterm_mouse_cell(&v, vterm_mouse_at(&v, e->x, e->y)), 0, true, false);
     vterm_mouse_tracking = VTERM_MOUSE_TRACK_WAIT;
 }
 
@@ -1150,8 +1335,10 @@ static bool vterm_mouse_track_change(const vterm_mouse_event_t *e)
     }
     const bool up = !(e->flags & TABLET_FLAG_LEFT);
     const vterm_mouse_pos_t at = vterm_mouse_track_at(&v, e->x, e->y);
+    /* The highlight's ends are cells, as xterm's reports name them: the
+     * pointer is at the gap before the cell it is over. */
     if ((e->flags & VTERM_MOUSE_PRESENT) && (e->moved || up))
-        vterm_mouse_drag(&v, at);
+        vterm_mouse_drag(&v, vterm_mouse_cell(&v, at));
     if (!up)
         return true;
     vterm_mouse_pos_t start, end;
@@ -1490,6 +1677,11 @@ static bool vterm_mouse_scroll(vterm_mouse_event_t *e)
 void vterm_focus(bool focused)
 {
     vterm_focus_now = focused;
+}
+
+bool vterm_focused(void)
+{
+    return vterm_focus_now;
 }
 
 /* A change of the focus is told, CSI I gained and CSI O lost, while the

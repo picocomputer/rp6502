@@ -115,34 +115,58 @@ static inline __attribute__((always_inline)) unsigned mode0_distance(uint16_t a,
     return (unsigned)((r < 0 ? -r : r) + (g < 0 ? -g : g) + (u < 0 ? -u : u));
 }
 
-/* Whether two pixels show the same color, opaque or not. */
-static inline __attribute__((always_inline)) bool mode0_same(uint16_t a, uint16_t b)
+/* The ink, in bits 15:0, and the paper, in bits 31:16, of a cell of ink f
+ * and paper b that the selection takes (sel) or that is reversed
+ * (inverse), or both, as xterm's updatedXtermGC draws them, with highlight
+ * the selection's color as published (mode0.h). Out of line, as few cells
+ * are either. */
+static __attribute__((noinline)) uint32_t mode0_reversed(uint16_t f, uint16_t b, bool sel,
+                                                         bool inverse, uint32_t highlight)
 {
-    return !((a ^ b) & ~SCANVIDEO_ALPHA_MASK);
+    const uint16_t h = (uint16_t)highlight;
+    if ((highlight & MODE0_HIGHLIGHT) && !mode0_same(h, f) && !mode0_same(h, b))
+        return sel && inverse ? (uint32_t)h | (uint32_t)f << 16 : (uint32_t)f | (uint32_t)h << 16;
+    return sel != inverse ? (uint32_t)b | (uint32_t)f << 16 : (uint32_t)f | (uint32_t)b << 16;
 }
 
-/* The pixel pairs of every cell of a row: the colors it shows, looked up
- * where they are entries of the palette, swapped by DECSCNM and swapped
- * again in the selection's columns [from, to), then the blink phase, as
- * the four ways two pixels can land. */
+/* The ink and the paper a cell of attributes attr and colors fg and bg
+ * shows, as pixels, by mode0.h's rule, xterm's updatedXtermGC: rev is
+ * DECSCNM, sel whether the selection takes the cell, highlight the
+ * selection's color as published, and blink_mask the blink phase. */
+static inline __attribute__((always_inline)) void
+mode0_cell_pixels(uint16_t attr, uint16_t fg, uint16_t bg, bool rev, bool sel,
+                  uint32_t highlight, uint8_t blink_mask, uint16_t *ink, uint16_t *paper)
+{
+    uint16_t f = mode0_color(attr & MODE0_ATTR_BOLD ? mode0_bold(fg) : fg);
+    uint16_t b = mode0_color(bg);
+    uint16_t t;
+    if (rev)
+        t = f, f = b, b = t;
+    const bool inverse = attr & MODE0_ATTR_REVERSE;
+    if (sel || inverse)
+    {
+        const uint32_t both = mode0_reversed(f, b, sel, inverse, highlight);
+        f = (uint16_t)both;
+        b = (uint16_t)(both >> 16);
+    }
+    if (attr & (MODE0_ATTR_CONCEAL | blink_mask))
+        f = b;
+    *ink = f;
+    *paper = b;
+}
+
+/* The pixel pairs of every cell of a row: the colors each shows, with the
+ * selection's columns [from, to), as the four ways two pixels can land. */
 static inline __attribute__((always_inline)) void
 mode0_row_pairs(uint32_t *pair, const mode0_cell_t *cell, const mode0_colors_t *colors,
-                int cols, uint8_t blink_mask, bool rev, unsigned from, unsigned to)
+                int cols, uint8_t blink_mask, bool rev, unsigned from, unsigned to,
+                uint32_t highlight)
 {
     for (int i = 0; i < cols; i++, cell++, colors++, pair += 4)
     {
         uint16_t fg, bg;
-        mode0_cell_shows(cell, colors, &fg, &bg);
-        fg = mode0_color(fg);
-        bg = mode0_color(bg);
-        if (rev != ((unsigned)i - from < to - from))
-        {
-            uint16_t t = fg;
-            fg = bg;
-            bg = t;
-        }
-        if (cell->attributes & blink_mask)
-            fg = bg;
+        mode0_cell_pixels(cell->attributes, colors->fg_color, colors->bg_color, rev,
+                          (unsigned)i - from < to - from, highlight, blink_mask, &fg, &bg);
         mode_pair_set(pair, bg, fg);
     }
 }
@@ -228,45 +252,82 @@ mode0_draw(uint16_t *rgb, const mode0_cell_t *cell, const uint32_t *pair, int co
     }
 }
 
-/* The cursor, over its cell as mode0_draw drew it, as xterm's ShowCursor
- * draws it, from the colors the cell shows as its pairs draw them, after
- * its bold, reverse and conceal, DECSCNM, the selection and the blink.
- * `cw` is the cell's scanline, `attr` its attributes, `pair` its pairs,
- * `rev` whether DECSCNM and the selection swap its colors, `bottom`
- * whether the scanline is one of the row's last two, and `bits` the row of
- * the glyph and its lines a block shows. One cell of a scanline at most, so
- * out of line, once for both fonts. */
-static __attribute__((noinline)) void
-mode0_draw_cursor(mode_word_t *cw, uint16_t attr, const uint32_t *pair, uint8_t style,
-                  bool rev, bool wide, bool bottom, uint8_t bits)
+/* Whether a cell's color is a default one, the foreground or the
+ * background, faint or not (mode0.h). */
+static inline __attribute__((always_inline)) bool mode0_is_default(uint16_t color)
 {
-    /* A cell whose ink is its background shows no ink, so it takes as its
-     * ink whichever default color is further from that background. */
+    return !(color & SCANVIDEO_ALPHA_MASK) &&
+           ((color >> MODE0_ENTRY_SHIFT) & MODE0_CODE_DEFAULT);
+}
+
+/* The cursor, over its cell as mode0_draw drew it, as xterm's ShowCursor
+ * draws it, from the colors the cell shows, by the rule its pairs are
+ * built by (mode0_cell_pixels). `cw` is the cell's scanline, `cell` and
+ * `colors` the cell's, `cursor` the cursor's word, `rev` DECSCNM, `sel`
+ * whether the selection takes the cell, `highlight` the selection's color,
+ * `blink_mask` the blink phase, `scanrow` the scanline of the row and
+ * `last` the row's last, and `bits` the row of the glyph and its lines a
+ * block shows. One cell of a scanline at most, so out of line, once for
+ * both fonts. */
+static __attribute__((noinline)) void
+mode0_draw_cursor(mode_word_t *cw, const mode0_cell_t *cell, const mode0_colors_t *colors,
+                  uint32_t cursor, bool rev, bool sel, uint32_t highlight, uint8_t blink_mask,
+                  bool wide, uint8_t scanrow, uint8_t last, uint8_t bits)
+{
+    const uint16_t attr = cell->attributes;
     const uint16_t dfg = vterm_specials[VTERM_COLOR_FG - VTERM_PALETTE];
     const uint16_t dbg = vterm_specials[VTERM_COLOR_BG - VTERM_PALETTE];
-    const uint16_t bg = (uint16_t)pair[0];
-    uint16_t fg = (uint16_t)pair[3];
+    /* xterm's ShowCursor, with no EXP_BOGUS_FG: a blank with an ink of its
+     * own and no background of its own is not a colored cell under the
+     * cursor, so it shows the default ink. A palette ink keeps its faint;
+     * an RGB one, whose faint is in its pixel, gives the default ink. */
+    uint16_t fgc = colors->fg_color;
+    if (mode0_glyph_code(cell->glyph) == ' ' && !mode0_is_default(fgc) &&
+        mode0_is_default(colors->bg_color))
+        fgc = MODE0_ENTRY(MODE0_DEFAULT_FG,
+                          !(fgc & SCANVIDEO_ALPHA_MASK) &&
+                              ((fgc >> MODE0_ENTRY_SHIFT) & MODE0_CODE_FAINT));
+    uint16_t fg, bg;
+    mode0_cell_pixels(attr, fgc, colors->bg_color, rev, sel, highlight, blink_mask, &fg, &bg);
+    /* A cell whose ink is its background shows no ink, so it takes as its
+     * ink whichever default color is further from that background. */
     if (mode0_same(fg, bg))
         fg = mode0_distance(bg, dbg) < mode0_distance(bg, dfg) ? dfg : dbg;
     const uint16_t color = (uint16_t)mode0_regs.cursor_color;
+    /* xterm's outline color: the cursor's, or the ink where that is the
+     * background. */
+    const uint32_t edge = (mode0_same(color, bg) ? fg : color) * 0x10001u;
+    const uint8_t style = MODE0_CURSOR_STYLE(cursor);
     if (style >= 3)
     {
-        /* An underline or a bar, over the cell as it shows, in the
-         * cursor's color, or in the ink where that is the background. Two
-         * pixels thick, as xterm's are at these font sizes, but the whole
-         * of the cell across or down where xterm's stops a pixel short, and
-         * the bar as wide again on a row of double width, as its cells
-         * are, where xterm's stays two. */
-        const uint32_t color2 = (mode0_same(color, bg) ? fg : color) * 0x10001u;
+        /* An underline or a bar, over the cell as it shows. Two pixels
+         * thick, as xterm's are at these font sizes, but the whole of the
+         * cell across or down where xterm's stops a pixel short, and the
+         * bar as wide again on a row of double width, as its cells are,
+         * where xterm's stays two. */
         if (style >= 5)
         {
-            cw[0] = color2;
+            cw[0] = edge;
             if (wide)
-                cw[1] = color2;
+                cw[1] = edge;
         }
-        else if (bottom)
+        else if (scanrow + 2 > last)
             for (int k = 0; k < (wide ? 8 : 4); k++)
-                cw[k] = color2;
+                cw[k] = edge;
+        return;
+    }
+    if (cursor & MODE0_CURSOR_UNFOCUSED)
+    {
+        /* A block with the focus lost: xterm's box, a pixel's outline of
+         * the cell over the cell as it shows, from its first pixel to its
+         * last, across and down. */
+        uint16_t *p = (uint16_t *)cw;
+        const int w = wide ? 16 : 8;
+        if (scanrow == 0 || scanrow == last)
+            for (int k = 0; k < w / 2; k++)
+                cw[k] = edge;
+        else
+            p[0] = p[w - 1] = (uint16_t)edge;
         return;
     }
     /* A block: the cell filled, its glyph and its lines in its background.
@@ -278,7 +339,7 @@ mode0_draw_cursor(mode_word_t *cw, uint16_t attr, const uint32_t *pair, uint8_t 
      * cursor of the default paper fills with the default ink. Any other
      * fills with its own color. Where the fill would be the background,
      * which on xterm hides the glyph in a solid block, it is the ink. */
-    rev = rev != ((attr & MODE0_ATTR_REVERSE) != 0);
+    rev = (rev != sel) != ((attr & MODE0_ATTR_REVERSE) != 0);
     const uint16_t ink = rev ? dbg : dfg;
     uint16_t fill = color;
     if (mode0_same(color, ink))
@@ -373,11 +434,13 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
      * it, or the screen's look, which holds the blink phase and DECSCNM,
      * changes part way down it. */
     /* The rest of the key is zero, as it is for a row built here. */
-    const uint32_t key[9] = {VGA_FILL_MODE0_ROW, row_word, screen, (uint32_t)vga_frame_count()};
+    const uint32_t highlight = mode0_regs.highlight;
+    const uint32_t key[9] = {VGA_FILL_MODE0_ROW, row_word, screen, (uint32_t)vga_frame_count(),
+                             highlight};
     if (memcmp(cache->key, key, sizeof(key)))
     {
         mode0_row_pairs(cache->row_pair[0], cell, colors, cols, blink_mask, reverse, sel_from,
-                        sel_to);
+                        sel_to, highlight);
         memcpy(cache->key, key, sizeof(key));
     }
     const uint32_t *pair = cache->row_pair[0];
@@ -390,12 +453,13 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
     else
         mode0_draw(rgb, cell, pair, width, font_line, line_mask, underline, false, false);
     /* The cursor, over the cell drawn as it shows. DECSCUSR's 2, 4 and 6
-     * are steady, so they draw whether or not the blink has it lit; draw.c
-     * times the blink and leaves the style to the renderer. */
+     * are steady, so they draw whether or not the blink has it lit, and so
+     * does every style with the focus lost, as xterm's; draw.c times the
+     * blink and leaves the style to the renderer. */
     const uint8_t cursor_style = MODE0_CURSOR_STYLE(cursor);
     if (logical_row == MODE0_CURSOR_Y(cursor) &&
         (cursor & MODE0_CURSOR_ENABLED) &&
-        ((cursor & MODE0_CURSOR_LIT) ||
+        ((cursor & (MODE0_CURSOR_LIT | MODE0_CURSOR_UNFOCUSED)) ||
          cursor_style == 2 ||
          cursor_style == 4 ||
          cursor_style == 6))
@@ -416,10 +480,10 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
                 bits = 0xFF;
             bits |= underline[(cattr >> TERM_ATTR_UL_SHIFT) & 7];
         }
-        mode0_draw_cursor((mode_word_t *)(rgb + (uint32_t)cx * (wide ? 16 : 8)), cattr,
-                          pair + cx * 4, cursor_style,
-                          reverse != ((unsigned)cx - sel_from < sel_to - sel_from), wide,
-                          scanrow + 2 > last, bits);
+        mode0_draw_cursor((mode_word_t *)(rgb + (uint32_t)cx * (wide ? 16 : 8)), &cell[cx],
+                          &colors[cx], cursor, reverse,
+                          (unsigned)cx - sel_from < sel_to - sel_from, highlight, blink_mask,
+                          wide, scanrow, last, bits);
     }
     return true;
 }

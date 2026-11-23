@@ -135,13 +135,16 @@ void rln_poke(const char *str);
  * The line being edited has a selection of its own, apart from the
  * console's primary (core/term/vterm_mouse.h): Shift with the arrows, Home
  * and End selects, and so does the console's mouse inside the line. The
- * line editor shows it on the console's terminal with DECRARA 7, one for
- * each row, and takes it off the same way before anything of the line is
- * drawn again and when the read ends. A typed character replaces it,
+ * line editor shows it as the console's terminal's selection
+ * (vterm_select), the part of the line it takes as the line is laid out on
+ * the screen, in the line's columns between the margins it was laid out
+ * in, once the reply that drew the line has reached that terminal,
+ * and ends it before anything of the line is drawn again and when the read
+ * ends. It never fills the primary. A typed character replaces it,
  * Delete and Backspace delete it, and the copy, cut and paste keys act on
- * it (rln_copy, rln_cut, rln_paste). There is one selection at a time: the
- * line's starting ends the primary's highlight, and the primary's starting
- * ends the line's (rln_unselect). The line's never fills the primary. */
+ * it (rln_copy, rln_cut, rln_paste). There is one selection at a time,
+ * the terminal's: the line's starting ends the primary's highlight, and the
+ * primary's starting ends the line's (rln_unselect). */
 
 /* The index of the line at row y of the screen showing, column x of that
  * row's own, as the line is laid out now, from the line's first character
@@ -157,11 +160,14 @@ int rln_index_at(uint8_t y, uint8_t x);
  * it, against the line as those keys left it. */
 void rln_mouse_press(uint8_t index, uint8_t clicks);
 
-/* The button held since that press moved to row y, column x, as
- * rln_index_at has them; a place before the line or after it is the
- * line's start or its end. A drag whose press was in a read that has
- * ended selects nothing. */
-void rln_mouse_drag(uint8_t y, uint8_t x);
+/* The button held since that press moved: the selection is from row hy,
+ * column hx, the end the drag holds, to row y, column x, the end it moves,
+ * as rln_index_at has them. By characters each is a gap, the column of the
+ * character after it, as the console's mouse puts them (vterm_mouse.c);
+ * by words and lines, hx is the press's character and x the one under the
+ * pointer. A place before the line or after it is the line's start or its
+ * end. A drag whose press was in a read that has ended selects nothing. */
+void rln_mouse_drag(uint8_t hy, uint8_t hx, uint8_t y, uint8_t x);
 
 /* The line's selection ends, its highlight taken off, as the primary's
  * starting ends it. */

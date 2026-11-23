@@ -123,31 +123,40 @@ void vterm_unplace(void);
 
 // The user selects, on screen (0 the primary, 1 the alternate) of g, one of
 // the console's grids, from row of memory start_row, column start_col up
-// to row of memory end_row, column end_col, that cell not taken. The
-// columns are each row's own, half the width on a row of double width. Its
-// start is a row of the height no lower on the screen than its end, and
-// its columns are no more than their rows have; a start that is its end,
-// or ends that are not so, select nothing. A change of the user's, for the
-// RIA to send (vterm_selection.unsent), as is vterm_unselect.
+// to row of memory end_row, column end_col, that cell not taken, between
+// the sides left and right, which are columns [left, right) or with right
+// SCREEN_SELECTION_EDGE every column from left (screen.h). The columns are
+// each row's own, half the width on a row of double width. Its start is a
+// row of the height no lower on the screen than its end, its columns are
+// no more than their rows have, and its left side is before its right; a
+// start that is its end, or ends that are not so, select nothing. A change
+// of the user's, for the RIA to send (vterm_selection.unsent), as is
+// vterm_unselect.
 void vterm_select(const term_grid_t *g, uint8_t screen, uint8_t start_row, uint8_t start_col,
-                  uint8_t end_row, uint8_t end_col);
+                  uint8_t end_row, uint8_t end_col, uint8_t left, uint8_t right);
 
 // The user ends the selection.
 void vterm_unselect(void);
 
-/* The selection as two words of the VGA's control channel, its start and
- * its end, each the column in bits 6:0, the row of memory in bits 12:7, the
- * screen in bit 13 and the grid in bit 14, 1 for the 80-column one. None,
- * or one whose highlight was dropped, is two words the same. The RIA sends
- * them (ria/sys/vga.c), and a save state keeps them (draw.c). */
-void vterm_select_words(uint16_t *start, uint16_t *end);
+/* The selection as three words of the VGA's control channel: its start
+ * and its end, each the column in bits 6:0, the row of memory in bits
+ * 12:7, the screen in bit 13 and the grid in bit 14, 1 for the 80-column
+ * one, and its sides, left in bits 6:0 and right in bits 13:7. None, or
+ * one whose highlight was dropped, is a start and an end the same, and
+ * sides of 0. The RIA sends them (ria/sys/vga.c), and a save state keeps
+ * them (draw.c). */
+typedef struct
+{
+    uint16_t start, sides, end;
+} vterm_select_words_t;
+vterm_select_words_t vterm_select_words(void);
 
 // The selection becomes the one of the words: the VGA's when the RIA sends
 // them, at once, whatever job is pending, since the RIA judged that job as
 // it started, before the change, as the VGA did; and a save state's. It
 // counts no change of the user's, which only the RIA sends. False when they
 // select no rows of the height of a screen this build has.
-bool vterm_select_apply(uint16_t start, uint16_t end);
+bool vterm_select_apply(vterm_select_words_t w);
 
 /* The code page the console's glyphs show, as font_code_page_of gives it:
  * the fonts' own page on a machine that draws them (font.c), and on the RIA
@@ -234,16 +243,19 @@ extern bool vterm_palette_changed;
 void vterm_reset(term_t *t);
 
 // The OSC colors. which is an entry of vterm_palette, 0-255, or a special
-// color: VTERM_COLOR_FG, _BG or _CURSOR (color.h). A cursor color that is
-// the default foreground follows a change to the default foreground, as
-// on xterm.
+// color: VTERM_COLOR_FG, _BG, _CURSOR, _HIGHLIGHT_BG or _HIGHLIGHT_FG
+// (color.h). A cursor color that is the default foreground follows a
+// change to the default foreground, as on xterm.
 void vterm_set_color(term_t *t, unsigned which, uint16_t color);
 void vterm_reset_color(term_t *t, unsigned which);
-// The palette and the default and cursor colors as at power-up, and
-// nothing else.
+// The color as at power-up, which a reset sets: the selection's
+// background is the default foreground, and its text the default
+// background, as xterm's highlightColor and highlightTextColor start.
+uint16_t vterm_default_color(unsigned which);
+// The palette and the special colors as at power-up, and nothing else.
 void vterm_reset_colors(term_t *t);
-// The color as it is now, for a program that asks (OSC 4, 10, 11 and 12
-// with a "?").
+// The color as it is now, for a program that asks (OSC 4, 10, 11, 12, 17
+// and 19 with a "?").
 uint16_t vterm_get_color(const term_t *t, unsigned which);
 
 #endif /* _CORE_TERM_VTERM_H_ */

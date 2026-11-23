@@ -21,8 +21,9 @@
  * and holds them against each other.
  *
  * The selection goes as on the Pico. The user makes it on the RIA, the text
- * build, which takes it at once (vterm_select), and as frames pass sends
- * its words (vterm_select_words) when the user changed it, as
+ * build, which takes it at once (vterm_select), out to the screen's edges or
+ * between sides, and as frames pass sends its words (vterm_select_words)
+ * when the user changed it, as
  * ria/sys/vga.c does, into WORDS, a line each frame. The mode 0 build, the
  * VGA, takes each frame's line from WORDS at the same place in the stream
  * and applies the words it holds (vterm_select_apply), whatever job is
@@ -162,25 +163,25 @@ static FILE *xc_words;
 static void xc_frame(void)
 {
 #if TERM_CELL_TEXT
-    uint16_t start, end;
     if (!vterm_selection.unsent)
         fprintf(xc_words, "-\n");
     else
     {
         vterm_selection.unsent = false;
-        vterm_select_words(&start, &end);
-        fprintf(xc_words, "%u %u\n", start, end);
+        const vterm_select_words_t w = vterm_select_words();
+        fprintf(xc_words, "%u %u %u\n", w.start, w.sides, w.end);
     }
 #else
     char line[32];
-    unsigned start, end;
+    unsigned start, sides, end;
     if (!fgets(line, sizeof line, xc_words))
     {
         fprintf(stderr, "xcheck: the words run out before the stream\n");
         exit(2);
     }
-    if (sscanf(line, "%u %u", &start, &end) == 2)
-        vterm_select_apply((uint16_t)start, (uint16_t)end);
+    if (sscanf(line, "%u %u %u", &start, &sides, &end) == 3)
+        vterm_select_apply((vterm_select_words_t){(uint16_t)start, (uint16_t)sides,
+                                                  (uint16_t)end});
 #endif
 }
 
@@ -198,9 +199,10 @@ static void xc_selection(void)
         v->screen == &vterm_80.grid.screen[0] || v->screen == &vterm_80.grid.screen[1]
             ? &vterm_80
             : &vterm_40;
-    xc_print("selection on %u columns, %s, %u,%u to %u,%u, rows %016llx\n",
+    xc_print("selection on %u columns, %s, %u,%u to %u,%u, sides %u,%u, rows %016llx\n",
              size->grid.width, v->screen == size->grid.screen ? "primary" : "alternate",
-             v->start_row, v->start_col, v->end_row, v->end_col, (unsigned long long)v->rows);
+             v->start_row, v->start_col, v->end_row, v->end_col, v->left, v->right,
+             (unsigned long long)v->rows);
 }
 
 static void xc_point(unsigned point)
@@ -329,13 +331,21 @@ static void xc_select(void)
         x0 = x1;
         x1 = x;
     }
+    /* One in two between sides, as the line editor's is between margins. */
+    const bool sided = !xc_below(2);
+    const uint8_t left = sided ? (uint8_t)xc_below(g->width) : 0;
+    const uint8_t right =
+        sided ? (uint8_t)(left + 1 + xc_below(g->width - left)) : SCREEN_SELECTION_EDGE;
 #if TERM_CELL_TEXT
     if (end)
         vterm_unselect();
     else
-        vterm_select(g, (uint8_t)(s - g->screen), screen_mem(s, y0), x0, screen_mem(s, y1), x1);
+        vterm_select(g, (uint8_t)(s - g->screen), screen_mem(s, y0), x0, screen_mem(s, y1), x1,
+                     left, right);
 #else
     (void)end;
+    (void)left;
+    (void)right;
 #endif
 }
 

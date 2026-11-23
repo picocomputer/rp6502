@@ -223,6 +223,12 @@ static inline void mode0_cell_shows(const mode0_cell_t *cell, const mode0_colors
     *bg = b;
 }
 
+/* Whether two pixels show the same color, opaque or not. */
+static inline bool mode0_same(uint16_t a, uint16_t b)
+{
+    return !((a ^ b) & ~SCANVIDEO_ALPHA_MASK);
+}
+
 /* Whether a color names an entry the palette has, as every RGB color does. */
 static inline bool mode0_color_ok(uint16_t color)
 {
@@ -255,25 +261,50 @@ extern mode0_colors_t mode0_colors[MODE0_CELLS];
  * take nothing smaller. They describe the terminal showing.
  *
  * row: a row's first cell in mode0_cells, its TERM_LINE_ size, and the
- *   columns [from, to) of the row the selection takes, drawn with their
- *   colors swapped over what DECSCNM draws; from equal to to is none. The
- *   columns are the row's own, half the width on a row of double width.
- * cursor: x; y; the DECSCUSR style; whether its blink has it lit; and
- *   whether it is shown at all.
- * cursor_color: OSC 12's color. The cursor is drawn as xterm draws it,
- *   from the colors its cell shows, after the cell's reverse, DECSCNM, the
- *   selection and the blink. An ink that is the background is first
- *   whichever default color is further from it. A block fills the cell and
- *   draws the glyph and its lines in the background, but no glyph of a
- *   cell concealed or blinking off. Its fill is the cell's ink where the
- *   cursor's color is the cell's default ink (the default foreground, or
- *   the default background on a cell shown reversed), the default ink where
- *   it is the default paper, and the cursor's color otherwise; then the ink
- *   where that is the background, so no block hides its glyph, as xterm's
- *   can. An underline on the row's last two scanlines, or a bar of two
- *   pixels at the cell's left and four on a row of double width, is drawn
- *   over the cell as it shows, in the cursor's color, or the ink where that
- *   is the background.
+ *   columns [from, to) of the row the selection takes; from equal to to is
+ *   none. The columns are the row's own, half the width on a row of double
+ *   width.
+ * cursor: x; y; the DECSCUSR style; whether its blink has it lit; whether
+ *   it is shown at all; and whether the host's window has lost the focus.
+ * cursor_color: OSC 12's color.
+ * highlight: OSC 17's color, xterm's highlightColor, in bits 15:0, a
+ *   pixel, and MODE0_HIGHLIGHT when it counts: when it is neither the
+ *   default foreground as DECSCNM shows it now nor the default foreground
+ *   at power-up, as xterm's updatedXtermGC has it. OSC 19's color is never
+ *   drawn: xterm draws its highlightTextColor only in highlightColorMode,
+ *   which it decides once, at startup, from its resources, and the
+ *   console's, at their defaults, leave it off.
+ *
+ * A cell shows its colors as xterm's updatedXtermGC draws them, with
+ * highlightReverse on and highlightColorMode off, as xterm starts. Its ink
+ * is made bright when it is bold, and the two are swapped by DECSCNM. A
+ * cell that the selection takes, or that is reversed, but not both, shows
+ * its ink on the highlight color when that counts and is neither of its
+ * two colors, and otherwise its two colors swapped: so a reversed cell
+ * outside the selection takes the highlight color too, as on xterm. A
+ * reversed cell in the selection shows the highlight color on its ink when
+ * that counts and is neither of its colors, and otherwise its two colors
+ * as they are. Last, a cell concealed, or blinking in its off phase, shows
+ * its paper for its ink.
+ *
+ * The cursor is drawn as xterm draws it, from the colors its cell shows,
+ * but a blank cell with an ink of its own on the default background shows
+ * the default ink under it, as xterm's ShowCursor has it. An ink that is
+ * the background is first whichever default color is further from it. A
+ * block fills the cell and draws the glyph and its lines in the
+ * background, but no glyph of a cell concealed or blinking off. Its fill
+ * is the cell's ink where the cursor's color is the cell's default ink
+ * (the default foreground, or the default background on a cell shown
+ * reversed by its own reverse, DECSCNM or the selection, xterm's
+ * ReverseOrHilite), the default ink where it is the default paper, and the
+ * cursor's color otherwise; then the ink where that is the background, so
+ * no block hides its glyph, as xterm's can. An underline on the row's last
+ * two scanlines, or a bar of two pixels at the cell's left and four on a
+ * row of double width, is drawn over the cell as it shows, in the cursor's
+ * color, or the ink where that is the background. With the focus lost, a
+ * block is a box instead, as xterm's: a pixel's outline of the cell, over
+ * the cell as it shows, in the color an underline takes; and no cursor
+ * blinks.
  * screen: the blink phase a cell's TERM_ATTR_ANY_BLINK bits are tested
  *   against, and DECSCNM.
  * smooth: a smooth scroll (DECSCLM) moving, which mode 0 draws over the
@@ -294,6 +325,7 @@ typedef struct
     uint32_t row[MODE0_ROWS];
     uint32_t cursor;
     uint32_t cursor_color;
+    uint32_t highlight;
     uint32_t screen;
     uint32_t smooth;
     uint32_t smooth_frame;
@@ -334,6 +366,9 @@ static inline unsigned mode0_smooth_moved(uint32_t start, uint32_t now, unsigned
 #define MODE0_ROW_TO(w) ((uint8_t)((w) >> 25))
 _Static_assert(80 <= 0x7F, "a column of the selection in seven bits");
 
+#define MODE0_HIGHLIGHT (1u << 16)
+
+#define MODE0_CURSOR_UNFOCUSED (1u << 26)
 #define MODE0_CURSOR_ENABLED (1u << 25)
 #define MODE0_CURSOR_LIT (1u << 24)
 #define MODE0_CURSOR(x, y, style) \

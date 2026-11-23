@@ -1392,11 +1392,31 @@ UTEST(rln, plain_and_pinned_lines_have_no_place)
     rln_set_term_width(0);
 }
 
-/* ----- Shift selects, and DECRARA shows it (step 25) ----- */
+/* ----- Shift selects, and the terminal's selection shows it ----- */
 
 static bool rev(int y, int x)
 {
     return (tb_screen_row((uint8_t)y)[x].attributes & MODE0_ATTR_REVERSE) != 0;
+}
+
+/* Whether the highlight, the console's terminal's selection, takes column
+ * x of row y of the screen, as mode 0's row word has it. */
+static bool hl(int y, int x)
+{
+    draw_publish();
+    const uint32_t w = mode0_regs.row[y];
+    return x >= MODE0_ROW_FROM(w) && x < MODE0_ROW_TO(w);
+}
+
+/* The selection, from row y0, column x0 of the screen showing up to row
+ * y1, column x1. */
+static bool selected(int y0, int x0, int y1, int x1)
+{
+    const term_grid_t *g = vterm_get_shown(&vterm);
+    const screen_selection_t *v = &vterm_selection;
+    return v->shows && v->screen == g->shown &&
+           v->start_row == screen_mem(g->shown, (uint8_t)y0) && v->start_col == x0 &&
+           v->end_row == screen_mem(g->shown, (uint8_t)y1) && v->end_col == x1;
 }
 
 /* Reading on the screen after what pre prints, keeping what goes to it. */
@@ -1412,27 +1432,31 @@ static void screen_reading_after(const char *pre)
     next();
 }
 
-/* Shift-Left moves and selects the cell it passed, with one DECRARA, and a
- * one-cell extend is a move and a DECRARA of its own cell. */
+/* Shift-Left moves and selects the cell it passed: the reply is the move
+ * alone, and the highlight is the terminal's selection, which nothing
+ * sent draws. */
 UTEST(rln, shift_with_the_arrows_selects)
 {
     screen_reading_after("");
     wire("abcd");
     screen[0] = 0;
     wire("\33[1;2D");
-    ASSERT_STREQ(screen, "\r\33[3C\33[1;4;1;4;7$t");
-    ASSERT_TRUE(rev(0, 3));
-    ASSERT_FALSE(rev(0, 2));
+    ASSERT_STREQ(screen, "\r\33[3C");
+    ASSERT_TRUE(selected(0, 3, 0, 4));
+    ASSERT_TRUE(hl(0, 3));
+    ASSERT_FALSE(hl(0, 2));
     screen[0] = 0;
     wire("\33[1;2D");
-    ASSERT_STREQ(screen, "\r\33[2C\33[1;3;1;3;7$t");
-    ASSERT_EQ(strlen(screen), (size_t)18);
+    ASSERT_STREQ(screen, "\r\33[2C");
+    ASSERT_TRUE(selected(0, 2, 0, 4));
     wire("\33[1;2C");
-    ASSERT_FALSE(rev(0, 2));
-    ASSERT_TRUE(rev(0, 3));
+    ASSERT_FALSE(hl(0, 2));
+    ASSERT_TRUE(hl(0, 3));
     wire("\33[C");
-    ASSERT_FALSE(rev(0, 3));
+    ASSERT_FALSE(vterm_selection.shows);
     ASSERT_TRUE(strstr(shown, "$t") == NULL);
+    for (int x = 0; x < 4; x++)
+        ASSERT_FALSE(rev(0, x));
     wire("\r");
     ASSERT_STREQ(last, "abcd");
     screen_done();
@@ -1445,7 +1469,7 @@ UTEST(rln, ctrl_with_the_arrows_still_moves_by_word)
     wire("ab cd");
     screen[0] = 0;
     wire("\33[1;5D\33[1;3D");
-    ASSERT_TRUE(strstr(screen, "$t") == NULL);
+    ASSERT_FALSE(vterm_selection.shows);
     wire("x\r");
     ASSERT_STREQ(last, "xab cd");
     screen_done();
@@ -1457,17 +1481,15 @@ UTEST(rln, shift_with_home_and_end_selects)
 {
     screen_reading_after("");
     wire("abcd\33[1;2H");
-    for (int x = 0; x < 4; x++)
-        ASSERT_TRUE(rev(0, x));
+    ASSERT_TRUE(selected(0, 0, 0, 4));
     wire("x");
-    ASSERT_FALSE(rev(0, 0));
+    ASSERT_FALSE(vterm_selection.shows);
     wire("yz\33[H\33[1;2F\33[3~q\r");
     ASSERT_STREQ(last, "q");
     next();
     const int y = pos()->y;
     wire("abcd\33[1;2~\33[C\33[4;2~");
-    ASSERT_FALSE(rev(y, 0));
-    ASSERT_TRUE(rev(y, 1));
+    ASSERT_TRUE(selected(y, 1, y, 4));
     wire("\33[3~\r");
     ASSERT_STREQ(last, "a");
     screen_done();
@@ -1476,9 +1498,10 @@ UTEST(rln, shift_with_home_and_end_selects)
 UTEST(rln, backspace_deletes_the_selection)
 {
     screen_reading_after("");
-    wire("abcd\33[1;2D\33[1;2D\b");
-    ASSERT_FALSE(rev(0, 2));
-    ASSERT_FALSE(rev(0, 3));
+    wire("abcd\33[1;2D\33[1;2D");
+    ASSERT_TRUE(selected(0, 2, 0, 4));
+    wire("\b");
+    ASSERT_FALSE(vterm_selection.shows);
     wire("\r");
     ASSERT_STREQ(last, "ab");
     screen_done();
@@ -1489,9 +1512,9 @@ UTEST(rln, a_poke_ends_the_selection)
 {
     screen_reading_after("");
     wire("abcd\33[1;2D");
-    ASSERT_TRUE(rev(0, 3));
+    ASSERT_TRUE(hl(0, 3));
     rln_poke("x");
-    ASSERT_FALSE(rev(0, 3));
+    ASSERT_FALSE(vterm_selection.shows);
     rln_poke("\r");
     ASSERT_STREQ(last, "abcx");
     screen_done();
@@ -1499,75 +1522,78 @@ UTEST(rln, a_poke_ends_the_selection)
 
 /* A RIS of the console's terminal at the same width, as a change of code
  * page makes, erases the line and its highlight: the line has no place
- * after it, and the next key sends no DECRARA over the erased cells. */
+ * after it, and the next key that selects shows nothing over the erased
+ * cells. */
 UTEST(rln, a_ris_erases_the_line_and_its_highlight)
 {
     screen_reading_after("");
     wire("abcd\33[1;2D");
-    ASSERT_TRUE(rev(0, 3));
+    ASSERT_TRUE(hl(0, 3));
     vterm_RIS();
-    ASSERT_FALSE(rev(0, 3));
+    ASSERT_FALSE(vterm_selection.shows);
     ASSERT_EQ(rln_index_at(0, 2), -1);
-    screen[0] = 0;
-    wire("\33[C");
-    ASSERT_TRUE(strstr(screen, "$t") == NULL);
-    for (int x = 0; x < 8; x++)
-        ASSERT_FALSE(rev(0, x));
+    wire("\33[1;2D");
+    ASSERT_FALSE(vterm_selection.shows);
     wire("\r");
     ASSERT_STREQ(last, "abcd");
     screen_done();
 }
 
 /* The highlight is off when the read ends, by Enter, a stop or a cancel. */
-UTEST(rln, a_read_that_ends_leaves_no_reversed_cell)
+UTEST(rln, a_read_that_ends_leaves_no_highlight)
 {
     screen_reading_after("");
-    wire("abcd\33[1;2H\r");
+    wire("abcd\33[1;2H");
+    ASSERT_TRUE(hl(0, 0));
+    wire("\r");
     ASSERT_EQ(lines, 1);
-    for (int x = 0; x < 4; x++)
-        ASSERT_FALSE(rev(0, x));
+    ASSERT_FALSE(vterm_selection.shows);
     next();
     wire("efgh\33[1;2H");
-    ASSERT_TRUE(rev(1, 0));
+    ASSERT_TRUE(hl(1, 0));
     rln_stop();
-    ASSERT_FALSE(rev(1, 0));
+    ASSERT_FALSE(vterm_selection.shows);
     need_next = true;
     next();
     tasks();
     wire("ijkl\33[1;2H");
-    ASSERT_TRUE(rev(pos()->y, 0));
+    ASSERT_TRUE(hl(pos()->y, 0));
     rln_read_cancel();
-    ASSERT_FALSE(rev(pos()->y, 0));
+    ASSERT_FALSE(vterm_selection.shows);
     screen_done();
 }
 
-/* DECRARA turns a cell to the opposite of what is drawn, so a cell drawn
- * in reverse shows plain while selected and comes back reversed. */
-UTEST(rln, a_cell_drawn_reversed_comes_back_reversed)
+/* The highlight is drawn over the cells, which it never changes: a cell
+ * drawn in reverse keeps its reverse, and shows as it is not reversed
+ * while it is selected, as mode 0 draws the selection. */
+UTEST(rln, a_cell_drawn_reversed_stays_reversed)
 {
     screen_reading_after("\33[7m");
     wire("ab");
     ASSERT_TRUE(rev(0, 1));
     wire("\33[1;2D");
-    ASSERT_FALSE(rev(0, 1));
+    ASSERT_TRUE(rev(0, 1));
+    ASSERT_TRUE(hl(0, 1));
     wire("\33[C");
     ASSERT_TRUE(rev(0, 1));
+    ASSERT_FALSE(hl(0, 1));
     screen_done();
 }
 
-/* Under DECOM the rows and the columns count from the margins. */
-UTEST(rln, the_highlight_counts_from_the_margins_under_decom)
+/* The selection is in the screen's rows and columns, whatever DECOM: the
+ * line in a scrolling region and between left and right margins. */
+UTEST(rln, the_highlight_is_where_the_line_is_under_decom)
 {
     screen_reading_after("\33[5;20r\33[?6h\33[H");
     wire("ab\33[1;2D");
-    ASSERT_TRUE(strstr(screen, "\33[1;2;1;2;7$t") != NULL);
-    ASSERT_TRUE(rev(4, 1));
+    ASSERT_TRUE(selected(4, 1, 4, 2));
+    ASSERT_TRUE(hl(4, 1));
     screen_done();
     screen_reading_after("\33[?69h\33[11;30s\33[?6h\33[H");
     wire("ab\33[1;2D");
-    ASSERT_TRUE(strstr(screen, "\33[1;2;1;2;7$t") != NULL);
-    ASSERT_TRUE(rev(0, 11));
-    ASSERT_FALSE(rev(0, 10));
+    ASSERT_TRUE(selected(0, 11, 0, 12));
+    ASSERT_TRUE(hl(0, 11));
+    ASSERT_FALSE(hl(0, 10));
     screen_done();
 }
 
@@ -1576,41 +1602,83 @@ UTEST(rln, a_double_width_row_is_selected_in_its_own_columns)
 {
     screen_reading_after("\33#6");
     wire("abcd\33[1;2D");
-    ASSERT_TRUE(strstr(screen, "\33[1;4;1;4;7$t") != NULL);
-    ASSERT_TRUE(rev(0, 3));
-    ASSERT_FALSE(rev(0, 2));
+    ASSERT_TRUE(selected(0, 3, 0, 4));
+    ASSERT_TRUE(hl(0, 3));
+    ASSERT_FALSE(hl(0, 2));
     screen_done();
 }
 
 /* A line of ten rows between margins 20 columns apart: a selection of all
- * of it is a DECRARA for each row, and so is its end. */
-UTEST(rln, ten_rows_are_set_and_cleared)
+ * of it is one selection across the rows it wraps onto, from its first
+ * character to its last, between the margins: no column outside them is
+ * highlighted. It goes when it ends. */
+UTEST(rln, ten_rows_are_one_selection)
 {
-    screen_reading_after("\33[?69h\33[1;20s");
-    type_n(199, 'a');
-    wire("\33[1;2H");
-    for (int y = 0; y < 10; y++)
-        for (int x = 0; x < (y < 9 ? 20 : 19); x++)
-            ASSERT_TRUE(rev(y, x));
-    ASSERT_FALSE(rev(9, 19));
-    ASSERT_FALSE(rev(0, 20));
-    wire("\33[1;2F");
-    for (int y = 0; y < 10; y++)
-        for (int x = 0; x < 20; x++)
-            ASSERT_FALSE(rev(y, x));
-    screen_done();
+    for (int left = 0; left <= 10; left += 10)
+    {
+        char margins[32];
+        snprintf(margins, sizeof margins, "\33[?69h\33[%d;%ds\33[1;%dH", left + 1, left + 20,
+                 left + 1);
+        screen_reading_after(margins);
+        type_n(199, 'a');
+        wire("\33[1;2H");
+        ASSERT_TRUE(selected(0, left, 9, left + 19));
+        ASSERT_EQ(vterm_selection.left, left);
+        ASSERT_EQ(vterm_selection.right, left + 20);
+        for (int y = 0; y < 10; y++)
+        {
+            for (int x = left; x < left + (y < 9 ? 20 : 19); x++)
+                ASSERT_TRUE(hl(y, x));
+            ASSERT_FALSE(hl(y, left + 20));
+            if (left)
+                ASSERT_FALSE(hl(y, left - 1));
+        }
+        ASSERT_FALSE(hl(9, left + 19));
+        wire("\33[1;2F");
+        ASSERT_FALSE(vterm_selection.shows);
+        for (int y = 0; y < 10; y++)
+            ASSERT_FALSE(hl(y, left));
+        screen_done();
+    }
 }
 
-/* A terminal in VT52 mode has no shifted arrows and no DECRARA. */
+/* A terminal in VT52 mode has no shifted arrows. */
 UTEST(rln, vt52_has_no_shift_selection)
 {
     screen_reading_after("\33[?2l");
     wire("abcd\33D\33D");
-    ASSERT_TRUE(strstr(screen, "$t") == NULL);
-    ASSERT_FALSE(rev(0, 3));
+    ASSERT_FALSE(vterm_selection.shows);
     wire("x\r");
     ASSERT_STREQ(last, "abxcd");
     com_printf("\33<");
+    screen_done();
+}
+
+/* The highlight waits for the echo: output over a selected cell drops the
+ * terminal's selection, so a selection made while the line's echo is still
+ * going out at a slow speed (DECSCS) shows only once the echo has reached
+ * the terminal, and is not dropped by it. */
+UTEST(rln, the_highlight_waits_for_the_echo)
+{
+    screen_reading_after("");
+    manifold_set_paced(true);
+    com_printf("\33[0;1*r");
+    tasks();
+    wire("abcd\33[1;2D");
+    ASSERT_TRUE(rln_replying() || !manifold_drained());
+    ASSERT_FALSE(vterm_selection.shows);
+    for (int i = 0; i < 200 && (rln_replying() || !manifold_drained()); i++)
+    {
+        timer_mach_t d = timer_mach_in_ms(10);
+        while (!timer_mach_passed(d))
+            vga_task();
+        manifold_task();
+        tasks();
+    }
+    tasks();
+    ASSERT_TRUE(selected(0, 3, 0, 4));
+    manifold_set_paced(false);
+    com_printf("\33[0;0*r");
     screen_done();
 }
 

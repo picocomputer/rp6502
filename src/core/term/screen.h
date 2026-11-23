@@ -75,8 +75,13 @@ static inline uint8_t screen_mem(const screen_t *s, uint8_t y)
  * (vterm.h), because the store is what drops its highlight. It is on a
  * screen of one of the console's grids, from row of memory start_row,
  * column start_col, up to row of memory end_row, column end_col, that cell
- * not taken. Its columns are each row's own, half the grid's width on a row
- * of double width. It is kept in rows of memory, which never move, so a
+ * not taken, and between its sides: no row of it takes a column before
+ * left, but its first from its start, nor one from right on, but its last
+ * up to its end. The mouse's sides are the screen's edges
+ * (SCREEN_SELECTION_EDGE); the line editor's are the columns its line has,
+ * between the left and right margins it was laid out in. Its columns are
+ * each row's own, half the grid's width on a row of double width. It is
+ * kept in rows of memory, which never move, so a
  * scroll that keeps it never changes it: the scroll only changes which row
  * of the screen each of its rows shows on. rows has a bit for each row of
  * memory it takes: its first, its last and those the screen shows between
@@ -101,6 +106,7 @@ typedef struct
     const screen_t *screen;       // the screen it was made on
     uint8_t start_row, start_col; // where it starts: a row of memory, a column
     uint8_t end_row, end_col;     // and where it ends, that cell not taken
+    uint8_t left, right;          // its sides: the columns [left, right) its rows take
     bool shows;                   // its highlight shows: made, and not dropped
     bool changed;                 // since mode 0's row words were last written
     bool unsent;                  // a change of the user's the RIA has not sent
@@ -108,6 +114,20 @@ typedef struct
 extern screen_selection_t vterm_selection;
 
 _Static_assert(TERM_MEM_ROWS <= 64, "a bit of the selection for each row of memory");
+
+// A right side past every row's last column: the screen's right edge.
+#define SCREEN_SELECTION_EDGE 0x7F
+_Static_assert(80 < SCREEN_SELECTION_EDGE, "the edge past the widest row");
+
+// The columns [*from, *to) row of memory m of the selection takes, a row of
+// cols columns.
+static inline void screen_selection_cols(uint8_t m, unsigned cols, unsigned *from, unsigned *to)
+{
+    const screen_selection_t *v = &vterm_selection;
+    const unsigned right = v->right < cols ? v->right : cols;
+    *from = m == v->start_row ? v->start_col : v->left;
+    *to = m == v->end_row ? v->end_col : right;
+}
 
 // Whether the selection shows on s: the first test of every drop, so the
 // cost of one where there is none is a load and a compare.
@@ -131,19 +151,25 @@ void screen_selection_touch(uint8_t m, unsigned from, unsigned to);
  *
  * The points the console's mouse holds on a screen's rows while it selects
  * (vterm_mouse.c), kept in step by the store because the store is what
- * moves rows, as it judges the selection. A mark is a row of memory and a
- * column of that row's own, so a move of rows that keeps its row keeps it
- * on its text. Every mark is on a row of the height, always: a row that
- * leaves the rows of the height takes its marks to the edge it left by,
- * as xterm's ScrollSelection holds its points there. A mark going out of
- * the top, or of a scrolling region's top, goes to the first cell of the
- * row that is there after the move; one going out of the bottom, or of a
- * region's bottom, goes one past the last cell of the row that is there.
+ * moves rows, as it judges the selection. A mark is a row of memory, a
+ * column of that row's own, and where in that column's cell the point is,
+ * so a move of rows that keeps its row keeps it on its text. Where in the
+ * cell is 0 for the cell's left edge, the gap before it, or 1 to 16 for a
+ * point inside it, that many sixteenths of the cell's width from its left
+ * edge, less one, so the place holds when the row changes width. Every
+ * mark is on a row of the height, always: a row that leaves the rows of
+ * the height takes its marks to the edge it left by, as xterm's
+ * ScrollSelection holds its points there. A mark going out of the top, or
+ * of a scrolling region's top, goes to the left edge of the first cell of
+ * the row that is there after the move; one going out of the bottom, or of
+ * a region's bottom, goes one past the last cell of the row that is there.
  * A clear of the ring keeps each mark on its row of the screen. The marks
  * are on a screen with cells, or on none. */
+#define SCREEN_MARK_SUBS 16
 typedef struct
 {
     uint8_t row, col;
+    uint8_t sub; // 0 the cell's left edge, or 1 + sixteenths into it
 } screen_mark_t;
 
 typedef struct
@@ -469,9 +495,11 @@ struct screen_sink
 // that cell not taken, as xterm copies it. The columns are the row's own,
 // half the screen's width on a row of double width. A row's cells are
 // taken up to its last written cell (cell.h), the cells never written
-// before it as spaces. A line ends after each row that did not wrap on its
-// own, so a wrapped line joins the next with nothing between, but after the
-// last row only when the copy reaches past its last written cell. The
+// before it as spaces. A line ends after each row but the last that did
+// not wrap on its own, so a wrapped line joins the next with nothing
+// between, as xterm's and Windows Terminal's copies do: the last row never
+// ends a line, so a copy takes a row's line end only by going on into the
+// next row. The
 // screen has no job pending, and y1 is a row of the grid's height. The
 // screen does not know that height, so it asserts only that y1 is a row of
 // its ring.

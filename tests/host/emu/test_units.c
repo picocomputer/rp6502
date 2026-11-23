@@ -431,7 +431,8 @@ UTEST(vga, a_host_console_size_places_the_console_again)
 static void select_two_rows(void)
 {
     term_grid_t *g = vterm_get_shown(&vterm);
-    vterm_select(g, 0, screen_mem(g->shown, 0), 0, screen_mem(g->shown, 1), 4);
+    vterm_select(g, 0, screen_mem(g->shown, 0), 0, screen_mem(g->shown, 1), 4, 0,
+                 SCREEN_SELECTION_EDGE);
 }
 
 /* Mode 0 programmed again where it is keeps the selection, and programmed

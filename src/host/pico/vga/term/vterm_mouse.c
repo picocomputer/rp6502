@@ -17,3 +17,9 @@ void vterm_mouse_track(int func, int col, int row, int first, int last)
 void vterm_mouse_locate(void) {}
 
 void vterm_mouse_filter(void) {}
+
+/* The Pico has no window to lose the focus. */
+bool vterm_focused(void)
+{
+    return true;
+}

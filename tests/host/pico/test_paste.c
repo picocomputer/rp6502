@@ -199,7 +199,7 @@ UTEST(paste, the_primary_goes_whole_past_a_small_queue)
     clip_paste(CLIP_PRIMARY);
     ASSERT_EQ(row.peek(0), 'a');
     press("cd", false);
-    ASSERT_STREQ(keyboard(), "ab\33[200~the first line of the text\rand the second one\r"
+    ASSERT_STREQ(keyboard(), "ab\33[200~the first line of the text\rand the second one"
                              "\33[201~cd");
     ASSERT_FALSE(paste_busy());
 }

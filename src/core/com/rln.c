@@ -45,9 +45,10 @@
 **   - A terminal in VT52 mode is sent a VT52's commands: ESC A, B and C to
 **     move, each once for each row or column, and ESC K to erase. It has no
 **     insert mode and is sent no cursor shape.
-**   - The selection's highlight, DECRARA with the rows and columns of the
-**     console's terminal, goes to the screen alone, the one terminal whose
-**     rows rln knows. It moves no cursor.
+**   - The selection's highlight is the console's terminal's selection
+**     (vterm_select), between the line's columns, which mode 0 draws over
+**     the cells: nothing is sent for it, and it shows on the screen alone,
+**     the one terminal whose rows rln knows.
 */
 
 #define RLN_BUF_SIZE 256
@@ -116,9 +117,9 @@ static bool rln_erase_el;
  * the screen it is on, 0 the primary and 1 the alternate, or none for a
  * line laid out on a program's own size, the row whose row break scrolls
  * the line's rows up, or none, and the terminal's RIS count then, since a
- * RIS after it erases the line, its highlight included. rln_put follows
- * the line's own scrolls; output written while it is read is not
- * followed. */
+ * RIS after it erases the line, so a click there is no longer in it.
+ * rln_put follows the line's own scrolls; output written while it is read
+ * is not followed. */
 #define RLN_NO_ROW UINT8_MAX
 static uint8_t rln_row;
 static uint8_t rln_left;
@@ -127,13 +128,13 @@ static uint8_t rln_bot;
 static uint16_t rln_ris_count;
 
 /* The selection: from the anchor, where it started, to its end, none when
- * they are the same. The highlight is what DECRARA shows of the line now,
- * from rln_hl_from up to rln_hl_to; the selection and the highlight are
- * apart only while a key is being dispatched. */
+ * they are the same. Its highlight is the console's terminal's selection,
+ * which output over a selected cell drops, so it goes on only once the
+ * reply that drew the line has reached that terminal: until then it is
+ * due. */
 static uint8_t rln_sel_anchor;
 static uint8_t rln_sel_end;
-static uint8_t rln_hl_from;
-static uint8_t rln_hl_to;
+static bool rln_hl_due;
 
 /* The selection as the key being dispatched found it, for a typed
  * character to replace and Delete and Backspace to delete. Set and spent
@@ -142,9 +143,10 @@ static uint8_t rln_edit_from;
 static uint8_t rln_edit_to;
 
 /* The console's mouse in the line, which the task takes after the keys
- * waiting: where the press was and where the drag is, as indexes of the
- * line as it was laid out then, and the unit the press selects by, none
- * when no press was made in this read's line. */
+ * waiting: the end the drag holds, where the press was, and the end it
+ * moves, where the drag is, as indexes of the line as it was laid out
+ * then (rln_mouse_drag), and the unit the press selects by, none when no
+ * press was made in this read's line. */
 enum
 {
     RLN_UNIT_NONE,
@@ -465,7 +467,6 @@ static bool rln_sst_valid(sst_cursor_t *c)
     if (rln_prompt_col && !rln_width)
         return sst_refuse(c, "a prompt column with no width");
     if (rln_sel_anchor > rln_buflen || rln_sel_end > rln_buflen ||
-        rln_hl_from > rln_hl_to || rln_hl_to > rln_buflen ||
         rln_press_unit > RLN_UNIT_LINE || (rln_mouse_due && rln_press_unit == RLN_UNIT_NONE) ||
         (rln_screen > 1 && rln_screen != RLN_NO_ROW) || rln_key_due > RLN_KEY_PASTE)
         return sst_refuse(c, "a selection past its line");
@@ -535,8 +536,7 @@ static bool rln_sst_valid(sst_cursor_t *c)
     X(U16, rln_ris_count)                                               \
     X(U8, rln_sel_anchor)                                               \
     X(U8, rln_sel_end)                                                  \
-    X(U8, rln_hl_from)                                                  \
-    X(U8, rln_hl_to)                                                    \
+    X(BOOL, rln_hl_due)                                                 \
     X(BOOL, rln_mouse_due)                                              \
     X(U8, rln_press_at)                                                 \
     X(U8, rln_drag_at)                                                  \
@@ -861,7 +861,7 @@ static void rln_emit_tail_rewrite(uint8_t at, uint8_t pad)
 /* The line has a place on the screen showing: a read's line laid out with
  * a prompt column on the grid showing, not on a program's own size, on the
  * screen of that grid that shows now, and with no RIS since, which erased
- * it, its highlight with it. */
+ * it. */
 static bool rln_on_screen(void)
 {
     if (!rln_callback || rln_laying_out || !rln_prompt_col)
@@ -897,62 +897,6 @@ int rln_index_at(uint8_t y, uint8_t x)
     return rln_on_screen() ? rln_index_of(y, x, false) : -1;
 }
 
-/* DECRARA 7 over indexes [from, to) of the line, one for each of its rows,
- * so the range never wraps whatever DECSACE says, and one row is never a
- * job of the terminal's. Each is in the row's own columns, from the
- * margins under DECOM, and goes to the screen alone. */
-static void rln_toggle(uint8_t from, uint8_t to)
-{
-    if (from >= to)
-        return;
-    const term_grid_t *g = vterm_get_shown(&vterm);
-    const bool origin = term_pen(&vterm)->origin_mode;
-    const unsigned top = rln_row + 1u - (origin ? g->margin_top : 0u);
-    const unsigned left = rln_left - (origin ? g->margin_left : 0u);
-    uint8_t r0, r1;
-    uint16_t c0, c1;
-    rln_buf_to_screen(from, &r0, &c0);
-    rln_buf_to_screen((uint8_t)(to - 1), &r1, &c1);
-    for (unsigned r = r0; r <= r1; r++)
-    {
-        char seq[MANIFOLD_TX_SIZE];
-        const unsigned y = top + r;
-        const unsigned x0 = left + (r == r0 ? c0 : 1u);
-        const unsigned x1 = left + (r == r1 ? c1 : rln_width);
-        const int n = snprintf(seq, sizeof seq, "\33[%u;%u;%u;%u;7$t", y, x0, y, x1);
-        rln_out_screen(seq, (uint8_t)n);
-    }
-}
-
-/* The highlight becomes indexes [from, to) of the line, DECRARA turning
- * only the cells whose state changes, since every byte of a reply may go
- * out at a program's slow speed (DECSCS). A terminal in VT52 mode has no
- * DECRARA, and a line with no place on the screen showing has nothing to
- * show it on: the highlight is none, and what it showed stays. */
-static void rln_highlight(uint8_t from, uint8_t to)
-{
-    if (from >= to)
-        from = to = 0;
-    if (!rln_on_screen() || vterm.vt52)
-    {
-        rln_hl_from = rln_hl_to = 0;
-        return;
-    }
-    const uint8_t p = rln_hl_from, q = rln_hl_to;
-    if (p == q || from == to || q <= from || to <= p)
-    {
-        rln_toggle(p, q);
-        rln_toggle(from, to);
-    }
-    else
-    {
-        rln_toggle(p < from ? p : from, p < from ? from : p);
-        rln_toggle(q < to ? q : to, q < to ? to : q);
-    }
-    rln_hl_from = from;
-    rln_hl_to = to;
-}
-
 static uint8_t rln_sel_lo(void)
 {
     return rln_sel_anchor < rln_sel_end ? rln_sel_anchor : rln_sel_end;
@@ -964,20 +908,65 @@ static uint8_t rln_sel_hi(void)
 }
 
 /* The selection becomes the line from anchor to end, none when they are
- * the same, and the highlight follows it. A selection that starts ends the
- * primary's highlight: one selection at a time. */
+ * the same, and its highlight is due (rln_show). There is one selection on
+ * the console's terminal at a time: one that starts ends the primary's
+ * highlight at once, and one that ends ends its own. One that changes
+ * keeps the highlight it had until the new one shows, as the reply that
+ * moves the cursor along it goes out. */
 static void rln_select(uint8_t anchor, uint8_t end)
 {
-    if (anchor != end && vterm_selection.shows)
-        vterm_unselect();
+    const bool had = rln_sel_anchor != rln_sel_end;
     rln_sel_anchor = anchor;
     rln_sel_end = end;
-    rln_highlight(rln_sel_lo(), rln_sel_hi());
+    rln_hl_due = anchor != end;
+    if (vterm_selection.shows && (had ? anchor == end : anchor != end))
+        vterm_unselect();
 }
 
-/* No selection, its highlight off before anything is drawn over it, and no
- * press of the mouse still to take. What it draws goes out with the reply
- * it is part of, or from rln_task. */
+/* The highlight goes on, the selection's part of the line as the line is
+ * laid out on the screen, once the reply that drew the line has reached
+ * the console's terminal: nothing waits to go out to the terminals, as
+ * everything written before has reached it, the line's own echo, which
+ * would otherwise drop it, included. It is the selection's run from its
+ * first character to past its last across the rows the line wraps onto,
+ * between the sides of the line's columns, so no column outside the
+ * margins the line was laid out in is taken. A line with no place on the
+ * screen showing, or one whose rows have gone from it, shows none, and the
+ * highlight of the selection before goes: the one selection showing while
+ * the line has one is the line's. */
+static void HOST_IN_FLASH_FUNC rln_show(void)
+{
+    rln_hl_due = false;
+    const uint8_t lo = rln_sel_lo(), hi = rln_sel_hi();
+    if (lo < hi && rln_on_screen())
+    {
+        term_grid_t *g = vterm_get_shown(&vterm);
+        const screen_t *s = g->shown;
+        uint8_t r0, r1;
+        uint16_t c0, c1;
+        rln_buf_to_screen(lo, &r0, &c0);
+        rln_buf_to_screen((uint8_t)(hi - 1), &r1, &c1);
+        const unsigned y0 = rln_row + r0, y1 = rln_row + r1;
+        if (y1 < g->height)
+        {
+            const uint8_t m0 = screen_mem(s, (uint8_t)y0), m1 = screen_mem(s, (uint8_t)y1);
+            const uint8_t x0 = (uint8_t)(rln_left + c0 - 1u), x1 = (uint8_t)(rln_left + c1);
+            const uint8_t left = rln_left, right = (uint8_t)(rln_left + rln_width);
+            /* One already showing is left as it is, so the RIA sends only
+             * a change. */
+            const screen_selection_t *v = &vterm_selection;
+            if (!v->shows || v->screen != s || v->start_row != m0 || v->start_col != x0 ||
+                v->end_row != m1 || v->end_col != x1 || v->left != left || v->right != right)
+                vterm_select(g, (uint8_t)(s - g->screen), m0, x0, m1, x1, left, right);
+            return;
+        }
+    }
+    if (vterm_selection.shows)
+        vterm_unselect();
+}
+
+/* No selection, its highlight off, and no press of the mouse still to
+ * take. */
 void rln_unselect(void)
 {
     rln_mouse_due = false;
@@ -1806,10 +1795,11 @@ void rln_mouse_press(uint8_t index, uint8_t clicks)
     rln_mouse_becomes_due();
 }
 
-void rln_mouse_drag(uint8_t y, uint8_t x)
+void rln_mouse_drag(uint8_t hy, uint8_t hx, uint8_t y, uint8_t x)
 {
     if (rln_press_unit == RLN_UNIT_NONE || !rln_on_screen())
         return;
+    rln_press_at = (uint8_t)rln_index_of(hy, hx, true);
     rln_drag_at = (uint8_t)rln_index_of(y, x, true);
     rln_mouse_becomes_due();
 }
@@ -2020,6 +2010,8 @@ void HOST_IN_RAM_FUNC rln_task(void)
     const bool answered = rln_take_items();
     if ((rln_mouse_due || rln_key_due) && rln_callback && tio_idle())
         rln_take_due();
+    if (rln_hl_due && !rln_out_len && manifold_drained())
+        rln_show();
     if (answered && rln_idle_timeout_ms && timer_mach_passed(rln_idle_deadline))
     {
         rln_line_src = COM_SOURCE_ANY;
@@ -2036,7 +2028,8 @@ void HOST_IN_FLASH_FUNC rln_init(void)
     rln_overwrite = false;
     rln_pinned_width = 0;
     rln_pinned_height = 0;
-    rln_sel_anchor = rln_sel_end = rln_hl_from = rln_hl_to = 0;
+    rln_sel_anchor = rln_sel_end = 0;
+    rln_hl_due = false;
     rln_mouse_due = false;
     rln_press_unit = RLN_UNIT_NONE;
     rln_key_due = RLN_KEY_NONE;

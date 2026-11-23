@@ -22,6 +22,7 @@
 #include "core/term/font.h"
 #include "core/term/grid.h"
 #include "core/term/vterm.h"
+#include "core/term/vterm_mouse.h"
 #include "tb_screen.h"
 #include "core/vga/vga.h"
 #include "core/vga/vga_emu.h"
@@ -2887,21 +2888,23 @@ UTEST(term, a_copy_keeps_written_spaces)
 {
     fresh();
     feed("ab  ");
-    ASSERT_STREQ(copy(0, 0, 0, 80), "ab  \n");
+    ASSERT_STREQ(copy(0, 0, 0, 80), "ab  ");
     feed("\33[2;1Hab\33[K");
-    ASSERT_STREQ(copy(1, 0, 1, 80), "ab\n");
+    ASSERT_STREQ(copy(1, 0, 1, 80), "ab");
 }
 
-/* A line that ended early ends with a line end, and the copy's last row
- * gets one only when the copy reaches past its text. */
+/* A line that ended early ends with a line end, but the copy's last row
+ * never does, however far past its text the copy reaches: a copy takes a
+ * row's line end by going on into the next row. */
 UTEST(term, a_copy_ends_a_line_that_ended_early)
 {
     fresh();
     feed("a\r\nb");
-    ASSERT_STREQ(copy(0, 0, 1, 80), "a\nb\n");
+    ASSERT_STREQ(copy(0, 0, 1, 80), "a\nb");
     ASSERT_STREQ(copy(0, 0, 1, 1), "a\nb");
     ASSERT_STREQ(copy(0, 0, 1, 0), "a\n");
-    ASSERT_STREQ(copy(0, 1, 0, 80), "\n");
+    ASSERT_STREQ(copy(0, 1, 0, 80), "");
+    ASSERT_STREQ(copy(0, 1, 1, 0), "\n");
 }
 
 /* A line that wrapped on its own joins the next with nothing between, and
@@ -2913,10 +2916,10 @@ UTEST(term, a_copy_joins_a_wrapped_line)
     feed("yz");
     char want[96];
     memset(want, 'A', 81);
-    memcpy(want + 81, "yz\n", 4);
+    memcpy(want + 81, "yz", 3);
     ASSERT_STREQ(copy(0, 0, 1, 80), want);
     feed("\33[1;80H\33[K");
-    memcpy(want + 79, "\nAyz\n", 6);
+    memcpy(want + 79, "\nAyz", 5);
     ASSERT_STREQ(copy(0, 0, 1, 80), want);
 }
 
@@ -2925,7 +2928,7 @@ UTEST(term, a_copy_of_a_double_width_row_has_half_the_columns)
 {
     fresh();
     feed("\33#6abc");
-    ASSERT_STREQ(copy(0, 1, 0, 40), "bc\n");
+    ASSERT_STREQ(copy(0, 1, 0, 40), "bc");
     ASSERT_STREQ(copy(0, 0, 0, 2), "ab");
 }
 
@@ -4307,7 +4310,7 @@ static void sel(int y0, int x0, int y1, int x1)
     term_grid_t *g = vterm_get_shown(&vterm);
     const screen_t *s = g->shown;
     vterm_select(g, (uint8_t)(s - g->screen), screen_mem(s, (uint8_t)y0), (uint8_t)x0,
-                 screen_mem(s, (uint8_t)y1), (uint8_t)x1);
+                 screen_mem(s, (uint8_t)y1), (uint8_t)x1, 0, SCREEN_SELECTION_EDGE);
 }
 
 static bool sel_shows(void)
@@ -5311,6 +5314,251 @@ UTEST(cursor, draws_on_a_double_height_row_and_in_the_last_column)
         ASSERT_TRUE(cur_stripe(last - 1, 2, 8, false, 2, fg0));
         feed("\33[6 q");
         ASSERT_TRUE(cur_stripe(last - 1, 2, 8, true, 2, fg0));
+        cur_done();
+    }
+}
+
+/* ---- the selection's colors, OSC 17 and OSC 19 ----
+ *
+ * xterm's highlightColor and highlightTextColor: set, asked for and reset
+ * as the other dynamic colors are, and drawn as xterm draws them as it
+ * starts, with highlightReverse on and highlightColorMode off: OSC 17's
+ * color is the selection's background, and OSC 19's is never drawn. */
+
+/* OSC 17 and OSC 19 set and answer the selection's background and text,
+ * which start as the default foreground and background; OSC 117 and OSC
+ * 119, and RIS, put them back. The run of items from OSC 10 goes through
+ * the colors the console has not, the pointer's and the Tektronix
+ * window's, taking an item for each and doing nothing with it. */
+UTEST(term, osc_17_and_19_are_the_selection_s_colors)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33]17;?\7"), color_answer("\33]17", color_256[7], "\7"));
+    ASSERT_STREQ(ask("\33]19;?\33\\"), "\33]19;rgb:0000/0000/0000\33\\");
+    ASSERT_STREQ(ask("\33]17;#0000ff\7\33]17;?\7"), "\33]17;rgb:0000/0000/ffff\7");
+    ASSERT_STREQ(ask("\33]19;#ff0000\7\33]19;?\7"), "\33]19;rgb:ffff/0000/0000\7");
+    ASSERT_STREQ(ask("\33]16;?;#00ff00;?;?\7"), "\33]19;rgb:ffff/0000/0000\7");
+    ASSERT_STREQ(ask("\33]17;?\7"), "\33]17;rgb:0000/ffff/0000\7");
+    ASSERT_STREQ(ask("\33]10;?;?;?;?;?;?;?;?;?;?;?\7"),
+                 "\33]10;rgb:e738/e738/e738\7\33]11;rgb:0000/0000/0000\7"
+                 "\33]12;rgb:e738/e738/e738\7\33]17;rgb:0000/ffff/0000\7"
+                 "\33]19;rgb:ffff/0000/0000\7");
+    ASSERT_STREQ(ask("\33]117\7\33]17;?\7"), color_answer("\33]17", color_256[7], "\7"));
+    ASSERT_STREQ(ask("\33]119\7\33]19;?\7"), "\33]19;rgb:0000/0000/0000\7");
+    char want[96];
+    snprintf(want, sizeof want, "%s\33]19;rgb:0000/0000/0000\7",
+             color_answer("\33]17", color_256[7], "\7"));
+    ASSERT_STREQ(ask("\33]17;#0000ff;?;#ff0000\7\33c\33]17;?;?;?\7"), want);
+}
+
+static uint32_t rgb_pixel(int r, int g, int b)
+{
+    return SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(r, g, b);
+}
+
+/* The color mode 0 is given for the selection, as xterm's updatedXtermGC
+ * counts it: OSC 17's, once it is neither the default foreground as
+ * DECSCNM shows it now nor the default foreground at power-up. OSC 19's
+ * counts for nothing, as with xterm's highlightColorMode off. */
+UTEST(term, the_selection_s_color_counts_as_xterm_s_does)
+{
+    fresh();
+    const uint32_t blue = rgb_pixel(0, 0, 255);
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, 0u);
+    feed("\33]19;#ff0000\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, 0u);
+    feed("\33]17;#0000ff\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
+    feed("\33]119\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
+    /* Not while it is the default foreground. */
+    feed("\33]10;#0000ff\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, 0u);
+    feed("\33]110\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
+    /* Under DECSCNM the default foreground shows as the background. */
+    feed("\33]11;#0000ff\7\33[?5h");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, 0u);
+    feed("\33[?5l");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
+    /* Nor while it is the default foreground at power-up, whatever that
+     * is now. */
+    feed("\33]10;#ff0000\7\33]117\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, 0u);
+    feed("\33]17;#0000ff\7\33c");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, 0u);
+}
+
+/* The selection in its color, on plain and reversed cells in it and out of
+ * it, as xterm's updatedXtermGC draws them. Unset, a cell in the selection
+ * shows reversed, and a reversed one in it shows plain. With OSC 17 set, a
+ * plain cell in it shows its ink on that color, and so does a reversed
+ * cell outside it, as on xterm; a reversed cell in it shows that color on
+ * its ink. A cell whose own background is the color shows reversed, and a
+ * concealed cell shows the color alone. OSC 19 changes nothing. */
+UTEST(highlight, the_selection_is_drawn_in_its_color)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1HA\33[7mB\33[mC\33[7mD\33[m\33[48;2;0;0;255mE\33[m\33[8mF\33[m\33[4;1H");
+        cur_draw(false);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0(), blue = cur_blue();
+        sel(2, 0, 2, 2);
+        cur_draw(false);
+        ASSERT_GT(cur_two(0, 2, 8, fg0, bg0), 0);
+        ASSERT_GT(cur_two(1, 2, 8, bg0, fg0), 0);
+        ASSERT_GT(cur_two(2, 2, 8, bg0, fg0), 0);
+        ASSERT_GT(cur_two(3, 2, 8, fg0, bg0), 0);
+        feed("\33]17;#0000ff\7");
+        cur_draw(false);
+        ASSERT_GT(cur_two(0, 2, 8, blue, fg0), 0);
+        ASSERT_GT(cur_two(1, 2, 8, fg0, blue), 0);
+        ASSERT_GT(cur_two(2, 2, 8, bg0, fg0), 0);
+        ASSERT_GT(cur_two(3, 2, 8, blue, fg0), 0);
+        feed("\33]19;#ffffff\7");
+        cur_draw(false);
+        ASSERT_GT(cur_two(0, 2, 8, blue, fg0), 0);
+        ASSERT_GT(cur_two(1, 2, 8, fg0, blue), 0);
+        /* Unset again, the reversed cell outside is reversed as ever. */
+        feed("\33]117\7");
+        cur_draw(false);
+        ASSERT_GT(cur_two(0, 2, 8, fg0, bg0), 0);
+        ASSERT_GT(cur_two(3, 2, 8, fg0, bg0), 0);
+        feed("\33]17;#0000ff\7");
+        sel(2, 4, 2, 6);
+        cur_draw(false);
+        ASSERT_GT(cur_two(4, 2, 8, fg0, blue), 0);
+        ASSERT_EQ(cur_two(5, 2, 8, blue, fg0), 0);
+        cur_done();
+    }
+}
+
+/* A block on a selected cell works from the colors the cell shows: the
+ * cell's ink on the selection's color. The cell shows reversed, by the
+ * selection, so the cursor's color, the default foreground, is its default
+ * paper: the block fills with the default ink, the default background, and
+ * draws the glyph in the selection's color. */
+UTEST(highlight, the_cursor_works_from_the_selection_s_color)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1HA\33[3;1H\33[2 q");
+        cur_draw(false);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0(), blue = cur_blue();
+        feed("\33]17;#0000ff\7");
+        sel(2, 0, 2, 1);
+        cur_draw(false);
+        ASSERT_GT(cur_two(0, 2, 8, blue, fg0), 0);
+        cur_draw(true);
+        ASSERT_GT(cur_two(0, 2, 8, bg0, blue), 0);
+        cur_done();
+    }
+}
+
+/* ---- the cursor without the focus, and on a blank of an ink alone ---- */
+
+/* With the host's window out of focus, a block is xterm's box: a pixel's
+ * outline of the cell in the cursor's color over the cell as it shows,
+ * shown whether or not its blink has it lit. An underline and a bar are
+ * as they are, and shown always too. The focus back, the block is filled
+ * again. */
+UTEST(cursor, without_the_focus_a_block_is_a_box)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1H \33[3;1H\33[2 q");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0();
+        ASSERT_EQ(cur_two(0, 2, 8, fg0, bg0), 0);
+        vterm_focus(false);
+        cur_draw(true);
+        ASSERT_TRUE(mode0_regs.cursor & MODE0_CURSOR_UNFOCUSED);
+        for (int py = 0; py < cur_ch; py++)
+            for (int px = 0; px < 8; px++)
+            {
+                const bool edge = py == 0 || py == cur_ch - 1 || px == 0 || px == 7;
+                if (edge)
+                    ASSERT_EQ(cur_at(0, 2, px, py), fg0);
+            }
+        ASSERT_EQ(cur_at(0, 2, 3, 5), bg0);
+        ASSERT_EQ(cur_two(0, 2, 8, bg0, fg0), 2 * 8 + 2 * (cur_ch - 2));
+        /* No blink: a blinking block shows unlit too. */
+        feed("\33[1 q");
+        cur_draw(true);
+        mode0_regs.cursor &= ~MODE0_CURSOR_LIT;
+        vga_draw(cur_fb);
+        ASSERT_EQ(cur_at(0, 2, 0, 0), fg0);
+        /* A blinking underline shows unlit. */
+        feed("\33[3 q");
+        cur_draw(true);
+        mode0_regs.cursor &= ~MODE0_CURSOR_LIT;
+        vga_draw(cur_fb);
+        ASSERT_EQ(cur_at(0, 2, 3, cur_ch - 1), fg0);
+        ASSERT_EQ(cur_at(0, 2, 3, 1), bg0);
+        ASSERT_EQ(cur_at(0, 2, 0, 1), bg0);
+        vterm_focus(true);
+        feed("\33[2 q");
+        cur_draw(true);
+        ASSERT_FALSE(mode0_regs.cursor & MODE0_CURSOR_UNFOCUSED);
+        ASSERT_EQ(cur_at(0, 2, 3, 5), fg0);
+        cur_done();
+    }
+}
+
+/* The box on a row of double width outlines the wide cell. */
+UTEST(cursor, the_box_on_a_double_width_row_outlines_the_wide_cell)
+{
+    cur_fresh(false);
+    feed("\33[3;1H\33#6 \33[3;1H\33[2 q");
+    cur_draw(true);
+    const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0();
+    vterm_focus(false);
+    cur_draw(true);
+    ASSERT_EQ(cur_at(0, 2, 0, 5), fg0);
+    ASSERT_EQ(cur_at(1, 2, 7, 5), fg0);
+    ASSERT_EQ(cur_at(0, 2, 7, 5), bg0);
+    ASSERT_EQ(cur_at(1, 2, 0, 5), bg0);
+    vterm_focus(true);
+    cur_done();
+}
+
+/* xterm's ShowCursor: a blank with an ink of its own and no background of
+ * its own shows the default ink under the cursor, so a block of the
+ * default cursor color fills with the default foreground, where a red
+ * glyph fills with red. With a background of its own the ink stays. */
+UTEST(cursor, a_blank_with_an_ink_alone_is_a_default_cell)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1H\33[31m \33[mx\33[31mA\33[m\33[31;44m \33[m\33[2 q\33[3;1H");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0(), red = cur_red();
+        ASSERT_EQ(cur_two(0, 2, 8, fg0, bg0), 0);
+        feed("\33[3;3H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(2, 2, 8, red, bg0), 0);
+        feed("\33[3;4H");
+        cur_draw(true);
+        ASSERT_EQ(cur_two(3, 2, 8, red, red), 0);
+        /* An underline in the default background, the cell's background,
+         * takes the ink: the default foreground on the blank. */
+        feed("\33]12;#000000\7\33[4 q\33[3;1H");
+        cur_draw(true);
+        ASSERT_EQ(cur_at(0, 2, 3, cur_ch - 1), fg0);
         cur_done();
     }
 }

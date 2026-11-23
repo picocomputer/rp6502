@@ -25,6 +25,7 @@
 #include "core/sys/sys.h"
 #include "core/sys/timer.h"
 #include "core/sys/xram.h"
+#include "core/term/draw.h"
 #include "core/term/vterm.h"
 #include "core/term/vterm_mouse.h"
 #include "core/vga/vga_emu.h"
@@ -60,20 +61,31 @@ static void at(int x, int y, uint8_t buttons)
     vterm_mouse_task();
 }
 
-/* A drag with the left button from one cell to another. */
+/* The same on the left pixel of column x: by characters, a press there
+ * holds at the gap before the cell going on, and at the gap after it going
+ * back, and a drag there ends at the gap before it, the nearest. */
+static void edge(int x, int y, uint8_t buttons)
+{
+    tablet_host_pointer(x * 8, y * 16 + 7, buttons, true);
+    vterm_mouse_task();
+}
+
+/* A drag with the left button from the left pixel of one cell to the left
+ * pixel of another: from the first up to the second, that one not taken,
+ * going on; back from the first, that one not taken, to the second. */
 static void drag(int x0, int y0, int x1, int y1)
 {
-    at(x0, y0, 0);
-    at(x0, y0, TABLET_FLAG_LEFT);
-    at(x1, y1, TABLET_FLAG_LEFT);
-    at(x1, y1, 0);
+    edge(x0, y0, 0);
+    edge(x0, y0, TABLET_FLAG_LEFT);
+    edge(x1, y1, TABLET_FLAG_LEFT);
+    edge(x1, y1, 0);
 }
 
 /* A click with the left button, as quick as the mouse can. */
 static void click(int x, int y)
 {
-    at(x, y, TABLET_FLAG_LEFT);
-    at(x, y, 0);
+    edge(x, y, TABLET_FLAG_LEFT);
+    edge(x, y, 0);
 }
 
 /* The machine's clock moves on by us, which runs the beam. */
@@ -162,6 +174,142 @@ UTEST(mouse, a_drag_backwards_and_across_rows)
     ASSERT_STREQ(primary(), "foo.bar\rsec");
 }
 
+/* What a drag from canvas pixel x0 to x1 of row y of the 80-column
+ * console, both with the left button held, selects: "start-end" of the
+ * columns of its gaps, or "none". */
+static const char *cols(int x0, int x1, int y)
+{
+    static char out[16];
+    tablet_host_pointer(x0, y * 16 + 7, 0, true);
+    vterm_mouse_task();
+    tablet_host_pointer(x0, y * 16 + 7, TABLET_FLAG_LEFT, true);
+    vterm_mouse_task();
+    tablet_host_pointer(x1, y * 16 + 7, TABLET_FLAG_LEFT, true);
+    vterm_mouse_task();
+    tablet_host_pointer(x1, y * 16 + 7, 0, true);
+    vterm_mouse_task();
+    machine_us(300 * 1000);
+    if (!vterm_selection.shows)
+        return "none";
+    snprintf(out, sizeof out, "%d-%d", vterm_selection.start_col, vterm_selection.end_col);
+    return out;
+}
+
+/* By characters, the press's character is the selection's start, taken as
+ * soon as the pointer moves from the press's pixel, either way, even
+ * within it; and the end the drag moves is the gap nearest the pointer, a
+ * further character joining once the pointer passes its middle, 4 of its
+ * 8 pixels. (Before, the ends were the left edges of the cells under the
+ * press and the pointer, as xterm's are: going on, the press's character
+ * joined only once the pointer left it and each further one only once the
+ * pointer left that one, all 8 pixels across; going back, the press's
+ * character never joined and each further one joined at its last pixel.) */
+UTEST(mouse, a_drag_by_characters_ends_at_the_nearest_gap)
+{
+    start();
+    show(TEXT);
+    /* A press that does not move selects nothing. */
+    for (int px = 8; px < 16; px++)
+        ASSERT_STREQ(cols(px, px, 0), "none");
+    /* Within the press's character, either way, that character. */
+    ASSERT_STREQ(cols(9, 10, 0), "1-2");
+    ASSERT_STREQ(cols(9, 15, 0), "1-2");
+    ASSERT_STREQ(cols(14, 9, 0), "1-2");
+    ASSERT_STREQ(cols(14, 8, 0), "1-2");
+    /* Going on, the next character joins past its middle. */
+    ASSERT_STREQ(cols(9, 16, 0), "1-2");
+    ASSERT_STREQ(cols(9, 19, 0), "1-2");
+    ASSERT_STREQ(cols(9, 20, 0), "1-3");
+    ASSERT_STREQ(cols(9, 27, 0), "1-3");
+    ASSERT_STREQ(cols(9, 28, 0), "1-4");
+    /* Going back, the same from the other side. */
+    ASSERT_STREQ(cols(22, 13, 0), "2-3");
+    ASSERT_STREQ(cols(22, 12, 0), "2-3");
+    ASSERT_STREQ(cols(22, 11, 0), "1-3");
+    ASSERT_STREQ(cols(22, 4, 0), "1-3");
+    ASSERT_STREQ(cols(22, 3, 0), "0-3");
+}
+
+/* What a drag from canvas pixel x0, y0 through the n points of to, each a
+ * move, and released at the last, selects, as cols has it. */
+static const char *path(int x0, int y0, const int (*to)[2], int n)
+{
+    static char out[16];
+    tablet_host_pointer(x0, y0, 0, true);
+    vterm_mouse_task();
+    tablet_host_pointer(x0, y0, TABLET_FLAG_LEFT, true);
+    vterm_mouse_task();
+    for (int i = 0; i < n; i++)
+    {
+        tablet_host_pointer(to[i][0], to[i][1], TABLET_FLAG_LEFT, true);
+        vterm_mouse_task();
+    }
+    tablet_host_pointer(to[n - 1][0], to[n - 1][1], 0, true);
+    vterm_mouse_task();
+    machine_us(300 * 1000);
+    if (!vterm_selection.shows)
+        return "none";
+    snprintf(out, sizeof out, "%d-%d", vterm_selection.start_col, vterm_selection.end_col);
+    return out;
+}
+
+/* A move straight up or down inside the press's character is a move away
+ * from the press too, and takes that character, even from its last pixel
+ * column, whose margin is only for a pointer past it; and a drag that has
+ * moved keeps it when the pointer comes back to the press's pixel. */
+UTEST(mouse, any_move_from_the_press_takes_its_character)
+{
+    start();
+    show(TEXT);
+    static const int down[][2] = {{9, 10}};
+    ASSERT_STREQ(path(9, 7, down, 1), "1-2");
+    static const int up[][2] = {{15, 2}};
+    ASSERT_STREQ(path(15, 7, up, 1), "1-2");
+    static const int back[][2] = {{12, 7}, {9, 7}};
+    ASSERT_STREQ(path(9, 7, back, 2), "1-2");
+    static const int still[][2] = {{9, 7}};
+    ASSERT_STREQ(path(9, 7, still, 1), "none");
+}
+
+/* A press in its character's last pixel column, then a drag on, does not
+ * take that character, nor one in its first column then a drag back: the
+ * drag starts at that edge. Every other pixel takes it. */
+UTEST(mouse, the_press_s_character_has_a_pixel_of_margin)
+{
+    start();
+    show(TEXT);
+    ASSERT_STREQ(cols(15, 16, 0), "none");
+    ASSERT_STREQ(cols(15, 19, 0), "none");
+    ASSERT_STREQ(cols(15, 20, 0), "2-3");
+    ASSERT_STREQ(cols(14, 16, 0), "1-2");
+    ASSERT_STREQ(cols(16, 15, 0), "none");
+    ASSERT_STREQ(cols(16, 12, 0), "none");
+    ASSERT_STREQ(cols(16, 11, 0), "1-2");
+    ASSERT_STREQ(cols(17, 15, 0), "2-3");
+    /* The margin is the press's own way: back from the last column, or on
+     * from the first, the character is taken. */
+    ASSERT_STREQ(cols(15, 14, 0), "1-2");
+    ASSERT_STREQ(cols(8, 9, 0), "1-2");
+}
+
+/* On a row of double width a character is 16 pixels: its middle is 8 in,
+ * and its margin is still a pixel. */
+UTEST(mouse, a_wide_character_has_its_middle_at_8_pixels)
+{
+    start();
+    show("\33[H\33[2J\33#6hello world\r\n");
+    ASSERT_STREQ(cols(4, 5, 0), "0-1");
+    ASSERT_STREQ(cols(4, 23, 0), "0-1");
+    ASSERT_STREQ(cols(4, 24, 0), "0-2");
+    ASSERT_STREQ(cols(15, 16, 0), "none");
+    ASSERT_STREQ(cols(15, 24, 0), "1-2");
+    ASSERT_STREQ(cols(46, 40, 0), "2-3");
+    ASSERT_STREQ(cols(46, 24, 0), "2-3");
+    ASSERT_STREQ(cols(46, 23, 0), "1-3");
+    ASSERT_STREQ(cols(32, 31, 0), "none");
+    ASSERT_STREQ(cols(32, 23, 0), "1-2");
+}
+
 /* A click with no drag selects nothing, which ends the selection, and the
  * primary keeps what it had. */
 UTEST(mouse, a_click_ends_the_selection)
@@ -175,15 +323,30 @@ UTEST(mouse, a_click_ends_the_selection)
     ASSERT_STREQ(primary(), "hello");
 }
 
-/* Past the end of a row's text is the start of the next row, so a drag
- * there takes the line end and none of the row's empty cells. */
-UTEST(mouse, past_the_text_is_the_next_row)
+/* A point past the end of a row's text stays on that row, highlighted to
+ * where it is. The last row of a selection never takes its line end: a
+ * drag takes a row's line end only by going on into the next row, to the
+ * gap before its first character, which gives nothing. Every row before
+ * the last takes its line end, and its cells never written give nothing,
+ * so a press past the text on one row and a drag down takes that row's
+ * line end alone. */
+UTEST(mouse, past_the_text_stays_on_its_row)
 {
     start();
     show(TEXT);
     drag(7, 1, 60, 1);
+    ASSERT_TRUE(selected(7, 1, 60, 1));
+    ASSERT_STREQ(primary(), "line");
+    machine_us(300 * 1000);
+    drag(7, 1, 0, 2);
     ASSERT_TRUE(selected(7, 1, 0, 2));
     ASSERT_STREQ(primary(), "line\r");
+    drag(30, 0, 3, 1);
+    ASSERT_TRUE(selected(30, 0, 3, 1));
+    ASSERT_STREQ(primary(), "\rsec");
+    drag(30, 1, 40, 0);
+    ASSERT_TRUE(selected(40, 0, 30, 1));
+    ASSERT_STREQ(primary(), "\rsecond line");
 }
 
 /* Output over a selected cell drops the highlight, and the primary keeps
@@ -207,19 +370,19 @@ UTEST(mouse, a_drag_while_output_scrolls)
 {
     start();
     show(TEXT);
-    at(6, 1, 0);
-    at(6, 1, TABLET_FLAG_LEFT);
+    edge(6, 1, 0);
+    edge(6, 1, TABLET_FLAG_LEFT);
     show("\33[30;1H\n");
-    at(4, 3, TABLET_FLAG_LEFT);
-    ASSERT_TRUE(selected(6, 0, 0, 4));
+    edge(4, 3, TABLET_FLAG_LEFT);
+    ASSERT_TRUE(selected(6, 0, 4, 3));
     show("\n\n\n");
-    at(5, 3, TABLET_FLAG_LEFT);
-    ASSERT_TRUE(selected(0, 0, 0, 4));
+    edge(5, 3, TABLET_FLAG_LEFT);
+    ASSERT_TRUE(selected(0, 0, 5, 3));
     for (int i = 0; i < 40; i++)
         show("\n");
     show("\33[15;1Hlate text");
-    at(4, 14, TABLET_FLAG_LEFT);
-    at(4, 14, 0);
+    edge(4, 14, TABLET_FLAG_LEFT);
+    edge(4, 14, 0);
     ASSERT_TRUE(selected(0, 0, 4, 14));
     ASSERT_STREQ(primary(), "\r\r\r\r\r\r\r\r\r\r\r\r\r\rlate");
 }
@@ -243,10 +406,10 @@ UTEST(mouse, a_touch_selects)
 {
     start();
     show(TEXT);
-    tablet_point_t pt = {6 * 8 + 3, 7};
+    tablet_point_t pt = {6 * 8, 7};
     tablet_host_touch(&pt, 1);
     vterm_mouse_task();
-    pt.x = 11 * 8 + 3;
+    pt.x = 11 * 8;
     tablet_host_touch(&pt, 1);
     vterm_mouse_task();
     tablet_host_clear();
@@ -290,13 +453,13 @@ UTEST(mouse, a_drag_leaving_mode_0_goes_on)
     vterm_mouse_task();
     const term_grid_t *g = vterm_get_shown(&vterm);
     ASSERT_EQ(g->width, 40);
-    ASSERT_TRUE(selected(2, 0, 37, 25));
-    /* Every row is a line, as xterm copies them: the first's text and the
-     * empty ones after it. */
-    char want[6 + 26];
+    ASSERT_TRUE(selected(2, 0, 38, 25));
+    /* Every row but the last is a line, as xterm copies them: the first's
+     * text and the empty ones after it. */
+    char want[6 + 25];
     memcpy(want, "p row", 5);
-    memset(want + 5, '\r', 26);
-    want[31] = 0;
+    memset(want + 5, '\r', 25);
+    want[30] = 0;
     ASSERT_STREQ(primary(), want);
 
     tablet_host_pointer(10, 8, TABLET_FLAG_LEFT, true);
@@ -305,7 +468,7 @@ UTEST(mouse, a_drag_leaving_mode_0_goes_on)
     vterm_mouse_task();
     tablet_host_pointer(100, 100, 0, true);
     vterm_mouse_task();
-    ASSERT_TRUE(selected(2, 0, 37, 25));
+    ASSERT_TRUE(selected(2, 0, 38, 25));
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
 }
 
@@ -420,12 +583,12 @@ UTEST(mouse, the_right_button_extends_from_the_nearer_end)
     start();
     show(TEXT);
     drag(6, 0, 11, 0);
-    at(2, 0, TABLET_FLAG_RIGHT);
-    at(2, 0, 0);
+    edge(2, 0, TABLET_FLAG_RIGHT);
+    edge(2, 0, 0);
     ASSERT_TRUE(selected(2, 0, 11, 0));
     ASSERT_STREQ(primary(), "llo world");
-    at(15, 0, TABLET_FLAG_RIGHT);
-    at(15, 0, 0);
+    edge(15, 0, TABLET_FLAG_RIGHT);
+    edge(15, 0, 0);
     ASSERT_TRUE(selected(2, 0, 15, 0));
     ASSERT_STREQ(primary(), "llo world foo");
 }
@@ -468,9 +631,9 @@ UTEST(mouse, extending_nothing_selects_from_the_click)
 {
     start();
     show(TEXT);
-    at(6, 0, TABLET_FLAG_RIGHT);
-    at(11, 0, TABLET_FLAG_RIGHT);
-    at(11, 0, 0);
+    edge(6, 0, TABLET_FLAG_RIGHT);
+    edge(11, 0, TABLET_FLAG_RIGHT);
+    edge(11, 0, 0);
     ASSERT_TRUE(selected(6, 0, 11, 0));
 }
 
@@ -615,9 +778,13 @@ static void editing(void)
     loop();
 }
 
-static bool rev(int x, int y)
+/* Whether the highlight, the console's terminal's one selection, takes
+ * column x of row y, as mode 0's row word has it. */
+static bool hl(int x, int y)
 {
-    return (tb_screen_row((uint8_t)y)[x].attributes & MODE0_ATTR_REVERSE) != 0;
+    draw_publish();
+    const uint32_t w = mode0_regs.row[y];
+    return x >= MODE0_ROW_FROM(w) && x < MODE0_ROW_TO(w);
 }
 
 /* What the line editor's selection copies, the clipboard emptied first. */
@@ -628,23 +795,23 @@ static const char *line_copy(void)
     return host_clipboard_get();
 }
 
-/* A drag in the line selects in it, a click there ends that, and neither
- * touches the primary. */
+/* A drag in the line selects in it, as the terminal's one selection, a
+ * click there ends that, and neither touches the primary. */
 UTEST(mouse, a_drag_in_the_line_selects_in_the_line)
 {
     editing();
     drag(0, 1, 6, 1);
-    ASSERT_TRUE(vterm_selection.shows);
+    ASSERT_TRUE(selected(0, 1, 6, 1));
     drag(2, 2, 5, 2);
     loop();
-    ASSERT_FALSE(vterm_selection.shows);
+    ASSERT_TRUE(selected(2, 2, 5, 2));
     ASSERT_STREQ(line_copy(), "abc");
-    ASSERT_TRUE(rev(2, 2) && rev(4, 2));
-    ASSERT_FALSE(rev(5, 2));
+    ASSERT_TRUE(hl(2, 2) && hl(4, 2));
+    ASSERT_FALSE(hl(5, 2));
     ASSERT_STREQ(primary(), "second");
     click(3, 2);
     loop();
-    ASSERT_FALSE(rev(2, 2));
+    ASSERT_FALSE(vterm_selection.shows);
     ASSERT_STREQ(line_copy(), "");
 }
 
@@ -655,7 +822,7 @@ UTEST(mouse, a_drag_out_of_the_line_stops_at_its_ends)
     drag(4, 2, 10, 0);
     loop();
     ASSERT_STREQ(line_copy(), "ab");
-    ASSERT_FALSE(vterm_selection.shows);
+    ASSERT_TRUE(selected(2, 2, 4, 2));
     machine_us(300 * 1000);
     drag(4, 2, 30, 5);
     loop();
@@ -682,15 +849,16 @@ UTEST(mouse, each_selection_ends_the_other)
     editing();
     drag(2, 2, 5, 2);
     loop();
-    ASSERT_TRUE(rev(2, 2));
+    ASSERT_TRUE(hl(2, 2));
     drag(0, 1, 6, 1);
     loop();
-    ASSERT_TRUE(vterm_selection.shows);
-    ASSERT_FALSE(rev(2, 2));
+    ASSERT_TRUE(selected(0, 1, 6, 1));
+    ASSERT_FALSE(hl(2, 2));
     ASSERT_STREQ(line_copy(), "");
     hostkey_press(HID_KEY_ARROW_LEFT, KEYBOARD_MODIFIER_LEFTSHIFT, false, true);
     loop();
-    ASSERT_FALSE(vterm_selection.shows);
+    ASSERT_TRUE(selected(4, 2, 5, 2));
+    ASSERT_FALSE(hl(0, 1));
     ASSERT_STREQ(line_copy(), "c");
 }
 
@@ -796,6 +964,56 @@ UTEST(mouse, a_press_during_a_slow_echo_selects_in_the_line)
     loop();
 }
 
+/* A drag in the line by characters selects as a drag on the screen does:
+ * the press's character as soon as the pointer moves, but for a pixel of
+ * margin, and up to the gap nearest the pointer. A press that does not
+ * move selects nothing. */
+UTEST(mouse, a_drag_in_the_line_ends_at_the_nearest_gap)
+{
+    /* "abc def" from column 2: c at column 4, the space at 5, d at 6. */
+    editing();
+    const int y = 2 * 16 + 7;
+    static const struct
+    {
+        int x0, x1;
+        const char *got;
+    } drags[] = {
+        {8 * 4 + 6, 8 * 4 + 6, ""},  {8 * 4 + 6, 8 * 4 + 7, "c"},  {8 * 4 + 6, 8 * 5 + 3, "c"},
+        {8 * 4 + 6, 8 * 5 + 4, "c "}, {8 * 4 + 7, 8 * 5, ""},      {8 * 4 + 7, 8 * 5 + 4, " "},
+        {8 * 6 + 1, 8 * 6, "d"},      {8 * 6 + 1, 8 * 5 + 4, "d"}, {8 * 6 + 1, 8 * 5 + 3, " d"},
+        {8 * 6, 8 * 5 + 7, ""},       {8 * 6, 8 * 5 + 3, " "},
+    };
+    for (unsigned i = 0; i < sizeof drags / sizeof *drags; i++)
+    {
+        tablet_host_pointer(drags[i].x0, y, TABLET_FLAG_LEFT, true);
+        vterm_mouse_task();
+        tablet_host_pointer(drags[i].x1, y, TABLET_FLAG_LEFT, true);
+        vterm_mouse_task();
+        tablet_host_pointer(drags[i].x1, y, 0, true);
+        vterm_mouse_task();
+        loop();
+        ASSERT_STREQ(line_copy(), drags[i].got);
+        machine_us(300 * 1000);
+    }
+}
+
+/* The right button with the line's selection showing has no primary to
+ * extend: it selects from the click, as with nothing selected, which ends
+ * the line's. */
+UTEST(mouse, extending_the_line_s_selection_starts_the_primary)
+{
+    editing();
+    drag(2, 2, 5, 2);
+    loop();
+    ASSERT_TRUE(selected(2, 2, 5, 2));
+    edge(6, 0, TABLET_FLAG_RIGHT);
+    edge(11, 0, TABLET_FLAG_RIGHT);
+    edge(11, 0, 0);
+    ASSERT_TRUE(selected(6, 0, 11, 0));
+    ASSERT_STREQ(line_copy(), "");
+    ASSERT_STREQ(primary(), "world");
+}
+
 /* A drag whose press was in a read's line that has ended selects nothing
  * in the next read's line. */
 UTEST(mouse, a_drag_ends_with_its_read)
@@ -816,7 +1034,7 @@ UTEST(mouse, a_drag_ends_with_its_read)
     at(4, 3, TABLET_FLAG_LEFT);
     at(4, 3, 0);
     loop();
-    ASSERT_FALSE(rev(2, 3));
+    ASSERT_FALSE(hl(2, 3));
     ASSERT_STREQ(line_copy(), "");
     ASSERT_FALSE(vterm_selection.shows);
 }
@@ -1154,8 +1372,8 @@ UTEST(mouse, shift_selects_under_a_mouse_mode)
     keyboard_set_key(HID_KEY_SHIFT_LEFT, true);
     drag(6, 0, 11, 0);
     ASSERT_TRUE(selected(6, 0, 11, 0));
-    at(15, 0, TABLET_FLAG_RIGHT);
-    at(15, 0, 0);
+    edge(15, 0, TABLET_FLAG_RIGHT);
+    edge(15, 0, 0);
     ASSERT_TRUE(selected(6, 0, 15, 0));
     keyboard_set_key(HID_KEY_SHIFT_LEFT, false);
     ASSERT_STREQ(typed(), "");
@@ -1192,7 +1410,6 @@ UTEST(mouse, the_line_s_selection_stays_off_under_a_mouse_mode)
     loop();
     ASSERT_TRUE(selected(2, 2, 5, 2));
     ASSERT_STREQ(line_copy(), "");
-    ASSERT_FALSE(rev(2, 2));
 }
 
 /* ---- highlight tracking (step 32) ---------------------------------------- */
@@ -1711,17 +1928,41 @@ UTEST(mouse, a_load_mid_drag_goes_on_with_it)
 {
     start();
     show(TEXT);
-    at(6, 0, 0);
-    at(6, 0, TABLET_FLAG_LEFT);
-    at(4, 1, TABLET_FLAG_LEFT);
+    edge(6, 0, 0);
+    edge(6, 0, TABLET_FLAG_LEFT);
+    edge(4, 1, TABLET_FLAG_LEFT);
     ASSERT_TRUE(selected(6, 0, 4, 1));
     round_trip(utest_result);
     ASSERT_TRUE(selected(6, 0, 4, 1));
     show("\33[30;1H\n");
-    at(11, 0, TABLET_FLAG_LEFT);
-    at(11, 0, 0);
+    edge(11, 0, TABLET_FLAG_LEFT);
+    edge(11, 0, 0);
     ASSERT_TRUE(selected(0, 0, 11, 0));
     ASSERT_STREQ(primary(), "second line");
+}
+
+/* The press keeps its place in its character while output scrolls the
+ * screen under the drag, and in a save state: a press in a character's
+ * last pixel column still starts the drag on at the next character. */
+UTEST(mouse, the_press_keeps_its_place_in_its_character)
+{
+    start();
+    show(TEXT);
+    tablet_host_pointer(6 * 8 + 7, 16 + 7, 0, true);
+    vterm_mouse_task();
+    tablet_host_pointer(6 * 8 + 7, 16 + 7, TABLET_FLAG_LEFT, true);
+    vterm_mouse_task();
+    show("\33[30;1H\n");
+    edge(9, 0, TABLET_FLAG_LEFT);
+    ASSERT_TRUE(selected(7, 0, 9, 0));
+    round_trip(utest_result);
+    edge(10, 0, TABLET_FLAG_LEFT);
+    ASSERT_TRUE(selected(7, 0, 10, 0));
+    tablet_host_pointer(6 * 8 + 6, 7, TABLET_FLAG_LEFT, true);
+    vterm_mouse_task();
+    ASSERT_TRUE(selected(6, 0, 7, 0));
+    edge(10, 0, 0);
+    ASSERT_STREQ(primary(), "lin");
 }
 
 /* A load between the clicks of a double click keeps the first, so the

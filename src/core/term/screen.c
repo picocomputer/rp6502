@@ -27,16 +27,12 @@ static inline unsigned screen_cols(const screen_t *s, uint8_t y)
 
 /* ---- the selection ----------------------------------------------------- */
 
-// The columns of row of memory m the selection takes: all of them but on
-// its first row, which starts at its start, and its last, which ends at
-// its end.
 void screen_selection_touch(uint8_t m, unsigned from, unsigned to)
 {
-    const screen_selection_t *v = &vterm_selection;
-    if (!((v->rows >> m) & 1))
+    if (!((vterm_selection.rows >> m) & 1))
         return;
-    const unsigned first = m == v->start_row ? v->start_col : 0;
-    const unsigned last = m == v->end_row ? v->end_col : UINT8_MAX;
+    unsigned first, last;
+    screen_selection_cols(m, UINT8_MAX, &first, &last);
     if (from < last && first < to)
         screen_selection_drop();
 }
@@ -91,14 +87,14 @@ static unsigned screen_marks_leaving(const screen_t *s, unsigned from, unsigned 
 }
 
 // The marks of leaving, which left, go to row y of the screen as it is now:
-// to its first cell, or with end to one past its last.
+// to the left edge of its first cell, or with end to one past its last.
 static void screen_marks_land(const screen_t *s, unsigned leaving, uint8_t y, bool end)
 {
     const uint8_t m = screen_mem(s, y);
     const uint8_t col = end ? (uint8_t)screen_mem_cols(s, m) : 0;
     for (unsigned i = 0; i < vterm_marks.n; i++)
         if ((leaving >> i) & 1)
-            vterm_marks.at[i] = (screen_mark_t){m, col};
+            vterm_marks.at[i] = (screen_mark_t){m, col, 0};
 }
 
 // The ring is about to go back in order, which puts row y of the screen in
@@ -808,7 +804,7 @@ void screen_copy(screen_t *s, uint8_t y0, uint8_t x0, uint8_t y1, uint8_t x1,
         const unsigned to = y < y1 ? cols : x1 < cols ? x1 : cols;
         for (unsigned x = y > y0 ? 0 : x0; x < to && x < last; x++)
             sink->text(sink, text[x] & CELL_TEXT_WRITTEN ? text[x] : ' ');
-        if (!screen_wrapped(s, (uint8_t)y) && (y < y1 || x1 > last))
+        if (y < y1 && !screen_wrapped(s, (uint8_t)y))
             sink->line(sink);
     }
 }

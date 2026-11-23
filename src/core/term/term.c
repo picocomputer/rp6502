@@ -21,7 +21,7 @@
 // A VT420 as xterm is one: the VT420's margins, rectangles, reports and
 // character sets (DEC Special Graphics and DEC Technical, in G0 to G3), with
 // what xterm adds: 256 colors and truecolor, the alternate screen, the
-// dynamic colors of OSC 4/10/11/12, bracketed paste, and DECRQSS, which is
+// dynamic colors of OSC 4/10/11/12/17/19, bracketed paste, and DECRQSS, which is
 // how a program finds kitty's underlines. From SyncTERM it takes DECSCS,
 // the speed ANSI art is drawn at. The parser follows the DEC/xterm
 // state machine (vt100.net), so unknown sequences and strings are taken
@@ -1505,13 +1505,37 @@ static void term_osc_ask(term_t *t, unsigned which)
     }
 }
 
+/* The dynamic colors of xterm's OSC 10 to 19 the console has, each at its
+ * number less 10: the default foreground and background, the cursor's,
+ * and the selection's background and text, 17 and 19. The pointer's (13
+ * and 14) and the Tektronix window's (15, 16 and 18) it has not. */
+static const uint16_t term_osc_dynamic[10] = {
+    VTERM_COLOR_FG, VTERM_COLOR_BG, VTERM_COLOR_CURSOR, 0, 0,
+    0, 0, VTERM_COLOR_HIGHLIGHT_BG, 0, VTERM_COLOR_HIGHLIGHT_FG,
+};
+
+_Static_assert(VTERM_COLORS == VTERM_COLOR_HIGHLIGHT_FG + 1,
+               "every special color is a dynamic color of xterm's");
+
+// The OSC number of a color: 4 for an entry of the palette, else its
+// dynamic color's.
+static unsigned term_osc_number(unsigned which)
+{
+    if (which < VTERM_PALETTE)
+        return 4;
+    unsigned n = 0;
+    while (term_osc_dynamic[n] != which)
+        n++;
+    return 10 + n;
+}
+
 // The answer: the OSC that would set the color, with each channel as four
 // hex digits, as xterm answers. The console shows five bits of a channel,
 // so those are the bits it gives back.
 static void term_reply_color(unsigned which, uint16_t color, const char *end)
 {
     char buf[TERM_REPLY_MAX];
-    const unsigned number = which < 256 ? 4 : 10 + which - VTERM_COLOR_FG;
+    const unsigned number = term_osc_number(which);
     const int entry = which < 256 ? (int)which : -1;
     const unsigned r = SCANVIDEO_R5_FROM_PIXEL(color) * 0xFFFFu / 31u;
     const unsigned g = SCANVIDEO_G5_FROM_PIXEL(color) * 0xFFFFu / 31u;
@@ -1527,8 +1551,10 @@ static void term_reply_color(unsigned which, uint16_t color, const char *end)
 // One ';'-separated item of an OSC, applied as it ends.
 //   OSC 4 ; N ; spec ; N ; spec ...   set palette entries
 //   OSC 104 ; N ; N ...               reset palette entries
-//   OSC 10 ; fg ; bg ; cursor         set the dynamic colors, each item the
-//                                     next one, as xterm does
+//   OSC 10 ; fg ; bg ; cursor ...     set the dynamic colors, each item the
+//                                     next one up to 19, as xterm does,
+//                                     those the console has not taken and
+//                                     ignored
 // A spec of "?" asks for the color instead.
 static void term_osc_item(term_t *t)
 {
@@ -1561,13 +1587,18 @@ static void term_osc_item(term_t *t)
     case 10:
     case 11:
     case 12:
+    case 13:
+    case 14:
+    case 15:
+    case 16:
+    case 17:
+    case 18:
+    case 19:
     {
         const unsigned number = t->osc_ps + t->osc_item;
-        if (number > 12)
+        const unsigned which = number <= 19 ? term_osc_dynamic[number - 10] : 0;
+        if (!which)
             break;
-        const unsigned which = number == 10   ? VTERM_COLOR_FG
-                               : number == 11 ? VTERM_COLOR_BG
-                                              : VTERM_COLOR_CURSOR;
         if (ask)
             term_osc_ask(t, which);
         else if (term_parse_color(s, len, &color))
@@ -1581,6 +1612,7 @@ static void term_osc_item(term_t *t)
 // the whole of it.
 //   OSC 104   reset the palette     OSC 110   reset the default foreground
 //   OSC 111   the default background  OSC 112   the cursor color
+//   OSC 117   the selection's background  OSC 119   its text
 // Other commands, such as the titles, are taken and ignored.
 static void term_osc_end(term_t *t, const char *end)
 {
@@ -1608,6 +1640,12 @@ static void term_osc_end(term_t *t, const char *end)
             break;
         case 112:
             vterm_reset_color(t, VTERM_COLOR_CURSOR);
+            break;
+        case 117:
+            vterm_reset_color(t, VTERM_COLOR_HIGHLIGHT_BG);
+            break;
+        case 119:
+            vterm_reset_color(t, VTERM_COLOR_HIGHLIGHT_FG);
             break;
         }
     }
@@ -2369,7 +2407,7 @@ bool term_sst_ok(sst_cursor_t *c, const term_t *t)
         t->osc_len > TERM_OSC_SPEC_MAX + 1 || t->osc_asks > TERM_OSC_ASK_MAX)
         return sst_refuse(c, "the terminal's parser out of range");
     for (int i = 0; i < TERM_OSC_ASK_MAX; i++)
-        if (t->osc_ask[i].which > VTERM_COLOR_CURSOR)
+        if (t->osc_ask[i].which >= VTERM_COLORS)
             return sst_refuse(c, "an OSC answer for no color");
     return true;
 }

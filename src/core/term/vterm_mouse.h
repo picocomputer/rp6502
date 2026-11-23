@@ -105,6 +105,10 @@ bool vterm_mouse_acts(void);
  * keys. */
 void vterm_focus(bool focused);
 
+/* Whether the host's window has the focus, as the host last said: always
+ * on a host that cannot lose it. Mode 0 draws the cursor by it (draw.c). */
+bool vterm_focused(void);
+
 /* ---- what the console's terminal asks of it -----------------------------
  *
  * The console's terminal (term.c) calls these as a program's sequences

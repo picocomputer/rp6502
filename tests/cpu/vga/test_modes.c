@@ -738,7 +738,7 @@ UTEST(mode0, a_selection_dragged_over_the_console_640x480)
     if (getenv("RP6502_BLESS_CRC"))
         printf("    0x%08X,  /* %s selected */\n", got, name);
     else
-        ASSERT_EQ(got, 0x0ADB5B0Du);
+        ASSERT_EQ(got, 0x3408D1E7u);
 }
 
 UTEST(mode0, double_size_lines_640x480)

@@ -70,7 +70,7 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)251434);
+    ASSERT_EQ(sst_size(), (size_t)251446);
     ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 44u);
 }
 
@@ -282,9 +282,13 @@ UTEST(sst, the_palette_and_its_faint_twins_come_back)
     const uint16_t red = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(200, 100, 40);
     const uint16_t cursor = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(0, 80, 160);
     const uint16_t paper = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(240, 230, 200);
+    const uint16_t lit = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 255);
+    const uint16_t text = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(255, 255, 0);
     vterm_set_color(&vterm, 1, red);
     vterm_set_color(&vterm, VTERM_COLOR_CURSOR, cursor);
     vterm_set_color(&vterm, VTERM_COLOR_BG, paper);
+    vterm_set_color(&vterm, VTERM_COLOR_HIGHLIGHT_BG, lit);
+    vterm_set_color(&vterm, VTERM_COLOR_HIGHLIGHT_FG, text);
     draw_publish();
     ASSERT_EQ(take(), (const char *)NULL);
     vterm_reset_colors(&vterm);
@@ -294,6 +298,10 @@ UTEST(sst, the_palette_and_its_faint_twins_come_back)
     ASSERT_EQ(vterm_palette[1], red);
     ASSERT_EQ(vterm_get_color(&vterm, VTERM_COLOR_CURSOR), cursor);
     ASSERT_EQ(vterm_get_color(&vterm, VTERM_COLOR_BG), paper);
+    ASSERT_EQ(vterm_get_color(&vterm, VTERM_COLOR_HIGHLIGHT_BG), lit);
+    ASSERT_EQ(vterm_get_color(&vterm, VTERM_COLOR_HIGHLIGHT_FG), text);
+    draw_publish();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | lit);
     ASSERT_EQ(mode0_color(MODE0_ENTRY(1, false)), red);
     ASSERT_EQ(mode0_color(MODE0_ENTRY(1, true)), mode0_faint(red));
     ASSERT_EQ(mode0_color(MODE0_ENTRY(MODE0_DEFAULT_BG, false)), paper);
