@@ -59,6 +59,7 @@
 #include "core/hid/usage.h"
 #include "core/hid/vtkey.h"
 #include "core/sys/sys.h"
+#include "core/sys/timer.h"
 #include "core/term/draw.h"
 #include "core/term/vterm.h"
 #include "core/term/vterm_mouse.h"
@@ -1386,6 +1387,11 @@ static void vt_press(uint8_t usage, uint8_t modifier, bool repeat)
 static int vt_mouse_col = 40, vt_mouse_row = 15;
 static uint8_t vt_mouse_buttons;
 
+/* When a press is a click of its own again, on the machine's clock: a
+ * press within VTERM_MOUSE_CLICK_MS of the last release goes on from it
+ * (vterm_mouse.h). */
+static timer_mach_t vt_mouse_click_by;
+
 static void vt_mouse_point(void)
 {
     tablet_host_pointer((vt_mouse_col - 1) * 8 + 3, (vt_mouse_row - 1) * 16 + 7,
@@ -1422,11 +1428,21 @@ static bool vt_mouse(const char *word, size_t len)
         const bool release = !strncmp(w, "release-", 8) && !strcmp(w + 8, buttons[i].name);
         if (press || release)
         {
+            /* Every press of the walk is a click of its own. The machine's
+             * clock runs as the frames the walk runs for vttest's output,
+             * and how many that takes depends on how the output came in,
+             * so the walk lets the time of a double click go by itself. */
             if (press)
+            {
+                while (!timer_mach_passed(vt_mouse_click_by))
+                    vga_run_frame();
                 vt_mouse_buttons |= buttons[i].button;
+            }
             else
                 vt_mouse_buttons &= (uint8_t)~buttons[i].button;
             vt_mouse_point();
+            if (release)
+                vt_mouse_click_by = timer_mach_in_ms(VTERM_MOUSE_CLICK_MS);
             return true;
         }
     }

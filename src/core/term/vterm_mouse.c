@@ -111,8 +111,6 @@ static bool vterm_focus_told = true;
  * the screen goes to the edge it left by, as xterm's do. A point keeps its
  * place inside its cell, as the press's must. */
 
-#define VTERM_MOUSE_CLICK_MS 250
-
 enum
 {
     VTERM_MOUSE_CHAR,

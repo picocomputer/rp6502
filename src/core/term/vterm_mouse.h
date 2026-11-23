@@ -74,6 +74,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* A press within this of the last release, on the machine's clock, goes on
+ * from it: a double click, then a triple. */
+#define VTERM_MOUSE_CLICK_MS 250
+
 /* A change of contact 0, as the task takes it. */
 typedef struct
 {
