@@ -37,6 +37,15 @@
  * recorded is held against xterm's (xmirror.h). The differences are in
  * OUTDIR/xterm.txt and OUTDIR/xterm/, and VTXKNOWN names those approved.
  *
+ * In the mouse's menus (11.8.5) the walk takes the choices in an order of its
+ * own: every test of the mouse's events in every form of report, with focus
+ * events on, then the DEC locator's. A test there gets the mouse as well as
+ * keys: the pointer moves over the console's cells, its buttons go down and
+ * up and its wheel turns, through the tablet as a host's pointer does, and
+ * the focus goes and comes back. A choice taken more than once names its
+ * screens with the time it was taken, as 11.8.5_3.2-01. The selection is in
+ * a screen's digest while one shows.
+ *
  * With VTCMD set, the program run is that shell command instead, with TERM
  * xterm-256color, and the walk is VTKEYS: a screen is recorded each time
  * the program has been quiet a moment, then the next step of VTKEYS is
@@ -46,10 +55,13 @@
 #include "core/com/manifold.h"
 #include "core/hid/hostkey.h"
 #include "core/hid/keyboard.h"
+#include "core/hid/tablet.h"
 #include "core/hid/usage.h"
 #include "core/hid/vtkey.h"
 #include "core/sys/sys.h"
 #include "core/term/draw.h"
+#include "core/term/vterm.h"
+#include "core/term/vterm_mouse.h"
 #include "tb_screen.h"
 #include "xmirror.h"
 #include "core/vga/vga.h"
@@ -217,10 +229,22 @@ static const uint32_t vt_cp437_high[128] = {
     0x00B0, 0x2219, 0x00B7, 0x221A, 0x207F, 0x00B2, 0x25A0, 0x00A0,
 };
 
+/* What the console's mouse types goes to vttest as it would from the
+ * console: its reports, and the DEC locator's answers. */
+static void vt_mouse_sends(void)
+{
+    vterm_mouse_task();
+    char buf[64];
+    size_t n;
+    while ((n = com_read(COM_SOURCE_KEYBOARD, buf, sizeof buf)) > 0)
+        vt_reply(buf, n);
+}
+
 /* The bytes go to the terminal as a program's would: a byte held for a smooth
  * scroll waits in the console's output while frames run, as many as the
  * scroll takes. All of them are in before the answers are read, because
- * vttest may be waiting for one. */
+ * vttest may be waiting for one. The mouse's answers, which it types with
+ * the keys, go too. */
 static void vt_term_write(const char *buf, size_t n)
 {
     for (size_t i = 0; i < n; i++)
@@ -241,6 +265,7 @@ static void vt_term_write(const char *buf, size_t n)
     size_t r;
     while ((r = com_read(COM_SOURCE_UART, reply, sizeof reply)) > 0)
         vt_reply(reply, r);
+    vt_mouse_sends();
 }
 
 static void vt_term_init(void)
@@ -355,8 +380,36 @@ static uint32_t vt_cells(void)
     return crc;
 }
 
+/* Where the selection starts and ends on the screen showing, rows and
+ * columns from 0: false when none shows there. */
+static bool vt_selection(uint8_t at[4])
+{
+    const screen_selection_t *sel = &vterm_selection;
+    const term_grid_t *g = vterm_get_shown(&vterm);
+    if (!sel->shows || sel->screen != g->shown)
+        return false;
+    bool start = false, end = false;
+    for (uint8_t y = 0; y < g->height; y++)
+    {
+        const uint8_t m = screen_mem(g->shown, y);
+        if (m == sel->start_row)
+        {
+            at[0] = y;
+            at[1] = sel->start_col;
+            start = true;
+        }
+        if (m == sel->end_row)
+        {
+            at[2] = y;
+            at[3] = sel->end_col;
+            end = true;
+        }
+    }
+    return start && end;
+}
+
 /* A CRC-32 of what the screen shows: the cells, each line's size, and the
- * reverse screen. */
+ * reverse screen; and the selection, while one shows. */
 static uint32_t vt_digest(void)
 {
     uint32_t crc = vt_cells();
@@ -368,7 +421,11 @@ static uint32_t vt_digest(void)
     tb_screen_t v;
     tb_screen(&v);
     uint8_t reverse = v.reverse;
-    return host_crc32(crc, &reverse, 1);
+    crc = host_crc32(crc, &reverse, 1);
+    uint8_t at[4];
+    if (vt_selection(at))
+        crc = host_crc32(crc, at, sizeof at);
+    return crc;
 }
 
 static bool vt_blank(void)
@@ -855,13 +912,16 @@ static void vt_feed(const char *buf, size_t n)
 /* ------------------------------------------------------------------------
  * The walk */
 
+#define VT_CHOICES 32 /* the most choices a menu has */
+
 typedef struct
 {
     char key[160];
     char id[24]; /* the title's number, "main", or m03 for the fourth menu met */
-    int next;    /* the next choice to take, from 1 */
+    int next;    /* the next choice to take, from 1, or of its script (vt_scripts) */
     int visits;
     uint32_t last; /* the cells of its last recording */
+    uint8_t taken[VT_CHOICES]; /* the times each choice was taken */
 } vt_menu_t;
 
 #define VT_MENUS 256
@@ -887,13 +947,46 @@ static const char *const vt_skip[] = {
     "Do not color after switching",
 };
 
+/* The menus whose choices the walk takes in an order of its own, as their
+ * number has them, until 0. The mouse's: focus events on, then the five
+ * tests of the mouse's events in each of the five forms of report, each
+ * form after the last, and the DEC locator's in the first, then the normal
+ * form and no focus events back. vttest marks the locator's cells as
+ * pixels while the pixel form is chosen, and answers highlight tracking's
+ * press in pixels with the pixel as the cell, then marks the cells of its
+ * report as pixels over its own prompt, so the locator goes in the normal
+ * form and highlight tracking is left out in pixels. */
+static const struct
+{
+    const char *id;
+    const int *choices;
+} vt_scripts[] = {
+    {"11.8.5", (const int[]){2, 3, 4, 5, 6, 7, 8, 1, 3, 4, 5, 6, 7, 1, 3, 4, 5, 6, 7, 1, 3, 4, 5,
+                              6, 7, 1, 3, 4, 6, 7, 1, 2, 0}},
+};
+
+static const int *vt_script(const char *id)
+{
+    for (size_t i = 0; i < sizeof vt_scripts / sizeof vt_scripts[0]; i++)
+        if (!strcmp(vt_scripts[i].id, id))
+            return vt_scripts[i].choices;
+    return NULL;
+}
+
 /* What to type where a test asks for more than Return, found by a prompt on
  * the screen; the first row that matches wins. A step is the keys typed at
  * one wait, as vt_type takes them, and locks are the keyboard's locks while
  * they are typed. A test that reads one key at a time and gives each a line gets
  * one key a step. Only the screen before the last step is recorded, which
  * shows what the steps before it did, and the last step is typed again at
- * every wait after it. */
+ * every wait after it. A step that begins with + has the screen before it
+ * recorded too, for what a step before it showed only until the next.
+ *
+ * The mouse is in steps too, as words: @C,R moves the pointer over column C
+ * of row R of the console, from 1; press-left, release-left and the same of
+ * middle and right are its buttons; wheel-up and wheel-down turn its wheel
+ * a notch; focus-out and focus-in are the window losing and gaining the
+ * focus. */
 typedef struct
 {
     const char *prompt;
@@ -937,7 +1030,41 @@ static const char *const vt_control_keys[] = {
     "ctrl-6 ctrl-/",
     "backspace", NULL};
 
+/* The tests of the mouse's menus, by their titles, which those with more
+ * words come before. Each marks where the reports put the pointer. */
 static const vt_answer_t vt_answers[] = {
+    {"X10 Mouse Compatibility", 0,
+     VT_STEPS("@10,8 press-left release-left", "@20,9 press-middle release-middle",
+              "@30,10 press-right release-right", "q")},
+    /* The press is told; moved with it held, the release is a * where it
+     * came up; the wheel is button 4 and 5; and the focus goes and comes
+     * back, which the reports show as they came. */
+    {"Normal Mouse Tracking", 0,
+     VT_STEPS("@10,8 press-left", "@14,8 release-left", "@20,10 press-right release-right",
+              "wheel-up", "wheel-down", "focus-out", "focus-in", "q")},
+    /* vttest answers a press with the rows 10 to 20, and the drag shows the
+     * highlight, which its release tells and ends: where it ends, when it
+     * ends at the pointer from where vttest said; all of it, after a drag
+     * back; and a drag past row 19 held to it. */
+    {"Mouse Highlight Tracking", 0,
+     VT_STEPS("@10,12 press-left", "@30,14", "+release-left", "@40,15 press-left", "@20,13",
+              "+release-left", "@10,12 press-left", "@20,25", "+release-left", "q")},
+    {"Mouse Any-Event Tracking", 0,
+     VT_STEPS("@10,8", "@12,8", "press-left", "@16,9", "release-left", "q")},
+    {"Mouse Button-Event Tracking", 0,
+     VT_STEPS("@10,8", "press-left", "@16,9", "release-left", "q")},
+    /* The locator's: one-shot tells the press and no more; repeated each
+     * press and release; the rectangle, from the pointer where the walk
+     * left it, as the locator leaves it; unfiltered, a cell's rectangle
+     * each time, as it leaves each. q asks for the position. */
+    {"One-Shot (pixels)", 0, VT_STEPS("@10,8 press-left", "release-left", "q")},
+    {"Repeated (pixels)", 0,
+     VT_STEPS("@10,8 press-left", "release-left", "@20,12 press-right release-right", "q")},
+    {"Filter Rectangle (unfiltered)", 0, VT_STEPS("@41,15", "@45,16", "q")},
+    {"One-Shot", 0, VT_STEPS("@10,8 press-left", "release-left", "q")},
+    {"Repeated", 0,
+     VT_STEPS("@10,8 press-left", "release-left", "@20,12 press-right release-right", "q")},
+    {"Filter Rectangle", 0, VT_STEPS("@40,25", "q")},
     {"Press 'q' to quit", 0, VT_STEPS("q")},
     {"Please enter the", 0, VT_STEPS("vttest return")}, /* a window title, a font name */
     /* A key held down: with auto repeat off the repeats are not typed. */
@@ -1253,9 +1380,75 @@ static void vt_press(uint8_t usage, uint8_t modifier, bool repeat)
     }
 }
 
+/* The mouse: the cell the pointer is over, from 1, and the buttons held.
+ * The walk leaves it in the middle of the console when it chooses a test of
+ * the mouse's menus, where no mode of the mouse is set. */
+static int vt_mouse_col = 40, vt_mouse_row = 15;
+static uint8_t vt_mouse_buttons;
+
+static void vt_mouse_point(void)
+{
+    tablet_host_pointer((vt_mouse_col - 1) * 8 + 3, (vt_mouse_row - 1) * 16 + 7,
+                        vt_mouse_buttons, true);
+    vt_mouse_sends();
+}
+
+/* A word of the mouse's (vt_answer_t), done: false for a word that is not. */
+static bool vt_mouse(const char *word, size_t len)
+{
+    static const struct
+    {
+        const char *name;
+        uint8_t button;
+    } buttons[] = {{"left", TABLET_FLAG_LEFT}, {"middle", TABLET_FLAG_MIDDLE},
+                   {"right", TABLET_FLAG_RIGHT}};
+    char w[32];
+    if (len >= sizeof w)
+        return false;
+    memcpy(w, word, len);
+    w[len] = 0;
+    int col, row;
+    char end;
+    if (sscanf(w, "@%d,%d%c", &col, &row, &end) == 2)
+    {
+        vt_mouse_col = col;
+        vt_mouse_row = row;
+        vt_mouse_point();
+        return true;
+    }
+    for (size_t i = 0; i < sizeof buttons / sizeof buttons[0]; i++)
+    {
+        const bool press = !strncmp(w, "press-", 6) && !strcmp(w + 6, buttons[i].name);
+        const bool release = !strncmp(w, "release-", 8) && !strcmp(w + 8, buttons[i].name);
+        if (press || release)
+        {
+            if (press)
+                vt_mouse_buttons |= buttons[i].button;
+            else
+                vt_mouse_buttons &= (uint8_t)~buttons[i].button;
+            vt_mouse_point();
+            return true;
+        }
+    }
+    if (!strcmp(w, "wheel-up") || !strcmp(w, "wheel-down"))
+    {
+        tablet_host_wheel(w[6] == 'u' ? 1 : -1, 0);
+        vt_mouse_sends();
+        return true;
+    }
+    if (!strcmp(w, "focus-out") || !strcmp(w, "focus-in"))
+    {
+        vterm_focus(w[6] == 'i');
+        vt_mouse_sends();
+        return true;
+    }
+    return false;
+}
+
 /* Types keys, a list of words: a key's name, "again" for the last key
- * repeating while it is held, or text, a character a key. ctrl- in front of
- * a name or a character holds Ctrl. locks are the keyboard's locks. */
+ * repeating while it is held, a word of the mouse's, or text, a character
+ * a key. ctrl- in front of a name or a character holds Ctrl. locks are the
+ * keyboard's locks. */
 static void vt_type(const char *keys, uint8_t locks)
 {
     keyboard_set_locks(locks);
@@ -1265,6 +1458,8 @@ static void vt_type(const char *keys, uint8_t locks)
         const char *word = keys;
         keys += len;
         keys += *keys == ' ';
+        if (vt_mouse(word, len))
+            continue;
         if (len == 5 && !memcmp(word, "again", 5))
         {
             if (vtkey_repeats())
@@ -1476,14 +1671,34 @@ int main(int argc, char **argv)
             else
                 snprintf(name, sizeof name, "%s-menu", m->id);
             vt_last = now;
-            while (m->next <= highest && vt_skipped(m->next))
-                m->next++;
-            int choice = m->next <= highest ? m->next++ : 0;
+            const int *script = vt_script(m->id);
+            int choice;
+            if (script)
+                choice = script[m->next - 1] ? script[m->next++ - 1] : 0;
+            else
+            {
+                while (m->next <= highest && vt_skipped(m->next))
+                    m->next++;
+                choice = m->next <= highest ? m->next++ : 0;
+            }
+            /* The mouse's tests start with the pointer in the middle of the
+             * console and its buttons up. */
+            if (!strncmp(m->id, "11.8.5", 6))
+            {
+                vt_mouse_col = 40;
+                vt_mouse_row = 15;
+                vt_mouse_buttons = 0;
+                vt_mouse_point();
+            }
             char keys[24], what[64];
             snprintf(keys, sizeof keys, "%d return", choice);
             snprintf(what, sizeof what, "choice %d", choice);
             vt_send(name, keys, 0, what);
-            snprintf(vt_path, sizeof vt_path, "%s_%d", m->id, choice);
+            const unsigned taken = choice < VT_CHOICES ? ++m->taken[choice] : 1;
+            if (taken > 1)
+                snprintf(vt_path, sizeof vt_path, "%s_%d.%u", m->id, choice, taken);
+            else
+                snprintf(vt_path, sizeof vt_path, "%s_%d", m->id, choice);
             vt_seq = 0;
             vt_left = m;
             vt_answer = NULL;
@@ -1528,7 +1743,9 @@ int main(int argc, char **argv)
                 if (!last)
                     vt_step++;
             }
-            if (last)
+            const bool shot = last || keys[0] == '+';
+            keys += keys[0] == '+';
+            if (shot)
             {
                 snprintf(name, sizeof name, "%s-%02u", vt_path, ++vt_seq);
                 vt_shot(name);

@@ -151,10 +151,10 @@ void rln_poke(const char *str);
 int rln_index_at(uint8_t y, uint8_t x);
 
 /* The left button went down at index of the line (rln_index_at), its
- * clicks in a row as the console's mouse counted them: one selects by
- * characters, two a word, three the whole line. The line editor takes it
- * after the keys already waiting for it, against the line as those keys
- * left it. */
+ * place in its run of clicks as the console's mouse counted it: the first
+ * and the fourth select by characters, the second a word, the third the
+ * whole line. The line editor takes it after the keys already waiting for
+ * it, against the line as those keys left it. */
 void rln_mouse_press(uint8_t index, uint8_t clicks);
 
 /* The button held since that press moved to row y, column x, as

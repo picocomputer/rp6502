@@ -43,6 +43,7 @@
 #include "core/term/grid.h"
 #include "core/term/screen.h"
 #include "core/term/vterm.h"
+#include "core/term/vterm_mouse.h"
 #include "core/vga/vga.h"
 #include "host/host.h"
 #include <stdarg.h>
@@ -64,6 +65,12 @@ void draw_reset(void) {}
 void draw_job_started(void) {}
 bool host_minimized(void) { return false; }
 bool host_focusable(void) { return true; }
+void vterm_mouse_track(int func, int col, int row, int first, int last)
+{
+    (void)func, (void)col, (void)row, (void)first, (void)last;
+}
+void vterm_mouse_locate(void) {}
+void vterm_mouse_filter(void) {}
 
 #if TERM_CELL_TEXT
 static cell_t xc_cells[VTERM_CELLS];

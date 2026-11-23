@@ -41,6 +41,7 @@
 #include "core/hid/mouse.h"
 #include "core/rom/rom.h"
 #include "core/sys/sys.h"
+#include "core/term/vterm_mouse.h"
 #include "core/vga/vga_emu.h"
 #include <math.h>
 #include <stdint.h>
@@ -499,6 +500,15 @@ void app_input(const struct sapp_event *e)
         app_minimized = true;
     else if (e->type == SAPP_EVENTTYPE_RESTORED)
         app_minimized = false;
+#ifndef __EMSCRIPTEN__
+    /* The desktop window's focus. In the browser sokol's focus is the
+     * browser window's, which several players on a page share, so the web
+     * player's comes from its page instead (entry.c). */
+    else if (e->type == SAPP_EVENTTYPE_FOCUSED)
+        vterm_focus(true);
+    else if (e->type == SAPP_EVENTTYPE_UNFOCUSED)
+        vterm_focus(false);
+#endif
     if (e->type == SAPP_EVENTTYPE_FILES_DROPPED)
     {
         host_window_files_dropped();

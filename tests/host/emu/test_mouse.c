@@ -118,6 +118,23 @@ static bool selected(int x0, int y0, int x1, int y1)
            v->end_col == x1;
 }
 
+/* Row y of the screen showing as text, up to its last character that is
+ * not a space. */
+static const char *row(int y)
+{
+    static char out[81];
+    const mode0_cell_t *cells = tb_screen_row((uint8_t)y);
+    int last = 0;
+    for (int x = 0; x < 80; x++)
+    {
+        out[x] = (char)mode0_glyph_code(cells[x].glyph);
+        if (out[x] != ' ')
+            last = x + 1;
+    }
+    out[last] = 0;
+    return out;
+}
+
 #define TEXT "\33[H\33[2Jhello world foo.bar\r\nsecond line\r\n"
 
 /* ---- characters (step 19) ------------------------------------------------ */
@@ -337,8 +354,8 @@ UTEST(mouse, punctuation_is_a_word_of_its_own)
 }
 
 /* A third click selects the line, which a row that wrapped on its own
- * joins to the next, with the line end after it; a fourth goes back to
- * characters. */
+ * joins to the next, with the line end after it; a fourth and a fifth go
+ * back to characters, and a sixth to words, as xterm's clicks go. */
 UTEST(mouse, a_triple_click_selects_a_wrapped_line)
 {
     start();
@@ -359,6 +376,10 @@ UTEST(mouse, a_triple_click_selects_a_wrapped_line)
     ASSERT_STREQ(primary(), want);
     click(4, 1);
     ASSERT_FALSE(vterm_selection.shows);
+    click(4, 1);
+    ASSERT_FALSE(vterm_selection.shows);
+    click(4, 1);
+    ASSERT_TRUE(selected(0, 0, 20, 1));
 }
 
 /* A drag after a double click goes by words, across rows. */
@@ -653,8 +674,8 @@ UTEST(mouse, a_press_outside_the_line_is_the_primary)
 }
 
 /* One selection at a time: the primary's starting ends the line's, and
- * the line's, by the mouse or by Shift, ends the primary's. The cursor
- * stays where the line's drag left it, after "abc". */
+ * the line's, by the mouse or by Shift, ends the primary's. Shift selects
+ * from the cursor, which the drag in the line left after "abc". */
 UTEST(mouse, each_selection_ends_the_other)
 {
     editing();
@@ -670,6 +691,31 @@ UTEST(mouse, each_selection_ends_the_other)
     loop();
     ASSERT_FALSE(vterm_selection.shows);
     ASSERT_STREQ(line_copy(), "c");
+}
+
+/* The line's cursor follows the mouse: a click puts it where what is typed
+ * next goes, and a drag leaves it at the drag's end, backwards too, where
+ * Shift goes on from it. */
+UTEST(mouse, the_line_s_cursor_follows_the_mouse)
+{
+    editing();
+    click(4, 2);
+    loop();
+    typed_push("X", 1);
+    loop();
+    machine_us(300 * 1000);
+    click(2, 2);
+    click(2, 2);
+    click(2, 2);
+    loop();
+    ASSERT_STREQ(line_copy(), "abXc def");
+    machine_us(300 * 1000);
+    drag(9, 2, 6, 2);
+    loop();
+    ASSERT_STREQ(line_copy(), " de");
+    hostkey_press(HID_KEY_ARROW_RIGHT, KEYBOARD_MODIFIER_LEFTSHIFT, false, true);
+    loop();
+    ASSERT_STREQ(line_copy(), "de");
 }
 
 /* The cursor follows the mouse in the line: a click puts it there, so a
@@ -708,7 +754,8 @@ UTEST(mouse, the_cursor_follows_the_mouse_in_the_line)
     ASSERT_STREQ(line_got, "! def");
 }
 
-/* A double click in the line takes a word, and a triple click the line. */
+/* A double click in the line takes a word, a triple click the line, and a
+ * fourth click characters again. */
 UTEST(mouse, clicks_in_the_line_take_a_word_and_the_line)
 {
     editing();
@@ -719,6 +766,9 @@ UTEST(mouse, clicks_in_the_line_take_a_word_and_the_line)
     click(7, 2);
     loop();
     ASSERT_STREQ(line_copy(), "abc def");
+    click(7, 2);
+    loop();
+    ASSERT_STREQ(line_copy(), "");
 }
 
 /* A press while the line's echo is still going out at a slow speed, with
@@ -1142,6 +1192,494 @@ UTEST(mouse, the_line_s_selection_stays_off_under_a_mouse_mode)
     ASSERT_TRUE(selected(2, 2, 5, 2));
     ASSERT_STREQ(line_copy(), "");
     ASSERT_FALSE(rev(2, 2));
+}
+
+/* ---- highlight tracking (step 32) ---------------------------------------- */
+
+/* Highlight tracking tells a first click and waits for the program's
+ * answer; an answer that starts the highlight makes the drag highlight from
+ * where it said, and the release tells where it ends, CSI t, when it starts
+ * where the program said and ends at the pointer. The highlight then goes,
+ * and the primary takes what it highlighted, as xterm's does. */
+UTEST(mouse, highlight_tracking_tells_where_the_highlight_ends)
+{
+    start();
+    show(TEXT);
+    drag(0, 0, 5, 0);
+    show("\33[?1001h");
+    machine_us(300 * 1000);
+    at(2, 1, 0);
+    at(2, 1, TABLET_FLAG_LEFT);
+    ASSERT_STREQ(typed(), "\33[M #\"");
+    show("\33[1;3;2;1;10T");
+    ASSERT_STREQ(row(1), "second line");
+    at(6, 1, TABLET_FLAG_LEFT);
+    ASSERT_TRUE(selected(2, 1, 6, 1));
+    at(6, 1, 0);
+    ASSERT_STREQ(typed(), "\33[t'\"");
+    ASSERT_FALSE(vterm_selection.shows);
+    ASSERT_STREQ(primary(), "cond");
+}
+
+/* A drag back past where the program started the highlight ends where it
+ * started, so the release tells all of it, CSI T: its start, its end and
+ * the pointer, in the form the terminal is in. The drag is held to the rows
+ * the program said, the last before the one it named, and past a row's
+ * text it ends at the start of the next row, as a selection does. A press
+ * after the click time is a first click again, told and answered. */
+UTEST(mouse, highlight_tracking_tells_the_whole_highlight)
+{
+    start();
+    show(TEXT "\33[?1001h");
+    at(6, 1, TABLET_FLAG_LEFT);
+    ASSERT_STREQ(typed(), "\33[M '\"");
+    show("\33[1;7;2;2;3T");
+    at(2, 0, TABLET_FLAG_LEFT);
+    ASSERT_TRUE(selected(2, 1, 6, 1));
+    at(2, 0, 0);
+    ASSERT_STREQ(typed(), "\33[T#\"'\"#\"");
+    show("\33[?1006h");
+    machine_us(300 * 1000);
+    at(6, 1, TABLET_FLAG_LEFT);
+    ASSERT_STREQ(typed(), "\33[<0;7;2M");
+    show("\33[1;7;2;1;10T");
+    at(1, 3, TABLET_FLAG_LEFT);
+    at(1, 3, 0);
+    ASSERT_STREQ(typed(), "\33[<7;2;1;5;2;4T");
+}
+
+/* A press the program does not answer, or answers with 0, is a normal
+ * event: its release is told, and nothing is highlighted. CSI 0 T is the
+ * answer, not a scroll. */
+UTEST(mouse, highlight_tracking_with_no_answer_is_a_normal_event)
+{
+    start();
+    show(TEXT "\33[?1001h");
+    drag(2, 1, 5, 1);
+    ASSERT_STREQ(typed(), "\33[M #\"\33[M#&\"");
+    ASSERT_FALSE(vterm_selection.shows);
+    at(2, 1, TABLET_FLAG_LEFT);
+    show("\33[0;3;2;1;10T");
+    ASSERT_STREQ(row(0), "hello world foo.bar");
+    at(5, 1, TABLET_FLAG_LEFT);
+    ASSERT_FALSE(vterm_selection.shows);
+    at(5, 1, 0);
+    ASSERT_STREQ(typed(), "\33[M #\"\33[M#&\"");
+    show("\33[1;3;2;1;10T");
+    drag(2, 1, 5, 1);
+    ASSERT_FALSE(vterm_selection.shows);
+}
+
+/* A highlight whose program stops tracking, by ?1001 reset or a RIS, or
+ * changes to another mode, goes at the next change, which is told only as
+ * the mode now set tells it: nothing reaches whatever reads the keys next. */
+UTEST(mouse, highlight_tracking_ends_with_the_mode)
+{
+    start();
+    show(TEXT "\33[?1001h");
+    at(2, 1, TABLET_FLAG_LEFT);
+    ASSERT_STREQ(typed(), "\33[M #\"");
+    show("\33[1;3;2;1;10T");
+    at(6, 1, TABLET_FLAG_LEFT);
+    ASSERT_TRUE(vterm_selection.shows);
+    show("\33[?1001l");
+    at(6, 1, 0);
+    ASSERT_STREQ(typed(), "");
+    ASSERT_FALSE(vterm_selection.shows);
+    show("\33[?1001h");
+    at(2, 1, TABLET_FLAG_LEFT);
+    ASSERT_STREQ(typed(), "\33[M #\"");
+    show("\33[1;3;2;1;10T");
+    show("\33c");
+    at(6, 1, TABLET_FLAG_LEFT);
+    ASSERT_FALSE(vterm_selection.shows);
+    at(6, 1, 0);
+    ASSERT_STREQ(typed(), "");
+    show(TEXT "\33[?1001h");
+    at(2, 1, TABLET_FLAG_LEFT);
+    ASSERT_STREQ(typed(), "\33[M #\"");
+    show("\33[1;3;2;1;10T\33[?1000h");
+    at(6, 1, 0);
+    ASSERT_STREQ(typed(), "\33[M#'\"");
+    ASSERT_FALSE(vterm_selection.shows);
+}
+
+/* A press of the left button within the click time after a highlight's
+ * release goes on from it, as xterm's TrackDown counts clicks, wherever it
+ * is: it is told nothing and highlights at once, from where the program
+ * started the first click's highlight, held to the rows the program said
+ * then. The second goes by words, the third by lines, the fourth and the
+ * fifth by characters and the sixth by words again, as xterm's default
+ * clicks go. Each release tells all of the highlight, CSI T, or CSI t when
+ * it starts there and ends at the pointer, and the primary takes it. A
+ * press after the click time is a first click again, told and waiting for
+ * the answer. */
+UTEST(mouse, highlight_tracking_counts_clicks)
+{
+    start();
+    show(TEXT "\33[?1001h");
+    at(14, 0, TABLET_FLAG_LEFT);
+    ASSERT_STREQ(typed(), "\33[M /!");
+    show("\33[1;14;1;1;1T");
+    at(14, 0, 0);
+    ASSERT_STREQ(typed(), "\33[t/!");
+    ASSERT_STREQ(primary(), "o");
+    at(14, 0, TABLET_FLAG_LEFT);
+    ASSERT_TRUE(selected(12, 0, 15, 0));
+    ASSERT_STREQ(typed(), "");
+    at(14, 0, 0);
+    ASSERT_STREQ(typed(), "\33[T-!0!/!");
+    ASSERT_FALSE(vterm_selection.shows);
+    ASSERT_STREQ(primary(), "foo");
+    at(14, 0, TABLET_FLAG_LEFT);
+    ASSERT_TRUE(selected(0, 0, 0, 1));
+    at(14, 1, TABLET_FLAG_LEFT);
+    ASSERT_TRUE(selected(0, 0, 0, 1));
+    at(14, 1, 0);
+    ASSERT_STREQ(typed(), "\33[T!!!\"/!");
+    ASSERT_STREQ(primary(), "hello world foo.bar\r");
+    for (int i = 0; i < 2; i++)
+    {
+        at(14, 0, TABLET_FLAG_LEFT);
+        ASSERT_TRUE(selected(13, 0, 14, 0));
+        ASSERT_STREQ(typed(), "");
+        at(14, 0, 0);
+        ASSERT_STREQ(typed(), "\33[t/!");
+        ASSERT_STREQ(primary(), "o");
+    }
+    at(5, 0, TABLET_FLAG_LEFT);
+    ASSERT_TRUE(selected(5, 0, 15, 0));
+    ASSERT_STREQ(typed(), "");
+    at(5, 0, 0);
+    ASSERT_STREQ(typed(), "\33[T&!0!&!");
+    ASSERT_STREQ(primary(), " world foo");
+    machine_us(300 * 1000);
+    at(14, 1, TABLET_FLAG_LEFT);
+    ASSERT_STREQ(typed(), "\33[M /\"");
+    ASSERT_FALSE(vterm_selection.shows);
+    at(14, 1, 0);
+    ASSERT_STREQ(typed(), "\33[M#/\"");
+}
+
+/* A click goes on only from the release of a drag, a highlight's or a
+ * selection's: the release of a press the program did not answer is none,
+ * so after one the next press is a first click, told. A report of another
+ * button between does not break the run, as in xterm. A selection made
+ * with Shift goes on into highlighting, from where it started, and frees
+ * the rows the program held the last highlight to. */
+UTEST(mouse, highlight_tracking_counts_from_the_last_drag)
+{
+    start();
+    show(TEXT "\33[?1001h");
+    at(2, 1, TABLET_FLAG_LEFT);
+    ASSERT_STREQ(typed(), "\33[M #\"");
+    show("\33[1;3;2;2;3T");
+    at(2, 1, 0);
+    ASSERT_STREQ(typed(), "");
+    machine_us(300 * 1000);
+    click(2, 1);
+    ASSERT_STREQ(typed(), "\33[M #\"\33[M##\"");
+    at(2, 1, TABLET_FLAG_LEFT);
+    ASSERT_STREQ(typed(), "\33[M #\"");
+    show("\33[1;3;2;2;3T");
+    at(6, 1, TABLET_FLAG_LEFT);
+    ASSERT_TRUE(selected(2, 1, 6, 1));
+    at(6, 1, 0);
+    ASSERT_STREQ(typed(), "\33[t'\"");
+    at(6, 1, TABLET_FLAG_RIGHT);
+    at(6, 1, 0);
+    ASSERT_STREQ(typed(), "\33[M\"'\"\33[M#'\"");
+    at(4, 1, TABLET_FLAG_LEFT);
+    ASSERT_STREQ(typed(), "");
+    ASSERT_TRUE(selected(0, 1, 6, 1));
+    at(4, 0, TABLET_FLAG_LEFT);
+    ASSERT_TRUE(selected(0, 1, 6, 1));
+    at(4, 0, 0);
+    ASSERT_STREQ(typed(), "\33[T!\"'\"%\"");
+    ASSERT_STREQ(primary(), "second");
+    machine_us(300 * 1000);
+    keyboard_set_key(HID_KEY_SHIFT_LEFT, true);
+    drag(8, 1, 9, 1);
+    keyboard_set_key(HID_KEY_SHIFT_LEFT, false);
+    ASSERT_TRUE(selected(8, 1, 9, 1));
+    ASSERT_STREQ(typed(), "");
+    at(9, 1, TABLET_FLAG_LEFT);
+    ASSERT_STREQ(typed(), "");
+    ASSERT_TRUE(selected(7, 1, 11, 1));
+    at(13, 0, TABLET_FLAG_LEFT);
+    ASSERT_TRUE(selected(12, 0, 11, 1));
+    at(13, 0, 0);
+    ASSERT_STREQ(typed(), "\33[T-!,\".!");
+    ASSERT_STREQ(primary(), "foo.bar\rsecond line");
+}
+
+/* A highlight held to rows past the last of mode 0's, which has become
+ * fewer during the drag, is held to its last row. */
+UTEST(mouse, highlight_tracking_holds_to_rows_that_are_left)
+{
+    start();
+    show(TEXT "\33[?1001h");
+    at(2, 1, TABLET_FLAG_LEFT);
+    ASSERT_STREQ(typed(), "\33[M #\"");
+    show("\33[1;3;2;20;26T");
+    at(0, 1, TABLET_FLAG_LEFT);
+    ASSERT_TRUE(selected(2, 1, 0, 19));
+    /* Mode 0 on the console's canvas, its first 10 rows. */
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_480));
+    ASSERT_TRUE(xreg1(0, 3, 0) && xreg1(0, 4, 160) && xreg1(0, 1, 0));
+    ASSERT_EQ(vterm_get_shown(&vterm)->height, 10);
+    at(0, 5, TABLET_FLAG_LEFT);
+    ASSERT_TRUE(selected(2, 1, 0, 9));
+    at(0, 5, 0);
+    ASSERT_STREQ(typed(), "\33[t!*");
+}
+
+/* ---- alternate scroll (step 34) ------------------------------------------ */
+
+/* With alternate scroll, a notch of the wheel over the alternate screen
+ * presses a cursor key five times, as the keys send it in the modes the
+ * terminal is in; over the primary, without the mode, or with a mouse mode
+ * set, it does not. */
+UTEST(mouse, alternate_scroll_presses_the_cursor_keys)
+{
+    start();
+    show(TEXT "\33[?1007h");
+    at(2, 1, 0);
+    ASSERT_FALSE(tablet_wheel_claimed());
+    tablet_host_wheel(1, 0);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "");
+    show("\33[?1049h");
+    ASSERT_TRUE(tablet_wheel_claimed());
+    tablet_host_wheel(1, 1);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "\33[A\33[A\33[A\33[A\33[A");
+    show("\33[?1h");
+    tablet_host_wheel(-2, 0);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "\33OB\33OB\33OB\33OB\33OB\33OB\33OB\33OB\33OB\33OB");
+    show("\33[?2l");
+    tablet_host_wheel(1, 0);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "\33A\33A\33A\33A\33A");
+    show("\33<\33[?1l\33[?9h");
+    ASSERT_FALSE(tablet_wheel_claimed());
+    tablet_host_wheel(1, 0);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "");
+    show("\33[?9l\33[?1007l");
+    ASSERT_FALSE(tablet_wheel_claimed());
+    tablet_host_wheel(1, 0);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "");
+    show("\33[?1049l");
+}
+
+/* A notch waits whole for room behind the keys before it. */
+UTEST(mouse, alternate_scroll_waits_for_room)
+{
+    start();
+    show("\33[?1007;1049h");
+    at(2, 1, 0);
+    static char fill[TYPED_QUEUE_SIZE];
+    memset(fill, 'k', sizeof fill);
+    typed_push(fill, typed_free() - 14);
+    tablet_host_wheel(1, 0);
+    vterm_mouse_task();
+    ASSERT_EQ(typed_free(), (size_t)14);
+    const char *got = typed();
+    ASSERT_EQ(strlen(got), TYPED_QUEUE_SIZE - 14);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "\33[A\33[A\33[A\33[A\33[A");
+    show("\33[?1049;1007l");
+}
+
+/* ---- the DEC locator (step 35) ------------------------------------------- */
+
+/* The locator tells the buttons the program chose, going down and coming
+ * up, with the buttons held after each and where it is, in cells from 1;
+ * and where it is when asked. Nothing is selected. */
+UTEST(mouse, the_locator_tells_the_buttons_chosen)
+{
+    start();
+    show(TEXT "\33[1'z");
+    drag(2, 1, 5, 1);
+    ASSERT_STREQ(typed(), "");
+    show("\33[1;3'{");
+    drag(2, 1, 5, 1);
+    ASSERT_STREQ(typed(), "\33[2;4;2;3&w\33[3;0;2;6&w");
+    at(5, 1, TABLET_FLAG_LEFT);
+    at(5, 1, TABLET_FLAG_LEFT | TABLET_FLAG_RIGHT);
+    ASSERT_STREQ(typed(), "\33[2;4;2;6&w\33[6;5;2;6&w");
+    show("\33[2'{");
+    at(5, 1, TABLET_FLAG_RIGHT);
+    at(5, 1, 0);
+    ASSERT_STREQ(typed(), "\33[3;1;2;6&w\33[7;0;2;6&w");
+    ASSERT_FALSE(vterm_selection.shows);
+    show("\33['|");
+    ASSERT_STREQ(typed(), "\33[1;0;2;6&w");
+    show("\33[1;1'z\33[1'|");
+    ASSERT_STREQ(typed(), "\33[1;0;24;44&w");
+    tablet_host_clear();
+    vterm_mouse_task();
+    show("\33['|");
+    ASSERT_STREQ(typed(), "\33[0&w");
+    show("\33['z\33['|");
+    ASSERT_STREQ(typed(), "\33[0&w");
+}
+
+/* An answer to DECRQLP with no room waits whole for the keys before it to
+ * be read, and the changes after it wait behind it. */
+UTEST(mouse, a_locator_answer_waits_for_room)
+{
+    start();
+    show(TEXT "\33[1'z");
+    at(2, 1, 0);
+    static char fill[TYPED_QUEUE_SIZE];
+    memset(fill, 'k', sizeof fill);
+    typed_push(fill, typed_free() - 4);
+    show("\33['|");
+    ASSERT_EQ(typed_free(), (size_t)4);
+    at(3, 1, 0);
+    const char *got = typed();
+    ASSERT_EQ(strlen(got), TYPED_QUEUE_SIZE - 4);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "\33[1;0;2;3&w");
+}
+
+/* Each DECRQLP is answered, as xterm's: answers with no room wait in
+ * order, up to four, and one asked for past those is dropped, as an
+ * answer with no room is. */
+UTEST(mouse, locator_answers_wait_in_order)
+{
+    start();
+    show(TEXT "\33[1'z");
+    at(2, 1, 0);
+    static char fill[TYPED_QUEUE_SIZE];
+    memset(fill, 'k', sizeof fill);
+    typed_push(fill, typed_free() - 4);
+    show("\33['|\33['|\33[0'z\33['|\33[1'z\33['|\33['|");
+    ASSERT_EQ(typed_free(), (size_t)4);
+    ASSERT_EQ(strlen(typed()), TYPED_QUEUE_SIZE - 4);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "\33[1;0;2;3&w\33[1;0;2;3&w\33[0&w\33[1;0;2;3&w");
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "");
+}
+
+/* A one-shot locator goes off with its first report, and the terminal has
+ * the mouse again. */
+UTEST(mouse, a_one_shot_locator_tells_once)
+{
+    start();
+    show(TEXT "\33[2'z\33[1'{");
+    click(2, 1);
+    ASSERT_STREQ(typed(), "\33[2;4;2;3&w");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_OFF);
+    drag(6, 0, 11, 0);
+    ASSERT_TRUE(selected(6, 0, 11, 0));
+    ASSERT_STREQ(typed(), "");
+    show("\33[2'z\33['|\33['|");
+    ASSERT_STREQ(typed(), "\33[1;0;1;12&w\33[0&w");
+}
+
+/* As xterm's, the one-shot setting outlives the locator, even through a
+ * DECELR 0: a DECRQLP then is answered unavailable and turns off the mouse
+ * events set since. A DECELR 1 ends the setting. */
+UTEST(mouse, a_one_shot_locator_turns_off_the_mouse_events)
+{
+    start();
+    show(TEXT "\33[2'z\33[1'{");
+    click(2, 1);
+    ASSERT_STREQ(typed(), "\33[2;4;2;3&w");
+    show("\33[?1000h\33['|");
+    ASSERT_STREQ(typed(), "\33[0&w");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_OFF);
+    show("\33[2'z\33[0'z\33[?1002h\33['|");
+    ASSERT_STREQ(typed(), "\33[0&w");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_OFF);
+    show("\33[1'z\33['z\33[?1000h\33['|");
+    ASSERT_STREQ(typed(), "\33[0&w");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_NORMAL);
+    click(2, 1);
+    ASSERT_STREQ(typed(), "\33[M #\"\33[M##\"");
+}
+
+/* As xterm's, the filter rectangle's edges in cells are held to the row and
+ * column before the last, so the locator on the last row or column is
+ * outside it. */
+UTEST(mouse, the_filter_rectangle_ends_before_the_last_cell)
+{
+    start();
+    show(TEXT "\33[1'z");
+    at(79, 29, 0);
+    show("\33[1;1;99;99'w");
+    ASSERT_STREQ(typed(), "\33[10;0;30;80&w");
+    at(78, 28, 0);
+    show("\33[1;1;99;99'w");
+    ASSERT_STREQ(typed(), "");
+    at(79, 28, 0);
+    ASSERT_STREQ(typed(), "\33[10;0;29;80&w");
+    at(78, 28, 0);
+    show("\33[1;1;99;99'w");
+    at(78, 29, 0);
+    ASSERT_STREQ(typed(), "\33[10;0;30;79&w");
+}
+
+/* The filter rectangle: the locator leaving it is told once, and an edge
+ * left out is where the locator was. One the locator is already outside
+ * is told at once. A button told while it is armed turns the locator off,
+ * as a request for the position does. */
+UTEST(mouse, the_filter_rectangle_tells_the_locator_leaving)
+{
+    start();
+    show(TEXT "\33[1'z");
+    at(2, 1, 0);
+    show("\33[1;1;3;5'w");
+    at(4, 2, 0);
+    ASSERT_STREQ(typed(), "");
+    at(5, 2, 0);
+    ASSERT_STREQ(typed(), "\33[10;0;3;6&w");
+    at(9, 9, 0);
+    ASSERT_STREQ(typed(), "");
+    show("\33['w");
+    at(9, 9, 0);
+    ASSERT_STREQ(typed(), "");
+    at(9, 8, 0);
+    ASSERT_STREQ(typed(), "\33[10;0;9;10&w");
+    show("\33[20;20;25;25'w");
+    ASSERT_STREQ(typed(), "\33[10;0;9;10&w");
+    show("\33[1;3'{\33['w");
+    click(9, 8);
+    ASSERT_STREQ(typed(), "\33[2;4;9;10&w");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_OFF);
+    show("\33[1'z\33['w\33['|");
+    ASSERT_STREQ(typed(), "\33[0&w");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_OFF);
+}
+
+/* A button told while the locator is unavailable, here as the program
+ * stops sharing the tablet, is told as unavailable and leaves the filter
+ * rectangle armed, as xterm's SendLocatorPosition. */
+UTEST(mouse, an_unavailable_button_leaves_the_filter_rectangle)
+{
+    start();
+    show(TEXT "\33[1'z\33[3'{");
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    xram[0xFF00 + TABLET_OFF_STATUS] = TABLET_STATUS_SHARED;
+    at(2, 1, 0);
+    show("\33[1;1;3;5'w");
+    at(2, 1, TABLET_FLAG_LEFT);
+    ASSERT_STREQ(typed(), "");
+    xram[0xFF00 + TABLET_OFF_STATUS] = 0;
+    at(2, 1, 0);
+    ASSERT_STREQ(typed(), "\33[0&w");
+    ASSERT_TRUE(vterm.locator.filter);
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_LOCATOR);
+    xram[0xFF00 + TABLET_OFF_STATUS] = TABLET_STATUS_SHARED;
+    at(9, 9, 0);
+    ASSERT_STREQ(typed(), "\33[10;0;10;10&w");
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
 }
 
 UTEST_MAIN();

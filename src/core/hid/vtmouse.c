@@ -40,8 +40,16 @@ static uint8_t vtmouse_decimal(char *out, uint8_t n, unsigned value)
     return n;
 }
 
-/* A column or a row, from 0. */
-static uint8_t vtmouse_position(char *out, uint8_t n, uint8_t form, unsigned value)
+/* Whether the form gives its numbers in decimal, each after the first
+ * after a ';'. */
+static bool vtmouse_decimal_form(uint8_t form)
+{
+    return form != TERM_MOUSE_FORM_X10 && form != TERM_MOUSE_FORM_UTF8;
+}
+
+/* A column or a row, from 0, with the ';' before it in the decimal forms
+ * when it follows another number. */
+static uint8_t vtmouse_position(char *out, uint8_t n, uint8_t form, unsigned value, bool after)
 {
     switch (form)
     {
@@ -56,7 +64,8 @@ static uint8_t vtmouse_position(char *out, uint8_t n, uint8_t form, unsigned val
         }
         return vtmouse_utf8(out, n, ' ' + value + 1);
     default:
-        out[n++] = ';';
+        if (after)
+            out[n++] = ';';
         return vtmouse_decimal(out, n, value + 1);
     }
 }
@@ -117,9 +126,47 @@ uint8_t vtmouse_encode(char out[VTMOUSE_MAX], uint8_t form, uint8_t event, uint8
         col = x;
         row = y;
     }
-    n = vtmouse_position(out, n, form, col);
-    n = vtmouse_position(out, n, form, row);
-    if (sgr || form == TERM_MOUSE_FORM_URXVT)
+    n = vtmouse_position(out, n, form, col, true);
+    n = vtmouse_position(out, n, form, row, true);
+    if (vtmouse_decimal_form(form))
         out[n++] = final;
+    return n;
+}
+
+uint8_t vtmouse_hilite(char out[VTMOUSE_HILITE_MAX], uint8_t form, const uint8_t *pos, uint8_t count)
+{
+    const char final = count == 2 ? 't' : 'T';
+    uint8_t n = 0;
+    out[n++] = '\33';
+    out[n++] = '[';
+    if (form == TERM_MOUSE_FORM_SGR || form == TERM_MOUSE_FORM_PIXELS)
+        out[n++] = '<';
+    else if (!vtmouse_decimal_form(form))
+        out[n++] = final;
+    for (uint8_t i = 0; i < count; i++)
+        n = vtmouse_position(out, n, form, pos[i], i > 0);
+    if (vtmouse_decimal_form(form))
+        out[n++] = final;
+    return n;
+}
+
+uint8_t vtmouse_locator(char out[VTMOUSE_LOCATOR_MAX], uint8_t event, uint8_t buttons,
+                        uint16_t row, uint16_t col)
+{
+    uint8_t n = 0;
+    out[n++] = '\33';
+    out[n++] = '[';
+    n = vtmouse_decimal(out, n, event);
+    if (event != VTMOUSE_LOCATOR_UNAVAILABLE)
+    {
+        const uint16_t rest[3] = {buttons, row, col};
+        for (uint8_t i = 0; i < 3; i++)
+        {
+            out[n++] = ';';
+            n = vtmouse_decimal(out, n, rest[i]);
+        }
+    }
+    out[n++] = '&';
+    out[n++] = 'w';
     return n;
 }

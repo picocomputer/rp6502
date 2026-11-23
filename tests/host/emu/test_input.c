@@ -449,6 +449,71 @@ UTEST(input, a_press_and_release_in_one_burst_give_both_edges)
     vterm_mouse_task();
 }
 
+/* The window's focus is told while a program asks (?1004): CSI O as it
+ * goes, CSI I as it comes back, in order with the keys. Without the mode
+ * nothing is, and setting it tells nothing until the focus changes. */
+UTEST(input, the_focus_is_told_while_a_program_asks)
+{
+    sys_init();
+    start(0);
+    vterm_focus(false);
+    vterm_mouse_task();
+    vterm_focus(true);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "");
+    manifold_write_to(COM_TERM_SCREEN, "\33[?1004h", 8);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "");
+    /* A change that comes back before the task looks is none. */
+    vterm_focus(false);
+    vterm_focus(true);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "");
+    key(SAPP_KEYCODE_A, 0, 'a');
+    vterm_focus(false);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "a\33[O");
+    vterm_focus(true);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "\33[I");
+    manifold_write_to(COM_TERM_SCREEN, "\33[?1004l", 8);
+    vterm_focus(false);
+    vterm_mouse_task();
+    vterm_focus(true);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "");
+}
+
+/* A trackpad scrolls by fractions of a notch, which add up to whole
+ * notches of the tablet's wheel, the rest kept for the next. */
+UTEST(input, small_scrolls_add_up)
+{
+    sys_init();
+    start(0);
+    tablet_host_clear();
+    vterm_mouse_task();
+    manifold_write_to(COM_TERM_SCREEN, "\33[?1000h", 8);
+    pointer_to(100, 100);
+    vterm_mouse_task();
+    ASSERT_TRUE(input_wheel_to_tablet());
+    sapp_event w = {.type = SAPP_EVENTTYPE_MOUSE_SCROLL, .scroll_y = 0.4f};
+    input_event(&w);
+    vterm_mouse_task();
+    input_event(&w);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "");
+    input_event(&w);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "\33[M`-'");
+    w.scroll_y = -1.3f;
+    input_event(&w);
+    vterm_mouse_task();
+    ASSERT_STREQ(typed(), "\33[Ma-'");
+    manifold_write_to(COM_TERM_SCREEN, "\33[?1000l", 8);
+    tablet_host_clear();
+    vterm_mouse_task();
+}
+
 /* A program that maps only the mouse is not on the tablet, even over the
  * console: the pointer is the mouse's, captured by the first click, and the
  * terminal has none of it. A program that maps the tablet too has it

@@ -24,17 +24,18 @@ X(STR_UF2_PROG_NAME_VGA, "RP6502-VGA")
 // program left, the backarrow key and mode 40 reset; the mouse's modes
 // reset, in a list of their own since a CSI takes 16 parameters, so no
 // mouse events, focus events or alternate scroll, and reports in X10's
-// form; autowrap, the cursor and key repeat set. Then the scroll region,
-// SGR 0, ASCII in G0 to G3 and G0 shifted in, insert mode off and the
-// numeric keypad, so a terminal on the UART types as the line editor
-// expects once a program ends, with xterm's modifyOtherKeys and
-// formatOtherKeys off. DECSTR would say most of it in four bytes, but
-// SyncTERM has none.
+// form, which ends the DEC locator too, and DECSLE 0, so no locator events
+// are left chosen for the next program; autowrap, the cursor and key
+// repeat set. Then the scroll region, SGR 0, ASCII in G0 to G3 and G0
+// shifted in, insert mode off and the numeric keypad, so a terminal on the
+// UART types as the line editor expects once a program ends, with xterm's
+// modifyOtherKeys and formatOtherKeys off. DECSTR would say most of it in
+// four bytes, but SyncTERM has none.
 // The screen's terminal gets the rest of a reset out of band, with the console
 // reset. The hard reset, RIS, goes to the screen alone: a terminal on the UART
 // keeps what it shows.
 X(STR_TERM_HARD_RESET, "\30\33<\33c")
-X(STR_TERM_SOFT_RESET, "\30\33<\33[*r\33[?47;4;1;69;67;40l\33[?9;1000;1001;1002;1003;1004;1005;1006;1007;1015;1016l\33[?7;25;8h\0337\33[r\0338\33[0m\33(B\33)B\33*B\33+B\17\33[4l\33>\33[>4m\33[>4f")
+X(STR_TERM_SOFT_RESET, "\30\33<\33[*r\33[?47;4;1;69;67;40l\33[?9;1000;1001;1002;1003;1004;1005;1006;1007;1015;1016l\33['{\33[?7;25;8h\0337\33[r\0338\33[0m\33(B\33)B\33*B\33+B\17\33[4l\33>\33[>4m\33[>4f")
 
 // https://www.ntppool.org/
 X(STR_NTP_SERVER, "pool.ntp.org")

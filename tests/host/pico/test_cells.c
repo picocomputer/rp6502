@@ -11,6 +11,7 @@
 #include "core/com/com.h"
 #include "core/term/grid.h"
 #include "core/term/vterm.h"
+#include "core/term/vterm_mouse.h"
 #include "ria/sys/vga.h"
 #include "utest.h"
 #include <string.h>
@@ -26,6 +27,14 @@ static bool connected;
 bool vga_connected(void) { return connected; }
 unsigned long vga_frame_count(void) { return 0; }
 void com_reply(const char *s, size_t n) { (void)s, (void)n; }
+/* The console's mouse is not in this test: what a program asks of it does
+ * nothing. */
+void vterm_mouse_track(int func, int col, int row, int first, int last)
+{
+    (void)func, (void)col, (void)row, (void)first, (void)last;
+}
+void vterm_mouse_locate(void) {}
+void vterm_mouse_filter(void) {}
 void draw_reset(void) {}
 
 /* The jobs the terminal started, which ria/sys/vga.c holds the VGA's

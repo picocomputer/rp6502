@@ -1920,6 +1920,60 @@ UTEST(vtmouse, xterm_s_bytes)
     }
 }
 
+/* What vtmouse_hilite writes, against xterm's EndExtend: CSI t with where
+ * the highlight ends, or CSI T with its start, its end and the pointer, in
+ * each form. */
+static const struct
+{
+    uint8_t form, count;
+    uint8_t pos[6];
+    const char *want;
+} vtmouse_hilite_table[] = {
+    {TERM_MOUSE_FORM_X10, 2, {6, 1}, "\33[t'\""},
+    {TERM_MOUSE_FORM_X10, 6, {2, 1, 6, 1, 2, 0}, "\33[T#\"'\"#!"},
+    {TERM_MOUSE_FORM_UTF8, 2, {79, 31}, "\33[tp@"},
+    {TERM_MOUSE_FORM_SGR, 2, {6, 1}, "\33[<7;2t"},
+    {TERM_MOUSE_FORM_SGR, 6, {2, 1, 6, 1, 2, 0}, "\33[<3;2;7;2;3;1T"},
+    {TERM_MOUSE_FORM_URXVT, 2, {6, 1}, "\33[7;2t"},
+    {TERM_MOUSE_FORM_URXVT, 6, {0, 0, 79, 31, 80, 31}, "\33[1;1;80;32;81;32T"},
+    {TERM_MOUSE_FORM_PIXELS, 6, {79, 31, 80, 31, 80, 31}, "\33[<80;32;81;32;81;32T"},
+};
+
+UTEST(vtmouse, xterm_s_highlight_tracking)
+{
+    for (size_t i = 0; i < sizeof vtmouse_hilite_table / sizeof *vtmouse_hilite_table; i++)
+    {
+        char out[VTMOUSE_HILITE_MAX + 1];
+        out[VTMOUSE_HILITE_MAX] = 0x55;
+        const uint8_t n = vtmouse_hilite(out, vtmouse_hilite_table[i].form,
+                                         vtmouse_hilite_table[i].pos, vtmouse_hilite_table[i].count);
+        const char *want = vtmouse_hilite_table[i].want;
+        EXPECT_EQ_MSG((size_t)n, strlen(want), want);
+        ASSERT_EQ(out[VTMOUSE_HILITE_MAX], 0x55);
+        if (n == strlen(want))
+            EXPECT_EQ_MSG(0, memcmp(out, want, n), want);
+    }
+}
+
+/* What vtmouse_locator writes, DECLRP as xterm's: the event, the buttons,
+ * the row and the column, or the event alone when the locator is not
+ * there; the longest in five digits each. */
+UTEST(vtmouse, decterm_s_locator_reports)
+{
+    char out[VTMOUSE_LOCATOR_MAX + 1];
+    out[VTMOUSE_LOCATOR_MAX] = 0x55;
+    uint8_t n = vtmouse_locator(out, VTMOUSE_LOCATOR_UNAVAILABLE, 5, 2, 3);
+    ASSERT_EQ(n, 5);
+    ASSERT_EQ(0, memcmp(out, "\33[0&w", n));
+    n = vtmouse_locator(out, VTMOUSE_LOCATOR_REQUEST, 0, 1, 80);
+    ASSERT_EQ(n, 12);
+    ASSERT_EQ(0, memcmp(out, "\33[1;0;1;80&w", n));
+    n = vtmouse_locator(out, VTMOUSE_LOCATOR_OUTSIDE, 15, 65535, 65535);
+    ASSERT_EQ(n, VTMOUSE_LOCATOR_MAX);
+    ASSERT_EQ(0, memcmp(out, "\33[10;15;65535;65535&w", n));
+    ASSERT_EQ(out[VTMOUSE_LOCATOR_MAX], 0x55);
+}
+
 UTEST(keyboard, char_to_oem)
 {
     char b[32];

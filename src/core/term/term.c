@@ -10,6 +10,7 @@
 #include "core/term/grid.h"
 #include "core/term/term.h"
 #include "core/term/vterm.h"
+#include "core/term/vterm_mouse.h"
 #include "core/vga/pixel_format.h"
 #include "host/host.h"
 #include "machine.h"
@@ -116,6 +117,7 @@ static void term_reset_core(term_t *t)
     t->mouse_form = TERM_MOUSE_FORM_X10;
     t->focus_events = false;
     t->alt_scroll = false;
+    t->locator = (term_locator_t){0};
     t->modify_other_keys = 0;
     t->format_other_keys = false;
     t->lr_margins = false;
@@ -158,11 +160,11 @@ void term_RIS_no_clear(term_t *t)
 // DEC's list -- IRM, DECOM, DECAWM (to our default, on), DECTCEM, DECCKM,
 // the keypad mode, the character sets, SGR, the margins and the saved cursor
 // -- and ends a pending wrap, but leaves the cursor where it is. DECLRMM
-// resets with the margins, as on xterm. The pen's
-// protection goes with SGR, and no erase spares a protected cell until a
-// DECSCA or SPA again, as on xterm. The cursor style, iCE colors,
-// autorepeat, the mouse's events and form, focus events, alternate scroll,
-// the palette, the tab stops and the screen are left alone, as on xterm.
+// resets with the margins, as on xterm. The pen's protection goes with SGR,
+// and no erase spares a protected cell until a DECSCA or SPA again, as on
+// xterm. The cursor style, iCE colors, autorepeat, the mouse's events and
+// form, focus events, alternate scroll, the DEC locator's settings, the
+// palette, the tab stops and the screen are left alone, as on xterm.
 static void term_out_DECSTR(term_t *t)
 {
     t->protect_mode = TERM_PROTECT_OFF;
@@ -566,18 +568,18 @@ static void term_replyf(const char *fmt, unsigned a, unsigned b, unsigned c)
 #define TERM_REPLY(lit) com_reply((lit), sizeof(lit) - 1)
 
 // Primary DA: a VT420 (64) with selective erase (6), horizontal scrolling
-// and the left and right margins (21), ANSI color (22) and the rectangle
-// editing (28). Not soft fonts (7), user-defined keys (8) or the national
-// sets (9), which it has not.
-#define TERM_DA1 "\33[?64;6;21;22;28c"
+// and the left and right margins (21), ANSI color (22), the rectangle
+// editing (28) and the DEC locator (29). Not soft fonts (7), user-defined
+// keys (8) or the national sets (9), which it has not.
+#define TERM_DA1 "\33[?64;6;21;22;28;29c"
 
 // Device Status Report, CSI Ps n: 5 status, 6 cursor position. The DEC
 // forms, CSI ? Ps n, answer as xterm's VT420 does: 6 is DECXCPR, the
 // position and the page, always 1; 15, there is no printer; 25, the
 // user-defined keys, which the console has none of, are unlocked; 26, a
-// North American LK201 keyboard, ready; 55 and 56, there is no locator; 62,
-// no room for macros (DECMSR); 63, the macros' checksum, of none (DECCKSR);
-// 75, no errors; 85, sessions are not configured.
+// North American LK201 keyboard, ready; 55, the locator is ready, and 56,
+// it is a mouse; 62, no room for macros (DECMSR); 63, the macros' checksum,
+// of none (DECCKSR); 75, no errors; 85, sessions are not configured.
 static void term_out_DSR(term_t *t, bool private)
 {
     switch (t->csi_param[0])
@@ -618,10 +620,10 @@ static void term_out_DSR(term_t *t, bool private)
         TERM_REPLY("\33[?27;1;0;0n");
         break;
     case 55:
-        TERM_REPLY("\33[?53n");
+        TERM_REPLY("\33[?50n");
         break;
     case 56:
-        TERM_REPLY("\33[?57;0n");
+        TERM_REPLY("\33[?57;1n");
         break;
     case 62:
         TERM_REPLY("\33[0000*{");
@@ -659,6 +661,10 @@ static void term_out_window(term_t *t)
     unsigned cell = term_cell_height(vterm_get_shown(t));
     switch (t->csi_param[0])
     {
+    case 13: // the window's position: there is no desktop window to place,
+             // so the text area is at the top left of the display
+        TERM_REPLY("\33[3;1;1t");
+        break;
     case 11: // minimized? only an emulator's window can be
         if (host_minimized())
             TERM_REPLY("\33[2t");
@@ -816,6 +822,74 @@ static void term_out_DECRQM(term_t *t, bool private)
         }
     }
     term_replyf(private ? "\33[?%u;%u$y" : "\33[%u;%u$y", ps, pm, 0);
+}
+
+/* ---- the DEC locator ----------------------------------------------------
+ *
+ * The settings, as xterm keeps them (term_locator_t). Where the pointer is
+ * and the reports are the console's mouse's (vterm_mouse.h): it is the one
+ * with the pointer. */
+
+// DECELR, CSI Ps ; Pu ' z: Ps 1 turns the locator on, 2 on for one report,
+// and anything else off, whatever mouse events were set; Pu 1 gives
+// positions in pixels, and anything else in cells. As xterm, turning it on
+// ends the filter rectangle, and turning it off leaves the settings.
+static void term_out_DECELR(term_t *t)
+{
+    const uint16_t ps = t->csi_param[0];
+    if (ps < 1 || ps > 2)
+    {
+        t->mouse_event = TERM_MOUSE_OFF;
+        return;
+    }
+    t->mouse_event = TERM_MOUSE_LOCATOR;
+    t->locator.once = ps == 2;
+    t->locator.pixels = t->csi_param_count > 1 && t->csi_param[1] == 1;
+    t->locator.filter = false;
+}
+
+// DECSLE, CSI Ps ; ... ' {: the events the locator tells, a parameter at a
+// time: 1 and 3 add a button going down and coming up, 2 and 4 take them
+// away, and 0 takes both away and ends the filter rectangle. So only
+// DECRQLP is answered after a 0.
+static void term_out_DECSLE(term_t *t)
+{
+    term_locator_t *loc = &t->locator;
+    for (uint8_t i = 0; i < t->csi_param_count; i++)
+        switch (t->csi_param[i])
+        {
+        case 0:
+            loc->events = 0;
+            loc->filter = false;
+            break;
+        case 1:
+            loc->events |= TERM_LOCATOR_DOWN;
+            break;
+        case 2:
+            loc->events &= (uint8_t)~TERM_LOCATOR_DOWN;
+            break;
+        case 3:
+            loc->events |= TERM_LOCATOR_UP;
+            break;
+        case 4:
+            loc->events &= (uint8_t)~TERM_LOCATOR_UP;
+            break;
+        }
+}
+
+// DECEFR, CSI Pt ; Pl ; Pb ; Pr ' w: while the locator is on, a filter
+// rectangle, its top, left, bottom and right in the locator's units, an
+// edge left out or 0 where the locator is now. The console's mouse arms it,
+// or tells at once that the locator is already outside it.
+static void term_out_DECEFR(term_t *t)
+{
+    if (t->mouse_event != TERM_MOUSE_LOCATOR)
+        return;
+    term_locator_t *loc = &t->locator;
+    uint16_t *const edge[4] = {&loc->top, &loc->left, &loc->bottom, &loc->right};
+    for (uint8_t i = 0; i < 4; i++)
+        *edge[i] = i < t->csi_param_count ? t->csi_param[i] : 0;
+    vterm_mouse_filter();
 }
 
 // DECSCA, CSI Ps " q: 1 protects the cells the pen writes from DECSED and
@@ -1917,6 +1991,20 @@ static void term_csi_dispatch(term_t *t, uint8_t ch)
     case 't':
         term_out_window(t);
         break;
+    case 'T': // SD, but for highlight tracking's answer, which xterm tells
+              // apart by more than one parameter or a first one of 0
+        if (t->csi_param_count > 1 || (t->csi_any && !t->csi_param[0]))
+        {
+            // CSI func ; col ; row ; first ; last T, each from 1 but last,
+            // which is one past, as xterm reads them.
+            int p[5];
+            for (uint8_t i = 0; i < 5; i++)
+                p[i] = i < t->csi_param_count ? t->csi_param[i] : 0;
+            vterm_mouse_track(p[0], p[1] - 1, (p[2] ? p[2] : 1) - 1, p[3] - 1, p[4] - 2);
+        }
+        else
+            term_grids(t, GRID_CSI, ch);
+        break;
     case 'u': // DECRC
         term_restore_cursor(t);
         break;
@@ -1954,6 +2042,14 @@ static void term_csi_final(term_t *t, uint8_t ch)
             term_grids(t, GRID_SHIFT, ch);
         else if (inter == '\'' && (ch == '}' || ch == '~')) // DECIC, DECDC
             term_grids(t, GRID_COLUMNS, ch);
+        else if (inter == '\'' && ch == 'z')
+            term_out_DECELR(t);
+        else if (inter == '\'' && ch == '{')
+            term_out_DECSLE(t);
+        else if (inter == '\'' && ch == 'w')
+            term_out_DECEFR(t);
+        else if (inter == '\'' && ch == '|' && t->csi_param[0] < 2) // DECRQLP
+            vterm_mouse_locate();
         else if (inter == '!' && ch == 'p')
             term_out_DECSTR(t);
         else if (inter == '"' && ch == 'p')
@@ -2267,7 +2363,8 @@ bool term_sst_ok(sst_cursor_t *c, const term_t *t)
         (t->last_ss != 0 && t->last_ss != 2 && t->last_ss != 3) || !term_pen_ok(&t->pen[0]) || !term_pen_ok(&t->pen[1]) ||
         !term_pen_ok(&t->saved[0]) || !term_pen_ok(&t->saved[1]) ||
         t->modify_other_keys > 3 || t->speed > TERM_SPEED_MAX ||
-        t->mouse_event > TERM_MOUSE_ANY || t->mouse_form > TERM_MOUSE_FORM_PIXELS ||
+        t->mouse_event > TERM_MOUSE_LOCATOR || t->mouse_form > TERM_MOUSE_FORM_PIXELS ||
+        t->locator.events > (TERM_LOCATOR_DOWN | TERM_LOCATOR_UP) ||
         t->csi_param_count > TERM_CSI_PARAM_MAX_LEN ||
         t->osc_len > TERM_OSC_SPEC_MAX + 1 || t->osc_asks > TERM_OSC_ASK_MAX)
         return sst_refuse(c, "the terminal's parser out of range");

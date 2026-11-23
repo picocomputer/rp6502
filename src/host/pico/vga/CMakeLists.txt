@@ -77,6 +77,7 @@ target_sources(rp6502-vga PRIVATE
     ${VGA_SRC}/sys/pix.c
     ${VGA_SRC}/sys/ria.c
     ${VGA_SRC}/sys/vga.c
+    ${VGA_SRC}/term/vterm_mouse.c
     ${RP6502_ROOT}/src/core/term/color.c
     ${RP6502_ROOT}/src/core/term/font.c
     ${RP6502_ROOT}/src/core/term/term.c

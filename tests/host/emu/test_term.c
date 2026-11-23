@@ -604,10 +604,10 @@ UTEST(term, ed_3_forgets_the_scrollback)
 UTEST(term, device_attributes)
 {
     fresh();
-    ASSERT_STREQ(ask("\33[c"), "\33[?64;6;21;22;28c");
-    ASSERT_STREQ(ask("\33[0c"), "\33[?64;6;21;22;28c");
+    ASSERT_STREQ(ask("\33[c"), "\33[?64;6;21;22;28;29c");
+    ASSERT_STREQ(ask("\33[0c"), "\33[?64;6;21;22;28;29c");
     ASSERT_STREQ(ask("\33[1c"), "");
-    ASSERT_STREQ(ask("\33Z"), "\33[?64;6;21;22;28c");
+    ASSERT_STREQ(ask("\33Z"), "\33[?64;6;21;22;28;29c");
     ASSERT_STREQ(ask("\33[>c"), "\33[>41;10;0c");
     ASSERT_STREQ(ask("\33[>1c"), "");
     ASSERT_STREQ(ask("\33[=c"), "\33P!|00000000\33\\");
@@ -631,8 +631,8 @@ UTEST(term, dec_status_reports)
     ASSERT_STREQ(ask("\33[?15n"), "\33[?13n");
     ASSERT_STREQ(ask("\33[?25n"), "\33[?20n");
     ASSERT_STREQ(ask("\33[?26n"), "\33[?27;1;0;0n");
-    ASSERT_STREQ(ask("\33[?55n"), "\33[?53n");
-    ASSERT_STREQ(ask("\33[?56n"), "\33[?57;0n");
+    ASSERT_STREQ(ask("\33[?55n"), "\33[?50n");
+    ASSERT_STREQ(ask("\33[?56n"), "\33[?57;1n");
     ASSERT_STREQ(ask("\33[?62n"), "\33[0000*{");
     ASSERT_STREQ(ask("\33[?63;7n"), "\33P7!~0000\33\\");
     ASSERT_STREQ(ask("\33[?75n"), "\33[?70n");
@@ -661,7 +661,8 @@ UTEST(term, window_reports)
     ASSERT_STREQ(ask("\33[14t"), "\33[4;480;640t");
     ASSERT_STREQ(ask("\33[16t"), "\33[6;16;8t");
     ASSERT_STREQ(ask("\33[11t"), "\33[1t");
-    ASSERT_STREQ(ask("\33[13t\33[21t\33[22;0t"), "");
+    ASSERT_STREQ(ask("\33[13t"), "\33[3;1;1t");
+    ASSERT_STREQ(ask("\33[21t\33[22;0t"), "");
 }
 
 UTEST(term, decrqm)
@@ -1439,6 +1440,80 @@ UTEST(term, the_resets_and_the_mouse_modes)
     ASSERT_EQ(vterm.mouse_form, TERM_MOUSE_FORM_X10);
     ASSERT_FALSE(vterm.focus_events);
     ASSERT_FALSE(vterm.alt_scroll);
+}
+
+/* CSI T is SD, but for highlight tracking's answer, which xterm tells apart
+ * by more than one parameter or a first one of 0: those scroll nothing. */
+UTEST(term, highlight_tracking_s_answer_is_not_a_scroll)
+{
+    fresh();
+    feed("a\r\nb\r\nc\33[H");
+    feed("\33[T");
+    ASSERT_STREQ(row(1), "a");
+    feed("\33[1T");
+    ASSERT_STREQ(row(2), "a");
+    feed("\33[0T\33[1;2;3;4;5T\33[;T");
+    ASSERT_STREQ(row(2), "a");
+    ASSERT_STREQ(row(3), "b");
+}
+
+/* The DEC locator is one of the mouse's events: DECELR 1 and 2 set it, and
+ * DECELR 0 turns any event off and leaves the settings, the one-shot one
+ * too, as xterm's locator_reset; setting ?9 or ?1000 to ?1003 ends it. Its
+ * settings are DECELR's, DECSLE's and DECEFR's. */
+UTEST(term, the_locator_is_a_mouse_event)
+{
+    fresh();
+    feed("\33[?1000h\33[1'z");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_LOCATOR);
+    ASSERT_STREQ(ask("\33[?1000$p"), "\33[?1000;2$y");
+    ASSERT_FALSE(vterm.locator.once);
+    ASSERT_FALSE(vterm.locator.pixels);
+    feed("\33[?1002h");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_BUTTON);
+    feed("\33[2;1'z");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_LOCATOR);
+    ASSERT_TRUE(vterm.locator.once);
+    ASSERT_TRUE(vterm.locator.pixels);
+    feed("\33['z");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_OFF);
+    ASSERT_TRUE(vterm.locator.once);
+    ASSERT_TRUE(vterm.locator.pixels);
+    feed("\33[?1000h\33[0'z");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_OFF);
+    feed("\33[1;3'{");
+    ASSERT_EQ(vterm.locator.events, TERM_LOCATOR_DOWN | TERM_LOCATOR_UP);
+    feed("\33[2'{");
+    ASSERT_EQ(vterm.locator.events, TERM_LOCATOR_UP);
+    feed("\33[4;1'{");
+    ASSERT_EQ(vterm.locator.events, TERM_LOCATOR_DOWN);
+    feed("\33['{");
+    ASSERT_EQ(vterm.locator.events, 0);
+    /* DECEFR is taken only while the locator is on. */
+    feed("\33[2;3;4;5'w");
+    ASSERT_EQ(vterm.locator.bottom, 0);
+    ASSERT_FALSE(vterm.locator.filter);
+}
+
+/* RIS clears the locator's settings, and DECSTR leaves them, as xterm. The
+ * system's soft reset ends the locator and its events. */
+UTEST(term, the_resets_and_the_locator)
+{
+    fresh();
+    feed("\33[2;1'z\33[1;3'{");
+    feed("\33[!p");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_LOCATOR);
+    ASSERT_TRUE(vterm.locator.once);
+    ASSERT_EQ(vterm.locator.events, TERM_LOCATOR_DOWN | TERM_LOCATOR_UP);
+    feed("\33c");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_OFF);
+    ASSERT_FALSE(vterm.locator.once);
+    ASSERT_FALSE(vterm.locator.pixels);
+    ASSERT_EQ(vterm.locator.events, 0);
+    feed("\33[1;1'z\33[1;3'{");
+    feed(STR_TERM_SOFT_RESET);
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_OFF);
+    ASSERT_EQ(vterm.locator.events, 0);
 }
 
 /* Linux's palette sequences are not taken: ESC ] P begins an OSC like any
@@ -3336,17 +3411,17 @@ UTEST(term, what_neovim_asks_as_it_starts_is_all_answered)
     ASSERT_STREQ(answer(),
                  "\33[?69;2$y\33[?2026;0$y\33[?2027;0$y\33[?2031;0$y\33[?2048;0$y"
                  "\33P1$r0;4:3m\33\\"
-                 "\33[?64;6;21;22;28c"
+                 "\33[?64;6;21;22;28;29c"
                  "\33]11;rgb:0000/0000/0000\7\33[0n"
                  "\33]11;rgb:0000/0000/0000\7\33[0n"
                  "\33P1$r0;48:2::1:2:3m\33\\"
-                 "\33[?64;6;21;22;28c");
+                 "\33[?64;6;21;22;28;29c");
     ASSERT_STREQ(row(0), "");
     ASSERT_EQ(cx(), 0);
     ASSERT_EQ(cy(), 0);
     ASSERT_STREQ(ask("\33P$qm\33\\"), "\33P1$r0m\33\\");
     /* And as it leaves. */
-    ASSERT_STREQ(ask("\33[>4;0m\33[c"), "\33[?64;6;21;22;28c");
+    ASSERT_STREQ(ask("\33[>4;0m\33[c"), "\33[?64;6;21;22;28;29c");
 }
 
 /* ---- smooth scroll ---- */

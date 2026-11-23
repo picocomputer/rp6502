@@ -14,6 +14,7 @@
 #include "core/com/com.h"
 #include "core/term/draw.h"
 #include "core/term/vterm.h"
+#include "core/term/vterm_mouse.h"
 #include "core/vga/mode/mode0.h"
 #include "core/vga/vga.h"
 #include "utest.h"
@@ -29,6 +30,14 @@ static uint32_t frames;
 unsigned long vga_frame_count(void) { return frames; }
 bool vga_connected(void) { return true; }
 void com_reply(const char *s, size_t n) { (void)s, (void)n; }
+/* The console's mouse is not in this test: what a program asks of it does
+ * nothing. */
+void vterm_mouse_track(int func, int col, int row, int first, int last)
+{
+    (void)func, (void)col, (void)row, (void)first, (void)last;
+}
+void vterm_mouse_locate(void) {}
+void vterm_mouse_filter(void) {}
 void bel_term(void) {}
 
 mode0_cell_t mode0_cells[MODE0_CELLS];

@@ -52,6 +52,20 @@
  *   selected;
  * - the middle button pastes the primary as it comes up.
  *
+ * With no mouse mode set and alternate scroll (?1007) set, the wheel over
+ * the alternate screen presses the cursor keys, as xterm's.
+ *
+ * Under highlight tracking (?1001) a press of the left button is told and
+ * waits for the program's answer (vterm_mouse_track) until it comes up; an
+ * answer that starts the highlight makes the drag highlight from where the
+ * program said, as a drag selects. A press that goes on from the last drag
+ * to end, as xterm's TrackDown counts clicks, highlights at once, by words,
+ * lines or characters, and is not told. The release tells what was
+ * highlighted, which goes then, and fills the primary. Under the DEC locator
+ * (TERM_MOUSE_LOCATOR) the reports are DECLRP, of the events the program
+ * chose (term_locator_t), and leaving its filter rectangle. The focus
+ * reports (?1004) come from the host (vterm_focus).
+ *
  * Clicks are counted on the machine's clock (timer.h), and the gesture is
  * saved with the machine, so a load and runahead count them alike. */
 
@@ -84,6 +98,41 @@ extern vterm_mouse_queue_t vterm_mouse_queue;
 /* Whether the terminal took the last change the task took, by the rule
  * above: a release is its press's. */
 bool vterm_mouse_acts(void);
+
+/* The host's window gained the focus (true) or lost it. A host that can
+ * lose it (host_focusable) says so on every change, or every frame; the
+ * task tells a program that asked (?1004) of a change, in order with the
+ * keys. */
+void vterm_focus(bool focused);
+
+/* ---- what the console's terminal asks of it -----------------------------
+ *
+ * The console's terminal (term.c) calls these as a program's sequences
+ * come. A chip with no console mouse, the Pico VGA, has them do nothing:
+ * the RIA's terminal, which follows its, is the one with the mouse. */
+
+/* Highlight tracking's answer, CSI func ; col ; row ; first ; last T, as
+ * xterm reads it: col and row are where the highlight starts, from 0, and
+ * the drag is held between rows first and last of the screen. It counts
+ * only while a press waits for it. func 0 declines, and the press then
+ * goes on as a normal event. */
+void vterm_mouse_track(int func, int col, int row, int first, int last);
+
+/* DECRQLP: the locator's position is told, unavailable when the locator is
+ * off or not over mode 0. As DEC's, a request while the filter rectangle is
+ * armed turns the locator off first. As xterm's, the answer of a one-shot
+ * locator (DECELR 2) turns off the mouse events, whatever is set, and so
+ * does one after it went off, until a DECELR 1. An answer waits for room,
+ * after those asked for before it. */
+void vterm_mouse_locate(void);
+
+/* DECEFR: the filter rectangle in the console's terminal's locator
+ * settings (term_locator_t) is armed, an edge left out where the locator is
+ * now, and each held to xterm's limits: in cells, the row and column before
+ * the last. One the locator is already outside is
+ * told at once, as is one with an edge given while the locator is
+ * unavailable. */
+void vterm_mouse_filter(void);
 
 void vterm_mouse_task(void);
 void vterm_mouse_reset(void);

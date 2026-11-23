@@ -11,6 +11,7 @@
 #include "host/sokol/app/input.h"
 #include "core/hid/usage.h"
 #include "core/hid/mouse.h"
+#include "core/term/vterm_mouse.h"
 #include "host/host.h"
 #include "sokol/sokol_app.h"
 #include <emscripten.h>
@@ -237,6 +238,9 @@ static void entry_frame(void)
     if (away || gap >= LIVE_MS)
         return;
     run_ms = now;
+    /* The player's own focus, which the page keeps for each player on it,
+     * is told to a program that asks (?1004) as it changes. */
+    vterm_focus(js_focused());
     app_frame();
     const int32_t used = (mouse_is_mapped() ? 1 : 0) | (input_pointer_to_tablet() ? 2 : 0) |
                          (input_wheel_to_tablet() ? 4 : 0);

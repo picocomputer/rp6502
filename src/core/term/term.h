@@ -178,6 +178,7 @@ typedef enum
 #define TERM_MOUSE_HILITE 3 // ?1001: highlight tracking
 #define TERM_MOUSE_BUTTON 4 // ?1002: those, and motion with a button held
 #define TERM_MOUSE_ANY 5    // ?1003: those, and every motion
+#define TERM_MOUSE_LOCATOR 6 // DECELR 1 or 2: the DEC locator (term_locator_t)
 
 // The form of a mouse report, as xterm's extend_coords: one at a time, set
 // by its DEC private mode, the X10 form while none is.
@@ -186,6 +187,23 @@ typedef enum
 #define TERM_MOUSE_FORM_SGR 2    // ?1006: numbers, and the release its own
 #define TERM_MOUSE_FORM_URXVT 3  // ?1015: numbers
 #define TERM_MOUSE_FORM_PIXELS 4 // ?1016: SGR's, in pixels
+
+// The DEC locator's settings, as xterm keeps them: what DECELR, DECSLE and
+// DECEFR set. The console's mouse sends its reports (DECLRP) while
+// mouse_event is TERM_MOUSE_LOCATOR, and it is the one that fires a
+// one-shot locator and the filter rectangle.
+#define TERM_LOCATOR_DOWN 1 // DECSLE 1: a button going down is told
+#define TERM_LOCATOR_UP 2   // DECSLE 3: a button coming up is told
+typedef struct
+{
+    bool once;      // DECELR 2: the first report turns the locator off
+    bool pixels;    // DECELR's Pu 1: positions in pixels, not cells
+    uint8_t events; // TERM_LOCATOR_DOWN and _UP
+    bool filter;    // the filter rectangle is armed: leaving it is told
+    // The filter rectangle DECEFR asked for, from 1, in the locator's
+    // units; 0 for an edge it left out, which is where the locator is.
+    uint16_t top, left, bottom, right;
+} term_locator_t;
 
 // The character sets that G0 to G3 can hold.
 #define TERM_CS_ASCII 0 // ESC ( B, and the null and user maps ESC ( U / K
@@ -265,6 +283,7 @@ typedef struct
     uint8_t mouse_form;   // TERM_MOUSE_FORM_: the form they are told in
     bool focus_events;    // ?1004: the window gaining and losing focus is told
     bool alt_scroll;      // ?1007: on the alternate screen the wheel sends the cursor keys
+    term_locator_t locator; // the DEC locator's settings
     uint8_t modify_other_keys; // xterm's modifyOtherKeys, 0 to 3: CSI > 4 ; n m
     bool format_other_keys;    // xterm's formatOtherKeys: CSI > 4 ; 1 f
     bool lr_margins;      // DECLRMM, ?69: CSI s sets the left and right margins
@@ -426,6 +445,14 @@ static inline bool term_erase_selective(const term_t *t, bool dec)
     X(U8, t.mouse_form)                                                \
     X(BOOL, t.focus_events)                                            \
     X(BOOL, t.alt_scroll)                                              \
+    X(BOOL, t.locator.once)                                            \
+    X(BOOL, t.locator.pixels)                                          \
+    X(U8, t.locator.events)                                            \
+    X(BOOL, t.locator.filter)                                          \
+    X(U16, t.locator.top)                                              \
+    X(U16, t.locator.left)                                             \
+    X(U16, t.locator.bottom)                                           \
+    X(U16, t.locator.right)                                            \
     X(U8, t.modify_other_keys)                                         \
     X(BOOL, t.format_other_keys)                                       \
     X(BOOL, t.lr_margins)                                              \

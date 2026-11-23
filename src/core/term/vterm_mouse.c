@@ -36,6 +36,40 @@ static bool vterm_mouse_reporting;
  * mouse_row and mouse_col. */
 static uint16_t vterm_mouse_sent_x, vterm_mouse_sent_y;
 
+/* Where the last change the task took left contact 0, in canvas pixels,
+ * and whether it is there at all (VTERM_MOUSE_PRESENT): where the DEC
+ * locator is. */
+static int16_t vterm_mouse_x, vterm_mouse_y;
+static bool vterm_mouse_here;
+
+/* Highlight tracking (?1001), as xterm's: off; a press of the left button
+ * told, and the program's answer (vterm_mouse_track) awaited until it
+ * comes up; or the drag highlighting from where the answer said, held to
+ * rows first to last of the screen. */
+#define VTERM_MOUSE_TRACK_OFF 0
+#define VTERM_MOUSE_TRACK_WAIT 1
+#define VTERM_MOUSE_TRACK_ON 2
+static uint8_t vterm_mouse_tracking;
+static uint8_t vterm_mouse_track_first, vterm_mouse_track_last;
+
+/* The rows a highlight is held to as xterm's are before any are set: all
+ * of them, as a row past the screen's last is held to its last. */
+#define VTERM_MOUSE_TRACK_ALL (TERM_MAX_HEIGHT - 1)
+
+/* The DEC locator reports the terminal asked for and the task has yet to
+ * type, waiting for room, oldest first: their events (VTMOUSE_LOCATOR_).
+ * Each one's position is where the locator is as it is typed. One asked
+ * for while they are full is dropped, as an answer with no room is
+ * (com_reply). */
+#define VTERM_MOUSE_DUE 4
+static uint8_t vterm_mouse_due[VTERM_MOUSE_DUE];
+static uint8_t vterm_mouse_dues;
+
+/* Whether the host's window has the focus, and whether the program was last
+ * told it has (?1004): a change between them is told. */
+static bool vterm_focus_now = true;
+static bool vterm_focus_told = true;
+
 /* The buttons, which make a press: hover alone is none. */
 #define VTERM_MOUSE_BUTTONS (TABLET_FLAG_LEFT | TABLET_FLAG_RIGHT | TABLET_FLAG_MIDDLE | \
                              TABLET_FLAG_BTN4 | TABLET_FLAG_BTN5)
@@ -50,8 +84,10 @@ static uint16_t vterm_mouse_sent_x, vterm_mouse_sent_y;
  * it went down, by characters, and a drag takes the selection to where the
  * pointer is. A second and a third click on the same cell, each within
  * VTERM_MOUSE_CLICK_MS of the last release, select by words and by lines,
- * and a drag after them goes by words and by lines; a fourth selects by
- * characters again. The right button, and Shift with the left, extend the
+ * and a drag after them goes by words and by lines; a fourth and a fifth
+ * select by characters, and a sixth by words again, as xterm's clicks go
+ * with its default on2Clicks and on3Clicks. The right button, and Shift
+ * with the left, extend the
  * selection from its nearer end, in the unit it was made in. The release
  * fills the primary with what is selected. The middle button pastes the
  * primary as it comes up. While a mouse mode is set, the buttons alone are
@@ -73,6 +109,13 @@ enum
     VTERM_MOUSE_LINE,
 };
 
+/* The unit of each click in a run, as xterm's selectMap with its default
+ * on2Clicks and on3Clicks: the run goes round it, its fifth click by
+ * characters as its first. */
+static const uint8_t vterm_mouse_units[] = {VTERM_MOUSE_CHAR, VTERM_MOUSE_WORD, VTERM_MOUSE_LINE,
+                                            VTERM_MOUSE_CHAR};
+#define VTERM_MOUSE_CLICKS (sizeof vterm_mouse_units / sizeof *vterm_mouse_units)
+
 /* The console's widest grid. */
 #define VTERM_MOUSE_MAX_COLS 80
 
@@ -81,28 +124,30 @@ typedef screen_mark_t vterm_mouse_cell_t;
 
 /* The points the gesture holds, which the store keeps in step as the
  * marks, an array of them. */
-#define VTERM_MOUSE_POINTS 5
+#define VTERM_MOUSE_POINTS 6
 
 typedef struct
 {
-    uint8_t screen; // the screen it is on: bit 1 the 80-column grid, bit 0 the alternate
-    uint8_t button; // TABLET_FLAG_LEFT or _RIGHT while its drag goes on, else 0
-    uint8_t unit;   // VTERM_MOUSE_CHAR, _WORD or _LINE
-    uint8_t clicks; // the left button's clicks in a row, 1 to 3, or 0 before any
-    bool left;      // the drag moves the start, xterm's LEFTEXTENSION
-    bool clicked;   // the last press was a left click that counts, and no other button went down or up since
-    bool line;      // the drag selects in the line editor's line (core/com/rln.h)
+    uint8_t screen;  // the screen it is on: bit 1 the 80-column grid, bit 0 the alternate
+    uint8_t button;  // TABLET_FLAG_LEFT or _RIGHT while its drag goes on, else 0
+    uint8_t unit;    // VTERM_MOUSE_CHAR, _WORD or _LINE
+    uint8_t clicks;  // its place in the left button's run, 1 to VTERM_MOUSE_CLICKS, or 0 before any
+    bool left;       // the drag moves the start, xterm's LEFTEXTENSION
+    bool clicked;    // the last press was a left click that counts, and no other button went down or up since
+    bool line;       // the drag selects in the line editor's line (core/com/rln.h)
+    bool ended_left; // the last drag ended was the left button's (vterm_mouse_ended), xterm's lastButton
     union
     {
         struct
         {
             vterm_mouse_cell_t ext_start, ext_end;   // what is selected between, as the unit has not widened it
             vterm_mouse_cell_t save_start, save_end; // ext_start and ext_end as the drag began
+            vterm_mouse_cell_t raw;                  // where the run's first click started, xterm's rawPos
             vterm_mouse_cell_t click;                // where the left button last went down
         };
         vterm_mouse_cell_t points[VTERM_MOUSE_POINTS]; // the same, for the store
     };
-    timer_mach_t click_by; // a press there before this is another click
+    timer_mach_t click_by; // a press before this goes on from the last drag ended, xterm's lastButtonUpTime
 } vterm_mouse_gesture_t;
 static vterm_mouse_gesture_t vterm_mouse_gesture;
 _Static_assert(offsetof(vterm_mouse_gesture_t, click) ==
@@ -147,10 +192,18 @@ static bool vterm_mouse_sst_valid(sst_cursor_t *c)
         return sst_refuse(c, "more mouse changes queued than the queue holds");
     if (vterm_mouse_reporting && !vterm_mouse_acting)
         return sst_refuse(c, "a program told of a change the terminal did not take");
+    if (vterm_mouse_tracking > VTERM_MOUSE_TRACK_ON ||
+        vterm_mouse_track_first >= TERM_MAX_HEIGHT || vterm_mouse_track_last >= TERM_MAX_HEIGHT ||
+        vterm_mouse_dues > VTERM_MOUSE_DUE)
+        return sst_refuse(c, "highlight tracking or a locator report out of range");
+    for (uint8_t i = 0; i < vterm_mouse_dues; i++)
+        if (vterm_mouse_due[i] > VTMOUSE_LOCATOR_OUTSIDE)
+            return sst_refuse(c, "a locator report out of range");
     const vterm_mouse_gesture_t *gs = &vterm_mouse_gesture;
-    if (gs->screen > 3 || gs->unit > VTERM_MOUSE_LINE || gs->clicks > 3 ||
+    if (gs->screen > 3 || gs->unit > VTERM_MOUSE_LINE || gs->clicks > VTERM_MOUSE_CLICKS ||
         (gs->button & ~(TABLET_FLAG_LEFT | TABLET_FLAG_RIGHT)) || (gs->button && !gs->clicks) ||
-        (gs->line && gs->button != TABLET_FLAG_LEFT))
+        (gs->line && gs->button != TABLET_FLAG_LEFT) ||
+        (vterm_mouse_tracking == VTERM_MOUSE_TRACK_ON && (gs->button != TABLET_FLAG_LEFT || gs->line)))
         return sst_refuse(c, "a mouse gesture off the console's screens");
     if (gs->clicks)
     {
@@ -183,15 +236,27 @@ static bool vterm_mouse_sst_valid(sst_cursor_t *c)
     X(BOOL, vterm_mouse_gesture.left)                                         \
     X(BOOL, vterm_mouse_gesture.clicked)                                      \
     X(BOOL, vterm_mouse_gesture.line)                                         \
+    X(BOOL, vterm_mouse_gesture.ended_left)                                   \
     X(STRUCT, vterm_mouse_gesture.ext_start, VTERM_MOUSE_CELL_ROWS)           \
     X(STRUCT, vterm_mouse_gesture.ext_end, VTERM_MOUSE_CELL_ROWS)             \
     X(STRUCT, vterm_mouse_gesture.save_start, VTERM_MOUSE_CELL_ROWS)          \
     X(STRUCT, vterm_mouse_gesture.save_end, VTERM_MOUSE_CELL_ROWS)            \
+    X(STRUCT, vterm_mouse_gesture.raw, VTERM_MOUSE_CELL_ROWS)                 \
     X(STRUCT, vterm_mouse_gesture.click, VTERM_MOUSE_CELL_ROWS)               \
     X(U64, vterm_mouse_gesture.click_by)                                      \
     X(BOOL, vterm_mouse_reporting)                                            \
     X(U16, vterm_mouse_sent_x)                                                \
     X(U16, vterm_mouse_sent_y)                                                \
+    X(I16, vterm_mouse_x)                                                     \
+    X(I16, vterm_mouse_y)                                                     \
+    X(BOOL, vterm_mouse_here)                                                 \
+    X(U8, vterm_mouse_tracking)                                               \
+    X(U8, vterm_mouse_track_first)                                            \
+    X(U8, vterm_mouse_track_last)                                             \
+    X(BYTES, vterm_mouse_due)                                                 \
+    X(U8, vterm_mouse_dues)                                                   \
+    X(BOOL, vterm_focus_told)                                                 \
+    X(SKIP, vterm_focus_now, "the host's, which it keeps across a load")      \
     X(U8, vterm_mouse_flags)                                                  \
     X(BOOL, vterm_mouse_acting)                                               \
     X(VALIDATE, vterm_mouse_sst_valid)
@@ -206,6 +271,13 @@ void vterm_mouse_reset(void)
     vterm_mouse_acting = false;
     vterm_mouse_reporting = false;
     vterm_mouse_sent_x = vterm_mouse_sent_y = UINT16_MAX;
+    vterm_mouse_x = vterm_mouse_y = 0;
+    vterm_mouse_here = false;
+    vterm_mouse_tracking = VTERM_MOUSE_TRACK_OFF;
+    vterm_mouse_track_first = 0;
+    vterm_mouse_track_last = VTERM_MOUSE_TRACK_ALL;
+    vterm_mouse_dues = 0;
+    vterm_focus_told = vterm_focus_now;
     vterm_mouse_gesture = (vterm_mouse_gesture_t){0};
     vterm_mouse_mark();
 }
@@ -215,12 +287,21 @@ bool tablet_claimed(void)
     return vterm_placement.placed;
 }
 
+/* With no scrollback, the wheel presses the cursor keys over the alternate
+ * screen with alternate scroll (?1007) and no mouse mode, as xterm's. */
+static bool vterm_mouse_alt_scrolls(void)
+{
+    return vterm.alt_scroll && vterm.alt_active && vterm.mouse_event == TERM_MOUSE_OFF;
+}
+
 /* The terminal has no scrollback, so the wheel does something here only
- * for a program that asked for the mouse's events, which tell the wheel
- * from the normal events on. */
+ * for a program that asked for the mouse's events that tell it, the normal
+ * events to the any events, or with alternate scroll. */
 bool tablet_wheel_claimed(void)
 {
-    return vterm_placement.placed && vterm.mouse_event >= TERM_MOUSE_NORMAL;
+    const uint8_t ev = vterm.mouse_event;
+    return vterm_placement.placed &&
+           ((ev >= TERM_MOUSE_NORMAL && ev <= TERM_MOUSE_ANY) || vterm_mouse_alt_scrolls());
 }
 
 /* A sum of two deltas, held at the ends of an int8_t. *fits is cleared when
@@ -342,21 +423,26 @@ static vterm_mouse_view_t vterm_mouse_view(void)
     return (vterm_mouse_view_t){g, g->shown, (uint8_t)((g == &vterm_80.grid) << 1 | screen)};
 }
 
+/* The column of row y of the screen under canvas pixel x, mode 0 placed:
+ * one past the right of the row is one past its last column. A row of
+ * double width has half the columns, 16 pixels each. */
+static int vterm_mouse_col(const vterm_mouse_view_t *v, int y, int x)
+{
+    const bool wide = screen_size(v->s, (uint8_t)y);
+    const int cols = wide ? v->g->width / 2 : v->g->width;
+    x = x < 0 ? 0 : x / (wide ? 16 : 8);
+    return x > cols ? cols : x;
+}
+
 /* The cell under canvas pixel x, y, mode 0 placed: a pointer above or below
- * mode 0's rows is on its first or last row, and one past the right of a
- * row is one past its last column. A row of double width has half the
- * columns, 16 pixels each. */
+ * mode 0's rows is on its first or last row. */
 static vterm_mouse_pos_t vterm_mouse_at(const vterm_mouse_view_t *v, int x, int y)
 {
     const vterm_placement_t *p = &vterm_placement;
     vterm_mouse_pos_t at = {y < p->begin ? 0 : (y - p->begin) / p->row_px, 0};
     if (at.y >= v->g->height)
         at.y = v->g->height - 1;
-    const bool wide = screen_size(v->s, (uint8_t)at.y);
-    const int cols = wide ? v->g->width / 2 : v->g->width;
-    at.x = x < 0 ? 0 : x / (wide ? 16 : 8);
-    if (at.x > cols)
-        at.x = cols;
+    at.x = vterm_mouse_col(v, at.y, x);
     return at;
 }
 
@@ -613,19 +699,31 @@ static void vterm_mouse_compute(const vterm_mouse_view_t *v)
     vterm_select(v->g, v->code & 1, a.row, a.col, b.row, b.col);
 }
 
-/* A press at the cell, held by button: its clicks in a row, which a press
- * that is counted adds to, and the unit they make. */
+/* Whether a press of the left button at the cell is another click of the
+ * last, by the selection's rule: that one counted, on the same cell of the
+ * same screen, and this comes within VTERM_MOUSE_CLICK_MS of its release. */
+static bool vterm_mouse_again(const vterm_mouse_view_t *v, vterm_mouse_pos_t at)
+{
+    return vterm_mouse_gesture.clicked && vterm_mouse_gesture.screen == v->code &&
+           vterm_mouse_cell_eq(vterm_mouse_cell(v, at), vterm_mouse_gesture.click) &&
+           !timer_mach_passed(vterm_mouse_gesture.click_by);
+}
+
+/* A press at the cell, held by button: the next click of the run when it
+ * goes on (again), else the first, and the unit that makes; counted, it
+ * counts for the next by the selection's rule. A press on another screen
+ * than the gesture's puts all the gesture's points at the cell, so the
+ * store keeps none on a screen they are not of. */
 static vterm_mouse_cell_t vterm_mouse_press(const vterm_mouse_view_t *v, vterm_mouse_pos_t at,
-                                            uint8_t button, bool counted)
+                                            uint8_t button, bool counted, bool again)
 {
     const vterm_mouse_cell_t c = vterm_mouse_cell(v, at);
-    if (counted && vterm_mouse_gesture.clicked && vterm_mouse_gesture.screen == v->code &&
-        vterm_mouse_cell_eq(c, vterm_mouse_gesture.click) &&
-        !timer_mach_passed(vterm_mouse_gesture.click_by))
-        vterm_mouse_gesture.clicks = vterm_mouse_gesture.clicks % 3 + 1;
-    else
-        vterm_mouse_gesture.clicks = 1;
-    vterm_mouse_gesture.unit = (uint8_t)(vterm_mouse_gesture.clicks - 1);
+    vterm_mouse_gesture.clicks =
+        (uint8_t)(again ? vterm_mouse_gesture.clicks % VTERM_MOUSE_CLICKS + 1 : 1);
+    if (vterm_mouse_gesture.screen != v->code)
+        for (unsigned i = 0; i < VTERM_MOUSE_POINTS; i++)
+            vterm_mouse_gesture.points[i] = c;
+    vterm_mouse_gesture.unit = vterm_mouse_units[vterm_mouse_gesture.clicks - 1];
     vterm_mouse_gesture.clicked = counted;
     vterm_mouse_gesture.click = c;
     vterm_mouse_gesture.screen = v->code;
@@ -635,17 +733,33 @@ static vterm_mouse_cell_t vterm_mouse_press(const vterm_mouse_view_t *v, vterm_m
     return c;
 }
 
-/* A press starts a selection at the cell, by the unit its clicks make, and
- * the line editor's ends: one selection at a time. */
+/* A selection starts, as xterm's StartSelect: from raw, where the run's
+ * first click started, which a first click sets, to the cell at, in the
+ * unit the clicks made, and the line editor's ends: one selection at a
+ * time. */
+static void vterm_mouse_begin(const vterm_mouse_view_t *v, vterm_mouse_pos_t raw,
+                              vterm_mouse_pos_t at)
+{
+    const vterm_mouse_cell_t c = vterm_mouse_cell(v, raw);
+    rln_unselect();
+    vterm_mouse_gesture.raw = c;
+    vterm_mouse_gesture.ext_start = vterm_mouse_gesture.ext_end = c;
+    vterm_mouse_gesture.save_start = vterm_mouse_gesture.save_end = c;
+    vterm_mouse_gesture.left = vterm_mouse_cmp(at, raw) < 0;
+    if (vterm_mouse_gesture.left)
+        vterm_mouse_gesture.ext_start = vterm_mouse_cell(v, at);
+    else
+        vterm_mouse_gesture.ext_end = vterm_mouse_cell(v, at);
+    vterm_mouse_compute(v);
+}
+
+/* A press starts a selection at the cell, by the unit its clicks make: a
+ * counted one by the selection's rule. */
 static void vterm_mouse_start(const vterm_mouse_view_t *v, vterm_mouse_pos_t at, uint8_t button,
                               bool counted)
 {
-    const vterm_mouse_cell_t c = vterm_mouse_press(v, at, button, counted);
-    rln_unselect();
-    vterm_mouse_gesture.left = false;
-    vterm_mouse_gesture.ext_start = vterm_mouse_gesture.ext_end = c;
-    vterm_mouse_gesture.save_start = vterm_mouse_gesture.save_end = c;
-    vterm_mouse_compute(v);
+    vterm_mouse_press(v, at, button, counted, counted && vterm_mouse_again(v, at));
+    vterm_mouse_begin(v, at, at);
 }
 
 /* A press of the right button, or Shift with the left while no mouse mode
@@ -727,6 +841,16 @@ static void vterm_mouse_keep(const vterm_mouse_view_t *v)
               (uint8_t)end.x);
 }
 
+/* A drag ends, as xterm's EndExtend notes it: the next click goes on from
+ * it within VTERM_MOUSE_CLICK_MS, and by highlight tracking's rule only
+ * when left, the drag of the left button selecting or highlighting on the
+ * screen, not in the line editor's line. */
+static void vterm_mouse_ended(bool left)
+{
+    vterm_mouse_gesture.click_by = timer_mach_in_ms(VTERM_MOUSE_CLICK_MS);
+    vterm_mouse_gesture.ended_left = left;
+}
+
 /* The drag goes no further. */
 static void vterm_mouse_let_go(void)
 {
@@ -739,7 +863,7 @@ static void vterm_mouse_let_go(void)
  * is laid out now, and ends the primary's highlight. */
 static void vterm_mouse_line(const vterm_mouse_view_t *v, vterm_mouse_pos_t at, uint8_t index)
 {
-    vterm_mouse_press(v, at, TABLET_FLAG_LEFT, true);
+    vterm_mouse_press(v, at, TABLET_FLAG_LEFT, true, vterm_mouse_again(v, at));
     vterm_mouse_gesture.line = true;
     if (vterm_selection.shows)
         vterm_unselect();
@@ -776,6 +900,8 @@ static void vterm_mouse_act(const vterm_mouse_event_t *e, uint8_t was)
     {
         if (!vterm_mouse_gesture.line)
             vterm_mouse_keep(&v);
+        vterm_mouse_ended(vterm_mouse_gesture.button == TABLET_FLAG_LEFT &&
+                          !vterm_mouse_gesture.line);
         vterm_mouse_let_go();
     }
     /* A left click counts on from the last only when no other button went
@@ -783,8 +909,6 @@ static void vterm_mouse_act(const vterm_mouse_event_t *e, uint8_t was)
      * (vterm_mouse_extend). */
     if ((down | up) & ~TABLET_FLAG_LEFT)
         vterm_mouse_gesture.clicked = false;
-    if (up & TABLET_FLAG_LEFT)
-        vterm_mouse_gesture.click_by = timer_mach_in_ms(VTERM_MOUSE_CLICK_MS);
     if (up & TABLET_FLAG_MIDDLE)
         clip_paste(CLIP_PRIMARY);
     if (vterm_mouse_gesture.button)
@@ -795,6 +919,14 @@ static void vterm_mouse_act(const vterm_mouse_event_t *e, uint8_t was)
      * and never in the line editor's line. */
     const bool shift = vterm_mouse_shift(e);
     const bool extends = shift && vterm.mouse_event == TERM_MOUSE_OFF;
+    /* A selection that starts or extends frees the rows a highlight that
+     * goes on from it is held to, as xterm's select-start and start-extend
+     * set its valid rows to all. */
+    if (down & (TABLET_FLAG_LEFT | TABLET_FLAG_RIGHT))
+    {
+        vterm_mouse_track_first = 0;
+        vterm_mouse_track_last = VTERM_MOUSE_TRACK_ALL;
+    }
     const int index = (down & TABLET_FLAG_LEFT) && !shift ? rln_index_at((uint8_t)at.y, (uint8_t)at.x)
                                                            : -1;
     if (index >= 0)
@@ -823,17 +955,20 @@ static void vterm_mouse_act(const vterm_mouse_event_t *e, uint8_t was)
  * change, for the keys before it to be read. */
 
 /* The buttons that make a report, in the order motion names the one held:
- * each one's TABLET_FLAG_ and its VTMOUSE_. */
+ * each one's TABLET_FLAG_, its VTMOUSE_, and its DEC locator number, or
+ * none for one the locator has not. */
+#define VTERM_MOUSE_NO_LOCATOR 0xFF
 static const struct
 {
-    uint8_t flag, button;
+    uint8_t flag, button, locator;
 } vterm_mouse_buttons[] = {
-    {TABLET_FLAG_LEFT, VTMOUSE_LEFT},
-    {TABLET_FLAG_MIDDLE, VTMOUSE_MIDDLE},
-    {TABLET_FLAG_RIGHT, VTMOUSE_RIGHT},
-    {TABLET_FLAG_BTN4, VTMOUSE_BTN4},
-    {TABLET_FLAG_BTN5, VTMOUSE_BTN5},
+    {TABLET_FLAG_LEFT, VTMOUSE_LEFT, VTMOUSE_LOCATOR_LEFT},
+    {TABLET_FLAG_MIDDLE, VTMOUSE_MIDDLE, VTMOUSE_LOCATOR_MIDDLE},
+    {TABLET_FLAG_RIGHT, VTMOUSE_RIGHT, VTMOUSE_LOCATOR_RIGHT},
+    {TABLET_FLAG_BTN4, VTMOUSE_BTN4, VTMOUSE_LOCATOR_M4},
+    {TABLET_FLAG_BTN5, VTMOUSE_BTN5, VTERM_MOUSE_NO_LOCATOR},
 };
+#define VTERM_MOUSE_BUTTON_COUNT (sizeof vterm_mouse_buttons / sizeof *vterm_mouse_buttons)
 
 /* Whether the program that asked for the mouse's events takes a change
  * the terminal takes: one with Shift held stays the terminal's. */
@@ -861,6 +996,16 @@ static vterm_mouse_spot_t vterm_mouse_spot(int x, int y)
                                 (uint16_t)y};
 }
 
+/* Bytes typed whole: false, with nothing typed, when the queue has no room
+ * for them. */
+static bool vterm_mouse_type(const char *out, size_t n)
+{
+    if (n > typed_free())
+        return false;
+    typed_push(out, n);
+    return true;
+}
+
 /* One report, typed whole: false, with nothing typed, when the queue has no
  * room for it. X10's events carry no modifiers. A button the events do not
  * tell makes none, and leaves where the last report put the pointer. */
@@ -871,16 +1016,361 @@ static bool vterm_mouse_send(uint8_t event, uint8_t button, uint8_t modifier,
     const uint8_t form = vterm.mouse_form;
     const uint8_t mods = event == VTMOUSE_X10 ? 0 : vtkey_modifiers(modifier);
     const uint8_t n = vtmouse_encode(out, form, event, button, mods, at->col, at->row, at->x, at->y);
-    if (n > typed_free())
+    if (!vterm_mouse_type(out, n))
         return false;
     if (!n)
         return true;
-    typed_push(out, n);
     const bool pixels = form == TERM_MOUSE_FORM_PIXELS;
     vterm_mouse_sent_x = pixels ? at->x : at->col;
     vterm_mouse_sent_y = pixels ? at->y : at->row;
     return true;
 }
+
+/* ---- highlight tracking -------------------------------------------------
+ *
+ * As xterm's: the press of the left button is told as the normal events
+ * tell it, and waits for the program's answer until it comes up. An answer
+ * that starts the highlight makes it a drag of the gesture's, by
+ * characters, from where the program said, held to the rows it said, and
+ * highlighted as a selection is; any other answer, or none, leaves the
+ * press a normal event, whose release is told. A press of the left button
+ * that goes on from the last drag to end, as xterm's TrackDown counts it,
+ * is told nothing and highlights at once, in the unit its place in the run
+ * makes, from where the run's first click started, held to the rows the
+ * last highlight was. The release of a highlight tells what it
+ * highlighted, which then goes, and the primary takes it, as xterm's
+ * EndExtend ends in SelectSet. */
+
+/* The cell of the screen under canvas pixel x, y as the drag takes it, held
+ * to the rows the highlight is held to, and to the screen's rows, which may
+ * have become fewer since. */
+static vterm_mouse_pos_t vterm_mouse_track_at(const vterm_mouse_view_t *v, int x, int y)
+{
+    vterm_mouse_pos_t at = vterm_mouse_at(v, x, y);
+    const int most = v->g->height - 1;
+    const int first = vterm_mouse_track_first < most ? vterm_mouse_track_first : most;
+    const int last = vterm_mouse_track_last < most ? vterm_mouse_track_last : most;
+    if (at.y < first)
+        at.y = first;
+    else if (at.y > last)
+        at.y = last;
+    at.x = vterm_mouse_col(v, at.y, x);
+    return at;
+}
+
+/* A row of the screen showing from a row the program gave, held to it. */
+static uint8_t vterm_mouse_track_row(const vterm_mouse_view_t *v, int row)
+{
+    return (uint8_t)(row < 0 ? 0 : row >= v->g->height ? v->g->height - 1 : row);
+}
+
+void vterm_mouse_track(int func, int col, int row, int first, int last)
+{
+    if (vterm_mouse_tracking != VTERM_MOUSE_TRACK_WAIT)
+        return;
+    vterm_mouse_tracking = VTERM_MOUSE_TRACK_OFF;
+    if (!func || !vterm_placement.placed || vterm.mouse_event != TERM_MOUSE_HILITE)
+        return;
+    const vterm_mouse_view_t v = vterm_mouse_view();
+    vterm_mouse_track_first = vterm_mouse_track_row(&v, first);
+    vterm_mouse_track_last = vterm_mouse_track_row(&v, last);
+    vterm_mouse_pos_t at = {vterm_mouse_track_row(&v, row), 0};
+    const int cols = screen_size(v.s, (uint8_t)at.y) ? v.g->width / 2 : v.g->width;
+    at.x = col < 0 ? 0 : col > cols ? cols : col;
+    /* The press counted its click on the screen showing then: on another
+     * now, the run starts again. */
+    if (vterm_mouse_gesture.screen != v.code)
+        vterm_mouse_press(&v, at, TABLET_FLAG_LEFT, false, false);
+    vterm_mouse_gesture.button = TABLET_FLAG_LEFT;
+    vterm_mouse_begin(&v, at, at);
+    vterm_mouse_tracking = VTERM_MOUSE_TRACK_ON;
+}
+
+/* A press of the left button the program is to be told of, as xterm's
+ * TrackDown: one that goes on from the last drag to end, which the left
+ * button ended within VTERM_MOUSE_CLICK_MS, wherever it is, highlights at
+ * once, in the unit its place in the run makes, from where the run's first
+ * click started (xterm's rawPos), held to the rows the last highlight was
+ * (xterm's valid rows), and is told nothing. The run is on the gesture's
+ * screen, so a press on another starts it again. False for any other
+ * press, a first click, which is then told and waits for the answer
+ * (vterm_mouse_track_wait). */
+static bool vterm_mouse_track_down(const vterm_mouse_event_t *e)
+{
+    const vterm_mouse_view_t v = vterm_mouse_view();
+    if (!vterm_mouse_gesture.ended_left || vterm_mouse_gesture.screen != v.code ||
+        timer_mach_passed(vterm_mouse_gesture.click_by))
+        return false;
+    const vterm_mouse_pos_t at = vterm_mouse_track_at(&v, e->x, e->y);
+    const vterm_mouse_pos_t raw = vterm_mouse_pos(&v, vterm_mouse_gesture.raw);
+    vterm_mouse_press(&v, at, TABLET_FLAG_LEFT, true, true);
+    vterm_mouse_begin(&v, raw, at);
+    vterm_mouse_tracking = VTERM_MOUSE_TRACK_ON;
+    return true;
+}
+
+/* A press of the left button told: it waits for the program's answer, and
+ * is a first click, held by no button until an answer starts the
+ * highlight. */
+static void vterm_mouse_track_wait(const vterm_mouse_event_t *e)
+{
+    const vterm_mouse_view_t v = vterm_mouse_view();
+    vterm_mouse_press(&v, vterm_mouse_at(&v, e->x, e->y), 0, true, false);
+    vterm_mouse_tracking = VTERM_MOUSE_TRACK_WAIT;
+}
+
+/* The highlight goes, and the drag with it. */
+static void vterm_mouse_track_off(void)
+{
+    vterm_mouse_tracking = VTERM_MOUSE_TRACK_OFF;
+    vterm_mouse_let_go();
+    if (vterm_selection.shows)
+        vterm_unselect();
+}
+
+/* A change while the drag highlights: motion takes the highlight to the
+ * pointer, and the left button coming up ends it, telling what it
+ * highlighted as xterm's EndExtend does: CSI t and where it ends when it
+ * starts where the run's first click started and ends at the pointer, and
+ * otherwise CSI T and its start, its end and the pointer; nothing when
+ * nothing is highlighted. The primary then takes the highlight, as a
+ * drag's release fills it, and the next click goes on from the release
+ * (vterm_mouse_ended). False when that waits for room. A drag whose screen
+ * no longer shows, or whose program no longer tracks (?1001 reset, or a
+ * RIS), goes no further, and its change is a normal event's, told only in
+ * the mode now set. */
+static bool vterm_mouse_track_change(const vterm_mouse_event_t *e)
+{
+    const vterm_mouse_view_t v = vterm_mouse_view();
+    if (!vterm_placement.placed || vterm_mouse_gesture.screen != v.code ||
+        vterm.mouse_event != TERM_MOUSE_HILITE)
+    {
+        vterm_mouse_track_off();
+        return true;
+    }
+    const bool up = !(e->flags & TABLET_FLAG_LEFT);
+    const vterm_mouse_pos_t at = vterm_mouse_track_at(&v, e->x, e->y);
+    if ((e->flags & VTERM_MOUSE_PRESENT) && (e->moved || up))
+        vterm_mouse_drag(&v, at);
+    if (!up)
+        return true;
+    vterm_mouse_pos_t start, end;
+    vterm_mouse_span(&v, &start, &end);
+    if (vterm_mouse_cmp(start, end))
+    {
+        const vterm_mouse_pos_t raw = vterm_mouse_pos(&v, vterm_mouse_gesture.raw);
+        const uint8_t pos[6] = {(uint8_t)start.x, (uint8_t)start.y, (uint8_t)end.x,
+                                (uint8_t)end.y, (uint8_t)at.x, (uint8_t)at.y};
+        const bool short_form = !vterm_mouse_cmp(raw, start) && !vterm_mouse_cmp(at, end);
+        char out[VTMOUSE_HILITE_MAX];
+        const uint8_t n = short_form ? vtmouse_hilite(out, vterm.mouse_form, pos + 2, 2)
+                                     : vtmouse_hilite(out, vterm.mouse_form, pos, 6);
+        if (!vterm_mouse_type(out, n))
+            return false;
+    }
+    vterm_mouse_ended(true);
+    vterm_mouse_keep(&v);
+    vterm_mouse_track_off();
+    vterm_mouse_flags &= (uint8_t)~TABLET_FLAG_LEFT;
+    return true;
+}
+
+/* ---- the DEC locator ----------------------------------------------------
+ *
+ * As xterm's DECterm locator: DECLRP reports, CSI event ; buttons ; row ;
+ * col & w, of the buttons the program chose with DECSLE, of a DECRQLP, and
+ * of the locator leaving the filter rectangle of a DECEFR. The positions
+ * are cells, or pixels with DECELR's Pu 1, from 1, of the screen showing; a
+ * locator outside mode 0, or with no pointer, is unavailable. A one-shot
+ * locator goes off with its first report, and a button told where the
+ * locator is while the filter rectangle is armed turns the locator off, as
+ * DEC's; one told unavailable leaves it on, as xterm's SendLocatorPosition.
+ * The settings are the console's terminal's (term_locator_t). */
+
+/* Where the locator is, from 1: false when it is unavailable. */
+static bool vterm_mouse_locator_at(uint16_t *row, uint16_t *col)
+{
+    const vterm_placement_t *p = &vterm_placement;
+    int y = vterm_mouse_y - p->begin, x = vterm_mouse_x;
+    const int height = p->rows * p->row_px, width = p->cols * 8;
+    if (!p->placed || !vterm_mouse_here || !tablet_shared() || x < 0 ||
+        y < 0 || x >= width || y >= height)
+        return false;
+    if (!vterm.locator.pixels)
+    {
+        y /= p->row_px;
+        x /= 8;
+    }
+    *row = (uint16_t)(y + 1);
+    *col = (uint16_t)(x + 1);
+    return true;
+}
+
+/* The buttons held, as DECLRP's mask. */
+static uint8_t vterm_mouse_locator_buttons(void)
+{
+    uint8_t mask = 0;
+    for (size_t i = 0; i < VTERM_MOUSE_BUTTON_COUNT; i++)
+        if (vterm_mouse_buttons[i].locator != VTERM_MOUSE_NO_LOCATOR &&
+            (vterm_mouse_flags & vterm_mouse_buttons[i].flag))
+            mask |= VTMOUSE_LOCATOR_MASK(vterm_mouse_buttons[i].locator);
+    return mask;
+}
+
+/* The locator goes off, its filter rectangle and its events with it. */
+static void vterm_mouse_locator_off(void)
+{
+    vterm.mouse_event = TERM_MOUSE_OFF;
+    vterm.locator.filter = false;
+    vterm.locator.events = 0;
+}
+
+/* A DECLRP of the event where the locator is, unavailable where it is not,
+ * typed whole: false, with nothing typed, when there is no room. */
+static bool vterm_mouse_locator_send(uint8_t event)
+{
+    uint16_t row = 0, col = 0;
+    if (!vterm_mouse_locator_at(&row, &col))
+        event = VTMOUSE_LOCATOR_UNAVAILABLE;
+    char out[VTMOUSE_LOCATOR_MAX];
+    const uint8_t n = vtmouse_locator(out, event, vterm_mouse_locator_buttons(), row, col);
+    return vterm_mouse_type(out, n);
+}
+
+/* A report goes out: a one-shot locator goes off with it, as xterm's
+ * locator_reset, which turns off whatever mouse events are set. That is so
+ * even after the locator went off, as DECELR 0 leaves the one-shot setting:
+ * a DECRQLP then answered unavailable turns off a mode set since, as
+ * xterm's GetLocatorPosition does. */
+static void vterm_mouse_locator_told(void)
+{
+    if (vterm.locator.once)
+        vterm.mouse_event = TERM_MOUSE_OFF;
+}
+
+/* A report the terminal asked for, typed now when there is room and none
+ * waits before it, and otherwise by the task when there is. It counts as
+ * told as it is asked for, so a mode the program sets while it waits is
+ * not turned off. */
+static void vterm_mouse_locator_due(uint8_t event)
+{
+    vterm_mouse_locator_told();
+    if (!vterm_mouse_dues && vterm_mouse_locator_send(event))
+        return;
+    if (vterm_mouse_dues < VTERM_MOUSE_DUE)
+        vterm_mouse_due[vterm_mouse_dues++] = event;
+}
+
+void vterm_mouse_locate(void)
+{
+    if (vterm.locator.filter)
+        vterm_mouse_locator_off();
+    if (vterm.mouse_event == TERM_MOUSE_LOCATOR)
+        vterm_mouse_locator_due(VTMOUSE_LOCATOR_REQUEST);
+    else
+        vterm_mouse_locator_due(VTMOUSE_LOCATOR_UNAVAILABLE);
+}
+
+/* Whether the locator at row, col is outside the filter rectangle, or the
+ * rectangle has no edges of its own, which it then leaves as soon as the
+ * locator is somewhere. */
+static bool vterm_mouse_locator_outside(uint16_t row, uint16_t col)
+{
+    const term_locator_t *loc = &vterm.locator;
+    return !loc->top || row < loc->top || row > loc->bottom || col < loc->left ||
+           col > loc->right;
+}
+
+void vterm_mouse_filter(void)
+{
+    term_locator_t *loc = &vterm.locator;
+    uint16_t row, col;
+    if (!vterm_mouse_locator_at(&row, &col))
+    {
+        /* With an edge given, unavailable is told at once; with none, the
+         * locator coming back is. */
+        if (loc->top || loc->left || loc->bottom || loc->right)
+            vterm_mouse_locator_due(VTMOUSE_LOCATOR_UNAVAILABLE);
+        else
+            loc->filter = true;
+        return;
+    }
+    /* Each edge is held to xterm's limits: the last pixel, or in cells its
+     * max_row and max_col, which from 1 are the row and column before the
+     * last, so the locator on the last row or column is outside. */
+    const vterm_placement_t *p = &vterm_placement;
+    const uint16_t rows = loc->pixels ? (uint16_t)(p->rows * p->row_px) : (uint16_t)(p->rows - 1);
+    const uint16_t cols = loc->pixels ? (uint16_t)(p->cols * 8) : (uint16_t)(p->cols - 1);
+    uint16_t *const edge[4] = {&loc->top, &loc->left, &loc->bottom, &loc->right};
+    for (uint8_t i = 0; i < 4; i++)
+    {
+        const uint16_t here = i & 1 ? col : row, most = i & 1 ? cols : rows;
+        *edge[i] = !*edge[i] ? here : *edge[i] > most ? most : *edge[i];
+    }
+    if (loc->top > loc->bottom)
+    {
+        const uint16_t was = loc->top;
+        loc->top = loc->bottom;
+        loc->bottom = was;
+    }
+    if (loc->left > loc->right)
+    {
+        const uint16_t was = loc->left;
+        loc->left = loc->right;
+        loc->right = was;
+    }
+    if (vterm_mouse_locator_outside(row, col))
+        vterm_mouse_locator_due(VTMOUSE_LOCATOR_OUTSIDE);
+    else
+        loc->filter = true;
+}
+
+/* The locator's reports of a change the program takes: leaving the filter
+ * rectangle as the locator moves, then each button that went down or up
+ * that the program chose. False when one waits for room: vterm_mouse_flags
+ * then holds the buttons told so far. */
+static bool vterm_mouse_locator_report(const vterm_mouse_event_t *e)
+{
+    term_locator_t *loc = &vterm.locator;
+    uint16_t row, col;
+    if (e->moved && loc->filter &&
+        (!vterm_mouse_locator_at(&row, &col) || vterm_mouse_locator_outside(row, col)))
+    {
+        if (!vterm_mouse_locator_send(VTMOUSE_LOCATOR_OUTSIDE))
+            return false;
+        loc->filter = false;
+        vterm_mouse_locator_told();
+    }
+    for (size_t i = 0; i < VTERM_MOUSE_BUTTON_COUNT; i++)
+    {
+        const uint8_t flag = vterm_mouse_buttons[i].flag;
+        if (!((vterm_mouse_flags ^ e->flags) & flag))
+            continue;
+        const bool down = e->flags & flag;
+        const uint8_t chosen = down ? TERM_LOCATOR_DOWN : TERM_LOCATOR_UP;
+        if (vterm.mouse_event == TERM_MOUSE_LOCATOR && (loc->events & chosen) &&
+            vterm_mouse_buttons[i].locator != VTERM_MOUSE_NO_LOCATOR)
+        {
+            /* The mask is the buttons as they are after it. */
+            vterm_mouse_flags ^= flag;
+            const uint8_t event =
+                (uint8_t)(VTMOUSE_LOCATOR_DOWN + 2 * vterm_mouse_buttons[i].locator + !down);
+            const bool here = vterm_mouse_locator_at(&row, &col);
+            const bool sent = vterm_mouse_locator_send(event);
+            vterm_mouse_flags ^= flag;
+            if (!sent)
+                return false;
+            vterm_mouse_locator_told();
+            if (here && loc->filter)
+                vterm_mouse_locator_off();
+        }
+        vterm_mouse_flags ^= flag;
+    }
+    vterm_mouse_flags = e->flags;
+    return true;
+}
+
+/* ---- the mouse's events -------------------------------------------------- */
 
 /* The reports of a change the program takes: motion, then each button that
  * went down or up, then the wheel's notches. False when one waits for room:
@@ -888,19 +1378,25 @@ static bool vterm_mouse_send(uint8_t event, uint8_t button, uint8_t modifier,
  * notches still to tell, so the next pass tells the rest. */
 static bool vterm_mouse_report(vterm_mouse_event_t *e)
 {
+    if (vterm_mouse_tracking == VTERM_MOUSE_TRACK_ON && !vterm_mouse_track_change(e))
+        return false;
     const uint8_t mode = vterm.mouse_event;
     if (!vterm_placement.placed || !vterm_mouse_asked(e))
     {
+        if (!(e->flags & TABLET_FLAG_LEFT))
+            vterm_mouse_tracking = VTERM_MOUSE_TRACK_OFF;
         vterm_mouse_flags = e->flags;
         return true;
     }
+    if (mode == TERM_MOUSE_LOCATOR)
+        return vterm_mouse_locator_report(e);
     const vterm_mouse_spot_t at = vterm_mouse_spot(e->x, e->y);
     const uint8_t held = vterm_mouse_flags & VTERM_MOUSE_BUTTONS;
     if (e->moved && (mode == TERM_MOUSE_ANY || (mode == TERM_MOUSE_BUTTON && held)))
     {
         const bool pixels = vterm.mouse_form == TERM_MOUSE_FORM_PIXELS;
         uint8_t button = VTMOUSE_NONE;
-        for (size_t i = sizeof vterm_mouse_buttons / sizeof *vterm_mouse_buttons; i--;)
+        for (size_t i = VTERM_MOUSE_BUTTON_COUNT; i--;)
             if (held & vterm_mouse_buttons[i].flag)
                 button = vterm_mouse_buttons[i].button;
         if ((pixels ? at.x : at.col) != vterm_mouse_sent_x ||
@@ -908,18 +1404,33 @@ static bool vterm_mouse_report(vterm_mouse_event_t *e)
             if (!vterm_mouse_send(VTMOUSE_MOTION, button, e->modifier, &at))
                 return false;
     }
-    for (size_t i = 0; i < sizeof vterm_mouse_buttons / sizeof *vterm_mouse_buttons; i++)
+    for (size_t i = 0; i < VTERM_MOUSE_BUTTON_COUNT; i++)
     {
         const uint8_t flag = vterm_mouse_buttons[i].flag;
         if (!((vterm_mouse_flags ^ e->flags) & flag))
             continue;
         const bool down = e->flags & flag;
+        const bool track = flag == TABLET_FLAG_LEFT && down && mode == TERM_MOUSE_HILITE;
         const uint8_t event = !down                    ? VTMOUSE_RELEASE
                               : mode == TERM_MOUSE_X10 ? VTMOUSE_X10
                                                        : VTMOUSE_PRESS;
-        if ((down || mode != TERM_MOUSE_X10) &&
-            !vterm_mouse_send(event, vterm_mouse_buttons[i].button, e->modifier, &at))
-            return false;
+        if (!(track && vterm_mouse_track_down(e)))
+        {
+            if ((down || mode != TERM_MOUSE_X10) &&
+                !vterm_mouse_send(event, vterm_mouse_buttons[i].button, e->modifier, &at))
+                return false;
+            /* Highlight tracking's press waits for the program's answer
+             * until it comes up. */
+            if (track)
+                vterm_mouse_track_wait(e);
+            else if (flag == TABLET_FLAG_LEFT)
+                vterm_mouse_tracking = VTERM_MOUSE_TRACK_OFF;
+        }
+        /* By the selection's rule, a left click counts on from the last
+         * only when no other button went down or came up between them;
+         * highlight tracking's (vterm_mouse_track_down) does not ask. */
+        if (flag != TABLET_FLAG_LEFT)
+            vterm_mouse_gesture.clicked = false;
         vterm_mouse_flags ^= flag;
     }
     if (mode != TERM_MOUSE_X10)
@@ -943,15 +1454,84 @@ static bool vterm_mouse_report(vterm_mouse_event_t *e)
     return true;
 }
 
-/* The changes are taken in order. One the program takes, whose report waits
- * for room, stays first in the queue, where only motion merges into it, and
- * the rest wait behind it. */
+/* ---- alternate scroll ---------------------------------------------------- */
+
+/* The cursor keys a notch of the wheel presses, as xterm's scroll-back(5,
+ * line) and scroll-forw(5,line). */
+#define VTERM_MOUSE_SCROLL_KEYS 5
+
+/* With alternate scroll over the alternate screen and no mouse mode, a
+ * notch of the wheel up presses the up arrow, and down the down arrow,
+ * VTERM_MOUSE_SCROLL_KEYS times, with no modifiers, as the cursor keys
+ * send them in the modes the terminal is in (vtkey.h). Otherwise the wheel
+ * does nothing. False while a notch waits for room, with the change
+ * holding the notches still to press. */
+static bool vterm_mouse_scroll(vterm_mouse_event_t *e)
+{
+    if (!vterm_mouse_alt_scrolls())
+        return true;
+    while (e->wheel)
+    {
+        char key[VTKEY_MAX];
+        const int n = vtkey_encode(key, e->wheel > 0 ? HID_KEY_ARROW_UP : HID_KEY_ARROW_DOWN, 0);
+        if (n <= 0)
+            break;
+        if ((size_t)n * VTERM_MOUSE_SCROLL_KEYS > typed_free())
+            return false;
+        for (int i = 0; i < VTERM_MOUSE_SCROLL_KEYS; i++)
+            typed_push(key, (size_t)n);
+        e->wheel = (int8_t)(e->wheel > 0 ? e->wheel - 1 : e->wheel + 1);
+    }
+    return true;
+}
+
+/* ---- focus --------------------------------------------------------------- */
+
+void vterm_focus(bool focused)
+{
+    vterm_focus_now = focused;
+}
+
+/* A change of the focus is told, CSI I gained and CSI O lost, while the
+ * program asks (?1004). Without, the program was told nothing, and setting
+ * the mode later tells nothing until the focus changes, as xterm. False
+ * while it waits for room. */
+static bool vterm_focus_tell(void)
+{
+    if (!vterm.focus_events)
+        vterm_focus_told = vterm_focus_now;
+    if (vterm_focus_told == vterm_focus_now)
+        return true;
+    if (!vterm_mouse_type(vterm_focus_now ? "\33[I" : "\33[O", 3))
+        return false;
+    vterm_focus_told = vterm_focus_now;
+    return true;
+}
+
+/* ---- the task ------------------------------------------------------------ */
+
+/* The locator reports the terminal asked for go first, then a change of the
+ * focus, then the changes, in order. One the program takes, whose report
+ * waits for room, stays first in the queue, where only motion merges into
+ * it, and the rest wait behind it. */
 void HOST_IN_FLASH_FUNC vterm_mouse_task(void)
 {
+    for (; vterm_mouse_dues; vterm_mouse_dues--)
+    {
+        if (!vterm_mouse_locator_send(vterm_mouse_due[0]))
+            return;
+        for (uint8_t i = 1; i < vterm_mouse_dues; i++)
+            vterm_mouse_due[i - 1] = vterm_mouse_due[i];
+    }
+    if (!vterm_focus_tell())
+        return;
     while (RING_LEN(&vterm_mouse_queue))
     {
         vterm_mouse_event_t *e = RING_AT(&vterm_mouse_queue, 0);
         const uint8_t was = vterm_mouse_flags;
+        vterm_mouse_x = e->x;
+        vterm_mouse_y = e->y;
+        vterm_mouse_here = e->flags & VTERM_MOUSE_PRESENT;
         /* With no button held, this change decides, a press included; a
          * release goes where its press went. */
         if (!(was & VTERM_MOUSE_BUTTONS))
@@ -966,6 +1546,8 @@ void HOST_IN_FLASH_FUNC vterm_mouse_task(void)
         }
         else
         {
+            if (vterm_mouse_acting && !vterm_mouse_scroll(e))
+                return;
             vterm_mouse_flags = e->flags;
             if (vterm_mouse_acting)
                 vterm_mouse_act(e, was);

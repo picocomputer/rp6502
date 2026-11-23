@@ -267,6 +267,27 @@ static uint8_t pointer_buttons(const sapp_event *e)
     return b;
 }
 
+/* The wheel's notches from a scroll event. A trackpad scrolls by small
+ * fractions of a notch, which add up here until they make one, so a slow
+ * scroll moves too; the rest waits for the next event. */
+static float input_wheel_rest, input_pan_rest;
+
+static int input_notches(float *rest, float delta)
+{
+    *rest += delta;
+    const float whole = truncf(*rest);
+    *rest -= whole;
+    return (int)whole;
+}
+
+static void input_wheel_notches(const sapp_event *e, int *wheel, int *pan)
+{
+    /* sokol's scroll_x, like GLFW's, is positive to the left, and pan, like
+     * HID AC Pan, is positive to the right. */
+    *wheel = input_notches(&input_wheel_rest, e->scroll_y);
+    *pan = input_notches(&input_pan_rest, -e->scroll_x);
+}
+
 /* Route a host pointer or touch event to the tablet, which is an absolute canvas
  * position and never captures. Because nothing is captured while the tablet has
  * the pointer, a mouse the program mapped is fed from here as well: the one
@@ -312,11 +333,13 @@ static bool input_tablet(const sapp_event *e)
          * or left whole to the page, as the web build cancels it. */
         if (!input_wheel_to_tablet())
             return false;
-        /* sokol's scroll_x, like GLFW's, is positive to the left, and pan, like
-         * HID AC Pan, is positive to the right. */
-        tablet_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(-e->scroll_x));
-        if (mouse_is_mapped())
-            mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(-e->scroll_x));
+        {
+            int wheel, pan;
+            input_wheel_notches(e, &wheel, &pan);
+            tablet_host_wheel(wheel, pan);
+            if (mouse_is_mapped())
+                mouse_host_wheel(wheel, pan);
+        }
         return true;
     case SAPP_EVENTTYPE_MOUSE_LEAVE:
         input_set_pointer_on_canvas(false);
@@ -438,7 +461,11 @@ void input_event(const sapp_event *e)
         break;
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
         if (input_mouse_locked())
-            mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(-e->scroll_x));
+        {
+            int wheel, pan;
+            input_wheel_notches(e, &wheel, &pan);
+            mouse_host_wheel(wheel, pan);
+        }
         break;
     case SAPP_EVENTTYPE_CLIPBOARD_PASTED:
 #if defined(__EMSCRIPTEN__)

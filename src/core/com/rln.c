@@ -1800,7 +1800,7 @@ static void rln_mouse_becomes_due(void)
 void rln_mouse_press(uint8_t index, uint8_t clicks)
 {
     rln_press_at = rln_drag_at = index;
-    rln_press_unit = clicks >= 3   ? RLN_UNIT_LINE
+    rln_press_unit = clicks == 3   ? RLN_UNIT_LINE
                      : clicks == 2 ? RLN_UNIT_WORD
                                    : RLN_UNIT_CHAR;
     rln_mouse_becomes_due();

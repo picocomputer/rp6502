@@ -22,6 +22,7 @@
 #include "core/sys/timer.h"
 #include "core/term/grid.h"
 #include "core/term/vterm.h"
+#include "core/term/vterm_mouse.h"
 #include "utest.h"
 #include <string.h>
 
@@ -32,6 +33,14 @@ _Static_assert(TERM_MAX_HEIGHT == 32 && TERM_CELL_TEXT == 1 && TYPED_QUEUE_SIZE 
 bool vga_connected(void) { return false; }
 unsigned long vga_frame_count(void) { return 0; }
 void com_reply(const char *s, size_t n) { (void)s, (void)n; }
+/* The console's mouse is not in this test: what a program asks of it does
+ * nothing. */
+void vterm_mouse_track(int func, int col, int row, int first, int last)
+{
+    (void)func, (void)col, (void)row, (void)first, (void)last;
+}
+void vterm_mouse_locate(void) {}
+void vterm_mouse_filter(void) {}
 void draw_reset(void) {}
 void draw_job_started(void) {}
 void aud_bel_put(unsigned i, uint8_t val) { (void)i, (void)val; }
