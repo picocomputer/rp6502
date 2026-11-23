@@ -982,6 +982,17 @@ void rln_unselect(void)
     rln_select(0, 0);
 }
 
+/* The line's selection is what its highlight shows. When the highlight goes
+ * from under it, by a new canvas, a RIS or the line's rows leaving the
+ * screen, the selection ends with it and the cursor stays where it is, so
+ * no key acts on text that shows no highlight. One still due to show is
+ * kept: its highlight has yet to go on. */
+static void rln_selection_follow(void)
+{
+    if (rln_sel_anchor != rln_sel_end && !rln_hl_due && !vterm_selection.shows)
+        rln_sel_anchor = rln_sel_end;
+}
+
 /* A key still to take when the read ends: a paste pastes, as the paste
  * keys do with no read, and a cut has no line left to cut from. */
 static void rln_key_end(void)
@@ -2034,7 +2045,10 @@ static bool HOST_IN_RAM_FUNC rln_take_items(void)
     for (;;)
     {
         if (rln_callback)
+        {
             rln_follow();
+            rln_selection_follow();
+        }
         if (!rln_callback || !(len = tio_read(&src, item)))
             return true;
         rln_idle_deadline = timer_mach_in_ms(rln_idle_timeout_ms);
@@ -2050,6 +2064,7 @@ static bool HOST_IN_RAM_FUNC rln_take_items(void)
 void HOST_IN_RAM_FUNC rln_task(void)
 {
     const bool answered = rln_take_items();
+    rln_selection_follow();
     if ((rln_mouse_due || rln_key_due) && rln_callback && tio_idle())
         rln_take_due();
     if (rln_hl_due && !rln_out_len && manifold_drained())

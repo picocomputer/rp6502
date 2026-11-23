@@ -1539,6 +1539,39 @@ UTEST(rln, a_ris_erases_the_line_and_its_highlight)
     screen_done();
 }
 
+/* A new canvas of the same width takes the highlight away, and the
+ * selection ends with it: a typed character goes in at the cursor and
+ * replaces nothing, as nothing shows selected. */
+UTEST(rln, a_new_canvas_ends_the_selection_with_its_highlight)
+{
+    screen_reading_after("");
+    wire("abcd\33[1;2D");
+    ASSERT_TRUE(hl(0, 3));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_480));
+    tasks();
+    ASSERT_FALSE(vterm_selection.shows);
+    ASSERT_FALSE(rln_selected());
+    wire("x\r");
+    ASSERT_STREQ(last, "abcxd");
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    screen_done();
+}
+
+/* After a RIS the line's selection is gone too: a typed character
+ * replaces nothing. */
+UTEST(rln, a_ris_ends_the_selection)
+{
+    screen_reading_after("");
+    wire("abcd\33[1;2D");
+    ASSERT_TRUE(hl(0, 3));
+    vterm_RIS();
+    tasks();
+    ASSERT_FALSE(rln_selected());
+    wire("x\r");
+    ASSERT_STREQ(last, "abcxd");
+    screen_done();
+}
+
 /* The highlight is off when the read ends, by Enter, a stop or a cancel. */
 UTEST(rln, a_read_that_ends_leaves_no_highlight)
 {
