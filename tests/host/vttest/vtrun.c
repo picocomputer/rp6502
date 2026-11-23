@@ -88,15 +88,18 @@
 #include <unistd.h>
 
 #define VT_POLL_MS 2      /* how often the walk looks for vttest waiting */
-#define VT_STUCK_MS 7000  /* quiet and not reading this long, and it waits anyway:
-                           * longer than its longest pause, the 5 s after a RIS */
+#define VT_STUCK_MS 7000  /* without vtsleep.c, quiet and not reading this long,
+                           * and it waits anyway: longer than its longest pause,
+                           * the 5 s after a RIS */
 #define VT_STEP_LIMIT 4000 /* screens before giving up on a walk gone wrong */
 #define VT_TEST_LIMIT 60   /* screens one test may take before it is left */
 #define VT_TIME_LIMIT 480  /* seconds for the whole walk, under ctest's 600 */
 
 static int vt_master = -1;
 
-/* What vttest has read in all, from /proc: the bytes its reads returned. */
+/* What vttest has read in all, from /proc: the bytes its reads returned.
+ * On the walk it reads only its terminal, and its pauses read nothing
+ * (vtsleep.c), so this is what it has taken of what it was sent. */
 static pid_t vt_pid;
 static uint64_t vt_read_count(void)
 {
@@ -116,26 +119,33 @@ static uint64_t vt_read_count(void)
 /* What was written to vttest and it has yet to read: vt_owed bytes, counted
  * from where its reads stood at vt_owed_from. A write to a pseudoterminal
  * reaches the other side later, from a worker of the kernel's, and until it
- * does vttest still sleeps in its read with nothing to read, which is how it
- * looks when it waits for a key. So it is not waiting until it has read
- * what it was sent. */
+ * does vttest can neither read it nor see it there: it still sleeps in its
+ * read with nothing to read, which is how it looks when it waits for a key,
+ * and FIONREAD says nothing is waiting. So what it has yet to read is
+ * counted here, from what it has read. */
 static uint64_t vt_owed, vt_owed_from;
+
+static uint64_t vt_unread(void)
+{
+    if (!vt_owed)
+        return 0;
+    const uint64_t took = vt_read_count() - vt_owed_from;
+    if (took < vt_owed)
+        return vt_owed - took;
+    vt_owed = 0;
+    return 0;
+}
 
 static bool vt_taken(void)
 {
-    if (vt_owed && vt_read_count() - vt_owed_from >= vt_owed)
-        vt_owed = 0;
-    return !vt_owed;
+    return !vt_unread();
 }
 
 static void vt_reply(const char *s, size_t n)
 {
-    if (!vt_taken() || n)
-    {
-        if (!vt_owed)
-            vt_owed_from = vt_read_count();
-        vt_owed += n;
-    }
+    if (n && !vt_unread())
+        vt_owed_from = vt_read_count();
+    vt_owed += n;
     while (n)
     {
         ssize_t w = write(vt_master, s, n);
@@ -1094,39 +1104,37 @@ static const vt_answer_t *vt_answer; /* the row the walk is in */
 static int vt_step;                  /* and the next step of it */
 
 static int vt_slave = -1;
-static int vt_stuck_ms = VT_STUCK_MS;
+static int vt_stuck_ms = VT_STUCK_MS; /* 0 when vttest's pauses tell (vtsleep.c) */
+static time_t vt_start;
 
-/* The pipes vtsleep.c's pauses talk to vtrun on, when it is preloaded. */
-static int vt_pause_tell = -1, vt_pause_wait = -1;
+/* The pipe vtsleep.c's pauses tell vtrun on, when it is preloaded. */
+static int vt_pause_tell = -1;
 
-/* Whether vttest sleeps: its state in /proc is S, a process waiting for
- * something. One that is running, or waiting only for a processor, is R. */
-static bool vt_asleep(void)
+/* Whether everything sent to vttest is there for it to read: what it has yet
+ * to read is in its terminal's input, which FIONREAD counts. The count of
+ * what it has read is taken first, so what it reads meanwhile only makes
+ * this later to say yes. */
+static bool vt_delivered(void)
 {
-    char path[64], line[512];
-    snprintf(path, sizeof path, "/proc/%d/stat", (int)vt_pid);
-    FILE *f = fopen(path, "r");
-    if (!f)
-        return false;
-    bool got = fgets(line, sizeof line, f);
-    fclose(f);
-    /* The state follows the name, which is in parentheses and may hold any
-     * character, so it is found from the last of them. */
-    const char *end = got ? strrchr(line, ')') : NULL;
-    return end && end[1] == ' ' && end[2] == 'S';
+    const uint64_t unread = vt_unread();
+    int queued = 0;
+    return !unread || (!ioctl(vt_slave, FIONREAD, &queued) && (uint64_t)queued >= unread);
 }
 
-/* Whether vttest waits for a key: it is blocked reading its terminal, and
- * nothing is there for it to read. Linux shows the call a process is in, and
- * vttest reads keys, and the terminal's replies, with read on fd 0.
+/* Whether vttest waits for a key: it sleeps reading its terminal, having
+ * read everything it was sent. Linux shows the call a process sleeps in,
+ * and only while it sleeps; vttest reads keys, and the terminal's replies,
+ * with read on fd 0.
  *
- * Being in the call is not enough. vttest reads a sequence a byte at a time,
- * and for a moment after a read has taken the last byte it is still in that
- * call with nothing left to read, about to go on with what it read. On a busy
- * machine that moment is long, and a key typed in it lands in the sequence
- * before it. A read that waits is asleep, and one that took a byte is not. */
+ * What it has read is looked at first. vttest reads a sequence a byte at a
+ * time, then often pauses, which is a sleep too. Seen in that order, a read
+ * it sleeps in comes after it took the last byte, so nothing is coming to
+ * it and it is waiting; seen the other way round, the read could be the one
+ * that took it, and vttest now in the pause that follows. */
 static bool vt_reading(void)
 {
+    if (!vt_taken())
+        return false;
     char path[64], line[256];
     snprintf(path, sizeof path, "/proc/%d/syscall", (int)vt_pid);
     FILE *f = fopen(path, "r");
@@ -1136,42 +1144,31 @@ static bool vt_reading(void)
     unsigned long fd = 1;
     bool ok = fgets(line, sizeof line, f) && sscanf(line, "%ld 0x%lx", &nr, &fd) == 2;
     fclose(f);
-    int queued = 1;
-    return ok && nr == SYS_read && fd == 0 && vt_asleep() && vt_taken() &&
-           !ioctl(vt_slave, FIONREAD, &queued) && !queued;
+    return ok && nr == SYS_read && fd == 0;
 }
 
 /* Reads what vttest writes until it waits for a key, answering as the
  * terminal does. False once it is gone. vttest flushes its output before it
- * reads, so all of a screen is in when it waits, and a reply the terminal
- * gave is in its input until it reads it. Its pauses are sleeps, not reads,
- * so no key lands in one. */
+ * reads or pauses. What it wrote reaches this side of the pseudoterminal
+ * from the kernel's worker too, and a poll of this side waits for that
+ * worker, so a poll that finds nothing has all vttest wrote before it.
+ *
+ * A pause ends with what vttest wrote before it read and answered, and
+ * with all this side has sent it there for it to read: vttest reads what is
+ * there after a pause, and only that. Nothing here waits on the clock for
+ * vttest, which is as slow as the machine is busy. */
 static bool vt_drain(void)
 {
     int quiet = 0;
+    pid_t paused = 0; /* the process in a pause, until it ends */
     for (;;)
     {
         struct pollfd p[2] = {{.fd = vt_master, .events = POLLIN},
-                              {.fd = vt_pause_tell, .events = POLLIN}};
-        int k = poll(p, vt_pause_tell < 0 ? 1 : 2, VT_POLL_MS);
+                              {.fd = paused ? -1 : vt_pause_tell, .events = POLLIN}};
+        int k = poll(p, 2, VT_POLL_MS);
         if (k < 0 && errno == EINTR)
             continue;
-        if (k > 0 && !(p[0].revents & (POLLIN | POLLHUP)) && (p[1].revents & POLLIN))
-        {
-            /* vttest pauses, with all it wrote before the pause written:
-             * that is read and answered, and the pause ends. What it wrote
-             * reaches this side of the pseudoterminal a moment after, so a
-             * moment's quiet is waited for first. */
-            struct pollfd again = {.fd = vt_master, .events = POLLIN};
-            if (poll(&again, 1, 1) > 0)
-                continue;
-            char c;
-            (void)!read(vt_pause_tell, &c, 1);
-            (void)!write(vt_pause_wait, &c, 1);
-            quiet = 0;
-            continue;
-        }
-        if (k > 0)
+        if (p[0].revents & (POLLIN | POLLHUP))
         {
             char buf[4096];
             ssize_t n = read(vt_master, buf, sizeof buf);
@@ -1179,6 +1176,31 @@ static bool vt_drain(void)
                 return false;
             vt_feed(buf, (size_t)n);
             quiet = 0;
+            continue;
+        }
+        if (p[1].revents & (POLLIN | POLLHUP))
+        {
+            /* The next poll of this side, which finds nothing, has all that
+             * was written before the pause. */
+            if (read(vt_pause_tell, &paused, sizeof paused) != sizeof paused)
+                return false;
+            quiet = 0;
+            continue;
+        }
+        /* vtrun holds the terminal open, so vttest's end does not hang it
+         * up: it is looked for, left unreaped for the end of the walk. */
+        siginfo_t end = {0};
+        if (!waitid(P_PID, (id_t)vt_pid, &end, WEXITED | WNOHANG | WNOWAIT) && end.si_pid)
+            return false;
+        if (time(NULL) - vt_start > VT_TIME_LIMIT)
+            return true;
+        if (paused)
+        {
+            if (vt_delivered())
+            {
+                kill(paused, SIGUSR1);
+                paused = 0;
+            }
             continue;
         }
         if (vt_reading())
@@ -1192,8 +1214,12 @@ static bool vt_drain(void)
                 continue;
             return true;
         }
+        /* Another program than vttest, whose sleeps do not tell, waits
+         * anyway once it has been quiet a while. vttest with vtsleep.c is
+         * only ever reading, pausing or at work, so it is waited for, to the
+         * walk's limit. */
         quiet += VT_POLL_MS;
-        if (quiet >= vt_stuck_ms)
+        if (vt_stuck_ms && quiet >= vt_stuck_ms)
             return true;
     }
 }
@@ -1571,9 +1597,9 @@ int main(int argc, char **argv)
             vt_load_known(getenv("VTXKNOWN"));
     }
     struct winsize ws = {.ws_row = (unsigned short)vt_rows, .ws_col = (unsigned short)vt_cols};
-    int tell[2] = {-1, -1}, wait[2] = {-1, -1};
+    int tell[2] = {-1, -1};
     const char *preload = getenv("VTSLEEP");
-    if (preload && (pipe(tell) || pipe(wait)))
+    if (preload && pipe(tell))
     {
         perror("vtrun: pipe");
         return 2;
@@ -1597,12 +1623,11 @@ int main(int argc, char **argv)
         setenv("TERM", "vt102", 1);
         if (preload)
         {
-            char fds[32];
-            snprintf(fds, sizeof fds, "%d,%d", tell[1], wait[0]);
-            setenv("VTSLEEP_FDS", fds, 1);
+            char fd[16];
+            snprintf(fd, sizeof fd, "%d", tell[1]);
+            setenv("VTSLEEP_FD", fd, 1);
             setenv("LD_PRELOAD", preload, 1);
             close(tell[0]);
-            close(wait[1]);
         }
         const char *vttest = getenv("VTTEST");
         if (getenv("VTCMD"))
@@ -1620,9 +1645,8 @@ int main(int argc, char **argv)
     if (preload)
     {
         close(tell[1]);
-        close(wait[0]);
         vt_pause_tell = tell[0];
-        vt_pause_wait = wait[1];
+        vt_stuck_ms = 0;
     }
     vt_slave = open(ptsname(vt_master), O_RDWR | O_NOCTTY);
     if (vt_slave < 0)
@@ -1632,7 +1656,7 @@ int main(int argc, char **argv)
     }
     int steps = 0;
     int status = 0;
-    time_t start = time(NULL);
+    vt_start = time(NULL);
     if (getenv("VTCMD"))
     {
         /* Another program than vttest, which may never block in a read:
@@ -1656,7 +1680,7 @@ int main(int argc, char **argv)
     }
     while (steps++ < VT_STEP_LIMIT && vt_wait())
     {
-        if (time(NULL) - start > VT_TIME_LIMIT)
+        if (time(NULL) - vt_start > VT_TIME_LIMIT)
         {
             vt_log("time limit, at %s\n", vt_path);
             status = 1;
