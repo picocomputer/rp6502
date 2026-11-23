@@ -259,6 +259,7 @@ typedef struct
     uint8_t last_glyph;   // for REP
     uint8_t last_ss;      // and the single shift it was drawn with, 0, 2 or 3
     bool rep_valid;       // the last thing written was a glyph
+    uint16_t ris_count;   // the RISes, counted: each erases what was laid out on the screens before it
     /* The parser. */
     uint8_t ansi_state; // an ansi_state_t
     uint16_t csi_param[TERM_CSI_PARAM_MAX_LEN];
@@ -415,6 +416,7 @@ static inline bool term_erase_selective(const term_t *t, bool dec)
     X(U8, t.last_glyph)                                                \
     X(U8, t.last_ss)                                                   \
     X(BOOL, t.rep_valid)                                               \
+    X(U16, t.ris_count)                                                \
     X(U8, t.ansi_state)                                                \
     X(U16S, t.csi_param)                                               \
     X(BYTES, t.csi_separator)                                          \

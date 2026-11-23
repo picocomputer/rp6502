@@ -11,6 +11,7 @@
  * typed through keymap.c and vtkey.c on a layout of the letters alone. */
 
 #include "core/aud/bel.h"
+#include "core/com/rln.h"
 #include "core/hid/clip.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
@@ -39,14 +40,34 @@ uint64_t host_clock_us(void) { return 1; }
 static unsigned sigints;
 void ria_trigger_sigint(void) { sigints++; }
 
-/* What keymap.c and key.c ask of the keyboard, the USB host, the programs
- * and the clock: no locks, no program's chords and no repeat. */
+/* What keymap.c and key.c ask of the keyboard, the USB host, the programs,
+ * the line editor and the clock: no locks, no program's chords and no
+ * repeat. The line editor's selection shows where line_selects; its copy
+ * puts "line" in the clipboard, and its cut and paste keys are counted. */
 bool hid_boot_enumerating(void) { return false; }
 void hid_set_leds(uint8_t leds) { (void)leds; }
 bool proc_key_chord(uint8_t keycode, bool ctrl, bool alt)
 {
     (void)keycode, (void)ctrl, (void)alt;
     return false;
+}
+static bool line_selects;
+static unsigned line_cuts, line_pastes;
+bool rln_copy(void)
+{
+    if (line_selects)
+        clip_copy_bytes("line", 4);
+    return line_selects;
+}
+bool rln_cut(void)
+{
+    line_cuts += line_selects;
+    return line_selects;
+}
+bool rln_paste(void)
+{
+    line_pastes += line_selects;
+    return line_selects;
 }
 uint8_t keyboard_get_locks(void) { return 0; }
 void keyboard_set_locks(uint8_t locks) { (void)locks; }
@@ -118,6 +139,8 @@ static void fresh(void)
     row.clear();
     clip_reset();
     sigints = 0;
+    line_selects = false;
+    line_cuts = line_pastes = 0;
 }
 
 static screen_t *shown(void)
@@ -297,6 +320,48 @@ UTEST(paste, the_copy_and_paste_keys_through_the_keymap)
     press("c", true);
     ASSERT_EQ(sigints, 1u);
     ASSERT_STREQ(keyboard(), "\3");
+}
+
+/* The copy and paste keys act at once, with keys typed before them still
+ * unread: a copy takes the primary as it is at the press, and a paste goes
+ * between the keys typed before it and the keys typed after it. */
+UTEST(paste, the_copy_and_paste_keys_act_at_once)
+{
+    fresh();
+    say("copy me\r\n");
+    clip_copy(CLIP_PRIMARY, shown(), 0, 0, 0, 7);
+    press("ab", false);
+    chord(CTRL | SHIFT, HID_KEY_C);
+    clip_copy(CLIP_PRIMARY, shown(), 0, 0, 0, 4);
+    chord(CTRL | SHIFT, HID_KEY_V);
+    ASSERT_TRUE(paste_busy());
+    press("cd", false);
+    ASSERT_STREQ(keyboard(), "abcopy mecd");
+}
+
+/* Shift-Delete with no line selection showing types its sequence; with
+ * one, it and the paste keys are the line editor's and type nothing, and
+ * the copy keys copy the line's selection in place of the primary. */
+UTEST(paste, the_line_s_selection_takes_the_keys_through_the_keymap)
+{
+    fresh();
+    say("copy me\r\n");
+    clip_copy(CLIP_PRIMARY, shown(), 0, 0, 0, 7);
+    chord(SHIFT, HID_KEY_DELETE);
+    ASSERT_STREQ(keyboard(), "\33[3;2~");
+    ASSERT_EQ(line_cuts, 0u);
+    line_selects = true;
+    chord(SHIFT, HID_KEY_DELETE);
+    chord(CTRL | SHIFT, HID_KEY_V);
+    chord(SHIFT, HID_KEY_INSERT);
+    ASSERT_FALSE(paste_busy());
+    ASSERT_STREQ(keyboard(), "");
+    ASSERT_EQ(line_cuts, 1u);
+    ASSERT_EQ(line_pastes, 2u);
+    chord(CTRL, HID_KEY_INSERT);
+    line_selects = false;
+    chord(SHIFT, HID_KEY_INSERT);
+    ASSERT_STREQ(keyboard(), "line");
 }
 
 UTEST_MAIN();

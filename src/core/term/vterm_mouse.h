@@ -34,6 +34,11 @@
  *   by lines. A click with no drag selects nothing, which ends the
  *   selection. The selection is on the screen showing, of the grid
  *   showing, and selecting there moves it there (vterm_select);
+ * - a press of the left button on the line the line editor is editing, as
+ *   it is laid out at that moment (rln_index_at), selects in the line
+ *   instead (core/com/rln.h), and its drag stays in the line. A press
+ *   anywhere else is the primary's, even one a drag then takes into the
+ *   line. Starting either selection ends the other's highlight;
  * - the right button, and Shift with the left, extend the selection from
  *   its nearer end, in the unit it was made in;
  * - the release that ends a drag fills the primary (clip.h) with what is

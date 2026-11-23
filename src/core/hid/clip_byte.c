@@ -78,6 +78,15 @@ void HOST_IN_FLASH_FUNC clip_copy_primary(void)
     clip_len[CLIP_CLIPBOARD] = clip_len[CLIP_PRIMARY];
 }
 
+void HOST_IN_FLASH_FUNC clip_copy_bytes(const char *bytes, size_t n)
+{
+    paste_clip_changed(CLIP_CLIPBOARD);
+    if (n > CLIP_SIZE)
+        n = CLIP_SIZE;
+    memcpy(&clip_buf[CLIP_CLIPBOARD * CLIP_SIZE], bytes, n);
+    clip_len[CLIP_CLIPBOARD] = (uint16_t)n;
+}
+
 void HOST_IN_FLASH_FUNC clip_paste(uint8_t which)
 {
     paste_clip(which);

@@ -8,6 +8,7 @@
 #include "core/hid/clip.h"
 #include "core/hid/usage.h"
 #include "core/api/proc.h"
+#include "core/com/rln.h"
 #include "core/sys/sst.h"
 #include "host/host.h"
 #include "machine.h"
@@ -42,8 +43,30 @@ key_clip_t HOST_IN_RAM_FUNC key_clip(uint8_t keycode, uint8_t modifier)
         return held == KEY_CTRL    ? KEY_CLIP_COPY
                : held == KEY_SHIFT ? KEY_CLIP_PASTE
                                    : KEY_CLIP_NONE;
+    case HID_KEY_DELETE:
+        return held == KEY_SHIFT ? KEY_CLIP_CUT : KEY_CLIP_NONE;
     default:
         return KEY_CLIP_NONE;
+    }
+}
+
+/* From flash, as the clip and line editor calls it makes are. */
+bool HOST_IN_FLASH_FUNC key_clip_act(key_clip_t clip)
+{
+    switch (clip)
+    {
+    case KEY_CLIP_COPY:
+        if (!rln_copy())
+            clip_copy_primary();
+        return true;
+    case KEY_CLIP_CUT:
+        return rln_cut();
+    case KEY_CLIP_PASTE:
+        if (!rln_paste())
+            clip_paste(CLIP_CLIPBOARD);
+        return true;
+    default:
+        return false;
     }
 }
 
@@ -51,19 +74,9 @@ bool HOST_IN_RAM_FUNC key_chord(uint8_t keycode, uint8_t modifier, bool repeat)
 {
     if (repeat)
         return keycode && keycode == key_chord_down;
-    bool acted = true;
-    switch (key_clip(keycode, modifier))
-    {
-    case KEY_CLIP_COPY:
-        clip_copy_primary();
-        break;
-    case KEY_CLIP_PASTE:
-        clip_paste(CLIP_CLIPBOARD);
-        break;
-    default:
-        acted = proc_key_chord(keycode, modifier & KEY_CTRL, modifier & KEY_ALT);
-        break;
-    }
+    const key_clip_t clip = key_clip(keycode, modifier);
+    const bool acted = (clip != KEY_CLIP_NONE && key_clip_act(clip)) ||
+                       proc_key_chord(keycode, modifier & KEY_CTRL, modifier & KEY_ALT);
     key_chord_down = acted ? keycode : 0;
     return acted;
 }

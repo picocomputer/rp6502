@@ -12,6 +12,9 @@
 #include "core/com/tio.h"
 #include "core/ria/regs.h"
 #include "core/com/rln.h"
+#include "core/sys/sst.h"
+#include "core/sys/sys.h"
+#include "core/com/console.h"
 #include "core/term/draw.h"
 #include "core/term/grid.h"
 #include "core/term/vterm.h"
@@ -296,9 +299,18 @@ UTEST(rln, a_preload_is_drawn_at_this_reads_prompt)
     ASSERT_TRUE(strstr(shown, "\r\33[3Cx") != NULL);
 }
 
+/* A read with history asks for bracketed paste too, and one without does
+ * not. */
 UTEST(rln, a_read_start_sends_the_modes_and_asks_nothing)
 {
     fresh();
+    capture();
+    reading();
+    tasks();
+    manifold_set_tx_tap(NULL);
+    ASSERT_STREQ(shown, "\33[4l\33[?2004h");
+    fresh();
+    reading_with = NULL;
     capture();
     reading();
     tasks();
@@ -316,7 +328,7 @@ UTEST(rln, a_pending_wrap_gives_a_cr_lf_then_column_1)
     capture();
     reading();
     manifold_set_tx_tap(NULL);
-    ASSERT_STREQ(shown, "\r\n\33[4l");
+    ASSERT_STREQ(shown, "\r\n\33[4l\33[?2004h");
     const term_pos_t *p = term_pos(rln_view());
     ASSERT_EQ(p->x, 0);
     ASSERT_EQ(p->y, 1);
@@ -369,7 +381,7 @@ UTEST(rln, a_new_width_draws_the_line_again)
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
     tasks();
     manifold_set_tx_tap(NULL);
-    ASSERT_STREQ(shown, "\r\n\33[4labc");
+    ASSERT_STREQ(shown, "\r\n\33[4l\33[?2004habc");
     ASSERT_EQ(rln_view()->width, 40);
     ASSERT_EQ(pos()->x, 3);
     shown_len = 0;
@@ -727,7 +739,7 @@ UTEST(rln, deleting_at_the_end_of_the_line_erases_the_tail)
     ASSERT_TRUE(strstr(shown, "\33[K") != NULL);
 }
 
-static char screen[256];
+static char screen[4096];
 
 /* What is sent to term.c is kept, and term.c still follows it. */
 static int screen_out(const char *buf, int len, bool force)
@@ -889,7 +901,7 @@ UTEST(rln, a_read_in_vt52_mode_is_laid_out_in_vt52_commands)
     capture();
     reading();
     manifold_set_tx_tap(NULL);
-    ASSERT_STREQ(shown, "\33[4l");
+    ASSERT_STREQ(shown, "\33[4l\33[?2004h");
 }
 
 /* Nothing of a whole read in VT52 mode is a CSI: the history, a line that
@@ -1143,13 +1155,14 @@ UTEST(rln, a_mode_report_with_an_intermediate_types_nothing)
     ASSERT_STREQ(last, "abc");
 }
 
-/* rxvt's Shift-Home and Shift-End. */
+/* rxvt's Shift-Home and Shift-End select as xterm's do: Shift-Home takes
+ * "bc", which the 'a' replaces, and Shift-End at the end selects nothing. */
 UTEST(rln, rxvt_shifted_keys_end_on_a_dollar)
 {
     editing();
     wire("bc\33[7$a\33[8$d\r");
     ASSERT_EQ(lines, 1);
-    ASSERT_STREQ(last, "abcd");
+    ASSERT_STREQ(last, "ad");
 }
 
 UTEST(rln, a_linux_console_function_key_is_one_key)
@@ -1270,6 +1283,426 @@ UTEST(rln, a_read_handed_no_history_keeps_and_recalls_nothing)
     wire("\33[A\r");
     ASSERT_STREQ(last, "kept");
     ASSERT_EQ((int)history.count, 1);
+}
+
+/* ----- Where the line is (step 24) ----- */
+
+/* The line's indexes on the screen: the prompt is outside it, and the
+ * place after its last character is in it. */
+UTEST(rln, the_line_knows_its_place_after_a_prompt)
+{
+    fresh();
+    com_printf("> ");
+    reading();
+    wire("abc");
+    ASSERT_EQ(rln_index_at(0, 1), -1);
+    ASSERT_EQ(rln_index_at(0, 2), 0);
+    ASSERT_EQ(rln_index_at(0, 4), 2);
+    ASSERT_EQ(rln_index_at(0, 5), 3);
+    ASSERT_EQ(rln_index_at(0, 6), -1);
+    ASSERT_EQ(rln_index_at(1, 2), -1);
+}
+
+UTEST(rln, a_wrapped_line_knows_its_rows)
+{
+    fresh();
+    com_printf("> ");
+    reading();
+    type_n(85, 'a');
+    ASSERT_EQ(rln_index_at(0, 79), 77);
+    ASSERT_EQ(rln_index_at(1, 0), 78);
+    ASSERT_EQ(rln_index_at(1, 7), 85);
+    ASSERT_EQ(rln_index_at(1, 8), -1);
+}
+
+/* A row break on the bottom row scrolls the line up a row, at the screen's
+ * bottom and at a region's. */
+UTEST(rln, a_line_scrolled_at_the_bottom_margin_follows_its_rows)
+{
+    fresh();
+    const unsigned h = rln_view()->height;
+    char at[16];
+    snprintf(at, sizeof at, "\33[%u;1H> ", h);
+    com_printf("%s", at);
+    reading();
+    type_n(85, 'a');
+    ASSERT_EQ(rln_index_at((uint8_t)(h - 2), 2), 0);
+    ASSERT_EQ(rln_index_at((uint8_t)(h - 1), 0), 78);
+    fresh();
+    com_printf("\33[5;10r\33[10;1H> ");
+    reading();
+    type_n(85, 'a');
+    ASSERT_EQ(rln_index_at(8, 2), 0);
+    ASSERT_EQ(rln_index_at(9, 0), 78);
+    ASSERT_EQ(rln_index_at(10, 0), -1);
+}
+
+/* A row of double width has half the columns, and the line counts them. */
+UTEST(rln, a_line_on_a_double_width_row_counts_its_own_columns)
+{
+    fresh();
+    com_printf("\33#6> ");
+    reading();
+    wire("abc");
+    ASSERT_EQ(rln_index_at(0, 2), 0);
+    ASSERT_EQ(rln_index_at(0, 5), 3);
+    type_n(40, 'b');
+    ASSERT_EQ(rln_index_at(0, 39), 37);
+    ASSERT_EQ(rln_index_at(0, 40), -1);
+    ASSERT_EQ(rln_index_at(1, 0), 38);
+}
+
+/* Output written while a line is read is not followed: the line stays
+ * where it was laid out, which the next read lays out again. */
+UTEST(rln, output_during_a_read_leaves_the_line_where_it_was_laid_out)
+{
+    fresh();
+    com_printf("> ");
+    lines = 0;
+    need_next = true;
+    next();
+    wire("ab");
+    com_printf("\r\n\r\nout");
+    ASSERT_EQ(rln_index_at(0, 2), 0);
+    ASSERT_EQ(rln_index_at(2, 0), -1);
+    wire("\r");
+    ASSERT_EQ(lines, 1);
+    com_printf("\r\n> ");
+    next();
+    tasks();
+    const uint8_t y = pos()->y;
+    ASSERT_EQ(rln_index_at(y, 2), 0);
+    ASSERT_EQ(rln_index_at(0, 2), -1);
+}
+
+/* A plain line and a line on a program's own size have no place. */
+UTEST(rln, plain_and_pinned_lines_have_no_place)
+{
+    fresh();
+    rln_set_plain(true);
+    reading();
+    wire("ab");
+    ASSERT_EQ(rln_index_at(0, 0), -1);
+    rln_set_plain(false);
+    fresh();
+    rln_set_term_width(60);
+    reading();
+    wire("ab");
+    ASSERT_EQ(rln_index_at(0, 0), -1);
+    rln_set_term_width(0);
+}
+
+/* ----- Shift selects, and DECRARA shows it (step 25) ----- */
+
+static bool rev(int y, int x)
+{
+    return (tb_screen_row((uint8_t)y)[x].attributes & MODE0_ATTR_REVERSE) != 0;
+}
+
+/* Reading on the screen after what pre prints, keeping what goes to it. */
+static void screen_reading_after(const char *pre)
+{
+    fresh();
+    com_printf("%s", pre);
+    screen[0] = 0;
+    manifold_set_term_out(screen_out);
+    capture();
+    lines = 0;
+    need_next = true;
+    next();
+}
+
+/* Shift-Left moves and selects the cell it passed, with one DECRARA, and a
+ * one-cell extend is a move and a DECRARA of its own cell. */
+UTEST(rln, shift_with_the_arrows_selects)
+{
+    screen_reading_after("");
+    wire("abcd");
+    screen[0] = 0;
+    wire("\33[1;2D");
+    ASSERT_STREQ(screen, "\r\33[3C\33[1;4;1;4;7$t");
+    ASSERT_TRUE(rev(0, 3));
+    ASSERT_FALSE(rev(0, 2));
+    screen[0] = 0;
+    wire("\33[1;2D");
+    ASSERT_STREQ(screen, "\r\33[2C\33[1;3;1;3;7$t");
+    ASSERT_EQ(strlen(screen), (size_t)18);
+    wire("\33[1;2C");
+    ASSERT_FALSE(rev(0, 2));
+    ASSERT_TRUE(rev(0, 3));
+    wire("\33[C");
+    ASSERT_FALSE(rev(0, 3));
+    ASSERT_TRUE(strstr(shown, "$t") == NULL);
+    wire("\r");
+    ASSERT_STREQ(last, "abcd");
+    screen_done();
+}
+
+/* Ctrl and Alt still move by words, and select nothing. */
+UTEST(rln, ctrl_with_the_arrows_still_moves_by_word)
+{
+    screen_reading_after("");
+    wire("ab cd");
+    screen[0] = 0;
+    wire("\33[1;5D\33[1;3D");
+    ASSERT_TRUE(strstr(screen, "$t") == NULL);
+    wire("x\r");
+    ASSERT_STREQ(last, "xab cd");
+    screen_done();
+}
+
+/* Shift with Home and End, in xterm's and the VT220's forms, selects, a
+ * character typed replaces the selection, and Delete deletes it. */
+UTEST(rln, shift_with_home_and_end_selects)
+{
+    screen_reading_after("");
+    wire("abcd\33[1;2H");
+    for (int x = 0; x < 4; x++)
+        ASSERT_TRUE(rev(0, x));
+    wire("x");
+    ASSERT_FALSE(rev(0, 0));
+    wire("yz\33[H\33[1;2F\33[3~q\r");
+    ASSERT_STREQ(last, "q");
+    next();
+    const int y = pos()->y;
+    wire("abcd\33[1;2~\33[C\33[4;2~");
+    ASSERT_FALSE(rev(y, 0));
+    ASSERT_TRUE(rev(y, 1));
+    wire("\33[3~\r");
+    ASSERT_STREQ(last, "a");
+    screen_done();
+}
+
+UTEST(rln, backspace_deletes_the_selection)
+{
+    screen_reading_after("");
+    wire("abcd\33[1;2D\33[1;2D\b");
+    ASSERT_FALSE(rev(0, 2));
+    ASSERT_FALSE(rev(0, 3));
+    wire("\r");
+    ASSERT_STREQ(last, "ab");
+    screen_done();
+}
+
+/* A poke ends the selection and edits as a poke does. */
+UTEST(rln, a_poke_ends_the_selection)
+{
+    screen_reading_after("");
+    wire("abcd\33[1;2D");
+    ASSERT_TRUE(rev(0, 3));
+    rln_poke("x");
+    ASSERT_FALSE(rev(0, 3));
+    rln_poke("\r");
+    ASSERT_STREQ(last, "abcx");
+    screen_done();
+}
+
+/* A RIS of the console's terminal at the same width, as a change of code
+ * page makes, erases the line and its highlight: the line has no place
+ * after it, and the next key sends no DECRARA over the erased cells. */
+UTEST(rln, a_ris_erases_the_line_and_its_highlight)
+{
+    screen_reading_after("");
+    wire("abcd\33[1;2D");
+    ASSERT_TRUE(rev(0, 3));
+    vterm_RIS();
+    ASSERT_FALSE(rev(0, 3));
+    ASSERT_EQ(rln_index_at(0, 2), -1);
+    screen[0] = 0;
+    wire("\33[C");
+    ASSERT_TRUE(strstr(screen, "$t") == NULL);
+    for (int x = 0; x < 8; x++)
+        ASSERT_FALSE(rev(0, x));
+    wire("\r");
+    ASSERT_STREQ(last, "abcd");
+    screen_done();
+}
+
+/* The highlight is off when the read ends, by Enter, a stop or a cancel. */
+UTEST(rln, a_read_that_ends_leaves_no_reversed_cell)
+{
+    screen_reading_after("");
+    wire("abcd\33[1;2H\r");
+    ASSERT_EQ(lines, 1);
+    for (int x = 0; x < 4; x++)
+        ASSERT_FALSE(rev(0, x));
+    next();
+    wire("efgh\33[1;2H");
+    ASSERT_TRUE(rev(1, 0));
+    rln_stop();
+    ASSERT_FALSE(rev(1, 0));
+    need_next = true;
+    next();
+    tasks();
+    wire("ijkl\33[1;2H");
+    ASSERT_TRUE(rev(pos()->y, 0));
+    rln_read_cancel();
+    ASSERT_FALSE(rev(pos()->y, 0));
+    screen_done();
+}
+
+/* DECRARA turns a cell to the opposite of what is drawn, so a cell drawn
+ * in reverse shows plain while selected and comes back reversed. */
+UTEST(rln, a_cell_drawn_reversed_comes_back_reversed)
+{
+    screen_reading_after("\33[7m");
+    wire("ab");
+    ASSERT_TRUE(rev(0, 1));
+    wire("\33[1;2D");
+    ASSERT_FALSE(rev(0, 1));
+    wire("\33[C");
+    ASSERT_TRUE(rev(0, 1));
+    screen_done();
+}
+
+/* Under DECOM the rows and the columns count from the margins. */
+UTEST(rln, the_highlight_counts_from_the_margins_under_decom)
+{
+    screen_reading_after("\33[5;20r\33[?6h\33[H");
+    wire("ab\33[1;2D");
+    ASSERT_TRUE(strstr(screen, "\33[1;2;1;2;7$t") != NULL);
+    ASSERT_TRUE(rev(4, 1));
+    screen_done();
+    screen_reading_after("\33[?69h\33[11;30s\33[?6h\33[H");
+    wire("ab\33[1;2D");
+    ASSERT_TRUE(strstr(screen, "\33[1;2;1;2;7$t") != NULL);
+    ASSERT_TRUE(rev(0, 11));
+    ASSERT_FALSE(rev(0, 10));
+    screen_done();
+}
+
+/* A row of double width is selected in its own columns. */
+UTEST(rln, a_double_width_row_is_selected_in_its_own_columns)
+{
+    screen_reading_after("\33#6");
+    wire("abcd\33[1;2D");
+    ASSERT_TRUE(strstr(screen, "\33[1;4;1;4;7$t") != NULL);
+    ASSERT_TRUE(rev(0, 3));
+    ASSERT_FALSE(rev(0, 2));
+    screen_done();
+}
+
+/* A line of ten rows between margins 20 columns apart: a selection of all
+ * of it is a DECRARA for each row, and so is its end. */
+UTEST(rln, ten_rows_are_set_and_cleared)
+{
+    screen_reading_after("\33[?69h\33[1;20s");
+    type_n(199, 'a');
+    wire("\33[1;2H");
+    for (int y = 0; y < 10; y++)
+        for (int x = 0; x < (y < 9 ? 20 : 19); x++)
+            ASSERT_TRUE(rev(y, x));
+    ASSERT_FALSE(rev(9, 19));
+    ASSERT_FALSE(rev(0, 20));
+    wire("\33[1;2F");
+    for (int y = 0; y < 10; y++)
+        for (int x = 0; x < 20; x++)
+            ASSERT_FALSE(rev(y, x));
+    screen_done();
+}
+
+/* A terminal in VT52 mode has no shifted arrows and no DECRARA. */
+UTEST(rln, vt52_has_no_shift_selection)
+{
+    screen_reading_after("\33[?2l");
+    wire("abcd\33D\33D");
+    ASSERT_TRUE(strstr(screen, "$t") == NULL);
+    ASSERT_FALSE(rev(0, 3));
+    wire("x\r");
+    ASSERT_STREQ(last, "abxcd");
+    com_printf("\33<");
+    screen_done();
+}
+
+/* ----- Bracketed paste (step 28) ----- */
+
+/* A read with history asks for bracketed paste, and turns it off when it
+ * ends. */
+UTEST(rln, a_history_read_brackets_its_pastes_while_it_reads)
+{
+    fresh();
+    capture();
+    lines = 0;
+    need_next = true;
+    next();
+    tasks();
+    ASSERT_TRUE(vterm.bracketed_paste);
+    wire("a\r");
+    manifold_set_tx_tap(NULL);
+    ASSERT_EQ(lines, 1);
+    ASSERT_TRUE(strstr(shown, "\33[?2004l") != NULL);
+    ASSERT_FALSE(vterm.bracketed_paste);
+}
+
+/* A bracketed paste is taken up to its first line end, and the rest of it
+ * is dropped, the next read's included; without brackets it is typing. */
+UTEST(rln, a_bracketed_paste_takes_its_first_line)
+{
+    editing();
+    wire("\33[200~one\rtwo\rthree\33[201~four\r");
+    ASSERT_EQ(lines, 2);
+    ASSERT_STREQ(last, "four");
+    wire("one\rtwo\r");
+    ASSERT_EQ(lines, 4);
+    ASSERT_STREQ(last, "two");
+}
+
+/* A paste whose closing bracket never comes is let go after 64 KiB. */
+UTEST(rln, a_missing_closing_bracket_is_bounded)
+{
+    editing();
+    wire("\33[200~a\r");
+    ASSERT_EQ(lines, 1);
+    char chunk[128];
+    memset(chunk, 'x', sizeof chunk);
+    for (unsigned n = 0; n < 65535 / sizeof chunk; n++)
+    {
+        manifold_uart_push(chunk, sizeof chunk);
+        tasks();
+    }
+    type_n(65535 % sizeof chunk, 'x');
+    ASSERT_EQ(lines, 1);
+    wire("b\r");
+    ASSERT_EQ(lines, 2);
+    ASSERT_STREQ(last, "b");
+}
+
+/* A stop ends a source's paste, and so does its terminal going away. */
+UTEST(rln, a_stop_ends_a_paste_being_dropped)
+{
+    editing();
+    wire("\33[200~a\r");
+    rln_stop();
+    reading();
+    wire("b\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "b");
+    wire("\33[200~c\r");
+    rln_forget_source(COM_SOURCE_UART);
+    wire("d\r");
+    ASSERT_STREQ(last, "d");
+}
+
+/* A load in the middle of a read with history keeps its asking, and the
+ * read still turns bracketed paste off at its end. */
+UTEST(rln, a_load_keeps_a_history_read_s_bracketed_paste)
+{
+    sys_init();
+    fresh();
+    static uint8_t blob[1 << 20];
+    rln_read_line(console_rln_reader(), &history);
+    tasks();
+    ASSERT_TRUE(vterm.bracketed_paste);
+    ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
+    rln_read_cancel();
+    ASSERT_FALSE(vterm.bracketed_paste);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_TRUE(vterm.bracketed_paste);
+    capture();
+    wire("a\r");
+    manifold_set_tx_tap(NULL);
+    ASSERT_TRUE(strstr(shown, "\33[?2004l") != NULL);
+    ASSERT_FALSE(vterm.bracketed_paste);
 }
 
 UTEST_MAIN();

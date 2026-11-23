@@ -14,7 +14,6 @@
 #include "core/hid/vtkey.h"
 #include "core/hid/hostkey.h"
 #include "core/hid/key.h"
-#include "core/hid/clip.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/vga/vga_emu.h"
@@ -445,15 +444,17 @@ void input_event(const sapp_event *e)
 #if defined(__EMSCRIPTEN__)
         /* The page's paste event, which a paste key left to the browser
          * made, or the browser's own menu: the clipboard, which is the
-         * text the event handed over (entry.c), is pasted. sokol keeps
-         * that text until the next paste event, which cuts this paste
-         * short as it starts. Plain Ctrl+V, which typed 0x16, makes none
-         * (input_key_withheld). */
-        clip_paste(CLIP_CLIPBOARD);
+         * text the event handed over (entry.c), is pasted as a paste key
+         * pastes: at once, or in place of the line editor's selection
+         * showing, which the line editor takes after the keys typed before
+         * it. sokol keeps that text until the next paste event, which cuts
+         * this paste short as it starts. Plain Ctrl+V, which typed 0x16,
+         * makes none (input_key_withheld). */
+        key_clip_act(KEY_CLIP_PASTE);
 #endif
-        /* On the desktop the paste keys have pasted already as they went
-         * down (core/hid/key.h), reading the desktop's clipboard there, so
-         * the paste sokol makes of Ctrl+V or Cmd+V is no paste. */
+        /* On the desktop the paste keys are chords (core/hid/key.h) that
+         * paste the desktop's clipboard themselves, reading it as they act,
+         * so the paste sokol makes of Ctrl+V or Cmd+V is no paste. */
         break;
     case SAPP_EVENTTYPE_QUIT_REQUESTED:
         if (input_chord_held)

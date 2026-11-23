@@ -138,6 +138,7 @@ static void term_reset_core(term_t *t)
 
 void term_RIS(term_t *t)
 {
+    t->ris_count++;
     term_reset_core(t);
     term_grids(t, GRID_CLEAR, 0);
     term_grids(t, GRID_HOME, 0);

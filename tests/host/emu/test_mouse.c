@@ -9,6 +9,8 @@
  * keys to the selection, the primary and the clipboard. */
 
 #include "core/api/xreg.h"
+#include "core/com/rln.h"
+#include "core/hid/typed.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/hid/clip.h"
@@ -26,6 +28,7 @@
 #include "core/term/vterm_mouse.h"
 #include "core/vga/vga_emu.h"
 #include "host/host.h"
+#include "tb_screen.h"
 #include "utest.h"
 #include <string.h>
 
@@ -549,6 +552,369 @@ UTEST(mouse, a_copy_and_a_paste_round_trip)
     ASSERT_EQ(chord(HID_KEY_C, CTRL | SHIFT), HOSTKEY_CHORD);
     ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
     ASSERT_STREQ(typed(), "second");
+}
+
+/* ---- the line editor's selection (steps 26 and 27) ------------------------ */
+
+static int line_count;
+static char line_got[256];
+
+static void line_read(bool timeout, const char *buf)
+{
+    (void)timeout;
+    line_count++;
+    strncpy(line_got, buf, sizeof line_got - 1);
+    line_got[sizeof line_got - 1] = 0;
+}
+
+/* The main loop's turn for the mouse, the keys and the line editor. */
+static void loop(void)
+{
+    for (int i = 0; i < 64; i++)
+    {
+        vterm_mouse_task();
+        paste_task();
+        rln_task();
+    }
+}
+
+/* The text, then a read on row 2 after a prompt of two columns, with
+ * "abc def" typed, the cursor at its end. */
+static void editing(void)
+{
+    start();
+    show(TEXT);
+    show("> ");
+    line_count = 0;
+    line_got[0] = 0;
+    rln_read_line(line_read, NULL);
+    loop();
+    typed_push("abc def", 7);
+    loop();
+}
+
+static bool rev(int x, int y)
+{
+    return (tb_screen_row((uint8_t)y)[x].attributes & MODE0_ATTR_REVERSE) != 0;
+}
+
+/* What the line editor's selection copies, the clipboard emptied first. */
+static const char *line_copy(void)
+{
+    host_clipboard_set("");
+    rln_copy();
+    return host_clipboard_get();
+}
+
+/* A drag in the line selects in it, a click there ends that, and neither
+ * touches the primary. */
+UTEST(mouse, a_drag_in_the_line_selects_in_the_line)
+{
+    editing();
+    drag(0, 1, 6, 1);
+    ASSERT_TRUE(vterm_selection.shows);
+    drag(2, 2, 5, 2);
+    loop();
+    ASSERT_FALSE(vterm_selection.shows);
+    ASSERT_STREQ(line_copy(), "abc");
+    ASSERT_TRUE(rev(2, 2) && rev(4, 2));
+    ASSERT_FALSE(rev(5, 2));
+    ASSERT_STREQ(primary(), "second");
+    click(3, 2);
+    loop();
+    ASSERT_FALSE(rev(2, 2));
+    ASSERT_STREQ(line_copy(), "");
+}
+
+/* A drag that leaves the line stops at its first or last character. */
+UTEST(mouse, a_drag_out_of_the_line_stops_at_its_ends)
+{
+    editing();
+    drag(4, 2, 10, 0);
+    loop();
+    ASSERT_STREQ(line_copy(), "ab");
+    ASSERT_FALSE(vterm_selection.shows);
+    machine_us(300 * 1000);
+    drag(4, 2, 30, 5);
+    loop();
+    ASSERT_STREQ(line_copy(), "c def");
+}
+
+/* A press outside the line is the primary's, even when its drag goes into
+ * the line. */
+UTEST(mouse, a_press_outside_the_line_is_the_primary)
+{
+    editing();
+    drag(0, 1, 5, 2);
+    loop();
+    ASSERT_TRUE(vterm_selection.shows);
+    ASSERT_STREQ(line_copy(), "");
+    ASSERT_STREQ(primary(), "second line\r> abc");
+}
+
+/* One selection at a time: the primary's starting ends the line's, and
+ * the line's, by the mouse or by Shift, ends the primary's. */
+UTEST(mouse, each_selection_ends_the_other)
+{
+    editing();
+    drag(2, 2, 5, 2);
+    loop();
+    ASSERT_TRUE(rev(2, 2));
+    drag(0, 1, 6, 1);
+    loop();
+    ASSERT_TRUE(vterm_selection.shows);
+    ASSERT_FALSE(rev(2, 2));
+    ASSERT_STREQ(line_copy(), "");
+    hostkey_press(HID_KEY_ARROW_LEFT, KEYBOARD_MODIFIER_LEFTSHIFT, false, true);
+    loop();
+    ASSERT_FALSE(vterm_selection.shows);
+    ASSERT_STREQ(line_copy(), "f");
+}
+
+/* A double click in the line takes a word, and a triple click the line. */
+UTEST(mouse, clicks_in_the_line_take_a_word_and_the_line)
+{
+    editing();
+    click(7, 2);
+    click(7, 2);
+    loop();
+    ASSERT_STREQ(line_copy(), "def");
+    click(7, 2);
+    loop();
+    ASSERT_STREQ(line_copy(), "abc def");
+}
+
+/* A press while the line's echo is still going out at a slow speed, with
+ * no key waiting, is judged against the line as the line editor has laid
+ * it out, and selects at once: here an 'x' typed at the start of a long
+ * line, whose rewrite of the line is still going out. */
+UTEST(mouse, a_press_during_a_slow_echo_selects_in_the_line)
+{
+    editing();
+    typed_push("ghijklmnopqrstuvwxyzghijklmnopqrstuvwxyz", 40);
+    loop();
+    show("\33[0;1*r");
+    manifold_set_paced(true);
+    hostkey_press(HID_KEY_HOME, 0, false, true);
+    typed_push("x", 1);
+    loop();
+    ASSERT_TRUE(rln_replying());
+    drag(4, 2, 6, 2);
+    loop();
+    ASSERT_TRUE(rln_replying());
+    ASSERT_STREQ(line_copy(), "bc");
+    manifold_set_paced(false);
+    show("\33[0;0*r");
+    loop();
+}
+
+/* A drag whose press was in a read's line that has ended selects nothing
+ * in the next read's line. */
+UTEST(mouse, a_drag_ends_with_its_read)
+{
+    editing();
+    ASSERT_EQ(rln_index_at(2, 2), 0);
+    at(2, 2, 0);
+    at(2, 2, TABLET_FLAG_LEFT);
+    loop();
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_EQ(line_count, 1);
+    show("> ");
+    rln_read_line(line_read, NULL);
+    loop();
+    typed_push("xyz", 3);
+    loop();
+    at(4, 3, TABLET_FLAG_LEFT);
+    at(4, 3, 0);
+    loop();
+    ASSERT_FALSE(rev(2, 3));
+    ASSERT_STREQ(line_copy(), "");
+    ASSERT_FALSE(vterm_selection.shows);
+}
+
+#define ARROW_LEFT(m) hostkey_press(HID_KEY_ARROW_LEFT, (m), false, true)
+
+/* A copy key copies at once what is selected as it is pressed, keys typed
+ * before it still unread: the primary, here past a typed key no program
+ * reads. */
+UTEST(mouse, a_copy_of_the_primary_does_not_wait_for_typed_keys)
+{
+    start();
+    show(TEXT);
+    drag(6, 0, 11, 0);
+    typed_push("abc", 3);
+    ASSERT_TRUE(host_clipboard_set(""));
+    ASSERT_EQ(chord(HID_KEY_C, CTRL | SHIFT), HOSTKEY_CHORD);
+    ASSERT_STREQ(host_clipboard_get(), "world");
+    drag(0, 1, 6, 1);
+    ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
+    ASSERT_STREQ(host_clipboard_get(), "second");
+    ASSERT_STREQ(typed(), "abc");
+}
+
+/* The copy keys copy the line's selection showing at once, and with none
+ * in the line, the primary. A selection that keys still unread would make
+ * is not the one showing, so the primary is copied. */
+UTEST(mouse, the_copy_keys_copy_the_line_s_selection)
+{
+    editing();
+    ARROW_LEFT(SHIFT);
+    ARROW_LEFT(SHIFT);
+    loop();
+    ASSERT_TRUE(host_clipboard_set(""));
+    ASSERT_EQ(chord(HID_KEY_C, CTRL | SHIFT), HOSTKEY_CHORD);
+    ASSERT_STREQ(host_clipboard_get(), "ef");
+    ARROW_LEFT(0);
+    drag(0, 1, 6, 1);
+    loop();
+    ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
+    ASSERT_STREQ(host_clipboard_get(), "second");
+    ARROW_LEFT(SHIFT);
+    ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
+    ASSERT_STREQ(host_clipboard_get(), "second");
+    loop();
+    ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
+    ASSERT_STREQ(host_clipboard_get(), " ");
+}
+
+/* Shift-Delete cuts the selection showing to the clipboard, and with
+ * none, is no chord and deletes as Delete does. */
+UTEST(mouse, shift_delete_cuts_the_line_s_selection)
+{
+    editing();
+    ASSERT_TRUE(host_clipboard_set(""));
+    ARROW_LEFT(SHIFT);
+    ARROW_LEFT(SHIFT);
+    loop();
+    ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
+    ASSERT_STREQ(host_clipboard_get(), "");
+    loop();
+    ASSERT_STREQ(host_clipboard_get(), "ef");
+    ARROW_LEFT(0);
+    ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_TYPED);
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_EQ(line_count, 1);
+    ASSERT_STREQ(line_got, "abc ");
+    ASSERT_STREQ(host_clipboard_get(), "ef");
+}
+
+/* The paste keys paste the clipboard in place of the selection showing. */
+UTEST(mouse, the_paste_keys_replace_the_line_s_selection)
+{
+    editing();
+    ASSERT_TRUE(host_clipboard_set("XY"));
+    ARROW_LEFT(SHIFT);
+    ARROW_LEFT(SHIFT);
+    loop();
+    ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
+    ASSERT_FALSE(paste_busy());
+    loop();
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_EQ(line_count, 1);
+    ASSERT_STREQ(line_got, "abc dXY");
+}
+
+/* A cut or a paste of the line's selection acts after the keys typed
+ * before it: here a Shift-Left still unread when the key is pressed, which
+ * takes the selection on to "def" first. */
+UTEST(mouse, a_cut_and_a_paste_follow_the_keys_before_them)
+{
+    editing();
+    ASSERT_TRUE(host_clipboard_set(""));
+    ARROW_LEFT(SHIFT);
+    ARROW_LEFT(SHIFT);
+    loop();
+    ARROW_LEFT(SHIFT);
+    ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
+    loop();
+    ASSERT_STREQ(host_clipboard_get(), "def");
+    typed_push("def", 3);
+    ARROW_LEFT(SHIFT);
+    ARROW_LEFT(SHIFT);
+    loop();
+    ASSERT_TRUE(host_clipboard_set("XY"));
+    ARROW_LEFT(SHIFT);
+    ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
+    loop();
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_EQ(line_count, 1);
+    ASSERT_STREQ(line_got, "abc XY");
+}
+
+/* With no line selection showing, a paste key pastes at once through the
+ * paste stage, after the keys typed before it, in a read and with none. */
+UTEST(mouse, a_paste_with_no_line_selection_pastes_at_once)
+{
+    editing();
+    ASSERT_TRUE(host_clipboard_set("XY"));
+    typed_push("g", 1);
+    ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
+    ASSERT_TRUE(paste_busy());
+    typed_push("h", 1);
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_EQ(line_count, 1);
+    ASSERT_STREQ(line_got, "abc defgXYh");
+    ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
+    ASSERT_TRUE(paste_busy());
+    ASSERT_STREQ(typed(), "XY");
+}
+
+/* A paste of the line's selection still to take when the read ends, here
+ * by an Enter typed before it, pastes as it would with no read. */
+UTEST(mouse, a_paste_still_to_take_pastes_when_the_read_ends)
+{
+    editing();
+    ASSERT_TRUE(host_clipboard_set("XY"));
+    ARROW_LEFT(SHIFT);
+    loop();
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
+    loop();
+    ASSERT_EQ(line_count, 1);
+    ASSERT_STREQ(line_got, "abc def");
+    ASSERT_STREQ(typed(), "XY");
+}
+
+/* A paste key that comes while the reply to the key before it is still
+ * going out at a slow speed waits in the line editor for that reply, which
+ * reads the line as it goes, before it edits the line: here an 'x' typed
+ * at the start of a long line, whose rewrite of the line is still going
+ * out, then "bc" selected by the mouse at once and pasted over once the
+ * rewrite is out. */
+UTEST(mouse, a_paste_key_waits_for_a_slow_echo)
+{
+    editing();
+    typed_push("ghijklmnopqrstuvwxyzghijklmnopqrstuvwxyz", 40);
+    loop();
+    show("\33[0;1*r");
+    manifold_set_paced(true);
+    hostkey_press(HID_KEY_HOME, 0, false, true);
+    typed_push("x", 1);
+    loop();
+    drag(4, 2, 6, 2);
+    loop();
+    ASSERT_STREQ(line_copy(), "bc");
+    ASSERT_TRUE(host_clipboard_set("XY"));
+    ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
+    loop();
+    ASSERT_TRUE(rln_replying());
+    ASSERT_FALSE(paste_busy());
+    manifold_set_paced(false);
+    show("\33[0;0*r");
+    loop();
+    ASSERT_FALSE(rln_replying());
+    const char *want = "> xaXY defghijklmnopqrstuvwxyzghijklmnopqrstuvwxyz ";
+    for (int x = 0; want[x]; x++)
+        ASSERT_EQ(tb_screen_row(2)[x].glyph, (uint16_t)want[x]);
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_EQ(line_count, 1);
+    ASSERT_STREQ(line_got, "xaXY defghijklmnopqrstuvwxyzghijklmnopqrstuvwxyz");
 }
 
 UTEST_MAIN();

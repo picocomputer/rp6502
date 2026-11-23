@@ -22,20 +22,28 @@
  * true too, so a held chord acts once. */
 bool key_chord(uint8_t keycode, uint8_t modifier, bool repeat);
 
-/* The copy and paste keys (clip.h), which are chords whatever a program has
- * asked of the terminal, so they never type, and Ctrl-Shift-C raises no
- * SIGINT:
+/* The copy, cut and paste keys (clip.h). The copy and paste keys are
+ * chords whatever a program has asked of the terminal, so they never type,
+ * and Ctrl-Shift-C raises no SIGINT. Each key is judged at once, against
+ * what the screen shows at that moment:
  *
  * - copy: Ctrl-Shift-C and Ctrl-Insert, and on a Mac Cmd-C
- *   (host_mac_keys), put the primary in the clipboard;
+ *   (host_mac_keys), put the line editor's selection in the clipboard
+ *   (core/com/rln.h), or with none, the primary, at once;
+ * - cut: Shift-Delete, with the line editor's selection showing, cuts it
+ *   to the clipboard; with none it is no chord, and types;
  * - paste: Ctrl-Shift-V and Shift-Insert, and on a Mac Cmd-V, paste the
- *   clipboard.
+ *   clipboard, at once, or with the line editor's selection showing, in
+ *   its place.
  *
- * Plain Ctrl-C and Ctrl-V stay the program's. */
+ * The line editor takes a cut or paste of its selection after the keys
+ * typed before it, as it takes the mouse. Plain Ctrl-C and Ctrl-V stay the
+ * program's. */
 typedef enum
 {
     KEY_CLIP_NONE,
     KEY_CLIP_COPY,
+    KEY_CLIP_CUT,
     KEY_CLIP_PASTE,
 } key_clip_t;
 
@@ -43,5 +51,9 @@ typedef enum
  * paste event a paste key makes, so its host asks this to let the key make
  * one. */
 key_clip_t key_clip(uint8_t keycode, uint8_t modifier);
+
+/* A copy, cut or paste key acts, and true when it did. A web page, whose
+ * paste keys are the browser's, acts with the paste event they make. */
+bool key_clip_act(key_clip_t clip);
 
 #endif /* _CORE_HID_KEY_H_ */
