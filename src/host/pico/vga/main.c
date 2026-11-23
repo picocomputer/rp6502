@@ -12,6 +12,7 @@
 #include "core/vga/mode/mode3.h"
 #include "core/vga/mode/mode4.h"
 #include "core/vga/mode/mode5.h"
+#include "core/term/vterm.h"
 #include <pico/stdlib.h>
 #include <string.h>
 
@@ -73,6 +74,11 @@ void main_post_reclock(void)
 bool main_prog(uint16_t *xregs)
 {
     return vga_mode_prog(xregs[1], xregs);
+}
+
+bool main_busy(void)
+{
+    return term_job_pending(&vterm) || vga_switching();
 }
 
 int main(void)

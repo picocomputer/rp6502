@@ -4,11 +4,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The RIA's side of the messages the VGA answers (ria/sys/vga.c) and a 6502
- * program's xreg burst (ria/sys/pix.c), against a fake VGA on PIX and the
- * backchannel. The fake answers as src/host/pico/vga/sys/pix.c does: an ack
- * for CANVAS, MODE, DISPLAY, CODE_PAGE and FLASH_PROGRAM, or, as the firmware
- * before them did, nothing for DISPLAY and CODE_PAGE. Its link is
+/* The RIA's side of the messages the VGA answers (ria/sys/vga.c), the gate
+ * every message of the RIA's passes on PIX, and a 6502 program's xreg burst
+ * (ria/sys/pix.c), against a fake VGA on PIX and the backchannel. The fake
+ * answers as src/host/pico/vga/sys/pix.c does: an ack for CANVAS, MODE,
+ * DISPLAY, CODE_PAGE and FLASH_PROGRAM, or, as the firmware before them did,
+ * nothing for DISPLAY and CODE_PAGE. As the VGA's ria.c does, it answers
+ * once the work a message made is done: a case gives it work, and its
+ * answer waits until the case ends the work. Its link is
  * src/host/pico/vga/sys/ria.c's: "VGA1" on the UART for a request, and its
  * version on the backchannel when the backchannel is turned on. An answer
  * reaches the RIA only when a test delivers it, which runs the backchannel's
@@ -52,6 +55,8 @@ static struct
     bool old;     // the firmware before: answers neither DISPLAY nor CODE_PAGE
     bool nak;     // refuses CANVAS and MODE
     bool linked;  // its backchannel is on
+    bool working; // at work on what a message made, which holds its answer
+    uint8_t owed; // the answer the work holds, 0 for none
 } fake;
 
 /* Every message PIX_SM sent, decoded, in order. A case sends far fewer. */
@@ -86,8 +91,21 @@ const pio_program_t vga_backchannel_rx_program;
 
 static void fake_answer(bool ack)
 {
-    if (fake.linked)
+    if (!fake.linked)
+        return;
+    if (fake.working)
+        fake.owed = ack ? 0x90 : 0xA0;
+    else
         rx_put(ack ? 0x90 : 0xA0);
+}
+
+/* The fake VGA's work ends, and the answer it held goes. */
+static void work_done(void)
+{
+    fake.working = false;
+    if (fake.owed)
+        rx_put(fake.owed);
+    fake.owed = 0;
 }
 
 void pio_sm_put(PIO pio, uint sm, uint32_t data)
@@ -324,10 +342,6 @@ static void boot(bool present, bool old)
     oem_page_run = 437;
 }
 
-/* PIX holds the console a while after DISPLAY or CANVAS, for the VGA's
- * reclock (pix.c's PIX_HOLD_US). */
-static void reclocked(void) { advance_ms(1); }
-
 /* A connected VGA has taken the code page and DISPLAY of its connect. */
 static void boot_settled(void)
 {
@@ -336,7 +350,6 @@ static void boot_settled(void)
     deliver();
     vga_task(); // DISPLAY
     deliver();
-    reclocked();
 }
 
 /* A burst of CANVAS and MODE on the xstack, as a 6502 program pushes it. */
@@ -382,7 +395,6 @@ UTEST(vga, display_follows_the_code_page)
     ASSERT_GE(sent_find(0xF, 0x00, 0), 0);
     ASSERT_FALSE(vga_console_ready());
     deliver();
-    reclocked();
     ASSERT_TRUE(vga_console_ready());
     ASSERT_EQ(0u, response_count);
 }
@@ -484,10 +496,7 @@ UTEST(vga, xreg_canvas_and_mode_wait_for_each_answer)
     ASSERT_TRUE(pix_api_xreg()); // its answer is awaited
     ASSERT_LT(sent_find(0, 1, from), 0);
     deliver();
-    ASSERT_TRUE(pix_api_xreg()); // PIX holds for the reclock
-    ASSERT_LT(sent_find(0, 1, from), 0);
-    reclocked();
-    ASSERT_TRUE(pix_api_xreg()); // MODE goes
+    ASSERT_TRUE(pix_api_xreg()); // MODE goes: the answer came after the reclock
     ASSERT_EQ(3, sent[sent_find(0, 1, from)].word);
     ASSERT_TRUE(pix_api_xreg());
     deliver();
@@ -577,6 +586,8 @@ UTEST(vga, no_vga_no_wait)
     ASSERT_FALSE(vga_console_busy());
     draw_job_started();
     ASSERT_FALSE(vga_console_busy());
+    ASSERT_TRUE(vga_gate_open());
+    ASSERT_TRUE(pix_ready());
 }
 
 /* A VGA lost to an answer it did not give holds nothing either. */
@@ -585,11 +596,188 @@ UTEST(vga, a_lost_vga_no_wait)
     boot(true, true);
     vga_task(); // CODE_PAGE, never answered
     ASSERT_TRUE(vga_console_busy());
+    ASSERT_FALSE(pix_ready());
     advance_ms(VGA_ANSWER_MS);
     ASSERT_FALSE(vga_console_busy());
+    ASSERT_TRUE(pix_ready());
     ASSERT_FALSE(vga_connected());
     draw_job_started();
     ASSERT_FALSE(vga_console_busy());
+    ASSERT_TRUE(pix_ready());
+}
+
+/* A VGA lost to its VSYNCs stopping while a job's hold runs: the hold goes
+ * with it. */
+UTEST(vga, a_vga_lost_in_a_hold_no_wait)
+{
+    boot_settled();
+    advance_ms(44); // the VSYNC watchdog's time, with no VSYNC
+    draw_job_started();
+    ASSERT_FALSE(pix_ready());
+    vga_task();
+    ASSERT_FALSE(vga_connected());
+    ASSERT_TRUE(pix_ready());
+    ASSERT_FALSE(vga_console_busy());
+}
+
+/* ---- the gate ---------------------------------------------------------- */
+
+/* A 6502 program's xreg of one word to VGA channel 0, which the VGA does
+ * not answer: a CANVAS or MODE argument. */
+static void push_xreg(uint8_t index, uint16_t word)
+{
+    xstack_ptr = XSTACK_SIZE - 5;
+    memcpy(&xstack[XSTACK_SIZE - 5], &word, 2);
+    xstack[XSTACK_SIZE - 3] = index;
+    xstack[XSTACK_SIZE - 2] = 0; // channel
+    xstack[XSTACK_SIZE - 1] = PIX_DEVICE_VGA;
+}
+
+/* Every message of the RIA's that the pointer, the selection, a 6502
+ * program's xreg and the RIA's own XRAM sends make waits out a job's hold,
+ * and then goes. */
+UTEST(vga, every_message_waits_out_a_jobs_hold)
+{
+    boot_settled();
+    advance_ms(20); // a frame on, so the pointer and the selection may go
+    unsigned from = sent_count;
+    draw_job_started();
+    ASSERT_FALSE(vga_gate_open());
+    ASSERT_FALSE(pix_ready()); // the RIA's own XRAM sends wait on it
+    ASSERT_FALSE(vga_console_ready());
+    vga_set_pointer(1, 10, 20);
+    user_selects(0x1234, 0x1300);
+    vga_task();
+    push_xreg(2, 0x5678);
+    ASSERT_TRUE(pix_api_xreg());
+    ASSERT_TRUE(pix_api_xreg());
+    ASSERT_EQ(from, sent_count);
+    now_us += 999;
+    vga_task();
+    ASSERT_TRUE(pix_api_xreg());
+    ASSERT_EQ(from, sent_count);
+    now_us += 1;
+    ASSERT_TRUE(vga_gate_open());
+    ASSERT_TRUE(vga_console_ready());
+    vga_task();
+    ASSERT_GE(sent_find(0xF, 0x08, from), 0);
+    ASSERT_GE(sent_find(0xF, 0x09, from), 0);
+    ASSERT_GE(sent_find(0xF, 0x0A, from), 0);
+    ASSERT_GE(sent_find(0xF, 0x0B, from), 0);
+    ASSERT_GE(sent_find(0xF, 0x0C, from), 0);
+    ASSERT_TRUE(pix_api_xreg());
+    ASSERT_EQ(0x5678, sent[sent_find(0, 2, from)].word);
+    ASSERT_FALSE(pix_api_xreg()); // done
+    ASSERT_EQ(0, API_AX);
+}
+
+/* The code page, DISPLAY and a 6502 program's CANVAS wait out a job's hold
+ * too: one the last of the console started before DISPLAY goes included. */
+UTEST(vga, answered_messages_wait_out_a_jobs_hold)
+{
+    boot_settled();
+    unsigned from = sent_count;
+    draw_job_started();
+    vga_set_code_page(850);
+    vga_task();
+    ASSERT_FALSE(vga_ask_ready());
+    ASSERT_LT(sent_find(0xF, 0x01, from), 0);
+    now_us += 1000;
+    vga_task();
+    ASSERT_GE(sent_find(0xF, 0x01, from), 0);
+    deliver();
+    draw_job_started();
+    vga_stop();
+    vga_task();
+    ASSERT_LT(sent_find(0xF, 0x00, from), 0);
+    now_us += 1000;
+    vga_task();
+    ASSERT_GE(sent_find(0xF, 0x00, from), 0);
+    deliver();
+    draw_job_started();
+    push_canvas_mode(1, 3);
+    ASSERT_TRUE(pix_api_xreg());
+    ASSERT_LT(sent_find(0, 0, from), 0);
+    now_us += 1000;
+    ASSERT_TRUE(pix_api_xreg());
+    ASSERT_GE(sent_find(0, 0, from), 0);
+}
+
+/* While an answer is awaited, however long the VGA's work takes it, nothing
+ * of the RIA's goes: not the console, the pointer, the selection, a 6502
+ * program's xreg, a code page or the RIA's own XRAM sends. They go once it
+ * comes. */
+UTEST(vga, nothing_goes_while_an_answer_is_awaited)
+{
+    boot_settled();
+    advance_ms(20);
+    fake.working = true;
+    ASSERT_TRUE(vga_ask(0, 0, 1, VGA_ANSWER_MS));
+    unsigned from = sent_count;
+    advance_ms(VGA_ANSWER_MS - 2);
+    vsync(); // a millisecond on, and the VGA's VSYNCs go on
+    ASSERT_EQ(VGA_ANSWER_WAITING, vga_answer());
+    ASSERT_FALSE(pix_ready());
+    ASSERT_FALSE(vga_console_ready());
+    vga_set_pointer(1, 10, 20);
+    user_selects(0x1234, 0x1300);
+    vga_set_code_page(850);
+    vga_task();
+    push_xreg(2, 0x5678);
+    ASSERT_TRUE(pix_api_xreg());
+    ASSERT_TRUE(pix_api_xreg());
+    ASSERT_EQ(from, sent_count);
+    ASSERT_TRUE(vga_connected());
+    work_done();
+    deliver();
+    ASSERT_EQ(VGA_ANSWER_ACK, vga_answer());
+    vga_task(); // the code page first, and its answer
+    ASSERT_EQ(sent_find(0xF, 0x01, from), (int)from);
+    ASSERT_LT(sent_find(0xF, 0x08, from), 0);
+    deliver();
+    advance_ms(40); // the frames go on by the clock
+    vga_task();
+    ASSERT_GE(sent_find(0xF, 0x08, from), 0);
+    ASSERT_GE(sent_find(0xF, 0x0B, from), 0);
+    ASSERT_TRUE(pix_api_xreg());
+    ASSERT_GE(sent_find(0, 2, from), 0);
+    ASSERT_TRUE(vga_console_ready());
+}
+
+/* The VGA answers DISPLAY once its work is done, and the console waits for
+ * that, not a hold: the jobs the RIA's terminal starts as it follows the
+ * message are the work the answer waits for. */
+UTEST(vga, the_answer_is_the_wait_for_the_messages_work)
+{
+    boot_settled();
+    fake.working = true;
+    vga_stop();
+    vga_task(); // DISPLAY
+    advance_ms(10);
+    vga_task();
+    ASSERT_TRUE(vga_console_busy());
+    ASSERT_TRUE(vga_connected());
+    draw_job_started(); // the RIA's terminal takes the DISPLAY's work
+    now_us += 999; // inside the hold the job would have raised
+    work_done();
+    deliver();
+    ASSERT_FALSE(vga_console_busy());
+    ASSERT_TRUE(vga_console_ready());
+}
+
+/* The 6502's writes to XRAM go round the gate: the stream is not held while
+ * an answer is awaited. */
+UTEST(vga, the_6502s_xram_goes_round_the_gate)
+{
+    boot_settled();
+    ASSERT_TRUE(vga_ask(0, 0, 1, VGA_ANSWER_MS));
+    ASSERT_FALSE(pix_ready());
+    ASSERT_EQ(4u, pix_stream_xram(0, 4));
+    ASSERT_TRUE(pix_stream_done());
+    deliver();
+    draw_job_started();
+    ASSERT_FALSE(pix_ready());
+    ASSERT_EQ(8u, pix_stream_xram(4, 8));
 }
 
 /* ---- the console's speed ---------------------------------------------- */
@@ -736,7 +924,6 @@ UTEST(vga, a_lost_vga_no_speed)
     deliver();
     vga_task(); // DISPLAY
     deliver();
-    reclocked();
     ASSERT_LT(now_us - went, (uint64_t)33333);
     ASSERT_TRUE(vga_console_ready());
 }

@@ -4,11 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The Pico SDK's PIO API as pix.c and vga.c use it. The two FIFOs that carry
- * messages are test_vga.c's: PIX_SM's TX FIFO, where each word put is a
- * message to the VGA, and the backchannel's RX FIFO, which the fake VGA
- * fills. The rest configures hardware the host has not got, and does
- * nothing. */
+/* The Pico SDK's PIO API as the RIA's pix.c and vga.c use it, and the VGA's
+ * ria.c. The FIFOs that carry messages are the test's: for test_vga.c,
+ * PIX_SM's TX FIFO, where each word put is a message to the VGA, and the
+ * backchannel's RX FIFO, which the fake VGA fills; for test_vga_reply.c,
+ * the VGA's backchannel TX FIFO. The rest configures hardware the host has
+ * not got, and does nothing. */
 
 #ifndef _TEST_HARDWARE_PIO_H_
 #define _TEST_HARDWARE_PIO_H_
@@ -89,5 +90,9 @@ static inline void sm_config_set_in_shift(pio_sm_config *c, bool r, bool a, uint
 static inline void sm_config_set_fifo_join(pio_sm_config *c, enum pio_fifo_join j) { (void)c; (void)j; }
 static inline void sm_config_set_wrap(pio_sm_config *c, uint t, uint w) { (void)c; (void)t; (void)w; }
 static inline void sm_config_set_clkdiv(pio_sm_config *c, float d) { (void)c; (void)d; }
+static inline void sm_config_set_sideset_pins(pio_sm_config *c, uint b) { (void)c; (void)b; }
+static inline void pio_sm_set_clkdiv(PIO p, uint sm, float d) { (void)p; (void)sm; (void)d; }
+static inline void pio_sm_set_pins_with_mask(PIO p, uint sm, uint32_t v, uint32_t m) { (void)p; (void)sm; (void)v; (void)m; }
+static inline void pio_sm_set_pindirs_with_mask(PIO p, uint sm, uint32_t v, uint32_t m) { (void)p; (void)sm; (void)v; (void)m; }
 
 #endif /* _TEST_HARDWARE_PIO_H_ */

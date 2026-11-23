@@ -347,7 +347,7 @@ static void HOST_IN_FLASH_FUNC ram_xram(void)
         if (!pix_ready())
             return;
         uint32_t addr = ram_rw_addr + --ram_rw_size - 0x10000;
-        pix_send(PIX_DEVICE_XRAM, 0, xram[addr], (uint16_t)addr);
+        pix_send_blocking(PIX_DEVICE_XRAM, 0, xram[addr], (uint16_t)addr);
     }
     ram_state = RAM_IDLE;
 }

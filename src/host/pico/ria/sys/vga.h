@@ -57,11 +57,21 @@ void vga_flashing(void);
 // Fully connected with backchannel.
 bool vga_connected(void);
 
-/* Room on PIX for a byte of the console of a connected VGA. None goes while
- * an answer is awaited, a code page is still to go, the VGA is at work on a
- * job the console's terminal started (draw_job_started), or the byte before
- * it has not had its time at the speed the console's terminal keeps
- * (term_speed). */
+/* The gate every message of the RIA's main loop passes on PIX (pix_ready),
+ * so all it sends the VGA is one paced stream: the console's bytes, DISPLAY
+ * and CODE_PAGE, a 6502 program's xregs, the pointer and the selection, the
+ * link's own messages and the RIA's own writes to XRAM. Only the 6502's
+ * writes to XRAM, which core 1 and the stream DMA put on PIX, go round it.
+ * It is shut while an answer is awaited (below), which the VGA gives once
+ * the work the message made is done, and for a while after a message that
+ * starts a job on more than one row (draw_job_started), which the VGA does a
+ * few rows a pass of its main loop. An answer whose time is up is a timeout
+ * here, which loses the VGA. With no VGA connected it is open. */
+bool vga_gate_open(void);
+
+/* Room on PIX for a byte of the console of a connected VGA: the gate is open,
+ * no code page is still to go, and the byte before it has had its time at
+ * the speed the console's terminal keeps (term_speed). */
 bool vga_console_ready(void);
 
 // Responders for status.
@@ -82,13 +92,15 @@ void vga_xreg(uint8_t index, uint16_t word);
 
 /* The messages the VGA answers on the backchannel, with an ack or, when it
  * refuses one, a nak: CANVAS and MODE on channel 0, and DISPLAY, CODE_PAGE
- * and FLASH_PROGRAM on channel 15. The answers carry no tag, so one message
- * is awaited at a time, and the console sends the VGA no bytes until its
- * answer comes. A VGA that is connected and does not answer in time is lost,
- * as a VGA that stops its VSYNCs is.
+ * and FLASH_PROGRAM on channel 15. The VGA answers once the work the message
+ * made is done: a job of its terminal, a new view and the clock it needs.
+ * The answers carry no tag, so one message is awaited at a time, and the
+ * gate sends the VGA nothing more until its answer comes. A VGA that is
+ * connected and does not answer in time is lost, as a VGA that stops its
+ * VSYNCs is.
  *
- * DISPLAY and CODE_PAGE are vga.c's own: it sends each as soon as nothing is
- * awaited, and nothing else is asked until they are gone. A 6502 program's
+ * DISPLAY and CODE_PAGE are vga.c's own: it sends each as soon as the gate
+ * opens, and nothing else is asked until they are gone. A 6502 program's
  * CANVAS and MODE, and FLASH's FLASH_PROGRAM, are asked here, and the answer
  * stays for the one who asked until it asks again. */
 typedef enum
@@ -99,12 +111,20 @@ typedef enum
     VGA_ANSWER_WAITING,
 } vga_answer_t;
 
-/* The VGA holds its answers out of the window around each VSYNC, so this
- * must exceed that lockout plus a frame of scheduling slack. */
+/* The VGA's answer comes after the work the message made and out of the
+ * window around each VSYNC, so this must exceed both plus a frame of
+ * scheduling slack. The most work is a code page's full RIS: both sizes'
+ * screens and alternate screens, 4 jobs of up to 32 rows, at TERM_JOB_ROWS
+ * 11 a pass, 12 passes, about 2 ms at the 0.93 ms termload measures for a
+ * whole-screen job at both sizes (vga.c's VGA_JOB_HOLD_US). A DISPLAY's new
+ * view sets the clock in one of those passes. The window is the VGA's
+ * RIA_VSYNC_LOCKOUT_US either side, an answer held up to 4.1 ms, and the
+ * byte is 0.1 ms on the wire: about 6.2 ms and the clock's settling, with
+ * over a frame, 16.7 ms, to spare. */
 #define VGA_ANSWER_MS 25
 
-/* Nothing is awaited and nothing of vga.c's own is still to go, so a message
- * may be asked. */
+/* The gate is open and nothing of vga.c's own is still to go, so a message
+ * may be asked, or, as with no VGA connected, nothing will be sent. */
 bool vga_ask_ready(void);
 
 /* Sends a message the VGA answers, once vga_ask_ready, and awaits its answer

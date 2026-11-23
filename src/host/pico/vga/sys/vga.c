@@ -458,6 +458,11 @@ bool vga_canvas_is_console(void)
     return vga_canvas_selected == vga_canvas_console;
 }
 
+bool vga_switching(void)
+{
+    return vga_view_switching;
+}
+
 #pragma GCC pop_options
 
 void vga_start_render_core(void)

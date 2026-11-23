@@ -14,7 +14,6 @@
 #include "ria.pio.h"
 #include "machine.h"
 #include <hardware/dma.h>
-#include <pico/time.h>
 #include <string.h>
 
 static uint pix_stream_dma;
@@ -40,6 +39,15 @@ static uint32_t pix_send_count;
 static uint8_t pix_device;
 static uint8_t pix_channel;
 static uint8_t pix_index;
+
+/* Puts a message in PIX_SM's FIFO with no check for room or the gate. Only
+ * pix_init's IDLEs, with the FIFO empty, and pix_send_blocking use it. */
+static void HOST_IN_RAM_FUNC pix_send(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
+{
+    assert(dev3 < 8);
+    assert(ch4 < 16);
+    pio_sm_put(PIX_PIO, PIX_SM, PIX_MESSAGE(dev3, ch4, byte, word));
+}
 
 // Both state machines take the divider and restart it together, in lockstep.
 void pix_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
@@ -95,9 +103,10 @@ static bool pix_api_fail(api_errno errnum)
     return api_return_errno(errnum);
 }
 
-/* The burst's words go from the highest index down. VGA channel 0's CANVAS
- * and MODE are answered (vga.h): each is asked once the VGA may be asked,
- * and the burst waits for its answer. With no VGA connected they fail. */
+/* The burst's words go from the highest index down, each once PIX takes it,
+ * past the VGA's gate (vga.h). VGA channel 0's CANVAS and MODE are answered:
+ * each is asked once the VGA may be asked, and the burst waits for its
+ * answer. With no VGA connected they fail. */
 static bool HOST_IN_FLASH_FUNC pix_api_send(void)
 {
     uint8_t index = (uint8_t)(pix_index + pix_send_count - 1);
@@ -109,7 +118,7 @@ static bool HOST_IN_FLASH_FUNC pix_api_send(void)
         return pix_api_fail(API_EINVAL);
     --pix_send_count;
     if (!answered)
-        pix_send(pix_device, pix_channel, index, data);
+        pix_send_blocking(pix_device, pix_channel, index, data);
     else if (!vga_ask(0, index, data, VGA_ANSWER_MS))
         return pix_api_fail(API_EIO);
     if (pix_device == PIX_DEVICE_VGA && pix_channel == 0)
@@ -209,21 +218,6 @@ bool HOST_IN_FLASH_FUNC pix_api_xreg(void)
     return api_working();
 }
 
-// A CANVAS or DISPLAY can change the VGA's system clock, and its PIX
-// receiver loses messages until the new clock settles. The VGA answers
-// either before its main loop changes the clock, and the pointer goes while
-// an answer is awaited, so the answer does not cover this hold.
-#define PIX_HOLD_US 1000
-static uint64_t pix_hold_end_us;
-
-void HOST_IN_RAM_FUNC pix_send(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
-{
-    assert(dev3 < 8);
-    assert(ch4 < 16);
-    pio_sm_put(PIX_PIO, PIX_SM, PIX_MESSAGE(dev3, ch4, byte, word));
-    if (dev3 == PIX_DEVICE_VGA && byte == 0 && (ch4 == 0 || ch4 == 0xF))
-        pix_hold_end_us = time_us_64() + PIX_HOLD_US;
-}
 
 // PIX_SM's TX FIFO is joined. Core 1 puts the 6502's portal writes in it
 // without checking for room, so the main loop leaves it PIX_CORE1_SLOTS.
@@ -232,8 +226,15 @@ void HOST_IN_RAM_FUNC pix_send(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t
 
 bool HOST_IN_RAM_FUNC pix_ready(void)
 {
-    return time_us_64() >= pix_hold_end_us &&
+    return vga_gate_open() &&
            pio_sm_get_tx_fifo_level(PIX_PIO, PIX_SM) < PIX_FIFO_DEPTH - PIX_CORE1_SLOTS;
+}
+
+void HOST_IN_RAM_FUNC pix_send_blocking(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
+{
+    while (!pix_ready())
+        tight_loop_contents();
+    pix_send(dev3, ch4, byte, word);
 }
 
 // A run starts only on an idle DMA, which has left its read address at the

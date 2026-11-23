@@ -44,6 +44,7 @@ PRUNE = {
     'com_telnet_handle_auth': 'the telnet FLASHING hook closed any session at the passkey prompt',
     'sys_set_flashing': 'the writer calls it first, and it runs the FLASHING hooks from flash still intact',
     'vga_tell_code_page': 'vga_flashing waited out every answer and dropped the code page still to go, and nothing is awaited or owed again',
+    'vga_lose': 'the roots reach it only by an answer whose time is up (vga_gate_open), and vga_flashing waited out every answer, and nothing is awaited again',
     'cyw43_ll_bus_init': 'radio start-up: cyw43_ensure_up returns early while the chip is up',
     'initialise_rand': 'runs once, for the first random number at boot (get_rand_64)',
     'btstack_run_loop_poll_data_sources_from_irq':

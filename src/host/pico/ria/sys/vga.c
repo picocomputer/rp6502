@@ -83,12 +83,12 @@ static volatile vga_answer_t vga_answer_state = VGA_ANSWER_ACK;
 static uint32_t vga_answer_deadline;
 
 /* A job the console's terminal started (draw_job_started), which the VGA's
- * terminal starts at the same byte and does TERM_JOB_ROWS rows a pass of its
- * main loop. The console sends the VGA no byte until this time, so none
- * comes while the VGA still works on it. The hold is flat, the same for a
- * job of any size. Measured with termload (tests/hil), a whole-screen job
- * at both sizes takes the Pico VGA up to 0.93 ms under two 8-bit bitmaps
- * and 0.67 ms without. Set only while a VGA is connected. */
+ * terminal starts at the same message and does TERM_JOB_ROWS rows a pass of
+ * its main loop. The gate (vga.h) is shut until this time, so nothing comes
+ * while the VGA still works on it. The hold is flat, the same for a job of
+ * any size. Measured with termload (tests/hil), a whole-screen job at both
+ * sizes takes the Pico VGA up to 0.93 ms under two 8-bit bitmaps and 0.67 ms
+ * without. Set only while a VGA is connected. */
 #define VGA_JOB_HOLD_US 1000
 static uint64_t vga_job_hold_end_us;
 
@@ -110,7 +110,8 @@ static bool vga_flash_started;
 /* The pointer as the tablet wants it, and what of it the VGA has yet. Its
  * position is sent once a frame at most, as POINTER_X and then POINTER_Y,
  * which moves it, so a mouse's hundreds of reports a second become a
- * frame's one move. A new shape goes on its own, in POINTER_SHAPE. */
+ * frame's one move. A new shape goes on its own, in POINTER_SHAPE. What is
+ * new waits while the gate is shut. */
 static uint8_t vga_pointer_shape;
 static int16_t vga_pointer_x;
 static int16_t vga_pointer_y;
@@ -216,7 +217,7 @@ void HOST_IN_RAM_FUNC vga_set_pointer(uint8_t shape, int16_t x, int16_t y)
 
 static void HOST_IN_RAM_FUNC vga_pointer_task(void)
 {
-    if (!vga_connected())
+    if (!vga_connected() || !pix_ready())
         return;
     if (vga_pointer_where_dirty && vga_frame_count() != vga_pointer_frame)
     {
@@ -244,12 +245,12 @@ static void HOST_IN_FLASH_FUNC vga_select_send(void)
 }
 
 /* Nothing goes while a flash is under way, when nothing in flash may run.
- * The words go with no answer awaited, and are not held for the console's
- * gate: PIX keeps them in order with the console's bytes. */
+ * The words wait while the gate is shut, and PIX keeps them in order with
+ * the console's bytes. */
 static void HOST_IN_RAM_FUNC vga_select_task(void)
 {
     if (vga_connected() && !vga_silenced() && vterm_selection.unsent &&
-        vga_frame_count() != vga_select_frame)
+        vga_frame_count() != vga_select_frame && pix_ready())
         vga_select_send();
 }
 
@@ -508,13 +509,15 @@ static uint32_t HOST_IN_FLASH_FUNC vga_read_version(void)
  * back to the UART. Nothing answers with the backchannel off, so what is
  * awaited is a timeout now, and an answer from before is never taken for one
  * to a message of the next connection. A code page still to go goes with
- * it, and vga_connect sends the page again. */
+ * it, and vga_connect sends the page again. Nothing holds the gate for a
+ * VGA that is gone. */
 static void vga_unlink(void)
 {
     vga_backchannel_irq_disable();
     vga_own_awaited = false;
     if (vga_answer_state == VGA_ANSWER_WAITING)
         vga_answer_state = VGA_ANSWER_TIMEOUT;
+    vga_job_hold_end_us = 0;
     vga_code_page_owed = false;
     vga_vsync_alarm_arms = false;
     if (vga_vsync_alarm >= 0)
@@ -525,8 +528,9 @@ static void vga_unlink(void)
     vga_state = VGA_CONNECTION_LOST;
 }
 
-/* The VGA is lost, and the console is a terminal on the UART again. */
-static void vga_lose(void)
+/* The VGA is lost, and the console is a terminal on the UART again. In
+ * flash, as the gate's timeout reaches it from the console's RAM path. */
+static void HOST_IN_FLASH_FUNC vga_lose(void)
 {
     vga_unlink();
     mon_add_response_utf8(S(STR_ERR_VGA_CONNECTION_LOST));
@@ -565,43 +569,51 @@ static bool HOST_IN_RAM_FUNC vga_still_awaiting(void)
     return vga_awaiting();
 }
 
-/* A message goes once PIX has room, and its answer is awaited, vga.c's own
- * or the asker's. The wait begins before the message goes, because the
- * backchannel records an answer only while one is awaited. */
+bool HOST_IN_RAM_FUNC vga_gate_open(void)
+{
+    return !vga_still_awaiting() && time_us_64() >= vga_job_hold_end_us;
+}
+
+/* A message goes once PIX takes it, past the gate, and its answer is
+ * awaited, vga.c's own or the asker's. The gate is waited out first with the
+ * interrupts on. The wait begins as the message goes, and the interrupts are
+ * held off across both so the backchannel cannot take the answer before it
+ * is awaited: it records an answer only while one is. */
 static void vga_await(uint8_t ch4, uint8_t byte, uint16_t word,
                       uint32_t timeout_ms, bool own)
 {
     while (!pix_ready())
         tight_loop_contents();
+    uint32_t irqs = save_and_disable_interrupts();
+    pix_send_blocking(PIX_DEVICE_VGA, ch4, byte, word);
     vga_answer_deadline = time_us_32() + timeout_ms * 1000;
     if (own)
         vga_own_awaited = true;
     else
         vga_answer_state = VGA_ANSWER_WAITING;
-    pix_send(PIX_DEVICE_VGA, ch4, byte, word);
+    restore_interrupts(irqs);
 }
 
-/* A code page still to go goes once nothing is awaited, and the console's
- * terminal takes it as the VGA's does, between the same two bytes. An answer
- * whose time is up is a timeout first, so this is also what moves a console
- * held for an answer on. */
+/* A code page still to go goes once the gate opens, and the console's
+ * terminal takes it as the VGA's does, between the same two bytes. */
 static void HOST_IN_FLASH_FUNC vga_tell_code_page(void)
 {
-    if (vga_still_awaiting() || !vga_code_page_owed)
+    if (!vga_code_page_owed || !vga_gate_open())
         return;
     vga_code_page_owed = false;
     vga_await(0xF, 0x01, vga_code_page, VGA_ANSWER_MS, true);
     vterm_set_code_page(vga_code_page);
 }
 
-/* DISPLAY, which is still to go, goes once nothing is awaited and the code
- * page has gone. It resets the terminal, so everything printed before it
- * goes out first: an escape sequence cut in half by the reset would print the
- * rest of itself as text. The VGA's DISPLAY goes back to the console canvas,
- * and so does the RIA. */
+/* DISPLAY, which is still to go, goes once the gate opens and the code page
+ * has gone. It resets the terminal, so everything printed before it goes out
+ * first: an escape sequence cut in half by the reset would print the rest of
+ * itself as text, and DISPLAY waits out the hold of a job the last of it
+ * started. The VGA's DISPLAY goes back to the console canvas, and so does
+ * the RIA. */
 static void vga_tell_display(void)
 {
-    if (vga_silenced() || vga_still_awaiting() || vga_code_page_owed)
+    if (vga_silenced() || !vga_gate_open() || vga_code_page_owed)
         return;
     vga_needs_reset = false;
     if (vga_connected())
@@ -618,7 +630,7 @@ static void vga_tell_display(void)
 bool vga_ask_ready(void)
 {
     vga_tell_code_page();
-    return !vga_still_awaiting() && !(vga_needs_reset && vga_connected() && !vga_silenced());
+    return vga_gate_open() && !(vga_needs_reset && vga_connected() && !vga_silenced());
 }
 
 bool vga_ask(uint8_t ch4, uint8_t byte, uint16_t word, uint32_t timeout_ms)
@@ -635,23 +647,23 @@ vga_answer_t vga_answer(void)
     return vga_answer_state;
 }
 
-/* The console of a connected VGA is held: an answer is awaited, a code page
- * is still to go, or the VGA is at work on a job. A console held for an
- * answer or a code page moves on here, since a flush of the console waits on
- * nothing else. A wait whose time is up holds it until it is a timeout.
- * While the RIA rewrites its flash nothing is awaited or still to go
- * (vga_flashing), so the console never calls into flash. */
+/* The console of a connected VGA is held: a code page is still to go, or
+ * the gate is shut. A code page goes here once the gate opens, and an answer
+ * whose time is up is a timeout here, which loses the VGA, since a flush of
+ * the console waits on nothing else. While the RIA rewrites its flash
+ * nothing is awaited or still to go (vga_flashing), so the console never
+ * calls into flash. */
 static bool HOST_IN_RAM_FUNC vga_console_held(void)
 {
-    if (vga_awaiting() || vga_code_page_owed)
+    if (vga_code_page_owed)
         vga_tell_code_page();
-    return vga_awaiting() || vga_code_page_owed || time_us_64() < vga_job_hold_end_us;
+    return vga_code_page_owed || !vga_gate_open();
 }
 
 bool HOST_IN_RAM_FUNC vga_console_ready(void)
 {
-    return !vga_console_held() && time_us_64() >= vga_console_paced_us &&
-           vga_connected() && pix_ready();
+    return !vga_console_held() && vga_connected() &&
+           time_us_64() >= vga_console_paced_us && pix_ready();
 }
 
 bool vga_console_busy(void)
@@ -811,11 +823,13 @@ void draw_reset(void)
 {
 }
 
-/* The VGA does the same job over passes of its main loop: its console is
- * held until it is surely done. */
+/* The VGA does the same job over passes of its main loop: the gate is shut
+ * until it is surely done. A job started while an answer is awaited is the
+ * work of the message awaited, which the RIA's terminal takes after sending
+ * it, and the VGA answers once that work is done, so the answer is the wait. */
 void draw_job_started(void)
 {
-    if (vga_connected())
+    if (vga_connected() && !vga_awaiting())
         vga_job_hold_end_us = time_us_64() + VGA_JOB_HOLD_US;
 }
 
@@ -871,7 +885,8 @@ void HOST_IN_FLASH_FUNC vga_init(void)
 void HOST_IN_RAM_FUNC vga_task(void)
 {
     vga_vsync_expire();
-    if (vga_awaiting() || vga_code_page_owed)
+    vga_answer_expire();
+    if (vga_code_page_owed)
         vga_tell_code_page();
     if (vga_needs_reset)
         vga_tell_display();

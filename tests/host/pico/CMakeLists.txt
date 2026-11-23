@@ -67,6 +67,15 @@ rp6502_add_test(vga_draw
     DEFS TERM_MAX_HEIGHT=32 TERM_ALT_SCREEN=1 TERM_JOB_ROWS=11 DRAW_PUBLISH_PER_FRAME=1)
 add_dependencies(test_vga_draw rp6502_gen_c)
 
+# The Pico VGA's reply to a message from the RIA, its ria.c against the
+# backchannel's FIFO and a main loop whose work a case sets, on hardware
+# stubbed in vga_reply/ and vga/. Each case starts a VGA of its own, in a
+# process of its own.
+rp6502_add_test(vga_reply SPLIT
+    SOURCES test_vga_reply.c ${RP6502_SRC}/host/pico/vga/sys/ria.c
+    INCLUDES ${CMAKE_CURRENT_LIST_DIR}/vga_reply ${CMAKE_CURRENT_LIST_DIR}/vga
+        ${CMAKE_CURRENT_LIST_DIR}/stub ${RP6502_SRC}/host/pico)
+
 # A paste of the machine's own text, through the RIA's keyboard row
 # (KEYMAP_COM_SOURCE) and its paste stage, keys typed through keymap.c and
 # its chords through key.c, built as the RIA's machine.h builds it.

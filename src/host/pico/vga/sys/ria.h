@@ -45,6 +45,13 @@ void ria_post_reclock(void);
 
 void ria_backchan(uint16_t word);
 void ria_vsync(void);
+
+/* The reply to the message from the RIA that asked for one. It is owed, and
+ * ria_task sends it once the work the message made is done (main_busy): a
+ * job of the terminal finished at TERM_JOB_ROWS a pass, a new view switched
+ * to. With no work it goes at the next pass. The RIA sends nothing more
+ * until it comes, so the work goes on with nothing new arriving. Out of the
+ * window around a VSYNC, as above. */
 void ria_ack(void);
 void ria_nak(void);
 
