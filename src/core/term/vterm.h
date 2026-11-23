@@ -234,7 +234,9 @@ extern bool vterm_palette_changed;
 void vterm_reset(term_t *t);
 
 // The OSC colors. which is an entry of vterm_palette, 0-255, or a special
-// color: VTERM_COLOR_FG, _BG or _CURSOR (color.h).
+// color: VTERM_COLOR_FG, _BG or _CURSOR (color.h). A cursor color that is
+// the default foreground follows a change to the default foreground, as
+// on xterm.
 void vterm_set_color(term_t *t, unsigned which, uint16_t color);
 void vterm_reset_color(term_t *t, unsigned which);
 // The palette and the default and cursor colors as at power-up, and

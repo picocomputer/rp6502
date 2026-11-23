@@ -105,6 +105,22 @@ mode0_render_wide(uint16_t *buf, uint8_t bits, const uint32_t *pair)
         *w++ = pair[((bits >> k) & 1) * 3];
 }
 
+/* How far apart two pixels are: the sum of how far apart their channels
+ * are. */
+static inline __attribute__((always_inline)) unsigned mode0_distance(uint16_t a, uint16_t b)
+{
+    const int r = (int)SCANVIDEO_R5_FROM_PIXEL(a) - (int)SCANVIDEO_R5_FROM_PIXEL(b);
+    const int g = (int)SCANVIDEO_G5_FROM_PIXEL(a) - (int)SCANVIDEO_G5_FROM_PIXEL(b);
+    const int u = (int)SCANVIDEO_B5_FROM_PIXEL(a) - (int)SCANVIDEO_B5_FROM_PIXEL(b);
+    return (unsigned)((r < 0 ? -r : r) + (g < 0 ? -g : g) + (u < 0 ? -u : u));
+}
+
+/* Whether two pixels show the same color, opaque or not. */
+static inline __attribute__((always_inline)) bool mode0_same(uint16_t a, uint16_t b)
+{
+    return !((a ^ b) & ~SCANVIDEO_ALPHA_MASK);
+}
+
 /* The pixel pairs of every cell of a row: the colors it shows, looked up
  * where they are entries of the palette, swapped by DECSCNM and swapped
  * again in the selection's columns [from, to), then the blink phase, as
@@ -212,6 +228,73 @@ mode0_draw(uint16_t *rgb, const mode0_cell_t *cell, const uint32_t *pair, int co
     }
 }
 
+/* The cursor, over its cell as mode0_draw drew it, as xterm's ShowCursor
+ * draws it, from the colors the cell shows as its pairs draw them, after
+ * its bold, reverse and conceal, DECSCNM, the selection and the blink.
+ * `cw` is the cell's scanline, `attr` its attributes, `pair` its pairs,
+ * `rev` whether DECSCNM and the selection swap its colors, `bottom`
+ * whether the scanline is one of the row's last two, and `bits` the row of
+ * the glyph and its lines a block shows. One cell of a scanline at most, so
+ * out of line, once for both fonts. */
+static __attribute__((noinline)) void
+mode0_draw_cursor(mode_word_t *cw, uint16_t attr, const uint32_t *pair, uint8_t style,
+                  bool rev, bool wide, bool bottom, uint8_t bits)
+{
+    /* A cell whose ink is its background shows no ink, so it takes as its
+     * ink whichever default color is further from that background. */
+    const uint16_t dfg = vterm_specials[VTERM_COLOR_FG - VTERM_PALETTE];
+    const uint16_t dbg = vterm_specials[VTERM_COLOR_BG - VTERM_PALETTE];
+    const uint16_t bg = (uint16_t)pair[0];
+    uint16_t fg = (uint16_t)pair[3];
+    if (mode0_same(fg, bg))
+        fg = mode0_distance(bg, dbg) < mode0_distance(bg, dfg) ? dfg : dbg;
+    const uint16_t color = (uint16_t)mode0_regs.cursor_color;
+    if (style >= 3)
+    {
+        /* An underline or a bar, over the cell as it shows, in the
+         * cursor's color, or in the ink where that is the background. Two
+         * pixels thick, as xterm's are at these font sizes, but the whole
+         * of the cell across or down where xterm's stops a pixel short, and
+         * the bar as wide again on a row of double width, as its cells
+         * are, where xterm's stays two. */
+        const uint32_t color2 = (mode0_same(color, bg) ? fg : color) * 0x10001u;
+        if (style >= 5)
+        {
+            cw[0] = color2;
+            if (wide)
+                cw[1] = color2;
+        }
+        else if (bottom)
+            for (int k = 0; k < (wide ? 8 : 4); k++)
+                cw[k] = color2;
+        return;
+    }
+    /* A block: the cell filled, its glyph and its lines in its background.
+     * The cell's default ink is the default foreground, or the default
+     * background on a cell shown reversed, by its own reverse, DECSCNM or
+     * the selection (xterm's ReverseOrHilite), and its default paper the
+     * other. A cursor of the default ink, as the cursor's color starts,
+     * fills with the cell's ink, so the block is the cell reversed. A
+     * cursor of the default paper fills with the default ink. Any other
+     * fills with its own color. Where the fill would be the background,
+     * which on xterm hides the glyph in a solid block, it is the ink. */
+    rev = rev != ((attr & MODE0_ATTR_REVERSE) != 0);
+    const uint16_t ink = rev ? dbg : dfg;
+    uint16_t fill = color;
+    if (mode0_same(color, ink))
+        fill = fg;
+    else if (mode0_same(color, rev ? dfg : dbg))
+        fill = ink;
+    if (mode0_same(fill, bg))
+        fill = fg;
+    MODE_TABLE(cpair, 4);
+    mode_pair_set(cpair, fill, bg);
+    if (wide)
+        mode0_render_wide((uint16_t *)cw, bits, cpair);
+    else
+        mode_render_1bpp((uint16_t *)cw, bits, cpair);
+}
+
 /* A terminal scanline: `ch` is 8 on the 320-wide canvases, where the
  * 40-column terminal is drawn, and 16 on the others. */
 static inline __attribute__((always_inline)) bool
@@ -306,9 +389,9 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
         mode0_draw(rgb, cell, pair, width, font_line, line_mask, underline, true, false);
     else
         mode0_draw(rgb, cell, pair, width, font_line, line_mask, underline, false, false);
-    // DECSCUSR styles 2, 4 and 6 are the steady ones, so they draw whether or
-    // not cursor_lit is set: draw.c toggles cursor_lit on a timer and leaves the
-    // style to the renderer.
+    /* The cursor, over the cell drawn as it shows. DECSCUSR's 2, 4 and 6
+     * are steady, so they draw whether or not the blink has it lit; draw.c
+     * times the blink and leaves the style to the renderer. */
     const uint8_t cursor_style = MODE0_CURSOR_STYLE(cursor);
     if (logical_row == MODE0_CURSOR_Y(cursor) &&
         (cursor & MODE0_CURSOR_ENABLED) &&
@@ -318,51 +401,25 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
          cursor_style == 6))
     {
         uint8_t cx = MODE0_CURSOR_X(cursor);
-        // A column past the row's, from a row copied part way through a
-        // change, is the last.
+        /* A column past the row's, from a row copied part way through a
+         * change, is the last. */
         if (cx >= cols)
             cx = (uint8_t)(cols - 1);
-        uint16_t *crgb = rgb + (uint32_t)cx * (wide ? 16 : 8);
-        const uint16_t cursor_color = (uint16_t)mode0_regs.cursor_color;
-        MODE_TABLE(cpair, 4);
-        switch (cursor_style)
+        /* The row of the glyph a block shows, with its lines, but none of
+         * a cell concealed or blinking off. */
+        const uint16_t cattr = cell[cx].attributes;
+        uint8_t bits = 0;
+        if (!(cattr & (MODE0_ATTR_CONCEAL | blink_mask)))
         {
-        case 3:
-        case 4: // underline
-            if (scanrow == last || (ch == 16 && scanrow == last - 1))
-            {
-                mode_pair_set(cpair, cursor_color, cursor_color);
-                mode_render_1bpp(crgb, 0xFF, cpair);
-                if (wide)
-                    mode_render_1bpp(crgb + 8, 0xFF, cpair);
-            }
-            break;
-        case 5:
-        case 6: // bar
-            crgb[0] = cursor_color;
-            if (ch == 16)
-                crgb[1] = cursor_color;
-            break;
-        default:
-        { // 0, 1, 2: block, its glyph in what its cell shows as the
-          // background, after DECSCNM and the selection
-            const mode0_cell_t *cp = cell + cx;
-            uint16_t cfg, cbg;
-            mode0_cell_shows(cp, colors + cx, &cfg, &cbg);
-            const bool crev = reverse != ((unsigned)cx - sel_from < sel_to - sel_from);
-            uint16_t cattr = cp->attributes;
-            uint8_t cbits = font_line[cp->glyph];
+            bits = font_line[cell[cx].glyph];
             if (cattr & line_mask)
-                cbits = 0xFF;
-            cbits |= underline[(cattr >> TERM_ATTR_UL_SHIFT) & 7];
-            mode_pair_set(cpair, cursor_color, mode0_color(crev ? cfg : cbg));
-            if (wide)
-                mode0_render_wide(crgb, cbits, cpair);
-            else
-                mode_render_1bpp(crgb, cbits, cpair);
-            break;
+                bits = 0xFF;
+            bits |= underline[(cattr >> TERM_ATTR_UL_SHIFT) & 7];
         }
-        }
+        mode0_draw_cursor((mode_word_t *)(rgb + (uint32_t)cx * (wide ? 16 : 8)), cattr,
+                          pair + cx * 4, cursor_style,
+                          reverse != ((unsigned)cx - sel_from < sel_to - sel_from), wide,
+                          scanrow + 2 > last, bits);
     }
     return true;
 }

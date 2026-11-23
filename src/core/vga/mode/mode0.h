@@ -260,7 +260,20 @@ extern mode0_colors_t mode0_colors[MODE0_CELLS];
  *   columns are the row's own, half the width on a row of double width.
  * cursor: x; y; the DECSCUSR style; whether its blink has it lit; and
  *   whether it is shown at all.
- * cursor_color: OSC 12's color.
+ * cursor_color: OSC 12's color. The cursor is drawn as xterm draws it,
+ *   from the colors its cell shows, after the cell's reverse, DECSCNM, the
+ *   selection and the blink. An ink that is the background is first
+ *   whichever default color is further from it. A block fills the cell and
+ *   draws the glyph and its lines in the background, but no glyph of a
+ *   cell concealed or blinking off. Its fill is the cell's ink where the
+ *   cursor's color is the cell's default ink (the default foreground, or
+ *   the default background on a cell shown reversed), the default ink where
+ *   it is the default paper, and the cursor's color otherwise; then the ink
+ *   where that is the background, so no block hides its glyph, as xterm's
+ *   can. An underline on the row's last two scanlines, or a bar of two
+ *   pixels at the cell's left and four on a row of double width, is drawn
+ *   over the cell as it shows, in the cursor's color, or the ink where that
+ *   is the background.
  * screen: the blink phase a cell's TERM_ATTR_ANY_BLINK bits are tested
  *   against, and DECSCNM.
  * smooth: a smooth scroll (DECSCLM) moving, which mode 0 draws over the

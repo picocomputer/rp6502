@@ -299,6 +299,11 @@ const term_grid_t *HOST_IN_RAM_FUNC vterm_smooth_grid(void)
 void vterm_set_color(term_t *t, unsigned which, uint16_t color)
 {
     (void)t;
+    uint16_t *const cursor = &vterm_specials[VTERM_COLOR_CURSOR - VTERM_PALETTE];
+    /* As on xterm, a cursor color that is the default foreground, as it
+     * starts, stays it when the default foreground changes. */
+    if (which == VTERM_COLOR_FG && *cursor == vterm_specials[VTERM_COLOR_FG - VTERM_PALETTE])
+        *cursor = color;
     if (which < VTERM_PALETTE)
         vterm_palette[which] = color;
     else

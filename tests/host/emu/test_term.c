@@ -3392,6 +3392,24 @@ UTEST(term, osc_colors_can_be_asked_for)
     ASSERT_STREQ(ask("\33c\33]4;1;?\7"), color_answer("\33]4;1", color_256[1], "\7"));
 }
 
+/* As on xterm, the cursor's color starts as the default foreground and
+ * follows a change to it, by OSC 10 or OSC 110, while it is the same
+ * color. A cursor color of its own stays. */
+UTEST(term, the_cursor_color_follows_the_default_foreground)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33]10;#ff0000\7\33]12;?\7"), "\33]12;rgb:ffff/0000/0000\7");
+    ASSERT_STREQ(ask("\33]110\7\33]12;?\7"), color_answer("\33]12", color_256[7], "\7"));
+    /* The cursor's color set in the same OSC is the one it keeps. */
+    ASSERT_STREQ(ask("\33]10;#ff0000;#000000;#0000ff\7\33]12;?\7"),
+                 "\33]12;rgb:0000/0000/ffff\7");
+    ASSERT_STREQ(ask("\33]10;#00ff00\7\33]12;?\7"), "\33]12;rgb:0000/0000/ffff\7");
+    ASSERT_STREQ(ask("\33]112\7\33]12;?\7"), color_answer("\33]12", color_256[7], "\7"));
+    /* Set to the default foreground, it follows again. */
+    ASSERT_STREQ(ask("\33]10;#00ff00\7\33]12;#00ff00\7\33]10;#ff00ff\7\33]12;?\7"),
+                 "\33]12;rgb:ffff/0000/ffff\7");
+}
+
 /* Everything Neovim asks as it starts, in one burst with nothing read
  * until the end: every answer is there, in order, and the screen, the
  * cursor and the pen's underline are as a program expects. */
@@ -4867,6 +4885,433 @@ UTEST(select, the_block_cursor_draws_over_it)
                 }
             }
         ASSERT_GT(glyph, 0u);
+    }
+}
+
+/* ---- mode 0 draws the cursor, by xterm's rules ----
+ *
+ * The cursor works from the colors its cell shows. A block fills the cell
+ * and draws the glyph in the cell's background: with the cursor's color
+ * left as the default foreground, the fill is the cell's ink, or the
+ * default background on a cell shown reversed. An underline or a bar goes
+ * over the cell as it shows, in the cursor's color. Where the cursor's
+ * color would be the cell's background, it is the cell's ink instead, and
+ * a cell that shows no ink takes as its ink the default color further from
+ * its background. */
+
+static uint32_t cur_fb[640 * 480];
+static int cur_w, cur_ch;
+static bool cur_blink_off;
+
+/* A fresh terminal on the 80-column console, or on the 40-column one of a
+ * 320 by 240 canvas, with reference cells on row 0: the default
+ * background, the default foreground (a reversed space), and RGB blue. */
+static void cur_fresh(bool forty)
+{
+    fresh();
+    if (forty)
+    {
+        xreg1(0, 0, vga_canvas_320_240);
+        xreg1(0, 1, 0);
+    }
+    cur_blink_off = false;
+    cur_w = forty ? 320 : 640;
+    cur_ch = forty ? 8 : 16;
+    feed("\33[H \33[7m \33[m\33[48;2;0;0;255m \33[41m \33[107m \33[m");
+}
+
+static void cur_done(void)
+{
+    xreg1(0, 0, vga_canvas_console);
+}
+
+/* The frame, with the cursor or without it, and with SGR 5's blink in its
+ * off phase when cur_blink_off, set over the words draw.c published. */
+static void cur_draw(bool cursor)
+{
+    draw_task();
+    mode0_regs.screen &= ~3u;
+    if (cur_blink_off)
+        mode0_regs.screen |= TERM_ATTR_BLINK;
+    if (cursor)
+        mode0_regs.cursor |= MODE0_CURSOR_ENABLED;
+    else
+        mode0_regs.cursor &= ~MODE0_CURSOR_ENABLED;
+    vga_draw(cur_fb);
+}
+
+static uint32_t cur_at(int x, int y, int px, int py)
+{
+    return cur_fb[(y * cur_ch + py) * cur_w + x * 8 + px];
+}
+
+/* The reference colors of row 0. */
+static uint32_t cur_bg0(void) { return cur_at(0, 0, 1, 1); }
+static uint32_t cur_fg0(void) { return cur_at(1, 0, 1, 1); }
+static uint32_t cur_blue(void) { return cur_at(2, 0, 1, 1); }
+static uint32_t cur_red(void) { return cur_at(3, 0, 1, 1); }
+static uint32_t cur_white(void) { return cur_at(4, 0, 1, 1); }
+
+/* How many pixels of the cell at x, y, `cw` wide, are `ink` where every
+ * other is `fill`; -1 when one is neither. */
+static int cur_two(int x, int y, int cw, uint32_t fill, uint32_t ink)
+{
+    int n = 0;
+    for (int py = 0; py < cur_ch; py++)
+        for (int px = 0; px < cw; px++)
+        {
+            const uint32_t p = cur_fb[(y * cur_ch + py) * cur_w + x * cw + px];
+            if (p == ink && ink != fill)
+                n++;
+            else if (p != fill)
+                return -1;
+        }
+    return n;
+}
+
+/* Whether the cell at x, y, `cw` wide, is drawn as it is with no cursor,
+ * but for a stripe in `color`: the last `thick` scanlines for an
+ * underline, or the first `thick` pixels of each for a bar. False too
+ * when the stripe was already all `color`, which would show nothing. */
+static bool cur_stripe(int x, int y, int cw, bool bar, int thick, uint32_t color)
+{
+    static uint32_t off[16][16];
+    cur_draw(false);
+    bool differs = false;
+    for (int py = 0; py < cur_ch; py++)
+        for (int px = 0; px < cw; px++)
+            off[py][px] = cur_fb[(y * cur_ch + py) * cur_w + x * cw + px];
+    cur_draw(true);
+    for (int py = 0; py < cur_ch; py++)
+        for (int px = 0; px < cw; px++)
+        {
+            const uint32_t p = cur_fb[(y * cur_ch + py) * cur_w + x * cw + px];
+            const bool in = bar ? px < thick : py >= cur_ch - thick;
+            if (in && off[py][px] != color)
+                differs = true;
+            if (p != (in ? color : off[py][px]))
+                return false;
+        }
+    return differs;
+}
+
+/* A block on a cell shown reversed, by SGR 7, by DECSCNM, or by the
+ * selection, whose background is the cursor's default color: the cell is
+ * filled with its ink and the glyph drawn in its background, so a reversed
+ * space shows as a block of the ink. A reversed cell in the selection shows
+ * as it is not reversed. */
+UTEST(cursor, a_block_on_a_reversed_cell_fills_with_its_ink)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1H\33[7mA \33[m\33[2 q\33[3;1H");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0();
+        ASSERT_NE(bg0, fg0);
+        ASSERT_GT(cur_two(0, 2, 8, bg0, fg0), 0);
+        feed("\33[3;2H");
+        cur_draw(true);
+        ASSERT_EQ(cur_two(1, 2, 8, bg0, fg0), 0);
+        /* DECSCNM's reverse of a plain cell. */
+        feed("\33[4;1HA\33[4;1H\33[?5h");
+        cur_draw(true);
+        ASSERT_GT(cur_two(0, 3, 8, bg0, fg0), 0);
+        feed("\33[?5l");
+        /* The selection's, and the selection over a reversed cell. */
+        for (int pass = 0; pass < 2; pass++)
+        {
+            feed(pass ? "\33[5;1H\33[7mA\33[m\33[5;1H" : "\33[5;1HA\33[5;1H");
+            sel(4, 0, 4, 1);
+            cur_draw(true);
+            if (pass)
+                ASSERT_GT(cur_two(0, 4, 8, fg0, bg0), 0);
+            else
+                ASSERT_GT(cur_two(0, 4, 8, bg0, fg0), 0);
+            vterm_unselect();
+        }
+        cur_done();
+    }
+}
+
+/* A cell whose ink is its background takes the default foreground as its
+ * ink, or the default background where its background is the default
+ * foreground. A program's colors show the glyph under the block; a
+ * concealed cell, or one blinking off, shows none. */
+UTEST(cursor, a_block_on_a_cell_with_no_ink_shows)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1H\33[38;2;0;0;255;48;2;0;0;255mA\33[m"
+             "\33[7;8mA\33[m\33[8mA\33[m\33[5mA\33[m\33[2 q");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0(), blue = cur_blue();
+        /* Blue on blue: a block of the default foreground, the glyph blue. */
+        feed("\33[3;1H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(0, 2, 8, fg0, blue), 0);
+        /* The default foreground on itself, by a reversed cell concealed:
+         * its ink is the default background, and so is the block, since the
+         * cursor's color is the background. */
+        feed("\33[3;2H");
+        cur_draw(true);
+        ASSERT_EQ(cur_two(1, 2, 8, bg0, fg0), 0);
+        /* Concealed, the default background on itself: its ink is the
+         * default foreground, which fills the block, and no glyph. */
+        feed("\33[3;3H");
+        cur_draw(true);
+        ASSERT_EQ(cur_two(2, 2, 8, fg0, bg0), 0);
+        /* Blinking: the glyph in the on phase, none in the off phase. */
+        feed("\33[3;4H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(3, 2, 8, fg0, bg0), 0);
+        cur_blink_off = true;
+        cur_draw(true);
+        ASSERT_EQ(cur_two(3, 2, 8, fg0, bg0), 0);
+        cur_done();
+    }
+}
+
+/* OSC 12's color is the block's fill, but where it is the cell's
+ * background, which is then the cell's ink. */
+UTEST(cursor, the_cursor_color_is_never_the_background)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1H\33[48;2;0;0;255mA\33[m\33[38;2;0;0;255mA\33[m"
+             "\33]12;#0000ff\7\33[2 q");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0(), blue = cur_blue();
+        feed("\33[3;1H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(0, 2, 8, fg0, blue), 0);
+        feed("\33[6 q");
+        ASSERT_TRUE(cur_stripe(0, 2, 8, true, 2, fg0));
+        feed("\33[4 q");
+        ASSERT_TRUE(cur_stripe(0, 2, 8, false, 2, fg0));
+        feed("\33[2 q\33[3;2H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(1, 2, 8, blue, bg0), 0);
+        feed("\33[6 q");
+        ASSERT_TRUE(cur_stripe(1, 2, 8, true, 2, blue));
+        cur_done();
+    }
+}
+
+/* The underline is the cell's last two scanlines and the bar its first two
+ * pixels, on both fonts, and on a cell shown reversed they are its ink.
+ * A row of double width doubles the bar with its cells. A cell blinking
+ * off shows as it does, with the stripe over it. */
+UTEST(cursor, the_underline_and_the_bar_are_two_pixels)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1HA\33[7mA\33[m\33[5mA\33[m\33[5;1H\33#6AB");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0();
+        feed("\33[3;1H\33[4 q");
+        ASSERT_TRUE(cur_stripe(0, 2, 8, false, 2, fg0));
+        feed("\33[6 q");
+        ASSERT_TRUE(cur_stripe(0, 2, 8, true, 2, fg0));
+        feed("\33[3;2H\33[4 q");
+        ASSERT_TRUE(cur_stripe(1, 2, 8, false, 2, bg0));
+        feed("\33[6 q");
+        ASSERT_TRUE(cur_stripe(1, 2, 8, true, 2, bg0));
+        /* A cell blinking off shows its background, with the bar over it. */
+        feed("\33[3;3H");
+        cur_blink_off = true;
+        ASSERT_TRUE(cur_stripe(2, 2, 8, true, 2, fg0));
+        cur_draw(false);
+        ASSERT_EQ(cur_two(2, 2, 8, bg0, fg0), 0);
+        cur_blink_off = false;
+        /* A row of double width: cells 16 pixels wide. */
+        feed("\33[5;2H");
+        ASSERT_TRUE(cur_stripe(1, 4, 16, true, 4, fg0));
+        feed("\33[4 q");
+        ASSERT_TRUE(cur_stripe(1, 4, 16, false, 2, fg0));
+        cur_done();
+    }
+}
+
+/* With the cursor's color left as it starts, the default foreground, a
+ * block shows the cell as xterm does. On a cell not reversed it fills with
+ * the cell's ink, so red text takes a red block with its glyph in the
+ * background. On a cell shown reversed the cursor's color is the default
+ * paper, so the block is the default background with the glyph in what
+ * the cell shows as its background. */
+UTEST(cursor, a_block_of_the_default_color_is_the_cell_reversed)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1H\33[31mA\33[7mA\33[m\33[41mA\33[m\33[1;31mA\33[m\33[2 q");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0(), red = cur_red();
+        ASSERT_NE(red, bg0);
+        feed("\33[3;1H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(0, 2, 8, red, bg0), 0);
+        feed("\33[3;2H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(1, 2, 8, bg0, red), 0);
+        /* The ink is the default foreground on a red background. */
+        feed("\33[3;3H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(2, 2, 8, fg0, red), 0);
+        /* Bold red is the bright red of entry 9. */
+        feed("\33[3;4H");
+        cur_draw(false);
+        uint32_t ink = bg0;
+        for (int py = 0; py < cur_ch && ink == bg0; py++)
+            for (int px = 0; px < 8 && ink == bg0; px++)
+                ink = cur_at(3, 2, px, py);
+        ASSERT_NE(ink, red);
+        ASSERT_NE(ink, bg0);
+        cur_draw(true);
+        ASSERT_GT(cur_two(3, 2, 8, ink, bg0), 0);
+        /* The selection over the red text reverses it, and over the
+         * reversed red text shows it as it is not reversed. */
+        sel(2, 0, 2, 2);
+        feed("\33[3;1H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(0, 2, 8, bg0, red), 0);
+        feed("\33[3;2H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(1, 2, 8, red, bg0), 0);
+        vterm_unselect();
+        /* A cursor color of its own fills the block on either. */
+        feed("\33]12;#0000ff\7\33[3;1H");
+        cur_draw(true);
+        const uint32_t blue = cur_blue();
+        ASSERT_GT(cur_two(0, 2, 8, blue, bg0), 0);
+        feed("\33[3;2H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(1, 2, 8, blue, red), 0);
+        /* So does a red one, except on the red background, where it is
+         * the ink. */
+        feed("\33]4;1;#ff0000\7\33]12;#ff0000\7\33[3;3H");
+        cur_draw(true);
+        const uint32_t red2 = cur_red();
+        ASSERT_GT(cur_two(2, 2, 8, fg0, red2), 0);
+        feed("\33[3;2H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(1, 2, 8, bg0, red2), 0);
+        cur_done();
+    }
+}
+
+/* A cursor of the default background's color fills a block with the
+ * default foreground, or on a cell shown reversed with the cell's ink. */
+UTEST(cursor, a_block_of_the_default_background_shows)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1HA\33[41mA\33[m\33[7mA\33[m\33]12;#000000\7\33[2 q");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0(), red = cur_red();
+        feed("\33[3;1H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(0, 2, 8, fg0, bg0), 0);
+        feed("\33[3;2H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(1, 2, 8, fg0, red), 0);
+        feed("\33[3;3H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(2, 2, 8, bg0, fg0), 0);
+        cur_done();
+    }
+}
+
+/* A cell whose ink is its background takes whichever default color is
+ * further from that background: on bright white, the black of the default
+ * background, not the default foreground's gray. */
+UTEST(cursor, a_cell_with_no_ink_takes_the_further_default)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1H\33[97;107mA\33[m\33]12;#ffffff\7\33[2 q");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), white = cur_white();
+        feed("\33[3;1H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(0, 2, 8, bg0, white), 0);
+        feed("\33[4 q");
+        ASSERT_TRUE(cur_stripe(0, 2, 8, false, 2, bg0));
+        feed("\33[6 q");
+        ASSERT_TRUE(cur_stripe(0, 2, 8, true, 2, bg0));
+        cur_done();
+    }
+}
+
+/* The underline and the bar are in the cursor's color, or the ink where
+ * that is what the cell shows as its background: a cell in the selection,
+ * a reversed one in the selection, and DECSCNM's. */
+UTEST(cursor, the_underline_and_the_bar_follow_the_selection_and_decscnm)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1HA\33[7mA\33[m");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0();
+        sel(2, 0, 2, 2);
+        for (int bar = 0; bar < 2; bar++)
+        {
+            feed(bar ? "\33[6 q" : "\33[4 q");
+            feed("\33[3;1H");
+            ASSERT_TRUE(cur_stripe(0, 2, 8, bar, 2, bg0));
+            feed("\33[3;2H");
+            ASSERT_TRUE(cur_stripe(1, 2, 8, bar, 2, fg0));
+        }
+        vterm_unselect();
+        feed("\33[?5h");
+        for (int bar = 0; bar < 2; bar++)
+        {
+            feed(bar ? "\33[6 q" : "\33[4 q");
+            feed("\33[3;1H");
+            ASSERT_TRUE(cur_stripe(0, 2, 8, bar, 2, bg0));
+            feed("\33[3;2H");
+            ASSERT_TRUE(cur_stripe(1, 2, 8, bar, 2, fg0));
+        }
+        feed("\33[?5l");
+        cur_done();
+    }
+}
+
+/* On the top half of a double-height row, and in the last column. */
+UTEST(cursor, draws_on_a_double_height_row_and_in_the_last_column)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        const int last = forty ? 40 : 80;
+        char at[32];
+        feed("\33[5;1H\33#3AB");
+        snprintf(at, sizeof at, "\33[3;%dHA", last);
+        feed(at);
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0();
+        feed("\33[2 q\33[5;2H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(1, 4, 16, fg0, bg0), 0);
+        feed("\33[4 q");
+        ASSERT_TRUE(cur_stripe(1, 4, 16, false, 2, fg0));
+        feed("\33[6 q");
+        ASSERT_TRUE(cur_stripe(1, 4, 16, true, 4, fg0));
+        snprintf(at, sizeof at, "\33[2 q\33[3;%dH", last);
+        feed(at);
+        cur_draw(true);
+        ASSERT_GT(cur_two(last - 1, 2, 8, fg0, bg0), 0);
+        feed("\33[4 q");
+        ASSERT_TRUE(cur_stripe(last - 1, 2, 8, false, 2, fg0));
+        feed("\33[6 q");
+        ASSERT_TRUE(cur_stripe(last - 1, 2, 8, true, 2, fg0));
+        cur_done();
     }
 }
 

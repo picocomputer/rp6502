@@ -748,7 +748,7 @@ UTEST(mode0, double_size_lines_640x480)
 
 UTEST(mode0, double_size_lines_320x240)
 {
-    run_case(utest_result, "mode0_dbl320", 0x755D87BF, MUT_BUDGET_UNDER);
+    run_case(utest_result, "mode0_dbl320", 0xD860FA63, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, reverse_screen_640x480)
@@ -758,17 +758,17 @@ UTEST(mode0, reverse_screen_640x480)
 
 UTEST(mode0, reverse_screen_320x240)
 {
-    run_case(utest_result, "mode0_rev320", 0x109371F8, MUT_BUDGET_UNDER);
+    run_case(utest_result, "mode0_rev320", 0xA92A57D8, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, wrap_on_a_double_width_row_640x480)
 {
-    run_case(utest_result, "mode0_wrap640", 0x3A9DBBA2, MUT_BUDGET_UNDER);
+    run_case(utest_result, "mode0_wrap640", 0xF129ED56, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, wrap_on_a_double_width_row_320x240)
 {
-    run_case(utest_result, "mode0_wrap320", 0x119D062C, MUT_BUDGET_UNDER);
+    run_case(utest_result, "mode0_wrap320", 0x344AB6D6, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, underlines_and_colors_640x480)
@@ -778,7 +778,7 @@ UTEST(mode0, underlines_and_colors_640x480)
 
 UTEST(mode0, underlines_and_colors_320x240)
 {
-    run_case(utest_result, "mode0_lines320", 0xD86E55AB, MUT_BUDGET_UNDER);
+    run_case(utest_result, "mode0_lines320", 0x65E8241A, MUT_BUDGET_UNDER);
 }
 
 UTEST(prog, bands_switch_modes_on_one_plane_320x240)
