@@ -472,12 +472,14 @@ UTEST(pointer, a_pointer_taken_off_the_tablet_lets_go)
     fe.unload_game();
 }
 
-/* One frame of a frontend's input for the console's mouse: the pointer at
- * fx, fy of the image, the left button held or not. */
+/* Frames of a frontend's input for the console's mouse: the pointer at fx,
+ * fy of the image, the buttons held (CLICK_), for that many frames. */
+#define CLICK_LEFT 0x01
+#define CLICK_MIDDLE 0x02
 typedef struct
 {
     float fx, fy;
-    bool left;
+    uint8_t buttons;
     int frames;
 } click_step_t;
 
@@ -485,33 +487,44 @@ typedef struct
  * the clicking time, and a triple click there, with the pointer resting
  * between. */
 static const click_step_t click_steps[] = {
-    {0.12f, 0.02f, false, 2}, {0.12f, 0.02f, true, 1}, {0.12f, 0.02f, false, 1},
-    {0.12f, 0.02f, true, 1},  {0.12f, 0.02f, false, 1}, {0.12f, 0.02f, false, 30},
-    {0.12f, 0.02f, true, 1},  {0.12f, 0.02f, false, 1}, {0.12f, 0.02f, true, 1},
-    {0.12f, 0.02f, false, 1}, {0.12f, 0.02f, true, 1},  {0.12f, 0.02f, false, 5},
+    {0.12f, 0.02f, 0, 2},          {0.12f, 0.02f, CLICK_LEFT, 1}, {0.12f, 0.02f, 0, 1},
+    {0.12f, 0.02f, CLICK_LEFT, 1}, {0.12f, 0.02f, 0, 1},          {0.12f, 0.02f, 0, 30},
+    {0.12f, 0.02f, CLICK_LEFT, 1}, {0.12f, 0.02f, 0, 1},          {0.12f, 0.02f, CLICK_LEFT, 1},
+    {0.12f, 0.02f, 0, 1},          {0.12f, 0.02f, CLICK_LEFT, 1}, {0.12f, 0.02f, 0, 5},
 };
 
-/* The frames after the double click and after the triple click, each
+/* A double click on "these", a pause past the clicking time, and a click
+ * of the middle button lower down, which pastes the primary to the
+ * program, which writes it back after its words. */
+static const click_step_t paste_steps[] = {
+    {0.12f, 0.02f, 0, 2},          {0.12f, 0.02f, CLICK_LEFT, 1},   {0.12f, 0.02f, 0, 1},
+    {0.12f, 0.02f, CLICK_LEFT, 1}, {0.12f, 0.02f, 0, 1},            {0.12f, 0.02f, 0, 30},
+    {0.50f, 0.50f, 0, 1},          {0.50f, 0.50f, CLICK_MIDDLE, 1}, {0.50f, 0.50f, 0, 20},
+};
+
+/* The image after step mid and after the last step of a run of rom, each
  * frame run as runahead runs it when ahead is set: run, save, run the
- * frame shown, and load back to the first. With press clear the pointer
- * makes the same moves and presses nothing. */
-static void click_through(bool ahead, bool press, uint32_t *after_double,
-                          uint32_t *after_triple)
+ * frame shown, and load back to the first. Only the buttons in held are
+ * pressed; the pointer makes the same moves without the others. */
+static void click_through(const char *rom, const click_step_t *steps, size_t count, size_t mid,
+                          bool ahead, uint8_t held, uint32_t *at_mid, uint32_t *at_end)
 {
     static uint8_t blob[1 << 20];
     memset(fe.pointer, 0, sizeof fe.pointer);
     memset(fe.mouse, 0, sizeof fe.mouse);
     fe_close();
     fe_open();
-    if (!rom_loaded(CONSOLE_ROM))
+    if (!rom_loaded(rom))
         return;
     a_mouse_has_moved();
     const size_t n = fe.serialize_size();
-    for (size_t i = 0; i < sizeof click_steps / sizeof *click_steps; i++)
+    for (size_t i = 0; i < count; i++)
     {
-        const click_step_t *c = &click_steps[i];
+        const click_step_t *c = &steps[i];
+        const uint8_t pressed = c->buttons & held;
         finger_at(0, c->fx, c->fy, false);
-        fe.mouse[RETRO_DEVICE_ID_MOUSE_LEFT] = press && c->left;
+        fe.mouse[RETRO_DEVICE_ID_MOUSE_LEFT] = (pressed & CLICK_LEFT) != 0;
+        fe.mouse[RETRO_DEVICE_ID_MOUSE_MIDDLE] = (pressed & CLICK_MIDDLE) != 0;
         for (int f = 0; f < c->frames; f++)
         {
             fe.run();
@@ -521,14 +534,16 @@ static void click_through(bool ahead, bool press, uint32_t *after_double,
                 fe.unserialize(blob, n);
             }
         }
-        if (i == 5)
-            memcpy(after_double, fe.frame_copy, 640 * 480 * sizeof *fe.frame_copy);
+        if (i == mid)
+            memcpy(at_mid, fe.frame_copy, 640 * 480 * sizeof *fe.frame_copy);
     }
     fe.run();
-    memcpy(after_triple, fe.frame_copy, 640 * 480 * sizeof *fe.frame_copy);
+    memcpy(at_end, fe.frame_copy, 640 * 480 * sizeof *fe.frame_copy);
     memset(fe.mouse, 0, sizeof fe.mouse);
     fe.unload_game();
 }
+
+#define CLICKS(steps) steps, sizeof steps / sizeof *steps
 
 /* Runahead runs each frame twice and puts the machine back between, so a
  * double and a triple click count as they do in a straight run, and the
@@ -536,12 +551,41 @@ static void click_through(bool ahead, bool press, uint32_t *after_double,
 UTEST(pointer, runahead_counts_double_and_triple_clicks)
 {
     static uint32_t straight[2][640 * 480], ahead[2][640 * 480], none[2][640 * 480];
-    click_through(false, true, straight[0], straight[1]);
-    click_through(true, true, ahead[0], ahead[1]);
-    click_through(false, false, none[0], none[1]);
+    click_through(CONSOLE_ROM, CLICKS(click_steps), 5, false, CLICK_LEFT, straight[0], straight[1]);
+    click_through(CONSOLE_ROM, CLICKS(click_steps), 5, true, CLICK_LEFT, ahead[0], ahead[1]);
+    click_through(CONSOLE_ROM, CLICKS(click_steps), 5, false, 0, none[0], none[1]);
     ASSERT_EQ(memcmp(straight[0], ahead[0], sizeof straight[0]), 0);
     ASSERT_EQ(memcmp(straight[1], ahead[1], sizeof straight[1]), 0);
     ASSERT_NE(memcmp(straight[0], none[0], sizeof straight[0]), 0);
     ASSERT_NE(memcmp(straight[1], none[1], sizeof straight[1]), 0);
     ASSERT_NE(memcmp(straight[0], straight[1], sizeof straight[0]), 0);
+}
+
+/* Under runahead a double click selects and a paste of the primary reaches
+ * the program as in a straight run: the highlight and the text written
+ * back are the same, and the text is there only for the middle button. */
+static void paste_through(int *utest_result, const char *rom)
+{
+    static uint32_t straight[2][640 * 480], ahead[2][640 * 480], unpasted[2][640 * 480];
+    const uint8_t both = CLICK_LEFT | CLICK_MIDDLE;
+    click_through(rom, CLICKS(paste_steps), 5, false, both, straight[0], straight[1]);
+    click_through(rom, CLICKS(paste_steps), 5, true, both, ahead[0], ahead[1]);
+    click_through(rom, CLICKS(paste_steps), 5, false, CLICK_LEFT, unpasted[0], unpasted[1]);
+    ASSERT_EQ(memcmp(straight[0], ahead[0], sizeof straight[0]), 0);
+    ASSERT_EQ(memcmp(straight[1], ahead[1], sizeof straight[1]), 0);
+    ASSERT_EQ(memcmp(straight[0], unpasted[0], sizeof straight[0]), 0);
+    ASSERT_NE(memcmp(straight[1], unpasted[1], sizeof straight[1]), 0);
+}
+
+UTEST(pointer, runahead_keeps_a_paste_and_a_double_click)
+{
+    paste_through(utest_result, CONSOLE_ROM);
+}
+
+/* The same with the console slowed by DECSCS, so the words and the paste
+ * written back reach the screen across the frames runahead goes back
+ * over. */
+UTEST(pointer, runahead_keeps_a_paste_and_a_double_click_when_slowed)
+{
+    paste_through(utest_result, CONSOLE_PACED_ROM);
 }

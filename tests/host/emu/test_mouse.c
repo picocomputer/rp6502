@@ -21,6 +21,7 @@
 #include "core/hid/tablet.h"
 #include "core/hid/usage.h"
 #include "core/sys/ria.h"
+#include "core/sys/sst.h"
 #include "core/sys/sys.h"
 #include "core/sys/timer.h"
 #include "core/sys/xram.h"
@@ -1680,6 +1681,76 @@ UTEST(mouse, an_unavailable_button_leaves_the_filter_rectangle)
     at(9, 9, 0);
     ASSERT_STREQ(typed(), "\33[10;0;10;10&w");
     ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+}
+
+/* ---- save states (step 37) ---------------------------------------------- */
+
+static uint8_t blob[1 << 20];
+
+/* A save, then a machine that has lost the console's mouse, its selection,
+ * its buffers and its screen, then a load of the save. The host's
+ * clipboard, set between them, stays as the host has it. */
+static void round_trip(int *utest_result)
+{
+    ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
+    ASSERT_TRUE(host_clipboard_set("later"));
+    vterm_mouse_reset();
+    vterm_unselect();
+    clip_reset();
+    show("\33c");
+    ASSERT_FALSE(vterm_selection.shows);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_STREQ(host_clipboard_get(), "later");
+}
+
+/* A load in the middle of a drag goes on with it: the selection shows as it
+ * did, the release fills the primary, and the drag's start is kept on its
+ * text again, so a row that goes out at the top takes it to the first cell
+ * of row 0, as without the load. */
+UTEST(mouse, a_load_mid_drag_goes_on_with_it)
+{
+    start();
+    show(TEXT);
+    at(6, 0, 0);
+    at(6, 0, TABLET_FLAG_LEFT);
+    at(4, 1, TABLET_FLAG_LEFT);
+    ASSERT_TRUE(selected(6, 0, 4, 1));
+    round_trip(utest_result);
+    ASSERT_TRUE(selected(6, 0, 4, 1));
+    show("\33[30;1H\n");
+    at(11, 0, TABLET_FLAG_LEFT);
+    at(11, 0, 0);
+    ASSERT_TRUE(selected(0, 0, 11, 0));
+    ASSERT_STREQ(primary(), "second line");
+}
+
+/* A load between the clicks of a double click keeps the first, so the
+ * second selects the word. */
+UTEST(mouse, a_load_between_two_clicks_keeps_the_first)
+{
+    start();
+    show(TEXT);
+    click(8, 0);
+    round_trip(utest_result);
+    click(8, 0);
+    ASSERT_TRUE(selected(6, 0, 11, 0));
+    ASSERT_STREQ(primary(), "world");
+}
+
+/* A load keeps the selection and the primary it filled, for the middle
+ * button, and leaves the host's clipboard as the host has it. */
+UTEST(mouse, a_load_keeps_the_selection_and_the_primary)
+{
+    start();
+    show(TEXT);
+    drag(6, 0, 11, 0);
+    ASSERT_EQ(chord(HID_KEY_C, CTRL | SHIFT), HOSTKEY_CHORD);
+    drag(0, 1, 6, 1);
+    round_trip(utest_result);
+    ASSERT_TRUE(selected(0, 1, 6, 1));
+    at(30, 5, TABLET_FLAG_MIDDLE);
+    at(30, 5, 0);
+    ASSERT_STREQ(typed(), "second");
 }
 
 UTEST_MAIN();

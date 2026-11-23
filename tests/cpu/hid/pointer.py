@@ -3,9 +3,10 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-from rp6502_asm import (RW0_ADDR, RW0_DATA, RW0_STEP, RW1_ADDR, RW1_DATA,
-                        RW1_STEP, VIA_ACR, VIA_IER, VIA_IFR, VIA_T1_HI,
-                        VIA_T1_LO, VIA_T1L_HI, VIA_T1L_LO, Asm, putc)
+from rp6502_asm import (RIA_READY, RIA_RX, RW0_ADDR, RW0_DATA, RW0_STEP,
+                        RW1_ADDR, RW1_DATA, RW1_STEP, VIA_ACR, VIA_IER,
+                        VIA_IFR, VIA_T1_HI, VIA_T1_LO, VIA_T1L_HI,
+                        VIA_T1L_LO, Asm, putc)
 from rp6502_rom import main, rom, script
 
 MOUSE = 0xFF00          # buttons, x, y, wheel, pan
@@ -16,11 +17,15 @@ TICKS = 0xFF55
 MOUSE_BYTES = 5
 
 # The console program maps nothing. It says WORDS on the console's first row,
-# for the console's mouse to select, and stays on the console until a
-# frontend writes a byte other than 0 here, and then selects a canvas with no
-# mode 0.
+# for the console's mouse to select, writes back each byte it reads, so a
+# paste shows after them, and stays on the console until a frontend writes a
+# byte other than 0 here, and then selects a canvas with no mode 0.
 LEAVE = 0x0200
 WORDS = "select these words"
+
+# The paced console program first sets the console's speed to 1200 baud
+# with DECSCS, so what it says reaches the screen over several frames.
+DECSCS_1200 = "\33[;3*r"
 
 # A latch value of 65535 gives a period of about 8.2 ms at the default 8 MHz.
 T1_PERIOD = 0xFFFF
@@ -36,14 +41,19 @@ def tablet_rom():
     return p
 
 
-def console_rom():
+def console_rom(first=""):
     p = Asm()
     p.jmp_abs("main")
     p.use(putc)
     p.symbol("main")
     p.store(LEAVE, 0)
-    p.say(WORDS)
+    p.say(first + WORDS)
     p.symbol("wait")
+    p.bit_abs(RIA_READY)
+    p.bvc("idle")
+    p.lda_abs(RIA_RX)
+    p.jsr_abs("putc")
+    p.symbol("idle")
     p.lda_abs(LEAVE)
     p.beq("wait")
     p.xreg(1, 0, 0, 1)  # the 320x240 canvas
@@ -199,6 +209,7 @@ def test_tablet():
     script(TABLET_SCRIPT, rom("tablet"))
 
 
-ROMS = {"mouse": mouse_rom, "tablet": tablet_rom, "console": console_rom}
+ROMS = {"mouse": mouse_rom, "tablet": tablet_rom, "console": console_rom,
+        "console_paced": lambda: console_rom(DECSCS_1200)}
 TESTS = {"pointer": test_pointer, "tablet": test_tablet}
 main(globals())
