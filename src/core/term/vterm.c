@@ -20,6 +20,7 @@ vterm_size_t vterm_80;
 vterm_smooth_t vterm_smoothing;
 vterm_placement_t vterm_placement;
 screen_selection_t vterm_selection;
+screen_marks_t vterm_marks;
 uint16_t vterm_palette[VTERM_PALETTE];
 uint16_t vterm_specials[VTERM_SPECIALS];
 bool vterm_palette_changed;
@@ -35,6 +36,8 @@ static uint16_t vterm_code_page;
     X(SKIP, vterm_smoothing, "draw.c's CELL chunk saves it")     \
     X(SKIP, vterm_placement, "draw.c's CELL chunk saves it")     \
     X(SKIP, vterm_selection, "draw.c's CELL chunk saves it")     \
+    X(SKIP, vterm_marks, "the console's mouse keeps its own "    \
+                         "points in them, and saves those")      \
     X(SKIP, vterm_palette, "draw.c's CELL chunk saves it")       \
     X(SKIP, vterm_specials, "draw.c's CELL chunk saves it")      \
     X(SKIP, vterm_palette_changed, "draw.c follows every color " \

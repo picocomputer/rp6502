@@ -66,6 +66,26 @@ class VgaProbe(build.Probe):
         return late, overrun
 
 
+def selection(probe):
+    """The console's selection as a chip keeps it, vterm_selection
+    (src/core/term/screen.h), read through its probe: whether it shows, the
+    grid it is on with the screen's place in that grid, its ends, rows of
+    memory and columns, and the rows of memory it takes. The grid's layout is
+    the same on the RIA and the VGA, so the places compare. Only what shows
+    is compared: the ends of one dropped stay as they were."""
+    w = probe.read(probe.sym["vterm_selection"], 32, 5)
+    shows = bool(w[4] & 0xFF)
+    if not shows:
+        return {"shows": False}
+    screen = None
+    for grid in ("vterm_40", "vterm_80"):
+        if 0 <= w[2] - probe.sym[grid] < 512:
+            screen = (grid, w[2] - probe.sym[grid])
+    return {"shows": True, "screen": screen,
+            "ends": tuple((w[3] >> s) & 0xFF for s in (0, 8, 16, 24)),
+            "rows": w[0] | w[1] << 32}
+
+
 def load_summary(rows):
     """One line of the audio load from the rows of Probe.watch()."""
     if not rows:

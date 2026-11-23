@@ -80,7 +80,9 @@
  * buffer that the STD row's reopen of PCM: empties. CANVAS_DRIVER follows
  * DRAW_DRIVER and MODE0_DRIVER, because its load publishes the canvas to
  * the cells, and VGA_FABRIC_DRIVER follows it, because its load computes the
- * vsync line from the canvas.
+ * vsync line from the canvas. VTERM_MOUSE_DRIVER follows DRAW_DRIVER,
+ * because its load checks its points against the screens' rows DRAW_DRIVER
+ * loads.
  */
 #define RP6502_MACH_DRIVERS                             \
     LOG_DRIVER, CFG_DRIVER, FAB_DRIVER,                 \

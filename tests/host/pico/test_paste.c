@@ -39,13 +39,13 @@ uint64_t host_clock_us(void) { return 1; }
 static unsigned sigints;
 void ria_trigger_sigint(void) { sigints++; }
 
-/* What keymap.c asks of the keyboard, the USB host and the clock: no locks,
- * no chords and no repeat. */
+/* What keymap.c and key.c ask of the keyboard, the USB host, the programs
+ * and the clock: no locks, no program's chords and no repeat. */
 bool hid_boot_enumerating(void) { return false; }
 void hid_set_leds(uint8_t leds) { (void)leds; }
-bool key_chord(uint8_t keycode, uint8_t modifier, bool repeat)
+bool proc_key_chord(uint8_t keycode, bool ctrl, bool alt)
 {
-    (void)keycode, (void)modifier, (void)repeat;
+    (void)keycode, (void)ctrl, (void)alt;
     return false;
 }
 uint8_t keyboard_get_locks(void) { return 0; }
@@ -123,6 +123,12 @@ static void fresh(void)
 static screen_t *shown(void)
 {
     return vterm_get_shown(&vterm)->shown;
+}
+
+/* A key pressed with the modifiers of a HID report's byte. */
+static void chord(uint8_t modifier, uint8_t keycode)
+{
+    keyboard_on_press(modifier, keycode);
 }
 
 /* Letters typed on the keyboard, a press each, Ctrl held where ctrl. */
@@ -262,6 +268,35 @@ UTEST(paste, a_line_drawing_copies_as_the_code_page_s)
     clip_copy(CLIP_PRIMARY, shown(), 0, 0, 0, 3);
     clip_paste(CLIP_PRIMARY);
     ASSERT_STREQ(keyboard(), "\xDA\xC4\xBF");
+}
+
+#define CTRL KEYBOARD_MODIFIER_LEFTCTRL
+#define SHIFT KEYBOARD_MODIFIER_LEFTSHIFT
+
+/* The copy keys put the primary in the machine's clipboard and type
+ * nothing, so Ctrl-Shift-C raises no SIGINT; the paste keys paste it,
+ * bracketed under ?2004 and not without it. */
+UTEST(paste, the_copy_and_paste_keys_through_the_keymap)
+{
+    fresh();
+    say("copy me\r\n");
+    clip_copy(CLIP_PRIMARY, shown(), 0, 0, 0, 7);
+    chord(CTRL | SHIFT, HID_KEY_C);
+    ASSERT_EQ(sigints, 0u);
+    ASSERT_STREQ(keyboard(), "");
+    chord(CTRL | SHIFT, HID_KEY_V);
+    ASSERT_STREQ(keyboard(), "copy me");
+    say("\33[?2004h");
+    chord(SHIFT, HID_KEY_INSERT);
+    ASSERT_STREQ(keyboard(), "\33[200~copy me\33[201~");
+    clip_copy(CLIP_PRIMARY, shown(), 0, 0, 0, 4);
+    chord(CTRL, HID_KEY_INSERT);
+    chord(SHIFT, HID_KEY_INSERT);
+    ASSERT_STREQ(keyboard(), "\33[200~copy\33[201~");
+    say("\33[?2004l");
+    press("c", true);
+    ASSERT_EQ(sigints, 1u);
+    ASSERT_STREQ(keyboard(), "\3");
 }
 
 UTEST_MAIN();

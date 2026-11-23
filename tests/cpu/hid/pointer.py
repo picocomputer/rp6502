@@ -5,7 +5,7 @@
 
 from rp6502_asm import (RW0_ADDR, RW0_DATA, RW0_STEP, RW1_ADDR, RW1_DATA,
                         RW1_STEP, VIA_ACR, VIA_IER, VIA_IFR, VIA_T1_HI,
-                        VIA_T1_LO, VIA_T1L_HI, VIA_T1L_LO, Asm)
+                        VIA_T1_LO, VIA_T1L_HI, VIA_T1L_LO, Asm, putc)
 from rp6502_rom import main, rom, script
 
 MOUSE = 0xFF00          # buttons, x, y, wheel, pan
@@ -15,9 +15,12 @@ TICKS = 0xFF55
 
 MOUSE_BYTES = 5
 
-# The console program maps nothing. It stays on the console until a frontend
-# writes a byte other than 0 here, and then selects a canvas with no mode 0.
+# The console program maps nothing. It says WORDS on the console's first row,
+# for the console's mouse to select, and stays on the console until a
+# frontend writes a byte other than 0 here, and then selects a canvas with no
+# mode 0.
 LEAVE = 0x0200
+WORDS = "select these words"
 
 # A latch value of 65535 gives a period of about 8.2 ms at the default 8 MHz.
 T1_PERIOD = 0xFFFF
@@ -35,7 +38,11 @@ def tablet_rom():
 
 def console_rom():
     p = Asm()
+    p.jmp_abs("main")
+    p.use(putc)
+    p.symbol("main")
     p.store(LEAVE, 0)
+    p.say(WORDS)
     p.symbol("wait")
     p.lda_abs(LEAVE)
     p.beq("wait")

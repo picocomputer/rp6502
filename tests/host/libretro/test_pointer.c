@@ -471,3 +471,77 @@ UTEST(pointer, a_pointer_taken_off_the_tablet_lets_go)
     memset(fe.mouse, 0, sizeof fe.mouse);
     fe.unload_game();
 }
+
+/* One frame of a frontend's input for the console's mouse: the pointer at
+ * fx, fy of the image, the left button held or not. */
+typedef struct
+{
+    float fx, fy;
+    bool left;
+    int frames;
+} click_step_t;
+
+/* A double click on "these" of the console program's words, a pause past
+ * the clicking time, and a triple click there, with the pointer resting
+ * between. */
+static const click_step_t click_steps[] = {
+    {0.12f, 0.02f, false, 2}, {0.12f, 0.02f, true, 1}, {0.12f, 0.02f, false, 1},
+    {0.12f, 0.02f, true, 1},  {0.12f, 0.02f, false, 1}, {0.12f, 0.02f, false, 30},
+    {0.12f, 0.02f, true, 1},  {0.12f, 0.02f, false, 1}, {0.12f, 0.02f, true, 1},
+    {0.12f, 0.02f, false, 1}, {0.12f, 0.02f, true, 1},  {0.12f, 0.02f, false, 5},
+};
+
+/* The frames after the double click and after the triple click, each
+ * frame run as runahead runs it when ahead is set: run, save, run the
+ * frame shown, and load back to the first. With press clear the pointer
+ * makes the same moves and presses nothing. */
+static void click_through(bool ahead, bool press, uint32_t *after_double,
+                          uint32_t *after_triple)
+{
+    static uint8_t blob[1 << 20];
+    memset(fe.pointer, 0, sizeof fe.pointer);
+    memset(fe.mouse, 0, sizeof fe.mouse);
+    fe_close();
+    fe_open();
+    if (!rom_loaded(CONSOLE_ROM))
+        return;
+    a_mouse_has_moved();
+    const size_t n = fe.serialize_size();
+    for (size_t i = 0; i < sizeof click_steps / sizeof *click_steps; i++)
+    {
+        const click_step_t *c = &click_steps[i];
+        finger_at(0, c->fx, c->fy, false);
+        fe.mouse[RETRO_DEVICE_ID_MOUSE_LEFT] = press && c->left;
+        for (int f = 0; f < c->frames; f++)
+        {
+            fe.run();
+            if (ahead && n <= sizeof blob && fe.serialize(blob, n))
+            {
+                fe.run();
+                fe.unserialize(blob, n);
+            }
+        }
+        if (i == 5)
+            memcpy(after_double, fe.frame_copy, 640 * 480 * sizeof *fe.frame_copy);
+    }
+    fe.run();
+    memcpy(after_triple, fe.frame_copy, 640 * 480 * sizeof *fe.frame_copy);
+    memset(fe.mouse, 0, sizeof fe.mouse);
+    fe.unload_game();
+}
+
+/* Runahead runs each frame twice and puts the machine back between, so a
+ * double and a triple click count as they do in a straight run, and the
+ * highlight each makes is the same. */
+UTEST(pointer, runahead_counts_double_and_triple_clicks)
+{
+    static uint32_t straight[2][640 * 480], ahead[2][640 * 480], none[2][640 * 480];
+    click_through(false, true, straight[0], straight[1]);
+    click_through(true, true, ahead[0], ahead[1]);
+    click_through(false, false, none[0], none[1]);
+    ASSERT_EQ(memcmp(straight[0], ahead[0], sizeof straight[0]), 0);
+    ASSERT_EQ(memcmp(straight[1], ahead[1], sizeof straight[1]), 0);
+    ASSERT_NE(memcmp(straight[0], none[0], sizeof straight[0]), 0);
+    ASSERT_NE(memcmp(straight[1], none[1], sizeof straight[1]), 0);
+    ASSERT_NE(memcmp(straight[0], straight[1], sizeof straight[0]), 0);
+}

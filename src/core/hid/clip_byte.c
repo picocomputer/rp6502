@@ -12,6 +12,7 @@
 #include "core/hid/paste.h"
 #include "core/sys/sst.h"
 #include "core/term/cell.h"
+#include "machine.h"
 #include <string.h>
 
 static uint8_t clip_buf[CLIP_COUNT * CLIP_SIZE];
@@ -67,7 +68,17 @@ void clip_copy(uint8_t which, screen_t *s, uint8_t y0, uint8_t x0, uint8_t y1, u
     screen_copy(s, y0, x0, y1, x1, &k.sink);
 }
 
-void clip_paste(uint8_t which)
+void HOST_IN_FLASH_FUNC clip_copy_primary(void)
+{
+    if (!clip_len[CLIP_PRIMARY])
+        return;
+    paste_clip_changed(CLIP_CLIPBOARD);
+    memcpy(&clip_buf[CLIP_CLIPBOARD * CLIP_SIZE], &clip_buf[CLIP_PRIMARY * CLIP_SIZE],
+           clip_len[CLIP_PRIMARY]);
+    clip_len[CLIP_CLIPBOARD] = clip_len[CLIP_PRIMARY];
+}
+
+void HOST_IN_FLASH_FUNC clip_paste(uint8_t which)
 {
     paste_clip(which);
 }

@@ -275,6 +275,23 @@ const uint32_t *mut_frame(int w, int h)
     return mut_fb;
 }
 
+/* The Pocket's bench drives no pointer yet: its mode 0 draws no selection
+ * until the FPGA follows the C side at the end of the branch, so the cases
+ * that need one skip. */
+bool mut_has_pointer(void)
+{
+    return false;
+}
+
+void mut_pointer(int x, int y, uint8_t buttons, int w, int h)
+{
+    (void)x, (void)y, (void)buttons, (void)w, (void)h;
+}
+
+void mut_pointer_gone(void)
+{
+}
+
 mut_budget_t mut_measure(const char *name)
 {
     budget_t b;

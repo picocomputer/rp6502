@@ -9,6 +9,7 @@
 #include "mut.h"
 
 #include "core/com/manifold.h"
+#include "core/hid/tablet.h"
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/vga/vga_emu.h"
@@ -75,6 +76,25 @@ const uint32_t *mut_frame(int w, int h)
     (void)h;
     emu_frames(1);
     return mut_fb;
+}
+
+bool mut_has_pointer(void)
+{
+    return true;
+}
+
+/* The host draws its own cursor, as the emulator's window does, so no
+ * pointer is drawn into the frame. */
+void mut_pointer(int x, int y, uint8_t buttons, int w, int h)
+{
+    (void)w;
+    (void)h;
+    tablet_host_pointer(x, y, buttons, true);
+}
+
+void mut_pointer_gone(void)
+{
+    tablet_host_clear();
 }
 
 mut_budget_t mut_measure(const char *name)

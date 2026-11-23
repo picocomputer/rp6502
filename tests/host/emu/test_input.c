@@ -8,6 +8,10 @@
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/gfx.h"
 #include "core/com/com.h"
+#include "core/com/manifold.h"
+#include "core/hid/clip.h"
+#include "core/hid/paste.h"
+#include "host/host.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/term/vterm.h"
@@ -210,6 +214,148 @@ UTEST(input, keypad_chords)
     key(SAPP_KEYCODE_KP_8, SAPP_MODIFIER_ALT, 0);
     key(SAPP_KEYCODE_KP_MULTIPLY, SAPP_MODIFIER_CTRL, 0);
     ASSERT_STREQ(typed(), "\33[1;5E\33[1;3A*");
+}
+
+/* What the keys since the last call typed and pasted, the paste staged as
+ * the main loop stages it. */
+static const char *pasted(void)
+{
+    static char buf[64];
+    size_t n = 0;
+    for (int i = 0; i < 1000 && n < sizeof buf - 1; i++)
+    {
+        paste_task();
+        const size_t got = com_read(COM_SOURCE_KEYBOARD, buf + n, sizeof buf - 1 - n);
+        n += got;
+        if (!got && !paste_busy())
+            break;
+    }
+    buf[n] = 0;
+    return buf;
+}
+
+/* The paste sokol makes of Ctrl+V on X11 and Windows, and of Cmd+V on
+ * macOS, after the key went down. */
+static void sokol_pasted(void)
+{
+    sapp_event e = {.type = SAPP_EVENTTYPE_CLIPBOARD_PASTED};
+    input_event(&e);
+}
+
+/* Plain Ctrl+V is the program's 0x16, and the paste sokol makes of it is
+ * no paste. */
+UTEST(input, ctrl_v_types_syn)
+{
+    start(0);
+    ASSERT_TRUE(host_clipboard_set("text"));
+    key(SAPP_KEYCODE_V, SAPP_MODIFIER_CTRL, 0);
+    sokol_pasted();
+    ASSERT_STREQ(pasted(), "\x16");
+}
+
+/* The paste keys paste the clipboard as they go down; Cmd+V's paste from
+ * sokol after it pastes nothing more. */
+UTEST(input, the_paste_keys_paste_the_clipboard)
+{
+    start(0);
+    ASSERT_TRUE(host_clipboard_set("text"));
+    key(SAPP_KEYCODE_V, SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT, 0);
+    ASSERT_STREQ(pasted(), "text");
+    key(SAPP_KEYCODE_INSERT, SAPP_MODIFIER_SHIFT, 0);
+    ASSERT_STREQ(pasted(), "text");
+    sapp_event e = {.type = SAPP_EVENTTYPE_KEY_DOWN, .key_code = SAPP_KEYCODE_V,
+                    .modifiers = SAPP_MODIFIER_SUPER};
+    input_event(&e);
+    e.type = SAPP_EVENTTYPE_CHAR;
+    e.char_code = 'v';
+    input_event(&e);
+    sokol_pasted();
+    e.type = SAPP_EVENTTYPE_KEY_UP;
+    input_event(&e);
+    ASSERT_STREQ(pasted(), "text");
+}
+
+/* A key down as the web player sees it, a repeat or not. */
+static sapp_event key_down(sapp_keycode code, uint32_t modifiers, bool repeat)
+{
+    return (sapp_event){.type = SAPP_EVENTTYPE_KEY_DOWN, .key_code = code,
+                        .modifiers = modifiers, .key_repeat = repeat};
+}
+
+/* The web player leaves a paste key's press to the browser, which makes the
+ * paste event that pastes, and cancels what must make none: plain Ctrl+V,
+ * which types 0x16, and a held paste key's repeat, which acts once. */
+UTEST(input, the_web_player_lets_a_paste_key_paste_once)
+{
+    static const struct
+    {
+        sapp_keycode code;
+        uint32_t modifiers;
+    } paste_keys[] = {
+        {SAPP_KEYCODE_V, SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT},
+        {SAPP_KEYCODE_INSERT, SAPP_MODIFIER_SHIFT},
+        {SAPP_KEYCODE_V, SAPP_MODIFIER_SUPER},
+    };
+    for (size_t i = 0; i < sizeof paste_keys / sizeof *paste_keys; i++)
+    {
+        sapp_event e = key_down(paste_keys[i].code, paste_keys[i].modifiers, false);
+        ASSERT_TRUE(input_paste_key(&e));
+        ASSERT_FALSE(input_key_withheld(&e));
+        e = key_down(paste_keys[i].code, paste_keys[i].modifiers, true);
+        ASSERT_FALSE(input_paste_key(&e));
+        ASSERT_TRUE(input_key_withheld(&e));
+    }
+    for (int repeat = 0; repeat < 2; repeat++)
+    {
+        sapp_event e = key_down(SAPP_KEYCODE_V, SAPP_MODIFIER_CTRL, repeat);
+        ASSERT_FALSE(input_paste_key(&e));
+        ASSERT_TRUE(input_key_withheld(&e));
+        e = key_down(SAPP_KEYCODE_V, 0, repeat);
+        ASSERT_FALSE(input_paste_key(&e));
+        ASSERT_FALSE(input_key_withheld(&e));
+    }
+    const struct
+    {
+        sapp_keycode code;
+        uint32_t modifiers;
+    } copy_keys[] = {
+        {SAPP_KEYCODE_C, SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT},
+        {SAPP_KEYCODE_INSERT, SAPP_MODIFIER_CTRL},
+        {SAPP_KEYCODE_C, SAPP_MODIFIER_SUPER},
+    };
+    for (size_t i = 0; i < sizeof copy_keys / sizeof *copy_keys; i++)
+        for (int repeat = 0; repeat < 2; repeat++)
+        {
+            sapp_event e = key_down(copy_keys[i].code, copy_keys[i].modifiers, repeat);
+            ASSERT_FALSE(input_paste_key(&e));
+            ASSERT_TRUE(input_key_withheld(&e));
+        }
+    sapp_event c = key_down(SAPP_KEYCODE_C, SAPP_MODIFIER_CTRL, false);
+    ASSERT_FALSE(input_key_withheld(&c));
+    sapp_event e = {.type = SAPP_EVENTTYPE_CLIPBOARD_PASTED};
+    ASSERT_FALSE(input_paste_key(&e));
+    ASSERT_FALSE(input_key_withheld(&e));
+}
+
+/* The copy keys put the primary in the clipboard, and type nothing. */
+UTEST(input, the_copy_keys_set_the_clipboard)
+{
+    sys_init();
+    manifold_set_paced(false);
+    start(0);
+    const char *show = "\33[H\33[2Jcopied\r\n";
+    manifold_write_to(COM_TERM_SCREEN, show, strlen(show));
+    clip_copy(CLIP_PRIMARY, vterm_get_shown(&vterm)->shown, 0, 0, 0, 6);
+    ASSERT_TRUE(host_clipboard_set(""));
+    key(SAPP_KEYCODE_C, SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT, 0);
+    ASSERT_STREQ(host_clipboard_get(), "copied");
+    ASSERT_TRUE(host_clipboard_set(""));
+    key(SAPP_KEYCODE_INSERT, SAPP_MODIFIER_CTRL, 0);
+    ASSERT_STREQ(host_clipboard_get(), "copied");
+    ASSERT_TRUE(host_clipboard_set(""));
+    key(SAPP_KEYCODE_C, SAPP_MODIFIER_SUPER, 'c');
+    ASSERT_STREQ(host_clipboard_get(), "copied");
+    ASSERT_STREQ(pasted(), "");
 }
 
 static void pointer_to(float x, float y)

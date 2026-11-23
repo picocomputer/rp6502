@@ -58,7 +58,10 @@
 
 /* VGA comes before BUS because vga_task advances the beam one scanline and
  * bus_task then runs the 6502 up to it. DRAW comes before VGA because
- * vga_init programs the console canvas, which sets the terminal's height. */
+ * vga_init programs the console canvas, which sets the terminal's height.
+ * DRAW comes before VTERM_MOUSE because a savestate walks the list in
+ * order, and the mouse's load checks its points against the screens' rows
+ * DRAW's load lays out. */
 #define RP6502_MACH_DRIVERS                                    \
     RIA_DRIVER, REGS_DRIVER, SRAM_DRIVER, XRAM_DRIVER,         \
     ARG_DRIVER, PROC_CHAIN_DRIVER, PROC_DRIVER, STR_DRIVER,    \

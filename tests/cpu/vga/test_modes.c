@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/hid/tablet.h"
 #include "corpus.h"
 #include "host/host.h"
 #include "mut.h"
@@ -704,6 +705,40 @@ UTEST(mode0, defaults_640x400)
 UTEST(mode0, console_return_restores_vsync_line)
 {
     run_case(utest_result, "mode0_return", 0x4D27B447, MUT_BUDGET_NONE);
+}
+
+/* The pointer over column x of row y of the 80-column console, a frame. */
+static void console_pointer(int x, int y, uint8_t buttons)
+{
+    mut_pointer(x * 8 + 3, y * 16 + 7, buttons, 640, 480);
+    mut_frame(640, 480);
+}
+
+/* A selection made with the mouse, a drag with the left button over the
+ * console's text, which mode 0 draws reversed. The pointer then leaves, so
+ * none of it is drawn. */
+UTEST(mode0, a_selection_dragged_over_the_console_640x480)
+{
+    if (!mut_has_pointer())
+        UTEST_SKIP("the bench drives no pointer");
+    const char *name = "mode0_return";
+    char path[256];
+    snprintf(path, sizeof(path), "%s/%s.rp6502", ROMS_DIR, name);
+    ASSERT_TRUE(mut_boot(path));
+    ASSERT_TRUE(settle(settled, 640, 480));
+    const uint32_t plain = host_crc32(0, settled, 640 * 480 * sizeof(uint32_t));
+    console_pointer(2, 1, 0);
+    console_pointer(2, 1, TABLET_FLAG_LEFT);
+    console_pointer(20, 3, TABLET_FLAG_LEFT);
+    console_pointer(20, 3, 0);
+    mut_pointer_gone();
+    ASSERT_TRUE(settle(settled, 640, 480));
+    uint32_t got = host_crc32(0, settled, 640 * 480 * sizeof(uint32_t));
+    ASSERT_NE(got, plain);
+    if (getenv("RP6502_BLESS_CRC"))
+        printf("    0x%08X,  /* %s selected */\n", got, name);
+    else
+        ASSERT_EQ(got, 0x0ADB5B0Du);
 }
 
 UTEST(mode0, double_size_lines_640x480)

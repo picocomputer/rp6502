@@ -209,6 +209,43 @@ def test_sizes(r):
         raise Fail("; ".join(bad))
 
 
+def test_select(r):
+    """A selection made with the mouse on the console shows on the VGA as
+    the RIA keeps it, at its place in the console's stream: as made, after
+    output that scrolls it, and after output that scrolls it away. Needs
+    --elf and --vga-elf, and someone at the mouse of the machine."""
+    if not r.probe or not r.vga:
+        raise Fail("needs --elf and --vga-elf")
+    b = r.board
+    with r.probe, r.vga:
+
+        def same(when):
+            time.sleep(0.5)
+            ria, vga = rig.selection(r.probe), rig.selection(r.vga)
+            print(f"{when}: {'shows' if ria['shows'] else 'none'}", flush=True)
+            if ria != vga:
+                raise Fail(f"{when}: the RIA has {ria}, the VGA {vga}")
+            return ria
+
+        b.command("STATUS")
+        print("Drag across the text on the console with the mouse.", flush=True)
+        end, last, still = time.monotonic() + 60, None, 0
+        while still < 4:
+            if time.monotonic() > end:
+                raise Fail("no selection made in 60 s")
+            now = rig.selection(r.probe)
+            still = still + 1 if now["shows"] and now == last else 0
+            last = now
+            time.sleep(0.25)
+        same("as made")
+        b.command("STATUS")
+        same("scrolled")
+        for _ in range(8):
+            b.command("STATUS")
+        if same("scrolled away")["shows"]:
+            raise Fail("the selection outlived its rows")
+
+
 def test_audio(r):
     """The audio load of every sound engine at once with the bus busy, read
     through the probe. Needs --elf."""

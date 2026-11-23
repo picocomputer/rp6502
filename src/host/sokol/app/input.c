@@ -13,8 +13,8 @@
 #include "core/hid/usage.h"
 #include "core/hid/vtkey.h"
 #include "core/hid/hostkey.h"
+#include "core/hid/key.h"
 #include "core/hid/clip.h"
-#include "core/hid/paste_host.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/vga/vga_emu.h"
@@ -111,6 +111,38 @@ static uint8_t sokol_to_hid(int kc)
 #define ALTGR_IS_CTRL_ALT 0
 #endif
 
+/* Sokol says which modifiers are held but not which side, so the left one
+ * stands for both. */
+static uint8_t input_modifier(const sapp_event *e)
+{
+    return (uint8_t)(((e->modifiers & SAPP_MODIFIER_SHIFT) ? KEYBOARD_MODIFIER_LEFTSHIFT : 0) |
+                     ((e->modifiers & SAPP_MODIFIER_ALT) ? KEYBOARD_MODIFIER_LEFTALT : 0) |
+                     ((e->modifiers & SAPP_MODIFIER_CTRL) ? KEYBOARD_MODIFIER_LEFTCTRL : 0) |
+                     ((e->modifiers & SAPP_MODIFIER_SUPER) ? KEYBOARD_MODIFIER_LEFTGUI : 0));
+}
+
+static bool input_is_paste_key(const sapp_event *e)
+{
+    return e->type == SAPP_EVENTTYPE_KEY_DOWN &&
+           key_clip(sokol_to_hid(e->key_code), input_modifier(e)) == KEY_CLIP_PASTE;
+}
+
+bool input_paste_key(const sapp_event *e)
+{
+    return input_is_paste_key(e) && !e->key_repeat;
+}
+
+bool input_key_withheld(const sapp_event *e)
+{
+    if (input_is_paste_key(e))
+        return e->key_repeat;
+    if (e->type == SAPP_EVENTTYPE_KEY_DOWN &&
+        key_clip(sokol_to_hid(e->key_code), input_modifier(e)) == KEY_CLIP_COPY)
+        return true;
+    return e->type == SAPP_EVENTTYPE_KEY_DOWN && sokol_to_hid(e->key_code) == HID_KEY_V &&
+           input_modifier(e) == KEYBOARD_MODIFIER_LEFTCTRL;
+}
+
 void input_locks(void)
 {
     keyboard_set_locks(host_locks());
@@ -152,46 +184,24 @@ static void input_key(const sapp_event *e)
     case SAPP_EVENTTYPE_KEY_DOWN:
     {
         bool ctrl = (e->modifiers & SAPP_MODIFIER_CTRL) != 0;
-        bool shift = (e->modifiers & SAPP_MODIFIER_SHIFT) != 0;
         bool alt = (e->modifiers & SAPP_MODIFIER_ALT) != 0;
         uint8_t hid = sokol_to_hid(e->key_code);
+        uint8_t modifier = input_modifier(e);
         suppress_char = false;
         /* The system gives no text for a Ctrl or Alt chord, so its
          * character is guessed. Any other key's text arrives through the
-         * CHAR case above. */
-        bool guess = false;
-        if (ctrl && !alt)
-        {
-            guess = true;
-#if defined(__EMSCRIPTEN__)
-            /* The browser, not sokol, decides when a paste fires, and any
-             * Ctrl+V variant can land a JavaScript paste event, so every
-             * Ctrl+V chord types the pasted text instead of 0x16. */
-            if (e->key_code == SAPP_KEYCODE_V &&
-                sapp_query_desc().enable_clipboard)
-                guess = false;
-#elif !defined(__APPLE__)
-            /* Sokol sends CLIPBOARD_PASTED when the modifiers are exactly
-             * Ctrl and the key is V, so that one chord types the pasted text
-             * instead of 0x16. Shifted variants never paste and still inject
-             * 0x16, and macOS pastes on Cmd+V, which leaves its Ctrl+V a
-             * guest SYN. */
-            if (e->key_code == SAPP_KEYCODE_V &&
-                e->modifiers == SAPP_MODIFIER_CTRL &&
-                sapp_query_desc().enable_clipboard)
-                guess = false;
-#endif
-        }
-        /* Ctrl+Alt is excluded only where it means AltGr, whose composed
+         * CHAR case above. Plain Ctrl+V is the program's, and types 0x16 as
+         * Ctrl+C types 0x03: the paste keys are others (core/hid/key.h).
+         * Ctrl+Alt is excluded only where it means AltGr, whose composed
          * character arrives through the CHAR case above. */
-        else if (alt && !(ALTGR_IS_CTRL_ALT && ctrl))
-            guess = true;
-        /* Sokol says which modifiers are held but not which side, so the left
-         * one stands for both. */
-        uint8_t modifier = (uint8_t)(
-            (shift ? KEYBOARD_MODIFIER_LEFTSHIFT : 0) | (alt ? KEYBOARD_MODIFIER_LEFTALT : 0) |
-            (ctrl ? KEYBOARD_MODIFIER_LEFTCTRL : 0) |
-            ((e->modifiers & SAPP_MODIFIER_SUPER) ? KEYBOARD_MODIFIER_LEFTGUI : 0));
+        const bool guess = (ctrl && !alt) || (alt && !(ALTGR_IS_CTRL_ALT && ctrl));
+#if defined(__EMSCRIPTEN__)
+        /* A page reads the clipboard only in the paste event that a paste
+         * key makes, so a paste key is left to the browser (entry.c), and
+         * the paste event that follows pastes. */
+        if (key_clip(hid, modifier) == KEY_CLIP_PASTE)
+            break;
+#endif
         hostkey_result_t result = hostkey_press(hid, modifier, e->key_repeat, guess);
         if (result == HOSTKEY_CHORD)
             input_chord_held = true;
@@ -433,15 +443,17 @@ void input_event(const sapp_event *e)
         break;
     case SAPP_EVENTTYPE_CLIPBOARD_PASTED:
 #if defined(__EMSCRIPTEN__)
-        /* The page's paste event has handed its text over, and it is
-         * typed as a paste. The page gives the machine no clipboard
-         * (entry.c): this text is not one, and sokol keeps it until the
-         * next paste event, which cuts this paste short as it starts. */
-        paste_start(sapp_get_clipboard_string());
-#else
-        /* The paste key: the clipboard is pasted, the desktop's. */
+        /* The page's paste event, which a paste key left to the browser
+         * made, or the browser's own menu: the clipboard, which is the
+         * text the event handed over (entry.c), is pasted. sokol keeps
+         * that text until the next paste event, which cuts this paste
+         * short as it starts. Plain Ctrl+V, which typed 0x16, makes none
+         * (input_key_withheld). */
         clip_paste(CLIP_CLIPBOARD);
 #endif
+        /* On the desktop the paste keys have pasted already as they went
+         * down (core/hid/key.h), reading the desktop's clipboard there, so
+         * the paste sokol makes of Ctrl+V or Cmd+V is no paste. */
         break;
     case SAPP_EVENTTYPE_QUIT_REQUESTED:
         if (input_chord_held)

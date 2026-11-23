@@ -172,6 +172,21 @@ scanlines are what it finds.
 
     python3 tests/hil/pico/hil.py -d 192.168.1.93 -k key --video /dev/video0 termload
 
+## select
+
+The selection the console's mouse makes is the RIA's, which sends it to the
+VGA in two words of PIX once a frame, in order with the console's bytes. The
+test reads the selection of both chips through their probes, so it needs
+`--elf` and `--vga-elf`, and someone at the machine: it asks for a drag
+across the text on the console with a USB mouse on the RIA, and waits a
+minute for one. Then the RIA and the VGA must hold the same selection, as
+made, after monitor output that scrolls it, and after output that scrolls
+its rows away, which drops it on both.
+
+    python3 tests/hil/pico/hil.py -d 192.168.1.93 -k key \
+        --elf build/ria-w/rp6502-ria-w.elf --probe RIA_SERIAL \
+        --vga-elf build/vga/rp6502-vga.elf --vga-probe VGA_SERIAL select
+
 ## Cautions
 
 - A restart of the RIA while a ROM streams from a USB drive can hang the

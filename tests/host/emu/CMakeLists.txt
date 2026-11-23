@@ -180,6 +180,8 @@ rp6502_add_test(ring SOURCES test_ring.c ${RP6502_SRC}/core/sys/ring.c
 
 rp6502_add_test(com LIBS emu_core)
 
+rp6502_add_test(mouse LIBS emu_core)
+
 rp6502_add_test(rln LIBS emu_core)
 
 rp6502_add_test(tio SOURCES test_tio.c ${RP6502_SRC}/core/com/tio.c

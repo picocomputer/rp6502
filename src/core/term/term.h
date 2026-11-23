@@ -69,6 +69,13 @@
 #define TERM_JOB_ROWS 0
 #endif
 
+/* TERM_MARKS: the store keeps the marks of the console's mouse (screen.h)
+ * in step. 0 for a machine with no mouse on its console, whose store then
+ * has none to keep. */
+#ifndef TERM_MARKS
+#define TERM_MARKS 1
+#endif
+
 /* A smooth scroll moves a row in this many frames: one scanline a frame on
  * the 16-scanline rows, one every second frame on the 8-scanline rows of
  * the 40-column terminal, so both move a line in the same time. */

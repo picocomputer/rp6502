@@ -127,6 +127,40 @@ static inline void screen_selection_drop(void)
 // on change: it drops when it takes one of them.
 void screen_selection_touch(uint8_t m, unsigned from, unsigned to);
 
+/* ---- the marks ----------------------------------------------------------
+ *
+ * The points the console's mouse holds on a screen's rows while it selects
+ * (vterm_mouse.c), kept in step by the store because the store is what
+ * moves rows, as it judges the selection. A mark is a row of memory and a
+ * column of that row's own, so a move of rows that keeps its row keeps it
+ * on its text. Every mark is on a row of the height, always: a row that
+ * leaves the rows of the height takes its marks to the edge it left by,
+ * as xterm's ScrollSelection holds its points there. A mark going out of
+ * the top, or of a scrolling region's top, goes to the first cell of the
+ * row that is there after the move; one going out of the bottom, or of a
+ * region's bottom, goes one past the last cell of the row that is there.
+ * A clear of the ring keeps each mark on its row of the screen. The marks
+ * are on a screen with cells, or on none. */
+typedef struct
+{
+    uint8_t row, col;
+} screen_mark_t;
+
+typedef struct
+{
+    const screen_t *screen; // the screen they are on, or NULL for none
+    screen_mark_t *at;      // the owner's
+    uint8_t n;              // how many, no more than 8
+} screen_marks_t;
+extern screen_marks_t vterm_marks;
+
+// Whether the marks are on s: the first test of every move of the marks,
+// never on a machine with none (TERM_MARKS).
+static inline bool screen_marks_on(const screen_t *s)
+{
+    return TERM_MARKS && s == vterm_marks.screen;
+}
+
 // The line attributes of a row: bits 0-1 its size, TERM_LINE_, and bit 2
 // TERM_LINE_WRAPPED.
 #define SCREEN_LINE_SIZE 3u

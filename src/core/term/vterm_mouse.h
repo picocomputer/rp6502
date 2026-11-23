@@ -24,9 +24,24 @@
  *   contact that has gone, a pointer that left or a finger lifted, goes
  *   nowhere.
  *
- * tablet_on_contact only queues what changed, with the share bit as it was
- * then, from RAM: every press and release is kept, and motion between them
- * is merged. vterm_mouse_task takes the queue and decides who acts. */
+ * tablet_on_contact only queues what changed, with the share bit and the
+ * keyboard's modifiers as they were then, from RAM: every press and release
+ * is kept, and motion between them is merged. vterm_mouse_task takes the
+ * queue, decides who acts, and acts for the terminal, as xterm does:
+ *
+ * - the left button selects: a drag selects characters, a double click
+ *   words and a triple click lines, and a drag after them goes by words or
+ *   by lines. A click with no drag selects nothing, which ends the
+ *   selection. The selection is on the screen showing, of the grid
+ *   showing, and selecting there moves it there (vterm_select);
+ * - the right button, and Shift with the left, extend the selection from
+ *   its nearer end, in the unit it was made in;
+ * - the release that ends a drag fills the primary (clip.h) with what is
+ *   selected;
+ * - the middle button pastes the primary as it comes up.
+ *
+ * Clicks are counted on the machine's clock (timer.h), and the gesture is
+ * saved with the machine, so a load and runahead count them alike. */
 
 #include "core/sys/ring.h"
 #include "core/sys/sst.h"
@@ -36,13 +51,14 @@
 /* A change of contact 0, as the task takes it. */
 typedef struct
 {
-    int16_t x, y;  // canvas pixels, where it is after the change
-    uint8_t flags; // its TABLET_FLAG_ after the change
-    int8_t wheel;  // what the wheel moved by, with any merged into it
-    int8_t pan;    // the same for sideways scrolling
-    bool edge;     // a button or hover went up or down: nothing merges into it
-    bool moved;    // the user moved it
-    bool shared;   // the program shared the tablet (tablet_shared) as it came
+    int16_t x, y;     // canvas pixels, where it is after the change
+    uint8_t flags;    // its TABLET_FLAG_ after the change
+    uint8_t modifier; // the keyboard's KEYBOARD_MODIFIER_ as it came
+    int8_t wheel;     // what the wheel moved by, with any merged into it
+    int8_t pan;       // the same for sideways scrolling
+    bool edge;        // a button or hover went up or down: nothing merges into it
+    bool moved;       // the user moved it
+    bool shared;      // the program shared the tablet (tablet_shared) as it came
 } vterm_mouse_event_t;
 
 /* The changes the task has yet to take. A change with no edge merges into

@@ -42,6 +42,12 @@ enum
  * here. */
 void clip_copy(uint8_t which, screen_t *s, uint8_t y0, uint8_t x0, uint8_t y1, uint8_t x1);
 
+/* The copy keys: the primary goes to the clipboard, as UTF-8 to the host's
+ * where it has one. The primary has no cut, so it keeps its text. A paste
+ * from the clipboard ends here. An empty primary copies nothing, and the
+ * clipboard keeps what it held. */
+void clip_copy_primary(void);
+
 /* Buffer which is pasted (paste.h), the host's clipboard where it has one. */
 void clip_paste(uint8_t which);
 

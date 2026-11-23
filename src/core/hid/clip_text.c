@@ -16,6 +16,7 @@
 #include "core/sys/sst.h"
 #include "core/term/cell.h"
 #include "host/host.h"
+#include "machine.h"
 #include <string.h>
 
 #define CLIP_LINE 0x8000u
@@ -92,6 +93,15 @@ static void clip_utf8_line(screen_sink_t *k)
         clip_utf8[u->len++] = '\n';
 }
 
+#define CLIP_UTF8_SINK {{clip_utf8_text, clip_utf8_line}, 0}
+
+/* What the sink took goes to the host's clipboard: false when it has none. */
+static bool clip_utf8_send(const clip_utf8_sink_t *u)
+{
+    clip_utf8[u->len] = 0;
+    return clip_host_set(clip_utf8);
+}
+
 const char *clip_host_get(void)
 {
     paste_host_clipboard_changed();
@@ -110,10 +120,9 @@ void clip_copy(uint8_t which, screen_t *s, uint8_t y0, uint8_t x0, uint8_t y1, u
     paste_clip_changed(which);
     if (which == CLIP_CLIPBOARD)
     {
-        clip_utf8_sink_t u = {{clip_utf8_text, clip_utf8_line}, 0};
+        clip_utf8_sink_t u = CLIP_UTF8_SINK;
         screen_copy(s, y0, x0, y1, x1, &u.sink);
-        clip_utf8[u.len] = 0;
-        if (clip_host_set(clip_utf8))
+        if (clip_utf8_send(&u))
             return;
     }
     clip_len[which] = 0;
@@ -121,7 +130,26 @@ void clip_copy(uint8_t which, screen_t *s, uint8_t y0, uint8_t x0, uint8_t y1, u
     screen_copy(s, y0, x0, y1, x1, &k.sink);
 }
 
-void clip_paste(uint8_t which)
+void HOST_IN_FLASH_FUNC clip_copy_primary(void)
+{
+    if (!clip_len[CLIP_PRIMARY])
+        return;
+    paste_clip_changed(CLIP_CLIPBOARD);
+    const uint16_t *primary = &clip_buf[CLIP_PRIMARY * CLIP_SIZE];
+    clip_utf8_sink_t u = CLIP_UTF8_SINK;
+    for (unsigned i = 0; i < clip_len[CLIP_PRIMARY]; i++)
+        if (primary[i] == CLIP_LINE)
+            u.sink.line(&u.sink);
+        else
+            u.sink.text(&u.sink, primary[i]);
+    if (clip_utf8_send(&u))
+        return;
+    memcpy(&clip_buf[CLIP_CLIPBOARD * CLIP_SIZE], primary,
+           clip_len[CLIP_PRIMARY] * sizeof *primary);
+    clip_len[CLIP_CLIPBOARD] = clip_len[CLIP_PRIMARY];
+}
+
+void HOST_IN_FLASH_FUNC clip_paste(uint8_t which)
 {
     const char *host = which == CLIP_CLIPBOARD ? clip_host_get() : NULL;
     if (host)

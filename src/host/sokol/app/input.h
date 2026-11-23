@@ -16,6 +16,19 @@ struct sapp_event;
  * input. */
 void input_event(const struct sapp_event *e);
 
+/* Whether the event is a paste key going down (core/hid/key.h), not its
+ * repeat. A web page reads its clipboard only from the paste event the key
+ * makes, so the web player leaves the key to the browser, and pastes at
+ * that event. */
+bool input_paste_key(const struct sapp_event *e);
+
+/* Whether the event is a key going down that the browser must not act on:
+ * a copy key, which the player acts on itself (a browser may open its
+ * developer tools on Ctrl+Shift+C); plain Ctrl+V, which types 0x16; and a
+ * held paste key's repeat, as a held chord acts once (core/hid/key.h). The
+ * web player cancels it, so every paste event the page gets pastes. */
+bool input_key_withheld(const struct sapp_event *e);
+
 /* Take the three locks from the system, which owns them. A lock key changes
  * nothing here: the system changes the lock and this reads it, once a frame
  * and before each key press. Only a window calls this, so a headless or

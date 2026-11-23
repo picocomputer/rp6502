@@ -25,6 +25,10 @@ static int32_t away, pointer;
 static double callback_ms, run_ms;
 static bool inited;
 
+/* The text of the paste event being handled, the clipboard as the page can
+ * read it (host_clipboard_get). */
+static const char *entry_pasted = "";
+
 /* A cross-origin frame cannot read the page around it, but an
  * IntersectionObserver with no root measures the canvas against the top-level
  * viewport from inside any frame. The audio callback keeps firing after
@@ -152,10 +156,16 @@ uint8_t host_locks(void)
 }
 
 /* Whether a key down is left to the browser, which then makes the keypress
- * that types its character. The keypad's digits are characters only with
- * NumLock on and Shift up. */
+ * that types its character, or the paste event of a paste key. The keypad's
+ * digits are characters only with NumLock on and Shift up. */
 static bool entry_key_types(const sapp_event *e)
 {
+    /* A paste key makes the paste event that pastes (input.c); the keys
+     * input_key_withheld names are the player's alone. */
+    if (input_paste_key(e))
+        return true;
+    if (input_key_withheld(e))
+        return false;
     if (e->key_code < SAPP_KEYCODE_WORLD_1)
         return true;
     if ((e->key_code >= SAPP_KEYCODE_KP_DIVIDE && e->key_code <= SAPP_KEYCODE_KP_ADD) ||
@@ -185,6 +195,13 @@ static void entry_input(const sapp_event *e)
          * CHAR event. */
         if (e->type == SAPP_EVENTTYPE_CHAR || !entry_key_types(e))
             sapp_consume_event();
+        if (e->type == SAPP_EVENTTYPE_CLIPBOARD_PASTED)
+        {
+            entry_pasted = sapp_get_clipboard_string();
+            app_input(e);
+            entry_pasted = "";
+            return;
+        }
         break;
     case SAPP_EVENTTYPE_KEY_UP:
         if (e->key_code >= SAPP_KEYCODE_WORLD_1 && js_focused())
@@ -248,18 +265,31 @@ void host_window_files_dropped(void) {}
 void host_window_open_url(const char *url) { (void)url; }
 bool entry_wait_for_rom(void) { return false; }
 
-/* The page gives the machine no clipboard to ask for or set, so the machine
- * keeps its own. What the page's paste event hands over is typed as a paste
- * (input.c). */
+/* The clipboard is the browser's. A page reads it only in a paste event,
+ * which hands its text over, and then this is that text; at any other time
+ * nothing can be read, and a paste of it is empty. A copy writes it from
+ * inside the key event that asked, which the browser requires. */
 const char *host_clipboard_get(void)
 {
-    return NULL;
+    return entry_pasted;
 }
 
+EM_JS_DEPS(entry_clipboard, "$UTF8ToString");
+EM_JS(int, js_clipboard_write, (const char *utf8), {
+    if (!navigator.clipboard)
+        return 0;
+    navigator.clipboard.writeText(UTF8ToString(utf8)).catch(() => {});
+    return 1;
+});
+
+/* A page served without a secure context, as over plain http, has no
+ * clipboard to write: then this is false, and the copy goes to the
+ * machine's buffer (clip.h), though a paste key still pastes the browser's
+ * clipboard. The browser may also refuse a write it was handed, which it
+ * says only later, after the copy has gone. */
 bool host_clipboard_set(const char *utf8)
 {
-    (void)utf8;
-    return false;
+    return js_clipboard_write(utf8) != 0;
 }
 
 int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)

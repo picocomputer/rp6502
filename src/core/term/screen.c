@@ -12,6 +12,19 @@
 #include <limits.h>
 #include <string.h>
 
+// The columns of row of memory m of a screen that has cells: half its
+// width on a double-size line.
+static inline unsigned screen_mem_cols(const screen_t *s, uint8_t m)
+{
+    return screen_mem_size(s, m) ? s->cells->width / 2u : s->cells->width;
+}
+
+// The columns of row y of a screen that has cells.
+static inline unsigned screen_cols(const screen_t *s, uint8_t y)
+{
+    return screen_mem_cols(s, screen_mem(s, y));
+}
+
 /* ---- the selection ----------------------------------------------------- */
 
 // The columns of row of memory m the selection takes: all of them but on
@@ -58,6 +71,48 @@ static void screen_selection_rotate(const screen_t *s, uint8_t top, uint8_t bot,
     }
     if ((in & rows) && ((in & rows) != rows || (out & rows)))
         screen_selection_drop();
+}
+
+/* ---- the marks --------------------------------------------------------- */
+
+// The marks on rows [from, to) of the screen the marks are on, a bit for
+// each: the rows about to leave.
+static unsigned screen_marks_leaving(const screen_t *s, unsigned from, unsigned to)
+{
+    unsigned leaving = 0;
+    for (unsigned y = from; y < to; y++)
+    {
+        const uint8_t m = screen_mem(s, (uint8_t)y);
+        for (unsigned i = 0; i < vterm_marks.n; i++)
+            if (vterm_marks.at[i].row == m)
+                leaving |= 1u << i;
+    }
+    return leaving;
+}
+
+// The marks of leaving, which left, go to row y of the screen as it is now:
+// to its first cell, or with end to one past its last.
+static void screen_marks_land(const screen_t *s, unsigned leaving, uint8_t y, bool end)
+{
+    const uint8_t m = screen_mem(s, y);
+    const uint8_t col = end ? (uint8_t)screen_mem_cols(s, m) : 0;
+    for (unsigned i = 0; i < vterm_marks.n; i++)
+        if ((leaving >> i) & 1)
+            vterm_marks.at[i] = (screen_mark_t){m, col};
+}
+
+// The ring is about to go back in order, which puts row y of the screen in
+// row of memory y: each mark takes the row of memory its row of the screen
+// will be in.
+static void screen_marks_clear(const screen_t *s)
+{
+    for (unsigned i = 0; i < vterm_marks.n; i++)
+        for (unsigned y = 0; y < s->rows; y++)
+            if (screen_mem(s, (uint8_t)y) == vterm_marks.at[i].row)
+            {
+                vterm_marks.at[i].row = (uint8_t)y;
+                break;
+            }
 }
 
 // The ring a screen's rows are laid out in (screen.h). Every machine keeps
@@ -123,11 +178,14 @@ void screen_set_cells(screen_t *s, struct screen_cells *cells)
     s->cells = cells;
 }
 
-// The rows of memory take other slots, so a selection there drops.
+// The rows of memory take other slots, so a selection there drops, and the
+// marks keep their rows of the screen.
 void screen_ring_clear(screen_t *s)
 {
     if (screen_selection_on(s))
         screen_selection_drop();
+    if (screen_marks_on(s))
+        screen_marks_clear(s);
     s->y_offset = 0;
     s->hidden = 0;
     s->spare = s->rows;
@@ -198,6 +256,8 @@ uint8_t screen_ring_scroll(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, boo
 {
     if (screen_selection_on(s))
         screen_selection_rotate(s, top, bot, n, up);
+    const unsigned out = up ? top : (unsigned)bot + 1 - n;
+    const unsigned leaving = screen_marks_on(s) ? screen_marks_leaving(s, out, out + n) : 0;
     screen_rotate(s, top, bot, n, up);
     const uint8_t edge = (uint8_t)(up ? bot - n + 1 : top + n - 1);
     const uint8_t ghost = screen_keep(s, edge, edge, keep);
@@ -205,15 +265,20 @@ uint8_t screen_ring_scroll(screen_t *s, uint8_t top, uint8_t bot, uint8_t n, boo
         screen_lines_blank(s, edge, (unsigned)bot + 1);
     else
         screen_lines_blank(s, top, (unsigned)edge + 1);
+    if (leaving)
+        screen_marks_land(s, leaving, up ? top : bot, !up);
     return ghost;
 }
 
 // The row going out, row 0 up and the last row of the height down, drops a
-// selection it is in; the rest of the screen moves with it.
+// selection it is in and takes its marks to the row at that edge after;
+// the rest of the screen moves with it.
 uint8_t screen_ring_index(screen_t *s, uint8_t height, bool up, bool keep)
 {
     if (screen_selection_on(s))
         screen_selection_touch(screen_mem(s, (uint8_t)(up ? 0 : height - 1)), 0, UINT8_MAX);
+    const unsigned leaving =
+        screen_marks_on(s) ? screen_marks_leaving(s, up ? 0 : height - 1u, up ? 1u : height) : 0;
     screen_turn(s, up);
     const uint8_t in = (uint8_t)(up ? height - 1 : 0);
     uint8_t ghost;
@@ -230,21 +295,31 @@ uint8_t screen_ring_index(screen_t *s, uint8_t height, bool up, bool keep)
         ghost = screen_keep(s, in, (uint8_t)(height == s->rows ? 0 : height), keep);
     }
     screen_lines_blank(s, in, in + 1u);
+    if (leaving)
+        screen_marks_land(s, leaving, (uint8_t)(up ? 0 : height - 1), !up);
     return ghost;
 }
 
-// A change of height drops a selection on either of the grid's screens.
+// A change of height drops a selection on either of the grid's screens. A
+// shrink takes the marks on the row that leaves, row 0 with top and the
+// last row without, to the row at that edge after.
 bool screen_ring_height(screen_t *s, uint8_t height, bool grow, bool top)
 {
     if (screen_selection_on(s))
         screen_selection_drop();
+    const uint8_t out = top ? 0 : height;
+    const unsigned leaving = !grow && screen_marks_on(s) ? screen_marks_leaving(s, out, out + 1u) : 0;
     if (!top)
     {
         if (grow)
             screen_lines_blank(s, height - 1u, height);
+        if (leaving)
+            screen_marks_land(s, leaving, (uint8_t)(height - 1), true);
         return false;
     }
     screen_turn(s, !grow);
+    if (leaving)
+        screen_marks_land(s, leaving, 0, false);
     if (!grow)
         s->hidden++;
     else if (s->hidden)
@@ -329,19 +404,6 @@ bool screen_sst_get(sst_cursor_t *c, screen_t *s)
 }
 
 /* ---- cells and rows ---------------------------------------------------- */
-
-// The columns of row of memory m of a screen that has cells: half its
-// width on a double-size line.
-static inline unsigned screen_mem_cols(const screen_t *s, uint8_t m)
-{
-    return screen_mem_size(s, m) ? s->cells->width / 2u : s->cells->width;
-}
-
-// The columns of row y of a screen that has cells.
-static inline unsigned screen_cols(const screen_t *s, uint8_t y)
-{
-    return screen_mem_cols(s, screen_mem(s, y));
-}
 
 // Fill [start, end) of `row`: every cell becomes the fill's cell. A
 // selective erase leaves the guarded cells as they are.

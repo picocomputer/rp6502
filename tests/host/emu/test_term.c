@@ -4480,6 +4480,132 @@ UTEST(select, a_savestate_carries_it)
     ASSERT_FALSE(sel_shows());
 }
 
+/* ---- the marks (screen.h) ------------------------------------------------
+ *
+ * The points the console's mouse holds, which the store keeps on their
+ * text and at the edge of the screen when their rows leave it. */
+
+static screen_mark_t marks[3];
+
+/* Marks 0 to 2 on the screen showing, at rows of the screen y and columns
+ * x, which sel_rows filled. */
+static void mark(int y0, int x0, int y1, int x1, int y2, int x2)
+{
+    const screen_t *s = vterm_get_shown(&vterm)->shown;
+    const int at[3][2] = {{y0, x0}, {y1, x1}, {y2, x2}};
+    for (int i = 0; i < 3; i++)
+        marks[i] = (screen_mark_t){screen_mem(s, (uint8_t)at[i][0]), (uint8_t)at[i][1]};
+    vterm_marks = (screen_marks_t){.screen = s, .at = marks, .n = 3};
+}
+
+/* Where mark i is on the screen it is on, as y * 100 + x, or -1 when its
+ * row of memory is no row of the height. */
+static int marked(int i)
+{
+    const term_grid_t *g = vterm_get_shown(&vterm);
+    const screen_t *s = vterm_marks.screen;
+    for (int y = 0; y < g->height; y++)
+        if (screen_mem(s, (uint8_t)y) == marks[i].row)
+            return y * 100 + marks[i].col;
+    return -1;
+}
+
+/* A scroll keeps them on their text. One whose row goes out at the top
+ * goes to the first cell of row 0, and stays on the screen however far
+ * the ring goes round after: its row of memory, coming back as the last
+ * row, takes none. */
+UTEST(marks, an_index_keeps_them_on_their_text_or_at_the_top)
+{
+    sel_rows();
+    mark(0, 7, 5, 9, 29, 80);
+    feed("\33[30;1H\n\n\n");
+    ASSERT_EQ(marked(0), 0);
+    ASSERT_EQ(marked(1), 209);
+    ASSERT_EQ(marked(2), 2680);
+    for (int i = 0; i < 40; i++)
+        feed("\n");
+    ASSERT_EQ(marked(0), 0);
+    ASSERT_EQ(marked(1), 0);
+    ASSERT_EQ(marked(2), 0);
+}
+
+/* A reverse index takes the last row out at the bottom: its marks go one
+ * past the last cell of the row that is last then. */
+UTEST(marks, a_reverse_index_takes_them_to_the_end)
+{
+    sel_rows();
+    feed("\33[5;1H\33#6");
+    mark(29, 3, 3, 4, 4, 20);
+    feed("\33[1;1H\33M\33M");
+    ASSERT_EQ(marked(0), 2980);
+    ASSERT_EQ(marked(1), 504);
+    ASSERT_EQ(marked(2), 620);
+    /* A last row of double width then ends at half the width. */
+    feed("\33[29;1H\33#6\33[1;1H\33M");
+    ASSERT_EQ(marked(0), 2940);
+}
+
+/* A scroll of a region takes the marks of the rows going out of it to its
+ * edge, and leaves the others where they are. A REP's scroll does the
+ * same. */
+UTEST(marks, a_region_scroll_takes_them_to_its_edge)
+{
+    sel_rows();
+    mark(2, 5, 4, 6, 12, 7);
+    feed("\33[3;10r\33[2S");
+    ASSERT_EQ(marked(0), 200);
+    ASSERT_EQ(marked(1), 206);
+    ASSERT_EQ(marked(2), 1207);
+    mark(9, 5, 7, 6, 1, 7);
+    feed("\33[2T");
+    ASSERT_EQ(marked(0), 980);
+    ASSERT_EQ(marked(1), 906);
+    ASSERT_EQ(marked(2), 107);
+    feed("\33[r");
+    mark(0, 5, 3, 6, 29, 7);
+    feed("\33[30;1Hx\33[160b");
+    ASSERT_EQ(marked(0), 0);
+    ASSERT_EQ(marked(1), 106);
+    ASSERT_EQ(marked(2), 2707);
+}
+
+/* A height a row less takes the row that leaves, the last with the cursor
+ * above it and row 0 with the cursor on the last row, and its marks to
+ * the edge it left by. */
+UTEST(marks, a_smaller_height_takes_them_to_its_edge)
+{
+    sel_rows();
+    mark(29, 5, 3, 6, 0, 7);
+    vterm_place(80, 29, 0, 16);
+    ASSERT_EQ(marked(0), 2880);
+    ASSERT_EQ(marked(1), 306);
+    ASSERT_EQ(marked(2), 7);
+    feed("\33[29;1H");
+    vterm_place(80, 28, 0, 16);
+    ASSERT_EQ(marked(0), 2780);
+    ASSERT_EQ(marked(1), 206);
+    ASSERT_EQ(marked(2), 0);
+    vterm_place(80, 30, 0, 16);
+}
+
+/* A clear puts the ring back in order, and each mark stays on its row of
+ * the screen. Output on another screen keeps them. */
+UTEST(marks, a_clear_keeps_their_rows_of_the_screen)
+{
+    sel_rows();
+    feed("\33[30;1H\n\n\n\n\n");
+    mark(2, 5, 7, 6, 29, 7);
+    feed("\33[?1049h\33[30;1H\n\n\n\33[?1049l");
+    ASSERT_EQ(marked(0), 205);
+    ASSERT_EQ(marked(1), 706);
+    ASSERT_EQ(marked(2), 2907);
+    feed("\33c");
+    ASSERT_EQ(marked(0), 205);
+    ASSERT_EQ(marked(1), 706);
+    ASSERT_EQ(marked(2), 2907);
+    vterm_marks.screen = NULL;
+}
+
 /* ---- mode 0 draws the selection ---- */
 
 /* The row words carry each row's columns of it: the start's row from its

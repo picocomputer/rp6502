@@ -22,4 +22,26 @@
  * true too, so a held chord acts once. */
 bool key_chord(uint8_t keycode, uint8_t modifier, bool repeat);
 
+/* The copy and paste keys (clip.h), which are chords whatever a program has
+ * asked of the terminal, so they never type, and Ctrl-Shift-C raises no
+ * SIGINT:
+ *
+ * - copy: Ctrl-Shift-C, Ctrl-Insert and GUI-C (Cmd-C on a Mac) put the
+ *   primary in the clipboard;
+ * - paste: Ctrl-Shift-V, Shift-Insert and GUI-V (Cmd-V) paste the
+ *   clipboard.
+ *
+ * Plain Ctrl-C and Ctrl-V stay the program's. */
+typedef enum
+{
+    KEY_CLIP_NONE,
+    KEY_CLIP_COPY,
+    KEY_CLIP_PASTE,
+} key_clip_t;
+
+/* Which of them a press is. A web page reads its clipboard only from the
+ * paste event a paste key makes, so its host asks this to let the key make
+ * one. */
+key_clip_t key_clip(uint8_t keycode, uint8_t modifier);
+
 #endif /* _CORE_HID_KEY_H_ */
