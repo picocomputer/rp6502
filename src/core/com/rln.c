@@ -1833,7 +1833,9 @@ static void rln_word_at(uint8_t i, uint8_t *lo, uint8_t *hi)
 /* The mouse's press and drag become the selection, after the keys that
  * were waiting, on the line as those keys left it: by characters from the
  * press to the drag, by words out to the ends of the words under each, or
- * the whole line. The cursor stays where it is. */
+ * the whole line. The cursor follows the mouse to the selection's end, so
+ * a click alone moves it, a drag carries it along, and what is typed next
+ * goes where the cursor shows. */
 static void rln_mouse_take(void)
 {
     rln_mouse_due = false;
@@ -1854,6 +1856,8 @@ static void rln_mouse_take(void)
         end = rln_buflen;
     }
     rln_select(anchor, end);
+    rln_bufpos = end;
+    rln_sync_cursor_to(rln_bufpos);
 }
 
 bool HOST_IN_FLASH_FUNC rln_copy(void)

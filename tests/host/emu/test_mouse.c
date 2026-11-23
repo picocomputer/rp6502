@@ -653,7 +653,8 @@ UTEST(mouse, a_press_outside_the_line_is_the_primary)
 }
 
 /* One selection at a time: the primary's starting ends the line's, and
- * the line's, by the mouse or by Shift, ends the primary's. */
+ * the line's, by the mouse or by Shift, ends the primary's. The cursor
+ * stays where the line's drag left it, after "abc". */
 UTEST(mouse, each_selection_ends_the_other)
 {
     editing();
@@ -668,7 +669,43 @@ UTEST(mouse, each_selection_ends_the_other)
     hostkey_press(HID_KEY_ARROW_LEFT, KEYBOARD_MODIFIER_LEFTSHIFT, false, true);
     loop();
     ASSERT_FALSE(vterm_selection.shows);
-    ASSERT_STREQ(line_copy(), "f");
+    ASSERT_STREQ(line_copy(), "c");
+}
+
+/* The cursor follows the mouse in the line: a click puts it there, so a
+ * key types there; a drag carries it to the drag's end, back or forth,
+ * so Shift extends from there; a word or the line puts it at their end. */
+UTEST(mouse, the_cursor_follows_the_mouse_in_the_line)
+{
+    editing();
+    click(3, 2);
+    loop();
+    typed_push("X", 1);
+    loop();
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_STREQ(line_got, "aXbc def");
+    editing();
+    drag(8, 2, 4, 2);
+    loop();
+    ASSERT_STREQ(line_copy(), "c de");
+    hostkey_press(HID_KEY_ARROW_LEFT, KEYBOARD_MODIFIER_LEFTSHIFT, false, true);
+    loop();
+    ASSERT_STREQ(line_copy(), "bc de");
+    typed_push("X", 1);
+    loop();
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_STREQ(line_got, "aXf");
+    editing();
+    click(3, 2);
+    click(3, 2);
+    loop();
+    typed_push("!", 1);
+    loop();
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_STREQ(line_got, "! def");
 }
 
 /* A double click in the line takes a word, and a triple click the line. */
