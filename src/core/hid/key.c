@@ -43,6 +43,8 @@ key_clip_t HOST_IN_RAM_FUNC key_clip(uint8_t keycode, uint8_t modifier)
         return held == KEY_CTRL    ? KEY_CLIP_COPY
                : held == KEY_SHIFT ? KEY_CLIP_PASTE
                                    : KEY_CLIP_NONE;
+    case HID_KEY_X:
+        return clip ? KEY_CLIP_CUT : KEY_CLIP_NONE;
     case HID_KEY_DELETE:
         return held == KEY_SHIFT ? KEY_CLIP_CUT : KEY_CLIP_NONE;
     default:
@@ -65,6 +67,20 @@ bool HOST_IN_FLASH_FUNC key_clip_act(key_clip_t clip)
         if (!rln_paste())
             clip_paste(CLIP_CLIPBOARD);
         return true;
+    default:
+        return false;
+    }
+}
+
+bool key_clip_acts(uint8_t keycode, uint8_t modifier, bool repeat)
+{
+    switch (key_clip(keycode, modifier))
+    {
+    case KEY_CLIP_COPY:
+    case KEY_CLIP_PASTE:
+        return true;
+    case KEY_CLIP_CUT:
+        return repeat ? keycode == key_chord_down : rln_selected();
     default:
         return false;
     }

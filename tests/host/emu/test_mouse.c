@@ -10,6 +10,7 @@
 
 #include "core/api/xreg.h"
 #include "core/com/rln.h"
+#include "core/com/console.h"
 #include "core/hid/typed.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
@@ -795,8 +796,9 @@ static const char *line_copy(void)
     return host_clipboard_get();
 }
 
-/* A drag in the line selects in it, as the terminal's one selection, a
- * click there ends that, and neither touches the primary. */
+/* A drag in the line selects in it, as the terminal's one selection, and
+ * fills the primary as a drag on the screen does; a click there ends the
+ * selection and leaves the primary as it was. */
 UTEST(mouse, a_drag_in_the_line_selects_in_the_line)
 {
     editing();
@@ -808,11 +810,61 @@ UTEST(mouse, a_drag_in_the_line_selects_in_the_line)
     ASSERT_STREQ(line_copy(), "abc");
     ASSERT_TRUE(hl(2, 2) && hl(4, 2));
     ASSERT_FALSE(hl(5, 2));
-    ASSERT_STREQ(primary(), "second");
+    ASSERT_STREQ(primary(), "abc");
     click(3, 2);
     loop();
     ASSERT_FALSE(vterm_selection.shows);
     ASSERT_STREQ(line_copy(), "");
+    ASSERT_STREQ(primary(), "abc");
+}
+
+/* The line's selection fills the primary when the button comes up, not
+ * while it drags; a word and the line fill it too. Shift with the arrows
+ * selects without filling it, so a copy key copies that selection. */
+UTEST(mouse, the_line_fills_the_primary_when_the_mouse_lets_go)
+{
+    editing();
+    drag(0, 1, 6, 1);
+    edge(2, 2, TABLET_FLAG_LEFT);
+    edge(5, 2, TABLET_FLAG_LEFT);
+    loop();
+    ASSERT_STREQ(line_copy(), "abc");
+    ASSERT_STREQ(primary(), "second");
+    edge(5, 2, 0);
+    loop();
+    ASSERT_STREQ(primary(), "abc");
+    machine_us(300 * 1000);
+    click(7, 2);
+    click(7, 2);
+    loop();
+    ASSERT_STREQ(primary(), "def");
+    click(7, 2);
+    loop();
+    ASSERT_STREQ(primary(), "abc def");
+    machine_us(300 * 1000);
+    click(9, 2);
+    loop();
+    ASSERT_STREQ(primary(), "abc def");
+    hostkey_press(HID_KEY_ARROW_LEFT, SHIFT, false, true);
+    hostkey_press(HID_KEY_ARROW_LEFT, SHIFT, false, true);
+    loop();
+    ASSERT_STREQ(line_copy(), "ef");
+    ASSERT_STREQ(primary(), "abc def");
+}
+
+/* The primary takes the line as the keys typed before the release left
+ * it: here an 'X' still unread as the drag lets go, which the selection
+ * then covers. */
+UTEST(mouse, the_line_s_primary_follows_the_keys_before_it)
+{
+    editing();
+    hostkey_press(HID_KEY_HOME, 0, false, true);
+    loop();
+    typed_push("X", 1);
+    drag(2, 2, 5, 2);
+    loop();
+    ASSERT_STREQ(line_copy(), "Xab");
+    ASSERT_STREQ(primary(), "Xab");
 }
 
 /* A drag that leaves the line stops at its first or last character. */
@@ -997,6 +1049,180 @@ UTEST(mouse, a_drag_in_the_line_ends_at_the_nearest_gap)
     }
 }
 
+/* A click with the left button at pixel px of row y, as quick as the
+ * mouse can. */
+static void click_px(int px, int y)
+{
+    tablet_host_pointer(px, y * 16 + 7, TABLET_FLAG_LEFT, true);
+    vterm_mouse_task();
+    tablet_host_pointer(px, y * 16 + 7, 0, true);
+    vterm_mouse_task();
+}
+
+/* What the line reads with "X" typed where the cursor is, ended with
+ * Enter. */
+static const char *typed_x(void)
+{
+    typed_push("X", 1);
+    loop();
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    return line_got;
+}
+
+/* The Insert key, typed: overwrite mode, with its block cursor. */
+#define OVERWRITE() typed_push("\33[2~", 4)
+
+/* A click in the line in insert mode puts the bar at the gap nearest the
+ * pointer, as xterm's click: before the character from its pixels 0 to 4,
+ * after it from 5 to 7. In overwrite mode it puts the block on the
+ * character, wherever in it the click is, the mode an Insert key typed
+ * before the click and still to take sets. Past the line's end, both put
+ * the cursor at the end. */
+UTEST(mouse, a_click_in_the_line_places_the_cursor_by_the_mode)
+{
+    /* "abc def" from column 2: c at column 4. */
+    for (int px = 0; px < 8; px++)
+    {
+        editing();
+        click_px(8 * 4 + px, 2);
+        loop();
+        ASSERT_STREQ(typed_x(), px < 5 ? "abXc def" : "abcX def");
+        editing();
+        OVERWRITE();
+        click_px(8 * 4 + px, 2);
+        loop();
+        ASSERT_STREQ(typed_x(), "abX def");
+        editing();
+        click_px(8 * 9 + px, 2);
+        loop();
+        ASSERT_STREQ(typed_x(), "abc defX");
+        editing();
+        OVERWRITE();
+        click_px(8 * 9 + px, 2);
+        loop();
+        ASSERT_STREQ(typed_x(), "abc defX");
+    }
+}
+
+/* A click at the last column of a row the line wraps from puts the bar
+ * after its character at the first column of the next row, and the block
+ * there on the character at that first column. */
+UTEST(mouse, a_click_in_a_wrapped_line_places_the_cursor_across_rows)
+{
+    /* The line from column 2 of row 2: index 77 at column 79, index 78 at
+     * column 0 of row 3. */
+    static char line[91], want[92];
+    for (int i = 0; i < 90; i++)
+        line[i] = (char)('a' + i % 26);
+    for (int mode = 0; mode < 3; mode++)
+    {
+        start();
+        show(TEXT);
+        show("> ");
+        rln_read_line(line_read, NULL);
+        loop();
+        typed_push(line, 90);
+        loop();
+        int at = 78;
+        if (mode == 0)
+            click_px(8 * 79 + 5, 2);
+        else if (mode == 1)
+        {
+            click_px(8 * 79 + 4, 2);
+            at = 77;
+        }
+        else
+        {
+            OVERWRITE();
+            click_px(8 * 0 + 7, 3);
+        }
+        loop();
+        memcpy(want, line, (size_t)at);
+        want[at] = 'X';
+        strcpy(want + at + 1, line + at + (mode == 2));
+        ASSERT_STREQ(typed_x(), want);
+    }
+}
+
+/* On a row of double width a character is 16 pixels, and a click in insert
+ * mode puts the bar after it from its pixel 9, as xterm's click. */
+UTEST(mouse, a_click_in_a_wide_line_places_the_cursor_after_pixel_8)
+{
+    for (int px = 0; px < 16; px++)
+        for (int over = 0; over < 2; over++)
+        {
+            start();
+            show(TEXT);
+            show("\33#6> ");
+            line_count = 0;
+            rln_read_line(line_read, NULL);
+            loop();
+            typed_push("abc def", 7);
+            loop();
+            if (over)
+                OVERWRITE();
+            click_px(16 * 4 + px, 2);
+            loop();
+            ASSERT_STREQ(typed_x(), over ? "abX def" : px < 9 ? "abXc def" : "abcX def");
+        }
+}
+
+/* A double click on the right of a character takes its word, and a
+ * triple click the line, whichever gap the click is nearer. */
+UTEST(mouse, a_double_click_takes_the_word_on_either_side_of_its_character)
+{
+    for (int px = 0; px < 8; px++)
+    {
+        editing();
+        click_px(8 * 4 + px, 2);
+        click_px(8 * 4 + px, 2);
+        loop();
+        ASSERT_STREQ(line_copy(), "abc");
+        click_px(8 * 4 + px, 2);
+        loop();
+        ASSERT_STREQ(line_copy(), "abc def");
+        machine_us(300 * 1000);
+    }
+}
+
+/* A drag in the line leaves the cursor at its end in either mode, as
+ * before: from the last pixel of c a pixel on into the space selects
+ * nothing and leaves the cursor at the gap after c, where overwrite
+ * types over the space; from pixel 2 of c back a pixel it selects c,
+ * which the typing replaces. */
+UTEST(mouse, a_drag_in_the_line_is_the_same_in_either_mode)
+{
+    const int y = 2 * 16 + 7;
+    for (int over = 0; over < 2; over++)
+    {
+        static const struct
+        {
+            int x0, x1;
+            const char *got[2];
+        } drags[] = {
+            {8 * 4 + 7, 8 * 5, {"abcX def", "abcXdef"}},
+            {8 * 4 + 2, 8 * 4 + 1, {"abX def", "abX def"}},
+            {8 * 4 + 4, 8 * 4 + 5, {"abX def", "abX def"}},
+        };
+        for (unsigned i = 0; i < sizeof drags / sizeof *drags; i++)
+        {
+            editing();
+            if (over)
+                OVERWRITE();
+            loop();
+            tablet_host_pointer(drags[i].x0, y, TABLET_FLAG_LEFT, true);
+            vterm_mouse_task();
+            tablet_host_pointer(drags[i].x1, y, TABLET_FLAG_LEFT, true);
+            vterm_mouse_task();
+            tablet_host_pointer(drags[i].x1, y, 0, true);
+            vterm_mouse_task();
+            loop();
+            ASSERT_STREQ(typed_x(), drags[i].got[over]);
+        }
+    }
+}
+
 /* The right button with the line's selection showing has no primary to
  * extend: it selects from the click, as with nothing selected, which ends
  * the line's. */
@@ -1104,6 +1330,43 @@ UTEST(mouse, shift_delete_cuts_the_line_s_selection)
     ASSERT_EQ(line_count, 1);
     ASSERT_STREQ(line_got, "abc ");
     ASSERT_STREQ(host_clipboard_get(), "ef");
+}
+
+/* Ctrl-Shift-X, and Cmd-X on a Mac, cut as Shift-Delete does, a held one
+ * once; with no selection showing they are no chord, and Ctrl-Shift-X
+ * types Ctrl-X. Off a Mac, Cmd-X is no chord. */
+UTEST(mouse, ctrl_shift_x_and_cmd_x_cut_the_line_s_selection)
+{
+    editing();
+    ASSERT_TRUE(host_clipboard_set(""));
+    ARROW_LEFT(SHIFT);
+    ARROW_LEFT(SHIFT);
+    loop();
+    ASSERT_EQ(chord(HID_KEY_X, CTRL | SHIFT), HOSTKEY_CHORD);
+    ASSERT_EQ(hostkey_press(HID_KEY_X, CTRL | SHIFT, true, true), HOSTKEY_CHORD);
+    loop();
+    ASSERT_STREQ(host_clipboard_get(), "ef");
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_STREQ(line_got, "abc d");
+    editing();
+    ARROW_LEFT(SHIFT);
+    loop();
+    tb_mac_keys = true;
+    ASSERT_EQ(chord(HID_KEY_X, GUI), HOSTKEY_CHORD);
+    tb_mac_keys = false;
+    loop();
+    ASSERT_STREQ(host_clipboard_get(), "f");
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_STREQ(line_got, "abc de");
+    editing();
+    ASSERT_EQ(chord(HID_KEY_X, CTRL | SHIFT), HOSTKEY_TYPED);
+    ASSERT_STREQ(typed(), "\x18");
+    ARROW_LEFT(SHIFT);
+    loop();
+    ASSERT_NE(chord(HID_KEY_X, GUI), HOSTKEY_CHORD);
+    ASSERT_STREQ(host_clipboard_get(), "f");
 }
 
 /* The paste keys paste the clipboard in place of the selection showing. */
@@ -1992,6 +2255,31 @@ UTEST(mouse, a_load_keeps_the_selection_and_the_primary)
     at(30, 5, TABLET_FLAG_MIDDLE);
     at(30, 5, 0);
     ASSERT_STREQ(typed(), "second");
+}
+
+/* A drag in the line that has let go but that the line editor has still
+ * to take keeps its release across a load, and then fills the primary.
+ * The read is the console's, which a save can name. */
+UTEST(mouse, a_load_keeps_the_line_s_release_still_to_take)
+{
+    start();
+    show(TEXT);
+    show("> ");
+    rln_read_line(console_rln_reader(), NULL);
+    loop();
+    typed_push("abc def", 7);
+    loop();
+    edge(2, 2, TABLET_FLAG_LEFT);
+    edge(5, 2, TABLET_FLAG_LEFT);
+    edge(5, 2, 0);
+    ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
+    rln_unselect();
+    clip_reset();
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    loop();
+    ASSERT_STREQ(line_copy(), "abc");
+    ASSERT_STREQ(primary(), "abc");
+    rln_read_cancel();
 }
 
 UTEST_MAIN();

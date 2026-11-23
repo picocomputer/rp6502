@@ -42,10 +42,10 @@ enum
  * here. */
 void clip_copy(uint8_t which, screen_t *s, uint8_t y0, uint8_t x0, uint8_t y1, uint8_t x1);
 
-/* The line editor's text, n code page bytes as it holds them, goes to the
- * clipboard, as UTF-8 to the host's where it has one. A paste from the
- * clipboard ends here. */
-void clip_copy_bytes(const char *bytes, size_t n);
+/* The line editor's text, n code page bytes as it holds them, goes into
+ * buffer which: the clipboard as UTF-8 to the host's where it has one. A
+ * paste from the buffer ends here. */
+void clip_copy_bytes(uint8_t which, const char *bytes, size_t n);
 
 /* The copy keys: the primary goes to the clipboard, as UTF-8 to the host's
  * where it has one. The primary has no cut, so it keeps its text. A paste

@@ -145,19 +145,25 @@ static uint8_t rln_edit_to;
 /* The console's mouse in the line, which the task takes after the keys
  * waiting: the end the drag holds, where the press was, and the end it
  * moves, where the drag is, as indexes of the line as it was laid out
- * then (rln_mouse_drag), and the unit the press selects by, none when no
- * press was made in this read's line. */
+ * then (rln_mouse_drag), the unit the press selects by, none when no
+ * press was made in this read's line, and whether the button has come up
+ * since, when what the task takes fills the primary. A click, a press by
+ * characters that has not dragged, selects nothing: its press is the
+ * character under the pointer and its drag the gap nearest the pointer,
+ * where the cursor goes in overwrite and in insert mode. */
 enum
 {
     RLN_UNIT_NONE,
     RLN_UNIT_CHAR,
     RLN_UNIT_WORD,
     RLN_UNIT_LINE,
+    RLN_UNIT_CLICK,
 };
 static bool rln_mouse_due;
 static uint8_t rln_press_at;
 static uint8_t rln_drag_at;
 static uint8_t rln_press_unit;
+static bool rln_mouse_up;
 
 /* The cut or paste key pressed with the line's selection showing, which
  * the task takes after the keys waiting, as it takes the mouse, or none.
@@ -467,7 +473,8 @@ static bool rln_sst_valid(sst_cursor_t *c)
     if (rln_prompt_col && !rln_width)
         return sst_refuse(c, "a prompt column with no width");
     if (rln_sel_anchor > rln_buflen || rln_sel_end > rln_buflen ||
-        rln_press_unit > RLN_UNIT_LINE || (rln_mouse_due && rln_press_unit == RLN_UNIT_NONE) ||
+        rln_press_unit > RLN_UNIT_CLICK || (rln_mouse_due && rln_press_unit == RLN_UNIT_NONE) ||
+        (rln_mouse_up && !rln_mouse_due) ||
         (rln_screen > 1 && rln_screen != RLN_NO_ROW) || rln_key_due > RLN_KEY_PASTE)
         return sst_refuse(c, "a selection past its line");
     for (unsigned i = 0; i < RLN_SOURCE_COUNT; i++)
@@ -541,6 +548,7 @@ static bool rln_sst_valid(sst_cursor_t *c)
     X(U8, rln_press_at)                                                 \
     X(U8, rln_drag_at)                                                  \
     X(U8, rln_press_unit)                                               \
+    X(BOOL, rln_mouse_up)                                               \
     X(U8, rln_key_due)                                                  \
     X(BOOL, rln_key_first)                                              \
     X(BOOL, rln_bracketing)                                             \
@@ -970,6 +978,7 @@ static void HOST_IN_FLASH_FUNC rln_show(void)
 void rln_unselect(void)
 {
     rln_mouse_due = false;
+    rln_mouse_up = false;
     rln_select(0, 0);
 }
 
@@ -1786,12 +1795,15 @@ static void rln_mouse_becomes_due(void)
     rln_mouse_due = true;
 }
 
-void rln_mouse_press(uint8_t index, uint8_t clicks)
+void rln_mouse_press(uint8_t index, bool after, uint8_t clicks)
 {
     rln_press_at = rln_drag_at = index;
     rln_press_unit = clicks == 3   ? RLN_UNIT_LINE
                      : clicks == 2 ? RLN_UNIT_WORD
-                                   : RLN_UNIT_CHAR;
+                                   : RLN_UNIT_CLICK;
+    if (rln_press_unit == RLN_UNIT_CLICK && after && index < rln_buflen)
+        rln_drag_at++;
+    rln_mouse_up = false;
     rln_mouse_becomes_due();
 }
 
@@ -1799,8 +1811,18 @@ void rln_mouse_drag(uint8_t hy, uint8_t hx, uint8_t y, uint8_t x)
 {
     if (rln_press_unit == RLN_UNIT_NONE || !rln_on_screen())
         return;
+    if (rln_press_unit == RLN_UNIT_CLICK)
+        rln_press_unit = RLN_UNIT_CHAR;
     rln_press_at = (uint8_t)rln_index_of(hy, hx, true);
     rln_drag_at = (uint8_t)rln_index_of(y, x, true);
+    rln_mouse_becomes_due();
+}
+
+void rln_mouse_release(void)
+{
+    if (rln_press_unit == RLN_UNIT_NONE || rln_press_unit == RLN_UNIT_CLICK)
+        return;
+    rln_mouse_up = true;
     rln_mouse_becomes_due();
 }
 
@@ -1824,14 +1846,22 @@ static void rln_word_at(uint8_t i, uint8_t *lo, uint8_t *hi)
  * were waiting, on the line as those keys left it: by characters from the
  * press to the drag, by words out to the ends of the words under each, or
  * the whole line. The cursor follows the mouse to the selection's end, so
- * a click alone moves it, a drag carries it along, and what is typed next
- * goes where the cursor shows. */
+ * a drag carries it along, and what is typed next goes where the cursor
+ * shows. A click selects nothing and puts the cursor where the mode then
+ * has it: the block on the character under the pointer, and the bar at
+ * the gap nearest the pointer, as IntelliJ places its carets. Once the
+ * button has come up, what it selected fills the primary, as a selection
+ * the mouse makes anywhere on the screen does. It is taken from the line
+ * the selection is of, the line editor's own bytes, which the echo still
+ * going out may not yet show, and which a copy key copies as they are. */
 static void rln_mouse_take(void)
 {
     rln_mouse_due = false;
     uint8_t anchor = rln_press_at < rln_buflen ? rln_press_at : rln_buflen;
     uint8_t end = rln_drag_at < rln_buflen ? rln_drag_at : rln_buflen;
-    if (rln_press_unit == RLN_UNIT_WORD)
+    if (rln_press_unit == RLN_UNIT_CLICK)
+        anchor = end = rln_overwrite ? anchor : end;
+    else if (rln_press_unit == RLN_UNIT_WORD)
     {
         uint8_t alo, ahi, elo, ehi;
         rln_word_at(anchor, &alo, &ahi);
@@ -1846,15 +1876,27 @@ static void rln_mouse_take(void)
         end = rln_buflen;
     }
     rln_select(anchor, end);
+    if (rln_mouse_up && anchor != end)
+    {
+        const uint8_t lo = rln_sel_lo();
+        clip_copy_bytes(CLIP_PRIMARY, &rln_buf[lo], (size_t)(rln_sel_hi() - lo));
+    }
+    rln_mouse_up = false;
     rln_bufpos = end;
     rln_sync_cursor_to(rln_bufpos);
 }
 
+bool rln_selected(void)
+{
+    return rln_callback && rln_sel_anchor != rln_sel_end;
+}
+
 bool HOST_IN_FLASH_FUNC rln_copy(void)
 {
-    if (!rln_callback || rln_sel_anchor == rln_sel_end)
+    if (!rln_selected())
         return false;
-    clip_copy_bytes(&rln_buf[rln_sel_lo()], (size_t)(rln_sel_hi() - rln_sel_lo()));
+    const uint8_t lo = rln_sel_lo();
+    clip_copy_bytes(CLIP_CLIPBOARD, &rln_buf[lo], (size_t)(rln_sel_hi() - lo));
     return true;
 }
 
@@ -1862,7 +1904,7 @@ bool HOST_IN_FLASH_FUNC rln_copy(void)
  * take after the keys waiting. */
 static bool rln_key_press(uint8_t key)
 {
-    if (!rln_callback || rln_sel_anchor == rln_sel_end)
+    if (!rln_selected())
         return false;
     rln_key_first = !rln_mouse_due;
     rln_key_due = key;
@@ -1892,7 +1934,7 @@ static void rln_key_take(void)
     rln_key_due = RLN_KEY_NONE;
     rln_key_first = false;
     if (key == RLN_KEY_CUT && lo < hi)
-        clip_copy_bytes(&rln_buf[lo], (size_t)(hi - lo));
+        clip_copy_bytes(CLIP_CLIPBOARD, &rln_buf[lo], (size_t)(hi - lo));
     rln_select(rln_bufpos, rln_bufpos);
     rln_delete_range(lo, hi);
     if (key == RLN_KEY_PASTE)
@@ -2031,6 +2073,7 @@ void HOST_IN_FLASH_FUNC rln_init(void)
     rln_sel_anchor = rln_sel_end = 0;
     rln_hl_due = false;
     rln_mouse_due = false;
+    rln_mouse_up = false;
     rln_press_unit = RLN_UNIT_NONE;
     rln_key_due = RLN_KEY_NONE;
     rln_key_first = false;

@@ -30,8 +30,9 @@ bool key_chord(uint8_t keycode, uint8_t modifier, bool repeat);
  * - copy: Ctrl-Shift-C and Ctrl-Insert, and on a Mac Cmd-C
  *   (host_mac_keys), put the line editor's selection in the clipboard
  *   (core/com/rln.h), or with none, the primary, at once;
- * - cut: Shift-Delete, with the line editor's selection showing, cuts it
- *   to the clipboard; with none it is no chord, and types;
+ * - cut: Shift-Delete and Ctrl-Shift-X, and on a Mac Cmd-X, with the
+ *   line editor's selection showing, cut it to the clipboard; with none
+ *   they are no chord, and type as they would;
  * - paste: Ctrl-Shift-V and Shift-Insert, and on a Mac Cmd-V, paste the
  *   clipboard, at once, or with the line editor's selection showing, in
  *   its place.
@@ -55,5 +56,12 @@ key_clip_t key_clip(uint8_t keycode, uint8_t modifier);
 /* A copy, cut or paste key acts, and true when it did. A web page, whose
  * paste keys are the browser's, acts with the paste event they make. */
 bool key_clip_act(key_clip_t clip);
+
+/* Whether a press of the key, or its repeat, is a copy, cut or paste key
+ * that acts now, as key_chord would judge it: a copy or paste key always,
+ * a cut key only with the line editor's selection showing, and a cut
+ * key's repeat when its press acted. The web player withholds a copy or
+ * cut key that acts from the browser (host/sokol/app/input.h). */
+bool key_clip_acts(uint8_t keycode, uint8_t modifier, bool repeat);
 
 #endif /* _CORE_HID_KEY_H_ */

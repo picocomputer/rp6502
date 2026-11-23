@@ -151,20 +151,23 @@ void HOST_IN_FLASH_FUNC clip_copy_primary(void)
 
 /* A code page byte is the cell_text word of the code page's set. */
 _Static_assert(CELL_SET_PAGE == 0, "a code page byte is its own word");
-void HOST_IN_FLASH_FUNC clip_copy_bytes(const char *bytes, size_t n)
+void HOST_IN_FLASH_FUNC clip_copy_bytes(uint8_t which, const char *bytes, size_t n)
 {
-    paste_clip_changed(CLIP_CLIPBOARD);
+    paste_clip_changed(which);
     if (n > CLIP_SIZE)
         n = CLIP_SIZE;
-    clip_utf8_sink_t u = CLIP_UTF8_SINK;
+    if (which == CLIP_CLIPBOARD)
+    {
+        clip_utf8_sink_t u = CLIP_UTF8_SINK;
+        for (size_t i = 0; i < n; i++)
+            u.sink.text(&u.sink, (uint8_t)bytes[i]);
+        if (clip_utf8_send(&u))
+            return;
+    }
+    uint16_t *buf = &clip_buf[which * CLIP_SIZE];
     for (size_t i = 0; i < n; i++)
-        u.sink.text(&u.sink, (uint8_t)bytes[i]);
-    if (clip_utf8_send(&u))
-        return;
-    uint16_t *clipboard = &clip_buf[CLIP_CLIPBOARD * CLIP_SIZE];
-    for (size_t i = 0; i < n; i++)
-        clipboard[i] = (uint8_t)bytes[i];
-    clip_len[CLIP_CLIPBOARD] = (uint16_t)n;
+        buf[i] = (uint8_t)bytes[i];
+    clip_len[which] = (uint16_t)n;
 }
 
 void HOST_IN_FLASH_FUNC clip_paste(uint8_t which)

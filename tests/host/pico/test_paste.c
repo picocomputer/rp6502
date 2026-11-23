@@ -65,9 +65,10 @@ static unsigned line_cuts, line_pastes;
 bool rln_copy(void)
 {
     if (line_selects)
-        clip_copy_bytes("line", 4);
+        clip_copy_bytes(CLIP_CLIPBOARD, "line", 4);
     return line_selects;
 }
+bool rln_selected(void) { return line_selects; }
 bool rln_cut(void)
 {
     line_cuts += line_selects;
@@ -372,6 +373,26 @@ UTEST(paste, the_line_s_selection_takes_the_keys_through_the_keymap)
     line_selects = false;
     chord(SHIFT, HID_KEY_INSERT);
     ASSERT_STREQ(keyboard(), "line");
+}
+
+/* Ctrl-Shift-X is a cut key as Shift-Delete is: with no line selection
+ * showing it types Ctrl-X, and with one it is the line editor's and types
+ * nothing. The RIA is no Mac, so GUI-X is never one. */
+UTEST(paste, ctrl_shift_x_cuts_through_the_keymap)
+{
+    fresh();
+    line_selects = false;
+    line_cuts = 0;
+    chord(CTRL | SHIFT, HID_KEY_X);
+    ASSERT_STREQ(keyboard(), "\x18");
+    ASSERT_EQ(line_cuts, 0u);
+    line_selects = true;
+    chord(CTRL | SHIFT, HID_KEY_X);
+    ASSERT_STREQ(keyboard(), "");
+    ASSERT_EQ(line_cuts, 1u);
+    chord(KEYBOARD_MODIFIER_LEFTGUI, HID_KEY_X);
+    ASSERT_EQ(line_cuts, 1u);
+    line_selects = false;
 }
 
 UTEST_MAIN();

@@ -21,6 +21,7 @@
 #define HID_KEY_A 0x04
 #define HID_KEY_C 0x06
 #define HID_KEY_V 0x19
+#define HID_KEY_X 0x1B
 #define HID_KEY_Z 0x1D
 #define HID_KEY_ENTER 0x28
 #define HID_KEY_ESCAPE 0x29

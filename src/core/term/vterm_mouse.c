@@ -929,7 +929,9 @@ static void vterm_mouse_start(const vterm_mouse_view_t *v, vterm_mouse_cell_t p,
 /* What the drag selects goes to the line editor, for a drag in its line:
  * the end it holds and the end it moves, each a gap by characters and a
  * cell by words and lines, which the line takes as it lays them out
- * (rln_mouse_drag). Otherwise it is the selection. */
+ * (rln_mouse_drag), once the pointer has moved from the press: until then
+ * the press is a click there (rln_mouse_press). Otherwise it is the
+ * selection. */
 static void vterm_mouse_show(const vterm_mouse_view_t *v)
 {
     const vterm_mouse_gesture_t *gs = &vterm_mouse_gesture;
@@ -938,6 +940,8 @@ static void vterm_mouse_show(const vterm_mouse_view_t *v)
         vterm_mouse_compute(v);
         return;
     }
+    if (!gs->dragged)
+        return;
     const vterm_mouse_pos_t start = vterm_mouse_pos(v, gs->ext_start);
     const vterm_mouse_pos_t end = vterm_mouse_pos(v, gs->ext_end);
     const vterm_mouse_pos_t held = gs->left ? end : start, to = gs->left ? start : end;
@@ -1041,15 +1045,21 @@ static void vterm_mouse_let_go(void)
 /* A press of the left button on the line the line editor is editing, at
  * point p and index of the line, selects in the line, judged against the
  * line as it is laid out now, and ends the primary's highlight. The
- * gesture holds from the press, as a drag on the screen does. */
+ * gesture holds from the press, as a drag on the screen does. The gap
+ * nearer the pointer is the one xterm's click puts the cursor at, column
+ * (x + (W - 1) / 2) / W on cells W pixels wide: after the character from
+ * pixel 5 of 8, and pixel 9 of 16. */
 static void vterm_mouse_line(const vterm_mouse_view_t *v, vterm_mouse_cell_t p, uint8_t index)
 {
-    vterm_mouse_press(v, p, TABLET_FLAG_LEFT, true, vterm_mouse_again(v, vterm_mouse_pos(v, p)));
+    const vterm_mouse_pos_t at = vterm_mouse_pos(v, p);
+    const int w = vterm_mouse_cell_px(v, at.y);
+    const bool after = vterm_mouse_px(v, p, at) >= w - (w - 1) / 2;
+    vterm_mouse_press(v, p, TABLET_FLAG_LEFT, true, vterm_mouse_again(v, at));
     vterm_mouse_hold(v, p);
     vterm_mouse_gesture.line = true;
     if (vterm_selection.shows)
         vterm_unselect();
-    rln_mouse_press(index, vterm_mouse_gesture.clicks);
+    rln_mouse_press(index, after, vterm_mouse_gesture.clicks);
 }
 
 /* A change the terminal took, with the buttons that were down before it. */
@@ -1070,7 +1080,8 @@ static void vterm_mouse_act(const vterm_mouse_event_t *e, uint8_t was)
         vterm_mouse_let_go();
     /* A contact that has gone, as a finger lifted, is nowhere, so its
      * release ends the drag where it last was. A drag in the line editor's
-     * line stays in the line, and the line's selection fills no primary. */
+     * line stays in the line, and the line fills the primary with what it
+     * selected, once it takes the drag (rln_mouse_release). */
     if (vterm_mouse_gesture.button && (e->flags & VTERM_MOUSE_PRESENT) &&
         (e->moved || (up & vterm_mouse_gesture.button)))
     {
@@ -1079,7 +1090,9 @@ static void vterm_mouse_act(const vterm_mouse_event_t *e, uint8_t was)
     }
     if (up & vterm_mouse_gesture.button)
     {
-        if (!vterm_mouse_gesture.line)
+        if (vterm_mouse_gesture.line)
+            rln_mouse_release();
+        else
             vterm_mouse_keep(&v);
         vterm_mouse_ended(vterm_mouse_gesture.button == TABLET_FLAG_LEFT &&
                           !vterm_mouse_gesture.line);

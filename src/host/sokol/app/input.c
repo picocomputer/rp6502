@@ -136,7 +136,7 @@ bool input_key_withheld(const sapp_event *e)
     if (input_is_paste_key(e))
         return e->key_repeat;
     if (e->type == SAPP_EVENTTYPE_KEY_DOWN &&
-        key_clip(sokol_to_hid(e->key_code), input_modifier(e)) == KEY_CLIP_COPY)
+        key_clip_acts(sokol_to_hid(e->key_code), input_modifier(e), e->key_repeat))
         return true;
     return e->type == SAPP_EVENTTYPE_KEY_DOWN && sokol_to_hid(e->key_code) == HID_KEY_V &&
            input_modifier(e) == KEYBOARD_MODIFIER_LEFTCTRL;
