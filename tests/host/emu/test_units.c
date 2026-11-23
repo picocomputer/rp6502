@@ -716,21 +716,22 @@ UTEST(tablet, a_program_finds_the_mouse_where_it_is)
     ASSERT_EQ(tablet_contact_x(), 50);
     ASSERT_EQ(tablet_contact_y(), 25);
 
-    /* Low on a 512-line console, held at the bottom of a 480-line canvas,
-     * and back where it was on the console. */
-    vga_set_console_size(640, 512);
-    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
-    const uint8_t down[] = {0, 126}; /* 63 reference lines */
-    for (int n = 0; n < 7; n++)
-        tablet_report(7, down, sizeof down);
-    ASSERT_EQ(tablet_contact_y(), 50 + 7 * 63);
+    /* Low on a 480-line canvas, held at the bottom of a 360-line console,
+     * and back where it was on the canvas. */
+    vga_set_console_size(640, 360);
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_480));
     tablet_task();
-    ASSERT_EQ(tablet_contact_x(), 100);
-    ASSERT_EQ(tablet_contact_y(), 479);
+    const uint8_t down[] = {0, 126}; /* 63 reference lines */
+    for (int n = 0; n < 5; n++)
+        tablet_report(7, down, sizeof down);
+    ASSERT_EQ(tablet_contact_y(), 50 + 5 * 63);
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
     tablet_task();
-    ASSERT_EQ(tablet_contact_y(), 50 + 7 * 63);
+    ASSERT_EQ(tablet_contact_x(), 100);
+    ASSERT_EQ(tablet_contact_y(), 359);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_480));
+    tablet_task();
+    ASSERT_EQ(tablet_contact_y(), 50 + 5 * 63);
     vga_set_console_size(640, 480);
 
     ASSERT_TRUE(tablet_umount(7));
