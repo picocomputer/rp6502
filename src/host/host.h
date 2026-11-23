@@ -41,6 +41,10 @@ extern "C"
     const char *host_clipboard_get(void);
     bool host_clipboard_set(const char *utf8);
 
+    /* Whether the user is at a Mac, where Cmd-C and Cmd-V copy and paste
+     * (core/hid/key.h). */
+    bool host_mac_keys(void);
+
 #ifdef __cplusplus
 }
 #endif

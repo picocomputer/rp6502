@@ -472,6 +472,16 @@ bool host_minimized(void)
     return false;
 }
 
+/* A core built for macOS runs on a Mac. */
+bool host_mac_keys(void)
+{
+#if defined(__APPLE__)
+    return true;
+#else
+    return false;
+#endif
+}
+
 /* libretro gives a core no clipboard, so the machine keeps its own. */
 const char *host_clipboard_get(void)
 {

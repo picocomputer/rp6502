@@ -9,6 +9,7 @@
 #include "core/hid/usage.h"
 #include "core/api/proc.h"
 #include "core/sys/sst.h"
+#include "host/host.h"
 #include "machine.h"
 
 /* The key whose press last acted as a chord, or 0. */
@@ -30,12 +31,13 @@ key_clip_t HOST_IN_RAM_FUNC key_clip(uint8_t keycode, uint8_t modifier)
                           (modifier & KEY_SHIFT ? KEY_SHIFT : 0) |
                           (modifier & KEY_ALT ? KEY_ALT : 0) |
                           (modifier & KEY_GUI ? KEY_GUI : 0);
+    const bool clip = held == (KEY_CTRL | KEY_SHIFT) || (held == KEY_GUI && host_mac_keys());
     switch (keycode)
     {
     case HID_KEY_C:
-        return held == (KEY_CTRL | KEY_SHIFT) || held == KEY_GUI ? KEY_CLIP_COPY : KEY_CLIP_NONE;
+        return clip ? KEY_CLIP_COPY : KEY_CLIP_NONE;
     case HID_KEY_V:
-        return held == (KEY_CTRL | KEY_SHIFT) || held == KEY_GUI ? KEY_CLIP_PASTE : KEY_CLIP_NONE;
+        return clip ? KEY_CLIP_PASTE : KEY_CLIP_NONE;
     case HID_KEY_INSERT:
         return held == KEY_CTRL    ? KEY_CLIP_COPY
                : held == KEY_SHIFT ? KEY_CLIP_PASTE

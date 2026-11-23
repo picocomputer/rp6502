@@ -12,6 +12,7 @@
 #include "core/hid/clip.h"
 #include "core/hid/paste.h"
 #include "host/host.h"
+#include "tb_seed.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/term/vterm.h"
@@ -253,11 +254,12 @@ UTEST(input, ctrl_v_types_syn)
     ASSERT_STREQ(pasted(), "\x16");
 }
 
-/* The paste keys paste the clipboard as they go down; Cmd+V's paste from
- * sokol after it pastes nothing more. */
+/* The paste keys paste the clipboard as they go down; on a Mac, Cmd+V's
+ * paste from sokol after it pastes nothing more. */
 UTEST(input, the_paste_keys_paste_the_clipboard)
 {
     start(0);
+    tb_mac_keys = true;
     ASSERT_TRUE(host_clipboard_set("text"));
     key(SAPP_KEYCODE_V, SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT, 0);
     ASSERT_STREQ(pasted(), "text");
@@ -272,6 +274,7 @@ UTEST(input, the_paste_keys_paste_the_clipboard)
     sokol_pasted();
     e.type = SAPP_EVENTTYPE_KEY_UP;
     input_event(&e);
+    tb_mac_keys = false;
     ASSERT_STREQ(pasted(), "text");
 }
 
@@ -296,6 +299,7 @@ UTEST(input, the_web_player_lets_a_paste_key_paste_once)
         {SAPP_KEYCODE_INSERT, SAPP_MODIFIER_SHIFT},
         {SAPP_KEYCODE_V, SAPP_MODIFIER_SUPER},
     };
+    tb_mac_keys = true;
     for (size_t i = 0; i < sizeof paste_keys / sizeof *paste_keys; i++)
     {
         sapp_event e = key_down(paste_keys[i].code, paste_keys[i].modifiers, false);
@@ -330,7 +334,14 @@ UTEST(input, the_web_player_lets_a_paste_key_paste_once)
             ASSERT_FALSE(input_paste_key(&e));
             ASSERT_TRUE(input_key_withheld(&e));
         }
+    tb_mac_keys = false;
     sapp_event c = key_down(SAPP_KEYCODE_C, SAPP_MODIFIER_CTRL, false);
+    ASSERT_FALSE(input_key_withheld(&c));
+    /* Off a Mac, Cmd+C and Cmd+V are the browser's. */
+    c = key_down(SAPP_KEYCODE_C, SAPP_MODIFIER_SUPER, false);
+    ASSERT_FALSE(input_key_withheld(&c));
+    c = key_down(SAPP_KEYCODE_V, SAPP_MODIFIER_SUPER, false);
+    ASSERT_FALSE(input_paste_key(&c));
     ASSERT_FALSE(input_key_withheld(&c));
     sapp_event e = {.type = SAPP_EVENTTYPE_CLIPBOARD_PASTED};
     ASSERT_FALSE(input_paste_key(&e));
@@ -353,7 +364,9 @@ UTEST(input, the_copy_keys_set_the_clipboard)
     key(SAPP_KEYCODE_INSERT, SAPP_MODIFIER_CTRL, 0);
     ASSERT_STREQ(host_clipboard_get(), "copied");
     ASSERT_TRUE(host_clipboard_set(""));
+    tb_mac_keys = true;
     key(SAPP_KEYCODE_C, SAPP_MODIFIER_SUPER, 'c');
+    tb_mac_keys = false;
     ASSERT_STREQ(host_clipboard_get(), "copied");
     ASSERT_STREQ(pasted(), "");
 }

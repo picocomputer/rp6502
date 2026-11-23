@@ -292,6 +292,21 @@ bool host_clipboard_set(const char *utf8)
     return js_clipboard_write(utf8) != 0;
 }
 
+/* The browser's platform: a Mac, or an iPhone or iPad with a keyboard. */
+EM_JS(int, js_mac_keys, (void), {
+    const p = (navigator.userAgentData && navigator.userAgentData.platform) ||
+              navigator.platform || "";
+    return /^(mac|iphone|ipad)/i.test(p) ? 1 : 0;
+});
+
+bool host_mac_keys(void)
+{
+    static int mac = -1;
+    if (mac < 0)
+        mac = js_mac_keys();
+    return mac;
+}
+
 int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)
 {
     int win_w, win_h;

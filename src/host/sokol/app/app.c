@@ -461,6 +461,15 @@ const char *host_clipboard_get(void)
     return app_clipboard_too_big ? "" : text;
 }
 
+bool host_mac_keys(void)
+{
+#if defined(__APPLE__)
+    return true;
+#else
+    return false;
+#endif
+}
+
 bool host_clipboard_set(const char *utf8)
 {
     if (sapp_isvalid())

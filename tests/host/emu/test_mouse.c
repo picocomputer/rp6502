@@ -12,6 +12,7 @@
 #include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/hid/clip.h"
+#include "tb_seed.h"
 #include "core/hid/hostkey.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/paste.h"
@@ -472,7 +473,7 @@ static hostkey_result_t chord(uint8_t usage, uint8_t modifier)
 #define GUI KEYBOARD_MODIFIER_LEFTGUI
 
 /* The copy keys put the primary in the host's clipboard, and Ctrl-Shift-C
- * raises no SIGINT. */
+ * raises no SIGINT; Cmd-C is one on a Mac. */
 UTEST(mouse, the_copy_keys_copy_the_primary)
 {
     start();
@@ -487,8 +488,13 @@ UTEST(mouse, the_copy_keys_copy_the_primary)
     ASSERT_TRUE(host_clipboard_set(""));
     ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
     ASSERT_STREQ(host_clipboard_get(), "world");
+    /* Cmd-C copies on a Mac alone. */
     ASSERT_TRUE(host_clipboard_set(""));
+    ASSERT_NE(chord(HID_KEY_C, GUI), HOSTKEY_CHORD);
+    ASSERT_STREQ(host_clipboard_get(), "");
+    tb_mac_keys = true;
     ASSERT_EQ(chord(HID_KEY_C, GUI), HOSTKEY_CHORD);
+    tb_mac_keys = false;
     ASSERT_STREQ(host_clipboard_get(), "world");
     /* A held chord acts once. */
     ASSERT_TRUE(host_clipboard_set(""));
@@ -508,7 +514,8 @@ UTEST(mouse, a_copy_of_nothing_keeps_the_clipboard)
 }
 
 /* The paste keys paste the clipboard, bracketed under ?2004 and not
- * without it; plain Ctrl-V and Ctrl-C stay the program's. */
+ * without it, Cmd-V on a Mac alone; plain Ctrl-V and Ctrl-C stay the
+ * program's. */
 UTEST(mouse, the_paste_keys_paste_the_clipboard)
 {
     start();
@@ -518,8 +525,12 @@ UTEST(mouse, the_paste_keys_paste_the_clipboard)
     show("\33[?2004h");
     ASSERT_EQ(chord(HID_KEY_INSERT, SHIFT), HOSTKEY_CHORD);
     ASSERT_STREQ(typed(), "\33[200~text\33[201~");
+    tb_mac_keys = true;
     ASSERT_EQ(chord(HID_KEY_V, GUI), HOSTKEY_CHORD);
+    tb_mac_keys = false;
     ASSERT_STREQ(typed(), "\33[200~text\33[201~");
+    ASSERT_NE(chord(HID_KEY_V, GUI), HOSTKEY_CHORD);
+    ASSERT_EQ(strstr(typed(), "text"), NULL);
     show("\33[?2004l");
     ASSERT_EQ(chord(HID_KEY_V, CTRL), HOSTKEY_TYPED);
     ASSERT_STREQ(typed(), "\x16");

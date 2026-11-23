@@ -26,9 +26,9 @@ bool key_chord(uint8_t keycode, uint8_t modifier, bool repeat);
  * asked of the terminal, so they never type, and Ctrl-Shift-C raises no
  * SIGINT:
  *
- * - copy: Ctrl-Shift-C, Ctrl-Insert and GUI-C (Cmd-C on a Mac) put the
- *   primary in the clipboard;
- * - paste: Ctrl-Shift-V, Shift-Insert and GUI-V (Cmd-V) paste the
+ * - copy: Ctrl-Shift-C and Ctrl-Insert, and on a Mac Cmd-C
+ *   (host_mac_keys), put the primary in the clipboard;
+ * - paste: Ctrl-Shift-V and Shift-Insert, and on a Mac Cmd-V, paste the
  *   clipboard.
  *
  * Plain Ctrl-C and Ctrl-V stay the program's. */
