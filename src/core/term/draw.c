@@ -105,18 +105,24 @@ static bool draw_smooth_shows(const term_grid_t *g)
     return vterm_smooth_busy(g) && vterm_smoothing.screen == (uint8_t)(g->shown - g->screen);
 }
 
-/* Mode 0's faint twins of the console's palette and default colors
- * (mode0.h) follow them once a color of them changes: all of them, as a
- * change is rare and a reset or a load changes them all. */
+/* What mode 0 draws the console's palette and default colors from
+ * (mode0.h) follows them once a color of them changes: all of it, as a
+ * change is rare and a reset or a load changes them all. The software
+ * renderer's is the faint twins, a fabric's its copy of the palette. */
 static void draw_follow_palette(void)
 {
     if (!vterm_palette_changed)
         return;
     vterm_palette_changed = false;
+#ifdef RP6502_VGA_FABRIC
+    for (unsigned i = 0; i < VTERM_PALETTE / 2; i++)
+        mode0_palette[i] = vterm_palette[2 * i] | (uint32_t)vterm_palette[2 * i + 1] << 16;
+#else
     for (unsigned i = 0; i < VTERM_PALETTE; i++)
         mode0_faint_palette[i] = mode0_faint(vterm_palette[i]);
     for (unsigned i = 0; i < MODE0_DEFAULTS; i++)
         mode0_faint_defaults[i] = mode0_faint(vterm_specials[i]);
+#endif
 }
 
 /* ---- savestate ----------------------------------------------------------
@@ -461,6 +467,8 @@ void draw_publish(void)
     mode0_regs.cursor_color = vterm_specials[VTERM_COLOR_CURSOR - VTERM_PALETTE];
     mode0_regs.highlight = draw_highlight(VTERM_COLOR_HIGHLIGHT_BG, VTERM_COLOR_FG);
     mode0_regs.highlight_text = draw_highlight(VTERM_COLOR_HIGHLIGHT_FG, VTERM_COLOR_BG);
+    mode0_regs.defaults = vterm_specials[VTERM_COLOR_FG - VTERM_PALETTE] |
+                          (uint32_t)vterm_specials[VTERM_COLOR_BG - VTERM_PALETTE] << 16;
     // With ?35 the phase stays at none, so no cell blinks.
     mode0_regs.screen = (vterm.blink_off ? 0u : d->cell_blink_phase) |
                         (vterm.reverse_screen ? MODE0_SCREEN_REVERSE : 0);

@@ -9,7 +9,10 @@
 
 #include "core/vga/pixel_format.h"
 
+#include "core/hid/tablet.h"
 #include "core/term/font.h"
+#include "core/vga/mode/mode5.h"
+#include "mode6_shapes.h"
 
 static int16_t vga_highest_scanline;
 
@@ -86,12 +89,50 @@ static bool vga_vsync_get(sst_cursor_t *c, unsigned flags)
     return true;
 }
 
+/* The pointer, mode6.sv's (core/vga/mode/mode6.h): the program's sprite
+ * array, or $FFFF for the system's shapes. A system shape is loaded into
+ * the copy of mode6.sv's image that is not showing, at the size of the
+ * canvas, and then named, which mode6.sv takes as the next frame starts. A
+ * frame must have started since, so the copy showing is never the one
+ * written. */
+static uint16_t vga_ptr_config = 0xFFFF;
+static uint8_t vga_ptr_loaded; /* the system shape showing, 0 for none */
+static bool vga_ptr_small;     /* at the 320-wide canvases' size */
+static uint8_t vga_ptr_copy;   /* the copy it is in */
+static bool vga_ptr_flipping;  /* named since the frame vga_ptr_flipped */
+static uint32_t vga_ptr_flipped;
+
+/* mode6.sv's config is written again after a load, and the system shape
+ * loaded again, into the copy that is not named. */
+static void vga_ptr_put(sst_cursor_t *c, unsigned flags)
+{
+    (void)c;
+    (void)flags;
+}
+
+static bool vga_ptr_get(sst_cursor_t *c, unsigned flags)
+{
+    (void)c;
+    (void)flags;
+    VID_PTR_CONFIG = vga_ptr_config;
+    vga_ptr_loaded = 0;
+    vga_ptr_flipping = false;
+    return true;
+}
+
 #define VGA_FABRIC_SST(X)                                               \
     X(I16, vga_highest_scanline)                                        \
     X(U32S, vga_mode0_mask)                                             \
     X(I16, vga_mode0_plane)                                             \
     X(VALIDATE, vga_fabric_check)                                       \
-    X(FN, vga_vsync_put, vga_vsync_get, 0, 1)
+    X(FN, vga_vsync_put, vga_vsync_get, 0, 1)                           \
+    X(U16, vga_ptr_config)                                              \
+    X(FN, vga_ptr_put, vga_ptr_get, 0, 1)                               \
+    X(SKIP, vga_ptr_loaded, "loaded again after a load")               \
+    X(SKIP, vga_ptr_small, "loaded again after a load")                \
+    X(SKIP, vga_ptr_copy, "loaded again after a load")                 \
+    X(SKIP, vga_ptr_flipping, "loaded again after a load")             \
+    X(SKIP, vga_ptr_flipped, "loaded again after a load")
 SST_TABLE(vga_fabric, VGA_FABRIC_SST)
 
 /* The scanline table is prog.sv's: a word for a plane's fill and one for
@@ -178,16 +219,71 @@ void vga_canvas_publish(vga_canvas_t canvas)
     VID_CANVAS = canvas;
 }
 
-/* font.c's tables are linked onto the font memories, so these write them. */
-/* The fabric draws no pointer yet. */
-void vga_set_pointer(uint8_t shape, int16_t x, int16_t y)
+/* Loads system shape `shape` at the canvas's size into the copy of
+ * mode6.sv's image that is not showing, as core/vga/mode/mode6.c copies
+ * it: its image a word at a time, the first byte in the low bits, as XRAM
+ * reads, and its hot spot and size. */
+static void vga_ptr_load(uint8_t shape, bool small)
 {
-    (void)shape, (void)x, (void)y;
+    const mode6_shape_t *m = &MODE6_SHAPES[shape][small];
+    const uint32_t bytes = mode5_custom_bytes(m->width_height, 2);
+    const uint8_t copy = !vga_ptr_copy;
+    for (uint32_t w = 0; w * 4 < bytes; w++)
+    {
+        uint32_t word = 0;
+        for (uint32_t b = 0; b < 4 && w * 4 + b < bytes; b++)
+            word |= (uint32_t)MODE6_DATA[m->offset + w * 4 + b] << (8 * b);
+        VID_PTR_IMG(copy, w) = word;
+    }
+    VID_PTR_SYS(copy) = m->hot_x | (uint32_t)m->hot_y << 8 |
+                        (uint32_t)m->width_height << 16;
+    vga_ptr_copy = copy;
+    vga_ptr_loaded = shape;
+    vga_ptr_small = small;
 }
 
+/* As core/vga/vga.c's: the host's own cursor, where it shows one, stands
+ * for the system's shapes. A shape not yet loaded shows the one that is
+ * until a frame has started since the last was named. The frame is read
+ * after the name is written, so a frame that starts between the two only
+ * holds the next load back a frame longer. */
+void vga_set_pointer(uint8_t shape, int16_t x, int16_t y)
+{
+    VID_PTR_WHERE = (uint16_t)x | (uint32_t)(uint16_t)y << 16;
+    bool loaded = false;
+    if (vga_ptr_config == 0xFFFF)
+    {
+        if (tablet_host_cursor_shown() || shape >= MODE6_SHAPE_COUNT)
+            shape = 0;
+        const bool small = vga_canvas_width() <= 320;
+        if (shape && (shape != vga_ptr_loaded || small != vga_ptr_small))
+        {
+            if (vga_ptr_flipping && VID_FRAME == vga_ptr_flipped)
+                shape = vga_ptr_loaded;
+            else
+            {
+                vga_ptr_load(shape, small);
+                loaded = true;
+            }
+        }
+    }
+    VID_PTR_SHAPE = shape | (uint32_t)vga_ptr_copy << 8;
+    if (loaded)
+    {
+        vga_ptr_flipping = true;
+        vga_ptr_flipped = VID_FRAME;
+    }
+}
+
+/* The shape is taken off with a new config, as they latch together, so no
+ * frame draws a shape number of one kind as the other. The tablet's next
+ * vga_set_pointer names it again. */
 bool vga_prog_pointer(uint16_t config_ptr)
 {
-    (void)config_ptr;
+    if (config_ptr != vga_ptr_config)
+        VID_PTR_SHAPE = (uint32_t)vga_ptr_copy << 8;
+    vga_ptr_config = config_ptr;
+    VID_PTR_CONFIG = config_ptr;
     return true;
 }
 

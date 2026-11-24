@@ -10,6 +10,14 @@
  * and the engines can start as soon as the slots are decoded.
  * Sprites paint in list order within a slot; across slots, compose
  * stacks the planes.
+ *
+ * The pointer (mode/mode6.sv) is one more mode 5 custom sprite, drawn
+ * after the top plane's into its buffer, so its opaque pixels are over
+ * every plane, as core/vga/mode/mode6.c draws it into the top plane's
+ * line. A row that runs out of time drops it like any other sprite. A
+ * program's pointer is its descriptor in XRAM. The system's shape is a
+ * descriptor of mode6.sv's registers, its image read from mode6.sv in
+ * place of XRAM, and its palette the greys.
  */
 
 module sprite (
@@ -45,8 +53,39 @@ module sprite (
      * which keeps one engine's request logic out of the other's. */
     output logic sprite_a_req,
     output logic [13:0] sprite_a_addr,
-    input logic [31:0] a_rdata
+    input logic [31:0] a_rdata,
+
+    /* The pointer, as mode6.sv has it for this frame. */
+    input logic m6_on,
+    input logic m6_sys,
+    input logic [15:0] m6_at,
+    input logic signed [15:0] m6_x,
+    input logic signed [15:0] m6_y,
+    input logic [7:0] m6_hot_x,
+    input logic [7:0] m6_hot_y,
+    input logic [7:0] m6_wh,
+    output logic [6:0] sprite_img_addr,
+    input logic [31:0] m6_q
 );
+
+    /* The pointer's pass, after the top plane's sprites; and the system's
+     * shape, which reads nothing from XRAM. */
+    logic ptr;
+    logic ptr_sys;
+    always_comb ptr_sys = ptr && m6_sys;
+    /* The system shape's descriptor: its hot spot, its image at 0 of
+     * mode6.sv's, an odd palette pointer, which names no palette in
+     * XRAM, its size, and 4 bits a pixel. */
+    logic [79:0] sys_dsc;
+    always_comb sys_dsc = {8'h02, m6_wh, 16'hFFFF, 16'h0000,
+                           8'd0, m6_hot_y, 8'd0, m6_hot_x};
+    /* The words the row word queue takes: the image's from mode6.sv,
+     * which answers on XRAM's clock, for the system's shape. */
+    logic [31:0] rq_rdata;
+    always_comb begin
+        sprite_img_addr = rq_addr[6:0];
+        rq_rdata = ptr_sys ? m6_q : a_rdata;
+    end
 
     /* The engines and the palette cache work a row at a time, so they are
      * aborted and flushed where a row starts, not on the second line of a
@@ -99,6 +138,7 @@ module sprite (
         .lookup(pal_lookup),
         .xram(pal_xram),
         .one_bpp(pal_one_bpp),
+        .grey(ptr_sys),
         .base(pal_base),
         .idx_a(pal_idx),
         .idx_b(pal_idx_b),
@@ -118,9 +158,12 @@ module sprite (
         .clk(clk),
         .start(m5_start),
         .abort_i(row_start),
-        .attr(slot_entry[15:0]),
+        .attr(ptr ? 16'h0038 : slot_entry[15:0]),
         .t_row(t_row),
         .cw(cw),
+        .ptr(ptr),
+        .ptr_x(m6_x),
+        .ptr_y(m6_y),
         .mode5_a_req(m5_a_req),
         .mode5_a_addr(m5_a_addr),
         .a_gnt(state == SP_RUN && !pc_req),
@@ -130,9 +173,9 @@ module sprite (
         .mode5_lq_gnt(m5_lq_gnt),
         .lq_req(lq_req),
         .lq_addr(lq_addr),
-        .lq_dsc(lq_dsc[79:0]),
-        .lq_v(lq_v),
-        .lq_end(lq_end),
+        .lq_dsc(ptr_sys ? sys_dsc : lq_dsc[79:0]),
+        .lq_v(ptr_sys || lq_v),
+        .lq_end(ptr_sys || lq_end),
         .mode5_rq_run(m5_rq_run),
         .mode5_rq_first(m5_rq_first),
         .mode5_rq_last(m5_rq_last),
@@ -228,6 +271,9 @@ module sprite (
                                                   : 17'd0))
             - 17'd1;
     end
+    /* A program's pointer is a list of its one descriptor. */
+    logic [16:0] ptr_end;
+    always_comb ptr_end = {1'b0, m6_at} + 17'd9;
     logic m4_lq_active, m4_lq_pop, m4_lq_gnt;
     logic m5_lq_active, m5_lq_pop, m5_lq_gnt;
     logic [3:0] m4_lq_size, m5_lq_size;
@@ -237,12 +283,12 @@ module sprite (
     listq listq (
         .clk(clk),
         .start(m4_start || m5_start),
-        .cfg(slot_cfg[15:0]),
-        .last(list_end[15:2]),
-        .length(slot_cfg[29:16]),
-        .active(run4 ? m4_lq_active : m5_lq_active),
+        .cfg(ptr ? m6_at : slot_cfg[15:0]),
+        .last(ptr ? ptr_end[15:2] : list_end[15:2]),
+        .length(ptr ? 14'd1 : slot_cfg[29:16]),
+        .active(run4 ? m4_lq_active : m5_lq_active && !ptr_sys),
         .size(run4 ? m4_lq_size : m5_lq_size),
-        .pop(run4 ? m4_lq_pop : m5_lq_pop),
+        .pop(run4 ? m4_lq_pop : m5_lq_pop && !ptr_sys),
         .gnt(run4 ? m4_lq_gnt : m5_lq_gnt),
         .a_rdata(a_rdata),
         .listq_req(lq_req),
@@ -269,7 +315,7 @@ module sprite (
         .pop(run4 ? m4_rq_pop : m5_rq_pop),
         .pop_room(run4 ? m4_rq_pop_room : m5_rq_pop_room),
         .gnt(state == SP_RUN && (run4 || !pc_req)),
-        .a_rdata(a_rdata),
+        .a_rdata(rq_rdata),
         .rowq_req(rq_req),
         .rowq_addr(rq_addr),
         .rowq_q0(rq_q0),
@@ -335,10 +381,19 @@ module sprite (
         end
     endgenerate
 
+    /* After the top plane, the pointer, on the top plane's buffer. */
     task automatic next_plane();
-        if (p == 2'd2)
+        if (ptr)
             state <= SP_IDLE;
-        else begin
+        else if (p == 2'd2) begin
+            if (m6_on) begin
+                ptr <= 1'b1;
+                run4 <= 1'b0;
+                m5_start <= 1'b1;
+                state <= SP_RUN;
+            end else
+                state <= SP_IDLE;
+        end else begin
             p <= p + 2'd1;
             state <= SP_SLOT;
         end
@@ -353,6 +408,7 @@ module sprite (
         m4_start = 1'b0;
         m5_start = 1'b0;
         run4 = 1'b0;
+        ptr = 1'b0;
         wr_bank = 1'b0;
         flip_next = 1'b0;
     end
@@ -369,6 +425,7 @@ module sprite (
                 wr_bank <= !wr_bank;
             flip_next <= 1'b0;
             p <= '0;
+            ptr <= 1'b0;
             s_cfg <= 1'b0;
             state <= SP_SLOT;
         end else begin
@@ -418,7 +475,8 @@ module sprite (
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_sprite;
     always_comb unused_sprite = ^{slot_entry[31:19], slot_cfg[31:30],
-                                      list_end[16], list_end[1:0]};
+                                      list_end[16], list_end[1:0],
+                                      ptr_end[16], ptr_end[1:0]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

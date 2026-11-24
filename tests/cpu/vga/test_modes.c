@@ -62,6 +62,34 @@ static void run_case(int *utest_result, const char *name, uint32_t expect,
         ASSERT_EQ((int)b, (int)claim);
 }
 
+/* The pointer at x,y of the canvas of a program's mode 6 ROM, which asks
+ * for its shape, with the frame's CRC. expect 0 is the frame with no
+ * pointer at all. */
+static void run_pointer(int *utest_result, const char *name, int x, int y,
+                        uint32_t expect)
+{
+    int w, h;
+    ASSERT_TRUE(corpus_size(name, &w, &h));
+    const size_t bytes = (size_t)w * (size_t)h * sizeof(uint32_t);
+    char path[256];
+    snprintf(path, sizeof(path), "%s/%s.rp6502", ROMS_DIR, name);
+    ASSERT_TRUE(mut_boot(path));
+    ASSERT_TRUE(settle(settled, w, h));
+    const uint32_t plain = host_crc32(0, settled, bytes);
+    mut_pointer(x, y, 0, w, h);
+    ASSERT_TRUE(settle(settled, w, h));
+    const uint32_t got = host_crc32(0, settled, bytes);
+    if (!expect)
+        ASSERT_EQ(got, plain);
+    else if (getenv("RP6502_BLESS_CRC"))
+        printf("    0x%08X,  /* %s */\n", got, name);
+    else
+    {
+        ASSERT_NE(got, plain);
+        ASSERT_EQ(got, expect);
+    }
+}
+
 /* A smooth scroll, drawn frame by frame. Frames in a row that are the same
  * are one picture, so the boot, which takes a different number of frames on
  * each machine, falls away. The scroll's pictures, between the one it starts
@@ -930,3 +958,38 @@ UTEST(mode5c, a_320_row_spends_two_lines_of_doubled_sprites)
 }
 
 MUT_MAIN()
+
+UTEST(mode6, a_programs_pointer_by_its_hot_spot_320x240)
+{
+    run_pointer(utest_result, "mode6_custom", 100, 80, 0x4CB04A17u);
+}
+
+UTEST(mode6, a_programs_pointer_doubled_320x240)
+{
+    run_pointer(utest_result, "mode6_custom_dbl", 60, 40, 0x8075CEE9u);
+}
+
+UTEST(mode6, a_programs_pointer_flipped_at_the_corner_320x240)
+{
+    run_pointer(utest_result, "mode6_custom_flip", 316, 236, 0x220ED190u);
+}
+
+UTEST(mode6, the_last_sprite_xram_holds_320x240)
+{
+    run_pointer(utest_result, "mode6_custom_end", 100, 60, 0x62525455u);
+}
+
+UTEST(mode6, a_sprite_past_xram_draws_nothing_320x240)
+{
+    run_pointer(utest_result, "mode6_custom_past", 100, 60, 0);
+}
+
+UTEST(mode6, a_system_shape_at_320_size_320x240)
+{
+    run_pointer(utest_result, "mode6_system320", 80, 60, 0xEB3693E6u);
+}
+
+UTEST(mode6, a_system_shape_at_640_size_640x480)
+{
+    run_pointer(utest_result, "mode6_system640", 100, 60, 0xA7FB0A8Bu);
+}

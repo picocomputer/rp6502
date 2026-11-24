@@ -83,13 +83,14 @@ bool mut_has_pointer(void)
     return true;
 }
 
-/* The host draws its own cursor, as the emulator's window does, so no
- * pointer is drawn into the frame. */
+/* A host that draws no cursor of its own, as libretro's and the Pocket's
+ * benches are, so the system's pointer is drawn into the frame on every
+ * bench alike. */
 void mut_pointer(int x, int y, uint8_t buttons, int w, int h)
 {
     (void)w;
     (void)h;
-    tablet_host_pointer(x, y, buttons, true);
+    tablet_host_pointer(x, y, buttons, false);
 }
 
 void mut_pointer_gone(void)

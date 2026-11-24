@@ -132,6 +132,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         COMMAND ${RISCV_OBJCOPY} -O binary ${RP6502_ASSETS}/sw.elf ${SW_BIN}
         DEPENDS ${SW_SOURCES} ${SW_HEADERS} ${SW_SRC}/link.ld
             ${RP6502_GEN}/rsmp_half.h
+            ${RP6502_GEN}/mode6_shapes.h
             ${RP6502_GEN}/pocket_version.h
         COMMENT "Cross-compiling the soft CPU firmware"
         VERBATIM)

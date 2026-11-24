@@ -15,7 +15,8 @@
  * VIDCELLS, VIDCOLORS and VIDPALETTE are the memories of mode0.sv and
  * VIDREGS its registers. core/vga/mode/mode0.c's cells, colors, palette
  * and words go there, so screen.c and draw.c write them where they are
- * drawn from.
+ * drawn from. The palette takes whole words and cannot be read back, and
+ * draw.c copies the console's palette to it that way.
  * The lengths are the memories' in mode0.sv, which hold 30 rows of the
  * 40- and 80-column terminals, each with a primary and an alternate
  * screen. The registers take whole words only.
@@ -32,10 +33,10 @@ MEMORY
     ROM (rx) : ORIGIN = 0x00000000, LENGTH = 256K
     RAM (rw) : ORIGIN = 0x00040000, LENGTH = 64K
     VIDCELLS (rw) : ORIGIN = 0x50000000, LENGTH = 29760
-    VIDREGS (rw) : ORIGIN = 0x50010000, LENGTH = 156
+    VIDREGS (rw) : ORIGIN = 0x50010000, LENGTH = 168
     VIDFONT (rw) : ORIGIN = 0x50040000, LENGTH = 16K
     VIDCOLORS (rw) : ORIGIN = 0x50080000, LENGTH = 44640
-    VIDPALETTE (rw) : ORIGIN = 0x50100000, LENGTH = 1032
+    VIDPALETTE (rw) : ORIGIN = 0x50100000, LENGTH = 512
 }
 
 ENTRY(_start)
@@ -78,8 +79,8 @@ SECTIONS
     } > VIDREGS
     ASSERT(SIZEOF(.vidcells) == 29760, "mode0_cells is not mode0.sv's cells")
     ASSERT(SIZEOF(.vidcolors) == 44640, "mode0_colors is not mode0.sv's colors")
-    ASSERT(SIZEOF(.vidpalette) == 1032, "mode0_palette is not mode0.sv's palette")
-    ASSERT(SIZEOF(.vidregs) == 156, "mode0_regs is not on mode0.sv's registers")
+    ASSERT(SIZEOF(.vidpalette) == 512, "mode0_palette is not mode0.sv's palette")
+    ASSERT(SIZEOF(.vidregs) == 168, "mode0_regs is not on mode0.sv's registers")
 
     /* These come before .bss for the same reason. The sizes are the
      * fonts' sizes in font.sv. */

@@ -459,6 +459,24 @@ def emit_h(path, shapes):
     build.write_text(path, "\n".join(lines))
 
 
+def grey_pixels():
+    """The palette of the system's shapes as pixels: entry 0 clear, and
+    each grey with the opaque bit, which mode6.c makes at init."""
+    return [0] + [g | g << 6 | g << 11 | 0x20 for g in grey_levels()]
+
+
+def emit_sv(path):
+    pixels = ", ".join(f"16'h{v:04X}" for v in grey_pixels())
+    lines = [HEADER, "package mode6_pkg;", "",
+             "    /* The palette of the system's pointer shapes: entry 0 clear, then",
+             "     * the greys, opaque. */",
+             f"    localparam logic [15:0] MODE6_GREY [16] = '{{",
+             f"        {pixels}",
+             "    };", "",
+             "endpackage", ""]
+    build.write_text(path, "\n".join(lines))
+
+
 def emit_png(path, shapes, scale=6):
     """Every shape, 640 size on a light and a dark band, then 320 size the
     same, each pixel scale times over, with its hot spot marked red."""
@@ -502,6 +520,7 @@ def main():
         return shapes
     args = build.generate(
         c={"mode6_shapes.h": lambda p: emit_h(p, get())},
+        sv={"mode6_pkg.sv": emit_sv},
         extra=lambda ap: ap.add_argument("--png", metavar="FILE"))
     if args.png:
         emit_png(args.png, get())

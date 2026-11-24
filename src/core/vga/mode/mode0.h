@@ -140,13 +140,18 @@ typedef struct
 /* The colors a cell can name, in bits 15:6 of a color whose opaque bit is
  * clear: 8 bits of an entry of the console's palette (vterm_palette), then
  * a bit for faint, SGR 2, so bits 8:0 are the address of a palette of 512,
- * the console's 256 then mode 0's faint ones (mode0_faint_palette). A bit
- * above them says the color is a default instead, the foreground or the
- * background by bit 0, which are two of the console's special colors
- * (vterm_specials), or with the faint bit mode 0's faint defaults
- * (mode0_faint_defaults). draw.c makes the faint ones from the console's.
+ * the console's 256 then their faint twins. A bit above them says the color
+ * is a default instead, the foreground or the background by bit 0, which
+ * are two of the console's special colors (vterm_specials), or with the
+ * faint bit their faint twins. A faint color is mode0_faint of its own.
  * MODE0_ENTRY names a color by the console's number for it, 0 to 255 for
- * the palette and MODE0_DEFAULT_FG or _BG for the defaults. */
+ * the palette and MODE0_DEFAULT_FG or _BG for the defaults.
+ *
+ * The software renderer keeps the faint twins in tables (mode0_faint_palette
+ * and mode0_faint_defaults), which draw.c makes from the console's. A fabric
+ * halves the channels in wiring as it draws, and reads the palette from its
+ * own memory (mode0_palette), which draw.c copies the console's palette to,
+ * two entries a word, entry 0 in the low half. */
 #define MODE0_DEFAULT_FG 256
 #define MODE0_DEFAULT_BG 257
 #define MODE0_DEFAULTS 2
@@ -159,8 +164,12 @@ typedef struct
                       : MODE0_CODE_DEFAULT | ((unsigned)(entry) - VTERM_PALETTE)) |    \
                  ((faint) ? MODE0_CODE_FAINT : 0u))                                     \
                 << MODE0_ENTRY_SHIFT))
+#ifdef RP6502_VGA_FABRIC
+extern volatile uint32_t mode0_palette[VTERM_PALETTE / 2];
+#else
 extern uint16_t mode0_faint_palette[VTERM_PALETTE];
 extern uint16_t mode0_faint_defaults[MODE0_DEFAULTS];
+#endif
 
 _Static_assert(MODE0_DEFAULT_FG == VTERM_COLOR_FG && MODE0_DEFAULT_BG == VTERM_COLOR_BG &&
                    VTERM_PALETTE == 256,
@@ -169,6 +178,7 @@ _Static_assert(MODE0_DEFAULT_FG == VTERM_COLOR_FG && MODE0_DEFAULT_BG == VTERM_C
 _Static_assert(MODE0_ENTRY_SHIFT == SCANVIDEO_ALPHA_PIN + 1,
                "a color's code sits above the opaque bit, which is clear for one");
 
+#ifndef RP6502_VGA_FABRIC
 /* The pixel of a faint color, of the palette or a default, by its code. */
 uint16_t mode0_color_rest(unsigned code);
 
@@ -186,6 +196,7 @@ static inline uint16_t mode0_color(uint16_t color)
         return vterm_specials[code & 1];
     return mode0_color_rest(code);
 }
+#endif
 
 /* A bold cell's ink: entries 0 to 7 of the palette, faint or not, are drawn
  * 8 above, and the default foreground, faint or not, as entry 15. */
@@ -277,6 +288,10 @@ extern mode0_colors_t mode0_colors[MODE0_CELLS];
  *   selection's text, the same way: MODE0_HIGHLIGHT when it is neither the
  *   default background as DECSCNM shows it now nor the default background
  *   at power-up (use_selfg, with T_COLOR(TEXT_BG) and dft_background).
+ * defaults: the default foreground in bits 15:0 and the default background
+ *   in bits 31:16, the console's (vterm_specials), as pixels. A fabric draws
+ *   the default colors from them; the software renderer reads the
+ *   console's.
  *
  * A cell shows its colors as xterm's updatedXtermGC draws them, with
  * highlightColorMode and highlightReverse on. Its ink is made bright when
@@ -336,6 +351,7 @@ typedef struct
     uint32_t cursor_color;
     uint32_t highlight;
     uint32_t highlight_text;
+    uint32_t defaults;
     uint32_t screen;
     uint32_t smooth;
     uint32_t smooth_frame;
