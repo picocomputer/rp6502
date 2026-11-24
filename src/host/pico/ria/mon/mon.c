@@ -68,6 +68,9 @@ static mon_confirm_fn mon_confirm_cb;
 // The command prompt's history. Nothing else here allocates, so it has the
 // whole heap for its lines.
 static rln_history_t mon_history = {.alloc = malloc, .free = free};
+
+// What the command prompt's kill keys took, kept while a program runs.
+static rln_kill_t mon_kill;
 static enum {
     MON_MORE_OFF,
     MON_MORE_START,
@@ -226,6 +229,7 @@ void mon_response_confirm(mon_confirm_fn cb)
 void HOST_IN_FLASH_FUNC mon_forget_line(void)
 {
     rln_history_forget(&mon_history);
+    mon_kill.len = 0;
 }
 
 static int HOST_IN_FLASH_FUNC mon_utf8_response(char *buf, size_t buf_size,
@@ -678,9 +682,9 @@ static void HOST_IN_RAM_FUNC mon_step(void)
         mon_response_width_aware = false;
         ria_get_sigint(); // discard any SIGINT raised while monitor was idle
         if (mon_confirm_cb)
-            rln_read_line(mon_confirm_enter, NULL);
+            rln_read_line(mon_confirm_enter, NULL, NULL);
         else
-            rln_read_line(mon_enter, &mon_history);
+            rln_read_line(mon_enter, &mon_history, &mon_kill);
         return;
     }
     // A Ctrl-C cancels the line once no whole item is waiting.

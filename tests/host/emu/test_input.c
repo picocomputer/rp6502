@@ -350,9 +350,12 @@ UTEST(input, the_web_player_lets_a_paste_key_paste_once)
     ASSERT_FALSE(input_key_withheld(&e));
 }
 
+static char line_got[RLN_LINE_MAX];
+
 static void line_read(bool timeout, const char *buf)
 {
-    (void)timeout, (void)buf;
+    (void)timeout;
+    strcpy(line_got, buf);
 }
 
 /* The line editor's turn, and the paste's. */
@@ -365,11 +368,12 @@ static void line_loop(void)
     }
 }
 
-/* The web player withholds a cut key from the browser only when it cuts,
- * with the line editor's selection showing, and then its repeat too, as
- * the chord it is; with none, the key types as before and the browser
- * has it. Off a Mac, Cmd+X is always the browser's. */
-UTEST(input, the_web_player_withholds_a_cut_key_that_cuts)
+/* The web player withholds a cut key from the browser while a line is
+ * being read, when the key is the line editor's, and then its repeat too,
+ * as the chord it is; with no line being read the key types as before and
+ * the browser has it, its repeats too. Off a Mac, Cmd+X is always the
+ * browser's. */
+UTEST(input, the_web_player_withholds_a_cut_key_while_a_line_is_read)
 {
     static const struct
     {
@@ -383,18 +387,26 @@ UTEST(input, the_web_player_withholds_a_cut_key_that_cuts)
     sys_init();
     manifold_set_paced(false);
     start(0);
-    rln_read_line(line_read, NULL);
-    line_loop();
-    typed_push("abcdef", 6);
-    line_loop();
     tb_mac_keys = true;
     for (size_t i = 0; i < sizeof cut_keys / sizeof *cut_keys; i++)
     {
         sapp_event e = key_down(cut_keys[i].code, cut_keys[i].modifiers, false);
         ASSERT_FALSE(input_key_withheld(&e));
+        input_event(&e);
+        e.key_repeat = true;
+        ASSERT_FALSE(input_key_withheld(&e));
+        e.type = SAPP_EVENTTYPE_KEY_UP;
+        input_event(&e);
+    }
+    typed_reset();
+    rln_read_line(line_read, NULL, NULL);
+    line_loop();
+    typed_push("abcdef", 6);
+    line_loop();
+    for (size_t i = 0; i < sizeof cut_keys / sizeof *cut_keys; i++)
+    {
         key(SAPP_KEYCODE_LEFT, SAPP_MODIFIER_SHIFT, 0);
-        line_loop();
-        ASSERT_TRUE(rln_selected());
+        sapp_event e = key_down(cut_keys[i].code, cut_keys[i].modifiers, false);
         ASSERT_TRUE(input_key_withheld(&e));
         input_event(&e);
         e.key_repeat = true;
@@ -402,21 +414,12 @@ UTEST(input, the_web_player_withholds_a_cut_key_that_cuts)
         e.type = SAPP_EVENTTYPE_KEY_UP;
         input_event(&e);
         line_loop();
-        ASSERT_FALSE(rln_selected());
-        e = key_down(cut_keys[i].code, cut_keys[i].modifiers, false);
-        ASSERT_FALSE(input_key_withheld(&e));
     }
-    /* A press that typed is followed by repeats that type, which the
-     * browser has too. */
-    sapp_event e = key_down(SAPP_KEYCODE_X, SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT, false);
-    input_event(&e);
-    e.key_repeat = true;
-    ASSERT_FALSE(input_key_withheld(&e));
-    tb_mac_keys = false;
-    key(SAPP_KEYCODE_LEFT, SAPP_MODIFIER_SHIFT, 0);
+    typed_push("\r", 1);
     line_loop();
-    ASSERT_TRUE(rln_selected());
-    e = key_down(SAPP_KEYCODE_X, SAPP_MODIFIER_SUPER, false);
+    ASSERT_STREQ(line_got, "abc");
+    tb_mac_keys = false;
+    sapp_event e = key_down(SAPP_KEYCODE_X, SAPP_MODIFIER_SUPER, false);
     ASSERT_FALSE(input_key_withheld(&e));
 }
 

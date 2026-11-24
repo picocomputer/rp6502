@@ -13,6 +13,7 @@
 #include "core/com/manifold.h"
 #include "core/com/tio.h"
 #include "core/hid/clip.h"
+#include "core/hid/paste.h"
 #include "core/sys/driver.h"
 #include "core/term/grid.h"
 #include "core/term/vterm.h"
@@ -73,6 +74,13 @@ _Static_assert(RLN_LASTKEY_MAX >= TIO_ITEM_MAX, "every key fits the last key");
 
 // The history of the read in progress, its caller's, or NULL for none.
 static rln_history_t *rln_history;
+
+/* The read's kill buffer, or none, and whether the key before this one
+ * killed, when this one's kill joins that one's: before it for a kill that
+ * reaches back from the cursor, after it for one that reaches on. */
+static rln_kill_t *rln_kill;
+static bool rln_kill_joins;
+static bool rln_killed;
 
 // Input state
 static char rln_buf[RLN_BUF_SIZE];
@@ -136,9 +144,10 @@ static uint8_t rln_sel_anchor;
 static uint8_t rln_sel_end;
 static bool rln_hl_due;
 
-/* The selection as the key being dispatched found it, for a typed
- * character to replace and Delete and Backspace to delete. Set and spent
- * inside one dispatch. */
+/* The selection as the key being dispatched found it, for the key to act
+ * on: a typed character and Ctrl-Y replace it, Delete and Backspace
+ * delete it, and the keys that kill a word kill it. Set and spent inside
+ * one dispatch. */
 static uint8_t rln_edit_from;
 static uint8_t rln_edit_to;
 
@@ -165,16 +174,16 @@ static uint8_t rln_drag_at;
 static uint8_t rln_press_unit;
 static bool rln_mouse_up;
 
-/* The cut or paste key pressed with the line's selection showing, which
- * the task takes after the keys waiting, as it takes the mouse, or none.
- * A later one takes the place of one still to take, as a later press of
- * the mouse does. With the mouse due too, they are taken in the order they
- * came: the key first when it came before the mouse became due. */
+/* The copy or cut key pressed while the line is read, which the task takes
+ * after the keys waiting, as it takes the mouse, or none. A cut takes the
+ * place of a copy still to take, as it copies too. With the mouse due too,
+ * they are taken in the order they came: the key first when it came before
+ * the mouse became due. */
 enum
 {
     RLN_KEY_NONE,
+    RLN_KEY_COPY,
     RLN_KEY_CUT,
-    RLN_KEY_PASTE,
 };
 static uint8_t rln_key_due;
 static bool rln_key_first;
@@ -400,7 +409,8 @@ bool HOST_IN_RAM_FUNC rln_replying(void)
 /* A callback is a function pointer, which cannot be written to a blob, so
  * it is saved as a token. console.c's reader is the only one this file can
  * name, and any other callback fails the save rather than being restored
- * as the wrong reader. Its reads have no history, so none is carried. */
+ * as the wrong reader. Its reads have no history, so none is carried, and
+ * their kill buffer is the console's, which the console carries. */
 static void rln_sst_put_one(sst_cursor_t *c, rln_read_callback_t reader)
 {
     if (!reader)
@@ -432,6 +442,8 @@ static bool rln_sst_get_reader(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     rln_history = NULL;
+    rln_kill = console_rln_kill();
+    rln_killed = false;
     return rln_sst_get_one(c, &rln_callback) &&
            rln_sst_get_one(c, &rln_out_then);
 }
@@ -475,7 +487,7 @@ static bool rln_sst_valid(sst_cursor_t *c)
     if (rln_sel_anchor > rln_buflen || rln_sel_end > rln_buflen ||
         rln_press_unit > RLN_UNIT_CLICK || (rln_mouse_due && rln_press_unit == RLN_UNIT_NONE) ||
         (rln_mouse_up && !rln_mouse_due) ||
-        (rln_screen > 1 && rln_screen != RLN_NO_ROW) || rln_key_due > RLN_KEY_PASTE)
+        (rln_screen > 1 && rln_screen != RLN_NO_ROW) || rln_key_due > RLN_KEY_CUT)
         return sst_refuse(c, "a selection past its line");
     for (unsigned i = 0; i < RLN_SOURCE_COUNT; i++)
         if (rln_paste_in[i] > RLN_PASTE_DROPPING)
@@ -513,6 +525,8 @@ static bool rln_sst_valid(sst_cursor_t *c)
     X(BOOL, rln_erase_el)                                               \
     X(IN_FN, rln_callback)                                              \
     X(IN_FN, rln_history, "its caller's, so the load sets none")        \
+    X(IN_FN, rln_kill, "the console's, which the load sets")            \
+    X(IN_FN, rln_killed, "a load ends a run of kills, as a key does")   \
     X(U64, rln_idle_deadline, "machine time, so carried whole")         \
     X(U8, rln_buflen)                                                   \
     X(U8, rln_bufpos)                                                   \
@@ -562,6 +576,7 @@ static bool rln_sst_valid(sst_cursor_t *c)
     X(SKIP, rln_line_src, "read only inside the read's callback")       \
     X(SKIP, rln_edit_from, "set and spent inside one dispatch")         \
     X(SKIP, rln_edit_to, "set and spent inside one dispatch")           \
+    X(SKIP, rln_kill_joins, "set and spent inside one dispatch")        \
     X(SKIP, rln_plain, "host wiring")
 SST_TABLE(rln, RLN_SST_ROWS)
 
@@ -739,8 +754,8 @@ static void rln_clamp_cursor(void)
         rln_bufpos = m;
 }
 
-// Cut the line to what the layout can hold, so buflen <= effective_max
-// always holds (overwrite edits in place without a cap check).
+// Cut the line to what the layout can hold, so a line laid out again is no
+// longer than its rows (overwrite edits in place without a cap check).
 static void rln_fit(void)
 {
     uint8_t cap = rln_effective_max();
@@ -993,12 +1008,12 @@ static void rln_selection_follow(void)
         rln_sel_anchor = rln_sel_end;
 }
 
-/* A key still to take when the read ends: a paste pastes, as the paste
- * keys do with no read, and a cut has no line left to cut from. */
+/* A key still to take when the read ends: a copy copies the primary, as
+ * the copy keys do with no read, and a cut has no line left to cut from. */
 static void rln_key_end(void)
 {
-    if (rln_key_due == RLN_KEY_PASTE)
-        clip_paste(CLIP_CLIPBOARD);
+    if (rln_key_due == RLN_KEY_COPY)
+        clip_copy_primary();
     rln_key_due = RLN_KEY_NONE;
     rln_key_first = false;
 }
@@ -1156,8 +1171,8 @@ static void rln_cursor_shape(uint8_t ps)
 }
 
 // The read is over, or given up: nothing more is read for it, the callback
-// never fires, its selection's highlight is off, a paste key it had still to
-// take pastes, and the cursor has its default shape again. A completed line
+// never fires, its selection's highlight is off, a copy key it had still to
+// take copies the primary, and the cursor has its default shape again. A completed line
 // then gets its newline (rln_complete). Bracketed paste goes off last, so
 // every terminal sees the line and its newline as typed, unbroken.
 static void rln_read_end(bool completed)
@@ -1227,9 +1242,12 @@ static void rln_line_end(void)
     rln_sync_cursor_to(rln_bufpos);
 }
 
+/* Words are what a space or a path's separators part, so a file's name is
+ * one word, extension and all: the one rule the keys that move and kill by
+ * words and the mouse's double click all go by. */
 static bool rln_is_word_delimiter(char ch)
 {
-    return ch == ' ' || ch == '/' || ch == '\\' || ch == '.' || ch == ':' || ch == '=';
+    return ch == ' ' || ch == ':' || ch == '/' || ch == '\\';
 }
 
 // Scan from rln_bufpos to the next word boundary in the given direction.
@@ -1310,28 +1328,28 @@ static uint16_t rln_param_or_1(uint16_t v)
 }
 
 /* A CSI key's modifiers, as xterm sends them in its second parameter, less
- * one: Shift is 1, Alt 2 and Ctrl 4, and 0 is none. Shift selects
- * (rln_dispatch), and any of the others makes an arrow move by words. */
+ * one: Shift is 1, Alt 2 and Ctrl 4, and 0 is none. A key does something
+ * only with the modifiers that mean something on it, and nothing with any
+ * other: Shift selects with Left, Right, Home and End (rln_csi_selects),
+ * Alt or Ctrl makes Left and Right move by words, and Ctrl makes Delete
+ * kill a word. */
 #define RLN_MOD_SHIFT 1u
+#define RLN_MOD_ALT 2u
+#define RLN_MOD_CTRL 4u
 static unsigned rln_csi_mods(const tio_csi_t *csi)
 {
     return csi->count > 1 && csi->param[1] > 1 ? csi->param[1] - 1u : 0;
 }
 
-static void rln_line_forward(const tio_csi_t *csi)
+/* Left and Right, dir -1 and 1: by characters, or by words with Alt or
+ * Ctrl. */
+static void rln_line_arrow(const tio_csi_t *csi, int dir)
 {
-    if (rln_csi_mods(csi) & ~RLN_MOD_SHIFT)
-        return rln_line_word(1);
-    int count = rln_param_or_1(csi->param[0]);
-    rln_step(count);
-}
-
-static void rln_line_backward(const tio_csi_t *csi)
-{
-    if (rln_csi_mods(csi) & ~RLN_MOD_SHIFT)
-        return rln_line_word(-1);
-    int count = rln_param_or_1(csi->param[0]);
-    rln_step(-count);
+    const unsigned held = rln_csi_mods(csi) & ~RLN_MOD_SHIFT;
+    if (!held)
+        rln_step(dir * (int)rln_param_or_1(csi->param[0]));
+    else if (held == RLN_MOD_ALT || held == RLN_MOD_CTRL)
+        rln_line_word(dir);
 }
 
 /* ----- Buffer mutations ----- */
@@ -1385,24 +1403,104 @@ static void rln_line_backspace(void)
         rln_delete_range(rln_bufpos - 1, rln_bufpos);
 }
 
-static void rln_line_backward_kill_word(void)
+/* A kill key takes rln_buf[start..end) out of the line and into the read's
+ * kill buffer, for Ctrl-Y to put back. Kills one after another are one
+ * piece of the line again: one that reached back from the cursor goes
+ * before what the buffer holds, and one that reached on goes after it. They
+ * are all of the one line, which only they have changed, so together they
+ * are no longer than a line. A kill with nothing to take leaves the buffer,
+ * and the run it may be in, as they were. */
+static void rln_kill_range(uint8_t start, uint8_t end, bool back)
 {
-    rln_delete_range(rln_scan_word(-1), rln_bufpos);
+    if (start >= end)
+    {
+        rln_killed = rln_kill_joins;
+        return;
+    }
+    rln_killed = true;
+    if (rln_kill)
+    {
+        const uint8_t count = (uint8_t)(end - start);
+        if (!rln_kill_joins)
+            rln_kill->len = 0;
+        if (back)
+            memmove(rln_kill->text + count, rln_kill->text, rln_kill->len);
+        memcpy(rln_kill->text + (back ? 0 : rln_kill->len), rln_buf + start, count);
+        rln_kill->len = (uint8_t)(rln_kill->len + count);
+    }
+    rln_delete_range(start, end);
 }
 
-static void rln_line_forward_kill_word(void)
+/* The word before the cursor, dir -1, or after it, dir 1, or the selection
+ * when there is one, which is then the word. */
+static void rln_line_kill_word(int dir)
 {
-    rln_delete_range(rln_bufpos, rln_scan_word(1));
+    if (rln_edit_from < rln_edit_to)
+        rln_kill_range(rln_edit_from, rln_edit_to, dir < 0);
+    else if (dir < 0)
+        rln_kill_range(rln_scan_word(-1), rln_bufpos, true);
+    else
+        rln_kill_range(rln_bufpos, rln_scan_word(1), false);
 }
 
 static void rln_line_kill_to_end(void)
 {
-    rln_delete_range(rln_bufpos, rln_buflen);
+    rln_kill_range(rln_bufpos, rln_buflen, false);
 }
 
 static void rln_line_kill_to_start(void)
 {
-    rln_delete_range(0, rln_bufpos);
+    rln_kill_range(0, rln_bufpos, true);
+}
+
+/* rln_buf[from..to) becomes the count characters at text, as many of them
+ * as the line has room for, and the cursor goes after them. A line longer
+ * than the most it may be now, as one is when its program shortens that
+ * while it is read, has room for none. */
+static void rln_replace(uint8_t from, uint8_t to, const char *text, uint8_t count)
+{
+    const uint8_t gone = (uint8_t)(to - from);
+    const uint8_t kept = (uint8_t)(rln_buflen - gone);
+    const uint8_t cap = rln_effective_max();
+    const uint8_t room = cap > kept ? (uint8_t)(cap - kept) : 0;
+    if (count > room)
+        count = room;
+    if (!count && !gone)
+        return;
+    memmove(rln_buf + from + count, rln_buf + to, (size_t)(rln_buflen - to));
+    memcpy(rln_buf + from, text, count);
+    rln_buflen = (uint8_t)(rln_buflen - gone + count);
+    rln_bufpos = (uint8_t)(from + count);
+    rln_action_taken = true;
+    rln_emit_tail_rewrite(from, gone > count ? (uint8_t)(gone - count) : 0);
+}
+
+/* Ctrl-Y puts back what the kill keys last took: it is inserted at the
+ * cursor, or in the selection's place, whatever the mode, as much of it as
+ * the line has room for. */
+static void rln_line_yank(void)
+{
+    if (!rln_kill || !rln_kill->len)
+        return;
+    if (rln_edit_from < rln_edit_to)
+        rln_replace(rln_edit_from, rln_edit_to, rln_kill->text, rln_kill->len);
+    else
+        rln_replace(rln_bufpos, rln_bufpos, rln_kill->text, rln_kill->len);
+}
+
+/* Ctrl-T swaps the character before the cursor with the one at it and steps
+ * past them, and at the line's end swaps the last two. */
+static void rln_line_transpose(void)
+{
+    if (!rln_bufpos || rln_buflen < 2)
+        return;
+    const uint8_t at = rln_bufpos < rln_buflen ? rln_bufpos : (uint8_t)(rln_buflen - 1);
+    const char ch = rln_buf[at];
+    rln_buf[at] = rln_buf[at - 1];
+    rln_buf[at - 1] = ch;
+    rln_bufpos = (uint8_t)(at + 1);
+    rln_action_taken = true;
+    rln_emit_tail_rewrite((uint8_t)(at - 1), 0);
 }
 
 // ICH (CSI Ps @): insert Ps blank chars at the cursor, shifting the tail
@@ -1454,19 +1552,9 @@ static void rln_line_insert(char ch)
         else if (isupper((unsigned char)ch))
             ch = tolower((unsigned char)ch);
     }
+    // A character replaces the selection, whatever the mode.
     if (rln_edit_from < rln_edit_to)
-    {
-        // A character replaces the selection, whatever the mode.
-        const uint8_t at = rln_edit_from;
-        const uint8_t gone = (uint8_t)(rln_edit_to - at);
-        memmove(rln_buf + at + 1, rln_buf + rln_edit_to, (size_t)(rln_buflen - rln_edit_to));
-        rln_buf[at] = ch;
-        rln_buflen = (uint8_t)(rln_buflen - gone + 1);
-        rln_bufpos = (uint8_t)(at + 1);
-        rln_action_taken = true;
-        rln_emit_tail_rewrite(at, (uint8_t)(gone - 1));
-        return;
-    }
+        return rln_replace(rln_edit_from, rln_edit_to, &ch, 1);
     if (rln_overwrite && rln_bufpos < rln_buflen)
     {
         // Overwrite replaces one char in place; nothing past the cursor
@@ -1480,15 +1568,7 @@ static void rln_line_insert(char ch)
         rln_sync_cursor_to(rln_bufpos);
         return;
     }
-    if (rln_buflen >= rln_effective_max())
-        return;
-    memmove(rln_buf + rln_bufpos + 1, rln_buf + rln_bufpos, (size_t)(rln_buflen - rln_bufpos));
-    rln_buflen++;
-    rln_buf[rln_bufpos] = ch;
-    uint8_t at = rln_bufpos;
-    rln_bufpos++;
-    rln_action_taken = true;
-    rln_emit_tail_rewrite(at, 0);
+    rln_replace(rln_bufpos, rln_bufpos, &ch, 1);
 }
 
 /* ----- Mode toggling ----- */
@@ -1545,40 +1625,48 @@ static void rln_dispatch_C0(com_source_t src, uint8_t ch)
         rln_history_step(-1);
     else if (ch == 16) // ctrl-p
         rln_history_step(1);
+    else if (ch == 20) // ctrl-t
+        rln_line_transpose();
     else if (ch == 21) // ctrl-u
         rln_line_kill_to_start();
     else if (ch == 23) // ctrl-w
-        rln_line_backward_kill_word();
+        rln_line_kill_word(-1);
+    else if (ch == 25) // ctrl-y
+        rln_line_yank();
     else
         rln_line_insert(ch);
 }
 
 static void rln_dispatch_Fe(uint8_t ch)
 {
-    // ESC-b / ESC-f are meta-b / meta-f (alt-b/alt-f on xterm-style
-    // terminals); ESC 0x02 / ESC 0x06 are the ctrl-B / ctrl-F variants some
-    // older meta-prefix terminals send for the same binding. ESC A to D, H
-    // and F are a VT52's arrows, Home and End.
-    if (ch == 'A')
-        rln_history_step(1);
-    else if (ch == 'B')
-        rln_history_step(-1);
-    else if (ch == 'C')
-        rln_step(1);
-    else if (ch == 'D')
-        rln_step(-1);
-    else if (ch == 'F')
-        rln_line_end();
-    else if (ch == 'H')
-        rln_line_home();
-    else if (ch == 'b' || ch == 2)
+    /* Alt with a key is ESC and what the key types: Alt-B and Alt-F move
+     * by words, and Alt-D and Alt-Backspace kill one. With Shift held or
+     * Caps Lock on the letters come in upper case, and are the same keys.
+     * While the console's terminal is in VT52 mode the keyboard sends a
+     * VT52's keys, and ESC A to D, H and F are its arrows, Home and End. */
+    if (vterm.vt52)
+    {
+        if (ch == 'A')
+            return rln_history_step(1);
+        if (ch == 'B')
+            return rln_history_step(-1);
+        if (ch == 'C')
+            return rln_step(1);
+        if (ch == 'D')
+            return rln_step(-1);
+        if (ch == 'F')
+            return rln_line_end();
+        if (ch == 'H')
+            return rln_line_home();
+    }
+    if (ch == 'b' || ch == 'B')
         rln_line_word(-1);
-    else if (ch == 'f' || ch == 6)
+    else if (ch == 'f' || ch == 'F')
         rln_line_word(1);
-    else if (ch == 'd')
-        rln_line_forward_kill_word();
+    else if (ch == 'd' || ch == 'D')
+        rln_line_kill_word(1);
     else if (ch == 127 || ch == '\b')
-        rln_line_backward_kill_word();
+        rln_line_kill_word(-1);
 }
 
 // SS3 keys, which a terminal sends in application cursor or keypad mode:
@@ -1610,55 +1698,45 @@ static void rln_dispatch_SS3(com_source_t src, const char *item, size_t len)
         rln_line_insert("*+,-./0123456789"[ch - 'j']);
 }
 
-// DCH, ICH and ECH are editing commands a program pokes. Typed, they are
-// function keys, Shift-F1 being CSI 1;2P, and do nothing. rxvt's shifted
-// keys end on '$' where others end on '~'.
+/* DCH, ICH and ECH are editing commands a program pokes. Typed, they are
+ * function keys, Shift-F1 being CSI 1;2P, and do nothing. Home and End
+ * come as CSI H and CSI F, or numbered: 1 and 4 from a VT220's Find and
+ * Select, 7 and 8 from rxvt and the Linux console, rxvt's shifted ones
+ * ending on '$' where the others end on '~'. Insert is 2 and Delete 3. A
+ * key with a modifier that means nothing on it does nothing. */
 static void rln_dispatch_CSI(com_source_t src, const tio_csi_t *csi)
 {
-    uint8_t ch = csi->final;
+    const uint8_t ch = csi->final;
+    const unsigned mods = rln_csi_mods(csi);
+    const uint16_t key = ch == '~' || ch == '$' ? csi->param[0] : 0;
     if (src == RLN_POKE && ch == 'P')
         rln_line_delete_n(csi);
     else if (src == RLN_POKE && ch == '@')
         rln_line_insert_n(csi);
     else if (src == RLN_POKE && ch == 'X')
         rln_line_erase_n(csi);
+    else if (ch == 'C')
+        rln_line_arrow(csi, 1);
+    else if (ch == 'D')
+        rln_line_arrow(csi, -1);
+    else if (ch == '~' && key == 3 && mods == RLN_MOD_CTRL)
+        rln_line_kill_word(1);
+    else if (mods & ~RLN_MOD_SHIFT)
+        return;
+    else if (ch == 'F' || key == 4 || key == 8)
+        rln_line_end();
+    else if (ch == 'H' || key == 1 || key == 7)
+        rln_line_home();
+    else if (mods || ch == '$')
+        return;
     else if (ch == 'A')
         rln_history_step(1);
     else if (ch == 'B')
         rln_history_step(-1);
-    else if (ch == 'C')
-        rln_line_forward(csi);
-    else if (ch == 'D')
-        rln_line_backward(csi);
-    else if (ch == 'F')
-        rln_line_end();
-    else if (ch == 'H')
-        rln_line_home();
-    else if (ch == 'b')
-        rln_line_word(-1);
-    else if (ch == 'f')
-        rln_line_word(1);
-    else if (ch == '~' || ch == '$')
-        // Function-key codes split across terminfo lineages: 1/4 = VT220-era
-        // Find/Select repurposed as Home/End; 7/8 = rxvt/Linux console; 2/3
-        // = Insert/Delete (universal). Keep both Home/End forms.
-        switch (csi->param[0])
-        {
-        case 1:
-        case 7:
-            rln_line_home();
-            break;
-        case 2:
-            rln_toggle_overwrite();
-            break;
-        case 4:
-        case 8:
-            rln_line_end();
-            break;
-        case 3:
-            rln_line_delete();
-            break;
-        }
+    else if (key == 2)
+        rln_toggle_overwrite();
+    else if (key == 3)
+        rln_line_delete();
 }
 
 // Saves the key just dispatched for RLN_LASTKEY.
@@ -1669,18 +1747,22 @@ static void rln_publish_lastkey(const char *item, size_t len)
     rln_lastkey_action = rln_action_taken;
 }
 
-// Shift with an arrow, Home or End, as xterm sends them, and rxvt, whose
-// shifted Home and End end on '$'.
+// Shift with Left, Right, Home or End, as xterm sends them, and rxvt, whose
+// shifted Home and End end on '$': the keys that move with Shift held
+// (rln_dispatch_CSI), Left and Right by words too.
 static bool rln_csi_selects(const tio_csi_t *csi)
 {
     const uint8_t ch = csi->final;
-    const bool shift = rln_csi_mods(csi) & RLN_MOD_SHIFT;
-    if (ch == 'C' || ch == 'D' || ch == 'H' || ch == 'F')
-        return shift;
-    if (ch != '$' && !(ch == '~' && shift))
-        return false;
+    const unsigned mods = rln_csi_mods(csi);
+    const unsigned held = mods & ~RLN_MOD_SHIFT;
+    if (ch == 'C' || ch == 'D')
+        return mods & RLN_MOD_SHIFT && (!held || held == RLN_MOD_ALT || held == RLN_MOD_CTRL);
+    if (ch == 'H' || ch == 'F')
+        return mods == RLN_MOD_SHIFT;
     const uint16_t key = csi->param[0];
-    return key == 1 || key == 4 || key == 7 || key == 8;
+    if (key != 1 && key != 4 && key != 7 && key != 8)
+        return false;
+    return ch == '$' ? !mods : ch == '~' && mods == RLN_MOD_SHIFT;
 }
 
 // A typed item, dispatched while editing. A poked item is dispatched in
@@ -1702,13 +1784,15 @@ static void rln_dispatch(com_source_t src, const char *item, size_t len,
     {
         rln_edit_from = rln_sel_lo();
         rln_edit_to = rln_sel_hi();
-        rln_select(rln_bufpos, rln_bufpos);
+        rln_select(0, 0);
     }
     bool was_overwrite = rln_overwrite;
     if (src == RLN_POKE)
         rln_overwrite = true;
     rln_action_taken = false;
     rln_line_src = src;
+    rln_kill_joins = rln_killed;
+    rln_killed = false;
     if (len == 1)
         rln_dispatch_C0(src, (uint8_t)item[0]);
     else if (item[1] == '[')
@@ -1888,7 +1972,7 @@ static void rln_follow(void)
     rln_render_from(0);
 }
 
-/* ----- The mouse, and the copy and paste keys ----- */
+/* ----- The mouse, and the copy and cut keys ----- */
 
 /* The mouse has something for the task to take, and a key still to take
  * came before it unless the mouse already had. */
@@ -1961,6 +2045,7 @@ static void rln_word_at(uint8_t i, uint8_t *lo, uint8_t *hi)
 static void rln_mouse_take(void)
 {
     rln_mouse_due = false;
+    rln_killed = false;
     uint8_t anchor = rln_press_at < rln_buflen ? rln_press_at : rln_buflen;
     uint8_t end = rln_drag_at < rln_buflen ? rln_drag_at : rln_buflen;
     if (rln_press_unit == RLN_UNIT_CLICK)
@@ -1990,28 +2075,66 @@ static void rln_mouse_take(void)
     rln_sync_cursor_to(rln_bufpos);
 }
 
+bool rln_reading(void)
+{
+    return rln_callback;
+}
+
 bool rln_selected(void)
 {
     return rln_callback && rln_sel_anchor != rln_sel_end;
 }
 
-bool HOST_IN_FLASH_FUNC rln_copy(void)
+/* The copy or cut key, on the line as the keys before it left it: the
+ * selection goes to the clipboard, and a cut deletes it. With none, a copy
+ * copies the primary and a cut does nothing. Either ends a run of kills,
+ * as any key between two kills does. A cut edits the line, so it is
+ * taken only once no reply is going out, as a reply reads the line as it
+ * goes. */
+static void rln_key_take(void)
 {
-    if (!rln_selected())
+    const uint8_t key = rln_key_due;
+    const uint8_t lo = rln_sel_lo(), hi = rln_sel_hi();
+    rln_key_due = RLN_KEY_NONE;
+    rln_key_first = false;
+    rln_killed = false;
+    if (lo == hi)
+    {
+        if (key == RLN_KEY_COPY)
+            clip_copy_primary();
+        return;
+    }
+    clip_copy_bytes(CLIP_CLIPBOARD, &rln_buf[lo], (size_t)(hi - lo));
+    if (key == RLN_KEY_CUT)
+    {
+        rln_select(0, 0);
+        rln_delete_range(lo, hi);
+    }
+}
+
+/* A copy or cut key while the line is read is the line's, to take after
+ * the keys waiting. */
+static bool rln_key_press(uint8_t key)
+{
+    if (!rln_callback)
         return false;
-    const uint8_t lo = rln_sel_lo();
-    clip_copy_bytes(CLIP_CLIPBOARD, &rln_buf[lo], (size_t)(rln_sel_hi() - lo));
+    if (key > rln_key_due)
+    {
+        rln_key_first = !rln_mouse_due;
+        rln_key_due = key;
+    }
     return true;
 }
 
-/* A cut or paste key with the line's selection showing is the line's, to
- * take after the keys waiting. */
-static bool rln_key_press(uint8_t key)
+/* A copy edits nothing, so with no key and no mouse before it, it is taken
+ * here, where a web page may still write its clipboard. A paste still to
+ * be typed is before it too, and is no item until it is staged. */
+bool HOST_IN_FLASH_FUNC rln_copy(void)
 {
-    if (!rln_selected())
+    if (!rln_key_press(RLN_KEY_COPY))
         return false;
-    rln_key_first = !rln_mouse_due;
-    rln_key_due = key;
+    if (rln_key_due == RLN_KEY_COPY && !rln_mouse_due && tio_idle() && !paste_busy())
+        rln_key_take();
     return true;
 }
 
@@ -2020,39 +2143,15 @@ bool HOST_IN_FLASH_FUNC rln_cut(void)
     return rln_key_press(RLN_KEY_CUT);
 }
 
-bool HOST_IN_FLASH_FUNC rln_paste(void)
-{
-    return rln_key_press(RLN_KEY_PASTE);
-}
-
-/* The cut or paste key, on the line as the keys before it left it: a cut
- * puts the selection in the clipboard and deletes it, and a paste deletes
- * it and pastes the clipboard through the paste stage, which types it
- * next. With no selection left, a cut does nothing and a paste goes
- * where the cursor is. It edits the line, so it is taken only once no reply
- * is going out, as a reply reads the line as it goes. */
-static void rln_key_take(void)
-{
-    const uint8_t key = rln_key_due;
-    const uint8_t lo = rln_sel_lo(), hi = rln_sel_hi();
-    rln_key_due = RLN_KEY_NONE;
-    rln_key_first = false;
-    if (key == RLN_KEY_CUT && lo < hi)
-        clip_copy_bytes(CLIP_CLIPBOARD, &rln_buf[lo], (size_t)(hi - lo));
-    rln_select(rln_bufpos, rln_bufpos);
-    rln_delete_range(lo, hi);
-    if (key == RLN_KEY_PASTE)
-        clip_paste(CLIP_CLIPBOARD);
-}
-
 /* What the mouse and the keys left for the task, in the order they came,
- * with no key waiting before them. From flash, as the keys' edits are, so
+ * with no key waiting before them, and for a copy or cut key, no paste
+ * still to be typed, which is no item until it is staged. From flash, as the keys' edits are, so
  * the task in RAM does not take it in. */
 static void HOST_IN_FLASH_FUNC rln_take_due(void)
 {
     if (rln_mouse_due && !(rln_key_due && rln_key_first))
         rln_mouse_take();
-    if (rln_key_due && rln_out_send(false))
+    if (rln_key_due && !paste_busy() && rln_out_send(false))
     {
         rln_key_take();
         if (rln_mouse_due)
@@ -2063,7 +2162,7 @@ static void HOST_IN_FLASH_FUNC rln_take_due(void)
 
 /* ----- Top-level task / driver hooks ----- */
 
-static void rln_start(rln_read_callback_t callback, rln_history_t *history)
+static void rln_start(rln_read_callback_t callback, rln_history_t *history, rln_kill_t *kill)
 {
     /* The reply to the last read's last key goes out first. A read started
      * before that read was handed its line replaces it, and the line is
@@ -2081,6 +2180,8 @@ static void rln_start(rln_read_callback_t callback, rln_history_t *history)
     rln_history = history;
     if (history)
         rln_history_rewind(history);
+    rln_kill = kill;
+    rln_killed = false;
     rln_buf[0] = 0;
     rln_lastkey_len = 0;
     rln_action_taken = false;
@@ -2094,9 +2195,9 @@ static void rln_start(rln_read_callback_t callback, rln_history_t *history)
     rln_laying_out = false;
 }
 
-void rln_read_line(rln_read_callback_t callback, rln_history_t *history)
+void rln_read_line(rln_read_callback_t callback, rln_history_t *history, rln_kill_t *kill)
 {
-    rln_start(callback, history);
+    rln_start(callback, history, kill);
     rln_laying_out = !rln_lay_out_now();
     rln_out_send(false);
 }
@@ -2104,7 +2205,7 @@ void rln_read_line(rln_read_callback_t callback, rln_history_t *history)
 void rln_read_line_script(rln_read_callback_t callback, uint32_t timeout_ms)
 {
     assert(timeout_ms);
-    rln_start(callback, NULL);
+    rln_start(callback, NULL, NULL);
     rln_idle_timeout_ms = timeout_ms;
     rln_idle_deadline = timer_mach_in_ms(rln_idle_timeout_ms);
 }
@@ -2151,7 +2252,7 @@ static bool HOST_IN_RAM_FUNC rln_take_items(void)
     }
 }
 
-/* The mouse in the line, and the cut and paste keys, are taken once no
+/* The mouse in the line, and the copy and cut keys, are taken once no
  * key waits before them: the mouse even while a reply is still going out
  * at a slow speed, and a key once it has gone out. */
 void HOST_IN_RAM_FUNC rln_task(void)
@@ -2196,7 +2297,7 @@ void rln_run(void)
 
 /* A read cut short by a stop or a break leaves the cursor on a new line
  * past everything typed, with its default shape and no highlight, and a
- * paste key it had still to take pastes nothing. A program's own size goes
+ * copy key it had still to take copies nothing. A program's own size goes
  * back to the screen's, and a bracketed paste of any source drops nothing
  * more (rln_reset). */
 void rln_stop(void)

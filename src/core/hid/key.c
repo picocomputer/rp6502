@@ -64,8 +64,7 @@ bool HOST_IN_FLASH_FUNC key_clip_act(key_clip_t clip)
     case KEY_CLIP_CUT:
         return rln_cut();
     case KEY_CLIP_PASTE:
-        if (!rln_paste())
-            clip_paste(CLIP_CLIPBOARD);
+        clip_paste(CLIP_CLIPBOARD);
         return true;
     default:
         return false;
@@ -80,7 +79,7 @@ bool key_clip_acts(uint8_t keycode, uint8_t modifier, bool repeat)
     case KEY_CLIP_PASTE:
         return true;
     case KEY_CLIP_CUT:
-        return repeat ? keycode == key_chord_down : rln_selected();
+        return repeat ? keycode == key_chord_down : rln_reading();
     default:
         return false;
     }

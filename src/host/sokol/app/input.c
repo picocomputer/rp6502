@@ -473,9 +473,8 @@ void input_event(const sapp_event *e)
         /* The page's paste event, which a paste key left to the browser
          * made, or the browser's own menu: the clipboard, which is the
          * text the event handed over (entry.c), is pasted as a paste key
-         * pastes: at once, or in place of the line editor's selection
-         * showing, which the line editor takes after the keys typed before
-         * it. sokol keeps that text until the next paste event, which cuts
+         * pastes, here and now, while the event's text can be read. sokol
+         * keeps that text until the next paste event, which cuts
          * this paste short as it starts. Plain Ctrl+V, which typed 0x16,
          * makes none (input_key_withheld). */
         key_clip_act(KEY_CLIP_PASTE);

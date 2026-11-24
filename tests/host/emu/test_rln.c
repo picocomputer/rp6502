@@ -63,6 +63,10 @@ static void history_free(void *ptr)
 static rln_history_t history;
 static rln_history_t *reading_with = &history;
 
+/* The kill buffer these reads are handed, as a caller hands its own. */
+static rln_kill_t kills;
+static rln_kill_t *killing_with = &kills;
+
 /* The reader takes its line out of the history again, as the monitor does
  * with a line that has a password in it. */
 static bool forgetting;
@@ -76,7 +80,7 @@ static void got_line(bool timeout, const char *buf)
     forgetting = false;
     strncpy(last, buf, sizeof last - 1);
     last[sizeof last - 1] = 0;
-    rln_read_line(got_line, reading_with);
+    rln_read_line(got_line, reading_with, killing_with);
 }
 
 static void tasks(void)
@@ -104,6 +108,8 @@ static void fresh(void)
         if (held[i])
             history_free(held[i]);
     history = (rln_history_t){.alloc = history_alloc, .free = history_free};
+    kills.len = 0;
+    killing_with = &kills;
     room = HELD_MAX;
     reading_with = &history;
     forgetting = false;
@@ -121,7 +127,7 @@ static void reading(void)
 {
     lines = 0;
     last[0] = 0;
-    rln_read_line(got_line, reading_with);
+    rln_read_line(got_line, reading_with, killing_with);
 }
 
 UTEST(rln, either_spelling_ends_a_line)
@@ -294,7 +300,7 @@ static void next(void)
     if (need_next)
     {
         need_next = false;
-        rln_read_line(got_line_later, reading_with);
+        rln_read_line(got_line_later, reading_with, killing_with);
     }
 }
 
@@ -1037,10 +1043,13 @@ UTEST(rln, a_line_has_no_more_rows_than_its_scroll_region)
     com_printf("\33[r");
 }
 
-/* A VT52's arrows, Home and End work in every mode. */
+/* A VT52's arrows, Home and End edit the line while the console's terminal
+ * is in VT52 mode, when they are what the keyboard sends. */
 UTEST(rln, vt52_arrows_home_and_end_edit_the_line)
 {
-    editing();
+    fresh();
+    com_printf("\33[?2l");
+    reading();
     wire("one\r");
     wire("abc\33D\33Dx\33Hy\33Fz\33H\33C\33C!\r");
     ASSERT_EQ(lines, 2);
@@ -1051,6 +1060,211 @@ UTEST(rln, vt52_arrows_home_and_end_edit_the_line)
     wire("\33A\33A\33B\r");
     ASSERT_EQ(lines, 4);
     ASSERT_STREQ(last, "one");
+    com_printf("\33<");
+}
+
+/* Outside VT52 mode ESC and a letter is Alt with that letter: Alt-B and
+ * Alt-F move by words and Alt-D kills one, in upper case too, as the
+ * keyboard sends them with Shift held or Caps Lock on. Alt-A, Alt-C and
+ * Alt-H, a VT52's Up, Right and Home, do nothing. */
+UTEST(rln, alt_with_a_letter_is_the_same_in_upper_case)
+{
+    editing();
+    wire("one\r");
+    wire("ab cd ef\33B\33Bx\33F\33Fy\33b\33b\33b\33D\r");
+    ASSERT_EQ(lines, 2);
+    ASSERT_STREQ(last, " xcd efy");
+    wire("ab\33Hx\r");
+    ASSERT_STREQ(last, "abx");
+    wire("ab\33[H\33Cx\r");
+    ASSERT_STREQ(last, "xab");
+    wire("\33Ay\r");
+    ASSERT_STREQ(last, "y");
+}
+
+/* ESC with Ctrl-B or Ctrl-F, and CSI b and CSI f, are no key of the line
+ * editor's. */
+UTEST(rln, keys_no_keyboard_sends_for_a_word_do_nothing)
+{
+    editing();
+    wire("ab cd\33\2\33[bx\33[H\33\6\33[fy\r");
+    ASSERT_STREQ(last, "yab cdx");
+}
+
+/* A word is what a space or a path's separators part, a colon, a slash or
+ * a backslash, so a file's name is one word with its extension. */
+UTEST(rln, a_word_ends_at_a_space_or_a_path_separator)
+{
+    editing();
+    wire("load USB0:/games/chess.rp6502\27\r");
+    ASSERT_STREQ(last, "load USB0:/games/");
+    wire("load USB0:/games/chess.rp6502\27\27\r");
+    ASSERT_STREQ(last, "load USB0:/");
+    wire("load USB0:/games/chess.rp6502\27\27\27\r");
+    ASSERT_STREQ(last, "load ");
+    wire("dir C:\\x\\my_file-2.txt\27\r");
+    ASSERT_STREQ(last, "dir C:\\x\\");
+    wire("a=b.c d\33[H\33[1;5Cx\r");
+    ASSERT_STREQ(last, "a=b.cx d");
+}
+
+/* Ctrl-T swaps the character before the cursor with the one at it and
+ * steps past them, and at the line's end swaps the last two. At the line's
+ * start, and in a line of one character, it does nothing. */
+UTEST(rln, ctrl_t_swaps_two_characters)
+{
+    editing();
+    wire("laod\33[D\33[D\24x\r");
+    ASSERT_STREQ(last, "loaxd");
+    wire("ab\24\24\r");
+    ASSERT_STREQ(last, "ab");
+    wire("abc\24\r");
+    ASSERT_STREQ(last, "acb");
+    wire("ab\33[H\24x\r");
+    ASSERT_STREQ(last, "xab");
+    wire("a\24\r");
+    ASSERT_STREQ(last, "a");
+}
+
+/* Ctrl-Delete kills the word after the cursor, and Delete with any other
+ * modifier does nothing. */
+UTEST(rln, ctrl_delete_kills_the_word_after_the_cursor)
+{
+    editing();
+    wire("ab cd ef\33[H\33[3;5~\33[3;3~\33[3;2~\33[3;6~\33[3;7~\r");
+    ASSERT_STREQ(last, " cd ef");
+    wire("ab cd ef\33[H\33[3;5~\33[3;5~\33[F\31\r");
+    ASSERT_STREQ(last, " efab cd");
+}
+
+/* A modifier that means nothing on a key makes the key do nothing: Up,
+ * Down, Insert, Home and End with Ctrl or Alt, Up, Down and Insert with
+ * Shift too, and Left and Right with Ctrl and Alt together. Up alone
+ * still brings a line back after them all. */
+UTEST(rln, a_modifier_with_no_meaning_makes_a_key_do_nothing)
+{
+    editing();
+    wire("one\r");
+    wire("x\33[1;5A\33[1;3A\33[1;2A\33[1;5B\33[1;2B\r");
+    ASSERT_STREQ(last, "x");
+    static const char *const inserts[] = {"\33[2;2~", "\33[2;3~", "\33[2;5~", "\33[2;6~"};
+    for (unsigned i = 0; i < sizeof inserts / sizeof *inserts; i++)
+    {
+        wire("ab\33[H");
+        wire(inserts[i]);
+        wire("x\r");
+        ASSERT_STREQ(last, "xab");
+    }
+    wire("ab\33[1;5H\33[1;3H\33[1;6H\33[1;5~\33[7;3~x\r");
+    ASSERT_STREQ(last, "abx");
+    wire("ab\33[H\33[1;5F\33[1;3F\33[1;6F\33[4;5~\33[8;3~x\r");
+    ASSERT_STREQ(last, "xab");
+    wire("ab cd\33[1;7D\33[1;8Dx\33[H\33[1;7Cy\r");
+    ASSERT_STREQ(last, "yab cdx");
+    wire("\33[A\33[A\33[A\33[A\33[A\33[A\r");
+    ASSERT_STREQ(last, "one");
+}
+
+/* Ctrl-Y puts back what the kill keys took. Kills one after another are
+ * one piece, in the order they had in the line: here three words killed
+ * back from the line's end. What was killed stays for the next line. */
+UTEST(rln, kills_in_a_row_are_put_back_as_one)
+{
+    editing();
+    wire("load one two three\27\27\27\31\r");
+    ASSERT_STREQ(last, "load one two three");
+    wire("\31\r");
+    ASSERT_STREQ(last, "one two three");
+    wire("ab cd ef\33[H\33d\33d\33[F\31\r");
+    ASSERT_STREQ(last, " efab cd");
+    wire("abcdef\33[D\33[D\33[D\13\25\31\r");
+    ASSERT_STREQ(last, "abcdef");
+    wire("ab cd ef\33[D\33[D\33[D\33\177\33d\31\r");
+    ASSERT_STREQ(last, "ab cd ef");
+}
+
+/* Any other key between two kills starts the piece again: a character,
+ * a move, and a step through the history. What a line killed is kept past
+ * its Enter, until the next line's kill takes its place. A kill with
+ * nothing to take changes nothing, and leaves a run it is in going. */
+UTEST(rln, a_key_between_two_kills_starts_again)
+{
+    editing();
+    wire("one two\27x\27\31\r");
+    ASSERT_STREQ(last, "one x");
+    wire("ab\27\r");
+    ASSERT_STREQ(last, "");
+    wire("cd\27\31\r");
+    ASSERT_STREQ(last, "cd");
+    wire("ef\27\33[D\27\27\13\31\r");
+    ASSERT_STREQ(last, "ef");
+    wire("gh\27i\13\25\13\31\31\r");
+    ASSERT_STREQ(last, "ii");
+    wire("ab cd\27\13\27\31\r");
+    ASSERT_STREQ(last, "ab cd");
+    wire("one\r");
+    wire("ab cd\27\33[A\27\31\r");
+    ASSERT_STREQ(last, "one");
+}
+
+/* Ctrl-Y inserts in overwrite mode too, where typing would overwrite. */
+UTEST(rln, ctrl_y_inserts_in_overwrite_mode)
+{
+    editing();
+    wire("abcd\25xyz\33[H\33[2~\31\33[2~\r");
+    ASSERT_STREQ(last, "abcdxyz");
+}
+
+/* Left and Right with a count move that far, as a program's poke of CUF
+ * and CUB does. */
+UTEST(rln, an_arrow_with_a_count_moves_that_far)
+{
+    editing();
+    wire("abcdef\33[H\33[3Cx\33[2Dy\r");
+    ASSERT_STREQ(last, "abycxdef");
+}
+
+/* A program that shortens the longest line while a longer one is being
+ * read stops the line growing: a character and Ctrl-Y add nothing to it. */
+UTEST(rln, a_line_longer_than_it_may_be_now_takes_no_more)
+{
+    editing();
+    wire("abcdefghijkl\25abcdefghijklmnopqrst");
+    rln_set_max_length(10);
+    wire("X\31\r");
+    ASSERT_STREQ(last, "abcdefghijklmnopqrst");
+}
+
+/* What Ctrl-Y puts back is as much as the line has room for. */
+UTEST(rln, ctrl_y_fills_the_line_and_no_more)
+{
+    editing();
+    rln_set_max_length(4);
+    wire("abcd\25xy\31\r");
+    ASSERT_STREQ(last, "xyab");
+    wire("xyz\33[D\31\r");
+    ASSERT_STREQ(last, "xyaz");
+}
+
+/* A caller empties its kill buffer by its length, as the monitor does with
+ * a line that held a password, and a read handed none kills nothing for
+ * Ctrl-Y to put back. */
+UTEST(rln, a_kill_buffer_is_its_caller_s)
+{
+    editing();
+    wire("secret\25\r");
+    kills.len = 0;
+    wire("\31\r");
+    ASSERT_STREQ(last, "");
+    wire("abc\25");
+    killing_with = NULL;
+    wire("\r");
+    wire("def\27\31");
+    killing_with = &kills;
+    wire("\r");
+    ASSERT_STREQ(last, "");
+    wire("\31\r");
+    ASSERT_STREQ(last, "abc");
 }
 
 /* The terminal wraps a plain line. */
@@ -1199,13 +1413,21 @@ UTEST(rln, a_mode_report_with_an_intermediate_types_nothing)
 }
 
 /* rxvt's Shift-Home and Shift-End select as xterm's do: Shift-Home takes
- * "bc", which the 'a' replaces, and Shift-End at the end selects nothing. */
+ * "bc", which the 'a' replaces, and Shift-End at the end selects nothing,
+ * and from the start takes the line. Its End, and the VT220's, move there.
+ * Its shifted Insert and Delete are no key of the line editor's. */
 UTEST(rln, rxvt_shifted_keys_end_on_a_dollar)
 {
     editing();
     wire("bc\33[7$a\33[8$d\r");
     ASSERT_EQ(lines, 1);
     ASSERT_STREQ(last, "ad");
+    wire("bc\33[H\33[8$a\r");
+    ASSERT_STREQ(last, "a");
+    wire("bc\33[H\33[8~a\33[H\33[4~d\r");
+    ASSERT_STREQ(last, "bcad");
+    wire("bc\33[H\33[2$\33[3$a\r");
+    ASSERT_STREQ(last, "abc");
 }
 
 UTEST(rln, a_linux_console_function_key_is_one_key)
@@ -1741,7 +1963,6 @@ UTEST(rln, a_new_canvas_ends_the_selection_with_its_highlight)
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_480));
     tasks();
     ASSERT_FALSE(vterm_selection.shows);
-    ASSERT_FALSE(rln_selected());
     wire("x\r");
     ASSERT_STREQ(last, "abcxd");
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
@@ -1757,7 +1978,6 @@ UTEST(rln, a_ris_ends_the_selection)
     ASSERT_TRUE(hl(0, 3));
     vterm_RIS();
     tasks();
-    ASSERT_FALSE(rln_selected());
     wire("x\r");
     ASSERT_STREQ(last, "abcxd");
     screen_done();
@@ -1983,7 +2203,7 @@ UTEST(rln, a_load_keeps_a_history_read_s_bracketed_paste)
     sys_init();
     fresh();
     static uint8_t blob[1 << 20];
-    rln_read_line(console_rln_reader(), &history);
+    rln_read_line(console_rln_reader(), &history, &kills);
     tasks();
     ASSERT_TRUE(vterm.bracketed_paste);
     ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
@@ -1996,6 +2216,125 @@ UTEST(rln, a_load_keeps_a_history_read_s_bracketed_paste)
     manifold_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(shown, "\33[?2004l") != NULL);
     ASSERT_FALSE(vterm.bracketed_paste);
+}
+
+/* With the line's selection showing, the keys that kill a word kill the
+ * selection, which is then the word, whichever end the cursor is at. */
+UTEST(rln, the_word_kills_kill_the_selection)
+{
+    static const char *const keys[] = {"\27", "\33\177", "\33d", "\33[3;5~"};
+    for (unsigned i = 0; i < sizeof keys / sizeof *keys; i++)
+    {
+        screen_reading_after("");
+        wire("ab cd ef\33[D\33[1;2D\33[1;2D\33[1;2D");
+        wire(keys[i]);
+        wire("\33[H\31\r");
+        ASSERT_STREQ(last, "d eab cf");
+        next();
+        kills.len = 0;
+        wire("ab cd ef\33[D\33[D\33[D\33[D\33[1;2C\33[1;2C\33[1;2C");
+        wire(keys[i]);
+        wire("\33[H\31\r");
+        ASSERT_STREQ(last, "d eab cf");
+        screen_done();
+    }
+}
+
+/* Ctrl-K and Ctrl-U kill from the cursor to the line's end and its start,
+ * whatever is selected: the selection only ends. */
+UTEST(rln, the_line_kills_kill_from_the_cursor)
+{
+    screen_reading_after("");
+    wire("abcdef\33[D\33[1;2D\33[1;2D\13\r");
+    ASSERT_STREQ(last, "abc");
+    next();
+    wire("abcdef\33[D\33[1;2D\33[1;2D\25\r");
+    ASSERT_STREQ(last, "def");
+    next();
+    wire("abcdef\33[D\33[D\33[D\33[1;2C\33[1;2C\13\r");
+    ASSERT_STREQ(last, "abcde");
+    next();
+    wire("abcdef\33[D\33[D\33[D\33[1;2C\33[1;2C\25\r");
+    ASSERT_STREQ(last, "f");
+    screen_done();
+}
+
+/* Ctrl-Y puts what was killed in the selection's place, and with nothing
+ * killed leaves the selection's text alone. */
+UTEST(rln, ctrl_y_replaces_the_selection)
+{
+    screen_reading_after("");
+    wire("xyz\33[1;2D\33[1;2D\31\r");
+    ASSERT_STREQ(last, "xyz");
+    next();
+    wire("abc\27xyz\33[1;2D\33[1;2D\31!\r");
+    ASSERT_STREQ(last, "xabc!");
+    screen_done();
+}
+
+/* Shift with Ctrl or Alt and Left or Right selects by words. */
+UTEST(rln, shift_with_ctrl_or_alt_selects_by_words)
+{
+    screen_reading_after("");
+    wire("ab cd ef\33[1;6D\33[1;4Dx\r");
+    ASSERT_STREQ(last, "ab x");
+    next();
+    wire("ab cd ef\33[H\33[1;6C\33[1;4Cx\r");
+    ASSERT_STREQ(last, "x ef");
+    screen_done();
+}
+
+/* A load in the middle of a program's read gives the read the console's
+ * kill buffer again, holding what the program had killed. The line the
+ * kill emptied is saved with no selection, which a load would refuse were
+ * it left past the line's end. */
+UTEST(rln, a_load_keeps_what_a_program_killed)
+{
+    sys_init();
+    fresh();
+    static uint8_t blob[1 << 20];
+    rln_read_line(console_rln_reader(), NULL, console_rln_kill());
+    tasks();
+    wire("abc\27");
+    ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
+    rln_read_cancel();
+    console_rln_kill()->len = 0;
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    wire("\31!");
+    ASSERT_EQ(strncmp(rln_line(), "abc!", 4), 0);
+    wire("\r");
+}
+
+/* A load ends a run of kills, as a key between two kills does: the kill
+ * after it starts what Ctrl-Y puts back again. */
+UTEST(rln, a_load_ends_a_run_of_kills)
+{
+    sys_init();
+    fresh();
+    static uint8_t blob[1 << 20];
+    rln_read_line(console_rln_reader(), NULL, console_rln_kill());
+    tasks();
+    wire("abc def\27");
+    ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    wire("\27\31!");
+    ASSERT_EQ(strncmp(rln_line(), "abc !", 5), 0);
+    wire("\r");
+}
+
+/* A program starts with nothing killed: the stop of the one before it
+ * empties the console's kill buffer. */
+UTEST(rln, a_stop_empties_what_a_program_killed)
+{
+    sys_init();
+    fresh();
+    rln_read_line(console_rln_reader(), NULL, console_rln_kill());
+    tasks();
+    wire("abc\27");
+    ASSERT_EQ(console_rln_kill()->len, 3);
+    rln_stop();
+    console_stop();
+    ASSERT_EQ(console_rln_kill()->len, 0);
 }
 
 UTEST_MAIN();

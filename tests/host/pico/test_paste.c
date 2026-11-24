@@ -51,8 +51,8 @@ void ria_trigger_sigint(void) { sigints++; }
 
 /* What keymap.c and key.c ask of the keyboard, the USB host, the programs,
  * the line editor and the clock: no locks, no program's chords and no
- * repeat. The line editor's selection shows where line_selects; its copy
- * puts "line" in the clipboard, and its cut and paste keys are counted. */
+ * repeat. The line editor reads a line where line_reads; its copy puts
+ * "line" in the clipboard, and its cut keys are counted. */
 bool hid_boot_enumerating(void) { return false; }
 void hid_set_leds(uint8_t leds) { (void)leds; }
 bool proc_key_chord(uint8_t keycode, bool ctrl, bool alt)
@@ -60,24 +60,19 @@ bool proc_key_chord(uint8_t keycode, bool ctrl, bool alt)
     (void)keycode, (void)ctrl, (void)alt;
     return false;
 }
-static bool line_selects;
-static unsigned line_cuts, line_pastes;
+static bool line_reads;
+static unsigned line_cuts;
 bool rln_copy(void)
 {
-    if (line_selects)
+    if (line_reads)
         clip_copy_bytes(CLIP_CLIPBOARD, "line", 4);
-    return line_selects;
+    return line_reads;
 }
-bool rln_selected(void) { return line_selects; }
+bool rln_reading(void) { return line_reads; }
 bool rln_cut(void)
 {
-    line_cuts += line_selects;
-    return line_selects;
-}
-bool rln_paste(void)
-{
-    line_pastes += line_selects;
-    return line_selects;
+    line_cuts += line_reads;
+    return line_reads;
 }
 uint8_t keyboard_get_locks(void) { return 0; }
 void keyboard_set_locks(uint8_t locks) { (void)locks; }
@@ -149,8 +144,8 @@ static void fresh(void)
     row.clear();
     clip_reset();
     sigints = 0;
-    line_selects = false;
-    line_cuts = line_pastes = 0;
+    line_reads = false;
+    line_cuts = 0;
 }
 
 static screen_t *shown(void)
@@ -350,10 +345,11 @@ UTEST(paste, the_copy_and_paste_keys_act_at_once)
     ASSERT_STREQ(keyboard(), "abcopy mecd");
 }
 
-/* Shift-Delete with no line selection showing types its sequence; with
- * one, it and the paste keys are the line editor's and type nothing, and
- * the copy keys copy the line's selection in place of the primary. */
-UTEST(paste, the_line_s_selection_takes_the_keys_through_the_keymap)
+/* Shift-Delete with no line being read types its sequence; with one, it
+ * is the line editor's and types nothing, and the copy keys are the line
+ * editor's too, in place of the primary. The paste keys paste either way:
+ * what they paste is typed, and the line editor takes it as typing. */
+UTEST(paste, a_line_being_read_takes_the_keys_through_the_keymap)
 {
     fresh();
     say("copy me\r\n");
@@ -361,38 +357,37 @@ UTEST(paste, the_line_s_selection_takes_the_keys_through_the_keymap)
     chord(SHIFT, HID_KEY_DELETE);
     ASSERT_STREQ(keyboard(), "\33[3;2~");
     ASSERT_EQ(line_cuts, 0u);
-    line_selects = true;
+    line_reads = true;
     chord(SHIFT, HID_KEY_DELETE);
-    chord(CTRL | SHIFT, HID_KEY_V);
-    chord(SHIFT, HID_KEY_INSERT);
-    ASSERT_FALSE(paste_busy());
     ASSERT_STREQ(keyboard(), "");
     ASSERT_EQ(line_cuts, 1u);
-    ASSERT_EQ(line_pastes, 2u);
     chord(CTRL, HID_KEY_INSERT);
-    line_selects = false;
+    chord(CTRL | SHIFT, HID_KEY_V);
+    ASSERT_TRUE(paste_busy());
+    ASSERT_STREQ(keyboard(), "line");
+    line_reads = false;
     chord(SHIFT, HID_KEY_INSERT);
     ASSERT_STREQ(keyboard(), "line");
 }
 
-/* Ctrl-Shift-X is a cut key as Shift-Delete is: with no line selection
- * showing it types Ctrl-X, and with one it is the line editor's and types
+/* Ctrl-Shift-X is a cut key as Shift-Delete is: with no line being read
+ * it types Ctrl-X, and with one it is the line editor's and types
  * nothing. The RIA is no Mac, so GUI-X is never one. */
 UTEST(paste, ctrl_shift_x_cuts_through_the_keymap)
 {
     fresh();
-    line_selects = false;
+    line_reads = false;
     line_cuts = 0;
     chord(CTRL | SHIFT, HID_KEY_X);
     ASSERT_STREQ(keyboard(), "\x18");
     ASSERT_EQ(line_cuts, 0u);
-    line_selects = true;
+    line_reads = true;
     chord(CTRL | SHIFT, HID_KEY_X);
     ASSERT_STREQ(keyboard(), "");
     ASSERT_EQ(line_cuts, 1u);
     chord(KEYBOARD_MODIFIER_LEFTGUI, HID_KEY_X);
     ASSERT_EQ(line_cuts, 1u);
-    line_selects = false;
+    line_reads = false;
 }
 
 UTEST_MAIN();

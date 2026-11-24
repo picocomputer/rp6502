@@ -765,7 +765,9 @@ static void loop(void)
 }
 
 /* The text, then a read on row 2 after a prompt of two columns, with
- * "abc def" typed, the cursor at its end. */
+ * "abc def" typed, the cursor at its end, and nothing killed. */
+static rln_kill_t line_kills;
+
 static void editing(void)
 {
     start();
@@ -773,7 +775,8 @@ static void editing(void)
     show("> ");
     line_count = 0;
     line_got[0] = 0;
-    rln_read_line(line_read, NULL);
+    line_kills.len = 0;
+    rln_read_line(line_read, NULL, &line_kills);
     loop();
     typed_push("abc def", 7);
     loop();
@@ -788,11 +791,13 @@ static bool hl(int x, int y)
     return x >= MODE0_ROW_FROM(w) && x < MODE0_ROW_TO(w);
 }
 
-/* What the line editor's selection copies, the clipboard emptied first. */
+/* What the line editor's selection copies, the clipboard emptied first:
+ * nothing with none, when the copy keys copy the primary. */
 static const char *line_copy(void)
 {
     host_clipboard_set("");
-    rln_copy();
+    if (rln_selected())
+        rln_copy();
     return host_clipboard_get();
 }
 
@@ -1120,7 +1125,7 @@ UTEST(mouse, a_click_in_a_wrapped_line_places_the_cursor_across_rows)
         start();
         show(TEXT);
         show("> ");
-        rln_read_line(line_read, NULL);
+        rln_read_line(line_read, NULL, NULL);
         loop();
         typed_push(line, 90);
         loop();
@@ -1156,7 +1161,7 @@ UTEST(mouse, a_click_in_a_wide_line_places_the_cursor_after_pixel_8)
             show(TEXT);
             show("\33#6> ");
             line_count = 0;
-            rln_read_line(line_read, NULL);
+            rln_read_line(line_read, NULL, NULL);
             loop();
             typed_push("abc def", 7);
             loop();
@@ -1253,7 +1258,7 @@ UTEST(mouse, a_drag_ends_with_its_read)
     loop();
     ASSERT_EQ(line_count, 1);
     show("> ");
-    rln_read_line(line_read, NULL);
+    rln_read_line(line_read, NULL, NULL);
     loop();
     typed_push("xyz", 3);
     loop();
@@ -1285,9 +1290,9 @@ UTEST(mouse, a_copy_of_the_primary_does_not_wait_for_typed_keys)
     ASSERT_STREQ(typed(), "abc");
 }
 
-/* The copy keys copy the line's selection showing at once, and with none
- * in the line, the primary. A selection that keys still unread would make
- * is not the one showing, so the primary is copied. */
+/* The copy keys copy the line's selection, and with none in the line, the
+ * primary. They act after the keys typed before them: a Shift-Left still
+ * unread when the key is pressed makes the selection that is copied. */
 UTEST(mouse, the_copy_keys_copy_the_line_s_selection)
 {
     editing();
@@ -1306,12 +1311,12 @@ UTEST(mouse, the_copy_keys_copy_the_line_s_selection)
     ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
     ASSERT_STREQ(host_clipboard_get(), "second");
     loop();
-    ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
     ASSERT_STREQ(host_clipboard_get(), " ");
 }
 
-/* Shift-Delete cuts the selection showing to the clipboard, and with
- * none, is no chord and deletes as Delete does. */
+/* Shift-Delete cuts the line's selection to the clipboard, and with none
+ * does nothing: it is the line editor's key for as long as a line is
+ * read, and deletes nothing as Delete would. */
 UTEST(mouse, shift_delete_cuts_the_line_s_selection)
 {
     editing();
@@ -1324,17 +1329,129 @@ UTEST(mouse, shift_delete_cuts_the_line_s_selection)
     loop();
     ASSERT_STREQ(host_clipboard_get(), "ef");
     ARROW_LEFT(0);
-    ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_TYPED);
+    ARROW_LEFT(0);
+    ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
     hostkey_press(HID_KEY_ENTER, 0, false, true);
     loop();
     ASSERT_EQ(line_count, 1);
-    ASSERT_STREQ(line_got, "abc ");
+    ASSERT_STREQ(line_got, "abc d");
     ASSERT_STREQ(host_clipboard_get(), "ef");
 }
 
+/* The flaw this order mends: Shift-Left and then Shift-Delete pressed
+ * before the line editor has taken the Shift-Left. The cut is the line
+ * editor's to judge when it takes it, after the Shift-Left, so it cuts
+ * what that selected. */
+UTEST(mouse, a_cut_follows_the_key_that_selects)
+{
+    editing();
+    ASSERT_TRUE(host_clipboard_set(""));
+    ARROW_LEFT(SHIFT);
+    ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
+    loop();
+    ASSERT_STREQ(host_clipboard_get(), "f");
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_STREQ(line_got, "abc de");
+}
+
+/* A cut pressed with a copy still to take is taken in its place, as it
+ * copies too, and a copy pressed with a cut still to take is the cut's. */
+UTEST(mouse, a_cut_and_a_copy_still_to_take_are_the_cut)
+{
+    editing();
+    ASSERT_TRUE(host_clipboard_set(""));
+    ARROW_LEFT(SHIFT);
+    ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
+    ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
+    ASSERT_EQ(chord(HID_KEY_C, CTRL | SHIFT), HOSTKEY_CHORD);
+    loop();
+    ASSERT_STREQ(host_clipboard_get(), "f");
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_STREQ(line_got, "abc de");
+}
+
+/* A copy still to take when the read ends copies the primary, as the copy
+ * keys do with no read. */
+UTEST(mouse, a_copy_still_to_take_at_the_read_s_end_copies_the_primary)
+{
+    editing();
+    drag(0, 1, 6, 1);
+    loop();
+    ASSERT_TRUE(host_clipboard_set(""));
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
+    ASSERT_STREQ(host_clipboard_get(), "");
+    loop();
+    ASSERT_EQ(line_count, 1);
+    ASSERT_STREQ(host_clipboard_get(), "second");
+}
+
+/* A word the mouse selects is the word a kill key kills, and the mouse
+ * between two kills starts what Ctrl-Y puts back again, as a key does.
+ * What a cut takes is the clipboard's, not Ctrl-Y's, and a cut with
+ * nothing to take and a copy start it again too. */
+UTEST(mouse, the_mouse_and_a_cut_start_the_kills_again)
+{
+    editing();
+    typed_push("\27", 1);
+    loop();
+    click(3, 2);
+    click(3, 2);
+    loop();
+    ASSERT_STREQ(line_copy(), "abc");
+    typed_push("\27\31\r", 3);
+    loop();
+    ASSERT_STREQ(line_got, "abc ");
+    editing();
+    ASSERT_TRUE(host_clipboard_set(""));
+    typed_push("\27", 1);
+    ARROW_LEFT(SHIFT);
+    ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
+    loop();
+    ASSERT_STREQ(host_clipboard_get(), " ");
+    typed_push("\27\31\r", 3);
+    loop();
+    ASSERT_STREQ(line_got, "abc");
+    for (int copy = 0; copy < 2; copy++)
+    {
+        editing();
+        typed_push("\27", 1);
+        loop();
+        if (copy)
+            ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
+        else
+            ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
+        loop();
+        typed_push("\27\31\r", 3);
+        loop();
+        ASSERT_STREQ(line_got, "abc ");
+    }
+}
+
+/* A double click takes a word by the line editor's rule: what a space, a
+ * colon, a slash or a backslash parts, so a file's name with its
+ * extension. */
+UTEST(mouse, a_double_click_takes_a_file_s_name)
+{
+    editing();
+    typed_push("\25load USB0:/a.b", 15);
+    loop();
+    click(14, 2);
+    click(14, 2);
+    loop();
+    ASSERT_STREQ(line_copy(), "a.b");
+    machine_us(1000 * 1000);
+    click(8, 2);
+    click(8, 2);
+    loop();
+    ASSERT_STREQ(line_copy(), "USB0");
+}
+
 /* Ctrl-Shift-X, and Cmd-X on a Mac, cut as Shift-Delete does, a held one
- * once; with no selection showing they are no chord, and Ctrl-Shift-X
- * types Ctrl-X. Off a Mac, Cmd-X is no chord. */
+ * once, and with no selection do nothing; with no line being read they are
+ * no chord, and Ctrl-Shift-X types Ctrl-X. Off a Mac, Cmd-X is no chord. */
 UTEST(mouse, ctrl_shift_x_and_cmd_x_cut_the_line_s_selection)
 {
     editing();
@@ -1361,15 +1478,23 @@ UTEST(mouse, ctrl_shift_x_and_cmd_x_cut_the_line_s_selection)
     loop();
     ASSERT_STREQ(line_got, "abc de");
     editing();
-    ASSERT_EQ(chord(HID_KEY_X, CTRL | SHIFT), HOSTKEY_TYPED);
-    ASSERT_STREQ(typed(), "\x18");
+    ASSERT_TRUE(host_clipboard_set(""));
+    ASSERT_EQ(chord(HID_KEY_X, CTRL | SHIFT), HOSTKEY_CHORD);
+    loop();
+    ASSERT_STREQ(host_clipboard_get(), "");
     ARROW_LEFT(SHIFT);
     loop();
     ASSERT_NE(chord(HID_KEY_X, GUI), HOSTKEY_CHORD);
-    ASSERT_STREQ(host_clipboard_get(), "f");
+    ASSERT_STREQ(host_clipboard_get(), "");
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_STREQ(line_got, "abc dex");
+    ASSERT_EQ(chord(HID_KEY_X, CTRL | SHIFT), HOSTKEY_TYPED);
+    ASSERT_STREQ(typed(), "\x18");
 }
 
-/* The paste keys paste the clipboard in place of the selection showing. */
+/* The paste keys paste the clipboard in place of the line's selection:
+ * what they paste is typed, and typing replaces the selection. */
 UTEST(mouse, the_paste_keys_replace_the_line_s_selection)
 {
     editing();
@@ -1378,7 +1503,7 @@ UTEST(mouse, the_paste_keys_replace_the_line_s_selection)
     ARROW_LEFT(SHIFT);
     loop();
     ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
-    ASSERT_FALSE(paste_busy());
+    ASSERT_TRUE(paste_busy());
     loop();
     hostkey_press(HID_KEY_ENTER, 0, false, true);
     loop();
@@ -1414,9 +1539,10 @@ UTEST(mouse, a_cut_and_a_paste_follow_the_keys_before_them)
     ASSERT_STREQ(line_got, "abc XY");
 }
 
-/* With no line selection showing, a paste key pastes at once through the
- * paste stage, after the keys typed before it, in a read and with none. */
-UTEST(mouse, a_paste_with_no_line_selection_pastes_at_once)
+/* A paste key pastes at once through the paste stage, where what it
+ * pastes is typed after the keys typed before it and before the keys
+ * typed after it, in a read and with none. */
+UTEST(mouse, a_paste_is_typed_between_the_keys_round_it)
 {
     editing();
     ASSERT_TRUE(host_clipboard_set("XY"));
@@ -1433,9 +1559,10 @@ UTEST(mouse, a_paste_with_no_line_selection_pastes_at_once)
     ASSERT_STREQ(typed(), "XY");
 }
 
-/* A paste of the line's selection still to take when the read ends, here
- * by an Enter typed before it, pastes as it would with no read. */
-UTEST(mouse, a_paste_still_to_take_pastes_when_the_read_ends)
+/* A paste pressed with the line's selection showing and an Enter still
+ * unread goes after the Enter, as typing does: the line is entered as it
+ * is, and what is pasted is for whatever reads next. */
+UTEST(mouse, a_paste_goes_after_an_enter_typed_before_it)
 {
     editing();
     ASSERT_TRUE(host_clipboard_set("XY"));
@@ -1450,8 +1577,8 @@ UTEST(mouse, a_paste_still_to_take_pastes_when_the_read_ends)
 }
 
 /* A paste key that comes while the reply to the key before it is still
- * going out at a slow speed waits in the line editor for that reply, which
- * reads the line as it goes, before it edits the line: here an 'x' typed
+ * going out at a slow speed waits for that reply as typing does, since the
+ * reply reads the line as it goes: here an 'x' typed
  * at the start of a long line, whose rewrite of the line is still going
  * out, then "bc" selected by the mouse at once and pasted over once the
  * rewrite is out. */
@@ -1472,7 +1599,7 @@ UTEST(mouse, a_paste_key_waits_for_a_slow_echo)
     ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
     loop();
     ASSERT_TRUE(rln_replying());
-    ASSERT_FALSE(paste_busy());
+    ASSERT_TRUE(paste_busy());
     manifold_set_paced(false);
     show("\33[0;0*r");
     loop();
@@ -2265,7 +2392,7 @@ UTEST(mouse, a_load_keeps_the_line_s_release_still_to_take)
     start();
     show(TEXT);
     show("> ");
-    rln_read_line(console_rln_reader(), NULL);
+    rln_read_line(console_rln_reader(), NULL, console_rln_kill());
     loop();
     typed_push("abc def", 7);
     loop();

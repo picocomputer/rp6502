@@ -116,7 +116,7 @@ bool proc_key_chord(uint8_t keycode, bool ctrl, bool alt)
 /* The copy and paste the keys reach, the line editor's and the console's,
  * and the console's mouse, which owns the tablet. The test presses none of
  * their keys and moves no pointer. */
-bool rln_selected(void)
+bool rln_reading(void)
 {
     return false;
 }
@@ -127,11 +127,6 @@ bool rln_copy(void)
 }
 
 bool rln_cut(void)
-{
-    return false;
-}
-
-bool rln_paste(void)
 {
     return false;
 }

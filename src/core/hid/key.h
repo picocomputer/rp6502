@@ -24,22 +24,22 @@ bool key_chord(uint8_t keycode, uint8_t modifier, bool repeat);
 
 /* The copy, cut and paste keys (clip.h). The copy and paste keys are
  * chords whatever a program has asked of the terminal, so they never type,
- * and Ctrl-Shift-C raises no SIGINT. Each key is judged at once, against
- * what the screen shows at that moment:
+ * and Ctrl-Shift-C raises no SIGINT. This layer knows only that a key
+ * was pressed and whether a line is being read (core/com/rln.h); what the
+ * line has selected is the line editor's to judge, when it takes the key:
  *
  * - copy: Ctrl-Shift-C and Ctrl-Insert, and on a Mac Cmd-C
- *   (host_mac_keys), put the line editor's selection in the clipboard
- *   (core/com/rln.h), or with none, the primary, at once;
- * - cut: Shift-Delete and Ctrl-Shift-X, and on a Mac Cmd-X, with the
- *   line editor's selection showing, cut it to the clipboard; with none
- *   they are no chord, and type as they would;
+ *   (host_mac_keys), put the line editor's selection in the clipboard, or
+ *   with none, or no line being read, the primary;
+ * - cut: Shift-Delete and Ctrl-Shift-X, and on a Mac Cmd-X, cut the line
+ *   editor's selection to the clipboard, and do nothing with none; with
+ *   no line being read they are no chord, and type as they would;
  * - paste: Ctrl-Shift-V and Shift-Insert, and on a Mac Cmd-V, paste the
- *   clipboard, at once, or with the line editor's selection showing, in
- *   its place.
+ *   clipboard, which is typed after the keys before it, and typing
+ *   replaces the line editor's selection.
  *
- * The line editor takes a cut or paste of its selection after the keys
- * typed before it, as it takes the mouse. Plain Ctrl-C and Ctrl-V stay the
- * program's. */
+ * The line editor takes a copy or cut after the keys typed before it, as
+ * it takes the mouse. Plain Ctrl-C and Ctrl-V stay the program's. */
 typedef enum
 {
     KEY_CLIP_NONE,
@@ -59,8 +59,8 @@ bool key_clip_act(key_clip_t clip);
 
 /* Whether a press of the key, or its repeat, is a copy, cut or paste key
  * that acts now, as key_chord would judge it: a copy or paste key always,
- * a cut key only with the line editor's selection showing, and a cut
- * key's repeat when its press acted. The web player withholds a copy or
+ * a cut key only while a line is being read, and a cut key's repeat when
+ * its press acted. The web player withholds a copy or
  * cut key that acts from the browser (host/sokol/app/input.h). */
 bool key_clip_acts(uint8_t keycode, uint8_t modifier, bool repeat);
 
