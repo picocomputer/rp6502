@@ -22,6 +22,9 @@
  * section is NOLOAD, so they keep their values through a reboot; see
  * pico/ld/section_extra_post_scratch.incl. */
 #define HOST_REGISTER_RAM(name) __attribute__((section(".scratch_x_noload." #name))) name
+/* A zeroed static in a .bss section of its own, which the linker, sorting
+ * .bss by alignment, can place where a large alignment costs no padding. */
+#define HOST_BSS_OWN(name) __attribute__((section(".bss." #name))) name
 
 #define HID_MAX_SLOTS 16
 /* A program that ends returns the machine to its monitor. */

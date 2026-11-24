@@ -24,8 +24,8 @@ static uint pix_stream_dma;
 // costs no padding; in a section with other statics it would pad up to
 // nearly its size before it.
 #define PIX_RING_SIZE 128
-static uint32_t pix_ring[PIX_RING_SIZE]
-    __attribute__((section(".bss.pix_ring"), aligned(sizeof(uint32_t[PIX_RING_SIZE]))));
+static uint32_t HOST_BSS_OWN(pix_ring)[PIX_RING_SIZE]
+    __attribute__((aligned(sizeof(uint32_t[PIX_RING_SIZE]))));
 
 /* A 6502 program's xreg burst, across the calls of its API op. */
 static enum {
