@@ -77,14 +77,12 @@ const uint8_t mode0_underline8[4][8] = {
 };
 
 /* Out of line, because the renderer inlines mode0_color in every one of its
- * loops and these are the rarer colors. */
+ * loops and the faint colors are the rarer. */
 __attribute__((noinline)) uint16_t mode0_color_rest(unsigned code)
 {
     if (!(code & MODE0_CODE_DEFAULT))
         return mode0_faint_palette[code & 0xFF];
-    if (code & MODE0_CODE_FAINT)
-        return mode0_faint_defaults[code & 1];
-    return vterm_specials[code & 1];
+    return mode0_faint_defaults[code & 1];
 }
 
 #ifndef RP6502_VGA_FABRIC
@@ -464,7 +462,7 @@ mode0_render_term(int16_t scanline_id, int16_t begin, uint16_t *rgb, const int c
     const uint32_t highlight_text = mode0_regs.highlight_text;
     const uint32_t key[9] = {VGA_FILL_MODE0_ROW, row_word, screen, (uint32_t)vga_frame_count(),
                              highlight, highlight_text};
-    if (memcmp(cache->key, key, sizeof(key)))
+    if (!vga_fill_cache_hit(cache, key))
     {
         mode0_row_pairs(cache->row_pair[0], cell, colors, cols, blink_mask, reverse, sel_from,
                         sel_to, highlight, highlight_text);

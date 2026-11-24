@@ -208,7 +208,7 @@ mode_4bpp_pairs(vga_fill_cache_t *c, const uint16_t *pal, bool reverse)
     memcpy(now, pal, sizeof(now));
     key[0] = reverse ? VGA_FILL_4BPP_REVERSE : VGA_FILL_4BPP;
     memcpy(&key[1], now, sizeof(now));
-    if (!memcmp(c->key, key, sizeof(key)))
+    if (vga_fill_cache_hit(c, key))
         return c->pairs_4bpp;
     memcpy(c->key, key, sizeof(key));
     for (int i = 0; i < 16; i++)

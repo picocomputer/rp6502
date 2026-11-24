@@ -169,13 +169,12 @@ _Static_assert(MODE0_DEFAULT_FG == VTERM_COLOR_FG && MODE0_DEFAULT_BG == VTERM_C
 _Static_assert(MODE0_ENTRY_SHIFT == SCANVIDEO_ALPHA_PIN + 1,
                "a color's code sits above the opaque bit, which is clear for one");
 
-/* The pixel of a color past the console's palette: a faint one, or a
- * default, by its code. */
+/* The pixel of a faint color, of the palette or a default, by its code. */
 uint16_t mode0_color_rest(unsigned code);
 
-/* The pixel a cell's color is drawn as. An entry of the console's palette
- * is the commonest, so the renderer's common path takes it from there;
- * the faint palette and the defaults are rarer. */
+/* The pixel a cell's color is drawn as. The default colors, which plain
+ * text has, and the entries of the console's palette are the commonest, so
+ * the renderer takes them in line; the faint ones are rarer. */
 static inline uint16_t mode0_color(uint16_t color)
 {
     if (color & SCANVIDEO_ALPHA_MASK)
@@ -183,6 +182,8 @@ static inline uint16_t mode0_color(uint16_t color)
     const unsigned code = color >> MODE0_ENTRY_SHIFT;
     if (MODE_LIKELY(code < VTERM_PALETTE))
         return vterm_palette[code];
+    if ((code | 1) == (MODE0_CODE_DEFAULT | 1))
+        return vterm_specials[code & 1];
     return mode0_color_rest(code);
 }
 

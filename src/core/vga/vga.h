@@ -180,6 +180,16 @@ typedef struct
     };
 } vga_fill_cache_t;
 
+/* Whether the cache was built for key, every line: nine words compared in
+ * line, where memcmp would be a call to a library loop. */
+static inline bool vga_fill_cache_hit(const vga_fill_cache_t *cache, const uint32_t key[9])
+{
+    uint32_t d = 0;
+    for (int i = 0; i < 9; i++)
+        d |= cache->key[i] ^ key[i];
+    return !d;
+}
+
 /* Forgets a row of text, so the next line builds its pairs again. */
 static inline void vga_fill_cache_forget_row(vga_fill_cache_t *cache)
 {
