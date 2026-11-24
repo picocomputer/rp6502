@@ -73,6 +73,14 @@ static vga_canvas_t vga_canvas_current = vga_canvas_console;
 static bool vga_code_page_owed;
 static uint16_t vga_code_page;
 
+/* The page that goes next is the first of a connect. The RIA does not know
+ * the page the VGA holds until it has gone, so the two cannot tell alike
+ * whether it changes the page, which is what resets a terminal. A hard reset
+ * to both terminals follows it, and they start alike. */
+static bool vga_connecting;
+/* That hard reset is still to go, behind the page. */
+static bool vga_hard_reset_owed;
+
 /* What is awaited (vga.h), and when it is too late. vga_own_awaited is the
  * answer to DISPLAY or CODE_PAGE, from which vga.c takes nothing but its
  * coming, and vga_answer_state is the answer to the message vga_ask sent.
@@ -519,6 +527,8 @@ static void vga_unlink(void)
         vga_answer_state = VGA_ANSWER_TIMEOUT;
     vga_job_hold_end_us = 0;
     vga_code_page_owed = false;
+    vga_connecting = false;
+    vga_hard_reset_owed = false;
     vga_vsync_alarm_arms = false;
     if (vga_vsync_alarm >= 0)
         timer_hw->armed = 1u << vga_vsync_alarm;
@@ -595,14 +605,33 @@ static void vga_await(uint8_t ch4, uint8_t byte, uint16_t word,
 }
 
 /* A code page still to go goes once the gate opens, and the console's
- * terminal takes it as the VGA's does, between the same two bytes. */
+ * terminal takes it as the VGA's does, between the same two bytes. A
+ * connect's first only becomes the page the console's terminal holds, as it
+ * is now the VGA's, and the hard reset behind it is what resets both. */
 static void HOST_IN_FLASH_FUNC vga_tell_code_page(void)
 {
     if (!vga_code_page_owed || !vga_gate_open())
         return;
     vga_code_page_owed = false;
     vga_await(0xF, 0x01, vga_code_page, VGA_ANSWER_MS, true);
-    vterm_set_code_page(vga_code_page);
+    if (vga_connecting)
+    {
+        vga_connecting = false;
+        vga_hard_reset_owed = true;
+        vterm_load_code_page(vga_code_page);
+    }
+    else
+        vterm_set_code_page(vga_code_page);
+}
+
+/* The hard reset of a connect goes to both terminals in the console's
+ * stream, once the connect's code page has gone and before its DISPLAY. */
+static void HOST_IN_FLASH_FUNC vga_tell_hard_reset(void)
+{
+    if (!vga_hard_reset_owed || vga_code_page_owed)
+        return;
+    vga_hard_reset_owed = false;
+    manifold_write_to(COM_TERM_SCREEN, STR_TERM_HARD_RESET, STR_TERM_HARD_RESET_LEN);
 }
 
 /* DISPLAY, which is still to go, goes once the gate opens and the code page
@@ -613,7 +642,7 @@ static void HOST_IN_FLASH_FUNC vga_tell_code_page(void)
  * the RIA. */
 static void vga_tell_display(void)
 {
-    if (vga_silenced() || !vga_gate_open() || vga_code_page_owed)
+    if (vga_silenced() || !vga_gate_open() || vga_code_page_owed || vga_hard_reset_owed)
         return;
     vga_needs_reset = false;
     if (vga_connected())
@@ -772,13 +801,15 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
     /* The VGA may have kept its state while the RIA restarted, or started
      * fresh while the RIA ran. The code page and DISPLAY go again, with a hard
      * reset between them to both terminals, so the two start alike, in a
-     * build that logs too. */
+     * build that logs too. The page is the VGA's own first one until
+     * oem_init, at boot, has the one that is set, which takes its place if
+     * it comes before this one goes. */
     vga_needs_reset = true;
     vga_pointer_shape_dirty = true;
     vga_pointer_where_dirty = true;
-    if (oem_get_code_page_run()) /* at boot oem_init sends it */
-        vga_set_code_page(oem_get_code_page_run());
-    manifold_write_to(COM_TERM_SCREEN, STR_TERM_HARD_RESET, STR_TERM_HARD_RESET_LEN);
+    vga_connecting = true;
+    vga_hard_reset_owed = false;
+    vga_set_code_page(oem_get_code_page_run() ? oem_get_code_page_run() : 437);
     com_set_reply_default(false);
     /* A VGA of the firmware before the RIA answered the queries still has
      * its own answers on; this turns them off, so an update of either chip
@@ -888,6 +919,8 @@ void HOST_IN_RAM_FUNC vga_task(void)
     vga_answer_expire();
     if (vga_code_page_owed)
         vga_tell_code_page();
+    if (vga_hard_reset_owed)
+        vga_tell_hard_reset();
     if (vga_needs_reset)
         vga_tell_display();
     vga_pointer_task();

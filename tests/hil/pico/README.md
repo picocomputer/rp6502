@@ -163,6 +163,13 @@ machine 1 in PIO1's FDEBUG). The test clears both before the run.
     python3 tests/hil/pico/hil.py -d 192.168.1.93 -k key --vga-elf \
         build/vga/rp6502-vga.elf --vga-probe SERIAL term termload
 
+With `--elf` too, and so a probe on each chip, the run ends with one more
+read: the RIA's copy of the console's terminal and the VGA's must be the
+same, in their sizes, their cursors, and the rings their rows are laid out
+in. The RIA names rows of that ring to the VGA, for the selection, so a
+difference shows there as a highlight on the wrong rows. `check_console` in
+`hil.py` is that read, for any test that needs it somewhere else.
+
 ## termload
 
 The term test with the VGA as busy as a program can make it: a 640x480
@@ -179,7 +186,8 @@ VGA in two words of PIX once a frame, in order with the console's bytes. The
 test reads the selection of both chips through their probes, so it needs
 `--elf` and `--vga-elf`, and someone at the machine: it asks for a drag
 across the text on the console with a USB mouse on the RIA, and waits a
-minute for one. Then the RIA and the VGA must hold the same selection, as
+minute for one. The two chips' consoles must be the same first, as after
+`term`. Then the RIA and the VGA must hold the same selection, as
 made, after monitor output that scrolls it, and after output that scrolls
 its rows away, which drops it on both.
 

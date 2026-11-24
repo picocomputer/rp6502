@@ -127,6 +127,23 @@ def test_tput(r):
         check_load(w.rows)
 
 
+def check_console(r):
+    """With a probe on each chip, the RIA's copy of the console's terminal
+    and the VGA's are the same: sizes, cursors and rings (rig.console). The
+    console is read once it is quiet, a few times, since the two chips are
+    not read at one moment. Without both probes nothing is checked."""
+    if not r.probe or not r.vga:
+        return
+    with r.probe, r.vga:
+        for _ in range(10):
+            time.sleep(0.2)
+            bad = rig.console_differences(rig.console(r.probe), rig.console(r.vga))
+            if not bad:
+                print("the RIA's console and the VGA's are the same", flush=True)
+                return
+    raise Fail("the RIA's console is not the VGA's: " + "; ".join(bad))
+
+
 def test_term(r):
     """The console's terminal keeps up with the UART: the slowest things it
     does, each followed at once by a probe whose answer shows a lost byte.
@@ -179,6 +196,7 @@ def term_run(r, name):
         raise Fail("late scanlines" if video.late else "no video captured")
     if vga and (late or overrun):
         raise Fail(f"{late} bytes during a job" if late else "the PIX FIFO overran")
+    check_console(r)
 
 
 def test_sizes(r):
@@ -217,6 +235,7 @@ def test_select(r):
     if not r.probe or not r.vga:
         raise Fail("needs --elf and --vga-elf")
     b = r.board
+    check_console(r)
     with r.probe, r.vga:
 
         def same(when):

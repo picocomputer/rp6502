@@ -86,6 +86,52 @@ def selection(probe):
             "rows": w[0] | w[1] << 32}
 
 
+def console(probe):
+    """The console's terminal as a chip keeps it, read through its probe:
+    for each size, vterm_40 and vterm_80 (src/core/term/vterm.h), the
+    grid's height and which screen shows, and for each of its two screens
+    the cursor, the saved cursor, and the ring its rows are laid out in
+    (screen_t in src/core/term/screen.h): the slot of row 0, the rows above
+    it still in the ring, the spare row of memory, and the row of memory in
+    each slot. The RIA's and the VGA's are the same after the same bytes,
+    which is what lets the RIA name a row of memory to the VGA.
+
+    The places read are those of term_grid_t and vterm_size_t in a 32-row
+    build: the width and height first, the screens of 24 bytes from 8, the
+    screen showing at 0x38, and the slots at 0xA2. A build that moves them
+    reads as a ring of another size, and raises."""
+    out = {}
+    for name, width in (("vterm_40", 40), ("vterm_80", 80)):
+        base = probe.sym[name]
+        b = bytes(probe.read(base, 8, 0xA2 + 64))
+        grid = {"height": b[1],
+                "shown": (int.from_bytes(b[0x38:0x3C], "little") - base - 8) // 24}
+        for n in (0, 1):
+            s = b[8 + 24 * n:32 + 24 * n]
+            if b[0] != width or s[6] != 32 or s[7] != 33:
+                raise RuntimeError(f"{name} is not laid out as rig.console() reads it")
+            grid[f"screen {n}"] = {"cursor": tuple(s[0:3]), "saved": tuple(s[3:6]),
+                                   "row 0 in slot": s[8], "hidden": s[9], "spare": s[10],
+                                   "slots": tuple(b[0xA2 + 32 * n:0xA2 + 32 * n + 32])}
+        out[name] = grid
+    return out
+
+
+def console_differences(ria, vga):
+    """What differs between two chips' console() as lines of text, none when
+    they are the same."""
+    lines = []
+    for name in ria:
+        for key, a in ria[name].items():
+            b = vga[name][key]
+            if not isinstance(a, dict):
+                a, b = {key: a}, {key: b}
+                key = ""
+            lines += [f"{name} {key} {k}: the RIA has {a[k]}, the VGA {b[k]}".replace("  ", " ")
+                      for k in a if a[k] != b[k]]
+    return lines
+
+
 def load_summary(rows):
     """One line of the audio load from the rows of Probe.watch()."""
     if not rows:

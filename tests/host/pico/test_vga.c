@@ -249,14 +249,23 @@ const char *S(int id)
 #undef X
 #undef XR
 
-/* The console's terminal (vterm.c): the code pages it takes, in order. */
+/* The console's terminal (vterm.c): the code pages it takes, in order, and
+ * whether it took each with the reset a change of page does, or only as
+ * the page it holds. */
 term_t vterm;
 static uint16_t vterm_pages[8];
+static bool vterm_page_resets[8];
 static unsigned vterm_page_count;
 bool vterm_set_code_page(uint16_t cp)
 {
+    vterm_page_resets[vterm_page_count % 8] = true;
     vterm_pages[vterm_page_count++ % 8] = cp;
     return true;
+}
+void vterm_load_code_page(uint16_t cp)
+{
+    vterm_page_resets[vterm_page_count % 8] = false;
+    vterm_pages[vterm_page_count++ % 8] = cp;
 }
 /* Its speed (term_speed) in bits a second: 'r', the final byte of DECSCS,
  * sets the one a case gives, and 'c', of RIS, makes it unlimited, as does a
@@ -302,7 +311,19 @@ uint32_t term_speed(const term_t *t)
 /* The console's output (manifold.c): with nothing queued, a flush is done.
  * It feeds the console's terminal through vga.c every byte it sends. */
 static int (*term_out)(const char *buf, int len, bool force);
-void manifold_write_to(uint8_t to, const char *buf, size_t n) { (void)to; (void)buf; (void)n; }
+/* The hard resets written to the screen's terminal, and how many messages
+ * had gone to the VGA when the last was. */
+static unsigned hard_resets;
+static unsigned hard_reset_at;
+void manifold_write_to(uint8_t to, const char *buf, size_t n)
+{
+    if (to == COM_TERM_SCREEN && n == STR_TERM_HARD_RESET_LEN &&
+        !memcmp(buf, STR_TERM_HARD_RESET, n))
+    {
+        hard_resets++;
+        hard_reset_at = sent_count;
+    }
+}
 void manifold_flush(void) {}
 void manifold_set_term_out(int (*out_chars)(const char *buf, int len, bool force)) { term_out = out_chars; }
 void manifold_uart_drain_rx(void) {}
@@ -377,6 +398,62 @@ UTEST(vga, code_page_goes_before_the_console)
     ASSERT_FALSE(vga_console_ready());
     deliver();
     ASSERT_TRUE(vga_console_ready());
+}
+
+/* The RIA does not know the page the VGA holds when it connects, so it
+ * cannot tell as the VGA does whether the connect's page changes it and
+ * resets the terminal. It takes that page with no reset of its own, and a
+ * hard reset to both terminals goes behind it, before DISPLAY. A page after
+ * that is taken as the VGA takes it. */
+UTEST(vga, a_connect_s_code_page_goes_before_its_hard_reset)
+{
+    fake.present = true;
+    vga_init();
+    /* Before oem_init has the page that is set, the VGA's own first one. */
+    ASSERT_EQ(0u, hard_resets);
+    vga_task();
+    int page = sent_find(0xF, 0x01, 0);
+    ASSERT_GE(page, 0);
+    ASSERT_EQ(437, sent[page].word);
+    ASSERT_EQ(1u, vterm_page_count);
+    ASSERT_FALSE(vterm_page_resets[0]);
+    /* The hard reset waits in the console's stream, which is held until the
+     * VGA has answered the page. */
+    ASSERT_EQ(1u, hard_resets);
+    ASSERT_GT((int)hard_reset_at, page);
+    ASSERT_FALSE(vga_console_ready());
+    deliver();
+    vga_task();
+    ASSERT_EQ(1u, hard_resets);
+    int display = sent_find(0xF, 0x00, 0);
+    ASSERT_GE(display, 0);
+    ASSERT_LE((int)hard_reset_at, display);
+    deliver();
+    vga_set_code_page(850);
+    vga_task();
+    ASSERT_EQ(2u, vterm_page_count);
+    ASSERT_EQ(850, vterm_pages[1]);
+    ASSERT_TRUE(vterm_page_resets[1]);
+    ASSERT_EQ(1u, hard_resets);
+}
+
+/* The page oem_init has, when it comes before the connect's has gone, goes
+ * in its place, as the connect's. */
+UTEST(vga, the_page_that_is_set_goes_as_the_connect_s)
+{
+    fake.present = true;
+    vga_init();
+    vga_set_code_page(850);
+    vga_task();
+    int page = sent_find(0xF, 0x01, 0);
+    ASSERT_GE(page, 0);
+    ASSERT_EQ(850, sent[page].word);
+    ASSERT_LT(sent_find(0xF, 0x01, (unsigned)page + 1), 0);
+    ASSERT_EQ(1u, vterm_page_count);
+    ASSERT_FALSE(vterm_page_resets[0]);
+    deliver();
+    vga_task();
+    ASSERT_EQ(1u, hard_resets);
 }
 
 UTEST(vga, display_follows_the_code_page)
