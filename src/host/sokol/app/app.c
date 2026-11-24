@@ -39,9 +39,9 @@
 #include "core/com/com.h"
 #include "core/str/oem.h"
 #include "core/hid/mouse.h"
-#include "core/hid/tablet.h"
 #include "core/rom/rom.h"
 #include "core/sys/sys.h"
+#include "core/term/vterm_mouse.h"
 #include "core/vga/vga_emu.h"
 #include <math.h>
 #include <stdint.h>
@@ -102,7 +102,7 @@ static void update_title(void)
         v = 3;
         t = "Picocomputer 6502  -  Esc releases mouse";
     }
-    else if (mouse_is_mapped() && !tablet_is_mapped())
+    else if (mouse_is_mapped() && !input_pointer_to_tablet())
     {
         v = 2;
         t = "Picocomputer 6502  -  click to capture mouse";
@@ -272,10 +272,7 @@ void app_frame(void)
         }
     machine_ns += os_mono_ns() - t0;
 
-    /* The absolute tablet never captures the pointer, and a program that has
-     * unmapped the mouse no longer wants it. */
-    if (input_mouse_locked() && (!mouse_is_mapped() || tablet_is_mapped()))
-        sapp_lock_mouse(false);
+    input_pointer_task();
     update_title();
     /* The desktop drop-a-ROM prompt holds the CPU with no program loaded, so
      * the halt it shows is not a program exiting and must not close the
@@ -447,12 +444,71 @@ bool host_minimized(void)
     return app_minimized;
 }
 
+/* The desktop's window and the web player both gain and lose focus. */
+bool host_focusable(void)
+{
+    return true;
+}
+
+#ifndef __EMSCRIPTEN__
+/* The clipboard is the desktop's while the window runs. sokol hands back the
+ * text it last had when the desktop's is too big for its buffer, so then
+ * there is none. With no window, a script or a headless run, the clipboard
+ * is one the emulator keeps for itself, empty until something is put in it,
+ * which asking for never writes over. The web player's are in its entry.c. */
+static bool app_clipboard_too_big;
+static char *app_clipboard;
+
+const char *host_clipboard_get(void)
+{
+    if (!sapp_isvalid())
+        return app_clipboard ? app_clipboard : "";
+    app_clipboard_too_big = false;
+    const char *text = sapp_get_clipboard_string();
+    return app_clipboard_too_big ? "" : text;
+}
+
+bool host_mac_keys(void)
+{
+#if defined(__APPLE__)
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool host_clipboard_set(const char *utf8)
+{
+    if (sapp_isvalid())
+    {
+        sapp_set_clipboard_string(utf8);
+        return true;
+    }
+    const size_t n = strlen(utf8) + 1;
+    free(app_clipboard);
+    app_clipboard = malloc(n);
+    if (!app_clipboard)
+        return false;
+    memcpy(app_clipboard, utf8, n);
+    return true;
+}
+#endif
+
 void app_input(const struct sapp_event *e)
 {
     if (e->type == SAPP_EVENTTYPE_ICONIFIED)
         app_minimized = true;
     else if (e->type == SAPP_EVENTTYPE_RESTORED)
         app_minimized = false;
+#ifndef __EMSCRIPTEN__
+    /* The desktop window's focus. In the browser sokol's focus is the
+     * browser window's, which several players on a page share, so the web
+     * player's comes from its page instead (entry.c). */
+    else if (e->type == SAPP_EVENTTYPE_FOCUSED)
+        vterm_focus(true);
+    else if (e->type == SAPP_EVENTTYPE_UNFOCUSED)
+        vterm_focus(false);
+#endif
     if (e->type == SAPP_EVENTTYPE_FILES_DROPPED)
     {
         host_window_files_dropped();
@@ -538,6 +594,10 @@ void app_log(const char *tag, uint32_t log_level, uint32_t log_item_id,
              const char *filename_or_null, void *user_data)
 {
     (void)user_data;
+#ifndef __EMSCRIPTEN__
+    if (log_item_id == SAPP_LOGITEM_CLIPBOARD_STRING_TOO_BIG && !strcmp(tag, "sapp"))
+        app_clipboard_too_big = true;
+#endif
     const char *message = message_or_null ? message_or_null : "";
     const char *filename = filename_or_null ? filename_or_null : "";
     switch (log_level)

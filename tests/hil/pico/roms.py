@@ -583,6 +583,10 @@ TERM_OPS = (
     b"\33[?69h\33[11;70s\33[5;25r\33[25;11H" + b"ab\r\n" * 100 + b"\33[?69l\33[r",
     b"\33[?69h\33[21;60s\33[1;21Hx" + b"\33[65535b" * 10 + b"\33[?69l",
     b"\33[?69h\33[2;79s\33[15;10H" + b"\33[1 @\33[1 A" * 50 + b"\33[?69l",
+    # The worst of them: the margins halve the screen, so every line feed
+    # moves 40 columns of 29 rows, on a word boundary and off one.
+    b"\33[?69h\33[21;60s\33[30;21H" + b"x\n" * 200 + b"\33[?69l",
+    b"\33[?69h\33[22;61s\33[30;22H" + b"x\n" * 200 + b"\33[?69l",
     # The rectangles, over the whole screen.
     b"\33[2*x" + b"\33[1;1;30;80;1;4;5;7$r\33[1;1;30;80;0$t" * 10 + b"\33[*x\33[;;;;0$r",
     (b"\33[88;1;2;30;79$x\33[1;2;30;79$z\33[1;1;30;79;1;1;2;1$v"
@@ -601,12 +605,67 @@ def term():
     gets another answer, or none in about a second, prints "?op" and the op's
     index in hex. The last line is "done"."""
     # Built twice: the first time finds where the ops land.
-    ops_at = term_build(0).address("ops")
-    return term_build(ops_at)
+    ops_at = term_build(0, False).address("ops")
+    return term_build(ops_at, False)
 
 
-def term_build(ops_at):
+def term_loaded():
+    """term, with the VGA as busy as a program can make it under the
+    terminal: two bitmaps drawn over the whole canvas."""
+    ops_at = term_build(0, True).address("ops")
+    return term_build(ops_at, True)
+
+
+# The busiest the VGA gets under the terminal: a 640x480 canvas with mode 3
+# in 8-bit color, the slowest bitmap to draw, on planes 0 and 1, both
+# showing one 640x100 bitmap repeated down the canvas, and mode 0 on plane
+# 2. The palette has no blue, so a late scanline shows.
+LOAD_CONFIG, LOAD_PALETTE, LOAD_ROWS = 0xFF00, 0xFC00, 100
+
+
+def term_load(p):
+    p.xreg(1, 0, 0, 3)
+    p.store(RW0_STEP, 1)
+    p.store(RW0_ADDR, LOAD_CONFIG & 0xFF)
+    p.store(RW0_ADDR + 1, LOAD_CONFIG >> 8)
+    for b in (1, 1, 0, 0, 0, 0, 640 & 0xFF, 640 >> 8, LOAD_ROWS, 0, 0, 0,
+              LOAD_PALETTE & 0xFF, LOAD_PALETTE >> 8):
+        p.store(RW0_DATA, b)
+    # Each byte of the bitmap is the low byte of its address, so every
+    # palette entry shows.
+    p.store(RW0_ADDR, 0)
+    p.store(RW0_ADDR + 1, 0)
+    p.ldy_imm(640 * LOAD_ROWS // 256)
+    page = p.symbol(p.local("load"))
+    p.ldx_imm(0)
+    byte = p.symbol(p.local("load"))
+    p.stx_abs(RW0_DATA)
+    p.inx()
+    p.bne(byte)
+    p.dey()
+    p.bne(page)
+    # Entry n is opaque, n's red and green, and no blue.
+    p.store(RW0_ADDR, LOAD_PALETTE & 0xFF)
+    p.store(RW0_ADDR + 1, LOAD_PALETTE >> 8)
+    p.ldx_imm(0)
+    entry = p.symbol(p.local("load"))
+    p.txa()
+    p.ora_imm(0x20)
+    p.sta_abs(RW0_DATA)
+    p.txa()
+    p.and_imm(0x07)
+    p.sta_abs(RW0_DATA)
+    p.inx()
+    p.bne(entry)
+    p.xreg(1, 0, 1, 3, 3, LOAD_CONFIG, 0)
+    p.xreg(1, 0, 1, 3, 3, LOAD_CONFIG, 1)
+    p.xreg(1, 0, 1, 0, 2)
+
+
+def term_build(ops_at, loaded):
     p = Asm()
+    if loaded:
+        term_load(p)
     p.store(TLOOP, TERM_LOOPS)
     p.symbol("outer")
     p.store(TPTR, ops_at & 0xFF)
@@ -710,7 +769,8 @@ def term_build(ops_at):
 
 
 # The console's terminal on the RIA follows the VGA's through its size
-# changes, and a program's own size, and answers the queries. Each step is
+# changes, keeps its width when a program sets the line editor's, and
+# answers the queries. Each step is
 # what the ROM does first, the query, and the answer it should get, which
 # the ROM prints as "=" and its bytes in hex. An empty answer is no answer.
 # The console has 30 rows, or 32 on an SXGA display, which {h} stands for.
@@ -733,9 +793,10 @@ SIZE_STEPS = (
     (lambda p: p.say("\r\n" * 30 + "ab"), "\33[6n", b"\33[22;3R"),
     # The console canvas again.
     (lambda p: p.xreg(1, 0, 0, 0), "\33[18t", b"\33[8;{h};80t"),
-    # A program's own width.
-    (sizes_attr(ATTR_RLN_WIDTH, 132), "\33[18t", b"\33[8;{h};132t"),
-    (lambda p: p.say("\33[1;100H"), "\33[6n", b"\33[1;100R"),
+    # The line editor's width is not the terminal's: the terminal keeps its
+    # 80 columns, and the cursor stops at the last of them.
+    (sizes_attr(ATTR_RLN_WIDTH, 132), "\33[18t", b"\33[8;{h};80t"),
+    (lambda p: p.say("\33[1;100H"), "\33[6n", b"\33[1;80R"),
     (sizes_attr(ATTR_RLN_WIDTH, 0), "\33[6n", b"\33[3;1R"),
     # Quiet.
     (sizes_attr(ATTR_TERM_QUIET, 1), "\33[6n", b""),
@@ -806,4 +867,4 @@ def sizes():
 
 
 ROMS = {"hil-tput": tput, "hil-audio": audio, "hil-bus": bus, "hil-term": term,
-        "hil-sizes": sizes}
+        "hil-term-loaded": term_loaded, "hil-sizes": sizes}

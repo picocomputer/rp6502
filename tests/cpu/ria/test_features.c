@@ -7,7 +7,7 @@
 #include "core/aud/mix.h"
 #include "core/aud/bel.h"
 #include "core/hid/hostkey.h"
-#include "core/hid/vtkey.h"
+#include "core/hid/usage.h"
 #include "core/ria/ria.h"
 #include "emu_boot.h"
 
@@ -16,7 +16,7 @@ UTEST(features, ria_tick_holds_irq_through_ack)
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     ria_reg_write(0xFFF0, 0x40);
-    hostkey_press(0x06, VTKEY_CTRL, true);
+    hostkey_press(0x06, KEYBOARD_MODIFIER_LEFTCTRL, false, true);
     ASSERT_TRUE(ria_irq_asserted());
 
     uint8_t data = 0;

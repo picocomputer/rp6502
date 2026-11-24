@@ -28,11 +28,13 @@ import runpy
 import select
 import shutil
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import zlib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -66,6 +68,32 @@ def write_text(path, text):
     """Writes a generated text file."""
     with open_text(path) as f:
         f.write(text)
+
+
+# ---- images ---------------------------------------------------------------
+
+PNG_CHANNELS = {1: 0, 2: 4, 3: 2, 4: 6}  # gray, gray+alpha, RGB, RGBA
+
+
+def write_png(path, width, height, pixels, channels):
+    """Writes an 8-bit PNG of width by height pixels, each channels bytes:
+    1 gray, 2 gray and alpha, 3 RGB, or 4 RGBA."""
+    stride = width * channels
+
+    def chunk(tag, payload):
+        crc = zlib.crc32(tag + payload) & 0xFFFFFFFF
+        return struct.pack(">I", len(payload)) + tag + payload + struct.pack(">I", crc)
+
+    raw = bytearray()
+    for y in range(height):
+        raw.append(0)
+        raw += pixels[y * stride:(y + 1) * stride]
+    Path(path).write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8,
+                                     PNG_CHANNELS[channels], 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+        + chunk(b"IEND", b""))
 
 
 # ---- generators -----------------------------------------------------------
@@ -263,6 +291,13 @@ class OpenOCD:
             raise RuntimeError(f"read of {addr:#x}: {' '.join(words)}")
         return [int(w, 16) for w in words]
 
+    def write_memory(self, addr, width, values):
+        """Writes `values` of `width` bits to the chip's memory at `addr`."""
+        text = self.command("rp2350.ahb0 write_memory %d %d {%s}" % (
+            addr, width, " ".join(str(v) for v in values)))
+        if text.strip():
+            raise RuntimeError(f"write of {addr:#x}: {text.strip()}")
+
     def close(self):
         if self.sock:
             try:
@@ -439,6 +474,10 @@ proc rp6502_rtt_io {cb tx} {
         """`count` values of `width` bits from the chip's memory at `addr`."""
         return self.ocd.read_memory(addr, width, count)
 
+    def write_memory(self, addr, width, values):
+        """Writes `values` of `width` bits to the chip's memory at `addr`."""
+        self.ocd.write_memory(addr, width, values)
+
     def dropped(self):
         """The bytes of console output the firmware has had no room for."""
         return self.read_memory(self.cb + self.DROPPED, 32, 1)[0]
@@ -515,11 +554,11 @@ proc rp6502_rtt_io {cb tx} {
 
 
 class Probe:
-    """A debug probe on the SWD port of a Pico, for reads of its memory by
-    symbol. `elf` is the firmware on the chip, `serial` picks the probe when
-    there are several, and `board` is the Board whose RttDevice may already
-    hold this probe: only one OpenOCD can, so the reads then go through it.
-    Reads are made inside `with`."""
+    """A debug probe on the SWD port of a Pico, for reads and writes of its
+    memory by symbol. `elf` is the firmware on the chip, `serial` picks the
+    probe when there are several, and `board` is the Board whose RttDevice
+    may already hold this probe: only one OpenOCD can, so the reads and
+    writes then go through it. They are made inside `with`."""
 
     def __init__(self, elf, serial=None, board=None):
         self.elf = str(elf)
@@ -554,6 +593,10 @@ class Probe:
     def read(self, addr, width, count):
         """`count` values of `width` bits from memory at `addr`."""
         return (self.console() or self.ocd).read_memory(addr, width, count)
+
+    def write(self, addr, width, values):
+        """Writes `values` of `width` bits to memory at `addr`."""
+        (self.console() or self.ocd).write_memory(addr, width, values)
 
 
 class Board:
@@ -647,17 +690,20 @@ class Board:
         # the next prompt. A prompt still on its way from before the line was
         # sent, as when a break lands on a program that just ended, is ahead
         # of the echo and is not taken for the end of the output.
+        # The line editor turns bracketed paste off as the line ends, so its
+        # escape can come between the last newline and the prompt.
         echo = line.encode("ascii") + b"\r\n"
         buf, end = b"", time.monotonic() + timeout
         while True:
             at = buf.find(echo)
-            if at >= 0 and b"\n]" in buf[at + len(echo) - 1:]:
+            prompt = at >= 0 and PROMPT.search(buf, at + len(echo) - 1)
+            if prompt:
                 break
             b = self.dev.read(1)
             buf += b
             if not b and time.monotonic() > end:
                 raise TimeoutError(f"{line}: no prompt after {timeout} s")
-        out = clean(buf[at + len(echo): buf.rindex(b"\n]") + 1].decode("ascii", "replace"))
+        out = clean(buf[at + len(echo): prompt.start() + 1].decode("ascii", "replace"))
         lines = out.split("\n")[:-1]
         for text in lines:
             if text.startswith("?"):
@@ -705,6 +751,9 @@ class Board:
 
 
 ESCAPE = re.compile(r"\x1b(\[[0-9;?>]*[A-Za-z]|[78])")
+
+# The monitor's prompt at the start of a line, after any escapes.
+PROMPT = re.compile(rb"\n(?:\x1b\[[0-9;?>]*[A-Za-z])*\]")
 
 
 def clean(text):

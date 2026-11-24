@@ -5,7 +5,6 @@
  */
 
 #include "ria/mon/mon.h"
-#include "core/sys/debug_log.h"
 #include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/com/com.h"
@@ -19,13 +18,14 @@
 #include "ria/sys/vga.h"
 #include "core/sys/config.h"
 #include "core/str/oem.h"
-#include "core/term/font.h"
+#include "core/term/draw.h"
 #include "core/vga/mode/mode0.h"
-#include "ria/term/cells.h"
+#include "core/term/vterm.h"
 #include "ria.pio.h"
 #include "machine.h"
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
+#include <hardware/sync.h>
 #include <hardware/timer.h>
 #include <string.h>
 #include <strings.h>
@@ -62,14 +62,90 @@ static enum {
     VGA_CONNECTION_LOST, // Definitely an error condition
 } vga_state;
 
+/* DISPLAY is still to go: after a connect, a stop, a break or a new display
+ * type. */
 static bool vga_needs_reset = true;
 static vga_canvas_t vga_canvas_current = vga_canvas_console;
+
+/* A code page still to go, and the console sends the VGA nothing until it
+ * has gone. A page asked for before the last one went replaces it, since the
+ * console sends nothing between them. */
+static bool vga_code_page_owed;
+static uint16_t vga_code_page;
+
+/* What is awaited (vga.h), and when it is too late. vga_own_awaited is the
+ * answer to DISPLAY or CODE_PAGE, from which vga.c takes nothing but its
+ * coming, and vga_answer_state is the answer to the message vga_ask sent.
+ * The backchannel's interrupt ends the wait. An answer is awaited only from a
+ * connected VGA. */
+static volatile bool vga_own_awaited;
+static volatile vga_answer_t vga_answer_state = VGA_ANSWER_ACK;
+static uint32_t vga_answer_deadline;
+
+/* A job the console's terminal started (draw_job_started), which the VGA's
+ * terminal starts at the same message and does TERM_JOB_ROWS rows a pass of
+ * its main loop. The gate (vga.h) is shut until this time, so nothing comes
+ * while the VGA still works on it. The hold is flat, the same for a job of
+ * any size. Measured with termload (tests/hil), a whole-screen job at both
+ * sizes takes the Pico VGA up to 0.93 ms under two 8-bit bitmaps and 0.67 ms
+ * without. Set only while a VGA is connected. */
+#define VGA_JOB_HOLD_US 1000
+static uint64_t vga_job_hold_end_us;
+
+/* The console sends the VGA no byte before this time, which keeps the speed
+ * the console's terminal keeps (term_speed, DECSCS): a byte waits out the one
+ * before it, 10 bits at the speed that byte went at, as SyncTERM's next
+ * character does. A byte that went unlimited, or left it unlimited, sets no
+ * wait, and the byte after it goes at the UART's pace, as every byte does at
+ * 115200, whose 86 us are under the UART's own. Set only while a VGA is
+ * connected. It is not the VGA at work, so a sync does not wait for it
+ * (vga_console_busy). */
+static uint64_t vga_console_paced_us;
+
+/* Set when a flash of either chip begins, and never cleared: a flash ends in
+ * a reboot or a lockup. From then on vga.c sends nothing it awaits, so
+ * FLASH_PROGRAM's answer is the only one. */
+static bool vga_flash_started;
+
+/* The pointer as the tablet wants it, and what of it the VGA has yet. Its
+ * position is sent once a frame at most, as POINTER_X and then POINTER_Y,
+ * which moves it, so a mouse's hundreds of reports a second become a
+ * frame's one move. A new shape goes on its own, in POINTER_SHAPE. What is
+ * new waits while the gate is shut. */
+static uint8_t vga_pointer_shape;
+static int16_t vga_pointer_x;
+static int16_t vga_pointer_y;
+static bool vga_pointer_shape_dirty;
+static bool vga_pointer_where_dirty;
+static uint32_t vga_pointer_frame;
+
+/* The frame the selection last went to the VGA in. A change of the
+ * user's (vterm_selection.unsent) goes once a frame at most, as
+ * SELECT_MARGINS, SELECT_START and then SELECT_END, which applies it, and only a change of
+ * the user's goes: a change to its cells drops it on the VGA at the same
+ * byte as here, since the RIA's terminal takes each byte of the console as
+ * it sends it, ahead of the words. */
+static uint32_t vga_select_frame;
+
 static volatile uint32_t vga_vsync_deadline;
 static uint8_t vga_vsync_frame;
 /* The frames counted from the VSYNCs, with no 8-bit wrap, and when the last
- * one came: vga_frames. */
+ * one came: vga_frame_count. */
 static volatile uint32_t vga_vsync_frames;
 static volatile uint32_t vga_vsync_at_us;
+
+/* FLASH linked a lost VGA again and awaits its first VSYNC, which moves the
+ * VSYNC deadline from where the link put it. */
+static bool vga_flash_linked;
+static uint32_t vga_flash_link_deadline;
+
+/* A flash has begun, or FLASH is linking the VGA again for one: vga.c sends
+ * no DISPLAY, CODE_PAGE or selection. In RAM, for vga_task, which asks it
+ * before it calls into flash. */
+static inline bool HOST_IN_RAM_FUNC vga_silenced(void)
+{
+    return vga_flash_started || vga_flash_linked;
+}
 
 /* The frame number takes a new value, a step on or a correction. */
 static __force_inline void vga_vsync_set(uint8_t frame)
@@ -86,7 +162,7 @@ static __force_inline void vga_vsync_set(uint8_t frame)
  * still sees them go by. The count and its time are read as a pair no VSYNC
  * came between, and the clock after them: a wait that came out negative
  * would read as a VGA silent for an hour. */
-uint32_t HOST_IN_RAM_FUNC vga_frames(void)
+unsigned long HOST_IN_RAM_FUNC vga_frame_count(void)
 {
     uint32_t frames, at;
     do
@@ -113,15 +189,10 @@ static inline void vga_pix_backchannel_disable(void)
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x04, 0);
 }
 
-/* The console's terminal follows the VGA's (ria/term/cells.c). Every change
+/* The console's terminal follows the VGA's (vterm.h). Every change
  * the VGA makes to its terminal is made here at the moment the RIA sends what
  * causes it. The console's bytes go to the VGA through the same PIX queue,
  * so the two terminals take them all in the same order. */
-
-/* The code page the VGA's fonts hold, or VGA_CODE_PAGE_UNKNOWN. Choosing a
- * different one resets its terminal. */
-#define VGA_CODE_PAGE_UNKNOWN 0xFFFF
-static uint16_t vga_code_page_sent = VGA_CODE_PAGE_UNKNOWN;
 
 /* The display type the VGA was last sent, which sizes its console. */
 static uint8_t vga_display_sent;
@@ -129,46 +200,99 @@ static uint8_t vga_display_sent;
 /* The canvas and mode registers of channel 0 as the VGA holds them. */
 static uint16_t vga_xregs[8];
 
-void vga_set_code_page(uint16_t cp)
+void HOST_IN_RAM_FUNC vga_set_pointer(uint8_t shape, int16_t x, int16_t y)
 {
-    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x01, cp);
-    if (!vga_connected())
-        return;
-    cp = font_code_page_of(cp);
-    if (cp != vga_code_page_sent)
-        cells_RIS();
-    vga_code_page_sent = cp;
+    if (shape != vga_pointer_shape)
+    {
+        vga_pointer_shape = shape;
+        vga_pointer_shape_dirty = true;
+    }
+    if (x != vga_pointer_x || y != vga_pointer_y)
+    {
+        vga_pointer_x = x;
+        vga_pointer_y = y;
+        vga_pointer_where_dirty = true;
+    }
 }
 
-/* The VGA's console terminal on a display: 32 rows on SXGA (2), otherwise 30. */
-static uint8_t vga_console_rows(uint8_t display)
+static void HOST_IN_RAM_FUNC vga_pointer_task(void)
+{
+    if (!vga_connected() || !pix_ready())
+        return;
+    if (vga_pointer_where_dirty && vga_frame_count() != vga_pointer_frame)
+    {
+        vga_pointer_where_dirty = false;
+        vga_pointer_frame = (uint32_t)vga_frame_count();
+        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x09, (uint16_t)vga_pointer_x);
+        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x0A, (uint16_t)vga_pointer_y);
+    }
+    if (vga_pointer_shape_dirty)
+    {
+        vga_pointer_shape_dirty = false;
+        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x08, vga_pointer_shape);
+    }
+}
+
+/* The selection's words (vterm_select_words), from flash. */
+static void HOST_IN_FLASH_FUNC vga_select_send(void)
+{
+    vterm_selection.unsent = false;
+    vga_select_frame = (uint32_t)vga_frame_count();
+    const vterm_select_words_t w = vterm_select_words();
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x0B, w.margins);
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x0C, w.start);
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x0D, w.end);
+}
+
+/* Nothing goes while a flash is under way, when nothing in flash may run.
+ * The words wait while the gate is shut, and PIX keeps them in order with
+ * the console's bytes. */
+static void HOST_IN_RAM_FUNC vga_select_task(void)
+{
+    if (vga_connected() && !vga_silenced() && vterm_selection.unsent &&
+        vga_frame_count() != vga_select_frame && pix_ready())
+        vga_select_send();
+}
+
+/* The page goes to a connected VGA alone (vga_tell_code_page), and
+ * vga_connect sends it again. */
+void vga_set_code_page(uint16_t cp)
+{
+    vga_code_page = cp;
+    vga_code_page_owed = vga_connected() && !vga_silenced();
+}
+
+/* The VGA's console program on a display, 32 rows on SXGA (2) and
+ * otherwise 30, as the VGA places it. */
+static void vga_place_console(uint8_t display)
 {
     uint16_t xregs[8] = {0};
     int16_t begin, end;
-    uint8_t cols, rows = 0;
-    mode0_place(640, display == 2 ? 512 : 480, xregs, &begin, &end, &cols, &rows);
-    return rows;
+    uint8_t cols, rows;
+    if (mode0_place(640, display == 2 ? 512 : 480, xregs, &begin, &end, &cols, &rows))
+        vterm_place(cols, rows, begin, (uint8_t)vga_term_row_px(640));
 }
 
-/* DISPLAY: the VGA goes back to the console canvas, which sizes the console
- * for the old display, sizes it for the new one, and does the system's soft
- * reset. */
+/* DISPLAY: the VGA goes back to the console canvas, which places the
+ * console for the old display, places it for the new one, and does the
+ * system's soft reset. */
 static void vga_follow_display(uint8_t display)
 {
-    if (vga_canvas_current != vga_canvas_console)
-        cells_set_height(80, vga_console_rows(vga_display_sent));
-    cells_set_height(80, vga_console_rows(display));
-    cells_RIS_no_clear();
+    bool to_console = vga_canvas_current != vga_canvas_console;
+    vterm_canvas(80, true);
+    if (to_console)
+        vga_place_console(vga_display_sent);
+    vga_place_console(display);
+    vterm_RIS_no_clear();
     vga_display_sent = display;
 }
 
-/* With no VGA the console is a terminal on the UART, taken to be 80x24,
- * and that terminal answers the queries, so the console's terminal is quiet
- * by default. */
+/* With no VGA the console is a terminal on the UART, and that terminal
+ * answers the queries, so the console's terminal is quiet by default. */
 static void vga_follow_none(void)
 {
-    cells_RIS();
-    cells_set_height(80, 24);
+    vterm_RIS();
+    vterm_unplace();
     com_set_reply_default(true);
 }
 void vga_load_code_page(uint16_t cp)
@@ -288,11 +412,15 @@ static __force_inline void vga_backchannel_command(uint8_t byte)
         ria_trigger_vsync();
         break;
     }
+    /* One message is awaited at a time. The VGA refuses neither of vga.c's
+     * own: it knows every display type the RIA sends, and it turns a code
+     * page it lacks into one it has. */
     case 0x90:
-        pix_ack();
-        break;
     case 0xA0:
-        pix_nak();
+        if (vga_own_awaited)
+            vga_own_awaited = false;
+        else if (vga_answer_state == VGA_ANSWER_WAITING)
+            vga_answer_state = (byte & 0xF0) == 0x90 ? VGA_ANSWER_ACK : VGA_ANSWER_NAK;
         break;
     }
 }
@@ -377,9 +505,191 @@ static uint32_t HOST_IN_FLASH_FUNC vga_read_version(void)
     return 0;
 }
 
-/* Only the UART, the VGA's own link, is cleared and read, so a reconnect at
- * the run after a lost link keeps the keyboard and telnet type-ahead. */
-static void HOST_IN_FLASH_FUNC vga_connect(void)
+/* The link goes: the backchannel and its VSYNC trap stop, and the pin goes
+ * back to the UART. Nothing answers with the backchannel off, so what is
+ * awaited is a timeout now, and an answer from before is never taken for one
+ * to a message of the next connection. A code page still to go goes with
+ * it, and vga_connect sends the page again. Nothing holds the gate for a
+ * VGA that is gone. */
+static void vga_unlink(void)
+{
+    vga_backchannel_irq_disable();
+    vga_own_awaited = false;
+    if (vga_answer_state == VGA_ANSWER_WAITING)
+        vga_answer_state = VGA_ANSWER_TIMEOUT;
+    vga_job_hold_end_us = 0;
+    vga_code_page_owed = false;
+    vga_vsync_alarm_arms = false;
+    if (vga_vsync_alarm >= 0)
+        timer_hw->armed = 1u << vga_vsync_alarm;
+    vga_vsync_trap_disarm();
+    vga_pix_backchannel_disable();
+    gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
+    vga_state = VGA_CONNECTION_LOST;
+}
+
+/* The VGA is lost, and the console is a terminal on the UART again. In
+ * flash, as the gate's timeout reaches it from the console's RAM path. */
+static void HOST_IN_FLASH_FUNC vga_lose(void)
+{
+    vga_unlink();
+    mon_add_response_utf8(S(STR_ERR_VGA_CONNECTION_LOST));
+    vga_follow_none();
+}
+
+/* Something is awaited, its time up or not. */
+static inline bool HOST_IN_RAM_FUNC vga_awaiting(void)
+{
+    return vga_own_awaited || vga_answer_state == VGA_ANSWER_WAITING;
+}
+
+/* An answer whose time is up is a timeout, which loses the VGA. Only a
+ * connected VGA is awaited, and vga_unlink ends the wait of the VGA it lets
+ * go, so the VGA lost here is connected. The interrupts are held off so an
+ * answer that comes at that moment is not written over. */
+static void HOST_IN_RAM_FUNC vga_answer_expire(void)
+{
+    if (!vga_awaiting() || (int32_t)(time_us_32() - vga_answer_deadline) < 0)
+        return;
+    uint32_t irqs = save_and_disable_interrupts();
+    bool late = vga_awaiting();
+    vga_own_awaited = false;
+    if (vga_answer_state == VGA_ANSWER_WAITING)
+        vga_answer_state = VGA_ANSWER_TIMEOUT;
+    restore_interrupts(irqs);
+    if (late)
+        vga_lose();
+}
+
+/* Something is awaited, and its time is not up: one whose time is up is a
+ * timeout first. */
+static bool HOST_IN_RAM_FUNC vga_still_awaiting(void)
+{
+    vga_answer_expire();
+    return vga_awaiting();
+}
+
+bool HOST_IN_RAM_FUNC vga_gate_open(void)
+{
+    return !vga_still_awaiting() && time_us_64() >= vga_job_hold_end_us;
+}
+
+/* A message goes once PIX takes it, past the gate, and its answer is
+ * awaited, vga.c's own or the asker's. The gate is waited out first with the
+ * interrupts on. The wait begins as the message goes, and the interrupts are
+ * held off across both so the backchannel cannot take the answer before it
+ * is awaited: it records an answer only while one is. */
+static void vga_await(uint8_t ch4, uint8_t byte, uint16_t word,
+                      uint32_t timeout_ms, bool own)
+{
+    while (!pix_ready())
+        tight_loop_contents();
+    uint32_t irqs = save_and_disable_interrupts();
+    pix_send_blocking(PIX_DEVICE_VGA, ch4, byte, word);
+    vga_answer_deadline = time_us_32() + timeout_ms * 1000;
+    if (own)
+        vga_own_awaited = true;
+    else
+        vga_answer_state = VGA_ANSWER_WAITING;
+    restore_interrupts(irqs);
+}
+
+/* A code page still to go goes once the gate opens, and the console's
+ * terminal takes it as the VGA's does, between the same two bytes. */
+static void HOST_IN_FLASH_FUNC vga_tell_code_page(void)
+{
+    if (!vga_code_page_owed || !vga_gate_open())
+        return;
+    vga_code_page_owed = false;
+    vga_await(0xF, 0x01, vga_code_page, VGA_ANSWER_MS, true);
+    vterm_set_code_page(vga_code_page);
+}
+
+/* DISPLAY, which is still to go, goes once the gate opens and the code page
+ * has gone. It resets the terminal, so everything printed before it goes out
+ * first: an escape sequence cut in half by the reset would print the rest of
+ * itself as text, and DISPLAY waits out the hold of a job the last of it
+ * started. The VGA's DISPLAY goes back to the console canvas, and so does
+ * the RIA. */
+static void vga_tell_display(void)
+{
+    if (vga_silenced() || !vga_gate_open() || vga_code_page_owed)
+        return;
+    vga_needs_reset = false;
+    if (vga_connected())
+    {
+        manifold_flush();
+        uint8_t display = vga_get_display_type();
+        vga_await(0xF, 0x00, display, VGA_ANSWER_MS, true);
+        vga_follow_display(display);
+    }
+    vga_canvas_current = vga_canvas_console;
+    memset(vga_xregs, 0, sizeof vga_xregs);
+}
+
+bool vga_ask_ready(void)
+{
+    vga_tell_code_page();
+    return vga_gate_open() && !(vga_needs_reset && vga_connected() && !vga_silenced());
+}
+
+bool vga_ask(uint8_t ch4, uint8_t byte, uint16_t word, uint32_t timeout_ms)
+{
+    if (!vga_connected())
+        return false;
+    vga_await(ch4, byte, word, timeout_ms, false);
+    return true;
+}
+
+vga_answer_t vga_answer(void)
+{
+    vga_answer_expire();
+    return vga_answer_state;
+}
+
+/* The console of a connected VGA is held: a code page is still to go, or
+ * the gate is shut. A code page goes here once the gate opens, and an answer
+ * whose time is up is a timeout here, which loses the VGA, since a flush of
+ * the console waits on nothing else. While the RIA rewrites its flash
+ * nothing is awaited or still to go (vga_flashing), so the console never
+ * calls into flash. */
+static bool HOST_IN_RAM_FUNC vga_console_held(void)
+{
+    if (vga_code_page_owed)
+        vga_tell_code_page();
+    return vga_code_page_owed || !vga_gate_open();
+}
+
+bool HOST_IN_RAM_FUNC vga_console_ready(void)
+{
+    return !vga_console_held() && vga_connected() &&
+           time_us_64() >= vga_console_paced_us && pix_ready();
+}
+
+bool vga_console_busy(void)
+{
+    return vga_connected() && vga_console_held();
+}
+
+/* A connected VGA whose VSYNCs stop is lost. One that FLASH linked again and
+ * that never sent one is let go without a word, as FLASH says it is not
+ * connected. */
+static void HOST_IN_RAM_FUNC vga_vsync_expire(void)
+{
+    if (!vga_connected() || (int32_t)(time_us_32() - vga_vsync_deadline) < 0)
+        return;
+    if (vga_flash_linked)
+        vga_unlink();
+    else
+        vga_lose();
+}
+
+/* The VGA is asked for and its backchannel brought up, which brings its
+ * VSYNCs: the link alone, with nothing sent to its terminal. Only the UART,
+ * the VGA's own link, is cleared and read, so a reconnect at the run after a
+ * lost link keeps the keyboard and telnet type-ahead. False when no VGA
+ * answers. */
+static bool HOST_IN_FLASH_FUNC vga_link(void)
 {
     vga_backchannel_irq_disable();
     const bool was_lost = vga_state == VGA_CONNECTION_LOST;
@@ -417,7 +727,7 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
         vga_pix_backchannel_disable();
         gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
         vga_follow_none();
-        return;
+        return false;
     }
 
     // Turn on the backchannel
@@ -451,19 +761,24 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
     // Enable backchannel IRQ now that version string phase is complete
     vga_backchannel_irq_enable();
     vga_vsync_deadline = time_us_32() + VGA_VSYNC_WATCHDOG_MS * 1000;
+    return true;
+}
+
+static void HOST_IN_FLASH_FUNC vga_connect(void)
+{
+    if (!vga_link())
+        return;
 
     /* The VGA may have kept its state while the RIA restarted, or started
-     * fresh while the RIA ran. DISPLAY and the code page are sent again, and
-     * a hard reset follows them to both terminals, so the two start alike.
-     * A build that logs has its log on that screen, which the hard reset
-     * would erase, so there the screen has only the soft reset the banner
-     * starts with, as every other terminal has. */
+     * fresh while the RIA ran. The code page and DISPLAY go again, with a hard
+     * reset between them to both terminals, so the two start alike, in a
+     * build that logs too. */
     vga_needs_reset = true;
-    vga_code_page_sent = VGA_CODE_PAGE_UNKNOWN;
+    vga_pointer_shape_dirty = true;
+    vga_pointer_where_dirty = true;
     if (oem_get_code_page_run()) /* at boot oem_init sends it */
         vga_set_code_page(oem_get_code_page_run());
-    if (!RP6502_LOG_ANY)
-        manifold_write_to(COM_TERM_SCREEN, STR_TERM_HARD_RESET, STR_TERM_HARD_RESET_LEN);
+    manifold_write_to(COM_TERM_SCREEN, STR_TERM_HARD_RESET, STR_TERM_HARD_RESET_LEN);
     com_set_reply_default(false);
     /* A VGA of the firmware before the RIA answered the queries still has
      * its own answers on; this turns them off, so an update of either chip
@@ -471,8 +786,59 @@ static void HOST_IN_FLASH_FUNC vga_connect(void)
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x02, 1);
 }
 
+/* The console's terminal (vterm.h) follows the VGA's in text cells,
+ * fed every byte the VGA's terminal gets, as it is sent, so the speed it
+ * keeps is the VGA's too. Each byte holds the next one for its time at the
+ * speed it went at (vga_console_paced_us). */
+static cell_t vga_console_cells[VTERM_CELLS];
+
+static int vga_console_out(const char *buf, int length, bool force)
+{
+    (void)force;
+    for (int i = 0; i < length; i++)
+    {
+        uint32_t speed = term_speed(&vterm);
+        term_write(&vterm, (uint8_t)buf[i]);
+        if (speed && term_speed(&vterm) && vga_connected())
+            vga_console_paced_us = time_us_64() + 10u * 1000000u / speed;
+    }
+    return length;
+}
+
+/* While the RIA rewrites its flash, the console's output path runs from RAM
+ * and the terminal, in flash, is no longer fed. An answer still awaited is
+ * waited out first, since its timeout runs code in flash, and nothing more is
+ * sent that is awaited. */
+void vga_flashing(void)
+{
+    manifold_set_term_out(NULL);
+    while (vga_still_awaiting())
+        tight_loop_contents();
+    vga_flash_started = true;
+    vga_code_page_owed = false;
+}
+
+/* The VGA draws the console, so the RIA has no blinks to start again. */
+void draw_reset(void)
+{
+}
+
+/* The VGA does the same job over passes of its main loop: the gate is shut
+ * until it is surely done. A job started while an answer is awaited is the
+ * work of the message awaited, which the RIA's terminal takes after sending
+ * it, and the VGA answers once that work is done, so the answer is the wait. */
+void draw_job_started(void)
+{
+    if (vga_connected() && !vga_awaiting())
+        vga_job_hold_end_us = time_us_64() + VGA_JOB_HOLD_US;
+}
+
 void HOST_IN_FLASH_FUNC vga_init(void)
 {
+    // The terminal first, as connecting resets and sizes it.
+    vterm_init(vga_console_cells);
+    manifold_set_term_out(vga_console_out);
+
     // Disable backchannel for the case where RIA reboots and VGA doesn't
     vga_pix_backchannel_disable();
 
@@ -518,37 +884,35 @@ void HOST_IN_FLASH_FUNC vga_init(void)
 
 void HOST_IN_RAM_FUNC vga_task(void)
 {
-    if ((vga_state == VGA_CONNECTED || vga_state == VGA_NO_VERSION) &&
-        (int32_t)(time_us_32() - vga_vsync_deadline) >= 0)
-    {
-        vga_backchannel_irq_disable();
-        vga_vsync_alarm_arms = false;
-        if (vga_vsync_alarm >= 0)
-            timer_hw->armed = 1u << vga_vsync_alarm;
-        vga_vsync_trap_disarm();
-        vga_pix_backchannel_disable();
-        gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
-        vga_state = VGA_CONNECTION_LOST;
-        mon_add_response_utf8(S(STR_ERR_VGA_CONNECTION_LOST));
-        vga_follow_none();
-    }
-
+    vga_vsync_expire();
+    vga_answer_expire();
+    if (vga_code_page_owed)
+        vga_tell_code_page();
     if (vga_needs_reset)
+        vga_tell_display();
+    vga_pointer_task();
+    vga_select_task();
+}
+
+vga_answer_t HOST_IN_FLASH_FUNC vga_flash_take(void)
+{
+    if (vga_still_awaiting())
+        return VGA_ANSWER_WAITING;
+    if (!vga_connected())
     {
-        vga_needs_reset = false;
-        // DISPLAY resets the terminal, so everything printed before the stop
-        // goes out first: an escape sequence cut in half by the reset would
-        // print the rest of itself as text.
-        manifold_flush();
-        // VGA-side pix_ch15_xreg DISPLAY case calls vga_xreg_canvas(NULL),
-        // which resets canvas to vga_canvas_console. Mirror that here.
-        uint8_t display = vga_get_display_type();
-        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, display);
-        if (vga_connected())
-            vga_follow_display(display);
-        vga_canvas_current = vga_canvas_console;
-        memset(vga_xregs, 0, sizeof vga_xregs);
+        vga_flash_linked = vga_state == VGA_CONNECTION_LOST && !vga_flash_linked &&
+                           vga_link();
+        if (!vga_flash_linked)
+            return VGA_ANSWER_TIMEOUT;
+        vga_flash_link_deadline = vga_vsync_deadline;
+        return VGA_ANSWER_WAITING;
     }
+    if (vga_flash_linked && vga_vsync_deadline == vga_flash_link_deadline)
+        return VGA_ANSWER_WAITING;
+    vga_flash_linked = false;
+    vga_flash_started = true;
+    vga_code_page_owed = false;
+    return VGA_ANSWER_ACK;
 }
 
 void vga_run(void)
@@ -577,6 +941,13 @@ vga_canvas_t vga_get_canvas(void)
 void HOST_IN_RAM_FUNC vga_canvas_size(int *w, int *h)
 {
     vga_canvas_geometry(vga_canvas_current, w, h);
+}
+
+int16_t vga_canvas_width(void)
+{
+    int w, h;
+    vga_canvas_size(&w, &h);
+    return (int16_t)w;
 }
 
 // The VGA draws the console on a 1280x1024 display as a 640x512 view, and on
@@ -611,8 +982,8 @@ void HOST_IN_RAM_FUNC vga_display_size(int *w, int *h)
 }
 
 /* Channel 0's CANVAS and MODE as the VGA takes them. A canvas the VGA does
- * not know it naks and ignores. Going back to the console sizes the
- * console. Mode 0 sizes the terminal of the canvas's width, when it fits:
+ * not know it naks and ignores. Going back to the console places the
+ * console. Mode 0 places the terminal of the canvas's width, when it fits:
  * the VGA works that out with the same mode0_place. */
 void vga_xreg(uint8_t index, uint16_t word)
 {
@@ -625,8 +996,13 @@ void vga_xreg(uint8_t index, uint16_t word)
             bool to_console = word == vga_canvas_console &&
                               vga_canvas_current != vga_canvas_console;
             vga_canvas_current = (vga_canvas_t)word;
-            if (to_console && vga_connected())
-                cells_set_height(80, vga_console_rows(vga_display_sent));
+            if (vga_connected())
+            {
+                vterm_canvas((uint8_t)vga_term_columns(vga_canvas_width()),
+                             word == vga_canvas_console);
+                if (to_console)
+                    vga_place_console(vga_display_sent);
+            }
         }
         memset(vga_xregs, 0, sizeof vga_xregs);
     }
@@ -638,7 +1014,7 @@ void vga_xreg(uint8_t index, uint16_t word)
         if (word == 0 && vga_connected() && vga_canvas_current != vga_canvas_console &&
             vga_canvas_geometry(vga_canvas_current, &w, &h) &&
             mode0_place((int16_t)w, (int16_t)h, vga_xregs, &begin, &end, &cols, &rows))
-            cells_set_height(cols, rows);
+            vterm_place(cols, rows, begin, (uint8_t)vga_term_row_px(w));
         memset(vga_xregs, 0, sizeof vga_xregs);
     }
 }

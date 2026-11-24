@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/hid/tablet.h"
 #include "corpus.h"
 #include "host/host.h"
 #include "mut.h"
@@ -59,6 +60,34 @@ static void run_case(int *utest_result, const char *name, uint32_t expect,
     mut_budget_t b = mut_measure(name);
     if (claim != MUT_BUDGET_NONE && b != MUT_BUDGET_NONE)
         ASSERT_EQ((int)b, (int)claim);
+}
+
+/* The pointer at x,y of the canvas of a program's mode 6 ROM, which asks
+ * for its shape, with the frame's CRC. expect 0 is the frame with no
+ * pointer at all. */
+static void run_pointer(int *utest_result, const char *name, int x, int y,
+                        uint32_t expect)
+{
+    int w, h;
+    ASSERT_TRUE(corpus_size(name, &w, &h));
+    const size_t bytes = (size_t)w * (size_t)h * sizeof(uint32_t);
+    char path[256];
+    snprintf(path, sizeof(path), "%s/%s.rp6502", ROMS_DIR, name);
+    ASSERT_TRUE(mut_boot(path));
+    ASSERT_TRUE(settle(settled, w, h));
+    const uint32_t plain = host_crc32(0, settled, bytes);
+    mut_pointer(x, y, 0, w, h);
+    ASSERT_TRUE(settle(settled, w, h));
+    const uint32_t got = host_crc32(0, settled, bytes);
+    if (!expect)
+        ASSERT_EQ(got, plain);
+    else if (getenv("RP6502_BLESS_CRC"))
+        printf("    0x%08X,  /* %s */\n", got, name);
+    else
+    {
+        ASSERT_NE(got, plain);
+        ASSERT_EQ(got, expect);
+    }
 }
 
 /* A smooth scroll, drawn frame by frame. Frames in a row that are the same
@@ -706,6 +735,40 @@ UTEST(mode0, console_return_restores_vsync_line)
     run_case(utest_result, "mode0_return", 0x4D27B447, MUT_BUDGET_NONE);
 }
 
+/* The pointer over column x of row y of the 80-column console, a frame. */
+static void console_pointer(int x, int y, uint8_t buttons)
+{
+    mut_pointer(x * 8 + 3, y * 16 + 7, buttons, 640, 480);
+    mut_frame(640, 480);
+}
+
+/* A selection made with the mouse, a drag with the left button over the
+ * console's text, which mode 0 draws reversed. The pointer then leaves, so
+ * none of it is drawn. */
+UTEST(mode0, a_selection_dragged_over_the_console_640x480)
+{
+    if (!mut_has_pointer())
+        UTEST_SKIP("the bench drives no pointer");
+    const char *name = "mode0_return";
+    char path[256];
+    snprintf(path, sizeof(path), "%s/%s.rp6502", ROMS_DIR, name);
+    ASSERT_TRUE(mut_boot(path));
+    ASSERT_TRUE(settle(settled, 640, 480));
+    const uint32_t plain = host_crc32(0, settled, 640 * 480 * sizeof(uint32_t));
+    console_pointer(2, 1, 0);
+    console_pointer(2, 1, TABLET_FLAG_LEFT);
+    console_pointer(20, 3, TABLET_FLAG_LEFT);
+    console_pointer(20, 3, 0);
+    mut_pointer_gone();
+    ASSERT_TRUE(settle(settled, 640, 480));
+    uint32_t got = host_crc32(0, settled, 640 * 480 * sizeof(uint32_t));
+    ASSERT_NE(got, plain);
+    if (getenv("RP6502_BLESS_CRC"))
+        printf("    0x%08X,  /* %s selected */\n", got, name);
+    else
+        ASSERT_EQ(got, 0x3408D1E7u);
+}
+
 UTEST(mode0, double_size_lines_640x480)
 {
     run_case(utest_result, "mode0_dbl640", 0xFC26F94F, MUT_BUDGET_UNDER);
@@ -713,7 +776,7 @@ UTEST(mode0, double_size_lines_640x480)
 
 UTEST(mode0, double_size_lines_320x240)
 {
-    run_case(utest_result, "mode0_dbl320", 0x755D87BF, MUT_BUDGET_UNDER);
+    run_case(utest_result, "mode0_dbl320", 0xD860FA63, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, reverse_screen_640x480)
@@ -723,17 +786,17 @@ UTEST(mode0, reverse_screen_640x480)
 
 UTEST(mode0, reverse_screen_320x240)
 {
-    run_case(utest_result, "mode0_rev320", 0x109371F8, MUT_BUDGET_UNDER);
+    run_case(utest_result, "mode0_rev320", 0xA92A57D8, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, wrap_on_a_double_width_row_640x480)
 {
-    run_case(utest_result, "mode0_wrap640", 0x3A9DBBA2, MUT_BUDGET_UNDER);
+    run_case(utest_result, "mode0_wrap640", 0xF129ED56, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, wrap_on_a_double_width_row_320x240)
 {
-    run_case(utest_result, "mode0_wrap320", 0x119D062C, MUT_BUDGET_UNDER);
+    run_case(utest_result, "mode0_wrap320", 0x344AB6D6, MUT_BUDGET_UNDER);
 }
 
 UTEST(mode0, underlines_and_colors_640x480)
@@ -743,7 +806,7 @@ UTEST(mode0, underlines_and_colors_640x480)
 
 UTEST(mode0, underlines_and_colors_320x240)
 {
-    run_case(utest_result, "mode0_lines320", 0xD86E55AB, MUT_BUDGET_UNDER);
+    run_case(utest_result, "mode0_lines320", 0x65E8241A, MUT_BUDGET_UNDER);
 }
 
 UTEST(prog, bands_switch_modes_on_one_plane_320x240)
@@ -895,3 +958,38 @@ UTEST(mode5c, a_320_row_spends_two_lines_of_doubled_sprites)
 }
 
 MUT_MAIN()
+
+UTEST(mode6, a_programs_pointer_by_its_hot_spot_320x240)
+{
+    run_pointer(utest_result, "mode6_custom", 100, 80, 0x4CB04A17u);
+}
+
+UTEST(mode6, a_programs_pointer_doubled_320x240)
+{
+    run_pointer(utest_result, "mode6_custom_dbl", 60, 40, 0x8075CEE9u);
+}
+
+UTEST(mode6, a_programs_pointer_flipped_at_the_corner_320x240)
+{
+    run_pointer(utest_result, "mode6_custom_flip", 316, 236, 0x220ED190u);
+}
+
+UTEST(mode6, the_last_sprite_xram_holds_320x240)
+{
+    run_pointer(utest_result, "mode6_custom_end", 100, 60, 0x62525455u);
+}
+
+UTEST(mode6, a_sprite_past_xram_draws_nothing_320x240)
+{
+    run_pointer(utest_result, "mode6_custom_past", 100, 60, 0);
+}
+
+UTEST(mode6, a_system_shape_at_320_size_320x240)
+{
+    run_pointer(utest_result, "mode6_system320", 80, 60, 0xEB3693E6u);
+}
+
+UTEST(mode6, a_system_shape_at_640_size_640x480)
+{
+    run_pointer(utest_result, "mode6_system640", 100, 60, 0xA7FB0A8Bu);
+}

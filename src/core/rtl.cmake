@@ -32,6 +32,7 @@ set(RP6502_RTL_SOURCES
     ${RP6502_ASSETS}/rsmp_coef_pkg.sv
     ${RP6502_SRC}/core/aud/pcm.sv
     ${RP6502_ASSETS}/color_pkg.sv
+    ${RP6502_ASSETS}/mode6_pkg.sv
     ${RP6502_SRC}/core/vga/scan/font.sv
     ${RP6502_SRC}/core/vga/scan/palram.sv
     ${RP6502_SRC}/core/vga/scan/pixtail.sv
@@ -48,6 +49,7 @@ set(RP6502_RTL_SOURCES
     ${RP6502_SRC}/core/vga/scan/rowq.sv
     ${RP6502_SRC}/core/vga/scan/listq.sv
     ${RP6502_SRC}/core/vga/scan/sbuf.sv
+    ${RP6502_SRC}/core/vga/mode/mode6.sv
     ${RP6502_SRC}/core/vga/scan/sprite.sv
     ${RP6502_SRC}/core/vga/prog.sv
     ${RP6502_SRC}/core/vga/mode/mode0.sv

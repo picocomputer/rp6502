@@ -8,6 +8,8 @@
 #include "core/sys/random.h"
 #include "host/host.h"
 #include "core/api/xreg.h"
+#include "core/api/arg.h"
+#include "core/api/proc.h"
 #include "core/str/oem.h"
 #include "core/term/font.h"
 #include "core/str/str.h"
@@ -16,10 +18,12 @@
 #include "core/hid/usage.h"
 #include "core/hid/hostkey.h"
 #include "core/hid/vtkey.h"
+#include "core/hid/vtmouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/com/rln.h"
-#include "core/term/cells.h"
+#include "core/term/vterm.h"
+#include "core/term/vterm_mouse.h"
 #include "tb_screen.h"
 #include "core/vga/vga_emu.h"
 #include "core/vga/mode/mode0.h"
@@ -43,10 +47,15 @@ static int t_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t flags)
     return vtkey_encode(out, usage, flags & VTKEY_MODIFIERS);
 }
 
+/* A first press, its VTKEY_ flags held as the left modifiers of a HID
+ * modifier byte. */
 static hostkey_result_t t_press(uint8_t usage, uint8_t flags, char ch)
 {
     keyboard_set_locks(flags & NUM ? KEYBOARD_LED_NUMLOCK : 0);
-    return hostkey_press(usage, flags & VTKEY_MODIFIERS, ch != 0);
+    uint8_t modifier = (uint8_t)((flags & VTKEY_SHIFT ? KEYBOARD_MODIFIER_LEFTSHIFT : 0) |
+                                 (flags & VTKEY_ALT ? KEYBOARD_MODIFIER_LEFTALT : 0) |
+                                 (flags & VTKEY_CTRL ? KEYBOARD_MODIFIER_LEFTCTRL : 0));
+    return hostkey_press(usage, modifier, false, ch != 0);
 }
 
 UTEST(crc32, known_vectors)
@@ -312,6 +321,166 @@ UTEST(vga, a_stop_puts_the_console_back_without_the_display_register)
         ASSERT_EQ(blob[i], 0);
 }
 
+/* Where mode 0 sits, as the record says, and the height of the terminal it
+ * places. */
+static bool placed_at(bool console, uint8_t cols, uint8_t rows, int16_t begin)
+{
+    const vterm_placement_t *p = &vterm_placement;
+    const term_grid_t *g = cols == 40 ? vterm.grids[0] : vterm.grids[1];
+    return p->console == console && p->placed && p->cols == cols &&
+           p->rows == rows && p->begin == begin && p->row_px == (cols == 40 ? 8 : 16) &&
+           g->height == rows && vterm_get_shown(&vterm) == g;
+}
+
+/* Programs mode 0 on plane 0 of the canvas selected, from BEGIN to END. */
+static bool program_mode0(uint16_t begin, uint16_t end)
+{
+    return xreg1(0, 3, begin) && xreg1(0, 4, end) && xreg1(0, 1, 0);
+}
+
+/* The same call again leaves the record as it was. */
+static bool record_is(const vterm_placement_t *was)
+{
+    return !memcmp(was, &vterm_placement, sizeof *was);
+}
+
+/* A canvas places nothing until mode 0 is programmed on it, and the size
+ * showing is the canvas's from the select. Mode 0 places the terminal where
+ * its BEGIN and END put it, and the same program again changes nothing. */
+UTEST(vga, mode_0_places_the_terminal_on_a_canvas)
+{
+    sys_init();
+    ASSERT_TRUE(placed_at(true, 80, 30, 0));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    ASSERT_FALSE(vterm_placement.placed);
+    ASSERT_FALSE(vterm_placement.console);
+    ASSERT_EQ(vterm_placement.cols, 40);
+    ASSERT_TRUE(vterm_get_shown(&vterm) == vterm.grids[0]);
+    ASSERT_TRUE(program_mode0(16, 224));
+    ASSERT_TRUE(placed_at(false, 40, 26, 16));
+    vterm_placement_t was = vterm_placement;
+    ASSERT_TRUE(program_mode0(16, 224));
+    ASSERT_TRUE(record_is(&was));
+    ASSERT_TRUE(placed_at(false, 40, 26, 16));
+    ASSERT_TRUE(program_mode0(0, 0));
+    ASSERT_TRUE(placed_at(false, 40, 30, 0));
+
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_360));
+    ASSERT_FALSE(vterm_placement.placed);
+    ASSERT_EQ(vterm_placement.cols, 80);
+    ASSERT_TRUE(program_mode0(0, 0));
+    ASSERT_TRUE(placed_at(false, 80, 22, 4));
+    ASSERT_TRUE(program_mode0(40, 360));
+    ASSERT_TRUE(placed_at(false, 80, 20, 40));
+    was = vterm_placement;
+    ASSERT_TRUE(program_mode0(40, 360));
+    ASSERT_TRUE(record_is(&was));
+    /* A span that is not whole rows places nothing new. */
+    ASSERT_FALSE(program_mode0(40, 100));
+    ASSERT_TRUE(record_is(&was));
+
+    /* The same canvas again drops what was placed on it. */
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_360));
+    ASSERT_FALSE(vterm_placement.placed);
+    was = vterm_placement;
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_360));
+    ASSERT_TRUE(record_is(&was));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* The console canvas places the console from another canvas; from itself
+ * it keeps the record, and a stop on the console keeps it too. */
+UTEST(vga, the_console_canvas_places_the_console)
+{
+    sys_init();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_180));
+    ASSERT_TRUE(program_mode0(0, 0));
+    ASSERT_TRUE(placed_at(false, 40, 22, 2));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    ASSERT_TRUE(placed_at(true, 80, 30, 0));
+    vterm_placement_t was = vterm_placement;
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    ASSERT_TRUE(record_is(&was));
+    vga_console_reset();
+    ASSERT_TRUE(record_is(&was));
+    /* The console canvas is not programmable. */
+    ASSERT_FALSE(program_mode0(16, 464));
+    ASSERT_TRUE(record_is(&was));
+}
+
+/* A console of another size, which the host chooses, is placed at the
+ * console reset after it, and the same size again changes nothing. */
+UTEST(vga, a_host_console_size_places_the_console_again)
+{
+    sys_init();
+    vga_set_console_size(640, 400);
+    vga_console_reset();
+    ASSERT_TRUE(placed_at(true, 80, 25, 0));
+    vterm_placement_t was = vterm_placement;
+    vga_console_reset();
+    ASSERT_TRUE(record_is(&was));
+    vga_set_console_size(640, 360);
+    vga_console_reset();
+    ASSERT_TRUE(placed_at(true, 80, 22, 4));
+    vga_set_console_size(640, 480);
+    vga_console_reset();
+    ASSERT_TRUE(placed_at(true, 80, 30, 0));
+}
+
+/* A selection of the first two rows of the terminal showing. */
+static void select_two_rows(void)
+{
+    term_grid_t *g = vterm_get_shown(&vterm);
+    vterm_select(g, 0, screen_mem(g->shown, 0), 0, screen_mem(g->shown, 1), 4, 0,
+                 SCREEN_SELECTION_EDGE);
+}
+
+/* Mode 0 programmed again where it is keeps the selection, and programmed
+ * somewhere new clears it; so does another canvas, and the console canvas
+ * coming back from one. The console canvas from itself, and a stop on it,
+ * keep it. */
+UTEST(vga, the_selection_outlives_mode_0_programmed_where_it_is)
+{
+    sys_init();
+    select_two_rows();
+    ASSERT_TRUE(vterm_selection.shows);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    vga_console_reset();
+    ASSERT_TRUE(vterm_selection.shows);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_360));
+    ASSERT_FALSE(vterm_selection.shows);
+    ASSERT_TRUE(program_mode0(40, 360));
+    select_two_rows();
+    ASSERT_TRUE(program_mode0(40, 360));
+    ASSERT_TRUE(vterm_selection.shows);
+    ASSERT_TRUE(program_mode0(40, 344));
+    ASSERT_FALSE(vterm_selection.shows);
+    ASSERT_TRUE(program_mode0(56, 360));
+    select_two_rows();
+    ASSERT_TRUE(program_mode0(40, 344));
+    ASSERT_FALSE(vterm_selection.shows);
+    select_two_rows();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    ASSERT_FALSE(vterm_selection.shows);
+}
+
+/* On a 320-wide canvas the stop sets the 40-column terminal back to its
+ * standard height, which drops a selection there at any other height. */
+UTEST(vga, a_stop_drops_a_selection_on_the_40_at_another_height)
+{
+    sys_init();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    ASSERT_TRUE(program_mode0(16, 224));
+    select_two_rows();
+    vterm_RIS_no_clear();
+    ASSERT_FALSE(vterm_selection.shows);
+    ASSERT_TRUE(program_mode0(0, 0));
+    select_two_rows();
+    vterm_RIS_no_clear();
+    ASSERT_TRUE(vterm_selection.shows);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
 /* Channel 0 has eight registers, as on the VGA chip, so a write to $12 sets
  * nothing rather than register 2. */
 UTEST(vga, channel_0_ignores_registers_it_lacks)
@@ -371,19 +540,66 @@ UTEST(tablet, host_wheel_encoding)
 
     ASSERT_TRUE(xreg0(0, 3, 0xFF00)); /* xreg_ria_tablet(0xFF00) */
     ASSERT_TRUE(tablet_is_mapped());
-    ASSERT_EQ(xram[0xFF00 + 2], 0x00); /* wheel default 0 */
-    ASSERT_EQ(xram[0xFF00 + 3], 0x00); /* pan default 0 */
+    /* Counters, read by subtracting the previous value. */
+    const uint8_t wheel = xram[0xFF00 + 2], pan = xram[0xFF00 + 3];
 
     tablet_host_wheel(3, -2);
-    ASSERT_EQ(xram[0xFF00 + 2], (uint8_t)3);
-    ASSERT_EQ(xram[0xFF00 + 3], (uint8_t)-2);
+    ASSERT_EQ(xram[0xFF00 + 2], (uint8_t)(wheel + 3));
+    ASSERT_EQ(xram[0xFF00 + 3], (uint8_t)(pan - 2));
 
     tablet_host_wheel(-4, 5);
-    ASSERT_EQ(xram[0xFF00 + 2], (uint8_t)-1); /* 3 + (-4) wraps */
-    ASSERT_EQ(xram[0xFF00 + 3], (uint8_t)3);  /* -2 + 5 */
+    ASSERT_EQ(xram[0xFF00 + 2], (uint8_t)(wheel - 1)); /* 3 + (-4) */
+    ASSERT_EQ(xram[0xFF00 + 3], (uint8_t)(pan + 3));   /* -2 + 5 */
+
+    /* Mapping again keeps the counts, as the mouse's are kept. */
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+    tablet_host_wheel(1, 1);
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    ASSERT_EQ(xram[0xFF00 + 2], (uint8_t)wheel);
+    ASSERT_EQ(xram[0xFF00 + 3], (uint8_t)(pan + 4));
 
     ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
     ASSERT_FALSE(tablet_is_mapped());
+}
+
+/* The shape is the program's, any up to 255, as the program's own pointers
+ * can have that many (core/vga/mode/mode6.h). With no program on the tablet, the console's terminal claims it
+ * while mode 0 shows, and the shape is the arrow; with mode 0 nowhere,
+ * nothing wants the tablet. */
+UTEST(tablet, shape_is_the_programs)
+{
+    sys_init();
+    ASSERT_TRUE(vterm_placement.placed);
+    ASSERT_TRUE(tablet_wanted());
+    ASSERT_EQ(tablet_shape(), TABLET_CURSOR_ARROW);
+    /* The terminal does nothing with the wheel, so only a program wants it. */
+    ASSERT_FALSE(tablet_wheel_wanted());
+
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00)); /* xreg_ria_tablet(0xFF00) */
+    ASSERT_TRUE(tablet_wanted());
+    ASSERT_TRUE(tablet_wheel_wanted());
+    for (int shape = 0; shape < 256; ++shape)
+    {
+        xram[0xFF00 + TABLET_OFF_CONTROL] = (uint8_t)shape;
+        ASSERT_EQ(tablet_shape(), shape);
+    }
+
+    /* A program's shape holds on a canvas with no mode 0. */
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    xram[0xFF00 + TABLET_OFF_CONTROL] = TABLET_CURSOR_HAND;
+    ASSERT_TRUE(tablet_wanted());
+    ASSERT_EQ(tablet_shape(), TABLET_CURSOR_HAND);
+
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+    ASSERT_FALSE(tablet_wanted());
+    ASSERT_FALSE(tablet_wheel_wanted());
+    ASSERT_EQ(tablet_shape(), TABLET_CURSOR_OFF);
+
+    /* Mode 0 on the canvas: the terminal claims it there too. */
+    ASSERT_TRUE(program_mode0(16, 224));
+    ASSERT_TRUE(tablet_wanted());
+    ASSERT_EQ(tablet_shape(), TABLET_CURSOR_ARROW);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
 }
 
 static int tablet_contact_y(void)
@@ -452,6 +668,70 @@ UTEST(tablet, a_mouse_leaves_the_bottom_of_a_wide_canvas_at_once)
     ASSERT_TRUE(tablet_umount(7));
     ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
     vga_set_console_size(640, 480);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* A mouse moved before a program maps the tablet is found hovering where it
+ * is, and a new canvas puts it on that canvas, in the same place. */
+UTEST(tablet, a_program_finds_the_mouse_where_it_is)
+{
+    static const tablet_connection_t mouse = {
+        .valid = true,
+        .button_offsets = {HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT},
+        .x_relative = true,
+        .x_offset = 0, .x_size = 8,
+        .y_offset = 8, .y_size = 8,
+        .tip_offset = HID_ABSENT,
+        .inrange_offset = HID_ABSENT,
+    };
+    sys_init();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_480));
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    ASSERT_TRUE(tablet_mount(7, &mouse));
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER); /* before it moves */
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+    /* Home in the corner, then 200 counts right and 100 down: 100 and 50
+     * reference pixels. */
+    const uint8_t home[] = {(uint8_t)-128, (uint8_t)-128};
+    for (int n = 0; n < 20; n++)
+        tablet_report(7, home, sizeof home);
+    const uint8_t move[] = {100, 50};
+    tablet_report(7, move, sizeof move);
+    tablet_report(7, move, sizeof move);
+    tablet_task();
+
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    ASSERT_EQ(xram[0xFF00 + TABLET_OFF_CONTROL], TABLET_CURSOR_ARROW);
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER);
+    ASSERT_EQ(tablet_contact_x(), 100);
+    ASSERT_EQ(tablet_contact_y(), 50);
+
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    tablet_task();
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER);
+    ASSERT_EQ(tablet_contact_x(), 50);
+    ASSERT_EQ(tablet_contact_y(), 25);
+
+    /* Low on a 480-line canvas, held at the bottom of a 360-line console,
+     * and back where it was on the canvas. */
+    vga_set_console_size(640, 360);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_480));
+    tablet_task();
+    const uint8_t down[] = {0, 126}; /* 63 reference lines */
+    for (int n = 0; n < 5; n++)
+        tablet_report(7, down, sizeof down);
+    ASSERT_EQ(tablet_contact_y(), 50 + 5 * 63);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    tablet_task();
+    ASSERT_EQ(tablet_contact_x(), 100);
+    ASSERT_EQ(tablet_contact_y(), 359);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_480));
+    tablet_task();
+    ASSERT_EQ(tablet_contact_y(), 50 + 5 * 63);
+    vga_set_console_size(640, 480);
+
+    ASSERT_TRUE(tablet_umount(7));
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
 }
 
@@ -618,6 +898,433 @@ UTEST(tablet, buttons_of_two_mice_merge)
     ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
 }
 
+/* Bit 0 of status is the program's: mapping sets it, a report never
+ * writes it, and the program's 0 holds until the tablet is mapped again. */
+UTEST(tablet, the_share_bit_is_the_programs)
+{
+    static const tablet_connection_t mouse = {
+        .valid = true,
+        .button_offsets = {0, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT},
+        .x_relative = true,
+        .x_offset = 8, .x_size = 8,
+        .y_offset = 16, .y_size = 8,
+        .tip_offset = HID_ABSENT,
+        .inrange_offset = HID_ABSENT,
+    };
+    sys_init();
+    ASSERT_TRUE(tablet_shared());
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    ASSERT_EQ(xram[0xFF00 + TABLET_OFF_STATUS], TABLET_STATUS_SHARED);
+    ASSERT_TRUE(tablet_shared());
+
+    xram[0xFF00 + TABLET_OFF_STATUS] = 0;
+    ASSERT_FALSE(tablet_shared());
+    ASSERT_TRUE(tablet_mount(7, &mouse));
+    const uint8_t press[] = {1, 4, 4};
+    tablet_report(7, press, sizeof press);
+    tablet_host_pointer(100, 50, TABLET_FLAG_RIGHT, false);
+    tablet_host_wheel(1, 0);
+    const tablet_point_t pt = {10, 10};
+    tablet_host_touch(&pt, 1);
+    tablet_host_clear();
+    ASSERT_EQ(xram[0xFF00 + TABLET_OFF_STATUS], 0);
+    ASSERT_FALSE(tablet_shared());
+    ASSERT_TRUE(tablet_umount(7));
+
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    ASSERT_EQ(xram[0xFF00 + TABLET_OFF_STATUS], TABLET_STATUS_SHARED);
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+    ASSERT_TRUE(tablet_shared());
+}
+
+/* A host that stops giving the tablet its pointer lets it go once, at the
+ * edge: a contact put there while it does not give it is kept. The edge is
+ * saved, so a load from before it lets go again. */
+UTEST(tablet, a_host_lets_go_of_its_pointer_at_the_edge)
+{
+    sys_init();
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    tablet_host_give(true);
+    tablet_host_pointer(10, 10, TABLET_FLAG_LEFT, true);
+    tablet_host_give(true);
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER | TABLET_FLAG_LEFT);
+
+    uint8_t blob[256];
+    ASSERT_LE((size_t)tablet_sst.size, sizeof blob);
+    sst_cursor_t c = {blob, blob + tablet_sst.size, false, NULL};
+    tablet_sst.save(&c, 0);
+
+    tablet_host_give(false);
+    ASSERT_EQ(tablet_contact_flags(), 0);
+    tablet_host_pointer(20, 10, TABLET_FLAG_LEFT, true);
+    tablet_host_give(false);
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER | TABLET_FLAG_LEFT);
+
+    c = (sst_cursor_t){blob, blob + tablet_sst.size, false, NULL};
+    ASSERT_TRUE(tablet_sst.load(&c, 0));
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER | TABLET_FLAG_LEFT);
+    tablet_host_give(false);
+    ASSERT_EQ(tablet_contact_flags(), 0);
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+}
+
+/* ---- the console's mouse (core/term/vterm_mouse.c) ---------------------- */
+
+static uint32_t mouse_queued(void)
+{
+    return RING_LEN(&vterm_mouse_queue);
+}
+
+static const vterm_mouse_event_t *mouse_change(uint32_t i)
+{
+    return RING_AT(&vterm_mouse_queue, i);
+}
+
+/* A machine on the console with the pointer gone from it and nothing
+ * queued. */
+static void mouse_start(void)
+{
+    sys_init();
+    tablet_host_clear();
+    vterm_mouse_task();
+}
+
+/* A press and a release that come before the task runs are both kept, and
+ * motion between them is merged. */
+UTEST(vterm_mouse, a_press_and_release_in_one_burst_give_both_edges)
+{
+    mouse_start();
+    tablet_host_pointer(10, 10, 0, true);
+    tablet_host_pointer(11, 10, 0, true);
+    tablet_host_pointer(12, 10, 0, true);
+    tablet_host_pointer(12, 10, TABLET_FLAG_LEFT, true);
+    tablet_host_pointer(14, 10, TABLET_FLAG_LEFT, true);
+    tablet_host_pointer(16, 10, 0, true);
+    ASSERT_EQ(mouse_queued(), 5u);
+    const vterm_mouse_event_t *e = mouse_change(0);
+    ASSERT_TRUE(e->edge);
+    ASSERT_EQ(e->flags, TABLET_FLAG_HOVER);
+    ASSERT_EQ(e->x, 10);
+    e = mouse_change(1);
+    ASSERT_FALSE(e->edge);
+    ASSERT_TRUE(e->moved);
+    ASSERT_EQ(e->x, 12);
+    e = mouse_change(2);
+    ASSERT_TRUE(e->edge);
+    ASSERT_FALSE(e->moved);
+    ASSERT_EQ(e->flags, TABLET_FLAG_HOVER | TABLET_FLAG_LEFT);
+    ASSERT_EQ(e->x, 12);
+    e = mouse_change(3);
+    ASSERT_FALSE(e->edge);
+    ASSERT_EQ(e->x, 14);
+    e = mouse_change(4);
+    ASSERT_TRUE(e->edge);
+    ASSERT_EQ(e->flags, TABLET_FLAG_HOVER);
+    ASSERT_EQ(e->x, 16);
+    vterm_mouse_task();
+    ASSERT_EQ(mouse_queued(), 0u);
+}
+
+/* The same from a HID mouse's reports. */
+UTEST(vterm_mouse, a_press_and_release_in_hid_reports_give_both_edges)
+{
+    static const tablet_connection_t mouse = {
+        .valid = true,
+        .button_offsets = {0, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT},
+        .x_relative = true,
+        .x_offset = 8, .x_size = 8,
+        .y_offset = 16, .y_size = 8,
+        .tip_offset = HID_ABSENT,
+        .inrange_offset = HID_ABSENT,
+    };
+    mouse_start();
+    ASSERT_TRUE(tablet_mount(7, &mouse));
+    vterm_mouse_task();
+    const uint8_t press[] = {1, 0, 0}, release[] = {0, 0, 0};
+    tablet_report(7, press, sizeof press);
+    tablet_report(7, release, sizeof release);
+    ASSERT_EQ(mouse_queued(), 2u);
+    ASSERT_EQ(mouse_change(0)->flags, TABLET_FLAG_HOVER | TABLET_FLAG_LEFT);
+    ASSERT_EQ(mouse_change(1)->flags, TABLET_FLAG_HOVER);
+    ASSERT_TRUE(mouse_change(1)->edge);
+    ASSERT_TRUE(tablet_umount(7));
+    vterm_mouse_task();
+}
+
+/* A frontend that polls once a frame gives a press in one frame and the
+ * release in the next, at the same spot; each is a change. */
+UTEST(vterm_mouse, edges_in_consecutive_frames_are_each_delivered)
+{
+    mouse_start();
+    tablet_host_pointer(40, 40, 0, false);
+    vterm_mouse_task();
+    tablet_host_pointer(40, 40, TABLET_FLAG_LEFT, false);
+    tablet_host_pointer(40, 40, TABLET_FLAG_LEFT, false); /* no change */
+    ASSERT_EQ(mouse_queued(), 1u);
+    ASSERT_TRUE(mouse_change(0)->edge);
+    vterm_mouse_task();
+    tablet_host_pointer(40, 40, 0, false);
+    ASSERT_EQ(mouse_queued(), 1u);
+    ASSERT_TRUE(mouse_change(0)->edge);
+    ASSERT_EQ(mouse_change(0)->flags, TABLET_FLAG_HOVER);
+    vterm_mouse_task();
+}
+
+/* The wheel and pan come as how far they moved, not as the counters. */
+UTEST(vterm_mouse, the_wheel_is_deltas_not_counters)
+{
+    mouse_start();
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    tablet_host_wheel(5, 0); /* the counters away from 0 */
+    vterm_mouse_task();
+    tablet_host_wheel(3, -2);
+    tablet_host_wheel(-4, 5);
+    ASSERT_EQ(mouse_queued(), 1u);
+    ASSERT_EQ(mouse_change(0)->wheel, -1);
+    ASSERT_EQ(mouse_change(0)->pan, 3);
+    ASSERT_FALSE(mouse_change(0)->moved);
+    /* A sum too large for one change starts the next. */
+    tablet_host_wheel(100, 0);
+    tablet_host_wheel(100, 0);
+    ASSERT_EQ(mouse_queued(), 2u);
+    ASSERT_EQ(mouse_change(0)->wheel, 99);
+    ASSERT_EQ(mouse_change(1)->wheel, 100);
+    vterm_mouse_task();
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+}
+
+/* A finger is the left button, with no hover. */
+UTEST(vterm_mouse, a_touch_is_the_left_button)
+{
+    mouse_start();
+    const tablet_point_t pt = {30, 20};
+    tablet_host_touch(&pt, 1);
+    ASSERT_EQ(mouse_queued(), 1u);
+    ASSERT_EQ(mouse_change(0)->flags, TABLET_FLAG_LEFT);
+    ASSERT_EQ(mouse_change(0)->x, 30);
+    ASSERT_EQ(mouse_change(0)->y, 20);
+    ASSERT_TRUE(mouse_change(0)->edge);
+    tablet_host_clear();
+    ASSERT_EQ(mouse_change(1)->flags, 0);
+    vterm_mouse_task();
+}
+
+/* A HID mouse and a host's pointer at the same place with the same button
+ * are the same change. */
+UTEST(vterm_mouse, the_hid_and_host_paths_agree)
+{
+    static const tablet_connection_t mouse = {
+        .valid = true,
+        .button_offsets = {0, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT},
+        .x_relative = true,
+        .x_offset = 8, .x_size = 8,
+        .y_offset = 16, .y_size = 8,
+        .tip_offset = HID_ABSENT,
+        .inrange_offset = HID_ABSENT,
+    };
+    mouse_start();
+    ASSERT_TRUE(tablet_mount(7, &mouse));
+    /* Home in the corner, then 200 counts right and 100 down: 100 and 50
+     * pixels of the 640-wide console. */
+    const uint8_t home[] = {0, (uint8_t)-128, (uint8_t)-128};
+    for (int n = 0; n < 20; n++)
+        tablet_report(7, home, sizeof home);
+    const uint8_t move[] = {0, 100, 50};
+    tablet_report(7, move, sizeof move);
+    tablet_report(7, move, sizeof move);
+    const uint8_t press[] = {1, 0, 0};
+    tablet_report(7, press, sizeof press);
+    const vterm_mouse_event_t hid = *mouse_change(mouse_queued() - 1);
+    ASSERT_TRUE(tablet_umount(7));
+    tablet_host_clear();
+    vterm_mouse_task();
+
+    tablet_host_pointer(100, 50, TABLET_FLAG_LEFT, false);
+    const vterm_mouse_event_t host = *mouse_change(mouse_queued() - 1);
+    ASSERT_EQ(hid.x, 100);
+    ASSERT_EQ(hid.y, 50);
+    ASSERT_EQ(host.x, hid.x);
+    ASSERT_EQ(host.y, hid.y);
+    ASSERT_EQ(host.flags, hid.flags);
+    ASSERT_TRUE(host.edge && hid.edge);
+    vterm_mouse_task();
+}
+
+/* A new canvas puts the pointer on it, which is no motion of the user's. */
+UTEST(vterm_mouse, a_canvas_re_place_is_not_user_motion)
+{
+    mouse_start();
+    tablet_host_pointer(300, 200, 0, false);
+    vterm_mouse_task();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    tablet_task();
+    ASSERT_EQ(mouse_queued(), 1u);
+    ASSERT_EQ(mouse_change(0)->x, 150);
+    ASSERT_EQ(mouse_change(0)->y, 100);
+    ASSERT_FALSE(mouse_change(0)->moved);
+    ASSERT_FALSE(mouse_change(0)->edge);
+    vterm_mouse_task();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    tablet_task();
+    vterm_mouse_task();
+}
+
+/* A full queue keeps the flags contact 0 ends on. */
+UTEST(vterm_mouse, a_full_queue_ends_on_the_last_flags)
+{
+    mouse_start();
+    for (int i = 0; i < VTERM_MOUSE_QUEUE + 3; i++)
+        tablet_host_pointer(10, 10, (uint8_t)(i & 1 ? TABLET_FLAG_LEFT : 0), false);
+    ASSERT_EQ(mouse_queued(), (uint32_t)VTERM_MOUSE_QUEUE);
+    ASSERT_EQ(mouse_change(VTERM_MOUSE_QUEUE - 1)->flags, TABLET_FLAG_HOVER);
+    vterm_mouse_task();
+}
+
+/* A full queue holds a wheel too large to merge at its end, keeping its
+ * direction, and still merges the pan beside it. */
+UTEST(vterm_mouse, a_full_queue_holds_the_wheel_at_its_end)
+{
+    mouse_start();
+    for (int i = 0; i < VTERM_MOUSE_QUEUE; i++)
+        tablet_host_pointer(10, 10, (uint8_t)(i & 1 ? TABLET_FLAG_LEFT : 0), false);
+    ASSERT_EQ(mouse_queued(), (uint32_t)VTERM_MOUSE_QUEUE);
+    tablet_host_wheel(-100, 2);
+    tablet_host_wheel(-100, 3);
+    ASSERT_EQ(mouse_queued(), (uint32_t)VTERM_MOUSE_QUEUE);
+    ASSERT_EQ(mouse_change(VTERM_MOUSE_QUEUE - 1)->wheel, INT8_MIN);
+    ASSERT_EQ(mouse_change(VTERM_MOUSE_QUEUE - 1)->pan, 5);
+    vterm_mouse_task();
+}
+
+/* The pointer at x, y, buttons held, taken by the terminal at once. */
+static bool mouse_acts_at(int x, int y, uint8_t buttons)
+{
+    tablet_host_pointer(x, y, buttons, false);
+    vterm_mouse_task();
+    return vterm_mouse_acts();
+}
+
+/* With no program on the tablet, the terminal acts over mode 0's cells,
+ * wherever mode 0 sits on its canvas, and nowhere on a canvas without it. */
+UTEST(vterm_mouse, the_terminal_acts_over_mode_0s_cells)
+{
+    mouse_start();
+    ASSERT_TRUE(mouse_acts_at(100, 100, 0));
+    ASSERT_TRUE(mouse_acts_at(639, 479, 0));
+
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    ASSERT_FALSE(tablet_wanted());
+    ASSERT_FALSE(mouse_acts_at(100, 100, 0));
+    ASSERT_FALSE(mouse_acts_at(100, 101, TABLET_FLAG_LEFT));
+    ASSERT_FALSE(mouse_acts_at(100, 101, 0));
+
+    /* 26 rows of 8 lines from line 16. */
+    ASSERT_TRUE(program_mode0(16, 224));
+    ASSERT_FALSE(mouse_acts_at(100, 15, 0));
+    ASSERT_TRUE(mouse_acts_at(100, 16, 0));
+    ASSERT_TRUE(mouse_acts_at(319, 223, 0));
+    ASSERT_FALSE(mouse_acts_at(100, 224, 0));
+    ASSERT_TRUE(mouse_acts_at(0, 100, 0));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* A press decides, and the decision holds to the release, wherever a drag
+ * goes. */
+UTEST(vterm_mouse, a_press_decides_to_the_release)
+{
+    mouse_start();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    ASSERT_TRUE(program_mode0(16, 224));
+    ASSERT_TRUE(mouse_acts_at(100, 100, 0));
+    ASSERT_TRUE(mouse_acts_at(100, 100, TABLET_FLAG_LEFT));
+    ASSERT_TRUE(mouse_acts_at(100, 230, TABLET_FLAG_LEFT));
+    ASSERT_TRUE(mouse_acts_at(100, 230, TABLET_FLAG_LEFT | TABLET_FLAG_RIGHT));
+    ASSERT_TRUE(mouse_acts_at(100, 230, 0)); /* the release is the press's */
+    ASSERT_FALSE(mouse_acts_at(100, 231, 0));
+
+    ASSERT_FALSE(mouse_acts_at(100, 231, TABLET_FLAG_LEFT));
+    ASSERT_FALSE(mouse_acts_at(100, 100, TABLET_FLAG_LEFT));
+    ASSERT_FALSE(mouse_acts_at(100, 100, 0));
+    ASSERT_TRUE(mouse_acts_at(101, 100, 0));
+
+    /* A press and its release taken in one run of the task. */
+    tablet_host_pointer(100, 100, TABLET_FLAG_LEFT, false);
+    tablet_host_pointer(100, 230, TABLET_FLAG_LEFT, false);
+    tablet_host_pointer(100, 230, 0, false);
+    vterm_mouse_task();
+    ASSERT_TRUE(vterm_mouse_acts());
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* A program that maps the tablet shares it, and the terminal acts over mode
+ * 0 as before. A program that clears the share bit has it to itself; the bit
+ * is read at the press and held to the release. */
+UTEST(vterm_mouse, the_share_bit_decides_while_mapped)
+{
+    mouse_start();
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    ASSERT_TRUE(mouse_acts_at(100, 100, 0));
+    xram[0xFF00 + TABLET_OFF_STATUS] = 0;
+    ASSERT_FALSE(mouse_acts_at(101, 100, 0));
+    ASSERT_FALSE(mouse_acts_at(101, 100, TABLET_FLAG_LEFT));
+    xram[0xFF00 + TABLET_OFF_STATUS] = TABLET_STATUS_SHARED;
+    ASSERT_FALSE(mouse_acts_at(102, 100, TABLET_FLAG_LEFT));
+    ASSERT_FALSE(mouse_acts_at(102, 100, 0));
+    ASSERT_TRUE(mouse_acts_at(103, 100, 0));
+    ASSERT_TRUE(mouse_acts_at(103, 100, TABLET_FLAG_LEFT));
+    xram[0xFF00 + TABLET_OFF_STATUS] = 0;
+    ASSERT_TRUE(mouse_acts_at(104, 100, TABLET_FLAG_LEFT));
+    ASSERT_TRUE(mouse_acts_at(104, 100, 0));
+    ASSERT_FALSE(mouse_acts_at(105, 100, 0));
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+    ASSERT_TRUE(mouse_acts_at(106, 100, 0));
+}
+
+/* The share bit is the one the program had as the press came, not the one it
+ * has when the task takes the press. */
+UTEST(vterm_mouse, the_share_bit_is_read_as_the_press_comes)
+{
+    mouse_start();
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00));
+    tablet_host_pointer(100, 100, TABLET_FLAG_LEFT, false);
+    xram[0xFF00 + TABLET_OFF_STATUS] = 0;
+    vterm_mouse_task();
+    ASSERT_TRUE(vterm_mouse_acts());
+    tablet_host_pointer(100, 100, 0, false);
+    tablet_host_pointer(100, 100, TABLET_FLAG_LEFT, false);
+    xram[0xFF00 + TABLET_OFF_STATUS] = TABLET_STATUS_SHARED;
+    vterm_mouse_task();
+    ASSERT_FALSE(vterm_mouse_acts());
+    tablet_host_pointer(100, 100, 0, false);
+    vterm_mouse_task();
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+}
+
+/* A contact that has gone is no one's: a pointer that left, and the wheel
+ * turned with none there. A finger lifted is its press's release. */
+UTEST(vterm_mouse, a_contact_that_has_gone_goes_nowhere)
+{
+    mouse_start();
+    ASSERT_TRUE(mouse_acts_at(100, 100, 0));
+    tablet_host_clear();
+    vterm_mouse_task();
+    ASSERT_FALSE(vterm_mouse_acts());
+    tablet_host_wheel(1, 0);
+    vterm_mouse_task();
+    ASSERT_FALSE(vterm_mouse_acts());
+
+    const tablet_point_t pt = {100, 100};
+    tablet_host_touch(&pt, 1);
+    vterm_mouse_task();
+    ASSERT_TRUE(vterm_mouse_acts());
+    tablet_host_clear();
+    vterm_mouse_task();
+    ASSERT_TRUE(vterm_mouse_acts()); /* the release is the press's */
+    tablet_host_wheel(1, 0);
+    vterm_mouse_task();
+    ASSERT_FALSE(vterm_mouse_acts());
+}
+
 static int keyboard_drain(char *buf, int max)
 {
     int n = 0, c;
@@ -718,6 +1425,21 @@ UTEST(keyboard, ctrl_and_alt_on_control_keys)
     ASSERT_EQ(0, memcmp(b, "\x1b\x7f\x1b\x08", 4));
 }
 
+/* DECBKM: Backspace sends BS, and Ctrl swaps it back to DEL. */
+UTEST(keyboard, backarrow_key_mode)
+{
+    char b[16];
+
+    com_rx_clear();
+    vterm.backarrow_bs = true;
+    t_press(HID_KEY_BACKSPACE, 0, 0);
+    t_press(HID_KEY_BACKSPACE, VTKEY_CTRL, 0);
+    t_press(HID_KEY_BACKSPACE, VTKEY_ALT, 0);
+    vterm.backarrow_bs = false;
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
+    ASSERT_EQ(0, memcmp(b, "\x08\x7f\x1b\x08", 4));
+}
+
 UTEST(keyboard, ctrl_and_alt_on_characters)
 {
     char b[16];
@@ -757,10 +1479,10 @@ UTEST(keyboard, ctrl_and_alt_on_characters)
 
 static void key_modes(unsigned modes)
 {
-    cells_term.app_cursor = modes & M_CKM;
-    cells_term.app_keypad = modes & M_KPAM;
-    cells_term.newline_mode = modes & M_LNM;
-    cells_term.vt52 = modes & M_VT52;
+    vterm.app_cursor = modes & M_CKM;
+    vterm.app_keypad = modes & M_KPAM;
+    vterm.newline_mode = modes & M_LNM;
+    vterm.vt52 = modes & M_VT52;
 }
 
 #define SH VTKEY_SHIFT
@@ -989,9 +1711,9 @@ UTEST(keyboard, modify_other_keys_at_every_level)
             for (int k = 0; k < want_n; k++)
                 if (want[k] == '\200')
                     want[k] = 0;
-            cells_term.modify_other_keys = (uint8_t)level;
+            vterm.modify_other_keys = (uint8_t)level;
             const int n = other_send(out, i);
-            cells_term.modify_other_keys = 0;
+            vterm.modify_other_keys = 0;
             if (n != want_n || memcmp(out, want, (size_t)n))
             {
                 printf("other_table[%d] level %u\n", (int)i, level);
@@ -1005,19 +1727,19 @@ UTEST(keyboard, modify_other_keys_at_every_level)
 UTEST(keyboard, format_other_keys_and_vt52)
 {
     char out[VTKEY_MAX];
-    cells_term.modify_other_keys = 2;
-    cells_term.format_other_keys = true;
+    vterm.modify_other_keys = 2;
+    vterm.format_other_keys = true;
     ASSERT_EQ(vtkey_char(out, 0x04, 'a', VTKEY_CTRL), 7);
     ASSERT_EQ(0, memcmp(out, "\33[97;5u", 7));
     ASSERT_EQ(t_encode(out, HID_KEY_ENTER, SH), 7);
     ASSERT_EQ(0, memcmp(out, "\33[13;2u", 7));
-    cells_term.format_other_keys = false;
-    cells_term.vt52 = true;
+    vterm.format_other_keys = false;
+    vterm.vt52 = true;
     ASSERT_EQ(vtkey_char(out, 0x04, 'a', VTKEY_CTRL), 1);
     ASSERT_EQ(out[0], 1);
     ASSERT_EQ(t_encode(out, HID_KEY_ENTER, SH), 1);
-    cells_term.vt52 = false;
-    cells_term.modify_other_keys = 0;
+    vterm.vt52 = false;
+    vterm.modify_other_keys = 0;
 }
 
 UTEST(keyboard, hostkey_types_what_the_encoder_says)
@@ -1069,13 +1791,185 @@ UTEST(keyboard, hostkey_types_what_the_encoder_says)
     ASSERT_EQ(0, memcmp(b, "\33?\33\r\33?\33\r", 8));
 }
 
+/* Alt-F4 in a launcher's child quits it, and its key held repeats as
+ * nothing: it neither quits again nor types. A new press asks again, and
+ * with the program stopping Alt-F4 is an ordinary key, which repeats. */
+UTEST(keyboard, a_held_chord_acts_once)
+{
+    const uint8_t alt = KEYBOARD_MODIFIER_LEFTALT;
+    char b[16];
+    com_rx_clear();
+    sys_run();
+    sys_commit();
+    arg_clear();
+    arg_append("launcher.rp6502");
+    proc_run();
+    proc_set_launcher(true);
+    arg_clear();
+    arg_append("child.rp6502");
+    proc_run();
+    proc_set_exit_code(0);
+
+    ASSERT_EQ(hostkey_press(HID_KEY_F4, alt, false, true), HOSTKEY_CHORD);
+    ASSERT_EQ(proc_get_exit_code(), -1);
+    proc_set_exit_code(0);
+    ASSERT_EQ(hostkey_press(HID_KEY_F4, alt, true, true), HOSTKEY_CHORD);
+    ASSERT_EQ(hostkey_press(HID_KEY_F4, alt, true, true), HOSTKEY_CHORD);
+    ASSERT_EQ(proc_get_exit_code(), 0);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 0);
+
+    ASSERT_EQ(hostkey_press(HID_KEY_F4, alt, false, true), HOSTKEY_TYPED);
+    ASSERT_EQ(hostkey_press(HID_KEY_F4, alt, true, true), HOSTKEY_TYPED);
+    ASSERT_EQ(proc_get_exit_code(), 0);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 12);
+    ASSERT_EQ(0, memcmp(b, "\33[1;3S\33[1;3S", 12));
+
+    /* The launcher goes first, so the stop relaunches nothing. */
+    proc_chain_reset();
+    sys_commit();
+    ASSERT_FALSE(sys_active());
+}
+
 /* A machine asks this before it types a repeat. */
 UTEST(keyboard, repeat_follows_the_terminal)
 {
-    cells_term.autorepeat = false;
+    vterm.autorepeat = false;
     ASSERT_FALSE(vtkey_repeats());
-    cells_term.autorepeat = true;
+    vterm.autorepeat = true;
     ASSERT_TRUE(vtkey_repeats());
+}
+
+/* What vtmouse_encode writes, against xterm's EditorButton: the form, the
+ * event, the button, the VTKEY_ modifiers, the cell and the pixel. In a
+ * wanted string "\1" stands for a NUL. */
+static const struct
+{
+    uint8_t form, event, button, mods;
+    uint16_t col, row, x, y;
+    const char *want;
+} vtmouse_table[] = {
+    /* The X10 form: a byte each, from 32, a release 3. */
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_LEFT, 0, 0, 0, 0, 0, "\33[M !!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_MIDDLE, 0, 4, 2, 0, 0, "\33[M!%#"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_RELEASE, VTMOUSE_RIGHT, 0, 79, 29, 0, 0, "\33[M#p>"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_LEFT, VTKEY_SHIFT, 0, 0, 0, 0, "\33[M$!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_RIGHT, VTKEY_ALT | VTKEY_CTRL, 0, 0, 0, 0,
+     "\33[M:!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_MOTION, VTMOUSE_NONE, 0, 0, 0, 0, 0, "\33[MC!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_MOTION, VTMOUSE_LEFT, VTKEY_CTRL, 0, 0, 0, 0, "\33[MP!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_WHEEL_UP, 0, 0, 0, 0, 0, "\33[M`!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_WHEEL_DOWN, 0, 0, 0, 0, 0, "\33[Ma!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_WHEEL_LEFT, 0, 0, 0, 0, 0, "\33[Mb!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_WHEEL_RIGHT, 0, 0, 0, 0, 0, "\33[Mc!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_BTN4, 0, 0, 0, 0, 0, "\33[M\240!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_BTN5, 0, 0, 0, 0, 0, "\33[M\241!!"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_RELEASE, VTMOUSE_BTN5, 0, 0, 0, 0, 0, "\33[M#!!"},
+    /* The wheel's up and down keep their number in a release. */
+    {TERM_MOUSE_FORM_X10, VTMOUSE_RELEASE, VTMOUSE_WHEEL_UP, 0, 0, 0, 0, 0, "\33[M`!!"},
+    /* Column or row 222 is the last a byte holds, and beyond is a NUL. */
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_LEFT, 0, 222, 223, 0, 0, "\33[M \377\1"},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_PRESS, VTMOUSE_LEFT, 0, 1000, 0, 0, 0, "\33[M \1!"},
+    /* X10's events: the button alone, and nothing for the others. */
+    {TERM_MOUSE_FORM_X10, VTMOUSE_X10, VTMOUSE_RIGHT, VTKEY_CTRL, 1, 1, 0, 0, "\33[M\"\"\""},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_X10, VTMOUSE_WHEEL_UP, 0, 0, 0, 0, 0, ""},
+    {TERM_MOUSE_FORM_X10, VTMOUSE_X10, VTMOUSE_BTN4, 0, 0, 0, 0, 0, ""},
+    {TERM_MOUSE_FORM_SGR, VTMOUSE_X10, VTMOUSE_MIDDLE, 0, 0, 0, 0, 0, "\33[<1;1;1M"},
+    /* UTF-8: a byte below 128, two from it, up to 2014, beyond a NUL. */
+    {TERM_MOUSE_FORM_UTF8, VTMOUSE_PRESS, VTMOUSE_LEFT, 0, 94, 95, 0, 0, "\33[M \177\302\200"},
+    {TERM_MOUSE_FORM_UTF8, VTMOUSE_PRESS, VTMOUSE_BTN4, 0, 2014, 2015, 0, 0,
+     "\33[M\302\240\337\277\1"},
+    /* SGR: numbers from 0 and 1, the release 'm' with its button. */
+    {TERM_MOUSE_FORM_SGR, VTMOUSE_PRESS, VTMOUSE_LEFT, 0, 0, 0, 0, 0, "\33[<0;1;1M"},
+    {TERM_MOUSE_FORM_SGR, VTMOUSE_RELEASE, VTMOUSE_RIGHT, 0, 79, 29, 0, 0, "\33[<2;80;30m"},
+    {TERM_MOUSE_FORM_SGR, VTMOUSE_RELEASE, VTMOUSE_BTN5, VTKEY_CTRL, 0, 0, 0, 0,
+     "\33[<145;1;1m"},
+    {TERM_MOUSE_FORM_SGR, VTMOUSE_MOTION, VTMOUSE_NONE, 0, 300, 1000, 0, 0, "\33[<35;301;1001M"},
+    {TERM_MOUSE_FORM_SGR, VTMOUSE_PRESS, VTMOUSE_WHEEL_DOWN, VTKEY_ALT, 3, 4, 0, 0,
+     "\33[<73;4;5M"},
+    /* urxvt: numbers, the button's from 32, a release 3. */
+    {TERM_MOUSE_FORM_URXVT, VTMOUSE_PRESS, VTMOUSE_LEFT, 0, 0, 0, 0, 0, "\33[32;1;1M"},
+    {TERM_MOUSE_FORM_URXVT, VTMOUSE_RELEASE, VTMOUSE_LEFT, 0, 9, 99, 0, 0, "\33[35;10;100M"},
+    /* SGR in pixels takes the pixel, the longest report there is. */
+    {TERM_MOUSE_FORM_PIXELS, VTMOUSE_PRESS, VTMOUSE_LEFT, 0, 5, 5, 0, 0, "\33[<0;1;1M"},
+    {TERM_MOUSE_FORM_PIXELS, VTMOUSE_MOTION, VTMOUSE_BTN5, VTKEY_MODIFIERS, 79, 31, 639, 511,
+     "\33[<189;640;512M"},
+    {TERM_MOUSE_FORM_PIXELS, VTMOUSE_MOTION, VTMOUSE_NONE, VTKEY_MODIFIERS, 0, 0, 65534, 65534,
+     "\33[<63;65535;65535M"},
+};
+
+UTEST(vtmouse, xterm_s_bytes)
+{
+    for (size_t i = 0; i < sizeof vtmouse_table / sizeof *vtmouse_table; i++)
+    {
+        char out[VTMOUSE_MAX + 1];
+        out[VTMOUSE_MAX] = 0x55;
+        const uint8_t n = vtmouse_encode(out, vtmouse_table[i].form, vtmouse_table[i].event,
+                                         vtmouse_table[i].button, vtmouse_table[i].mods,
+                                         vtmouse_table[i].col, vtmouse_table[i].row,
+                                         vtmouse_table[i].x, vtmouse_table[i].y);
+        char want[VTMOUSE_MAX + 1];
+        size_t len = strlen(vtmouse_table[i].want);
+        for (size_t j = 0; j < len; j++)
+            want[j] = vtmouse_table[i].want[j] == '\1' ? 0 : vtmouse_table[i].want[j];
+        EXPECT_EQ_MSG((size_t)n, len, vtmouse_table[i].want);
+        ASSERT_EQ(out[VTMOUSE_MAX], 0x55);
+        if (n == len)
+            EXPECT_EQ_MSG(0, memcmp(out, want, len), vtmouse_table[i].want);
+    }
+}
+
+/* What vtmouse_hilite writes, against xterm's EndExtend: CSI t with where
+ * the highlight ends, or CSI T with its start, its end and the pointer, in
+ * each form. */
+static const struct
+{
+    uint8_t form, count;
+    uint8_t pos[6];
+    const char *want;
+} vtmouse_hilite_table[] = {
+    {TERM_MOUSE_FORM_X10, 2, {6, 1}, "\33[t'\""},
+    {TERM_MOUSE_FORM_X10, 6, {2, 1, 6, 1, 2, 0}, "\33[T#\"'\"#!"},
+    {TERM_MOUSE_FORM_UTF8, 2, {79, 31}, "\33[tp@"},
+    {TERM_MOUSE_FORM_SGR, 2, {6, 1}, "\33[<7;2t"},
+    {TERM_MOUSE_FORM_SGR, 6, {2, 1, 6, 1, 2, 0}, "\33[<3;2;7;2;3;1T"},
+    {TERM_MOUSE_FORM_URXVT, 2, {6, 1}, "\33[7;2t"},
+    {TERM_MOUSE_FORM_URXVT, 6, {0, 0, 79, 31, 80, 31}, "\33[1;1;80;32;81;32T"},
+    {TERM_MOUSE_FORM_PIXELS, 6, {79, 31, 80, 31, 80, 31}, "\33[<80;32;81;32;81;32T"},
+};
+
+UTEST(vtmouse, xterm_s_highlight_tracking)
+{
+    for (size_t i = 0; i < sizeof vtmouse_hilite_table / sizeof *vtmouse_hilite_table; i++)
+    {
+        char out[VTMOUSE_HILITE_MAX + 1];
+        out[VTMOUSE_HILITE_MAX] = 0x55;
+        const uint8_t n = vtmouse_hilite(out, vtmouse_hilite_table[i].form,
+                                         vtmouse_hilite_table[i].pos, vtmouse_hilite_table[i].count);
+        const char *want = vtmouse_hilite_table[i].want;
+        EXPECT_EQ_MSG((size_t)n, strlen(want), want);
+        ASSERT_EQ(out[VTMOUSE_HILITE_MAX], 0x55);
+        if (n == strlen(want))
+            EXPECT_EQ_MSG(0, memcmp(out, want, n), want);
+    }
+}
+
+/* What vtmouse_locator writes, DECLRP as xterm's: the event, the buttons,
+ * the row and the column, or the event alone when the locator is not
+ * there; the longest in five digits each. */
+UTEST(vtmouse, decterm_s_locator_reports)
+{
+    char out[VTMOUSE_LOCATOR_MAX + 1];
+    out[VTMOUSE_LOCATOR_MAX] = 0x55;
+    uint8_t n = vtmouse_locator(out, VTMOUSE_LOCATOR_UNAVAILABLE, 5, 2, 3);
+    ASSERT_EQ(n, 5);
+    ASSERT_EQ(0, memcmp(out, "\33[0&w", n));
+    n = vtmouse_locator(out, VTMOUSE_LOCATOR_REQUEST, 0, 1, 80);
+    ASSERT_EQ(n, 12);
+    ASSERT_EQ(0, memcmp(out, "\33[1;0;1;80&w", n));
+    n = vtmouse_locator(out, VTMOUSE_LOCATOR_OUTSIDE, 15, 65535, 65535);
+    ASSERT_EQ(n, VTMOUSE_LOCATOR_MAX);
+    ASSERT_EQ(0, memcmp(out, "\33[10;15;65535;65535&w", n));
+    ASSERT_EQ(out[VTMOUSE_LOCATOR_MAX], 0x55);
 }
 
 UTEST(keyboard, char_to_oem)
@@ -1102,12 +1996,40 @@ UTEST(oem, glyph_store_follows_the_run_page)
     ASSERT_TRUE(oem_set_code_page(850));
     sys_init();
     ASSERT_EQ((uint16_t)850, oem_get_code_page_run());
-    ASSERT_EQ(oem_get_code_page_run(), font_get_code_page());
+    ASSERT_EQ(oem_get_code_page_run(), vterm_get_code_page());
 
     ASSERT_TRUE(oem_set_code_page(0)); /* back to auto */
     str_init();
     sys_init();
-    ASSERT_EQ(oem_get_code_page_run(), font_get_code_page());
+    ASSERT_EQ(oem_get_code_page_run(), vterm_get_code_page());
+}
+
+/* The console's code page is the terminal's: a change resets it, the same
+ * page again does not, and a load, as a savestate makes, never does. A mode
+ * the reset clears shows which happened. */
+UTEST(font, a_page_change_resets_the_terminal_and_a_load_does_not)
+{
+    font_load_code_page(437);
+    vterm.app_cursor = true;
+    font_set_code_page(437);
+    ASSERT_TRUE(vterm.app_cursor);
+
+    font_set_code_page(850);
+    ASSERT_EQ((uint16_t)850, vterm_get_code_page());
+    ASSERT_FALSE(vterm.app_cursor);
+
+    vterm.app_cursor = true;
+    font_load_code_page(437);
+    ASSERT_EQ((uint16_t)437, vterm_get_code_page());
+    ASSERT_TRUE(vterm.app_cursor);
+
+    /* A page the fonts lack is 0, ASCII alone, and a change too. */
+    font_set_code_page(1252);
+    ASSERT_EQ((uint16_t)0, vterm_get_code_page());
+    ASSERT_FALSE(vterm.app_cursor);
+
+    vterm.app_cursor = false;
+    font_load_code_page(oem_get_code_page_run());
 }
 
 UTEST(oem, utf8_string_roundtrip)
@@ -1275,46 +2197,6 @@ UTEST(cli, aspect_names_the_console_and_fixes_the_frame)
         ASSERT_EQ(o.console_h, cases[i].h);
         ASSERT_STREQ(o.rom, "rom.rp6502");
     }
-}
-
-UTEST(units, host_text_keeps_control_bytes)
-{
-    char out[32];
-    size_t taken = 0;
-    size_t n = oem_from_utf8_run("a\nb\r\nc\r", 7, true, out, sizeof out, &taken);
-    ASSERT_EQ(taken, (size_t)7);
-    ASSERT_EQ(n, (size_t)7);
-    ASSERT_EQ(memcmp(out, "a\nb\r\nc\r", 7), 0);
-    n = oem_from_utf8_run("\33[A\3\177", 6, true, out, sizeof out, &taken);
-    ASSERT_EQ(n, (size_t)6);
-    ASSERT_EQ(memcmp(out, "\33[A\3\177", 6), 0);
-}
-
-UTEST(units, host_text_carries_a_sequence_split_across_two_reads)
-{
-    char out[32];
-    size_t taken = 0;
-    size_t n = oem_from_utf8_run("h\xc3", 2, false, out, sizeof out, &taken);
-    ASSERT_EQ(n, (size_t)1);
-    ASSERT_EQ(out[0], 'h');
-    ASSERT_EQ(taken, (size_t)1); /* the lead byte is left for the next call */
-    n = oem_from_utf8_run("\xc3\xa9!", 3, false, out, sizeof out, &taken);
-    ASSERT_EQ(taken, (size_t)3);
-    ASSERT_EQ(n, (size_t)2);
-    ASSERT_EQ((unsigned char)out[0], 0x82); /* CP437 é */
-    ASSERT_EQ(out[1], '!');
-}
-
-UTEST(units, host_text_spells_what_the_code_page_cannot_as_a_question_mark)
-{
-    char out[8];
-    size_t taken = 0;
-    size_t n = oem_from_utf8_run("\xe4\xb8\xad", 3, true, out, sizeof out, &taken);
-    ASSERT_EQ(n, (size_t)1);
-    ASSERT_EQ(out[0], '?');
-    n = oem_from_utf8_run("abcd", 4, true, out, 2, &taken);
-    ASSERT_EQ(n, (size_t)2);
-    ASSERT_EQ(taken, (size_t)2);
 }
 
 UTEST_MAIN();

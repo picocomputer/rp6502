@@ -32,6 +32,8 @@ class Rig:
         self.args = args
         self.board = build.Board(args.device, args.key)
         self.probe = rig.Probe(args.elf, args.probe, self.board) if args.elf else None
+        self.vga = (rig.VgaProbe(args.vga_elf, args.vga_probe, self.board)
+                    if args.vga_elf else None)
         self.tmp = tempfile.TemporaryDirectory()
 
     def rom(self, name):
@@ -127,12 +129,27 @@ def test_tput(r):
 
 def test_term(r):
     """The console's terminal keeps up with the UART: the slowest things it
-    does, each followed at once by a probe whose answer shows a lost byte."""
+    does, each followed at once by a probe whose answer shows a lost byte.
+    With --vga-elf, a byte that came while the VGA's terminal had work
+    pending, or a word the VGA's PIX FIFO had no room for, fails it too."""
+    term_run(r, "hil-term")
+
+
+def test_termload(r):
+    """term, with two 8-bit bitmaps drawn over the whole canvas under the
+    terminal, the most a program can load the VGA."""
+    term_run(r, "hil-term-loaded")
+
+
+def term_run(r, name):
     b = r.board
-    rom = r.rom("hil-term")
+    rom = r.rom(name)
     t0, bad, end = time.monotonic(), [], "no output for 20 s"
     with contextlib.ExitStack() as stack:
         video = stack.enter_context(rig.LateLines(r.args.video)) if r.args.video else None
+        vga = stack.enter_context(r.vga) if r.vga else None
+        if vga:
+            vga.clear()
         time.sleep(1 if video else 0)
         b.run_in_ram(rom)
         for line in b.lines(20):
@@ -146,6 +163,10 @@ def test_term(r):
                 break
         print(f"{len(roms.TERM_OPS) * roms.TERM_LOOPS} probes in "
               f"{time.monotonic() - t0:.1f} s", flush=True)
+        if vga:
+            late, overrun = vga.faults()
+            print(f"{late} bytes came during a job, PIX FIFO "
+                  f"{'overran' if overrun else 'kept up'}", flush=True)
     b.stop()
     if video:
         print(f"{video.late} of {video.frames} frames with late scanlines"
@@ -156,12 +177,14 @@ def test_term(r):
         raise Fail(f"{len(bad)} probes lost bytes, after {sorted(set(map(repr, bad)))}")
     if video and (video.late or not video.frames):
         raise Fail("late scanlines" if video.late else "no video captured")
+    if vga and (late or overrun):
+        raise Fail(f"{late} bytes during a job" if late else "the PIX FIFO overran")
 
 
 def test_sizes(r):
     """The RIA's copy of the console's terminal follows the VGA's through
-    canvas and mode 0 changes and a program's own width, and answers the
-    queries, or with 0x0D set does not."""
+    canvas and mode 0 changes, keeps its width when a program sets the line
+    editor's, and answers the queries, or with 0x0D set does not."""
     b = r.board
     # The console has 32 rows on an SXGA display and 30 on the others.
     h = b"32" if "1280x1024" in " ".join(b.command("SET VGA")) else b"30"
@@ -184,6 +207,43 @@ def test_sizes(r):
         bad.append(f"{len(got)} answers of {len(want)}")
     if bad:
         raise Fail("; ".join(bad))
+
+
+def test_select(r):
+    """A selection made with the mouse on the console shows on the VGA as
+    the RIA keeps it, at its place in the console's stream: as made, after
+    output that scrolls it, and after output that scrolls it away. Needs
+    --elf and --vga-elf, and someone at the mouse of the machine."""
+    if not r.probe or not r.vga:
+        raise Fail("needs --elf and --vga-elf")
+    b = r.board
+    with r.probe, r.vga:
+
+        def same(when):
+            time.sleep(0.5)
+            ria, vga = rig.selection(r.probe), rig.selection(r.vga)
+            print(f"{when}: {'shows' if ria['shows'] else 'none'}", flush=True)
+            if ria != vga:
+                raise Fail(f"{when}: the RIA has {ria}, the VGA {vga}")
+            return ria
+
+        b.command("STATUS")
+        print("Drag across the text on the console with the mouse.", flush=True)
+        end, last, still = time.monotonic() + 60, None, 0
+        while still < 4:
+            if time.monotonic() > end:
+                raise Fail("no selection made in 60 s")
+            now = rig.selection(r.probe)
+            still = still + 1 if now["shows"] and now == last else 0
+            last = now
+            time.sleep(0.25)
+        same("as made")
+        b.command("STATUS")
+        same("scrolled")
+        for _ in range(8):
+            b.command("STATUS")
+        if same("scrolled away")["shows"]:
+            raise Fail("the selection outlived its rows")
 
 
 def test_audio(r):
@@ -291,6 +351,11 @@ def main():
                     help="the ELF of the firmware on the RIA; enables the probe")
     ap.add_argument("--probe", metavar="serial",
                     help="the serial number of the debug probe, when there are several")
+    ap.add_argument("--vga-elf", metavar="file",
+                    help="the ELF of the firmware on the VGA; term and termload "
+                         "then read the VGA through its probe")
+    ap.add_argument("--vga-probe", metavar="serial",
+                    help="the serial number of the debug probe on the VGA")
     ap.add_argument("--flash", action="store_true",
                     help="program --elf through the probe before the tests")
     ap.add_argument("--dir", default="MSC0:/", metavar="dir",

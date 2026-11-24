@@ -180,6 +180,8 @@ rp6502_add_test(ring SOURCES test_ring.c ${RP6502_SRC}/core/sys/ring.c
 
 rp6502_add_test(com LIBS emu_core)
 
+rp6502_add_test(mouse LIBS emu_core)
+
 rp6502_add_test(rln LIBS emu_core)
 
 rp6502_add_test(tio SOURCES test_tio.c ${RP6502_SRC}/core/com/tio.c
@@ -200,6 +202,8 @@ rp6502_add_test(log SINK
     DEFS RP6502_LOG_LEVEL=RP6502_LOG_WARN RP6502_LOG_LEVEL_loud=RP6502_LOG_DEBUG)
 
 rp6502_add_test(render LIBS emu_core ROM ${ADVENTURE_ROM})
+
+rp6502_add_test(pointer LIBS emu_core INCLUDES ${RP6502_GEN})
 
 rp6502_add_test(mix SPLIT LIBS emu_core TIMEOUT 300
     DEFS AUD_ROM_OPL_SPREAD="${OPL_SPREAD_ROM}" AUD_ROM_OPL_FLAT="${OPL_FLAT_ROM}"

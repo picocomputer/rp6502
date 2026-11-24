@@ -62,10 +62,15 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_GEN}/unicode_oem.c
         ${RP6502_SRC}/core/hid/hid.c
         ${RP6502_SRC}/core/hid/keyboard.c
+        ${RP6502_SRC}/core/hid/key.c
         ${RP6502_SRC}/core/hid/layout.c
         ${RP6502_GEN}/layout_db.c
         ${RP6502_SRC}/core/hid/keymap.c
+        ${RP6502_SRC}/core/hid/typed.c
+        ${RP6502_SRC}/core/hid/paste.c
+        ${RP6502_SRC}/core/hid/clip_byte.c
         ${RP6502_SRC}/core/hid/vtkey.c
+        ${RP6502_SRC}/core/hid/vtmouse.c
         ${RP6502_SRC}/core/hid/mouse.c
         ${RP6502_SRC}/core/hid/gamepad.c
         ${RP6502_SRC}/core/hid/tablet.c
@@ -79,11 +84,17 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/vga/mode/mode3.c
         ${RP6502_SRC}/core/vga/mode/mode4.c
         ${RP6502_SRC}/core/vga/mode/mode5.c
+        ${RP6502_SRC}/core/vga/mode/mode6.c
         ${RP6502_SRC}/core/term/color.c
         ${RP6502_SRC}/core/term/font.c
         ${RP6502_SRC}/core/term/term.c
         ${RP6502_SRC}/core/term/grid.c
-        ${RP6502_SRC}/core/term/cells.c
+        ${RP6502_SRC}/core/term/screen.c
+        ${RP6502_SRC}/core/term/cell.c
+        ${RP6502_SRC}/core/term/cell_mode0.c
+        ${RP6502_SRC}/core/term/vterm.c
+        ${RP6502_SRC}/core/term/vterm_mouse.c
+        ${RP6502_SRC}/core/term/draw.c
         ${RP6502_SRC}/core/sys/version.c)
     rp6502_log_flags(SW_LOG_FLAGS)
     # AUD_NATIVE_RATE is the 48 kHz the fabric mixes at, which pcm_step
@@ -121,6 +132,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         COMMAND ${RISCV_OBJCOPY} -O binary ${RP6502_ASSETS}/sw.elf ${SW_BIN}
         DEPENDS ${SW_SOURCES} ${SW_HEADERS} ${SW_SRC}/link.ld
             ${RP6502_GEN}/rsmp_half.h
+            ${RP6502_GEN}/mode6_shapes.h
             ${RP6502_GEN}/pocket_version.h
         COMMENT "Cross-compiling the soft CPU firmware"
         VERBATIM)

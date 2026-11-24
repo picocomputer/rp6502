@@ -2,8 +2,10 @@ rp6502_add_test(apf
     SOURCES test_apf.c
         ${RP6502_SRC}/core/hid/hid.c
         ${RP6502_SRC}/core/hid/keyboard.c
+        ${RP6502_SRC}/core/hid/key.c
         ${RP6502_SRC}/core/hid/layout.c
         ${RP6502_SRC}/core/hid/keymap.c
+        ${RP6502_SRC}/core/hid/typed.c
         ${RP6502_SRC}/core/hid/vtkey.c
         ${RP6502_SRC}/core/sys/div64.c
         ${RP6502_SRC}/core/sys/ring.c

@@ -35,7 +35,7 @@
  */
 
 module palcache
-    import color_pkg::*;
+    import color_pkg::*, mode6_pkg::*;
 (
     input logic clk,
 
@@ -45,6 +45,8 @@ module palcache
     input logic lookup,
     input logic xram,
     input logic one_bpp,
+    /* The built-in palette is the pointer's greys instead. */
+    input logic grey,
     input logic [15:0] base,
     input logic [7:0] idx_a,
     input logic [7:0] idx_b,
@@ -174,8 +176,10 @@ module palcache
         byp_qa <= ha_a[0] ? a_rdata[31:16] : a_rdata[15:0];
         byp_qb <= ha_b[0] ? a_rdata[31:16] : a_rdata[15:0];
         xram_q <= xram;
-        bi_qa <= one_bpp ? COLOR_2[idx_a[0]] : COLOR_256[idx_a];
-        bi_qb <= one_bpp ? COLOR_2[idx_b[0]] : COLOR_256[idx_b];
+        bi_qa <= grey ? MODE6_GREY[idx_a[3:0]]
+            : one_bpp ? COLOR_2[idx_a[0]] : COLOR_256[idx_a];
+        bi_qb <= grey ? MODE6_GREY[idx_b[3:0]]
+            : one_bpp ? COLOR_2[idx_b[0]] : COLOR_256[idx_b];
     end
     always_comb begin
         palcache_qa = !xram_q ? bi_qa

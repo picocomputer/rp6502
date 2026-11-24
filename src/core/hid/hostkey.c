@@ -14,8 +14,8 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/hid/vtkey.h"
-#include "core/api/proc.h"
-#include "core/com/manifold.h"
+#include "core/hid/key.h"
+#include "core/hid/typed.h"
 #include "core/str/oem.h"
 #include "core/str/unicode.h"
 #include <stdbool.h>
@@ -51,12 +51,11 @@ uint8_t hostkey_us_key(char ch, bool *shift)
     return 0;
 }
 
-hostkey_result_t hostkey_press(uint8_t usage, uint8_t flags, bool guess)
+hostkey_result_t hostkey_press(uint8_t usage, uint8_t modifier, bool repeat, bool guess)
 {
-    const bool ctrl = flags & VTKEY_CTRL;
-    const bool alt = flags & VTKEY_ALT;
-    if (proc_key_chord(usage, ctrl, alt))
+    if (key_chord(usage, modifier, repeat))
         return HOSTKEY_CHORD;
+    const uint8_t flags = vtkey_modifiers(modifier);
     char out[VTKEY_MAX];
     int n = vtkey_encode(out, usage, flags);
     if (n == VTKEY_CHAR)
@@ -74,7 +73,7 @@ hostkey_result_t hostkey_press(uint8_t usage, uint8_t flags, bool guess)
     }
     if (!n)
         return HOSTKEY_NONE;
-    manifold_keyboard_push(out, (size_t)n);
+    typed_push(out, (size_t)n);
     return HOSTKEY_TYPED;
 }
 
@@ -92,5 +91,5 @@ void hostkey_char(uint32_t codepoint)
         if (oem == 0x7F)
             oem = '?';
     }
-    manifold_keyboard_push(&oem, 1);
+    typed_push(&oem, 1);
 }

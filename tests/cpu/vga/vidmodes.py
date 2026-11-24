@@ -1153,6 +1153,89 @@ rom("fill_three640_16bpp_spr", 3,
      (0x7000, bytes((i * 7 + 1) & 0xFF for i in range(640 * 8 * 2)))]
     + spr_img)
 
+# Mode 6, the pointer, over a 4 bpp bitmap the pointer is drawn across. The
+# program maps the tablet at $FF10 and asks for a shape in its control
+# byte; the test puts the pointer on the canvas. With CONFIG the shape is
+# the program's own, the sprite before it in its array; without, the
+# system's.
+MODE6_TABLET = 0xFF10
+
+
+def mode6(name, canvas, shape, config=None, chunks=()):
+    p = Asm()
+    p.xreg(1, 0, 0, canvas)
+    p.xreg(1, 0, 1, 3, 2, 0x0100, 0, 0, 0)
+    p.xreg(0, 0, 3, MODE6_TABLET)
+    p.poke(MODE6_TABLET, shape)
+    if config is not None:
+        p.xreg(1, 0, 1, 6, config)
+    p.stp()
+    for addr, data in [(0x0100, bytearray((0, 0)) + le16(0, 0, 160, 120, 0x2000, 0xFFFF)),
+                       (0x2000, MODE6_CHECKS)] + list(chunks):
+        p.rom.add_binary_data(data, 0x10000 + addr)
+    note(name, canvas)
+    p.write(OUT / f"{name}.rp6502")
+
+
+def mode6_rows(rows):
+    """4 bits a pixel from rows of hex digits, the left pixel high."""
+    return bytes(int(r[i:i + 2], 16) for r in rows for i in range(0, len(r), 2))
+
+
+# The bitmap: 160x120 of blue and grey squares 8 pixels across, the
+# built-in palette's 4 and 8.
+MODE6_CHECKS = bytes(0x44 if ((t % 80) // 4 + (t // 80) // 8) % 2 else 0x88
+                     for t in range(80 * 120))
+
+# The program's pointers. A 16x16 at 4 bpp in its own palette, 0 clear, 1
+# white, 2 red and 3 green: a white frame, clear inside, with a red pixel
+# at 3,2, its hot spot, and a green block in its top right corner that
+# shows which way up it is. The same doubled, its hot spot 8,8 in the
+# middle of the pixels drawn. And an 8x8 at 8 bpp in the built-in palette,
+# its top row and left column red, 9, flipped both ways, so they show at
+# the bottom and the right, its hot spot 7,7 the bottom right corner drawn.
+MODE6_IMG4 = mode6_rows([
+    "1111111111111111",
+    "1000000000003331",
+    "1002000000003331",
+    "1000000000003331",
+    "1000000000000001",
+    "1000000000000001",
+    "1000000000000001",
+    "1000000000000001",
+    "1000000000000001",
+    "1000000000000001",
+    "1000000000000001",
+    "1000000000000001",
+    "1000000000000001",
+    "1000000000000001",
+    "1000000000000001",
+    "1111111111111111"])
+MODE6_IMG8 = bytes(9 if r == 0 or c == 0 else 0 for r in range(8) for c in range(8))
+MODE6_PAL4 = le16(0, 0xFFFF, 0x003F, 0x07E0, *([0x0020] * 12))
+
+
+def mode6_sprites():
+    return bytearray(le16(3, 2, 0xE100, 0xE200) + bytes((0x33, 0x02))
+                     + le16(8, 8, 0xE100, 0xE200) + bytes((0x33, 0xC2))
+                     + le16(7, 7, 0xE180, 0xFFFF) + bytes((0x11, 0x33)))
+
+
+MODE6_DATA = [(0xE100, MODE6_IMG4), (0xE180, MODE6_IMG8), (0xE200, MODE6_PAL4)]
+mode6("mode6_custom", 1, 1, 0xE000, [(0xE000, mode6_sprites())] + MODE6_DATA)
+mode6("mode6_custom_dbl", 1, 2, 0xE000, [(0xE000, mode6_sprites())] + MODE6_DATA)
+mode6("mode6_custom_flip", 1, 3, 0xE000, [(0xE000, mode6_sprites())] + MODE6_DATA)
+# The array ends at the last byte of XRAM: its second sprite, at $FFF6,
+# is the last there is room for.
+mode6("mode6_custom_end", 1, 2, 0xFFEC,
+      [(0xFFEC, mode6_sprites()[:20])] + MODE6_DATA)
+# One past it, at $10000, draws nothing.
+mode6("mode6_custom_past", 1, 3, 0xFFEC,
+      [(0xFFEC, mode6_sprites()[:20])] + MODE6_DATA)
+# The system's shapes, at each canvas width's size.
+mode6("mode6_system320", 1, 4)
+mode6("mode6_system640", 3, 9)
+
 if ARGS.emit_manifest:
     build.write_text(
         ARGS.emit_manifest, "".join(f"{n} {w} {h}\n" for n, w, h in sorted(MANIFEST)))

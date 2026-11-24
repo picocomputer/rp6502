@@ -20,17 +20,21 @@
 #include "core/api/xreg.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
+#include "core/hid/typed.h"
 #include "core/com/tio.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/keyboard.h"
+#include "core/hid/clip.h"
 #include "core/hid/keymap.h"
+#include "core/hid/paste.h"
 #include "core/hid/layout.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
+#include "core/term/vterm_mouse.h"
 #include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/sys/random.h"
-#include "core/term/cells.h"
+#include "core/term/draw.h"
 #include "sw/apf.h"
 #include "sw/aud.h"
 #include "core/wdc/resb.h"
@@ -55,16 +59,16 @@
 /* LOG_DRIVER is first, so what log_init connects to the debug port is there
  * before any other init runs.
  *
- * VID_DRIVER follows CELLS_DRIVER because vid_init selects the console canvas
+ * VID_DRIVER follows DRAW_DRIVER because vid_init selects the console canvas
  * through vga_canvas_select, and vga_canvas_select then calls mode0_prog,
- * which calls cells_set_height on the terminals that cells_init sets up.
+ * which calls vterm_place on the terminals that draw_init sets up.
  *
  * AUD_FABRIC_DRIVER follows STD_DRIVER because END and RESET hooks run in
  * reverse, so aud_end and aud_reset empty PCM before std_reset closes it,
  * which would otherwise wait for the buffer to play.
  *
- * FONT_DRIVER follows CELLS_DRIVER because font_init resets the terminals
- * that cells_init sets up, and comes before VID_DRIVER, whose canvas draws
+ * FONT_DRIVER follows DRAW_DRIVER because font_init resets the terminals
+ * that draw_init sets up, and comes before VID_DRIVER, whose canvas draws
  * with the glyphs font_init writes.
  *
  * A savestate walks the list in order. FAB_DRIVER comes first, so the
@@ -74,26 +78,30 @@
  * running program's image by the name PROC_CHAIN_DRIVER loads, and
  * AUD_FABRIC_DRIVER follows STD_DRIVER, because its load puts back the PCM:
  * buffer that the STD row's reopen of PCM: empties. CANVAS_DRIVER follows
- * CELLS_DRIVER and MODE0_DRIVER, because its load publishes the canvas to
+ * DRAW_DRIVER and MODE0_DRIVER, because its load publishes the canvas to
  * the cells, and VGA_FABRIC_DRIVER follows it, because its load computes the
- * vsync line from the canvas.
+ * vsync line from the canvas. VTERM_MOUSE_DRIVER follows DRAW_DRIVER,
+ * because its load checks its points against the screens' rows DRAW_DRIVER
+ * loads.
  */
 #define RP6502_MACH_DRIVERS                             \
     LOG_DRIVER, CFG_DRIVER, FAB_DRIVER,                 \
     ARG_DRIVER, PROC_CHAIN_DRIVER, PROC_DRIVER,         \
     ASSET_DRIVER, XREG_DRIVER,                          \
     RANDOM_DRIVER, STR_DRIVER,                          \
-    MANIFOLD_DRIVER, MANIFOLD_TX_DRIVER,                \
+    MANIFOLD_DRIVER, TYPED_DRIVER, MANIFOLD_TX_DRIVER,  \
     RIA_DRIVER, COM_DRIVER,                             \
     STD_DRIVER, CONSOLE_DRIVER, TTY_DRIVER,             \
     FS_POCKET_DRIVER,                                   \
     AUD_FABRIC_DRIVER, BEL_DRIVER,                      \
-    TIO_DRIVER, RLN_DRIVER, CELLS_DRIVER,               \
+    TIO_DRIVER, RLN_DRIVER, DRAW_DRIVER,                \
     MODE0_DRIVER, FONT_DRIVER, CANVAS_DRIVER,           \
     VGA_FABRIC_DRIVER,                                  \
     LAYOUT_DRIVER, KEYBOARD_DRIVER,                     \
     APF_DRIVER, KEYMAP_DRIVER,                          \
+    CLIP_DRIVER, PASTE_DRIVER,                          \
     MOUSE_DRIVER, GAMEPAD_DRIVER, TABLET_DRIVER,        \
+    VTERM_MOUSE_DRIVER,                                 \
     VID_DRIVER, TIM_DRIVER,                             \
     DIR_DRIVER, API_DRIVER,                             \
     CLK_DRIVER, PHI2_DRIVER

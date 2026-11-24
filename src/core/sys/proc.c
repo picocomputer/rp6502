@@ -13,7 +13,6 @@
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/com/com.h"
-#include "core/hid/paste.h"
 #include "core/str/str.h"
 #include "osal/dir.h"
 #include "osal/fs.h"
@@ -147,7 +146,6 @@ void proc_start_by_name(void)
         queued = false;
         proc_chain_end();
     }
-    paste_cancel();
 }
 
 bool proc_boot(const char *rom, int argc, char *const *args, unsigned flags)

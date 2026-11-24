@@ -148,6 +148,28 @@ bool host_minimized(void)
     return false;
 }
 
+bool host_focusable(void)
+{
+    return false;
+}
+
+bool host_mac_keys(void)
+{
+    return false;
+}
+
+/* The machine keeps its own clipboard. */
+const char *host_clipboard_get(void)
+{
+    return NULL;
+}
+
+bool host_clipboard_set(const char *utf8)
+{
+    (void)utf8;
+    return false;
+}
+
 static uint32_t seed;
 static bool seed_taken;
 

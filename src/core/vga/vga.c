@@ -5,6 +5,8 @@
  *
  */
 
+#include "core/vga/mode/mode6.h"
+#include "core/hid/tablet.h"
 #include "core/aud/mix.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
@@ -64,6 +66,11 @@ bool vga_connected(void)
     return true;
 }
 
+bool vga_console_busy(void)
+{
+    return false;
+}
+
 void vga_canvas_reset(void)
 {
     vga_prog_reset();
@@ -84,8 +91,16 @@ void vga_load_code_page(uint16_t cp)
     font_load_code_page(cp);
 }
 
+/* Where the host shows its own cursor for the system's shapes, only a
+ * program's own are drawn. */
+void vga_set_pointer(uint8_t shape, int16_t x, int16_t y)
+{
+    mode6_set(tablet_host_cursor_shown() && !mode6_custom() ? 0 : shape, x, y);
+}
+
 void vga_init(void)
 {
+    mode6_init();
     vga_canvas_select(0);
 }
 
@@ -246,6 +261,9 @@ static void render_scanline(int y, uint32_t *fb)
         }
     }
 
+    mode6_render((int16_t)y, (int16_t)W, plane[SCANVIDEO_PLANE_COUNT - 1],
+                   &filled[SCANVIDEO_PLANE_COUNT - 1]);
+
     uint32_t *dst = fb + (size_t)y * W;
     for (int x = 0; x < W; x++)
     {
@@ -255,6 +273,13 @@ static void render_scanline(int y, uint32_t *fb)
                 px = plane[i][x];
         dst[x] = rgb555_to_rgba8(px);
     }
+}
+
+void vga_draw(uint32_t *fb)
+{
+    const int h = vga_canvas_height();
+    for (int y = 0; y < h; y++)
+        render_scanline(y, fb);
 }
 
 static void vga_render_scanline(int y)

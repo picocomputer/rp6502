@@ -16,7 +16,8 @@ on, so a developer runs them on a workstation with the rig attached.
   debug probe instead; see below.
 - `--elf` names the ELF of the firmware on the RIA. With it, the tests read
   the audio load through the probe, and `--flash` programs that ELF before
-  the tests.
+  the tests. `--vga-elf` names the VGA's, for the reads of `term` and
+  `termload` through a probe on the VGA.
   With two probes, `--probe` picks one by its serial number. `--flash`
   writes nothing unless the chip already runs firmware of the ELF's name
   (src/host/pico/check.cfg), so a RIA build never lands on the VGA.
@@ -32,11 +33,11 @@ on, so a developer runs them on a workstation with the rig attached.
 - A USB drive as MSC0: for `tput` and `update`. `--dir` picks another
   directory.
 - For `audio` and `--flash`, a CMSIS-DAP probe, such as the Raspberry Pi
-  Debug Probe, on the SWD pins of the RIA, and OpenOCD. The tests find
-  OpenOCD in `$OPENOCD`, in `~/.pico-sdk/openocd/`, where the Pico extension
-  of VS Code installs it, or on the PATH. For its reads, the probe uses the
-  memory access ports alone (`src/host/pico/memap.cfg`), so the cores never
-  halt.
+  Debug Probe, on the SWD pins of the RIA, and OpenOCD. For `--vga-elf`,
+  another on the SWD pins of the VGA. The tests find OpenOCD in `$OPENOCD`,
+  in `~/.pico-sdk/openocd/`, where the Pico extension of VS Code installs
+  it, or on the PATH. For its reads and writes, a probe uses the memory
+  access ports alone (`src/host/pico/memap.cfg`), so the cores never halt.
 
 ## The console on a debug probe
 
@@ -150,6 +151,41 @@ somewhere else, and the test fails.
 With `--video`, a capture device on the VGA output is watched during the run,
 every frame, and a late scanline fails the test. A late scanline is a row of
 scanvideo's missing-line blue, so the test draws no blue of its own.
+
+With `--vga-elf`, the ELF of the firmware on the VGA, a probe on the SWD
+port of the VGA is read after the run, and `--vga-probe` picks it by its
+serial number when there are several. Two things fail the test then: a
+console byte that reached the VGA's terminal while it still had rows of an
+operation to do (`draw_bytes_in_jobs`), which the RIA's hold is there to
+prevent, and a word the PIX register FIFO had no room for (RXSTALL of state
+machine 1 in PIO1's FDEBUG). The test clears both before the run.
+
+    python3 tests/hil/pico/hil.py -d 192.168.1.93 -k key --vga-elf \
+        build/vga/rp6502-vga.elf --vga-probe SERIAL term termload
+
+## termload
+
+The term test with the VGA as busy as a program can make it: a 640x480
+canvas with two 8-bit bitmaps in mode 3 over the whole of it, and the
+terminal in mode 0 above them. Run it with `--video`, since the late
+scanlines are what it finds.
+
+    python3 tests/hil/pico/hil.py -d 192.168.1.93 -k key --video /dev/video0 termload
+
+## select
+
+The selection the console's mouse makes is the RIA's, which sends it to the
+VGA in two words of PIX once a frame, in order with the console's bytes. The
+test reads the selection of both chips through their probes, so it needs
+`--elf` and `--vga-elf`, and someone at the machine: it asks for a drag
+across the text on the console with a USB mouse on the RIA, and waits a
+minute for one. Then the RIA and the VGA must hold the same selection, as
+made, after monitor output that scrolls it, and after output that scrolls
+its rows away, which drops it on both.
+
+    python3 tests/hil/pico/hil.py -d 192.168.1.93 -k key \
+        --elf build/ria-w/rp6502-ria-w.elf --probe RIA_SERIAL \
+        --vga-elf build/vga/rp6502-vga.elf --vga-probe VGA_SERIAL select
 
 ## Cautions
 

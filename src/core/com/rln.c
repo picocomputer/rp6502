@@ -12,8 +12,10 @@
 #include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/com/tio.h"
+#include "core/hid/clip.h"
 #include "core/sys/driver.h"
-#include "core/term/cells.h"
+#include "core/term/grid.h"
+#include "core/term/vterm.h"
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
@@ -43,6 +45,10 @@
 **   - A terminal in VT52 mode is sent a VT52's commands: ESC A, B and C to
 **     move, each once for each row or column, and ESC K to erase. It has no
 **     insert mode and is sent no cursor shape.
+**   - The selection's highlight is the console's terminal's selection
+**     (vterm_select), between the line's columns, which mode 0 draws over
+**     the cells: nothing is sent for it, and it shows on the screen alone,
+**     the one terminal whose rows rln knows.
 */
 
 #define RLN_BUF_SIZE 256
@@ -104,8 +110,92 @@ static uint8_t rln_last_render_buflen; // buflen as of the last render
 // out. Otherwise the line erases with spaces.
 static bool rln_erase_el;
 
+/* Where the line is on the screen, for the mouse and the highlight, set as
+ * the line is laid out, with everything written before it on the console's
+ * terminal, so it is exact on every machine: the row of the screen its
+ * first row is on, the column of that row's own its columns count from,
+ * the screen it is on, 0 the primary and 1 the alternate, or none for a
+ * line laid out on a program's own size, the row whose row break scrolls
+ * the line's rows up, or none, and the terminal's RIS count then, since a
+ * RIS after it erases the line, so a click there is no longer in it.
+ * rln_put follows the line's own scrolls; output written while it is read
+ * is not followed. */
+#define RLN_NO_ROW UINT8_MAX
+static uint8_t rln_row;
+static uint8_t rln_left;
+static uint8_t rln_screen;
+static uint8_t rln_bot;
+static uint16_t rln_ris_count;
+
+/* The selection: from the anchor, where it started, to its end, none when
+ * they are the same. Its highlight is the console's terminal's selection,
+ * which output over a selected cell drops, so it goes on only once the
+ * reply that drew the line has reached that terminal: until then it is
+ * due. */
+static uint8_t rln_sel_anchor;
+static uint8_t rln_sel_end;
+static bool rln_hl_due;
+
+/* The selection as the key being dispatched found it, for a typed
+ * character to replace and Delete and Backspace to delete. Set and spent
+ * inside one dispatch. */
+static uint8_t rln_edit_from;
+static uint8_t rln_edit_to;
+
+/* The console's mouse in the line, which the task takes after the keys
+ * waiting: the end the drag holds, where the press was, and the end it
+ * moves, where the drag is, as indexes of the line as it was laid out
+ * then (rln_mouse_drag), the unit the press selects by, none when no
+ * press was made in this read's line, and whether the button has come up
+ * since, when what the task takes fills the primary. A click, a press by
+ * characters that has not dragged, selects nothing: its press is the
+ * character under the pointer and its drag the gap nearest the pointer,
+ * where the cursor goes in overwrite and in insert mode. */
+enum
+{
+    RLN_UNIT_NONE,
+    RLN_UNIT_CHAR,
+    RLN_UNIT_WORD,
+    RLN_UNIT_LINE,
+    RLN_UNIT_CLICK,
+};
+static bool rln_mouse_due;
+static uint8_t rln_press_at;
+static uint8_t rln_drag_at;
+static uint8_t rln_press_unit;
+static bool rln_mouse_up;
+
+/* The cut or paste key pressed with the line's selection showing, which
+ * the task takes after the keys waiting, as it takes the mouse, or none.
+ * A later one takes the place of one still to take, as a later press of
+ * the mouse does. With the mouse due too, they are taken in the order they
+ * came: the key first when it came before the mouse became due. */
+enum
+{
+    RLN_KEY_NONE,
+    RLN_KEY_CUT,
+    RLN_KEY_PASTE,
+};
+static uint8_t rln_key_due;
+static bool rln_key_first;
+
+/* Bracketed paste was asked of the terminals for this read. */
+static bool rln_bracketing;
+
+/* Each source's bracketed paste: in it, taking its first line, or past
+ * that line, dropping the rest of it, with how many bytes it dropped. A
+ * source whose closing bracket never comes is let go after
+ * RLN_PASTE_DROP_MAX bytes. */
+enum
+{
+    RLN_PASTE_NONE,
+    RLN_PASTE_TAKING,
+    RLN_PASTE_DROPPING,
+};
+#define RLN_PASTE_DROP_MAX UINT16_MAX
+
 // A program's own size for the console's terminal, while either is pinned:
-// a third grid, which the line editor and the terminal's answers use.
+// a third grid the terminal also follows, which only the line editor uses.
 static uint16_t rln_pinned_width;
 static uint16_t rln_pinned_height;
 static term_grid_t rln_grid;
@@ -115,6 +205,8 @@ static uint8_t rln_grid_lines[2 * RLN_GRID_ROWS];
 // with, so the other half of a CRLF pair arriving next is absorbed instead of
 // ending a second line.
 static uint8_t rln_line_ends[RLN_SOURCE_COUNT];
+static uint8_t rln_paste_in[RLN_SOURCE_COUNT];
+static uint16_t rln_paste_dropped[RLN_SOURCE_COUNT];
 
 // Lastkey capture for the 6502 API. rln_action_taken is the live
 // "this dispatch mutated state" flag, sampled at lastkey publish time.
@@ -131,7 +223,15 @@ static bool rln_laying_out;
 
 static bool rln_has_grid(void)
 {
-    return cells_term.grid_count > TERM_SCREEN_GRIDS;
+    return vterm.grid_count > TERM_SCREEN_GRIDS;
+}
+
+// The terminal the line editor lays its line out on: the program's own size
+// while it has pinned one, otherwise the screen's. Only the line editor
+// uses the pinned size; the terminal answers queries from the screen.
+static term_grid_t *rln_term(void)
+{
+    return rln_has_grid() ? &rln_grid : vterm_get_shown(&vterm);
 }
 
 /* ----- The reply -----
@@ -351,10 +451,10 @@ static bool rln_sst_get_grid(sst_cursor_t *c, unsigned flags)
     if (!sst_ok(c))
         return false;
     if (grid && !rln_has_grid())
-        term_add_grid(&cells_term, &rln_grid, cells_shown(&cells_term),
+        term_add_grid(&vterm, &rln_grid, vterm_get_shown(&vterm),
                       rln_grid_lines, RLN_GRID_ROWS);
     else if (!grid && rln_has_grid())
-        term_drop_grid(&cells_term, &rln_grid);
+        term_drop_grid(&vterm, &rln_grid);
     return term_grid_sst_get(c, &rln_grid);
 }
 
@@ -372,6 +472,14 @@ static bool rln_sst_valid(sst_cursor_t *c)
         return sst_refuse(c, "an index past its line");
     if (rln_prompt_col && !rln_width)
         return sst_refuse(c, "a prompt column with no width");
+    if (rln_sel_anchor > rln_buflen || rln_sel_end > rln_buflen ||
+        rln_press_unit > RLN_UNIT_CLICK || (rln_mouse_due && rln_press_unit == RLN_UNIT_NONE) ||
+        (rln_mouse_up && !rln_mouse_due) ||
+        (rln_screen > 1 && rln_screen != RLN_NO_ROW) || rln_key_due > RLN_KEY_PASTE)
+        return sst_refuse(c, "a selection past its line");
+    for (unsigned i = 0; i < RLN_SOURCE_COUNT; i++)
+        if (rln_paste_in[i] > RLN_PASTE_DROPPING)
+            return sst_refuse(c, "a paste in no state");
     if (rln_out_len > RLN_OUT_PIECES || rln_out_at > rln_out_len ||
         rln_out_lit_len > RLN_OUT_LIT)
         return sst_refuse(c, "a reply past its pieces");
@@ -428,12 +536,32 @@ static bool rln_sst_valid(sst_cursor_t *c)
     X(BYTES, rln_line_ends)                                             \
     X(U16, rln_pinned_width)                                            \
     X(U16, rln_pinned_height)                                           \
+    X(U8, rln_row)                                                      \
+    X(U8, rln_left)                                                     \
+    X(U8, rln_screen)                                                   \
+    X(U8, rln_bot)                                                      \
+    X(U16, rln_ris_count)                                               \
+    X(U8, rln_sel_anchor)                                               \
+    X(U8, rln_sel_end)                                                  \
+    X(BOOL, rln_hl_due)                                                 \
+    X(BOOL, rln_mouse_due)                                              \
+    X(U8, rln_press_at)                                                 \
+    X(U8, rln_drag_at)                                                  \
+    X(U8, rln_press_unit)                                               \
+    X(BOOL, rln_mouse_up)                                               \
+    X(U8, rln_key_due)                                                  \
+    X(BOOL, rln_key_first)                                              \
+    X(BOOL, rln_bracketing)                                             \
+    X(BYTES, rln_paste_in)                                              \
+    X(U16S, rln_paste_dropped)                                          \
     X(VALIDATE, rln_sst_valid)                                          \
     X(FN, rln_sst_put_grid, rln_sst_get_grid,                           \
-      1 + TERM_GRID_SST_SIZE(RLN_GRID_ROWS), 1)                         \
+      1 + TERM_GRID_SST_SIZE(RLN_GRID_ROWS), 3)                         \
     X(IN_FN, rln_grid)                                                  \
     X(IN_FN, rln_grid_lines)                                            \
     X(SKIP, rln_line_src, "read only inside the read's callback")       \
+    X(SKIP, rln_edit_from, "set and spent inside one dispatch")         \
+    X(SKIP, rln_edit_to, "set and spent inside one dispatch")           \
     X(SKIP, rln_plain, "host wiring")
 SST_TABLE(rln, RLN_SST_ROWS)
 
@@ -471,7 +599,7 @@ static void rln_emit_move(char way, unsigned n)
 {
     if (!n)
         return;
-    if (!cells_term.vt52)
+    if (!vterm.vt52)
     {
         char seq[12];
         snprintf(seq, sizeof seq, "\33[%u%c", n, way);
@@ -498,7 +626,7 @@ static void rln_emit_erase(uint16_t col)
 {
     if (rln_erase_el)
     {
-        rln_out_s(cells_term.vt52 ? "\33K" : "\33[K");
+        rln_out_s(vterm.vt52 ? "\33K" : "\33[K");
         return;
     }
     if (col <= rln_width)
@@ -543,8 +671,9 @@ static void rln_sync_cursor_to(uint8_t target)
 
 // Write ch at buffer index i. A write to the last column leaves the cursor
 // parked on it. In a line that can take more rows, CR LF then breaks the row
-// when the cursor is to reach index i + 1 at or before end; otherwise CR and
-// CUF end the park, so the next write cannot wrap.
+// when the cursor is to reach index i + 1 at or before end, scrolling the
+// line's rows up a row at the region's bottom; otherwise CR and CUF end the
+// park, so the next write cannot wrap.
 static void rln_put(uint8_t i, char ch, uint8_t end)
 {
     if (ch == rln_buf[i])
@@ -562,7 +691,11 @@ static void rln_put(uint8_t i, char ch, uint8_t end)
     if (rln_input_no_wrap())
         rln_cur_idx = i;
     else if (i + 1 <= end)
+    {
         rln_out_s("\r\n");
+        if (rln_row + r == rln_bot)
+            rln_row--;
+    }
     else
     {
         rln_cur_idx = i;
@@ -655,7 +788,7 @@ static void rln_clear_rows_below(uint8_t rows, uint16_t col)
 {
     for (uint8_t k = 0; k < rows; k++)
     {
-        rln_out_s(cells_term.vt52 ? "\33B\r" : "\33[B\r");
+        rln_out_s(vterm.vt52 ? "\33B\r" : "\33[B\r");
         rln_emit_erase(1);
     }
     rln_emit_move('A', rows);
@@ -731,6 +864,145 @@ static void rln_emit_tail_rewrite(uint8_t at, uint8_t pad)
     rln_sync_cursor_to(rln_bufpos);
 }
 
+/* ----- The line on the screen, and its selection ----- */
+
+/* The line has a place on the screen showing: a read's line laid out with
+ * a prompt column on the grid showing, not on a program's own size, on the
+ * screen of that grid that shows now, and with no RIS since, which erased
+ * it. */
+static bool rln_on_screen(void)
+{
+    if (!rln_callback || rln_laying_out || !rln_prompt_col)
+        return false;
+    const term_grid_t *g = vterm_get_shown(&vterm);
+    return g->width == rln_grid_width && g->shown - g->screen == rln_screen &&
+           vterm.ris_count == rln_ris_count;
+}
+
+/* The index at row y of the screen, column x of that row's own, the line
+ * having a place there. A place outside the line is -1, or with clamp, the
+ * line's start for one before it and its end for one after it. */
+static int rln_index_of(int y, int x, bool clamp)
+{
+    const int r = y - rln_row;
+    int c = x - rln_left + 1;
+    if (!clamp && (r < 0 || c < 1 || c > rln_width))
+        return -1;
+    if (c < 1)
+        c = 1;
+    if (c > rln_width + 1)
+        c = rln_width + 1;
+    const int i = r * (int)rln_width + c - (int)rln_prompt_col;
+    if (i < 0)
+        return clamp ? 0 : -1;
+    if (i > rln_buflen)
+        return clamp ? rln_buflen : -1;
+    return i;
+}
+
+int rln_index_at(uint8_t y, uint8_t x)
+{
+    return rln_on_screen() ? rln_index_of(y, x, false) : -1;
+}
+
+static uint8_t rln_sel_lo(void)
+{
+    return rln_sel_anchor < rln_sel_end ? rln_sel_anchor : rln_sel_end;
+}
+
+static uint8_t rln_sel_hi(void)
+{
+    return rln_sel_anchor < rln_sel_end ? rln_sel_end : rln_sel_anchor;
+}
+
+/* The selection becomes the line from anchor to end, none when they are
+ * the same, and its highlight is due (rln_show). There is one selection on
+ * the console's terminal at a time: one that starts ends the primary's
+ * highlight at once, and one that ends ends its own. One that changes
+ * keeps the highlight it had until the new one shows, as the reply that
+ * moves the cursor along it goes out. */
+static void rln_select(uint8_t anchor, uint8_t end)
+{
+    const bool had = rln_sel_anchor != rln_sel_end;
+    rln_sel_anchor = anchor;
+    rln_sel_end = end;
+    rln_hl_due = anchor != end;
+    if (vterm_selection.shows && (had ? anchor == end : anchor != end))
+        vterm_unselect();
+}
+
+/* The highlight goes on, the selection's part of the line as the line is
+ * laid out on the screen, once the reply that drew the line has reached
+ * the console's terminal: nothing waits to go out to the terminals, as
+ * everything written before has reached it, the line's own echo, which
+ * would otherwise drop it, included. It is the selection's run from its
+ * first character to past its last across the rows the line wraps onto,
+ * between the margins of the line's columns, so no column outside the
+ * margins the line was laid out in is taken. A line with no place on the
+ * screen showing, or one whose rows have gone from it, shows none, and the
+ * highlight of the selection before goes: the one selection showing while
+ * the line has one is the line's. */
+static void HOST_IN_FLASH_FUNC rln_show(void)
+{
+    rln_hl_due = false;
+    const uint8_t lo = rln_sel_lo(), hi = rln_sel_hi();
+    if (lo < hi && rln_on_screen())
+    {
+        term_grid_t *g = vterm_get_shown(&vterm);
+        const screen_t *s = g->shown;
+        uint8_t r0, r1;
+        uint16_t c0, c1;
+        rln_buf_to_screen(lo, &r0, &c0);
+        rln_buf_to_screen((uint8_t)(hi - 1), &r1, &c1);
+        const unsigned y0 = rln_row + r0, y1 = rln_row + r1;
+        if (y1 < g->height)
+        {
+            const uint8_t m0 = screen_mem(s, (uint8_t)y0), m1 = screen_mem(s, (uint8_t)y1);
+            const uint8_t x0 = (uint8_t)(rln_left + c0 - 1u), x1 = (uint8_t)(rln_left + c1);
+            const uint8_t left = rln_left, right = (uint8_t)(rln_left + rln_width);
+            /* One already showing is left as it is, so the RIA sends only
+             * a change. */
+            const screen_selection_t *v = &vterm_selection;
+            if (!v->shows || v->screen != s || v->start_row != m0 || v->start_col != x0 ||
+                v->end_row != m1 || v->end_col != x1 || v->left != left || v->right != right)
+                vterm_select(g, (uint8_t)(s - g->screen), m0, x0, m1, x1, left, right);
+            return;
+        }
+    }
+    if (vterm_selection.shows)
+        vterm_unselect();
+}
+
+/* No selection, its highlight off, and no press of the mouse still to
+ * take. */
+void rln_unselect(void)
+{
+    rln_mouse_due = false;
+    rln_mouse_up = false;
+    rln_select(0, 0);
+}
+
+/* The line's selection is what its highlight shows. When the highlight goes
+ * from under it, by a new canvas, a RIS or the line's rows leaving the
+ * screen, the selection ends with it and the cursor stays where it is, so
+ * no key acts on text that shows no highlight. One still due to show is
+ * kept: its highlight has yet to go on. */
+static void rln_selection_follow(void)
+{
+    if (rln_sel_anchor != rln_sel_end && !rln_hl_due && !vterm_selection.shows)
+        rln_sel_anchor = rln_sel_end;
+}
+
+/* A key still to take when the read ends: a paste pastes, as the paste
+ * keys do with no read, and a cut has no line left to cut from. */
+static void rln_key_end(void)
+{
+    if (rln_key_due == RLN_KEY_PASTE)
+        clip_paste(CLIP_CLIPBOARD);
+    rln_key_due = RLN_KEY_NONE;
+    rln_key_first = false;
+}
+
 /* ----- History ----- */
 
 static void rln_replace_buf_from_history(void)
@@ -783,7 +1055,7 @@ static void rln_history_add(void)
 // CSI.
 static void rln_cursor_shape(uint8_t ps)
 {
-    if (!rln_prompt_col || cells_term.vt52)
+    if (!rln_prompt_col || vterm.vt52)
         return;
     char seq[] = "\33[0 q";
     seq[2] = (char)('0' + ps);
@@ -791,14 +1063,31 @@ static void rln_cursor_shape(uint8_t ps)
 }
 
 // The read is over, or given up: nothing more is read for it, the callback
-// never fires, and the cursor has its default shape again.
-void rln_read_cancel(void)
+// never fires, its selection's highlight is off, a paste key it had still to
+// take pastes, and the cursor has its default shape again. A completed line
+// then gets its newline (rln_complete). Bracketed paste goes off last, so
+// every terminal sees the line and its newline as typed, unbroken.
+static void rln_read_end(bool completed)
 {
+    rln_unselect();
+    rln_key_end();
     rln_callback = NULL;
     rln_idle_timeout_ms = 0;
     tio_read_end();
     rln_cursor_shape(0);
+    if (completed && !rln_suppress_newline && !rln_below_line())
+        rln_out_c('\n');
+    if (rln_bracketing)
+    {
+        rln_bracketing = false;
+        rln_out_s("\33[?2004l");
+    }
     rln_out_send(false);
+}
+
+void rln_read_cancel(void)
+{
+    rln_read_end(false);
 }
 
 /* The line is done at Enter: nothing is read after it, so whatever follows
@@ -808,9 +1097,7 @@ void rln_read_cancel(void)
 static void rln_complete(bool timed_out)
 {
     rln_read_callback_t cc = rln_callback;
-    rln_read_cancel();
-    if (!rln_suppress_newline && !rln_below_line())
-        rln_out_c('\n');
+    rln_read_end(true);
     rln_out_then = cc;
     rln_out_timed_out = timed_out;
     rln_out_send(false);
@@ -929,9 +1216,18 @@ static uint16_t rln_param_or_1(uint16_t v)
     return v < 1 ? 1 : v;
 }
 
+/* A CSI key's modifiers, as xterm sends them in its second parameter, less
+ * one: Shift is 1, Alt 2 and Ctrl 4, and 0 is none. Shift selects
+ * (rln_dispatch), and any of the others makes an arrow move by words. */
+#define RLN_MOD_SHIFT 1u
+static unsigned rln_csi_mods(const tio_csi_t *csi)
+{
+    return csi->count > 1 && csi->param[1] > 1 ? csi->param[1] - 1u : 0;
+}
+
 static void rln_line_forward(const tio_csi_t *csi)
 {
-    if (csi->count > 1 && csi->param[1] != 1)
+    if (rln_csi_mods(csi) & ~RLN_MOD_SHIFT)
         return rln_line_word(1);
     int count = rln_param_or_1(csi->param[0]);
     rln_step(count);
@@ -939,7 +1235,7 @@ static void rln_line_forward(const tio_csi_t *csi)
 
 static void rln_line_backward(const tio_csi_t *csi)
 {
-    if (csi->count > 1 && csi->param[1] != 1)
+    if (rln_csi_mods(csi) & ~RLN_MOD_SHIFT)
         return rln_line_word(-1);
     int count = rln_param_or_1(csi->param[0]);
     rln_step(-count);
@@ -964,9 +1260,19 @@ static void rln_delete_range(uint8_t start, uint8_t end)
     rln_emit_tail_rewrite(start, count);
 }
 
+/* Delete, and Backspace, delete the selection when there is one. */
+static bool rln_delete_selection(void)
+{
+    if (rln_edit_from >= rln_edit_to)
+        return false;
+    rln_delete_range(rln_edit_from, rln_edit_to);
+    return true;
+}
+
 static void rln_line_delete(void)
 {
-    rln_delete_range(rln_bufpos, rln_bufpos + 1);
+    if (!rln_delete_selection())
+        rln_delete_range(rln_bufpos, rln_bufpos + 1);
 }
 
 static void rln_line_delete_n(const tio_csi_t *csi)
@@ -980,6 +1286,8 @@ static void rln_line_delete_n(const tio_csi_t *csi)
 
 static void rln_line_backspace(void)
 {
+    if (rln_delete_selection())
+        return;
     if (rln_bufpos)
         rln_delete_range(rln_bufpos - 1, rln_bufpos);
 }
@@ -1052,6 +1360,19 @@ static void rln_line_insert(char ch)
             ch = toupper((unsigned char)ch);
         else if (isupper((unsigned char)ch))
             ch = tolower((unsigned char)ch);
+    }
+    if (rln_edit_from < rln_edit_to)
+    {
+        // A character replaces the selection, whatever the mode.
+        const uint8_t at = rln_edit_from;
+        const uint8_t gone = (uint8_t)(rln_edit_to - at);
+        memmove(rln_buf + at + 1, rln_buf + rln_edit_to, (size_t)(rln_buflen - rln_edit_to));
+        rln_buf[at] = ch;
+        rln_buflen = (uint8_t)(rln_buflen - gone + 1);
+        rln_bufpos = (uint8_t)(at + 1);
+        rln_action_taken = true;
+        rln_emit_tail_rewrite(at, (uint8_t)(gone - 1));
+        return;
     }
     if (rln_overwrite && rln_bufpos < rln_buflen)
     {
@@ -1255,11 +1576,41 @@ static void rln_publish_lastkey(const char *item, size_t len)
     rln_lastkey_action = rln_action_taken;
 }
 
+// Shift with an arrow, Home or End, as xterm sends them, and rxvt, whose
+// shifted Home and End end on '$'.
+static bool rln_csi_selects(const tio_csi_t *csi)
+{
+    const uint8_t ch = csi->final;
+    const bool shift = rln_csi_mods(csi) & RLN_MOD_SHIFT;
+    if (ch == 'C' || ch == 'D' || ch == 'H' || ch == 'F')
+        return shift;
+    if (ch != '$' && !(ch == '~' && shift))
+        return false;
+    const uint16_t key = csi->param[0];
+    return key == 1 || key == 4 || key == 7 || key == 8;
+}
+
 // A typed item, dispatched while editing. A poked item is dispatched in
 // overwrite mode, and a shape it changes is put back.
+//
+// A typed key that selects moves the cursor, and the selection goes from
+// where the cursor was to where it is, or on from the anchor of the
+// selection whose end the cursor was at. Any other key ends the selection,
+// its highlight going first, before anything is drawn, and an edit it
+// makes acts on the selection as the key found it.
 static void rln_dispatch(com_source_t src, const char *item, size_t len,
                          const tio_csi_t *csi)
 {
+    const bool selects = src != RLN_POKE && len > 2 && item[1] == '[' && rln_csi_selects(csi);
+    const uint8_t from = rln_sel_anchor != rln_sel_end && rln_sel_end == rln_bufpos
+                             ? rln_sel_anchor
+                             : rln_bufpos;
+    if (!selects)
+    {
+        rln_edit_from = rln_sel_lo();
+        rln_edit_to = rln_sel_hi();
+        rln_select(rln_bufpos, rln_bufpos);
+    }
     bool was_overwrite = rln_overwrite;
     if (src == RLN_POKE)
         rln_overwrite = true;
@@ -1273,6 +1624,9 @@ static void rln_dispatch(com_source_t src, const char *item, size_t len,
         rln_dispatch_SS3(src, item, len);
     else
         rln_dispatch_Fe((uint8_t)item[1]);
+    rln_edit_from = rln_edit_to = 0;
+    if (selects && rln_callback)
+        rln_select(from, rln_bufpos);
     rln_publish_lastkey(item, len);
     if (src == RLN_POKE)
     {
@@ -1294,6 +1648,11 @@ static void rln_dispatch(com_source_t src, const char *item, size_t len,
 // absorbed here, even when it is the next read's first item. The memory
 // lasts exactly one item, which is why "\r\r" is two lines and why a blank
 // line in a CRLF file survives.
+//
+// A bracketed paste, ESC [ 200 ~ to ESC [ 201 ~, is taken up to its first
+// line end, which is Enter, and the rest of it is dropped, read or no
+// read, up to the closing bracket or RLN_PASTE_DROP_MAX bytes. The brackets
+// are dropped too.
 static void rln_item(com_source_t src, const char *item, size_t len)
 {
     tio_csi_t csi;
@@ -1304,8 +1663,29 @@ static void rln_item(com_source_t src, const char *item, size_t len)
         return;
     uint8_t was = rln_line_ends[src];
     rln_line_ends[src] = 0;
-    if (len == 1 && was && (item[0] == '\r' || item[0] == '\n') && item[0] != was)
+    if (is_csi && csi.final == '~' && csi.count == 1 &&
+        (csi.param[0] == 200 || csi.param[0] == 201))
+    {
+        rln_paste_in[src] = csi.param[0] == 200 ? RLN_PASTE_TAKING : RLN_PASTE_NONE;
+        rln_paste_dropped[src] = 0;
         return;
+    }
+    if (rln_paste_in[src] == RLN_PASTE_DROPPING)
+    {
+        if (len >= (size_t)(RLN_PASTE_DROP_MAX - rln_paste_dropped[src]))
+            rln_paste_in[src] = RLN_PASTE_NONE;
+        else
+            rln_paste_dropped[src] = (uint16_t)(rln_paste_dropped[src] + len);
+        return;
+    }
+    const bool line_end = len == 1 && (item[0] == '\r' || item[0] == '\n');
+    if (line_end && was && item[0] != was)
+        return;
+    if (line_end && rln_paste_in[src] == RLN_PASTE_TAKING)
+    {
+        rln_paste_in[src] = RLN_PASTE_DROPPING;
+        rln_paste_dropped[src] = 0;
+    }
     rln_dispatch(src, item, len, &csi);
 }
 
@@ -1314,7 +1694,7 @@ static void rln_item(com_source_t src, const char *item, size_t len)
 // The line starts where the console's terminal has its cursor, and is laid
 // out at that row's columns, half the width on a double-size row, and those
 // between the left and right margins for a cursor between them. Everything
-// already printed reaches the terminals and cells_term first, then the modes
+// already printed reaches the terminals and vterm first, then the modes
 // go to every terminal. A cursor in a pending wrap gets a CR LF, so the line
 // starts in column 1 of the next row. A terminal in VT52 mode has no insert
 // mode to turn off, and is sent a VT52's form of every move and erase.
@@ -1323,7 +1703,7 @@ static void rln_place(void);
 static void rln_lay_out(void)
 {
     manifold_flush();
-    if (term_pos(term_shown(&cells_term))->wrap_pending)
+    if (term_pos(rln_term())->wrap_pending)
     {
         manifold_putchar('\r');
         manifold_putchar('\n');
@@ -1340,7 +1720,7 @@ static bool rln_lay_out_now(void)
 {
     if (!manifold_drained())
         return false;
-    if (term_pos(term_shown(&cells_term))->wrap_pending)
+    if (term_pos(rln_term())->wrap_pending)
     {
         manifold_putchar('\r');
         manifold_putchar('\n');
@@ -1355,14 +1735,21 @@ static bool rln_lay_out_now(void)
 static void rln_place(void)
 {
     bool plain = rln_plain;
-    if (!plain && !cells_term.vt52)
+    if (!plain && !vterm.vt52)
+    {
         rln_out_s(RLN_MODES);
+        if (rln_history)
+        {
+            rln_out_s("\33[?2004h");
+            rln_bracketing = true;
+        }
+    }
     /* The line has the columns the terminal gives the cursor: from where a
      * CR lands to where a row of text ends, which are the left and right
      * margins for a cursor between them. Its columns are counted from the
      * first of those. It has no more rows than the scroll region the
      * cursor is in, where its row breaks scroll. */
-    const term_grid_t *g = term_shown(&cells_term);
+    const term_grid_t *g = rln_term();
     const term_pos_t *p = term_pos(g);
     const unsigned first = term_left_stop(g);
     rln_prompt_col = plain ? 0 : (uint16_t)(p->x - first + 1);
@@ -1373,6 +1760,17 @@ static void rln_place(void)
     if (p->y >= g->margin_top && p->y <= g->margin_bot)
         rows = g->margin_bot - g->margin_top + 1u;
     rln_rows = (uint8_t)(rows < RLN_MAX_ROWS ? rows : RLN_MAX_ROWS);
+    /* A line end scrolls the region at its bottom margin, from a column
+     * between the left and right margins, where the CR lands, and the
+     * line's rows go up with it when the line starts inside the region. */
+    rln_row = p->y;
+    rln_left = (uint8_t)first;
+    rln_ris_count = vterm.ris_count;
+    rln_screen = rln_has_grid() ? RLN_NO_ROW : (uint8_t)(g->shown - g->screen);
+    rln_bot = p->y >= g->margin_top && p->y <= g->margin_bot &&
+                      first >= g->margin_left && first <= g->margin_right
+                  ? g->margin_bot
+                  : RLN_NO_ROW;
     rln_emit_mode_cursor();
 }
 
@@ -1385,6 +1783,7 @@ static void rln_follow(void)
 {
     if (!rln_prompt_col || rln_get_term_width() == rln_grid_width)
         return;
+    rln_unselect();
     rln_sync_past_line();
     rln_out_send(true);
     com_clean_line();
@@ -1396,6 +1795,179 @@ static void rln_follow(void)
     rln_render_from(0);
 }
 
+/* ----- The mouse, and the copy and paste keys ----- */
+
+/* The mouse has something for the task to take, and a key still to take
+ * came before it unless the mouse already had. */
+static void rln_mouse_becomes_due(void)
+{
+    if (!rln_mouse_due)
+        rln_key_first = rln_key_due != RLN_KEY_NONE;
+    rln_mouse_due = true;
+}
+
+void rln_mouse_press(uint8_t index, bool after, uint8_t clicks)
+{
+    rln_press_at = rln_drag_at = index;
+    rln_press_unit = clicks == 3   ? RLN_UNIT_LINE
+                     : clicks == 2 ? RLN_UNIT_WORD
+                                   : RLN_UNIT_CLICK;
+    if (rln_press_unit == RLN_UNIT_CLICK && after && index < rln_buflen)
+        rln_drag_at++;
+    rln_mouse_up = false;
+    rln_mouse_becomes_due();
+}
+
+void rln_mouse_drag(uint8_t hy, uint8_t hx, uint8_t y, uint8_t x)
+{
+    if (rln_press_unit == RLN_UNIT_NONE || !rln_on_screen())
+        return;
+    if (rln_press_unit == RLN_UNIT_CLICK)
+        rln_press_unit = RLN_UNIT_CHAR;
+    rln_press_at = (uint8_t)rln_index_of(hy, hx, true);
+    rln_drag_at = (uint8_t)rln_index_of(y, x, true);
+    rln_mouse_becomes_due();
+}
+
+void rln_mouse_release(void)
+{
+    if (rln_press_unit == RLN_UNIT_NONE || rln_press_unit == RLN_UNIT_CLICK)
+        return;
+    rln_mouse_up = true;
+    rln_mouse_becomes_due();
+}
+
+/* The word index i is in: a run of characters that are not word
+ * delimiters, or the delimiter at i alone, and nothing at the line's end. */
+static void rln_word_at(uint8_t i, uint8_t *lo, uint8_t *hi)
+{
+    *lo = *hi = i;
+    if (i >= rln_buflen)
+        return;
+    *hi = (uint8_t)(i + 1);
+    if (rln_is_word_delimiter(rln_buf[i]))
+        return;
+    while (*lo && !rln_is_word_delimiter(rln_buf[*lo - 1]))
+        --*lo;
+    while (*hi < rln_buflen && !rln_is_word_delimiter(rln_buf[*hi]))
+        ++*hi;
+}
+
+/* The mouse's press and drag become the selection, after the keys that
+ * were waiting, on the line as those keys left it: by characters from the
+ * press to the drag, by words out to the ends of the words under each, or
+ * the whole line. The cursor follows the mouse to the selection's end, so
+ * a drag carries it along, and what is typed next goes where the cursor
+ * shows. A click selects nothing and puts the cursor where the mode then
+ * has it: the block on the character under the pointer, and the bar at
+ * the gap nearest the pointer, as IntelliJ places its carets. Once the
+ * button has come up, what it selected fills the primary, as a selection
+ * the mouse makes anywhere on the screen does. It is taken from the line
+ * the selection is of, the line editor's own bytes, which the echo still
+ * going out may not yet show, and which a copy key copies as they are. */
+static void rln_mouse_take(void)
+{
+    rln_mouse_due = false;
+    uint8_t anchor = rln_press_at < rln_buflen ? rln_press_at : rln_buflen;
+    uint8_t end = rln_drag_at < rln_buflen ? rln_drag_at : rln_buflen;
+    if (rln_press_unit == RLN_UNIT_CLICK)
+        anchor = end = rln_overwrite ? anchor : end;
+    else if (rln_press_unit == RLN_UNIT_WORD)
+    {
+        uint8_t alo, ahi, elo, ehi;
+        rln_word_at(anchor, &alo, &ahi);
+        rln_word_at(end, &elo, &ehi);
+        const bool on = end >= anchor;
+        anchor = on ? alo : ahi;
+        end = on ? (ehi > ahi ? ehi : ahi) : (elo < alo ? elo : alo);
+    }
+    else if (rln_press_unit == RLN_UNIT_LINE)
+    {
+        anchor = 0;
+        end = rln_buflen;
+    }
+    rln_select(anchor, end);
+    if (rln_mouse_up && anchor != end)
+    {
+        const uint8_t lo = rln_sel_lo();
+        clip_copy_bytes(CLIP_PRIMARY, &rln_buf[lo], (size_t)(rln_sel_hi() - lo));
+    }
+    rln_mouse_up = false;
+    rln_bufpos = end;
+    rln_sync_cursor_to(rln_bufpos);
+}
+
+bool rln_selected(void)
+{
+    return rln_callback && rln_sel_anchor != rln_sel_end;
+}
+
+bool HOST_IN_FLASH_FUNC rln_copy(void)
+{
+    if (!rln_selected())
+        return false;
+    const uint8_t lo = rln_sel_lo();
+    clip_copy_bytes(CLIP_CLIPBOARD, &rln_buf[lo], (size_t)(rln_sel_hi() - lo));
+    return true;
+}
+
+/* A cut or paste key with the line's selection showing is the line's, to
+ * take after the keys waiting. */
+static bool rln_key_press(uint8_t key)
+{
+    if (!rln_selected())
+        return false;
+    rln_key_first = !rln_mouse_due;
+    rln_key_due = key;
+    return true;
+}
+
+bool HOST_IN_FLASH_FUNC rln_cut(void)
+{
+    return rln_key_press(RLN_KEY_CUT);
+}
+
+bool HOST_IN_FLASH_FUNC rln_paste(void)
+{
+    return rln_key_press(RLN_KEY_PASTE);
+}
+
+/* The cut or paste key, on the line as the keys before it left it: a cut
+ * puts the selection in the clipboard and deletes it, and a paste deletes
+ * it and pastes the clipboard through the paste stage, which types it
+ * next. With no selection left, a cut does nothing and a paste goes
+ * where the cursor is. It edits the line, so it is taken only once no reply
+ * is going out, as a reply reads the line as it goes. */
+static void rln_key_take(void)
+{
+    const uint8_t key = rln_key_due;
+    const uint8_t lo = rln_sel_lo(), hi = rln_sel_hi();
+    rln_key_due = RLN_KEY_NONE;
+    rln_key_first = false;
+    if (key == RLN_KEY_CUT && lo < hi)
+        clip_copy_bytes(CLIP_CLIPBOARD, &rln_buf[lo], (size_t)(hi - lo));
+    rln_select(rln_bufpos, rln_bufpos);
+    rln_delete_range(lo, hi);
+    if (key == RLN_KEY_PASTE)
+        clip_paste(CLIP_CLIPBOARD);
+}
+
+/* What the mouse and the keys left for the task, in the order they came,
+ * with no key waiting before them. From flash, as the keys' edits are, so
+ * the task in RAM does not take it in. */
+static void HOST_IN_FLASH_FUNC rln_take_due(void)
+{
+    if (rln_mouse_due && !(rln_key_due && rln_key_first))
+        rln_mouse_take();
+    if (rln_key_due && rln_out_send(false))
+    {
+        rln_key_take();
+        if (rln_mouse_due)
+            rln_mouse_take();
+    }
+    rln_out_send(false);
+}
+
 /* ----- Top-level task / driver hooks ----- */
 
 static void rln_start(rln_read_callback_t callback, rln_history_t *history)
@@ -1405,6 +1977,9 @@ static void rln_start(rln_read_callback_t callback, rln_history_t *history)
      * dropped: its readers wait for rln_replying to end before they ask for
      * another. */
     rln_out_then = NULL;
+    rln_unselect();
+    rln_key_end();
+    rln_press_unit = RLN_UNIT_NONE;
     rln_out_send(true);
     rln_idle_timeout_ms = 0;
     rln_buflen = 0;
@@ -1456,27 +2031,45 @@ bool rln_read_flush(void)
     return true;
 }
 
-void HOST_IN_RAM_FUNC rln_task(void)
+/* The items waiting are taken, each once the reply to the one before it
+ * has gone out, and true once all are taken and answered. */
+static bool HOST_IN_RAM_FUNC rln_take_items(void)
 {
     if (!rln_out_send(false) || !rln_callback)
-        return;
+        return false;
     if (rln_laying_out && (rln_laying_out = !rln_lay_out_now()))
-        return;
+        return false;
     char item[TIO_ITEM_MAX];
     com_source_t src;
     size_t len;
     for (;;)
     {
         if (rln_callback)
+        {
             rln_follow();
+            rln_selection_follow();
+        }
         if (!rln_callback || !(len = tio_read(&src, item)))
-            break;
+            return true;
         rln_idle_deadline = timer_mach_in_ms(rln_idle_timeout_ms);
         rln_item(src, item, len);
         if (!rln_out_send(false))
-            return;
+            return false;
     }
-    if (rln_idle_timeout_ms && timer_mach_passed(rln_idle_deadline))
+}
+
+/* The mouse in the line, and the cut and paste keys, are taken once no
+ * key waits before them: the mouse even while a reply is still going out
+ * at a slow speed, and a key once it has gone out. */
+void HOST_IN_RAM_FUNC rln_task(void)
+{
+    const bool answered = rln_take_items();
+    rln_selection_follow();
+    if ((rln_mouse_due || rln_key_due) && rln_callback && tio_idle())
+        rln_take_due();
+    if (rln_hl_due && !rln_out_len && manifold_drained())
+        rln_show();
+    if (answered && rln_idle_timeout_ms && timer_mach_passed(rln_idle_deadline))
     {
         rln_line_src = COM_SOURCE_ANY;
         rln_complete(true);
@@ -1492,7 +2085,15 @@ void HOST_IN_FLASH_FUNC rln_init(void)
     rln_overwrite = false;
     rln_pinned_width = 0;
     rln_pinned_height = 0;
-    term_grid_init(&rln_grid, 80, rln_grid_lines, RLN_GRID_ROWS);
+    rln_sel_anchor = rln_sel_end = 0;
+    rln_hl_due = false;
+    rln_mouse_due = false;
+    rln_mouse_up = false;
+    rln_press_unit = RLN_UNIT_NONE;
+    rln_key_due = RLN_KEY_NONE;
+    rln_key_first = false;
+    rln_bracketing = false;
+    term_grid_init(&rln_grid, 80, rln_grid_lines, NULL, RLN_GRID_ROWS);
 }
 
 void rln_run(void)
@@ -1501,12 +2102,16 @@ void rln_run(void)
 }
 
 /* A read cut short by a stop or a break leaves the cursor on a new line
- * past everything typed, with its default shape. A program's own size goes
- * back to the screen's. */
+ * past everything typed, with its default shape and no highlight, and a
+ * paste key it had still to take pastes nothing. A program's own size goes
+ * back to the screen's, and a bracketed paste of any source drops nothing
+ * more (rln_reset). */
 void rln_stop(void)
 {
     if (rln_callback)
     {
+        rln_unselect();
+        rln_key_due = RLN_KEY_NONE;
         rln_sync_past_line();
         if (!rln_below_line())
             rln_out_s("\r\n");
@@ -1517,18 +2122,21 @@ void rln_stop(void)
     rln_reset();
 }
 
-/* No read, and the third grid off the screen's terminal, with nothing drawn:
- * after a failed load the line's indexes and geometry may hold anything, and
- * the console they would draw through is not reset yet. CELLS' RESET runs
- * first, so the grid list is sound to search. The rest is set again by the
- * next read's start. */
+/* No read, no selection and no bracketed paste of any source, and the
+ * third grid off the screen's terminal, with nothing drawn: after a failed
+ * load the line's indexes and geometry may hold anything, and the console
+ * they would draw through is not reset yet. DRAW's RESET runs first, so the
+ * grid list is sound to search. The rest is set again by the next read's
+ * start. */
 void rln_reset(void)
 {
     if (rln_has_grid())
-        term_drop_grid(&cells_term, &rln_grid);
+        term_drop_grid(&vterm, &rln_grid);
     rln_out_len = rln_out_lit_len = rln_out_at = 0;
     rln_out_sent = 0;
     rln_out_then = NULL;
+    memset(rln_paste_in, 0, sizeof rln_paste_in);
+    memset(rln_paste_dropped, 0, sizeof rln_paste_dropped);
     rln_init();
 }
 
@@ -1539,12 +2147,12 @@ void rln_set_plain(bool plain)
 
 uint16_t rln_get_term_width(void)
 {
-    return term_shown(&cells_term)->width;
+    return rln_term()->width;
 }
 
 uint16_t rln_get_term_height(void)
 {
-    return term_shown(&cells_term)->height;
+    return rln_term()->height;
 }
 
 /* The third grid starts as a copy of the showing one and takes the pinned
@@ -1553,14 +2161,14 @@ uint16_t rln_get_term_height(void)
  * are 0 again, when it is dropped. The screen's grids are never touched. */
 static void rln_size_grid(void)
 {
-    term_t *t = &cells_term;
+    term_t *t = &vterm;
     if (!rln_pinned_width && !rln_pinned_height)
     {
         if (rln_has_grid())
             term_drop_grid(t, &rln_grid);
         return;
     }
-    const term_grid_t *shown = cells_shown(t);
+    const term_grid_t *shown = vterm_get_shown(t);
     if (!rln_has_grid())
         term_add_grid(t, &rln_grid, shown, rln_grid_lines, RLN_GRID_ROWS);
     term_set_width(t, &rln_grid, (uint8_t)(rln_pinned_width ? rln_pinned_width : shown->width));
@@ -1582,6 +2190,8 @@ void rln_set_term_height(uint16_t v)
 void HOST_IN_RAM_FUNC rln_forget_source(com_source_t src)
 {
     rln_line_ends[src] = 0;
+    rln_paste_in[src] = RLN_PASTE_NONE;
+    rln_paste_dropped[src] = 0;
     tio_forget(src);
 }
 
@@ -1651,8 +2261,10 @@ void rln_poke(const char *str)
     if (!rln_callback)
         return;
     /* What a typed key's reply still has to send reads the line as it is
-     * now, so it goes out before the poke edits it. */
+     * now, so it goes out before the poke edits it. A poke ends the
+     * selection. */
     rln_out_send(true);
+    rln_unselect();
     char item[TIO_ITEM_MAX];
     size_t len = 0;
     uint8_t frame = 0;
@@ -1678,11 +2290,11 @@ void rln_poke(const char *str)
             rln_finish_line(ch == '\r');
             break;
         }
-        tio_step_t step = tio_frame(&frame, ch);
+        tio_step_t step = tio_frame(&frame, ch, false);
         if (step == TIO_AGAIN)
         {
             len = 0;
-            step = tio_frame(&frame, ch);
+            step = tio_frame(&frame, ch, false);
         }
         if (len < TIO_ITEM_MAX)
             item[len] = (char)ch;

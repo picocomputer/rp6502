@@ -135,6 +135,31 @@ static inline void sprite_blit16(uint16_t *dst, const uint16_t *src, unsigned le
     } while (dst > dst_start);
 }
 
+/* Eight pixels, as pixel pairs: stored whole when all eight are opaque,
+ * which is most of a sprite, and otherwise each pixel by its alpha bit. */
+static inline __attribute__((always_inline)) void
+sprite_group16_alpha(uint16_t *dst, const uint16_t *src)
+{
+    const mode_word_t *s = (const mode_word_t *)src;
+    mode_word_t *d = (mode_word_t *)dst;
+    const uint32_t w0 = s[0], w1 = s[1], w2 = s[2], w3 = s[3];
+    const uint32_t opaque = 0x00200020;
+    if ((w0 & w1 & w2 & w3 & opaque) == opaque)
+    {
+        d[0] = w0;
+        d[1] = w1;
+        d[2] = w2;
+        d[3] = w3;
+    }
+    else
+    {
+        d[0] = mode_alpha_merge(w0, d[0]);
+        d[1] = mode_alpha_merge(w1, d[1]);
+        d[2] = mode_alpha_merge(w2, d[2]);
+        d[3] = mode_alpha_merge(w3, d[3]);
+    }
+}
+
 static inline void sprite_blit16_alpha(uint16_t *dst, const uint16_t *src, unsigned len)
 {
     uint16_t *dst_start = dst;
@@ -181,36 +206,18 @@ static inline void sprite_blit16_alpha(uint16_t *dst, const uint16_t *src, unsig
     {
         dst -= 8;
         src -= 8;
-        if (src[0] & (1 << 5))
-            dst[0] = src[0];
-        if (src[1] & (1 << 5))
-            dst[1] = src[1];
-        if (src[2] & (1 << 5))
-            dst[2] = src[2];
-        if (src[3] & (1 << 5))
-            dst[3] = src[3];
-        if (src[4] & (1 << 5))
-            dst[4] = src[4];
-        if (src[5] & (1 << 5))
-            dst[5] = src[5];
-        if (src[6] & (1 << 5))
-            dst[6] = src[6];
-        if (src[7] & (1 << 5))
-            dst[7] = src[7];
+        sprite_group16_alpha(dst, src);
     } while (dst > dst_start);
 }
 
-/* A whole row of a plain sprite, n a constant, unrolled whole. */
+/* A whole row of a plain sprite, n a constant multiple of 8, unrolled
+ * whole. */
 static inline __attribute__((always_inline)) void
 sprite_row16_alpha(uint16_t *dst, const uint16_t *src, unsigned n)
 {
-#pragma GCC unroll 64
-    for (unsigned i = 0; i < n; i++)
-    {
-        const uint16_t px = src[i];
-        if (px & (1 << 5))
-            dst[i] = px;
-    }
+#pragma GCC unroll 8
+    for (unsigned i = 0; i < n; i += 8)
+        sprite_group16_alpha(dst + i, src + i);
 }
 
 static inline void sprite_scanline16(

@@ -14,30 +14,40 @@
 #include "ria.pio.h"
 #include "machine.h"
 #include <hardware/dma.h>
-#include <pico/time.h>
 #include <string.h>
 
-static uint32_t pix_send_count;
-static absolute_time_t pix_api_state_timer;
 static uint pix_stream_dma;
 
 // XRAM messages for PIX_STREAM_SM. The DMA wraps its read address at the
-// ring's size, so the ring is aligned to it.
+// ring's size, so the ring is aligned to it. Its own section lets the
+// linker, which sorts .bss by alignment, put it first, where the alignment
+// costs no padding; in a section with other statics it would pad up to
+// nearly its size before it.
 #define PIX_RING_SIZE 128
-static uint32_t pix_ring[PIX_RING_SIZE]
+static uint32_t HOST_BSS_OWN(pix_ring)[PIX_RING_SIZE]
     __attribute__((aligned(sizeof(uint32_t[PIX_RING_SIZE]))));
 
-// This may be modified in an IRQ from vga.c
-static volatile enum {
-    pix_api_running,
-    pix_api_waiting,
-    pix_api_ack,
-    pix_api_nak,
+/* A 6502 program's xreg burst, across the calls of its API op. */
+static enum {
+    pix_api_idle,      // the next call starts a burst
+    pix_api_sending,   // words of the burst are left to send
+    pix_api_answering, // the VGA's answer to the word sent last is awaited
+    pix_api_finishing, // every word is sent, and the op returns once PIX has room
 } pix_api_state;
+/* The burst, set when it starts and read only until it ends. */
+static uint32_t pix_send_count;
+static uint8_t pix_device;
+static uint8_t pix_channel;
+static uint8_t pix_index;
 
-// The VGA holds ack/nak out of the window around each VSYNC, so this must
-// exceed that lockout plus a frame of scheduling slack.
-#define PIX_ACK_TIMEOUT_MS 25
+/* Puts a message in PIX_SM's FIFO with no check for room or the gate. Only
+ * pix_init's IDLEs, with the FIFO empty, and pix_send_blocking use it. */
+static void HOST_IN_RAM_FUNC pix_send(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
+{
+    assert(dev3 < 8);
+    assert(ch4 < 16);
+    pio_sm_put(PIX_PIO, PIX_SM, PIX_MESSAGE(dev3, ch4, byte, word));
+}
 
 // Both state machines take the divider and restart it together, in lockstep.
 void pix_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
@@ -84,113 +94,43 @@ void HOST_IN_FLASH_FUNC pix_init(void)
 
 void pix_stop(void)
 {
-    pix_send_count = 0;
-    pix_api_state = pix_api_running;
+    pix_api_state = pix_api_idle;
 }
 
-void pix_ack(void)
+static bool pix_api_fail(api_errno errnum)
 {
-    if (pix_api_state == pix_api_waiting)
-        pix_api_state = pix_api_ack;
+    pix_api_state = pix_api_idle;
+    return api_return_errno(errnum);
 }
 
-void pix_nak(void)
+/* The burst's words go from the highest index down, each once PIX takes it,
+ * past the VGA's gate (vga.h). VGA channel 0's CANVAS and MODE are answered:
+ * each is asked once the VGA may be asked, and the burst waits for its
+ * answer. With no VGA connected they fail. */
+static bool HOST_IN_FLASH_FUNC pix_api_send(void)
 {
-    if (pix_api_state == pix_api_waiting)
-        pix_api_state = pix_api_nak;
-}
-
-void pix_wait_begin(uint32_t timeout_ms)
-{
-    pix_api_state = pix_api_waiting;
-    pix_api_state_timer = make_timeout_time_ms(timeout_ms);
-}
-
-int pix_wait_poll(void)
-{
-    switch (pix_api_state)
-    {
-    case pix_api_ack:
-        pix_api_state = pix_api_running;
-        return 1;
-    case pix_api_nak:
-        pix_api_state = pix_api_running;
-        return -1;
-    case pix_api_waiting:
-        if (time_reached(pix_api_state_timer))
-        {
-            pix_api_state = pix_api_running;
-            return -2;
-        }
-        return 0;
-    default:
-        return -1;
-    }
-}
-
-bool HOST_IN_FLASH_FUNC pix_api_xreg(void)
-{
-    static uint8_t pix_device;
-    static uint8_t pix_channel;
-    static uint8_t pix_index;
-
-    switch (pix_api_state)
-    {
-    case pix_api_running:
-        break;
-    case pix_api_waiting:
-        if (time_reached(pix_api_state_timer))
-        {
-            pix_api_state = pix_api_running;
-            pix_send_count = 0;
-            return api_return_errno(API_EIO);
-        }
+    uint8_t index = (uint8_t)(pix_index + pix_send_count - 1);
+    bool answered = pix_device == PIX_DEVICE_VGA && pix_channel == 0 && index <= 1;
+    if (!pix_ready() || (answered && !vga_ask_ready()))
         return api_working();
-    case pix_api_ack:
-        if (!pix_ready())
-            return api_working();
-        pix_api_state = pix_api_running;
-        if (pix_send_count == 0)
-        {
-            xstack_ptr = XSTACK_SIZE;
-            return api_return_ax(0);
-        }
-        break;
-    case pix_api_nak:
-        pix_api_state = pix_api_running;
-        pix_send_count = 0;
-        return api_return_errno(API_EINVAL);
-    }
+    uint16_t data = 0;
+    if (!api_pop_uint16(&data))
+        return pix_api_fail(API_EINVAL);
+    --pix_send_count;
+    if (!answered)
+        pix_send_blocking(pix_device, pix_channel, index, data);
+    else if (!vga_ask(0, index, data, VGA_ANSWER_MS))
+        return pix_api_fail(API_EIO);
+    if (pix_device == PIX_DEVICE_VGA && pix_channel == 0)
+        vga_xreg(index, data);
+    pix_api_state = answered         ? pix_api_answering
+                    : pix_send_count ? pix_api_sending
+                                     : pix_api_finishing;
+    return api_working();
+}
 
-    // In progress, send one xreg
-    if (pix_send_count)
-    {
-        if (pix_ready())
-        {
-            --pix_send_count;
-            uint16_t data = 0;
-            if (!api_pop_uint16(&data))
-            {
-                pix_send_count = 0;
-                return api_return_errno(API_EINVAL);
-            }
-            pix_send(pix_device, pix_channel, pix_index + pix_send_count, data);
-            if (pix_device == PIX_DEVICE_VGA && pix_channel == 0)
-                vga_xreg((uint8_t)(pix_index + pix_send_count), data);
-            // VGA channel 0 regs 0 (canvas) and 1 (mode) require an ACK.
-            if (pix_device == PIX_DEVICE_VGA && pix_channel == 0 &&
-                pix_index + pix_send_count <= 1)
-            {
-                pix_api_state = pix_api_waiting;
-                pix_api_state_timer = make_timeout_time_ms(PIX_ACK_TIMEOUT_MS);
-            }
-            else if (!pix_send_count)
-                pix_api_state = pix_api_ack;
-        }
-        return api_working();
-    }
-
-    // Setup for new call
+static bool HOST_IN_FLASH_FUNC pix_api_begin(void)
+{
     pix_device = xstack[XSTACK_SIZE - 1];
     pix_channel = xstack[XSTACK_SIZE - 2];
     pix_index = xstack[XSTACK_SIZE - 3];
@@ -199,17 +139,11 @@ bool HOST_IN_FLASH_FUNC pix_api_xreg(void)
         pix_send_count < 1 || pix_send_count > XSTACK_SIZE / 2 ||
         pix_index + pix_send_count > 0x100 ||
         pix_device >= PIX_DEVICE_IDLE || pix_channel > 15)
-    {
-        pix_send_count = 0;
-        return api_return_errno(API_EINVAL);
-    }
+        return pix_api_fail(API_EINVAL);
 
     // VGA control channel ($F) is RIA-private while VGA is connected.
     if (pix_device == PIX_DEVICE_VGA && pix_channel == 0xF && vga_connected())
-    {
-        pix_send_count = 0;
-        return api_return_errno(API_EACCES);
-    }
+        return pix_api_fail(API_EACCES);
 
     // Local PIX device $0. Every register here is a key register with no
     // argument, so the burst is written in order. api_pop_uint16 yields the
@@ -221,46 +155,69 @@ bool HOST_IN_FLASH_FUNC pix_api_xreg(void)
             uint16_t data;
             memcpy(&data, &xstack[XSTACK_SIZE - 5 - 2 * i], sizeof(data));
             if (!xreg0(pix_channel, (uint8_t)(pix_index + i), data))
-            {
-                pix_send_count = 0;
-                return api_return_errno(API_EINVAL);
-            }
+                return pix_api_fail(API_EINVAL);
         }
-        pix_send_count = 0;
         xstack_ptr = XSTACK_SIZE;
         return api_return_ax(0);
     }
 
     // Special case of sending VGA canvas and mode in same call.
-    // Because we send in reverse, canvas has to be first or it'll clear mode programming.
+    // Because we send in reverse, canvas has to be first or it'll clear mode
+    // programming. Until it can go, the next call starts the burst again.
     if (pix_device == PIX_DEVICE_VGA && pix_channel == 0 &&
         pix_index == 0 && pix_send_count > 1)
     {
+        if (!pix_ready() || !vga_ask_ready())
+            return api_working();
         uint16_t canvas;
         memcpy(&canvas, &xstack[XSTACK_SIZE - 5], sizeof(canvas));
-        pix_send_blocking(PIX_DEVICE_VGA, 0, 0, canvas);
+        if (!vga_ask(0, 0, canvas, VGA_ANSWER_MS))
+            return pix_api_fail(API_EIO);
         vga_xreg(0, canvas);
         pix_index = 1;
         pix_send_count -= 1;
-        pix_api_state = pix_api_waiting;
-        pix_api_state_timer = make_timeout_time_ms(PIX_ACK_TIMEOUT_MS);
+        pix_api_state = pix_api_answering;
+        return api_working();
+    }
+    pix_api_state = pix_api_sending;
+    return api_working();
+}
+
+/* A VGA that does not answer in time is lost (vga.h), and the op fails. */
+bool HOST_IN_FLASH_FUNC pix_api_xreg(void)
+{
+    switch (pix_api_state)
+    {
+    case pix_api_idle:
+        return pix_api_begin();
+    case pix_api_sending:
+        return pix_api_send();
+    case pix_api_answering:
+        switch (vga_answer())
+        {
+        case VGA_ANSWER_WAITING:
+            return api_working();
+        case VGA_ANSWER_NAK:
+            return pix_api_fail(API_EINVAL);
+        case VGA_ANSWER_TIMEOUT:
+            return pix_api_fail(API_EIO);
+        case VGA_ANSWER_ACK:
+            break;
+        }
+        if (pix_send_count)
+            return pix_api_send();
+        pix_api_state = pix_api_finishing;
+        __attribute__((fallthrough));
+    case pix_api_finishing:
+        if (!pix_ready())
+            return api_working();
+        pix_api_state = pix_api_idle;
+        xstack_ptr = XSTACK_SIZE;
+        return api_return_ax(0);
     }
     return api_working();
 }
 
-// A CANVAS or DISPLAY can change the VGA's system clock.
-// Its PIX receiver loses messages until the new clock settles.
-#define PIX_HOLD_US 1000
-static uint64_t pix_hold_end_us;
-
-void HOST_IN_RAM_FUNC pix_send(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
-{
-    assert(dev3 < 8);
-    assert(ch4 < 16);
-    pio_sm_put(PIX_PIO, PIX_SM, PIX_MESSAGE(dev3, ch4, byte, word));
-    if (dev3 == PIX_DEVICE_VGA && byte == 0 && (ch4 == 0 || ch4 == 0xF))
-        pix_hold_end_us = time_us_64() + PIX_HOLD_US;
-}
 
 // PIX_SM's TX FIFO is joined. Core 1 puts the 6502's portal writes in it
 // without checking for room, so the main loop leaves it PIX_CORE1_SLOTS.
@@ -269,8 +226,15 @@ void HOST_IN_RAM_FUNC pix_send(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t
 
 bool HOST_IN_RAM_FUNC pix_ready(void)
 {
-    return time_us_64() >= pix_hold_end_us &&
+    return vga_gate_open() &&
            pio_sm_get_tx_fifo_level(PIX_PIO, PIX_SM) < PIX_FIFO_DEPTH - PIX_CORE1_SLOTS;
+}
+
+void HOST_IN_RAM_FUNC pix_send_blocking(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
+{
+    while (!pix_ready())
+        tight_loop_contents();
+    pix_send(dev3, ch4, byte, word);
 }
 
 // A run starts only on an idle DMA, which has left its read address at the

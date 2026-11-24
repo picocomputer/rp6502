@@ -5,7 +5,7 @@
  */
 
 /* Typing on a machine whose OS has already decoded the key. What a host types
- * goes into the manifold's keyboard ring; see core/com/manifold.h.
+ * goes into the typed queue; see core/hid/typed.h.
  *
  * Which keys are down is core/hid/keyboard.h. A block of text is
  * core/hid/paste.h.
@@ -22,17 +22,18 @@ typedef enum
 {
     HOSTKEY_NONE,  /* the key sends nothing */
     HOSTKEY_TYPED, /* the key's bytes went to the console */
-    HOSTKEY_CHORD, /* Ctrl-Alt-Delete or Alt-F4 acted */
+    HOSTKEY_CHORD, /* a chord of core/hid/key.h acted, or is held */
 } hostkey_result_t;
 
-/* Type a key press as vtkey_encode has it. flags are the VTKEY_ flags of
- * core/hid/vtkey.h.
+/* Type a key press as vtkey_encode has it, unless key_chord takes it.
+ * modifier is a HID report's modifier byte, KEYBOARD_MODIFIER_ bits, and
+ * repeat says the key is held and the host is repeating it.
  *
  * A key with a character types it here only when guess is set, which a host
  * sets for a press its system gives no text for, such as a Ctrl or Alt
  * chord. The character is then a US keyboard's, by Shift and Caps Lock.
  * Otherwise the host delivers the text through hostkey_char. */
-hostkey_result_t hostkey_press(uint8_t usage, uint8_t flags, bool guess);
+hostkey_result_t hostkey_press(uint8_t usage, uint8_t modifier, bool repeat, bool guess);
 
 /* The character a key has on a US keyboard, or 0, and the key and Shift that
  * type a character there, or 0. */

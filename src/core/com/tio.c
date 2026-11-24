@@ -6,7 +6,7 @@
 
 #include "core/com/tio.h"
 #include "core/sys/timer.h"
-#include "core/term/cells.h"
+#include "core/term/vterm.h"
 #include "machine.h"
 #include <ctype.h>
 #include <string.h>
@@ -18,8 +18,10 @@
 
 /* The framing states. TIO_FRAME_NUM is a CSI with only digits so far, where
  * '$' ends rxvt's shifted keys. TIO_FRAME_ONE waits for the one byte after
- * ESC 'N', ESC '[' '[', or a VT52's ESC '?'. The mouse states count down the three bytes of an
- * X10 mouse report, one left at TIO_FRAME_MOUSE. */
+ * ESC 'N', ESC '[' '[', or a VT52's ESC '?'. The mouse states count down the
+ * three values of an X10 mouse report, one left at TIO_FRAME_MOUSE, and the
+ * tail states wait for the second byte of a value in UTF-8, with none after
+ * it at TIO_FRAME_TAIL. */
 #define TIO_FRAME_GROUND 0
 #define TIO_FRAME_ESC 1
 #define TIO_FRAME_CSI 2
@@ -29,7 +31,8 @@
 #define TIO_FRAME_SS3 6
 #define TIO_FRAME_ONE 7
 #define TIO_FRAME_MOUSE 8
-#define TIO_FRAME_LAST (TIO_FRAME_MOUSE + 2)
+#define TIO_FRAME_TAIL (TIO_FRAME_MOUSE + 3)
+#define TIO_FRAME_LAST (TIO_FRAME_TAIL + 2)
 
 /* The open length that stands for the rest of an overlong sequence, which
  * no prefix reaches. */
@@ -63,9 +66,10 @@ SST_TABLE(tio, TIO_SST_ROWS)
 /* One byte inside a sequence. ESC starts the sequence over, CAN and SUB
  * cancel it, and any other control, DEL, or a byte of 0x80 and up ends it
  * and stands alone. After a lone ESC the controls and DEL make two-byte
- * Alt keys instead. The three bytes of an X10 mouse report can be anything
- * from 0x20 up. */
-static tio_step_t HOST_IN_RAM_FUNC tio_frame_in(uint8_t was, uint8_t *frame, uint8_t ch)
+ * Alt keys instead. The bytes of an X10 mouse report can be anything from
+ * 0x20 up, and with utf8 a lead byte takes the byte after it. */
+static tio_step_t HOST_IN_RAM_FUNC tio_frame_in(uint8_t was, uint8_t *frame, uint8_t ch,
+                                                bool utf8)
 {
     if (ch == TIO_CAN || ch == TIO_SUB)
         return TIO_DROP;
@@ -75,7 +79,11 @@ static tio_step_t HOST_IN_RAM_FUNC tio_frame_in(uint8_t was, uint8_t *frame, uin
     {
         if (ch < 0x20)
             return TIO_AGAIN;
-        if (was > TIO_FRAME_MOUSE)
+        if (was >= TIO_FRAME_TAIL)
+            was -= TIO_FRAME_TAIL - TIO_FRAME_MOUSE;
+        else if (utf8 && ch >= 0xC0 && ch <= 0xDF)
+            *frame = was + (TIO_FRAME_TAIL - TIO_FRAME_MOUSE);
+        if (!*frame && was > TIO_FRAME_MOUSE)
             *frame = was - 1;
         return *frame ? TIO_OPEN : TIO_END;
     }
@@ -91,7 +99,7 @@ static tio_step_t HOST_IN_RAM_FUNC tio_frame_in(uint8_t was, uint8_t *frame, uin
             *frame = TIO_FRAME_CSI;
         else if (ch == 'O')
             *frame = TIO_FRAME_SS3;
-        else if (ch == 'N' || (ch == '?' && cells_term.vt52))
+        else if (ch == 'N' || (ch == '?' && vterm.vt52))
             *frame = TIO_FRAME_ONE;
         break;
     case TIO_FRAME_CSI:
@@ -135,16 +143,37 @@ static tio_step_t HOST_IN_RAM_FUNC tio_frame_in(uint8_t was, uint8_t *frame, uin
     return *frame ? TIO_OPEN : TIO_END;
 }
 
-tio_step_t HOST_IN_RAM_FUNC tio_frame(uint8_t *frame, uint8_t ch)
+tio_step_t HOST_IN_RAM_FUNC tio_frame(uint8_t *frame, uint8_t ch, bool utf8)
 {
     uint8_t was = *frame;
     *frame = TIO_FRAME_GROUND;
     if (was)
-        return tio_frame_in(was, frame, ch);
+        return tio_frame_in(was, frame, ch, utf8);
     if (ch != TIO_ESC)
         return TIO_END;
     *frame = TIO_FRAME_ESC;
     return TIO_OPEN;
+}
+
+/* Whether src's items are framed with utf8 (tio_frame): the keyboard's,
+ * while the console's terminal has the mouse's UTF-8 form. */
+static bool HOST_IN_RAM_FUNC tio_utf8(com_source_t src)
+{
+    return src == COM_SOURCE_KEYBOARD && vterm.mouse_form == TERM_MOUSE_FORM_UTF8;
+}
+
+/* Whether the n bytes at p are the three values of an X10 mouse report:
+ * three bytes, or, as tio_frame takes them with utf8, each value one byte
+ * or a lead byte and the byte after it. */
+static bool HOST_IN_RAM_FUNC tio_mouse_values(const char *p, size_t n)
+{
+    if (n == 3)
+        return true;
+    unsigned values = 0;
+    for (size_t i = 0; i < n; i++, values++)
+        if ((uint8_t)p[i] >= 0xC0 && (uint8_t)p[i] <= 0xDF && i + 1 < n)
+            i++;
+    return values == 3;
 }
 
 bool HOST_IN_RAM_FUNC tio_csi_parse(const char *item, size_t len, tio_csi_t *csi)
@@ -200,10 +229,11 @@ bool HOST_IN_RAM_FUNC tio_csi_parse(const char *item, size_t len, tio_csi_t *csi
     csi->final = (uint8_t)item[i++];
     if (csi->final < '@' || csi->final > '~')
         return false;
-    /* An X10 mouse report has three bytes after its 'M', and a Linux console
-     * function key one after its second '['. */
+    /* An X10 mouse report has three values after its 'M', and a Linux
+     * console function key one byte after its second '['. */
     if (i < len)
-        return i == 3 && len - i == (csi->final == 'M' ? 3u : csi->final == '[' ? 1u : 0u);
+        return i == 3 && (csi->final == 'M' ? tio_mouse_values(item + i, len - i)
+                                            : csi->final == '[' && len - i == 1);
     return true;
 }
 
@@ -259,6 +289,7 @@ static size_t HOST_IN_RAM_FUNC tio_pass(com_source_t src, char *buf, size_t n)
 static size_t HOST_IN_RAM_FUNC tio_scan(com_source_t src, char *buf)
 {
     tio_source_t *t = &tio_sources[src];
+    const bool utf8 = tio_utf8(src);
     uint8_t frame = t->overlong;
     bool overlong = frame != TIO_FRAME_GROUND;
     size_t start = 0;
@@ -269,13 +300,13 @@ static size_t HOST_IN_RAM_FUNC tio_scan(com_source_t src, char *buf)
         int c = com_peek(src, start + n);
         if (c >= 0)
         {
-            step = tio_frame(&frame, (uint8_t)c);
+            step = tio_frame(&frame, (uint8_t)c, utf8);
             if (step == TIO_AGAIN)
             {
                 start = tio_pass(src, buf, start + n);
                 n = 0;
                 overlong = false;
-                step = tio_frame(&frame, (uint8_t)c);
+                step = tio_frame(&frame, (uint8_t)c, utf8);
             }
             n++;
         }
@@ -349,7 +380,7 @@ void tio_read_end(void)
         size_t n = 0;
         int c;
         while (t->overlong && (c = com_peek(s, n)) >= 0)
-            if (tio_frame(&t->overlong, (uint8_t)c) != TIO_AGAIN)
+            if (tio_frame(&t->overlong, (uint8_t)c, tio_utf8(s)) != TIO_AGAIN)
                 n++;
         tio_pass(s, scratch, n);
         t->overlong = TIO_FRAME_GROUND;

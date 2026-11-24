@@ -81,7 +81,8 @@ rp6502_test_roms(fstest_roms cpu/fs/fstest.py fstest)
 rp6502_test_roms(stream_roms cpu/fs/stream.py stream)
 rp6502_test_roms(gamepad_roms cpu/hid/gamepad.py gamepad gamepad_bounds)
 rp6502_test_roms(keyboard_roms cpu/hid/keyboard.py keyboard)
-rp6502_test_roms(pointer_roms cpu/hid/pointer.py mouse tablet)
+rp6502_test_roms(pointer_roms cpu/hid/pointer.py mouse tablet console
+    console_paced)
 rp6502_test_roms(argv_roms cpu/ria/argv.py argv)
 rp6502_test_roms(chain_roms cpu/ria/chain.py launcher child waiter waitlaunch)
 rp6502_test_roms(clk_roms cpu/ria/clk.py clk)
@@ -174,6 +175,8 @@ function(rp6502_add_test name)
     endif()
 
     add_executable(test_${name} ${T_SOURCES})
+    # A test links in seconds without LTO, which buys a test nothing.
+    set_property(TARGET test_${name} PROPERTY INTERPROCEDURAL_OPTIMIZATION OFF)
     if(COMMAND rp6502_msvc_dialect)
         rp6502_msvc_dialect(test_${name})
     endif()

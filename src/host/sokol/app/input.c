@@ -13,9 +13,10 @@
 #include "core/hid/usage.h"
 #include "core/hid/vtkey.h"
 #include "core/hid/hostkey.h"
-#include "core/hid/paste.h"
+#include "core/hid/key.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
+#include "core/vga/mode/mode6.h"
 #include "core/vga/vga_emu.h"
 #ifdef EMU_WITH_DEBUGGER
 #include "host/sokol/dbg/dbgui.h"
@@ -25,35 +26,13 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
 
 static bool suppress_char;
 
 /* Set from a chord that acted until its key comes up. Windows follows Alt-F4
- * with a close request, which is cancelled while this is set. */
+ * with a close request, which is cancelled while this is set. Repeats of the
+ * chord's key are core/hid/key.h's to drop. */
 static bool input_chord_held;
-
-/* A line break in the clipboard is pressed as Enter, which sends CR, the way a
- * terminal pastes. The clipboard ends lines in CRLF on Windows and LF
- * elsewhere. */
-static void input_paste(const char *text)
-{
-    size_t len = strlen(text);
-    char *keys = malloc(len + 1);
-    if (!keys)
-        return;
-    size_t n = 0;
-    for (size_t i = 0; i < len; i++)
-    {
-        if (text[i] == '\r' && text[i + 1] == '\n')
-            i++;
-        keys[n++] = text[i] == '\n' ? '\r' : text[i];
-    }
-    keys[n] = 0;
-    paste_start(keys);
-    free(keys);
-}
 
 /* A sokol keycode as a USB HID keyboard usage id, for the keyboard bitmap.
  * 0 means the key has no usage id and is not reported. */
@@ -132,6 +111,38 @@ static uint8_t sokol_to_hid(int kc)
 #define ALTGR_IS_CTRL_ALT 0
 #endif
 
+/* Sokol says which modifiers are held but not which side, so the left one
+ * stands for both. */
+static uint8_t input_modifier(const sapp_event *e)
+{
+    return (uint8_t)(((e->modifiers & SAPP_MODIFIER_SHIFT) ? KEYBOARD_MODIFIER_LEFTSHIFT : 0) |
+                     ((e->modifiers & SAPP_MODIFIER_ALT) ? KEYBOARD_MODIFIER_LEFTALT : 0) |
+                     ((e->modifiers & SAPP_MODIFIER_CTRL) ? KEYBOARD_MODIFIER_LEFTCTRL : 0) |
+                     ((e->modifiers & SAPP_MODIFIER_SUPER) ? KEYBOARD_MODIFIER_LEFTGUI : 0));
+}
+
+static bool input_is_paste_key(const sapp_event *e)
+{
+    return e->type == SAPP_EVENTTYPE_KEY_DOWN &&
+           key_clip(sokol_to_hid(e->key_code), input_modifier(e)) == KEY_CLIP_PASTE;
+}
+
+bool input_paste_key(const sapp_event *e)
+{
+    return input_is_paste_key(e) && !e->key_repeat;
+}
+
+bool input_key_withheld(const sapp_event *e)
+{
+    if (input_is_paste_key(e))
+        return e->key_repeat;
+    if (e->type == SAPP_EVENTTYPE_KEY_DOWN &&
+        key_clip_acts(sokol_to_hid(e->key_code), input_modifier(e), e->key_repeat))
+        return true;
+    return e->type == SAPP_EVENTTYPE_KEY_DOWN && sokol_to_hid(e->key_code) == HID_KEY_V &&
+           input_modifier(e) == KEYBOARD_MODIFIER_LEFTCTRL;
+}
+
 void input_locks(void)
 {
     keyboard_set_locks(host_locks());
@@ -173,45 +184,25 @@ static void input_key(const sapp_event *e)
     case SAPP_EVENTTYPE_KEY_DOWN:
     {
         bool ctrl = (e->modifiers & SAPP_MODIFIER_CTRL) != 0;
-        bool shift = (e->modifiers & SAPP_MODIFIER_SHIFT) != 0;
         bool alt = (e->modifiers & SAPP_MODIFIER_ALT) != 0;
         uint8_t hid = sokol_to_hid(e->key_code);
+        uint8_t modifier = input_modifier(e);
         suppress_char = false;
-        if (e->key_repeat && input_chord_held)
-            break;
         /* The system gives no text for a Ctrl or Alt chord, so its
          * character is guessed. Any other key's text arrives through the
-         * CHAR case above. */
-        bool guess = false;
-        if (ctrl && !alt)
-        {
-            guess = true;
-#if defined(__EMSCRIPTEN__)
-            /* The browser, not sokol, decides when a paste fires, and any
-             * Ctrl+V variant can land a JavaScript paste event, so every
-             * Ctrl+V chord types the pasted text instead of 0x16. */
-            if (e->key_code == SAPP_KEYCODE_V &&
-                sapp_query_desc().enable_clipboard)
-                guess = false;
-#elif !defined(__APPLE__)
-            /* Sokol sends CLIPBOARD_PASTED when the modifiers are exactly
-             * Ctrl and the key is V, so that one chord types the pasted text
-             * instead of 0x16. Shifted variants never paste and still inject
-             * 0x16, and macOS pastes on Cmd+V, which leaves its Ctrl+V a
-             * guest SYN. */
-            if (e->key_code == SAPP_KEYCODE_V &&
-                e->modifiers == SAPP_MODIFIER_CTRL &&
-                sapp_query_desc().enable_clipboard)
-                guess = false;
-#endif
-        }
-        /* Ctrl+Alt is excluded only where it means AltGr, whose composed
+         * CHAR case above. Plain Ctrl+V is the program's, and types 0x16 as
+         * Ctrl+C types 0x03: the paste keys are others (core/hid/key.h).
+         * Ctrl+Alt is excluded only where it means AltGr, whose composed
          * character arrives through the CHAR case above. */
-        else if (alt && !(ALTGR_IS_CTRL_ALT && ctrl))
-            guess = true;
-        uint8_t flags = (uint8_t)((shift ? VTKEY_SHIFT : 0) | (alt ? VTKEY_ALT : 0) |
-                                  (ctrl ? VTKEY_CTRL : 0));
-        hostkey_result_t result = hostkey_press(hid, flags, guess);
+        const bool guess = (ctrl && !alt) || (alt && !(ALTGR_IS_CTRL_ALT && ctrl));
+#if defined(__EMSCRIPTEN__)
+        /* A page reads the clipboard only in the paste event that a paste
+         * key makes, so a paste key is left to the browser (entry.c), and
+         * the paste event that follows pastes. */
+        if (key_clip(hid, modifier) == KEY_CLIP_PASTE)
+            break;
+#endif
+        hostkey_result_t result = hostkey_press(hid, modifier, e->key_repeat, guess);
         if (result == HOSTKEY_CHORD)
             input_chord_held = true;
         /* A key that typed with no character from here must not type
@@ -277,9 +268,30 @@ static uint8_t pointer_buttons(const sapp_event *e)
     return b;
 }
 
+/* The wheel's notches from a scroll event. A trackpad scrolls by small
+ * fractions of a notch, which add up here until they make one, so a slow
+ * scroll moves too; the rest waits for the next event. */
+static float input_wheel_rest, input_pan_rest;
+
+static int input_notches(float *rest, float delta)
+{
+    *rest += delta;
+    const float whole = truncf(*rest);
+    *rest -= whole;
+    return (int)whole;
+}
+
+static void input_wheel_notches(const sapp_event *e, int *wheel, int *pan)
+{
+    /* sokol's scroll_x, like GLFW's, is positive to the left, and pan, like
+     * HID AC Pan, is positive to the right. */
+    *wheel = input_notches(&input_wheel_rest, e->scroll_y);
+    *pan = input_notches(&input_pan_rest, -e->scroll_x);
+}
+
 /* Route a host pointer or touch event to the tablet, which is an absolute canvas
- * position and never captures. Because nothing is captured while a tablet is
- * mapped, a mouse the program also mapped is fed from here as well: the one
+ * position and never captures. Because nothing is captured while the tablet has
+ * the pointer, a mouse the program mapped is fed from here as well: the one
  * physical pointer drives both blocks, as it would on hardware. True when the
  * event was consumed. */
 static bool input_tablet(const sapp_event *e)
@@ -317,11 +329,18 @@ static bool input_tablet(const sapp_event *e)
         return true;
     }
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
-        /* sokol's scroll_x, like GLFW's, is positive to the left, and pan, like
-         * HID AC Pan, is positive to the right. */
-        tablet_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(-e->scroll_x));
-        if (mouse_is_mapped())
-            mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(-e->scroll_x));
+        /* A wheel the tablet does not use is not consumed. It falls to the
+         * mouse, which takes it only while captured, so it is either used here
+         * or left whole to the page, as the web build cancels it. */
+        if (!input_wheel_to_tablet())
+            return false;
+        {
+            int wheel, pan;
+            input_wheel_notches(e, &wheel, &pan);
+            tablet_host_wheel(wheel, pan);
+            if (mouse_is_mapped())
+                mouse_host_wheel(wheel, pan);
+        }
         return true;
     case SAPP_EVENTTYPE_MOUSE_LEAVE:
         input_set_pointer_on_canvas(false);
@@ -363,9 +382,29 @@ bool input_mouse_locked(void)
 #endif
 }
 
+bool input_pointer_to_tablet(void)
+{
+    return tablet_is_mapped() || (tablet_wanted() && !mouse_is_mapped());
+}
+
+bool input_wheel_to_tablet(void)
+{
+    return input_pointer_to_tablet() && tablet_wheel_wanted();
+}
+
+void input_pointer_task(void)
+{
+    const bool to_tablet = input_pointer_to_tablet();
+    /* The absolute tablet never captures the pointer, and a program that has
+     * unmapped the mouse no longer wants it. */
+    if (input_mouse_locked() && (!mouse_is_mapped() || to_tablet))
+        sapp_lock_mouse(false);
+    tablet_host_give(to_tablet);
+}
+
 void input_event(const sapp_event *e)
 {
-    if (tablet_is_mapped() && input_tablet(e))
+    if (input_pointer_to_tablet() && input_tablet(e))
         return;
 
     switch (e->type)
@@ -423,10 +462,27 @@ void input_event(const sapp_event *e)
         break;
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
         if (input_mouse_locked())
-            mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(-e->scroll_x));
+        {
+            int wheel, pan;
+            input_wheel_notches(e, &wheel, &pan);
+            mouse_host_wheel(wheel, pan);
+        }
         break;
     case SAPP_EVENTTYPE_CLIPBOARD_PASTED:
-        input_paste(sapp_get_clipboard_string());
+#if defined(__EMSCRIPTEN__)
+        /* The page's paste event, which a paste key left to the browser
+         * made, or the browser's own menu: the clipboard, which is the
+         * text the event handed over (entry.c), is pasted as a paste key
+         * pastes: at once, or in place of the line editor's selection
+         * showing, which the line editor takes after the keys typed before
+         * it. sokol keeps that text until the next paste event, which cuts
+         * this paste short as it starts. Plain Ctrl+V, which typed 0x16,
+         * makes none (input_key_withheld). */
+        key_clip_act(KEY_CLIP_PASTE);
+#endif
+        /* On the desktop the paste keys are chords (core/hid/key.h) that
+         * paste the desktop's clipboard themselves, reading it as they act,
+         * so the paste sokol makes of Ctrl+V or Cmd+V is no paste. */
         break;
     case SAPP_EVENTTYPE_QUIT_REQUESTED:
         if (input_chord_held)
@@ -447,6 +503,10 @@ static sapp_mouse_cursor tablet_cursor_to_sokol(uint8_t shape)
     case TABLET_CURSOR_HAND: return SAPP_MOUSECURSOR_POINTING_HAND;
     case TABLET_CURSOR_RESIZE_EW: return SAPP_MOUSECURSOR_RESIZE_EW;
     case TABLET_CURSOR_RESIZE_NS: return SAPP_MOUSECURSOR_RESIZE_NS;
+    case TABLET_CURSOR_RESIZE_NWSE: return SAPP_MOUSECURSOR_RESIZE_NWSE;
+    case TABLET_CURSOR_RESIZE_NESW: return SAPP_MOUSECURSOR_RESIZE_NESW;
+    case TABLET_CURSOR_MOVE: return SAPP_MOUSECURSOR_RESIZE_ALL;
+    case TABLET_CURSOR_NOT_ALLOWED: return SAPP_MOUSECURSOR_NOT_ALLOWED;
     default: return SAPP_MOUSECURSOR_DEFAULT;
     }
 }
@@ -473,13 +533,13 @@ void input_update_cursor(void)
         return;
     }
 #endif
-    if (tablet_is_mapped() && pointer_on_canvas)
+    if (input_pointer_to_tablet() && pointer_on_canvas)
     {
         had_tablet = true;
-        int shape = tablet_control();
-        if (shape >= TABLET_CURSOR_COUNT)
-            shape = TABLET_CURSOR_OFF;
-        if (shape == TABLET_CURSOR_OFF)
+        /* The VGA draws the program's own pointers, and a shape the system
+         * has none of is no pointer. */
+        const uint8_t shape = tablet_shape();
+        if (shape == TABLET_CURSOR_OFF || shape >= TABLET_CURSOR_COUNT || mode6_custom())
             sapp_show_mouse(false);
         else
         {

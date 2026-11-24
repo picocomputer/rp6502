@@ -158,9 +158,9 @@ static inline int32_t set_tz_minutes(void)
 #define FILE_ST_WROTE 0x40u
 
 /* mode0.sv's registers from 0x50010000 are core/vga/mode/mode0.h's
- * mode0_regs, which link.ld places there. */
+ * mode0_regs, which link.ld places there, and above them the frame count. */
 /* The frames since power-up. A write sets the count. */
-#define VID_FRAME (*(volatile uint32_t *)0x500100A0u)
+#define VID_FRAME (*(volatile uint32_t *)0x500100FCu)
 
 /* The scanline program, which reads back as it was written, less the
  * bits it does not keep: core/vga/vga.h's VGA_PROG_MAX lines of
@@ -171,6 +171,20 @@ static inline int32_t set_tz_minutes(void)
     (((volatile uint32_t *)0x50020000u)[(line) * 16 + (plane) * 4 + (w)])
 #define VID_CANVAS (*(volatile uint32_t *)0x50028000u)
 #define VID_VSYNC_LINE (*(volatile uint32_t *)0x50028004u)
+
+/* mode6.sv's pointer, which takes whole words and reads back nothing: the
+ * shape, 0 for none, with the copy of the system shape's image to draw
+ * in bit 8; the hot spot {y, x} in canvas pixels; the program's sprite
+ * array in XRAM, or $FFFF for the system's shape; each copy's
+ * {width_height, hot_y, hot_x}; and each copy's image, 128 words. The
+ * shape, the hot spot and the config latch as a frame starts. */
+#define VID_PTR_SHAPE (*(volatile uint32_t *)0x50200000u)
+#define VID_PTR_WHERE (*(volatile uint32_t *)0x50200004u)
+#define VID_PTR_CONFIG (*(volatile uint32_t *)0x50200008u)
+#define VID_PTR_SYS(copy) (((volatile uint32_t *)0x5020000Cu)[copy])
+#define VID_PTR_IMG_WORDS 128
+#define VID_PTR_IMG(copy, w) \
+    (((volatile uint32_t *)0x50201000u)[(copy) * VID_PTR_IMG_WORDS + (w)])
 #define REGS_WIN ((volatile uint8_t *)0x20000000u)
 #define UART_POP (*(volatile uint32_t *)0x20000040u)
 /* The low byte is the $FFF0 enable mask and the next byte holds the pending

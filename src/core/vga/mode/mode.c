@@ -11,6 +11,7 @@
 #include "core/vga/mode/mode3.h"
 #include "core/vga/mode/mode4.h"
 #include "core/vga/mode/mode5.h"
+#include "core/vga/mode/mode6.h"
 
 bool vga_mode_prog(uint16_t mode, uint16_t *xregs)
 {
@@ -28,6 +29,8 @@ bool vga_mode_prog(uint16_t mode, uint16_t *xregs)
         return mode4_prog(xregs);
     case 5:
         return mode5_prog(xregs);
+    case 6:
+        return mode6_prog(xregs);
     default:
         return false;
     }

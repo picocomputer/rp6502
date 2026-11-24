@@ -340,3 +340,64 @@ UTEST(input, a_shifted_symbol_still_types)
     ASSERT_TRUE(pixels_differing(settled, fe.frame_copy, px) > 0);
     fe.unload_game();
 }
+
+/* The first row of the console, 16 lines each, with anything drawn on it. */
+static int first_text_row(void)
+{
+    const uint32_t bg = fe.frame_copy[(fe.frame_h - 1) * fe.frame_w];
+    for (unsigned y = 0; y < fe.frame_h; y++)
+        for (unsigned x = 0; x < fe.frame_w; x++)
+            if (fe.frame_copy[y * fe.frame_w + x] != bg)
+                return (int)(y / 16);
+    return -1;
+}
+
+/* A mouse over the middle of row y of the console, the left button held or
+ * not, for a frame. */
+static void mouse_on_row(int y, bool left)
+{
+    memset(fe.pointer, 0, sizeof fe.pointer);
+    memset(fe.mouse, 0, sizeof fe.mouse);
+    fe.mouse[RETRO_DEVICE_ID_MOUSE_X] = 1;
+    fe.pointer[0][RETRO_DEVICE_ID_POINTER_Y] = (int16_t)(((y * 16 + 7) * 2 - 479) * 0x7FFF / 479);
+    fe.mouse[RETRO_DEVICE_ID_MOUSE_LEFT] = left;
+    fe.run();
+}
+
+/* libretro gives a core no clipboard, so the copy and paste keys use the
+ * machine's: a line selected with a triple click, copied with Ctrl+Shift+C
+ * and pasted with Ctrl+Shift+V, is typed to the program, which echoes it. */
+UTEST(input, the_copy_and_paste_keys_use_the_machine_s_buffers)
+{
+    static uint32_t settled[640 * 480];
+    memset(fe.input, 0, sizeof fe.input);
+    ASSERT_TRUE(fe_load(ADVENTURE_ROM));
+    fe_run(120);
+    const size_t px = (size_t)fe.frame_w * fe.frame_h;
+    const int row = first_text_row();
+    ASSERT_GE(row, 0);
+    for (int i = 0; i < 3; i++)
+    {
+        mouse_on_row(row, true);
+        mouse_on_row(row, false);
+    }
+    memset(fe.mouse, 0, sizeof fe.mouse);
+    memset(fe.pointer, 0, sizeof fe.pointer);
+    fe.pointer[0][RETRO_DEVICE_ID_POINTER_IS_OFFSCREEN] = 1;
+    fe_run(30);
+    memcpy(settled, fe.frame_copy, px * sizeof(uint32_t));
+    fe_run(70);
+    const size_t idle = pixels_differing(settled, fe.frame_copy, px);
+
+    memcpy(settled, fe.frame_copy, px * sizeof(uint32_t));
+    fe_key(RETROK_c, 0, RETROKMOD_CTRL | RETROKMOD_SHIFT);
+    fe_run(10);
+    fe_key(RETROK_v, 0, RETROKMOD_CTRL | RETROKMOD_SHIFT);
+    fe_run(60);
+    const size_t pasted = pixels_differing(settled, fe.frame_copy, px);
+    fprintf(stderr, "  idle %zu px, pasted %zu px\n", idle, pasted);
+    ASSERT_TRUE(idle < 2000);
+    ASSERT_TRUE(pasted > 5000);
+    memset(fe.pointer, 0, sizeof fe.pointer);
+    fe.unload_game();
+}

@@ -280,8 +280,7 @@ mode2_emit_tiles(uint16_t *rgb, const uint8_t *map, unsigned count,
                     *w++ = pal[b] * 0x10001u;
                 else if (bpp == 4)
                 {
-                    const uint32_t c0 = pal[b >> 4] * 0x10001u;
-                    const uint32_t c1 = pal[b & 0xF] * 0x10001u;
+                    const uint32_t c0 = tbl[b >> 4], c1 = tbl[b & 0xF];
                     w[0] = c0;
                     w[1] = c1;
                     w += 2;
@@ -455,7 +454,7 @@ mode2_emit(mode2_config_t *config, uint16_t *rgb, int16_t width,
     MODE_TABLE(small, 32);
     const uint32_t *tbl = bpp == 4 && !hdouble ? pairs : small;
     if (hdouble)
-        for (int i = 0; i < (bpp <= 2 ? 1 << bpp : 0); i++)
+        for (int i = 0; i < (bpp <= 4 ? 1 << bpp : 0); i++)
             small[i] = pal[i] * 0x10001u;
     else if (bpp == 1)
         mode_nibble_set(small, pal[0], pal[1]);

@@ -43,6 +43,8 @@ PRUNE = {
     'host_log': 'only prints a log message, and no message is needed while flashing',
     'com_telnet_handle_auth': 'the telnet FLASHING hook closed any session at the passkey prompt',
     'sys_set_flashing': 'the writer calls it first, and it runs the FLASHING hooks from flash still intact',
+    'vga_tell_code_page': 'vga_flashing waited out every answer and dropped the code page still to go, and nothing is awaited or owed again',
+    'vga_lose': 'the roots reach it only by an answer whose time is up (vga_gate_open), and vga_flashing waited out every answer, and nothing is awaited again',
     'cyw43_ll_bus_init': 'radio start-up: cyw43_ensure_up returns early while the chip is up',
     'initialise_rand': 'runs once, for the first random number at boot (get_rand_64)',
     'btstack_run_loop_poll_data_sources_from_irq':
@@ -85,7 +87,7 @@ INDIRECT = {
     'weak_raw_vprintf': ('panic prints through vprintf', STDIO),
     'manifold_term_feed': ('the console\'s terminal; its FLASHING hook clears the pointer', []),
     'com_read': ('the console sources, RP6502_COM_SOURCES',
-                 ['keymap_in_chars', 'manifold_uart_read', 'com_telnet_read']),
+                 ['typed_read', 'manifold_uart_read', 'com_telnet_read']),
     'async_context_acquire_lock_blocking': ('the poll context type', ASYNC),
     'async_context_release_lock': ('the poll context type', ASYNC),
     'async_context_set_work_pending': ('the poll context type', ASYNC),

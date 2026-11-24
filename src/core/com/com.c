@@ -4,12 +4,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/aud/bel.h"
 #include "core/com/com.h"
 #include "core/str/oem.h"
 #include "core/str/str.h"
 #include "core/sys/ria.h"
 #include "core/sys/timer.h"
-#include "core/term/cells.h"
+#include "core/term/grid.h"
+#include "core/term/vterm.h"
 #include "core/com/manifold.h"
 #include "machine.h"
 #include "drivers.h"
@@ -29,8 +31,6 @@ static timer_mach_t com_rx_deadline;
  * from gets it; otherwise the keyboard would be handed a byte typed at the
  * UART. */
 static uint8_t com_rx_staged;
-
-static bool com_bel_enabled = true;
 
 /* An end of session waits for what the program wrote to go out at the
  * line's pace, then its reset goes out at once. */
@@ -64,7 +64,6 @@ static bool com_sst_valid(sst_cursor_t *c)
     X(SKIP, com_sources, "the machine's, fixed")         \
     X(U8, com_rx_held)                                   \
     X(U64, com_rx_deadline)                              \
-    X(BOOL, com_bel_enabled)                             \
     X(U8, com_rx_staged)                                 \
     X(U16, com_reply_len)                                \
     X(U16, com_reply_at)                                 \
@@ -264,15 +263,14 @@ void HOST_IN_FLASH_FUNC com_run(void)
 /* A failed load can leave the picker held by no source, which reads nothing
  * ever again, the latch byte named for no source, and the answer's indexes
  * past its buffer. This drops the input and answers waiting, holds no
- * source, names the keyboard for the latch, turns the bell on and answers
- * queries as the machine's default says, as a new program finds them. A
- * latch byte named for no source is the RIA's RESET to drop. */
+ * source, names the keyboard for the latch and answers queries as the
+ * machine's default says, as a new program finds them. A latch byte named
+ * for no source is the RIA's RESET to drop. */
 void com_reset(void)
 {
     com_rx_clear();
     com_rx_held = COM_SOURCE_ANY;
     com_rx_staged = COM_SOURCE_KEYBOARD;
-    com_bel_enabled = true;
     com_end_pending = false;
     com_run();
 }
@@ -316,22 +314,12 @@ int HOST_IN_FLASH_FUNC com_printf_utf8(const char *utf8_fmt, ...)
     return n;
 }
 
-bool HOST_IN_RAM_FUNC com_get_bel(void)
-{
-    return com_bel_enabled;
-}
-
-void com_set_bel(bool value)
-{
-    com_bel_enabled = value;
-}
-
 /* The console's terminal has had every byte sent, so its cursor tells. At
  * the last column, a pending wrap or not, CR LF is right. */
 static bool com_line_clean(void)
 {
     manifold_flush();
-    return term_pos(term_shown(&cells_term))->x == 0;
+    return term_pos(vterm_get_shown(&vterm))->x == 0;
 }
 
 void com_clean_line(void)
@@ -352,10 +340,10 @@ void com_clean_line(void)
 static void com_clear_line(void)
 {
     manifold_flush();
-    term_grid_t *g = term_shown(&cells_term);
+    term_grid_t *g = vterm_get_shown(&vterm);
     const uint8_t y = term_pos(g)->y;
     uint8_t last = g->height;
-    while (last > y && !cells_row_used(&cells_term, g, last - 1))
+    while (last > y && !screen_row_used(g->shown, (uint8_t)(last - 1)))
         last--;
     if (last <= y)
     {
@@ -390,7 +378,7 @@ void com_end_now(void)
     com_end_pending = false;
     /* A smooth scroll the output started has finished, unless this is
      * early, and then it snaps into place, the same on every machine. */
-    term_release_smooth(&cells_term);
+    term_release_smooth(&vterm);
     manifold_flush();
     for (const char *s = STR_TERM_SOFT_RESET; *s; s++)
         manifold_putchar((unsigned char)*s);
@@ -398,7 +386,7 @@ void com_end_now(void)
     com_clear_line();
     manifold_flush();
     oem_restore_code_page();
-    com_set_bel(true);
+    bel_set_term(true);
 }
 
 void com_task(void)
