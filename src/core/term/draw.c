@@ -224,8 +224,8 @@ static void draw_sst_put_selection(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     const vterm_select_words_t w = vterm_select_words();
+    sst_put_u16(c, w.margins);
     sst_put_u16(c, w.start);
-    sst_put_u16(c, w.sides);
     sst_put_u16(c, w.end);
 }
 
@@ -233,8 +233,8 @@ static bool draw_sst_get_selection(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
     vterm_select_words_t w;
+    w.margins = sst_get_u16(c);
     w.start = sst_get_u16(c);
-    w.sides = sst_get_u16(c);
     w.end = sst_get_u16(c);
     if (!sst_ok(c))
         return false;
@@ -391,7 +391,7 @@ static inline bool draw_bytes_differ(const uint8_t *a, const uint8_t *b, unsigne
 }
 
 // The columns of row of memory m of s the selection takes, as mode 0's
-// row word carries them, while it shows on s: those between its sides but
+// row word carries them, while it shows on s: those between its margins but
 // on its first row and its last (screen_selection_cols), each row's own
 // columns, half the width on a row of double width. None otherwise.
 static uint32_t draw_row_selection(const screen_t *s, uint8_t m)

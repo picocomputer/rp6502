@@ -55,7 +55,7 @@ static bool pix_ch0_xreg(uint8_t index, uint16_t word)
 /* The pointer's x, until its y says where it goes. */
 static int16_t pix_pointer_x;
 
-/* The selection's start and sides, until its end applies it. */
+/* The selection's margins and start, until its end applies it. */
 static vterm_select_words_t pix_select;
 
 static bool pix_ch15_xreg(uint8_t index, uint16_t word)
@@ -117,11 +117,11 @@ static bool pix_ch15_xreg(uint8_t index, uint16_t word)
     case 0x0A: // POINTER_Y: the pointer moves to it and to POINTER_X
         pointer_move(pix_pointer_x, (int16_t)word);
         return false;
-    case 0x0B: // SELECT_START, until SELECT_END applies the selection
-        pix_select.start = word;
+    case 0x0B: // SELECT_MARGINS, until SELECT_END applies the selection
+        pix_select.margins = word;
         return false;
-    case 0x0C: // SELECT_SIDES, until SELECT_END applies the selection
-        pix_select.sides = word;
+    case 0x0C: // SELECT_START, until SELECT_END applies the selection
+        pix_select.start = word;
         return false;
     case 0x0D: // SELECT_END: the selection from SELECT_START to it
         pix_select.end = word;

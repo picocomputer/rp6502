@@ -121,7 +121,7 @@ static uint32_t vga_pointer_frame;
 
 /* The frame the selection last went to the VGA in. A change of the
  * user's (vterm_selection.unsent) goes once a frame at most, as
- * SELECT_START, SELECT_SIDES and then SELECT_END, which applies it, and only a change of
+ * SELECT_MARGINS, SELECT_START and then SELECT_END, which applies it, and only a change of
  * the user's goes: a change to its cells drops it on the VGA at the same
  * byte as here, since the RIA's terminal takes each byte of the console as
  * it sends it, ahead of the words. */
@@ -239,8 +239,8 @@ static void HOST_IN_FLASH_FUNC vga_select_send(void)
     vterm_selection.unsent = false;
     vga_select_frame = (uint32_t)vga_frame_count();
     const vterm_select_words_t w = vterm_select_words();
-    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x0B, w.start);
-    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x0C, w.sides);
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x0B, w.margins);
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x0C, w.start);
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x0D, w.end);
 }
 

@@ -937,7 +937,7 @@ static void rln_select(uint8_t anchor, uint8_t end)
  * everything written before has reached it, the line's own echo, which
  * would otherwise drop it, included. It is the selection's run from its
  * first character to past its last across the rows the line wraps onto,
- * between the sides of the line's columns, so no column outside the
+ * between the margins of the line's columns, so no column outside the
  * margins the line was laid out in is taken. A line with no place on the
  * screen showing, or one whose rows have gone from it, shows none, and the
  * highlight of the selection before goes: the one selection showing while

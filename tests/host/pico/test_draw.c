@@ -83,14 +83,14 @@ static void fresh(void)
 
 /* The words of the 80-column terminal's primary, the RIA's encoding of a
  * selection from row y0, column x0 up to row y1, column x1 of the screen,
- * between columns left and right (vterm_select_words), as the VGA receives
+ * between the margins left and right (vterm_select_words), as the VGA receives
  * them. */
-static vterm_select_words_t sided(int y0, int x0, int y1, int x1, int left, int right)
+static vterm_select_words_t margined(int y0, int x0, int y1, int x1, int left, int right)
 {
     const screen_t *s = &vterm_80.grid.screen[0];
     return (vterm_select_words_t){
-        (uint16_t)(x0 | screen_mem(s, (uint8_t)y0) << 7 | 2u << 13),
         (uint16_t)(left | right << 7),
+        (uint16_t)(x0 | screen_mem(s, (uint8_t)y0) << 7 | 2u << 13),
         (uint16_t)(x1 | screen_mem(s, (uint8_t)y1) << 7 | 2u << 13),
     };
 }
@@ -98,7 +98,7 @@ static vterm_select_words_t sided(int y0, int x0, int y1, int x1, int left, int 
 /* The same, out to the screen's edges, as the mouse's are. */
 static vterm_select_words_t words(int y0, int x0, int y1, int x1)
 {
-    return sided(y0, x0, y1, x1, 0, SCREEN_SELECTION_EDGE);
+    return margined(y0, x0, y1, x1, 0, SCREEN_SELECTION_EDGE);
 }
 
 static unsigned row_sel(int y)
@@ -158,14 +158,14 @@ UTEST(draw, a_job_drops_it_as_it_starts)
     ASSERT_FALSE(vterm_selection.shows);
 }
 
-/* A selection between sides, the line editor's between margins, takes on
+/* A selection between margins, as the line editor's is, takes on
  * each row only the columns between them, its first row from its start and
- * its last up to its end; output outside the sides keeps it, and output
+ * its last up to its end; output outside the margins keeps it, and output
  * between them drops it. */
-UTEST(draw, a_selection_between_sides_takes_only_their_columns)
+UTEST(draw, a_selection_between_margins_takes_only_their_columns)
 {
     fresh();
-    ASSERT_TRUE(vterm_select_apply(sided(2, 25, 4, 15, 10, 30)));
+    ASSERT_TRUE(vterm_select_apply(margined(2, 25, 4, 15, 10, 30)));
     ASSERT_TRUE(vterm_selection.shows);
     draw_task();
     ASSERT_EQ(row_sel(2), 2530u);
@@ -175,8 +175,8 @@ UTEST(draw, a_selection_between_sides_takes_only_their_columns)
     ASSERT_TRUE(vterm_selection.shows);
     feed("\33[4;11Hk");
     ASSERT_FALSE(vterm_selection.shows);
-    /* Sides with no column between them select nothing. */
-    ASSERT_FALSE(vterm_select_apply(sided(2, 25, 4, 15, 30, 30)));
+    /* Margins with no column between them select nothing. */
+    ASSERT_FALSE(vterm_select_apply(margined(2, 25, 4, 15, 30, 30)));
     ASSERT_FALSE(vterm_selection.shows);
 }
 

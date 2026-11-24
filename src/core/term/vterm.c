@@ -143,7 +143,7 @@ static const term_grid_t *vterm_selection_grid(void)
 // The rows of memory the selection takes, walking g's rows of the height
 // from its start to its end. False when its ends are not rows of the
 // height in that order, its columns are more than their rows have, or its
-// sides have no column between them.
+// margins have no column between them.
 static bool vterm_selection_lay(const term_grid_t *g)
 {
     screen_selection_t *v = &vterm_selection;
@@ -210,7 +210,7 @@ void vterm_unselect(void)
 #define VTERM_SELECT_COL(w) ((uint8_t)((w) & 0x7F))
 #define VTERM_SELECT_ROW(w) ((uint8_t)(((w) >> 7) & 0x3F))
 #define VTERM_SELECT_CODE(w) ((unsigned)(w) >> 13)
-#define VTERM_SELECT_SIDES(left, right) ((uint16_t)((unsigned)(left) | (unsigned)(right) << 7))
+#define VTERM_SELECT_MARGINS(left, right) ((uint16_t)((unsigned)(left) | (unsigned)(right) << 7))
 #define VTERM_SELECT_LEFT(w) ((uint8_t)((w) & 0x7F))
 #define VTERM_SELECT_RIGHT(w) ((uint8_t)(((w) >> 7) & 0x7F))
 _Static_assert(TERM_MEM_ROWS <= 64 && SCREEN_SELECTION_EDGE <= 0x7F,
@@ -224,8 +224,8 @@ vterm_select_words_t vterm_select_words(void)
     const term_grid_t *g = vterm_selection_grid();
     const unsigned code = (g == &vterm_80.grid) << 1 | (unsigned)(v->screen - g->screen);
     return (vterm_select_words_t){
+        VTERM_SELECT_MARGINS(v->left, v->right),
         VTERM_SELECT_WORD(code, v->start_row, v->start_col),
-        VTERM_SELECT_SIDES(v->left, v->right),
         VTERM_SELECT_WORD(code, v->end_row, v->end_col),
     };
 }
@@ -233,12 +233,12 @@ vterm_select_words_t vterm_select_words(void)
 bool vterm_select_apply(vterm_select_words_t w)
 {
     const unsigned code = VTERM_SELECT_CODE(w.start);
-    if (w.start != w.end && (code > 3 || code != VTERM_SELECT_CODE(w.end) || w.sides >> 14))
+    if (w.start != w.end && (code > 3 || code != VTERM_SELECT_CODE(w.end) || w.margins >> 14))
         return false;
     return vterm_selection_set(code >> 1 ? &vterm_80.grid : &vterm_40.grid, code & 1,
                                VTERM_SELECT_ROW(w.start), VTERM_SELECT_COL(w.start),
                                VTERM_SELECT_ROW(w.end), VTERM_SELECT_COL(w.end),
-                               VTERM_SELECT_LEFT(w.sides), VTERM_SELECT_RIGHT(w.sides));
+                               VTERM_SELECT_LEFT(w.margins), VTERM_SELECT_RIGHT(w.margins));
 }
 
 uint16_t vterm_get_code_page(void)

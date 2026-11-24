@@ -75,9 +75,9 @@ static inline uint8_t screen_mem(const screen_t *s, uint8_t y)
  * (vterm.h), because the store is what drops its highlight. It is on a
  * screen of one of the console's grids, from row of memory start_row,
  * column start_col, up to row of memory end_row, column end_col, that cell
- * not taken, and between its sides: no row of it takes a column before
+ * not taken, and between its margins: no row of it takes a column before
  * left, but its first from its start, nor one from right on, but its last
- * up to its end. The mouse's sides are the screen's edges
+ * up to its end. The mouse's margins are the screen's edges
  * (SCREEN_SELECTION_EDGE); the line editor's are the columns its line has,
  * between the left and right margins it was laid out in. Its columns are
  * each row's own, half the grid's width on a row of double width. It is
@@ -106,7 +106,7 @@ typedef struct
     const screen_t *screen;       // the screen it was made on
     uint8_t start_row, start_col; // where it starts: a row of memory, a column
     uint8_t end_row, end_col;     // and where it ends, that cell not taken
-    uint8_t left, right;          // its sides: the columns [left, right) its rows take
+    uint8_t left, right;          // its margins: the columns [left, right) its rows take
     bool shows;                   // its highlight shows: made, and not dropped
     bool changed;                 // since mode 0's row words were last written
     bool unsent;                  // a change of the user's the RIA has not sent
@@ -115,7 +115,7 @@ extern screen_selection_t vterm_selection;
 
 _Static_assert(TERM_MEM_ROWS <= 64, "a bit of the selection for each row of memory");
 
-// A right side past every row's last column: the screen's right edge.
+// A right margin past every row's last column: the screen's right edge.
 #define SCREEN_SELECTION_EDGE 0x7F
 _Static_assert(80 < SCREEN_SELECTION_EDGE, "the edge past the widest row");
 

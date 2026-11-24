@@ -282,7 +282,7 @@ vterm_select_words_t vterm_select_words(void)
 }
 static void user_selects(uint16_t start, uint16_t end)
 {
-    select_words = (vterm_select_words_t){start, (uint16_t)(start ^ end), end};
+    select_words = (vterm_select_words_t){(uint16_t)(start ^ end), start, end};
     vterm_selection.unsent = true;
 }
 void term_write(term_t *t, uint8_t ch)
@@ -1027,7 +1027,7 @@ UTEST(vga, ria_flashing_sends_nothing_awaited)
 
 /* ---- the selection ----------------------------------------------------- */
 
-/* A change of the user's goes as SELECT_START, SELECT_SIDES and then
+/* A change of the user's goes as SELECT_MARGINS, SELECT_START and then
  * SELECT_END, the words of the selection as it is when it goes, once a
  * frame at most, and nothing goes without one. */
 UTEST(vga, a_selection_goes_once_a_frame)
@@ -1040,9 +1040,9 @@ UTEST(vga, a_selection_goes_once_a_frame)
     vga_task();
     int at = sent_find(0xF, 0x0B, from);
     ASSERT_GE(at, 0);
-    ASSERT_EQ(sent[at].word, 0x1234);
+    ASSERT_EQ(sent[at].word, 0x1234 ^ 0x1300);
     ASSERT_EQ((int)sent_find(0xF, 0x0C, from), at + 1);
-    ASSERT_EQ(sent[at + 1].word, 0x1234 ^ 0x1300);
+    ASSERT_EQ(sent[at + 1].word, 0x1234);
     ASSERT_EQ((int)sent_find(0xF, 0x0D, from), at + 2);
     ASSERT_EQ(sent[at + 2].word, 0x1300);
     from = sent_count;
@@ -1054,7 +1054,7 @@ UTEST(vga, a_selection_goes_once_a_frame)
     vga_task();
     at = sent_find(0xF, 0x0B, from);
     ASSERT_GE(at, 0);
-    ASSERT_EQ(sent[at].word, 0x0003);
+    ASSERT_EQ(sent[at + 1].word, 0x0003);
     ASSERT_EQ(sent[at + 2].word, 0x0004);
     ASSERT_LT(sent_find(0xF, 0x0B, (unsigned)at + 1), 0);
     from = sent_count;

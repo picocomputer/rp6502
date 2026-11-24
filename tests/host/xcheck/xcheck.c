@@ -22,7 +22,7 @@
  *
  * The selection goes as on the Pico. The user makes it on the RIA, the text
  * build, which takes it at once (vterm_select), out to the screen's edges or
- * between sides, and as frames pass sends its words (vterm_select_words)
+ * between margins, and as frames pass sends its words (vterm_select_words)
  * when the user changed it, as
  * ria/sys/vga.c does, into WORDS, a line each frame. The mode 0 build, the
  * VGA, takes each frame's line from WORDS at the same place in the stream
@@ -169,18 +169,18 @@ static void xc_frame(void)
     {
         vterm_selection.unsent = false;
         const vterm_select_words_t w = vterm_select_words();
-        fprintf(xc_words, "%u %u %u\n", w.start, w.sides, w.end);
+        fprintf(xc_words, "%u %u %u\n", w.margins, w.start, w.end);
     }
 #else
     char line[32];
-    unsigned start, sides, end;
+    unsigned margins, start, end;
     if (!fgets(line, sizeof line, xc_words))
     {
         fprintf(stderr, "xcheck: the words run out before the stream\n");
         exit(2);
     }
-    if (sscanf(line, "%u %u %u", &start, &sides, &end) == 3)
-        vterm_select_apply((vterm_select_words_t){(uint16_t)start, (uint16_t)sides,
+    if (sscanf(line, "%u %u %u", &margins, &start, &end) == 3)
+        vterm_select_apply((vterm_select_words_t){(uint16_t)margins, (uint16_t)start,
                                                   (uint16_t)end});
 #endif
 }
@@ -199,7 +199,7 @@ static void xc_selection(void)
         v->screen == &vterm_80.grid.screen[0] || v->screen == &vterm_80.grid.screen[1]
             ? &vterm_80
             : &vterm_40;
-    xc_print("selection on %u columns, %s, %u,%u to %u,%u, sides %u,%u, rows %016llx\n",
+    xc_print("selection on %u columns, %s, %u,%u to %u,%u, margins %u,%u, rows %016llx\n",
              size->grid.width, v->screen == size->grid.screen ? "primary" : "alternate",
              v->start_row, v->start_col, v->end_row, v->end_col, v->left, v->right,
              (unsigned long long)v->rows);
@@ -331,7 +331,7 @@ static void xc_select(void)
         x0 = x1;
         x1 = x;
     }
-    /* One in two between sides, as the line editor's is between margins. */
+    /* One in two between margins, as the line editor's is. */
     const bool sided = !xc_below(2);
     const uint8_t left = sided ? (uint8_t)xc_below(g->width) : 0;
     const uint8_t right =

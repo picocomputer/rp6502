@@ -124,11 +124,11 @@ void vterm_unplace(void);
 // The user selects, on screen (0 the primary, 1 the alternate) of g, one of
 // the console's grids, from row of memory start_row, column start_col up
 // to row of memory end_row, column end_col, that cell not taken, between
-// the sides left and right, which are columns [left, right) or with right
+// the margins left and right, which are columns [left, right) or with right
 // SCREEN_SELECTION_EDGE every column from left (screen.h). The columns are
 // each row's own, half the width on a row of double width. Its start is a
 // row of the height no lower on the screen than its end, its columns are
-// no more than their rows have, and its left side is before its right; a
+// no more than their rows have, and its left margin is before its right; a
 // start that is its end, or ends that are not so, select nothing. A change
 // of the user's, for the RIA to send (vterm_selection.unsent), as is
 // vterm_unselect.
@@ -138,16 +138,16 @@ void vterm_select(const term_grid_t *g, uint8_t screen, uint8_t start_row, uint8
 // The user ends the selection.
 void vterm_unselect(void);
 
-/* The selection as three words of the VGA's control channel: its start
- * and its end, each the column in bits 6:0, the row of memory in bits
- * 12:7, the screen in bit 13 and the grid in bit 14, 1 for the 80-column
- * one, and its sides, left in bits 6:0 and right in bits 13:7. None, or
- * one whose highlight was dropped, is a start and an end the same, and
- * sides of 0. The RIA sends them (ria/sys/vga.c), and a save state keeps
+/* The selection as three words of the VGA's control channel: its
+ * margins, left in bits 6:0 and right in bits 13:7, and its start and its
+ * end, each the column in bits 6:0, the row of memory in bits 12:7, the
+ * screen in bit 13 and the grid in bit 14, 1 for the 80-column one. None,
+ * or one whose highlight was dropped, is margins of 0 and a start and an
+ * end the same. The RIA sends them (ria/sys/vga.c), and a save state keeps
  * them (draw.c). */
 typedef struct
 {
-    uint16_t start, sides, end;
+    uint16_t margins, start, end;
 } vterm_select_words_t;
 vterm_select_words_t vterm_select_words(void);
 
