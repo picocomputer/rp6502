@@ -16,10 +16,7 @@
 # edge is hard, as a pixel has no alpha but on or off.
 
 import math
-import struct
 import sys
-import zlib
-from pathlib import Path
 
 import build
 
@@ -450,21 +447,6 @@ def emit_h(path, shapes):
     build.write_text(path, "\n".join(lines))
 
 
-def write_png(path, width, height, rgb):
-    def chunk(tag, payload):
-        crc = zlib.crc32(tag + payload) & 0xFFFFFFFF
-        return struct.pack(">I", len(payload)) + tag + payload + struct.pack(">I", crc)
-    raw = bytearray()
-    for y in range(height):
-        raw.append(0)
-        raw += rgb[y * width * 3:(y + 1) * width * 3]
-    Path(path).write_bytes(
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
-        + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
-        + chunk(b"IEND", b""))
-
-
 def emit_png(path, shapes, scale=6):
     """Every shape, 640 size on a light and a dark band, then 320 size the
     same, each pixel scale times over, with its hot spot marked red."""
@@ -495,7 +477,7 @@ def emit_png(path, shapes, scale=6):
                         for xx in range(k):
                             o = ((y0 + r * k + yy) * width + x0 + c * k + xx) * 3
                             rgb[o:o + 3] = pix
-    write_png(path, width, height, rgb)
+    build.write_png(path, width, height, rgb, 3)
 
 
 def main():

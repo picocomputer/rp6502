@@ -28,11 +28,13 @@ import runpy
 import select
 import shutil
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import zlib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -66,6 +68,32 @@ def write_text(path, text):
     """Writes a generated text file."""
     with open_text(path) as f:
         f.write(text)
+
+
+# ---- images ---------------------------------------------------------------
+
+PNG_CHANNELS = {1: 0, 2: 4, 3: 2, 4: 6}  # gray, gray+alpha, RGB, RGBA
+
+
+def write_png(path, width, height, pixels, channels):
+    """Writes an 8-bit PNG of width by height pixels, each channels bytes:
+    1 gray, 2 gray and alpha, 3 RGB, or 4 RGBA."""
+    stride = width * channels
+
+    def chunk(tag, payload):
+        crc = zlib.crc32(tag + payload) & 0xFFFFFFFF
+        return struct.pack(">I", len(payload)) + tag + payload + struct.pack(">I", crc)
+
+    raw = bytearray()
+    for y in range(height):
+        raw.append(0)
+        raw += pixels[y * stride:(y + 1) * stride]
+    Path(path).write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8,
+                                     PNG_CHANNELS[channels], 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+        + chunk(b"IEND", b""))
 
 
 # ---- generators -----------------------------------------------------------
