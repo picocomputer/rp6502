@@ -217,6 +217,8 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
     PICO_PRINTF_SUPPORT_EXPONENTIAL=0
     PICO_FLASH_ASSUME_CORE1_SAFE=1
     PICO_TIME_DEFAULT_ALARM_POOL_DISABLED=1 # sleeps spin, and there is no alarm pool interrupt
+    PICO_MALLOC_PANIC=0     # the monitor's history fills the heap, and its last malloc fails
+    PICO_USE_MALLOC_MUTEX=0 # the monitor, on core 0's main loop, is all that allocates
     LFS_NO_ASSERT=1
     LFS_NO_MALLOC=1
     LFS_NAME_MAX=16
@@ -350,14 +352,6 @@ target_link_libraries(${RIA_TARGET} PRIVATE
 
 pico_generate_pio_header(${RIA_TARGET}
     ${RIA_SRC}/ria.pio
-)
-
-# Nothing here allocates: the time of day is core/tim's, and the radio's
-# driver is lent buf1k. The SDK's wrappers of malloc would keep the C
-# library's allocator in the link all the same, so they are not compiled.
-set_source_files_properties(
-    ${PICO_SDK_PATH}/src/rp2_common/pico_malloc/malloc.c
-    PROPERTIES HEADER_FILE_ONLY ON
 )
 
 # Override various lib files with custom code.

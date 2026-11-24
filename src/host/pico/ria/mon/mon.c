@@ -34,6 +34,7 @@
 #include <pico/stdio.h>
 #include <pico/stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 
@@ -64,11 +65,9 @@ static bool mon_needs_read_line = true;
 static bool mon_needs_break = false;
 static mon_confirm_fn mon_confirm_cb;
 
-// The command prompt's history: the line being typed and the last seven
-// entered.
-#define MON_HISTORY_LINES 8
-static char mon_history_lines[MON_HISTORY_LINES][RLN_LINE_MAX];
-static rln_history_t mon_history = {mon_history_lines, MON_HISTORY_LINES, 0, 0};
+// The command prompt's history. Nothing else here allocates, so it has the
+// whole heap for its lines.
+static rln_history_t mon_history = {.alloc = malloc, .free = free};
 static enum {
     MON_MORE_OFF,
     MON_MORE_START,
@@ -222,6 +221,11 @@ static void HOST_IN_FLASH_FUNC mon_confirm_enter(bool timeout, const char *buf)
 void mon_response_confirm(mon_confirm_fn cb)
 {
     mon_confirm_cb = cb;
+}
+
+void HOST_IN_FLASH_FUNC mon_forget_line(void)
+{
+    rln_history_forget(&mon_history);
 }
 
 static int HOST_IN_FLASH_FUNC mon_utf8_response(char *buf, size_t buf_size,

@@ -1005,47 +1005,140 @@ static void rln_key_end(void)
 
 /* ----- History ----- */
 
-static void rln_replace_buf_from_history(void)
+// A line entered, between the one entered before it and the one after.
+struct rln_history_line
 {
-    rln_buflen = (uint8_t)strnlen(rln_buf, RLN_BUF_SIZE - 1);
-    rln_fit();
-    rln_bufpos = rln_buflen;
-    rln_render_from(0);
+    struct rln_history_line *older;
+    struct rln_history_line *newer;
+    char text[];
+};
+
+// What the read in progress has made of a line it has left: of an entered
+// line, or of the line being typed, which is of none.
+struct rln_history_edit
+{
+    struct rln_history_edit *next;
+    struct rln_history_line *of;
+    char text[];
+};
+
+// The edit of a line is given up, if it has one.
+static void rln_history_unedit(rln_history_t *h, const struct rln_history_line *of)
+{
+    for (struct rln_history_edit **link = &h->edits; *link; link = &(*link)->next)
+        if ((*link)->of == of)
+        {
+            struct rln_history_edit *edit = *link;
+            *link = edit->next;
+            h->free(edit);
+            return;
+        }
+}
+
+static void rln_history_remove(rln_history_t *h, struct rln_history_line *line)
+{
+    rln_history_unedit(h, line);
+    *(line->older ? &line->older->newer : &h->oldest) = line->newer;
+    *(line->newer ? &line->newer->older : &h->newest) = line->older;
+    if (h->entered == line)
+        h->entered = NULL;
+    h->free(line);
+}
+
+// Memory for a line of len characters under a header of size bytes, at the
+// cost of the oldest lines when there is no other room. The line showing
+// is not one of them: NULL when only it could go.
+static void *rln_history_alloc(rln_history_t *h, size_t size, size_t len)
+{
+    for (;;)
+    {
+        void *mem = h->alloc(size + len + 1);
+        if (mem || !h->oldest || h->oldest == h->at)
+            return mem;
+        rln_history_remove(h, h->oldest);
+    }
+}
+
+// A read starts at the line being typed, with every line as it was entered
+// and none entered yet.
+static void rln_history_rewind(rln_history_t *h)
+{
+    h->at = NULL;
+    h->entered = NULL;
+    while (h->edits)
+        rln_history_unedit(h, h->edits->of);
+}
+
+// The line showing is kept as it is now, for the read to come back to,
+// unless it is as it was entered.
+static void rln_history_keep(rln_history_t *h)
+{
+    rln_history_unedit(h, h->at);
+    if (!strcmp(rln_buf, h->at ? h->at->text : ""))
+        return;
+    struct rln_history_edit *edit =
+        rln_history_alloc(h, sizeof *edit, rln_buflen);
+    if (!edit)
+        return;
+    edit->of = h->at;
+    edit->next = h->edits;
+    h->edits = edit;
+    memcpy(edit->text, rln_buf, rln_buflen + 1u);
 }
 
 // dir > 0 walks toward older entries (up arrow), dir < 0 toward newer.
 static void rln_history_step(int dir)
 {
     rln_history_t *h = rln_history;
-    if (!h)
-        return;
-    if (dir > 0 && h->pos >= h->count)
-        return;
-    if (dir < 0 && !h->pos)
+    if (!h || !(dir < 0 ? h->at : h->at ? h->at->older : h->newest))
         return;
     rln_buf[rln_buflen] = 0;
-    memcpy(h->line[h->pos], rln_buf, rln_buflen + 1);
-    h->pos += dir;
-    memcpy(rln_buf, h->line[h->pos], RLN_BUF_SIZE);
+    rln_history_keep(h);
+    // Keeping the line may have cost the oldest, so the step is found after.
+    struct rln_history_line *to = dir < 0   ? h->at->newer
+                                  : h->at ? h->at->older
+                                          : h->newest;
+    if (dir > 0 && !to)
+        return;
+    h->at = to;
+    const char *text = to ? to->text : "";
+    for (const struct rln_history_edit *edit = h->edits; edit; edit = edit->next)
+        if (edit->of == to)
+            text = edit->text;
+    rln_buflen = (uint8_t)strlen(text);
+    memcpy(rln_buf, text, rln_buflen + 1u);
     rln_action_taken = true;
-    rln_replace_buf_from_history();
+    rln_fit();
+    rln_bufpos = rln_buflen;
+    rln_render_from(0);
 }
 
 // The line entered becomes the newest, unless it is empty or the newest
-// again, and the oldest is dropped from a history that is full.
+// again, and the oldest lines are dropped from a history that is full.
 static void rln_history_add(void)
 {
     rln_history_t *h = rln_history;
-    if (!h || h->lines < 2 || rln_buflen == 0)
+    if (!h)
         return;
-    rln_buf[rln_buflen] = 0;
-    if (h->count > 0 && strcmp(h->line[1], rln_buf) == 0)
+    rln_history_rewind(h);
+    if (!rln_buflen || (h->newest && !strcmp(h->newest->text, rln_buf)))
         return;
-    memmove(h->line[2], h->line[1], (size_t)(h->lines - 2) * RLN_BUF_SIZE);
-    memcpy(h->line[1], rln_buf, rln_buflen + 1);
-    h->line[0][0] = 0;
-    if (h->count < h->lines - 1)
-        h->count++;
+    struct rln_history_line *line =
+        rln_history_alloc(h, sizeof *line, rln_buflen);
+    if (!line)
+        return;
+    memcpy(line->text, rln_buf, rln_buflen + 1u);
+    line->newer = NULL;
+    line->older = h->newest;
+    *(h->newest ? &h->newest->newer : &h->oldest) = line;
+    h->newest = line;
+    h->entered = line;
+}
+
+void rln_history_forget(rln_history_t *h)
+{
+    if (h->entered)
+        rln_history_remove(h, h->entered);
 }
 
 // The cursor shape as DECSCUSR's Ps: 1 a block for overwrite, 5 a bar for
@@ -1987,7 +2080,7 @@ static void rln_start(rln_read_callback_t callback, rln_history_t *history)
     rln_callback = callback;
     rln_history = history;
     if (history)
-        history->pos = 0;
+        rln_history_rewind(history);
     rln_buf[0] = 0;
     rln_lastkey_len = 0;
     rln_action_taken = false;

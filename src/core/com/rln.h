@@ -36,18 +36,30 @@ typedef void (*rln_read_callback_t)(bool timeout, const char *buf);
 #define RLN_LINE_MAX 256
 
 // The lines a read can bring back with the up and down keys. Its caller
-// owns it and says how many lines it has: `line` is that many, the first of
-// them the line being typed, kept while older ones are looked at, and the
-// rest the lines entered, newest first. A caller starts one with its lines
-// and their count and the rest zero, and hands it to each read that is to
-// use it.
+// owns it and gives it its memory: every line entered is kept, at its own
+// length, until alloc has no room for the next, and then the oldest lines
+// go to make the room. A caller starts one with alloc and free and the rest
+// zero, and hands it to each read that is to use it.
+//
+// A line brought back and changed stays changed while the read looks at
+// other lines, as the line being typed does. The read's end forgets the
+// changes: the line entered becomes the newest, and the lines it was made
+// from are as they were entered.
 typedef struct
 {
-    char (*line)[RLN_LINE_MAX];
-    uint8_t lines;
-    uint8_t count; // the lines entered that it holds
-    uint8_t pos;   // the line showing, 0 for the one being typed
+    void *(*alloc)(size_t size);
+    void (*free)(void *ptr);
+    struct rln_history_line *newest;
+    struct rln_history_line *oldest;
+    struct rln_history_line *at;      // the line showing, NULL for the one being typed
+    struct rln_history_line *entered; // the line the last read added, if it added one
+    struct rln_history_edit *edits;   // the lines the read has changed
 } rln_history_t;
+
+// The line the last read entered is taken out of its history again, as a
+// line with a password in it is. Nothing happens when that read added no
+// line.
+void rln_history_forget(rln_history_t *history);
 
 // Prepare the line editor. The rln module can read entire
 // lines of input with editing on ANSI terminals. The line is recorded in

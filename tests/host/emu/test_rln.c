@@ -22,20 +22,58 @@
 #include "core/sys/timer.h"
 #include "core/vga/vga_emu.h"
 #include "utest.h"
+#include <stdlib.h>
 #include <string.h>
 
 static int lines;
 static char last[256];
 
-/* The history these reads are handed, as the monitor hands its own. */
-static char history_lines[4][RLN_LINE_MAX];
-static rln_history_t history = {history_lines, 4, 0, 0};
+/* The history these reads are handed, as the monitor hands its own, with
+ * memory that has room for a number of lines the case sets. */
+#define HELD_MAX 32
+static void *held[HELD_MAX];
+static int holding;
+static int room;
+
+static void *history_alloc(size_t size)
+{
+    if (holding >= room)
+        return NULL;
+    for (int i = 0; i < HELD_MAX; i++)
+        if (!held[i])
+        {
+            holding++;
+            return held[i] = malloc(size);
+        }
+    return NULL;
+}
+
+static void history_free(void *ptr)
+{
+    for (int i = 0; i < HELD_MAX; i++)
+        if (held[i] == ptr)
+        {
+            held[i] = NULL;
+            holding--;
+            free(ptr);
+            return;
+        }
+}
+
+static rln_history_t history;
 static rln_history_t *reading_with = &history;
+
+/* The reader takes its line out of the history again, as the monitor does
+ * with a line that has a password in it. */
+static bool forgetting;
 
 static void got_line(bool timeout, const char *buf)
 {
     (void)timeout;
     lines++;
+    if (forgetting)
+        rln_history_forget(&history);
+    forgetting = false;
     strncpy(last, buf, sizeof last - 1);
     last[sizeof last - 1] = 0;
     rln_read_line(got_line, reading_with);
@@ -62,8 +100,13 @@ static void fresh(void)
 {
     /* No frames run, so the console's line keeps no pace. */
     manifold_set_paced(false);
-    history.count = 0;
+    for (int i = 0; i < HELD_MAX; i++)
+        if (held[i])
+            history_free(held[i]);
+    history = (rln_history_t){.alloc = history_alloc, .free = history_free};
+    room = HELD_MAX;
     reading_with = &history;
+    forgetting = false;
     draw_init();
     com_set_reply_default(true);
     rln_set_plain(false);
@@ -1251,21 +1294,169 @@ UTEST(rln, the_lf_of_a_crlf_pair_keeps_the_next_prompt_column)
     ASSERT_STREQ(shown, "\r\33[8C");
 }
 
-/* A history is its caller's, with as many lines as the caller gave it: the
- * one being typed and three entered here. */
-UTEST(rln, a_history_holds_the_lines_its_caller_gave_it)
+#define UP "\33[A"
+#define DOWN "\33[B"
+
+/* A history is its caller's, with as many lines as its caller's memory has
+ * room for: three here, and the oldest goes for the fourth. */
+UTEST(rln, a_history_holds_the_lines_its_caller_has_room_for)
 {
     fresh();
+    room = 3;
     reading();
     wire("one\rtwo\rthree\rfour\r");
     ASSERT_EQ(lines, 4);
-    ASSERT_EQ((int)history.count, 3);
-    wire("\33[A\33[A\33[A\33[A\r");
+    ASSERT_EQ(holding, 3);
+    wire(UP UP UP UP "\r");
     ASSERT_EQ(lines, 5);
     ASSERT_STREQ(last, "two");
     /* The same line again is not entered twice. */
-    wire("two\r\33[A\33[A\r");
+    wire("two\r" UP UP "\r");
     ASSERT_STREQ(last, "four");
+    ASSERT_EQ(holding, 3);
+}
+
+/* The line being typed is there again below the newest line entered, and
+ * there is nothing below it or above the oldest. */
+UTEST(rln, the_line_being_typed_comes_back)
+{
+    fresh();
+    reading();
+    wire("a\rb\r");
+    wire("xy" UP UP UP DOWN DOWN DOWN "z\r");
+    ASSERT_STREQ(last, "xyz");
+    wire(UP UP DOWN "\r");
+    ASSERT_STREQ(last, "xyz");
+}
+
+/* Lines brought back and changed stay changed while the read looks at
+ * others, and take no line of the history. The one entered is added, and
+ * every line it was made from is as it was entered. */
+UTEST(rln, a_changed_line_is_kept_until_the_read_ends)
+{
+    fresh();
+    reading();
+    wire("a\rb\rc\r");
+    wire("xy" UP "X" UP "Y" DOWN);
+    ASSERT_EQ(holding, 6);
+    wire("\r");
+    ASSERT_STREQ(last, "cX");
+    ASSERT_EQ(holding, 4);
+    wire(UP "\r");
+    ASSERT_STREQ(last, "cX");
+    wire(UP UP "\r");
+    ASSERT_STREQ(last, "c");
+    wire(UP UP UP UP "\r");
+    ASSERT_STREQ(last, "b");
+    wire(UP UP UP UP UP UP UP UP UP "\r");
+    ASSERT_STREQ(last, "a");
+}
+
+/* A change taken back leaves the line as it was entered, kept nowhere
+ * else. */
+UTEST(rln, a_line_changed_back_is_not_kept)
+{
+    fresh();
+    reading();
+    wire("a\rb\r");
+    wire(UP "X" UP DOWN "\b" UP DOWN DOWN);
+    ASSERT_EQ(holding, 2);
+    wire(UP "\r");
+    ASSERT_STREQ(last, "b");
+}
+
+/* A read that ends with no line entered forgets its changes too. */
+UTEST(rln, a_cancelled_read_changes_no_line)
+{
+    fresh();
+    reading();
+    wire("a\rb\r");
+    wire("xy" UP "X" UP "Y" DOWN);
+    rln_poke("\3");
+    ASSERT_STREQ(last, "bX");
+    ASSERT_EQ(holding, 2);
+    wire(UP "\r");
+    ASSERT_STREQ(last, "b");
+    wire(UP UP "\r");
+    ASSERT_STREQ(last, "a");
+}
+
+/* A line brought back and emptied enters nothing, and is still there. */
+UTEST(rln, an_emptied_line_enters_nothing)
+{
+    fresh();
+    reading();
+    wire("a\rb\r");
+    wire(UP "\25\r");
+    ASSERT_STREQ(last, "");
+    ASSERT_EQ(holding, 2);
+    wire(UP "\r");
+    ASSERT_STREQ(last, "b");
+}
+
+/* The line a read entered can be taken out again, and a read that entered
+ * none, its line the newest again or empty, takes none out. */
+UTEST(rln, the_line_entered_can_be_forgotten)
+{
+    fresh();
+    reading();
+    wire("a\r");
+    forgetting = true;
+    wire("secret\r");
+    ASSERT_STREQ(last, "secret");
+    ASSERT_EQ(holding, 1);
+    forgetting = true;
+    wire(UP "\r");
+    ASSERT_STREQ(last, "a");
+    ASSERT_EQ(holding, 1);
+    forgetting = true;
+    wire("\r");
+    ASSERT_EQ(holding, 1);
+    /* One made from a line brought back leaves that line. */
+    forgetting = true;
+    wire(UP "b\r");
+    ASSERT_STREQ(last, "ab");
+    ASSERT_EQ(holding, 1);
+    wire(UP UP "\r");
+    ASSERT_STREQ(last, "a");
+    /* The only line. */
+    fresh();
+    reading();
+    forgetting = true;
+    wire("only\r");
+    ASSERT_EQ(holding, 0);
+    wire(UP "\r");
+    ASSERT_STREQ(last, "");
+}
+
+/* A changed line is kept at the cost of the oldest lines, but never of the
+ * one showing: with no room, the change is not kept. */
+UTEST(rln, a_changed_line_costs_the_oldest_lines)
+{
+    fresh();
+    room = 2;
+    reading();
+    wire("a\rb\r");
+    /* Leaving b changed costs a, so there is no line to go up to. */
+    wire(UP "X" UP "Y\r");
+    ASSERT_STREQ(last, "bXY");
+    ASSERT_EQ(holding, 2);
+    wire(UP UP UP "\r");
+    ASSERT_STREQ(last, "b");
+    /* The line being typed is kept at that cost too. */
+    wire("typed" UP "\r");
+    ASSERT_STREQ(last, "b");
+    ASSERT_EQ(holding, 1);
+    wire(UP UP "\r");
+    ASSERT_STREQ(last, "b");
+    /* The line showing is the oldest, and stays. */
+    fresh();
+    room = 1;
+    reading();
+    wire("a\r");
+    wire(UP "X" DOWN UP "\r");
+    ASSERT_STREQ(last, "a");
+    ASSERT_EQ(holding, 1);
 }
 
 UTEST(rln, a_read_handed_no_history_keeps_and_recalls_nothing)
@@ -1282,7 +1473,7 @@ UTEST(rln, a_read_handed_no_history_keeps_and_recalls_nothing)
     reading();
     wire("\33[A\r");
     ASSERT_STREQ(last, "kept");
-    ASSERT_EQ((int)history.count, 1);
+    ASSERT_EQ(holding, 1);
 }
 
 /* ----- Where the line is (step 24) ----- */
