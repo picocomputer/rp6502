@@ -6,7 +6,7 @@
 from rp6502_asm import (RIA_READY, RIA_RX, RW0_ADDR, RW0_DATA, RW0_STEP,
                         RW1_ADDR, RW1_DATA, RW1_STEP, VIA_ACR, VIA_IER,
                         VIA_IFR, VIA_T1_HI, VIA_T1_LO, VIA_T1L_HI,
-                        VIA_T1L_LO, Asm, putc)
+                        VIA_T1L_LO, XSTACK, OP_XREG, Asm, putc)
 from rp6502_rom import main, rom, script
 
 MOUSE = 0xFF00          # buttons, x, y, wheel, pan
@@ -116,6 +116,145 @@ def mouse_rom():
     return p
 
 
+# The mode 6 program draws its own pointers. Its sprite array ends two bytes
+# short of the end of XRAM, so shape 4 is a descriptor that runs past it and
+# draws nothing. A left click steps the shape through 1 to 4 and then 0, no
+# pointer, and a right click swaps the 320x240 and 640x480 canvases.
+MODE6_CONFIG = 0xFFE0
+MODE6_PALETTE = 0xF000
+MODE6_TARGET = 0xE000
+MODE6_ARROW = 0xE100
+MODE6_SHAPES = 4
+
+# 4 bits a pixel: 0 is clear, then white, black, red, green, blue and yellow,
+# each with the alpha bit, bit 5, set.
+MODE6_COLORS = [0x0000, 0xFFFF, 0x0020, 0x003F, 0x07E0, 0xF820, 0x07FF]
+
+TARGET = """
+.....111111.....
+...1133333311...
+..133......331..
+.13..........31.
+.13..........31.
+13............31
+13.....44.....31
+13....4224....31
+13....4224....31
+13.....44.....31
+13............31
+.13..........31.
+.13..........31.
+..133......331..
+...1133333311...
+.....111111.....
+"""
+
+ARROW = """
+2...............
+22..............
+212.............
+2112............
+21112...........
+211112..........
+2111112.........
+21111112........
+211111112.......
+2111112222......
+2112112.........
+212.2112........
+22..2112........
+2....2112.......
+.....2112.......
+......22........
+"""
+
+
+def mode6_image(art):
+    """The rows of art, 4 bits a pixel, the leftmost in the high nibble."""
+    out = bytearray()
+    for row in art.split():
+        px = [0 if c == "." else int(c) for c in row]
+        out += bytes(px[i] << 4 | px[i + 1] for i in range(0, len(px), 2))
+    return out
+
+
+def mode6_sprite(x, y, image, wh, options):
+    return (x.to_bytes(2, "little", signed=True) +
+            y.to_bytes(2, "little", signed=True) +
+            image.to_bytes(2, "little") +
+            MODE6_PALETTE.to_bytes(2, "little") + bytes((wh, options)))
+
+
+def mode6_rom():
+    p = Asm()
+    shape, prev, now, pressed, canvas = 0, 1, 2, 3, 4  # zero page
+
+    x = p.rom.add_binary_data
+    x(b"".join(c.to_bytes(2, "little") for c in MODE6_COLORS),
+      0x10000 + MODE6_PALETTE)
+    x(mode6_image(TARGET), 0x10000 + MODE6_TARGET)
+    x(mode6_image(ARROW), 0x10000 + MODE6_ARROW)
+    # 16x16, 4 bits a pixel: the target with its hot spot at its centre, the
+    # arrow doubled to 32x32 with its tip at 0,0, and the arrow flipped,
+    # its tip at the top right.
+    x(mode6_sprite(8, 8, MODE6_TARGET, 0x33, 0x02) +
+      mode6_sprite(0, 0, MODE6_ARROW, 0x33, 0xC2) +
+      mode6_sprite(15, 0, MODE6_ARROW, 0x33, 0x12),
+      0x10000 + MODE6_CONFIG)
+
+    p.xreg(0, 0, 3, TABLET)
+    p.xreg(1, 0, 0, 1)  # the 320x240 canvas
+    p.xreg(1, 0, 1, 6, MODE6_CONFIG)
+    p.store(RW0_STEP, 0)
+    p.store(RW0_ADDR, (TABLET + 4) & 0xFF)  # contact 0's flags
+    p.store(RW0_ADDR + 1, (TABLET + 4) >> 8)
+    p.store(RW1_STEP, 0)
+    p.store(RW1_ADDR, TABLET & 0xFF)  # control, the shape
+    p.store(RW1_ADDR + 1, TABLET >> 8)
+    p.store(shape, 1)
+    p.store(RW1_DATA, 1)
+    p.store(prev, 0)
+    p.store(canvas, 1)
+
+    p.symbol("loop")
+    p.lda_abs(RW0_DATA)
+    p.sta_zp(now)
+    p.eor_zp(prev)
+    p.and_zp(now)
+    p.sta_zp(pressed)
+    p.lda_zp(now)
+    p.sta_zp(prev)
+
+    p.lda_zp(pressed)
+    p.and_imm(1)
+    p.beq("right")
+    p.inc_zp(shape)
+    p.lda_zp(shape)
+    p.cmp_imm(MODE6_SHAPES + 1)
+    p.bne("set")
+    p.lda_imm(0)
+    p.sta_zp(shape)
+    p.symbol("set")
+    p.sta_abs(RW1_DATA)
+
+    p.symbol("right")
+    p.lda_zp(pressed)
+    p.and_imm(2)
+    p.beq("loop")
+    p.lda_zp(canvas)
+    p.eor_imm(1 ^ 3)  # 320x240 and 640x480
+    p.sta_zp(canvas)
+    p.push(1)
+    p.push(0)
+    p.push(0)
+    p.push(0)
+    p.lda_zp(canvas)
+    p.sta_abs(XSTACK)
+    p.call(OP_XREG)
+    p.jmp_abs("loop")
+    return p
+
+
 POINTER_SCRIPT = r"""
 # mouse.rp6502 maps the mouse block at MOUSE. Its 6522 timer interrupt copies
 # the block's five bytes to MIRROR and adds one to a count at TICKS. Each wait
@@ -210,6 +349,6 @@ def test_tablet():
 
 
 ROMS = {"mouse": mouse_rom, "tablet": tablet_rom, "console": console_rom,
-        "console_paced": lambda: console_rom(DECSCS_1200)}
+        "console_paced": lambda: console_rom(DECSCS_1200), "mode6": mode6_rom}
 TESTS = {"pointer": test_pointer, "tablet": test_tablet}
 main(globals())

@@ -690,17 +690,20 @@ class Board:
         # the next prompt. A prompt still on its way from before the line was
         # sent, as when a break lands on a program that just ended, is ahead
         # of the echo and is not taken for the end of the output.
+        # The line editor turns bracketed paste off as the line ends, so its
+        # escape can come between the last newline and the prompt.
         echo = line.encode("ascii") + b"\r\n"
         buf, end = b"", time.monotonic() + timeout
         while True:
             at = buf.find(echo)
-            if at >= 0 and b"\n]" in buf[at + len(echo) - 1:]:
+            prompt = at >= 0 and PROMPT.search(buf, at + len(echo) - 1)
+            if prompt:
                 break
             b = self.dev.read(1)
             buf += b
             if not b and time.monotonic() > end:
                 raise TimeoutError(f"{line}: no prompt after {timeout} s")
-        out = clean(buf[at + len(echo): buf.rindex(b"\n]") + 1].decode("ascii", "replace"))
+        out = clean(buf[at + len(echo): prompt.start() + 1].decode("ascii", "replace"))
         lines = out.split("\n")[:-1]
         for text in lines:
             if text.startswith("?"):
@@ -748,6 +751,9 @@ class Board:
 
 
 ESCAPE = re.compile(r"\x1b(\[[0-9;?>]*[A-Za-z]|[78])")
+
+# The monitor's prompt at the start of a line, after any escapes.
+PROMPT = re.compile(rb"\n(?:\x1b\[[0-9;?>]*[A-Za-z])*\]")
 
 
 def clean(text):
