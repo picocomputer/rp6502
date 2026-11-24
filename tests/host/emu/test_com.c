@@ -1268,7 +1268,7 @@ UTEST(com, a_flush_goes_past_a_new_speed)
     manifold_flush();
     draw_init();
     manifold_set_paced(true);
-    manifold_write_to(COM_TERM_ALL, "\33[0;11*rab\33[0;1*rcd", 22);
+    manifold_write_to(COM_TERM_ALL, "\33[0;11*rab\33[0;1*rcd", 18);
     manifold_flush();
     ASSERT_TRUE(manifold_drained());
     ASSERT_EQ(term_speed(&vterm), (uint32_t)300);

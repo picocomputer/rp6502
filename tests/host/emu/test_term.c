@@ -3265,6 +3265,7 @@ UTEST(term, a_savestate_carries_the_speed)
     vterm.speed = TERM_SPEED_MAX + 1;
     c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
     draw_sst.save(&c, 0);
+    vterm.speed = 0;
     feed("\33c");
     c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
     ASSERT_FALSE(draw_sst.load(&c, 0));
