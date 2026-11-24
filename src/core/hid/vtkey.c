@@ -75,8 +75,7 @@ static bool HOST_IN_RAM_FUNC vtkey_is_keypad(uint8_t usage)
            usage == HID_KEY_KEYPAD_EQUAL || usage == HID_KEY_KEYPAD_COMMA;
 }
 
-/* What Ctrl makes of a character, as xterm makes it. */
-static char HOST_IN_RAM_FUNC vtkey_ctrl(char ch)
+char HOST_IN_RAM_FUNC vtkey_ctrl(char ch)
 {
     unsigned char c = (unsigned char)ch;
     if ((c >= '@' && c < 0x7F) || c == ' ')

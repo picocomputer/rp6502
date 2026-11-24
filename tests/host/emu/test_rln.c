@@ -1082,12 +1082,30 @@ UTEST(rln, alt_with_a_letter_is_the_same_in_upper_case)
     ASSERT_STREQ(last, "y");
 }
 
-/* ESC with Ctrl-B or Ctrl-F, and CSI b and CSI f, are no key of the line
- * editor's. */
-UTEST(rln, keys_no_keyboard_sends_for_a_word_do_nothing)
+/* Alt and Ctrl together with B, F, D and Backspace go by whole arguments,
+ * which only a space parts, where Alt alone goes by words: a path is one
+ * argument and several words. What they kill is Ctrl-Y's too, and with a
+ * selection they kill it. While Backspace sends BS, Ctrl makes DEL of it,
+ * and ESC DEL is the one that goes by arguments. CSI b and CSI f are no
+ * key of the line editor's. */
+UTEST(rln, alt_and_ctrl_together_go_by_arguments)
 {
     editing();
-    wire("ab cd\33\2\33[bx\33[H\33\6\33[fy\r");
+    wire("load USB0:/a/b.c x\33\2\33\2!\33[H\33\6\33\6?\r");
+    ASSERT_STREQ(last, "load !USB0:/a/b.c? x");
+    wire("load USB0:/a/b.c\33\10\r");
+    ASSERT_STREQ(last, "load ");
+    wire("load USB0:/a/b.c\33\177\r");
+    ASSERT_STREQ(last, "load USB0:/a/");
+    wire("load USB0:/a/b.c x\33[H\33\6\33\4\33[F\31\r");
+    ASSERT_STREQ(last, "load x USB0:/a/b.c");
+    com_printf("\33[?67h");
+    wire("load USB0:/a/b.c\33\177\r");
+    ASSERT_STREQ(last, "load ");
+    wire("load USB0:/a/b.c\33\10\r");
+    ASSERT_STREQ(last, "load USB0:/a/");
+    com_printf("\33[?67l");
+    wire("ab cd\33[bx\33[H\33[fy\r");
     ASSERT_STREQ(last, "yab cdx");
 }
 
@@ -1448,12 +1466,20 @@ UTEST(rln, an_x10_mouse_report_types_nothing)
     ASSERT_STREQ(last, "ab");
 }
 
-UTEST(rln, ss3_keys_move_type_and_end_the_line)
+/* The arrows, Home and End of application cursor mode edit the line. The
+ * keypad's keys of application keypad mode, its Enter too, are the
+ * program's that asked for them: they do nothing to the line, and are the
+ * last key for the program to read. */
+UTEST(rln, ss3_arrows_move_and_the_keypad_is_the_program_s)
 {
     editing();
-    wire("ab\33OD\33ODx\33OC\33OC\33Oq\33Ok\33OX\33O5P\33OM");
+    wire("ab\33OD\33ODx\33OC\33OC\33OHy\33OFz");
+    wire("\33Oq\33Ok\33OX\33O5P\33OM");
+    ASSERT_EQ(lines, 0);
+    ASSERT_EQ(lastkey_len(), 3);
+    wire("\r");
     ASSERT_EQ(lines, 1);
-    ASSERT_STREQ(last, "xab1+=");
+    ASSERT_STREQ(last, "yxabz");
 }
 
 /* Shift-F3 is CSI 1;2R, which looks like a cursor position report. */
@@ -2240,6 +2266,19 @@ UTEST(rln, the_word_kills_kill_the_selection)
     }
 }
 
+/* Alt and Ctrl together kill the selection too, where there is one. */
+UTEST(rln, the_argument_kills_kill_the_selection)
+{
+    screen_reading_after("");
+    wire("ab cd ef\33[1;2D\33[1;2D\33\4\33[H\31\r");
+    ASSERT_STREQ(last, "efab cd ");
+    next();
+    kills.len = 0;
+    wire("ab cd ef\33[1;2D\33[1;2D\33\10\33[H\31\r");
+    ASSERT_STREQ(last, "efab cd ");
+    screen_done();
+}
+
 /* Ctrl-K and Ctrl-U kill from the cursor to the line's end and its start,
  * whatever is selected: the selection only ends. */
 UTEST(rln, the_line_kills_kill_from_the_cursor)
@@ -2269,6 +2308,99 @@ UTEST(rln, ctrl_y_replaces_the_selection)
     next();
     wire("abc\27xyz\33[1;2D\33[1;2D\31!\r");
     ASSERT_STREQ(last, "xabc!");
+    screen_done();
+}
+
+/* A program that set modifyOtherKeys has the keyboard send keys as
+ * sequences, ESC [ 27 ; mod ; code ~, or ESC [ code ; mod u. Each is the
+ * key it stands for, at every level: text is typed, and Enter ends the
+ * line with Shift or Ctrl as it does alone. */
+UTEST(rln, a_modified_key_sequence_types_its_character)
+{
+    editing();
+    wire("\33[27;1;104~\33[27;2;73~\33[27;1;233~\33[27;2;32~\33[27;5;49~\33[27;1;13~");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "hI\351 1");
+    wire("\33[104;1u\33[73;2u\33[13;2u");
+    ASSERT_EQ(lines, 2);
+    ASSERT_STREQ(last, "hI");
+    wire("a\33[27;5;13~");
+    ASSERT_EQ(lines, 3);
+    wire("b\33[27;3;13~");
+    ASSERT_EQ(lines, 3);
+    ASSERT_EQ(lastkey_len(), 10);
+    wire("\r");
+    ASSERT_STREQ(last, "b");
+}
+
+/* The Ctrl and Alt keys are the same keys as sequences: Ctrl-A and Ctrl-E,
+ * Ctrl-Shift-A which is Ctrl-A, Ctrl-W twice and Ctrl-Y, Alt-B and Alt-D,
+ * Alt-Backspace, Backspace and what Ctrl makes of it, and Alt and Ctrl
+ * together going by arguments. */
+UTEST(rln, a_modified_key_sequence_is_its_ctrl_or_alt_key)
+{
+    editing();
+    wire("ab cd\33[27;5;97~x\33[27;5;101~y\r");
+    ASSERT_STREQ(last, "xab cdy");
+    wire("ab\33[27;6;65~x\33[101;5uy\r");
+    ASSERT_STREQ(last, "xaby");
+    wire("ab cd\33[27;5;119~\33[27;5;119~\33[27;5;121~\r");
+    ASSERT_STREQ(last, "ab cd");
+    wire("ab cd\33[27;3;98~\33[27;3;100~x\r");
+    ASSERT_STREQ(last, "ab x");
+    wire("ab cd\33[27;3;127~\33[27;4;66~x\r");
+    ASSERT_STREQ(last, "xab ");
+    wire("abcd\33[27;1;127~\33[27;1;8~\33[27;2;127~\r");
+    ASSERT_STREQ(last, "a");
+    wire("a:b c:d\33[27;7;98~x\r");
+    ASSERT_STREQ(last, "a:b xc:d");
+    wire("ab cd\33[98;3ux\33[100;7u\r");
+    ASSERT_STREQ(last, "ab x");
+    /* Alt with a character past ASCII types it, as ESC before its byte
+     * does. */
+    wire("a\33[27;3;233~\33[233;3ub\r");
+    ASSERT_STREQ(last, "a\351\351b");
+    /* Ctrl-J after Enter is its line end's other half. */
+    lines = 0;
+    wire("a\33[27;1;13~\33[27;5;106~");
+    ASSERT_EQ(lines, 1);
+}
+
+/* A sequence for a key that does nothing does nothing: Tab, Esc, Alt with
+ * a letter that is no key, Alt-[ and Alt-O, which open no sequence, and
+ * one with a modifier or a code no key has. Each is still the last key, as
+ * its terminal sent it. */
+UTEST(rln, a_modified_key_sequence_for_no_key_does_nothing)
+{
+    editing();
+    wire("a\33[27;1;9~\33[27;2;9~\33[27;1;27~\33[27;5;32~\33[27;3;120~");
+    wire("\33[27;3;91~\33[27;3;79~\33[27;9;98~\33[27;5~\33[27;1;300~\33[98;9u");
+    ASSERT_EQ(lastkey_len(), 7);
+    wire("b\r");
+    ASSERT_STREQ(last, "ab");
+}
+
+/* A sequence acts on the selection as its key does, and is a line end's
+ * other half as its byte is. A poked one is its key too. */
+UTEST(rln, a_modified_key_sequence_is_its_key_everywhere)
+{
+    screen_reading_after("");
+    wire("abc\33[1;2D\33[1;2D\33[27;1;120~\r");
+    ASSERT_STREQ(last, "ax");
+    next();
+    wire("ab cd\33[1;2D\33[1;2D\33[27;5;119~\33[27;5;121~\r");
+    ASSERT_STREQ(last, "ab cd");
+    next();
+    lines = 0;
+    wire("a\33[27;1;13~");
+    next();
+    wire("\n");
+    ASSERT_EQ(lines, 1);
+    rln_poke("abc");
+    rln_poke("\33[27;5;97~");
+    rln_poke("x");
+    wire("\r");
+    ASSERT_STREQ(last, "xbc");
     screen_done();
 }
 

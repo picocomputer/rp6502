@@ -1355,6 +1355,132 @@ UTEST(mouse, a_cut_follows_the_key_that_selects)
     ASSERT_STREQ(line_got, "abc de");
 }
 
+/* A copy or cut key has its place among the keys: the keys typed before
+ * it are taken first and the keys typed after it wait, however far behind
+ * the line editor is. Here nothing runs between the presses: the cut takes
+ * what the Shift-Left selected, and the 'x' is typed after it; and the 'x'
+ * after a copy replaces what was copied. */
+UTEST(mouse, a_key_typed_after_a_cut_or_a_copy_follows_it)
+{
+    editing();
+    ASSERT_TRUE(host_clipboard_set(""));
+    ARROW_LEFT(SHIFT);
+    ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
+    typed_push("x", 1);
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_STREQ(host_clipboard_get(), "f");
+    ASSERT_STREQ(line_got, "abc dex");
+    editing();
+    ASSERT_TRUE(host_clipboard_set(""));
+    ARROW_LEFT(SHIFT);
+    ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
+    typed_push("x", 1);
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_STREQ(host_clipboard_get(), "f");
+    ASSERT_STREQ(line_got, "abc dex");
+}
+
+/* A cut and then a paste with nothing between: the paste waits for the
+ * cut. On a machine with its own clipboard it then pastes what was cut
+ * (test_paste.c). Here the clipboard is the host's, whose text the paste
+ * took at its press and the cut replaced, so it pastes nothing. */
+UTEST(mouse, a_paste_pressed_behind_a_cut_waits_for_it)
+{
+    editing();
+    ASSERT_TRUE(host_clipboard_set("old"));
+    ARROW_LEFT(SHIFT);
+    ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
+    ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_STREQ(host_clipboard_get(), "f");
+    ASSERT_STREQ(line_got, "abc de");
+}
+
+/* On a machine with its own clipboard, a paste pressed right behind a cut
+ * or a copy pastes what that put in the clipboard: the paste waits for it,
+ * and reads the clipboard when it starts. */
+UTEST(mouse, a_paste_behind_a_cut_or_a_copy_pastes_what_it_took)
+{
+    tb_no_clipboard = true;
+    editing();
+    ARROW_LEFT(SHIFT);
+    ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
+    ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_STREQ(line_got, "abc def");
+    editing();
+    ARROW_LEFT(SHIFT);
+    ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
+    hostkey_press(HID_KEY_END, 0, false, true);
+    ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    tb_no_clipboard = false;
+    ASSERT_STREQ(line_got, "abc deff");
+}
+
+/* A cut pressed while a paste goes in waits for the paste: it takes what
+ * the Shift-Left after the paste selected. */
+UTEST(mouse, a_cut_pressed_in_a_paste_waits_for_it)
+{
+    editing();
+    ARROW_LEFT(SHIFT);
+    loop();
+    ASSERT_TRUE(host_clipboard_set("XY"));
+    ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
+    ARROW_LEFT(SHIFT);
+    ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
+    typed_push("x", 1);
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_STREQ(line_got, "abc deXx");
+    ASSERT_STREQ(host_clipboard_get(), "Y");
+}
+
+/* A click in the line has its place among the keys too: the keys typed
+ * before it go where the cursor was, and the key typed after it goes where
+ * the click put the cursor. */
+UTEST(mouse, a_key_typed_after_a_click_goes_where_it_put_the_cursor)
+{
+    editing();
+    typed_push("gh", 2);
+    click(3, 2);
+    typed_push("x", 1);
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_STREQ(line_got, "axbc defgh");
+}
+
+/* A read that ends before a cut held for it is taken lets the keys behind
+ * the cut go to whatever reads next, and a button that comes up after its
+ * read ended holds nothing back. */
+UTEST(mouse, a_read_s_end_lets_the_keys_behind_a_held_key_go)
+{
+    editing();
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
+    typed_push("x", 1);
+    loop();
+    ASSERT_EQ(line_count, 1);
+    ASSERT_STREQ(line_got, "abc def");
+    ASSERT_STREQ(typed(), "x");
+    editing();
+    edge(2, 2, 0);
+    edge(2, 2, TABLET_FLAG_LEFT);
+    edge(5, 2, TABLET_FLAG_LEFT);
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_EQ(line_count, 1);
+    edge(5, 2, 0);
+    typed_push("q", 1);
+    loop();
+    ASSERT_STREQ(typed(), "q");
+}
+
 /* A cut pressed with a copy still to take is taken in its place, as it
  * copies too, and a copy pressed with a cut still to take is the cut's. */
 UTEST(mouse, a_cut_and_a_copy_still_to_take_are_the_cut)
@@ -2308,6 +2434,32 @@ static void round_trip(int *utest_result)
     ASSERT_FALSE(vterm_selection.shows);
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_STREQ(host_clipboard_get(), "later");
+}
+
+/* A load keeps a cut the line editor holds in its place among the keys:
+ * the Shift-Left typed before it is taken first, and the 'x' typed after
+ * it waits behind it. */
+UTEST(mouse, a_load_keeps_a_held_cut_in_its_place)
+{
+    start();
+    show(TEXT);
+    show("> ");
+    rln_read_line(console_rln_reader(), NULL, console_rln_kill());
+    loop();
+    typed_push("abc def", 7);
+    loop();
+    ASSERT_TRUE(host_clipboard_set(""));
+    ARROW_LEFT(SHIFT);
+    ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
+    typed_push("x", 1);
+    ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
+    rln_read_cancel();
+    paste_clear();
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    loop();
+    ASSERT_STREQ(host_clipboard_get(), "f");
+    ASSERT_EQ(strncmp(rln_line(), "abc dex", 7), 0);
+    rln_read_cancel();
 }
 
 /* A load in the middle of a drag goes on with it: the selection shows as it

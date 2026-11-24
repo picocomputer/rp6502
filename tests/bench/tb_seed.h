@@ -13,4 +13,8 @@
  * test sets it. */
 extern bool tb_mac_keys;
 
+/* Whether the test bench's host has no clipboard (host_clipboard_get), as
+ * the RIA has none, false until a test sets it. */
+extern bool tb_no_clipboard;
+
 #endif /* _TESTS_BENCH_TB_SEED_H_ */

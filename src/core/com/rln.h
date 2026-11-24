@@ -188,8 +188,9 @@ int rln_index_at(uint8_t y, uint8_t x);
  * when the pointer is nearer the gap after that character than the gap
  * before it, its place in its run of clicks as the console's mouse
  * counted it: the first and the fourth select by characters, the second a
- * word, the third the whole line. The line editor takes it after the keys
- * already waiting for it, against the line as those keys left it. Until
+ * word, the third the whole line. The line editor takes it in its place
+ * among the keys, after those typed before it and before those typed
+ * after, against the line as the keys before it left it. Until
  * the button drags (rln_mouse_drag), a press by characters is a click,
  * which selects nothing and puts the cursor on the character in
  * overwrite mode and at the nearer gap in insert mode. */
@@ -219,11 +220,16 @@ void rln_unselect(void);
 bool rln_reading(void);
 bool rln_selected(void);
 
+/* Whether the line editor holds a copy or cut key or the mouse, still to
+ * take at its mark in the keyboard's row (core/hid/paste.h). */
+bool rln_holds(void);
+
 /* The copy keys (core/hid/key.h) and the cut keys, Shift-Delete,
  * Ctrl-Shift-X and on a Mac Cmd-X. While a line is read they are the
- * line's, and true: the line editor takes them after the keys already
- * waiting for it, as it takes the mouse, so they act on the selection as
- * those keys left it, a copy at once when none waits. A copy puts the
+ * line's, and true: the line editor takes them in their place among the
+ * keys, after those typed before them and before those typed after, as it
+ * takes the mouse, so they act on the selection as the keys before them
+ * left it, a copy at once when none waits. A copy puts the
  * selection in the clipboard (core/hid/clip.h), or with none, the
  * primary, as the copy keys do with no read. A cut puts the selection in
  * the clipboard and deletes it, and with none does nothing. A cut takes

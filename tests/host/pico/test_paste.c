@@ -69,6 +69,7 @@ bool rln_copy(void)
     return line_reads;
 }
 bool rln_reading(void) { return line_reads; }
+bool rln_holds(void) { return false; }
 bool rln_cut(void)
 {
     line_cuts += line_reads;
@@ -142,6 +143,7 @@ static void fresh(void)
     vterm_load_code_page(437);
     vterm_RIS();
     row.clear();
+    paste_unmark();
     clip_reset();
     sigints = 0;
     line_reads = false;
@@ -388,6 +390,103 @@ UTEST(paste, ctrl_shift_x_cuts_through_the_keymap)
     chord(KEYBOARD_MODIFIER_LEFTGUI, HID_KEY_X);
     ASSERT_EQ(line_cuts, 1u);
     line_reads = false;
+}
+
+/* A mark in the row holds back what is typed after it: the row gives the
+ * keys typed before it, and the mark is reached, and the keys after it
+ * come once it is gone. */
+UTEST(paste, a_mark_holds_back_what_is_typed_after_it)
+{
+    fresh();
+    press("ab", false);
+    paste_mark_set();
+    ASSERT_FALSE(paste_mark_reached());
+    press("cd", false);
+    ASSERT_STREQ(keyboard(), "ab");
+    ASSERT_EQ(row.peek(0), -1);
+    ASSERT_TRUE(paste_mark_reached());
+    paste_unmark();
+    ASSERT_STREQ(keyboard(), "cd");
+}
+
+/* A paste begun after a mark does not start until the mark is gone, so it
+ * reads the clipboard as what was held at the mark left it. */
+UTEST(paste, a_paste_begun_behind_a_mark_waits_for_it)
+{
+    fresh();
+    say("copy me\r\n");
+    clip_copy(CLIP_PRIMARY, shown(), 0, 0, 0, 4);
+    press("a", false);
+    paste_mark_set();
+    clip_paste(CLIP_PRIMARY);
+    press("b", false);
+    ASSERT_STREQ(keyboard(), "a");
+    ASSERT_TRUE(paste_mark_reached());
+    clip_copy(CLIP_PRIMARY, shown(), 0, 5, 0, 7);
+    clip_paste(CLIP_PRIMARY);
+    paste_unmark();
+    ASSERT_STREQ(keyboard(), "bme");
+}
+
+/* A mark set while a paste goes in is behind the paste and behind the keys
+ * typed before the mark, those a paste was begun with and those typed while
+ * it went in. One set right after a paste begins is behind it too, though
+ * as many keys are before it as before the paste. */
+UTEST(paste, a_mark_set_in_a_paste_is_behind_it)
+{
+    fresh();
+    say("copy me\r\n");
+    clip_copy(CLIP_PRIMARY, shown(), 0, 0, 0, 4);
+    press("a", false);
+    clip_paste(CLIP_PRIMARY);
+    press("b", false);
+    paste_mark_set();
+    press("c", false);
+    ASSERT_FALSE(paste_mark_reached());
+    ASSERT_STREQ(keyboard(), "acopyb");
+    ASSERT_TRUE(paste_mark_reached());
+    paste_unmark();
+    ASSERT_STREQ(keyboard(), "c");
+    press("a", false);
+    clip_paste(CLIP_PRIMARY);
+    paste_mark_set();
+    char one[1];
+    ASSERT_EQ(row.read(one, 1), (size_t)1);
+    ASSERT_FALSE(paste_mark_reached());
+    ASSERT_STREQ(keyboard(), "copy");
+    ASSERT_TRUE(paste_mark_reached());
+}
+
+/* A paste begun behind a mark that is itself behind a paste waits for the
+ * mark too: the first paste and the keys before the mark are read, the
+ * mark is reached, and the second paste and the keys after come once it is
+ * gone, the paste of its buffer as it is then. */
+UTEST(paste, a_paste_begun_behind_a_mark_in_a_paste_waits_for_it)
+{
+    fresh();
+    say("copy me\r\n");
+    clip_copy(CLIP_PRIMARY, shown(), 0, 0, 0, 4);
+    clip_paste(CLIP_PRIMARY);
+    paste_task();
+    press("a", false);
+    paste_mark_set();
+    press("b", false);
+    clip_paste(CLIP_PRIMARY);
+    ASSERT_STREQ(keyboard(), "copya");
+    ASSERT_TRUE(paste_mark_reached());
+    clip_copy(CLIP_PRIMARY, shown(), 0, 5, 0, 7);
+    paste_unmark();
+    ASSERT_STREQ(keyboard(), "meb");
+}
+
+/* The row cleared, nothing is before the mark any more. */
+UTEST(paste, a_cleared_row_leaves_the_mark_reached)
+{
+    fresh();
+    press("ab", false);
+    paste_mark_set();
+    row.clear();
+    ASSERT_TRUE(paste_mark_reached());
 }
 
 UTEST_MAIN();

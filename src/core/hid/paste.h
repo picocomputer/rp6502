@@ -54,6 +54,19 @@ void paste_clip_changed(uint8_t which);
 size_t paste_read(char *buf, size_t length);
 int paste_peek(size_t offset);
 
+/* A mark in the row, where the line editor holds what has no bytes to
+ * wait there: a copy or cut key, or the mouse in the line. It is set after
+ * everything typed so far, and after a paste going in. The row then gives
+ * what is before the mark and nothing past it, and a paste begun after it
+ * does not start, until the line editor, having taken what it held, lets
+ * the mark go. So what it holds acts between the key before it and the key
+ * after it. There is one mark: what is held while it is set is held at it. */
+void paste_mark_set(void);
+void paste_unmark(void);
+
+/* Everything before the mark has been read out of the row. */
+bool paste_mark_reached(void);
+
 /* A paste is going in: text, or a bracket, is still to be read. */
 bool paste_busy(void);
 

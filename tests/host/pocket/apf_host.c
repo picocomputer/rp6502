@@ -121,6 +121,11 @@ bool rln_reading(void)
     return false;
 }
 
+bool rln_holds(void)
+{
+    return false;
+}
+
 bool rln_copy(void)
 {
     return false;
