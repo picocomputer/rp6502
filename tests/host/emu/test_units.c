@@ -562,11 +562,11 @@ UTEST(tablet, host_wheel_encoding)
     ASSERT_FALSE(tablet_is_mapped());
 }
 
-/* The shape a host shows is the program's, and one it does not know is no
- * cursor. With no program on the tablet, the console's terminal claims it
+/* The shape is the program's, any up to 255, as the program's own pointers
+ * can have that many (core/vga/pointer.h). With no program on the tablet, the console's terminal claims it
  * while mode 0 shows, and the shape is the arrow; with mode 0 nowhere,
  * nothing wants the tablet. */
-UTEST(tablet, shape_clamp)
+UTEST(tablet, shape_is_the_programs)
 {
     sys_init();
     ASSERT_TRUE(vterm_placement.placed);
@@ -578,15 +578,11 @@ UTEST(tablet, shape_clamp)
     ASSERT_TRUE(xreg0(0, 3, 0xFF00)); /* xreg_ria_tablet(0xFF00) */
     ASSERT_TRUE(tablet_wanted());
     ASSERT_TRUE(tablet_wheel_wanted());
-    for (int shape = 0; shape < TABLET_CURSOR_COUNT; ++shape)
+    for (int shape = 0; shape < 256; ++shape)
     {
         xram[0xFF00 + TABLET_OFF_CONTROL] = (uint8_t)shape;
         ASSERT_EQ(tablet_shape(), shape);
     }
-    xram[0xFF00 + TABLET_OFF_CONTROL] = TABLET_CURSOR_COUNT;
-    ASSERT_EQ(tablet_shape(), TABLET_CURSOR_OFF);
-    xram[0xFF00 + TABLET_OFF_CONTROL] = 0xFF;
-    ASSERT_EQ(tablet_shape(), TABLET_CURSOR_OFF);
 
     /* A program's shape holds on a canvas with no mode 0. */
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));

@@ -4,7 +4,8 @@
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # The pointer shapes the system draws for the tablet, made from their
-# outlines here: pointer_shapes.h for core/vga/pointer.c, and with --png a
+# outlines here: pointer_shapes.h for core/vga/pointer.c, each size of a
+# shape a mode 5 custom sprite of 4 bits a pixel, and with --png a
 # picture of every shape in both sizes, for a person to look at.
 #
 # A shape is white with a black outline, as a modern pointer is. Each one is
@@ -396,25 +397,32 @@ HEADER = """\
 """
 
 
+def padded(size):
+    """The rows of one size of a shape, as a mode 5 custom sprite holds
+    them: its width and height padded up to a multiple of 4 with clear
+    pixels on the right and at the bottom."""
+    w, h = -(-size["w"] // 4) * 4, -(-size["h"] // 4) * 4
+    rows = [r + [0] * (w - len(r)) for r in size["rows"]]
+    return w, h, rows + [[0] * w] * (h - len(rows))
+
+
 def pack(rows):
-    """4 bits a pixel, the left one in the high nibble, each row padded to a
-    whole byte."""
-    out = []
-    for r in rows:
-        r = r + [0] * (len(r) & 1)
-        out += [(r[i] << 4) | r[i + 1] for i in range(0, len(r), 2)]
-    return out
+    """4 bits a pixel, the left one in the high nibble."""
+    return [(r[i] << 4) | r[i + 1] for r in rows for i in range(0, len(r), 2)]
 
 
 def emit_h(path, shapes):
     data = []
     entries = []
-    max_bytes = max(len(pack(size["rows"])) for _, _, big, small in shapes
-                    for size in (big, small))
+    max_bytes = 0
     for number, name, big, small in shapes:
         for size in (big, small):
-            entries.append((number, name, size, len(data)))
-            data += pack(size["rows"])
+            w, h, rows = padded(size)
+            assert w <= 64 and h <= 64, f"{name} is too big for a custom sprite"
+            packed = pack(rows)
+            max_bytes = max(max_bytes, len(packed))
+            entries.append((number, name, size, w, h, len(data)))
+            data += packed
     lines = [HEADER, "#ifndef _POINTER_SHAPES_H_", "#define _POINTER_SHAPES_H_", "",
              "#include <stdint.h>", "",
              f"#define POINTER_SHAPE_COUNT {len(shapes) + 1}",
@@ -423,25 +431,29 @@ def emit_h(path, shapes):
              "// The greys of palette entries 1 to 15, as 5-bit levels; entry 0 is clear.",
              "static const uint8_t POINTER_GREYS[16] = {",
              "    0, " + ", ".join(str(v) for v in grey_levels()) + ",", "};", "",
-             "// 4 bits a pixel, the left pixel in the high nibble, each row whole bytes.",
+             "// The images of mode 5 custom sprites of 4 bits a pixel, the left pixel",
+             "// in the high nibble.",
              f"static const uint8_t POINTER_DATA[{len(data)}] = {{"]
     for i in range(0, len(data), 16):
         lines.append("    " + ", ".join(f"0x{v:02X}" for v in data[i:i + 16]) + ",")
     lines += ["};", "",
-              "// Each shape at 640-canvas size, then at 320, by its tablet number.",
+              "// Each shape at 640-canvas size, then at 320, by its tablet number:",
+              "// its hot spot, the size byte of a mode 5 custom sprite, and where its",
+              "// image is in POINTER_DATA.",
               "typedef struct",
               "{",
-              "    uint8_t width, height, hot_x, hot_y;",
-              "    uint16_t offset; // into POINTER_DATA",
+              "    uint8_t hot_x, hot_y, width_height;",
+              "    uint16_t offset;",
               "} pointer_shape_t;", "",
               "static const pointer_shape_t POINTER_SHAPES[POINTER_SHAPE_COUNT][2] = {",
-              "    {{0, 0, 0, 0, 0}, {0, 0, 0, 0, 0}}, // off"]
+              "    {{0, 0, 0, 0}, {0, 0, 0, 0}}, // off"]
     by_number = {}
-    for number, name, size, offset in entries:
-        by_number.setdefault((number, name), []).append((size, offset))
+    for number, name, size, w, h, offset in entries:
+        by_number.setdefault((number, name), []).append((size, w, h, offset))
     for (number, name), sizes in sorted(by_number.items()):
-        cells = ", ".join("{%d, %d, %d, %d, %d}" % (s["w"], s["h"], s["hot_x"], s["hot_y"], o)
-                          for s, o in sizes)
+        cells = ", ".join("{%d, %d, 0x%02X, %d}" % (
+            s["hot_x"], s["hot_y"], (h // 4 - 1) << 4 | (w // 4 - 1), o)
+            for s, w, h, o in sizes)
         lines.append(f"    {{{cells}}}, // {number} {name}")
     lines += ["};", "", "#endif /* _POINTER_SHAPES_H_ */", ""]
     build.write_text(path, "\n".join(lines))

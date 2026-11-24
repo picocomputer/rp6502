@@ -84,6 +84,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/vga/mode/mode3.c
         ${RP6502_SRC}/core/vga/mode/mode4.c
         ${RP6502_SRC}/core/vga/mode/mode5.c
+        ${RP6502_SRC}/core/vga/mode/mode6.c
         ${RP6502_SRC}/core/term/color.c
         ${RP6502_SRC}/core/term/font.c
         ${RP6502_SRC}/core/term/term.c

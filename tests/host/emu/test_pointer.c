@@ -7,8 +7,10 @@
 /* The pointer the system draws for the tablet: its shapes, where they land on
  * a scanline, and the tablet putting it where the pointer is. */
 
+#include "core/api/xreg.h"
 #include "core/hid/tablet.h"
 #include "core/sys/xram.h"
+#include "core/vga/mode/mode5.h"
 #include "core/vga/pixel_format.h"
 #include "core/vga/pointer.h"
 #include "core/vga/vga.h"
@@ -26,11 +28,22 @@ static uint16_t grey(unsigned entry)
     return (uint16_t)(SCANVIDEO_PIXEL_FROM_RGB5(g, g, g) | SCANVIDEO_ALPHA_MASK);
 }
 
+/* A shape's size, as its custom sprite's size byte has it. */
+static int shape_width(const pointer_shape_t *s)
+{
+    return ((s->width_height & 15) + 1) * 4;
+}
+
+static int shape_height(const pointer_shape_t *s)
+{
+    return ((s->width_height >> 4) + 1) * 4;
+}
+
 /* The palette entry of a shape's pixel, size 0 at 640, 1 at 320. */
 static unsigned shape_pixel(unsigned shape, unsigned size, int col, int row)
 {
     const pointer_shape_t *s = &POINTER_SHAPES[shape][size];
-    const uint8_t b = POINTER_DATA[s->offset + row * ((s->width + 1) / 2) + col / 2];
+    const uint8_t b = POINTER_DATA[s->offset + row * (shape_width(s) / 2) + col / 2];
     return (col & 1) ? b & 0x0F : b >> 4;
 }
 
@@ -51,7 +64,7 @@ UTEST(pointer, a_shape_lands_with_its_hot_spot_on_the_point)
             const int16_t width = size ? 320 : 640;
             const pointer_shape_t *s = &POINTER_SHAPES[shape][size];
             pointer_set((uint8_t)shape, 100, 50);
-            for (int row = 0; row < s->height; row++)
+            for (int row = 0; row < shape_height(s); row++)
             {
                 memset(line, 0xAA, sizeof line);
                 bool filled = false;
@@ -60,7 +73,7 @@ UTEST(pointer, a_shape_lands_with_its_hot_spot_on_the_point)
                 for (int x = 0; x < width; x++)
                 {
                     const int col = x - (100 - s->hot_x);
-                    const unsigned v = col >= 0 && col < s->width ? shape_pixel(shape, size, col, row) : 0;
+                    const unsigned v = col >= 0 && col < shape_width(s) ? shape_pixel(shape, size, col, row) : 0;
                     ASSERT_EQ(line[x], v ? grey(v) : 0);
                 }
             }
@@ -77,7 +90,7 @@ UTEST(pointer, nothing_is_drawn_off_its_rows_or_with_no_shape)
     bool filled = false;
     memset(line, 0xAA, sizeof line);
     render((int16_t)(50 - s->hot_y - 1), 640, &filled);
-    render((int16_t)(50 - s->hot_y + s->height), 640, &filled);
+    render((int16_t)(50 - s->hot_y + shape_height(s)), 640, &filled);
     ASSERT_FALSE(filled);
     ASSERT_EQ(line[100], 0xAAAA);
     filled = true;
@@ -191,7 +204,7 @@ UTEST(pointer, a_frame_shows_the_pointer_over_the_console)
     vga_canvas_size(&w, &h);
     const pointer_shape_t *arrow = &POINTER_SHAPES[TABLET_CURSOR_ARROW][w <= 320];
     /* The arrow's white is at its middle, one pixel in from its left edge. */
-    const int x = 300 - arrow->hot_x + 1, y = 200 - arrow->hot_y + arrow->height / 2;
+    const int x = 300 - arrow->hot_x + 1, y = 200 - arrow->hot_y + shape_height(arrow) / 2;
     ASSERT_EQ(frame[y * w + x] & 0x00FFFFFFu, 0x00FFFFFFu);
     ASSERT_TRUE(tablet_xreg(0xFFFF));
     tablet_host_clear();
@@ -235,6 +248,164 @@ UTEST(pointer, a_frame_shows_the_pointer_unmapped_over_the_console)
     emu_frames(2);
     ASSERT_EQ(pointer_rows(w), none);
     vga_set_framebuffer(NULL);
+}
+
+/* ---- the program's pointers --------------------------------------------- */
+
+#define CUSTOM_CONFIG 0x2000
+#define CUSTOM_IMAGE 0x2100
+#define CUSTOM_PALETTE 0x2200
+#define CUSTOM_RED ((uint16_t)(SCANVIDEO_PIXEL_FROM_RGB5(31, 0, 0) | SCANVIDEO_ALPHA_MASK))
+
+/* Sprite n of the program's pointers at CUSTOM_CONFIG: an 8x4 sprite of 1
+ * bit a pixel, its top row a solid bar and the rest clear, with its hot
+ * spot at hot_x, hot_y and its own palette, clear and red. */
+static void custom_sprite(unsigned n, int16_t hot_x, int16_t hot_y, uint8_t options)
+{
+    const mode5_csprite_t s = {
+        .x_pos_px = hot_x,
+        .y_pos_px = hot_y,
+        .xram_sprite_ptr = CUSTOM_IMAGE,
+        .palette_ptr = CUSTOM_PALETTE,
+        .width_height = 0x01, /* 8 wide, 4 high */
+        .options = options,
+    };
+    memcpy((uint8_t *)&xram[CUSTOM_CONFIG + n * sizeof s], &s, sizeof s);
+    const uint8_t image[4] = {0xFF, 0, 0, 0};
+    memcpy((uint8_t *)&xram[CUSTOM_IMAGE], image, sizeof image);
+    const uint16_t palette[2] = {0, CUSTOM_RED};
+    memcpy((uint8_t *)&xram[CUSTOM_PALETTE], palette, sizeof palette);
+}
+
+/* Programs mode 6, as a program's XREG calls do. */
+static bool mode6(uint16_t config)
+{
+    return xreg1(0, 2, config) && xreg1(0, 1, 6);
+}
+
+/* The red bar the line holds: its first pixel and how many, 0 for none. */
+static int bar(int16_t y, int16_t width, int *left)
+{
+    memset(line, 0, sizeof line);
+    bool filled = false;
+    render(y, width, &filled);
+    int n = 0;
+    *left = -1;
+    for (int x = 0; x < width; x++)
+        if (line[x] == CUSTOM_RED)
+        {
+            if (*left < 0)
+                *left = x;
+            n++;
+        }
+    return n;
+}
+
+/* Shape n draws sprite n - 1 with its hot spot on the pointer, at its own
+ * size on a 320 canvas too, and a shape is any number a sprite is there
+ * for. */
+UTEST(pointer, a_programs_shape_n_draws_its_sprite_n_minus_1)
+{
+    pointer_init();
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_640_480));
+    custom_sprite(0, 0, 0, 0);
+    custom_sprite(199, 3, 2, 0);
+    ASSERT_TRUE(mode6(CUSTOM_CONFIG));
+    ASSERT_TRUE(pointer_custom());
+    int left;
+    pointer_set(1, 100, 50);
+    ASSERT_EQ(bar(50, 640, &left), 8);
+    ASSERT_EQ(left, 100);
+    pointer_set(200, 100, 50);
+    ASSERT_EQ(bar(48, 640, &left), 8);
+    ASSERT_EQ(left, 97);
+    ASSERT_EQ(bar(50, 640, &left), 0);
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_320_240));
+    ASSERT_TRUE(pointer_custom()); /* a change of the program's canvas keeps them */
+    ASSERT_EQ(bar(48, 320, &left), 8);
+    ASSERT_EQ(left, 97);
+    /* Doubled down and across. */
+    custom_sprite(199, 3, 2, 0x40 | 0x80);
+    ASSERT_EQ(bar(49, 320, &left), 16);
+    ASSERT_EQ(left, 97);
+    ASSERT_EQ(bar(50, 320, &left), 0);
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
+}
+
+/* A shape whose sprite, or that sprite's image, would run past the end of
+ * XRAM draws nothing. */
+UTEST(pointer, a_sprite_past_the_end_of_xram_draws_nothing)
+{
+    pointer_init();
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_640_480));
+    ASSERT_TRUE(mode6(0xFFEC)); /* room for sprites 0 and 1 only */
+    const mode5_csprite_t s = {.xram_sprite_ptr = CUSTOM_IMAGE, .palette_ptr = CUSTOM_PALETTE,
+                               .width_height = 0x01};
+    memcpy((uint8_t *)&xram[0xFFEC], &s, sizeof s);
+    memcpy((uint8_t *)&xram[0xFFF6], &s, sizeof s);
+    custom_sprite(0, 0, 0, 0); /* the image and the palette */
+    int left;
+    pointer_set(2, 100, 50);
+    ASSERT_EQ(bar(50, 640, &left), 8);
+    pointer_set(3, 100, 50);
+    ASSERT_EQ(bar(50, 640, &left), 0);
+    pointer_set(255, 100, 50);
+    ASSERT_EQ(bar(50, 640, &left), 0);
+    ASSERT_TRUE(mode6(CUSTOM_CONFIG));
+    custom_sprite(0, 0, 0, 0);
+    xram[CUSTOM_CONFIG + 4] = 0xFF; /* the image at $FFFF */
+    xram[CUSTOM_CONFIG + 5] = 0xFF;
+    pointer_set(1, 100, 50);
+    ASSERT_EQ(bar(50, 640, &left), 0);
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
+}
+
+/* Mode 6 is refused on the console and on an odd address; $FFFF, and a
+ * return to the console, put the system's pointers back. With them, a shape
+ * the system has none of draws nothing. */
+UTEST(pointer, the_console_has_the_systems_pointers)
+{
+    pointer_init();
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
+    ASSERT_FALSE(mode6(CUSTOM_CONFIG));
+    ASSERT_FALSE(pointer_custom());
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_640_480));
+    ASSERT_FALSE(mode6(CUSTOM_CONFIG + 1));
+    ASSERT_FALSE(pointer_custom());
+    ASSERT_TRUE(mode6(CUSTOM_CONFIG));
+    ASSERT_TRUE(mode6(0xFFFF));
+    ASSERT_FALSE(pointer_custom());
+    ASSERT_TRUE(mode6(CUSTOM_CONFIG));
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
+    ASSERT_FALSE(pointer_custom());
+    pointer_set(TABLET_CURSOR_COUNT, 100, 50);
+    bool filled = false;
+    render(50, 640, &filled);
+    ASSERT_FALSE(filled);
+}
+
+/* A host that shows its own cursor for the system's shapes leaves the
+ * program's pointers to the VGA, and the tablet passes on any shape. */
+UTEST(pointer, a_hosts_cursor_gives_way_to_the_programs_pointers)
+{
+    pointer_init();
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_640_480));
+    custom_sprite(19, 0, 0, 0);
+    const uint16_t block = 0x1000;
+    ASSERT_TRUE(tablet_xreg(block));
+    xram[block] = 20;
+    tablet_host_pointer(200, 100, 0, true);
+    tablet_task();
+    int left;
+    ASSERT_EQ(bar(100, 640, &left), 0); /* no sprite 19 yet: the host's */
+    ASSERT_TRUE(mode6(CUSTOM_CONFIG));
+    tablet_task();
+    ASSERT_EQ(bar(100, 640, &left), 8);
+    ASSERT_EQ(left, 200);
+    ASSERT_TRUE(tablet_xreg(0xFFFF));
+    tablet_host_clear();
+    ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
+    tablet_task();
 }
 
 UTEST_MAIN_EMU();

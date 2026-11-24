@@ -520,15 +520,14 @@ void tablet_task(void)
     }
     const uint8_t *c = &tablet_state[TABLET_OFF_CONTACTS];
     uint8_t shape = tablet_shape();
-    if (!(c[0] & TABLET_FLAG_HOVER) || tablet_host_cursor)
+    if (!(c[0] & TABLET_FLAG_HOVER))
         shape = TABLET_CURSOR_OFF;
-    vga_set_pointer(shape, tablet_contact_x(c), tablet_contact_y(c));
+    vga_set_pointer(shape, tablet_contact_x(c), tablet_contact_y(c), tablet_host_cursor);
 }
 
 uint8_t tablet_shape(void)
 {
     if (tablet_xram == 0xFFFF)
         return tablet_claimed() ? TABLET_CURSOR_ARROW : TABLET_CURSOR_OFF;
-    const uint8_t shape = xram[tablet_xram + TABLET_OFF_CONTROL];
-    return shape < TABLET_CURSOR_COUNT ? shape : TABLET_CURSOR_OFF;
+    return xram[tablet_xram + TABLET_OFF_CONTROL];
 }

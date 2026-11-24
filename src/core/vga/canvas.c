@@ -122,6 +122,7 @@ bool vga_canvas_select(uint16_t canvas)
     vterm_canvas((uint8_t)vga_term_columns(w), canvas_code == vga_canvas_console);
     if (canvas_code == vga_canvas_console)
     {
+        vga_prog_pointer(0xFFFF); /* the console has the system's pointers */
         uint16_t xregs[8] = {0};
         mode0_prog(xregs); /* all zeros: the tallest terminal that fits, centered */
     }

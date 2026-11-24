@@ -65,6 +65,7 @@ target_sources(rp6502-vga PRIVATE
     ${RP6502_ROOT}/src/core/vga/mode/mode3.c
     ${RP6502_ROOT}/src/core/vga/mode/mode4.c
     ${RP6502_ROOT}/src/core/vga/mode/mode5.c
+    ${RP6502_ROOT}/src/core/vga/mode/mode6.c
     ${VGA_SRC}/scanvideo/scanvideo.c
     ${RP6502_ROOT}/src/core/sys/version.c
     ${VGA_SRC}/aud/bel.c

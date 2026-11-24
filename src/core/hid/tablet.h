@@ -157,10 +157,10 @@ void tablet_host_clear(void);
  * included. */
 void tablet_host_give(bool given);
 
-/* The cursor shape over the canvas, one of TABLET_CURSOR_: the one the
- * program asked for, or TABLET_CURSOR_OFF for one it does not know. With no
- * program on the tablet, the arrow while its owner claims it, and otherwise
- * none. */
+/* The cursor shape over the canvas: the one the program asked for, one of
+ * TABLET_CURSOR_ or, with the program's own pointers, any up to 255. With
+ * no program on the tablet, the arrow while its owner claims it, and
+ * otherwise none. */
 uint8_t tablet_shape(void);
 
 /* ---- the tablet's owner -------------------------------------------------

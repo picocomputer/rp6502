@@ -11,6 +11,7 @@
 #include "core/vga/mode/mode3.h"
 #include "core/vga/mode/mode4.h"
 #include "core/vga/mode/mode5.h"
+#include "core/vga/pointer.h"
 #include <stddef.h>
 
 #pragma GCC push_options
@@ -252,6 +253,12 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
         vga_prog[i].sprite_length[plane] = length;
         vga_prog[i].sprite_fn[plane] = sprite_fn;
     }
+    return true;
+}
+
+bool vga_prog_pointer(uint16_t config_ptr)
+{
+    pointer_set_custom(config_ptr);
     return true;
 }
 

@@ -16,6 +16,7 @@
 #include "core/hid/key.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
+#include "core/vga/pointer.h"
 #include "core/vga/vga_emu.h"
 #ifdef EMU_WITH_DEBUGGER
 #include "host/sokol/dbg/dbgui.h"
@@ -535,8 +536,10 @@ void input_update_cursor(void)
     if (input_pointer_to_tablet() && pointer_on_canvas)
     {
         had_tablet = true;
+        /* The VGA draws the program's own pointers, and a shape the system
+         * has none of is no pointer. */
         const uint8_t shape = tablet_shape();
-        if (shape == TABLET_CURSOR_OFF)
+        if (shape == TABLET_CURSOR_OFF || shape >= TABLET_CURSOR_COUNT || pointer_custom())
             sapp_show_mouse(false);
         else
         {

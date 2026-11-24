@@ -90,9 +90,9 @@ void vga_load_code_page(uint16_t cp)
     font_load_code_page(cp);
 }
 
-void vga_set_pointer(uint8_t shape, int16_t x, int16_t y)
+void vga_set_pointer(uint8_t shape, int16_t x, int16_t y, bool hosted)
 {
-    pointer_set(shape, x, y);
+    pointer_set(hosted && !pointer_custom() ? 0 : shape, x, y);
 }
 
 void vga_init(void)

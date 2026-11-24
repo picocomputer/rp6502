@@ -417,7 +417,10 @@ void vga_xreg_canvas(uint16_t *xregs)
     vga_scanvideo_update();
     vterm_canvas((uint8_t)vga_term_columns(vga_canvas_width()), canvas == vga_canvas_console);
     if (canvas == vga_canvas_console)
+    {
+        vga_prog_pointer(0xFFFF); /* the console has the system's pointers */
         vga_reset_console_prog();
+    }
     if (xregs)
         ria_ack();
 }
