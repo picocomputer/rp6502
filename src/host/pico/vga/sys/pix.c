@@ -89,6 +89,7 @@ static bool pix_ch15_xreg(uint8_t index, uint16_t word)
         manifold_term_putc((char)word);
         return false;
     case 0x06: // REBOOT_OR_LOCKUP
+        flash_lock();
         if (word == 0)
             watchdog_reboot(0, 0, 0);
         /* A failed flash leaves the fonts and the view table, which stay in

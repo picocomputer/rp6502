@@ -40,7 +40,7 @@ static enum {
     UF2_VALIDATE,
     UF2_IDENTIFY,
     UF2_WRITE,
-    UF2_VGA_TAKE,  // polling vga_flash_take() until the VGA is taken
+    UF2_VGA_TAKE,  // polling vga_flash_take() until the VGA is taken, then the key
     UF2_VGA_WRITE, // stage a page in VGA xram, then send $1:F:07
     UF2_VGA_WAIT,  // polling vga_answer() for the reply to $1:F:07
     UF2_VGA_SUCCESS, // $1:F:06 word=0 then watchdog_reboot RIA
@@ -398,6 +398,11 @@ static void HOST_IN_FLASH_FUNC uf2_do_vga_take(void)
     case VGA_ANSWER_WAITING:
         return;
     case VGA_ANSWER_ACK:
+        // The key goes once, and the VGA holds it until REBOOT_OR_LOCKUP.
+        for (uint32_t i = 0; i < PIX_FLASH_KEY_SIZE; i++)
+            pix_send_blocking(PIX_DEVICE_XRAM, 0,
+                              (uint8_t)(PIX_FLASH_KEY >> (i % 4 * 8)),
+                              (uint16_t)(PIX_FLASH_KEY_ADDR + i));
         uf2_state = UF2_VGA_WRITE;
         return;
     case VGA_ANSWER_NAK:
