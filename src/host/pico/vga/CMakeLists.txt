@@ -57,7 +57,6 @@ target_sources(rp6502-vga PRIVATE
     ${VGA_SRC}/main.c
     ${RP6502_ROOT}/src/host/pico/host.c
     ${RP6502_ROOT}/src/core/vga/prog.c
-    ${RP6502_ROOT}/src/core/vga/pointer.c
     ${RP6502_ROOT}/src/core/vga/mode/mode.c
     ${RP6502_ROOT}/src/core/vga/mode/mode0.c
     ${RP6502_ROOT}/src/core/vga/mode/mode1.c

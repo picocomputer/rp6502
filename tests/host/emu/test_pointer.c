@@ -12,11 +12,11 @@
 #include "core/sys/xram.h"
 #include "core/vga/mode/mode5.h"
 #include "core/vga/pixel_format.h"
-#include "core/vga/pointer.h"
+#include "core/vga/mode/mode6.h"
 #include "core/vga/vga.h"
 #include "host/host.h"
 #include "emu_boot.h"
-#include "pointer_shapes.h"
+#include "mode6_shapes.h"
 #include <string.h>
 
 static uint16_t line[640];
@@ -24,17 +24,17 @@ static uint16_t line[640];
 /* The pixel a palette entry of the shapes draws as. */
 static uint16_t grey(unsigned entry)
 {
-    const uint16_t g = POINTER_GREYS[entry];
+    const uint16_t g = MODE6_GREYS[entry];
     return (uint16_t)(SCANVIDEO_PIXEL_FROM_RGB5(g, g, g) | SCANVIDEO_ALPHA_MASK);
 }
 
 /* A shape's size, as its custom sprite's size byte has it. */
-static int shape_width(const pointer_shape_t *s)
+static int shape_width(const mode6_shape_t *s)
 {
     return ((s->width_height & 15) + 1) * 4;
 }
 
-static int shape_height(const pointer_shape_t *s)
+static int shape_height(const mode6_shape_t *s)
 {
     return ((s->width_height >> 4) + 1) * 4;
 }
@@ -42,14 +42,14 @@ static int shape_height(const pointer_shape_t *s)
 /* The palette entry of a shape's pixel, size 0 at 640, 1 at 320. */
 static unsigned shape_pixel(unsigned shape, unsigned size, int col, int row)
 {
-    const pointer_shape_t *s = &POINTER_SHAPES[shape][size];
-    const uint8_t b = POINTER_DATA[s->offset + row * (shape_width(s) / 2) + col / 2];
+    const mode6_shape_t *s = &MODE6_SHAPES[shape][size];
+    const uint8_t b = MODE6_DATA[s->offset + row * (shape_width(s) / 2) + col / 2];
     return (col & 1) ? b & 0x0F : b >> 4;
 }
 
 static void render(int16_t y, int16_t width, bool *filled)
 {
-    pointer_render(y, width, line, filled);
+    mode6_render(y, width, line, filled);
 }
 
 /* Every row of every shape: the pixels it has are drawn in their greys, with
@@ -57,13 +57,13 @@ static void render(int16_t y, int16_t width, bool *filled)
  * clear. */
 UTEST(pointer, a_shape_lands_with_its_hot_spot_on_the_point)
 {
-    pointer_init();
-    for (unsigned shape = 1; shape < POINTER_SHAPE_COUNT; shape++)
+    mode6_init();
+    for (unsigned shape = 1; shape < MODE6_SHAPE_COUNT; shape++)
         for (unsigned size = 0; size < 2; size++)
         {
             const int16_t width = size ? 320 : 640;
-            const pointer_shape_t *s = &POINTER_SHAPES[shape][size];
-            pointer_set((uint8_t)shape, 100, 50);
+            const mode6_shape_t *s = &MODE6_SHAPES[shape][size];
+            mode6_set((uint8_t)shape, 100, 50);
             for (int row = 0; row < shape_height(s); row++)
             {
                 memset(line, 0xAA, sizeof line);
@@ -84,9 +84,9 @@ UTEST(pointer, a_shape_lands_with_its_hot_spot_on_the_point)
  * and with no shape there is no pointer. */
 UTEST(pointer, nothing_is_drawn_off_its_rows_or_with_no_shape)
 {
-    pointer_init();
-    pointer_set(TABLET_CURSOR_ARROW, 100, 50);
-    const pointer_shape_t *s = &POINTER_SHAPES[TABLET_CURSOR_ARROW][0];
+    mode6_init();
+    mode6_set(TABLET_CURSOR_ARROW, 100, 50);
+    const mode6_shape_t *s = &MODE6_SHAPES[TABLET_CURSOR_ARROW][0];
     bool filled = false;
     memset(line, 0xAA, sizeof line);
     render((int16_t)(50 - s->hot_y - 1), 640, &filled);
@@ -96,7 +96,7 @@ UTEST(pointer, nothing_is_drawn_off_its_rows_or_with_no_shape)
     filled = true;
     render(50, 640, &filled);
     ASSERT_EQ(line[0], 0xAAAA); /* a filled line is not cleared */
-    pointer_set(TABLET_CURSOR_OFF, 100, 50);
+    mode6_set(TABLET_CURSOR_OFF, 100, 50);
     filled = false;
     render(50, 640, &filled);
     ASSERT_FALSE(filled);
@@ -105,13 +105,13 @@ UTEST(pointer, nothing_is_drawn_off_its_rows_or_with_no_shape)
 /* A pointer at an edge is cut off there, never drawn past it. */
 UTEST(pointer, a_pointer_at_an_edge_is_cut_off)
 {
-    pointer_init();
-    pointer_set(TABLET_CURSOR_MOVE, 0, 0);
+    mode6_init();
+    mode6_set(TABLET_CURSOR_MOVE, 0, 0);
     bool filled = false;
     memset(line, 0, sizeof line);
     render(0, 320, &filled);
     ASSERT_TRUE(filled);
-    pointer_set(TABLET_CURSOR_MOVE, 319, 239);
+    mode6_set(TABLET_CURSOR_MOVE, 319, 239);
     filled = false;
     render(239, 320, &filled);
     ASSERT_TRUE(filled);
@@ -124,7 +124,7 @@ UTEST(pointer, a_pointer_at_an_edge_is_cut_off)
  * terminal claims it while mode 0 shows, and the pointer is the arrow. */
 UTEST(pointer, the_tablet_shows_the_pointer_where_it_hovers)
 {
-    pointer_init();
+    mode6_init();
     const uint16_t block = 0x1000;
     ASSERT_TRUE(tablet_xreg(block));
     ASSERT_EQ(xram[block + 1] & TABLET_STATUS_SHARED, TABLET_STATUS_SHARED);
@@ -132,7 +132,7 @@ UTEST(pointer, the_tablet_shows_the_pointer_where_it_hovers)
 
     tablet_host_pointer(200, 100, 0, false);
     tablet_task();
-    const pointer_shape_t *arrow = &POINTER_SHAPES[TABLET_CURSOR_ARROW][0];
+    const mode6_shape_t *arrow = &MODE6_SHAPES[TABLET_CURSOR_ARROW][0];
     bool filled = false;
     memset(line, 0, sizeof line);
     render(100, 640, &filled);
@@ -142,7 +142,7 @@ UTEST(pointer, the_tablet_shows_the_pointer_where_it_hovers)
     /* Another shape. */
     xram[block] = TABLET_CURSOR_NOT_ALLOWED;
     tablet_task();
-    const pointer_shape_t *no = &POINTER_SHAPES[TABLET_CURSOR_NOT_ALLOWED][0];
+    const mode6_shape_t *no = &MODE6_SHAPES[TABLET_CURSOR_NOT_ALLOWED][0];
     filled = false;
     render((int16_t)(100 - no->hot_y), 640, &filled);
     ASSERT_TRUE(filled);
@@ -202,7 +202,7 @@ UTEST(pointer, a_frame_shows_the_pointer_over_the_console)
     emu_frames(2);
     int w, h;
     vga_canvas_size(&w, &h);
-    const pointer_shape_t *arrow = &POINTER_SHAPES[TABLET_CURSOR_ARROW][w <= 320];
+    const mode6_shape_t *arrow = &MODE6_SHAPES[TABLET_CURSOR_ARROW][w <= 320];
     /* The arrow's white is at its middle, one pixel in from its left edge. */
     const int x = 300 - arrow->hot_x + 1, y = 200 - arrow->hot_y + shape_height(arrow) / 2;
     ASSERT_EQ(frame[y * w + x] & 0x00FFFFFFu, 0x00FFFFFFu);
@@ -306,22 +306,22 @@ static int bar(int16_t y, int16_t width, int *left)
  * for. */
 UTEST(pointer, a_programs_shape_n_draws_its_sprite_n_minus_1)
 {
-    pointer_init();
+    mode6_init();
     ASSERT_TRUE(vga_canvas_select(vga_canvas_640_480));
     custom_sprite(0, 0, 0, 0);
     custom_sprite(199, 3, 2, 0);
     ASSERT_TRUE(mode6(CUSTOM_CONFIG));
-    ASSERT_TRUE(pointer_custom());
+    ASSERT_TRUE(mode6_custom());
     int left;
-    pointer_set(1, 100, 50);
+    mode6_set(1, 100, 50);
     ASSERT_EQ(bar(50, 640, &left), 8);
     ASSERT_EQ(left, 100);
-    pointer_set(200, 100, 50);
+    mode6_set(200, 100, 50);
     ASSERT_EQ(bar(48, 640, &left), 8);
     ASSERT_EQ(left, 97);
     ASSERT_EQ(bar(50, 640, &left), 0);
     ASSERT_TRUE(vga_canvas_select(vga_canvas_320_240));
-    ASSERT_TRUE(pointer_custom()); /* a change of the program's canvas keeps them */
+    ASSERT_TRUE(mode6_custom()); /* a change of the program's canvas keeps them */
     ASSERT_EQ(bar(48, 320, &left), 8);
     ASSERT_EQ(left, 97);
     /* Doubled down and across. */
@@ -336,7 +336,7 @@ UTEST(pointer, a_programs_shape_n_draws_its_sprite_n_minus_1)
  * XRAM draws nothing. */
 UTEST(pointer, a_sprite_past_the_end_of_xram_draws_nothing)
 {
-    pointer_init();
+    mode6_init();
     ASSERT_TRUE(vga_canvas_select(vga_canvas_640_480));
     ASSERT_TRUE(mode6(0xFFEC)); /* room for sprites 0 and 1 only */
     const mode5_csprite_t s = {.xram_sprite_ptr = CUSTOM_IMAGE, .palette_ptr = CUSTOM_PALETTE,
@@ -345,17 +345,17 @@ UTEST(pointer, a_sprite_past_the_end_of_xram_draws_nothing)
     memcpy((uint8_t *)&xram[0xFFF6], &s, sizeof s);
     custom_sprite(0, 0, 0, 0); /* the image and the palette */
     int left;
-    pointer_set(2, 100, 50);
+    mode6_set(2, 100, 50);
     ASSERT_EQ(bar(50, 640, &left), 8);
-    pointer_set(3, 100, 50);
+    mode6_set(3, 100, 50);
     ASSERT_EQ(bar(50, 640, &left), 0);
-    pointer_set(255, 100, 50);
+    mode6_set(255, 100, 50);
     ASSERT_EQ(bar(50, 640, &left), 0);
     ASSERT_TRUE(mode6(CUSTOM_CONFIG));
     custom_sprite(0, 0, 0, 0);
     xram[CUSTOM_CONFIG + 4] = 0xFF; /* the image at $FFFF */
     xram[CUSTOM_CONFIG + 5] = 0xFF;
-    pointer_set(1, 100, 50);
+    mode6_set(1, 100, 50);
     ASSERT_EQ(bar(50, 640, &left), 0);
     ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
 }
@@ -365,20 +365,20 @@ UTEST(pointer, a_sprite_past_the_end_of_xram_draws_nothing)
  * the system has none of draws nothing. */
 UTEST(pointer, the_console_has_the_systems_pointers)
 {
-    pointer_init();
+    mode6_init();
     ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
     ASSERT_FALSE(mode6(CUSTOM_CONFIG));
-    ASSERT_FALSE(pointer_custom());
+    ASSERT_FALSE(mode6_custom());
     ASSERT_TRUE(vga_canvas_select(vga_canvas_640_480));
     ASSERT_FALSE(mode6(CUSTOM_CONFIG + 1));
-    ASSERT_FALSE(pointer_custom());
+    ASSERT_FALSE(mode6_custom());
     ASSERT_TRUE(mode6(CUSTOM_CONFIG));
     ASSERT_TRUE(mode6(0xFFFF));
-    ASSERT_FALSE(pointer_custom());
+    ASSERT_FALSE(mode6_custom());
     ASSERT_TRUE(mode6(CUSTOM_CONFIG));
     ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
-    ASSERT_FALSE(pointer_custom());
-    pointer_set(TABLET_CURSOR_COUNT, 100, 50);
+    ASSERT_FALSE(mode6_custom());
+    mode6_set(TABLET_CURSOR_COUNT, 100, 50);
     bool filled = false;
     render(50, 640, &filled);
     ASSERT_FALSE(filled);
@@ -388,7 +388,7 @@ UTEST(pointer, the_console_has_the_systems_pointers)
  * program's pointers to the VGA, and the tablet passes on any shape. */
 UTEST(pointer, a_hosts_cursor_gives_way_to_the_programs_pointers)
 {
-    pointer_init();
+    mode6_init();
     ASSERT_TRUE(vga_canvas_select(vga_canvas_640_480));
     custom_sprite(19, 0, 0, 0);
     const uint16_t block = 0x1000;

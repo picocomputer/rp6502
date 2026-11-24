@@ -563,7 +563,7 @@ UTEST(tablet, host_wheel_encoding)
 }
 
 /* The shape is the program's, any up to 255, as the program's own pointers
- * can have that many (core/vga/pointer.h). With no program on the tablet, the console's terminal claims it
+ * can have that many (core/vga/mode/mode6.h). With no program on the tablet, the console's terminal claims it
  * while mode 0 shows, and the shape is the arrow; with mode 0 nowhere,
  * nothing wants the tablet. */
 UTEST(tablet, shape_is_the_programs)

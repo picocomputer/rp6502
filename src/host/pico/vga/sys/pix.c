@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/vga/pointer.h"
+#include "core/vga/mode/mode6.h"
 #include "vga/main.h"
 #include "core/com/manifold.h"
 #include "vga.pio.h"
@@ -109,13 +109,13 @@ static bool pix_ch15_xreg(uint8_t index, uint16_t word)
             ria_nak();
         return true;
     case 0x08: // POINTER_SHAPE
-        pointer_set_shape((uint8_t)word);
+        mode6_set_shape((uint8_t)word);
         return false;
     case 0x09: // POINTER_X, until POINTER_Y moves the pointer
         pix_pointer_x = (int16_t)word;
         return false;
     case 0x0A: // POINTER_Y: the pointer moves to it and to POINTER_X
-        pointer_move(pix_pointer_x, (int16_t)word);
+        mode6_move(pix_pointer_x, (int16_t)word);
         return false;
     case 0x0B: // SELECT_MARGINS, until SELECT_END applies the selection
         pix_select.margins = word;

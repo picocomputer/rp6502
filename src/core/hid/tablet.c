@@ -522,7 +522,12 @@ void tablet_task(void)
     uint8_t shape = tablet_shape();
     if (!(c[0] & TABLET_FLAG_HOVER))
         shape = TABLET_CURSOR_OFF;
-    vga_set_pointer(shape, tablet_contact_x(c), tablet_contact_y(c), tablet_host_cursor);
+    vga_set_pointer(shape, tablet_contact_x(c), tablet_contact_y(c));
+}
+
+bool tablet_host_cursor_shown(void)
+{
+    return tablet_host_cursor;
 }
 
 uint8_t tablet_shape(void)

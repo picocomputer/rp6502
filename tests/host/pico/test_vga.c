@@ -643,7 +643,7 @@ UTEST(vga, every_message_waits_out_a_jobs_hold)
     ASSERT_FALSE(vga_gate_open());
     ASSERT_FALSE(pix_ready()); // the RIA's own XRAM sends wait on it
     ASSERT_FALSE(vga_console_ready());
-    vga_set_pointer(1, 10, 20, false);
+    vga_set_pointer(1, 10, 20);
     user_selects(0x1234, 0x1300);
     vga_task();
     push_xreg(2, 0x5678);
@@ -718,7 +718,7 @@ UTEST(vga, nothing_goes_while_an_answer_is_awaited)
     ASSERT_EQ(VGA_ANSWER_WAITING, vga_answer());
     ASSERT_FALSE(pix_ready());
     ASSERT_FALSE(vga_console_ready());
-    vga_set_pointer(1, 10, 20, false);
+    vga_set_pointer(1, 10, 20);
     user_selects(0x1234, 0x1300);
     vga_set_code_page(850);
     vga_task();

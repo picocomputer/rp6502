@@ -48,7 +48,7 @@
 
 /* control (program to firmware): the cursor shape the program asks for. The
  * host draws it where it has a cursor of its own, and the system draws it
- * over the canvas everywhere else (core/vga/pointer.h). */
+ * over the canvas everywhere else (core/vga/mode/mode6.h). */
 enum
 {
     TABLET_CURSOR_OFF = 0, /* no cursor: the program draws its own, or none */
@@ -162,6 +162,11 @@ void tablet_host_give(bool given);
  * no program on the tablet, the arrow while its owner claims it, and
  * otherwise none. */
 uint8_t tablet_shape(void);
+
+/* The host shows its own cursor at the pointer, as the last host pointer
+ * event said, for the system's shapes: a machine that draws its own canvas
+ * then draws only a program's own (core/vga/mode/mode6.h). */
+bool tablet_host_cursor_shown(void);
 
 /* ---- the tablet's owner -------------------------------------------------
  *

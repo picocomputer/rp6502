@@ -200,10 +200,8 @@ static uint8_t vga_display_sent;
 /* The canvas and mode registers of channel 0 as the VGA holds them. */
 static uint16_t vga_xregs[8];
 
-/* A Pico has no host with a cursor of its own, so hosted is never set. */
-void HOST_IN_RAM_FUNC vga_set_pointer(uint8_t shape, int16_t x, int16_t y, bool hosted)
+void HOST_IN_RAM_FUNC vga_set_pointer(uint8_t shape, int16_t x, int16_t y)
 {
-    (void)hosted;
     if (shape != vga_pointer_shape)
     {
         vga_pointer_shape = shape;

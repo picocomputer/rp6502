@@ -180,9 +180,9 @@ void vga_canvas_publish(vga_canvas_t canvas)
 
 /* font.c's tables are linked onto the font memories, so these write them. */
 /* The fabric draws no pointer yet. */
-void vga_set_pointer(uint8_t shape, int16_t x, int16_t y, bool hosted)
+void vga_set_pointer(uint8_t shape, int16_t x, int16_t y)
 {
-    (void)shape, (void)x, (void)y, (void)hosted;
+    (void)shape, (void)x, (void)y;
 }
 
 bool vga_prog_pointer(uint16_t config_ptr)

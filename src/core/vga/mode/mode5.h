@@ -57,7 +57,7 @@ const uint16_t *mode5_palette(uint16_t palette_ptr, uint8_t options);
 /* Line tex_y of a custom sprite, counted down the sprite as drawn, into
  * rgb, a scanline width pixels wide, with the sprite's left edge at x: the
  * sprite of those size and options bytes, its image and palette already
- * found. The pointer draws with it too (core/vga/pointer.c). */
+ * found. Mode 6 draws the pointer with it too. */
 void mode5_custom_line(int x, int tex_y, uint8_t width_height, uint8_t options,
                        const uint8_t *image, const uint16_t *palette,
                        int16_t width, uint16_t *rgb);

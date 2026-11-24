@@ -42,7 +42,7 @@
 #include "core/aud/bel.h"
 #include "core/vga/canvas.h"
 #include "core/vga/mode/mode0.h"
-#include "core/vga/pointer.h"
+#include "core/vga/mode/mode6.h"
 #include "core/vga/prog.h"
 #include "core/rom/rom.h"
 #include "core/aud/pcm.h"
@@ -76,7 +76,7 @@
     DRAW_DRIVER, MODE0_DRIVER, KEYBOARD_DRIVER, MOUSE_DRIVER,  \
     GAMEPAD_DRIVER, TABLET_DRIVER, VTERM_MOUSE_DRIVER,         \
     FONT_DRIVER, OEM_DRIVER,                                   \
-    VGA_DRIVER, CANVAS_DRIVER, PROG_DRIVER, POINTER_DRIVER,    \
+    VGA_DRIVER, CANVAS_DRIVER, PROG_DRIVER, MODE6_DRIVER,      \
     CLIP_DRIVER, PASTE_DRIVER,                                 \
     PSG_DRIVER, OPL_DRIVER, AUD_DRIVER, BEL_DRIVER,            \
     TIM_DRIVER, DIR_DRIVER, CLK_DRIVER, RANDOM_DRIVER,         \

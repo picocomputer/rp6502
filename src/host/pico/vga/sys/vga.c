@@ -5,7 +5,7 @@
  */
 
 #include "core/term/vterm.h"
-#include "core/vga/pointer.h"
+#include "core/vga/mode/mode6.h"
 #include "vga/main.h"
 #include "vga/sys/ria.h"
 #include "vga/sys/vga.h"
@@ -338,7 +338,7 @@ static void vga_render_scanline(void)
                               prog.sprite_length[i]);
         }
     }
-    pointer_render(scanline_id, (int16_t)width, scanline_buffer->pixels[SCANVIDEO_PLANE_COUNT - 1],
+    mode6_render(scanline_id, (int16_t)width, scanline_buffer->pixels[SCANVIDEO_PLANE_COUNT - 1],
                    &filled[SCANVIDEO_PLANE_COUNT - 1]);
     scanvideo_end_scanline_generation(scanline_buffer, filled);
     vga_scanline_complete(buffer_scanline_id);
@@ -445,7 +445,7 @@ void vga_init(void)
 {
     /* The VIDEO region is not zeroed at boot. */
     memset(vga_fill_cache, 0, sizeof(vga_fill_cache));
-    pointer_init();
+    mode6_init();
     vga_set_display(vga_sd);
     vga_scanvideo_switch();
 }

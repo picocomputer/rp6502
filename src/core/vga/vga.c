@@ -5,7 +5,8 @@
  *
  */
 
-#include "core/vga/pointer.h"
+#include "core/vga/mode/mode6.h"
+#include "core/hid/tablet.h"
 #include "core/aud/mix.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
@@ -90,14 +91,16 @@ void vga_load_code_page(uint16_t cp)
     font_load_code_page(cp);
 }
 
-void vga_set_pointer(uint8_t shape, int16_t x, int16_t y, bool hosted)
+/* Where the host shows its own cursor for the system's shapes, only a
+ * program's own are drawn. */
+void vga_set_pointer(uint8_t shape, int16_t x, int16_t y)
 {
-    pointer_set(hosted && !pointer_custom() ? 0 : shape, x, y);
+    mode6_set(tablet_host_cursor_shown() && !mode6_custom() ? 0 : shape, x, y);
 }
 
 void vga_init(void)
 {
-    pointer_init();
+    mode6_init();
     vga_canvas_select(0);
 }
 
@@ -258,7 +261,7 @@ static void render_scanline(int y, uint32_t *fb)
         }
     }
 
-    pointer_render((int16_t)y, (int16_t)W, plane[SCANVIDEO_PLANE_COUNT - 1],
+    mode6_render((int16_t)y, (int16_t)W, plane[SCANVIDEO_PLANE_COUNT - 1],
                    &filled[SCANVIDEO_PLANE_COUNT - 1]);
 
     uint32_t *dst = fb + (size_t)y * W;
