@@ -41,20 +41,21 @@ on, so a developer runs them on a workstation with the rig attached.
 
 ## The console on a debug probe
 
-A firmware built with `-DRP6502_RTT_DEBUG=ON` keeps the console in RAM as
+A firmware built with `-DRP6502_RTT_STDIO=ON` keeps the console in RAM as
 SEGGER RTT channel 0, where a probe on the SWD pins reads and writes it. It
 is one more end of the console's UART: it carries what the UART carries, at
 115200 baud, with nothing between the tests and the machine but the probe.
 The telnet console holds a program's output to the pace of the network,
 about half of that over Wi-Fi, for as long as a session is connected.
 
-    cmake -S . -B build-rtt -DRP6502_RTT_DEBUG=ON
+    cmake -S . -B build-rtt -DRP6502_RTT_STDIO=ON -DRP6502_RTT_HID=ON
     python3 tests/hil/pico/hil.py -d rtt:SERIAL --probe SERIAL \
         --elf build-rtt/ria-w/rp6502-ria-w.elf term sizes bus audio tput
 
 The option is off in a release. The RIA and the VGA both take it, and a
 probe on either reaches the same console. A break is a word the probe sets
-beside the rings, since RTT has none.
+beside the rings, since RTT has none. `RP6502_RTT_HID` is the option of the
+next section. Each of the two builds without the other.
 
 The rig reads the rings itself (`RttDevice` in `src/core/build.py`),
 through the same OpenOCD and the same memory access ports as its other
@@ -62,6 +63,85 @@ reads. The output ring is 256 bytes, 22 ms of a busy console, and the
 firmware drops and counts what does not fit. OpenOCD's own `rtt server`
 reads every 100 ms unless `rtt polling_interval` says otherwise, and has to
 attach to the cores.
+
+## Keyboards, mice and gamepads on a debug probe
+
+A RIA built with `-DRP6502_RTT_HID=ON` takes human input devices from a
+probe on its SWD pins, so a test types, moves a mouse and holds a gamepad
+with nothing on the USB port and nobody at the machine. The option is off
+in a release, and off it adds nothing to the firmware. The VGA has no input
+devices and does not take it.
+
+A device is its HID report descriptor. The rig mounts one as USB does when
+a device is plugged in, through the same parser and the same drivers, and
+then sends its reports, so the firmware knows no more of a device than it
+knows of a USB one. An XInput gamepad is not HID and cannot be mounted. The
+firmware times nothing: a key held is a report, a wait in the test, and
+another report.
+
+`RttHid` in `src/core/build.py` is the rig's side, and
+`src/host/pico/rtt_hid.h` describes the messages between the two. It takes
+a `Probe` on the RIA, which needs no ELF for this, and shares the one
+OpenOCD on that probe with the console and with the reads by symbol:
+
+    probe = build.Probe(None, serial, board)
+    with probe, build.RttHid(probe) as hid:
+        keyboard = hid.keyboard()
+        keyboard.tap(keyboard.LEFT_SHIFT, 0x04)
+        keyboard.down(0x04)
+        time.sleep(1)
+        keyboard.up()
+        mouse = hid.mouse()
+        mouse.move(20, -10)
+        mouse.buttons(mouse.LEFT)
+        pad = hid.gamepad()
+        pad.set(buttons=pad.A | pad.START, dpad=pad.UP, lx=-128, rt=255)
+        other = hid.mount(descriptor, vendor_id, product_id)
+        other.report(data)
+        other.unmount()
+
+- `RttHid(probe)` opens with `with`, or with `open()` and `close()`. It
+  finds the firmware's structure in RAM by its id and unmounts what an
+  earlier run left mounted. Closing unmounts every device.
+- `hid.mount(descriptor, vendor_id=0, product_id=0)` mounts any descriptor
+  and returns a `HidDevice`. `report(data)` sends a report as the device
+  sends it over USB, with its report id first when the descriptor has ids.
+  `unmount()` unplugs it. `slot` is its hid slot in the RIA, and `claims`
+  the drivers that took it: `RttHid.KEYBOARD`, `MOUSE`, `TABLET` and `PAD`.
+- `hid.keyboard()` is a standard keyboard of six keys and the modifiers.
+  `down(*keys)` and `up(*keys)` hold keys and let them go, and `up()` lets
+  go of all. `tap(*keys, hold=0)` does both. A key is its HID usage, as
+  `src/core/hid/usage.h` has them, and the modifiers have names, such as
+  `LEFT_CTRL`. Nothing turns text into keys: what a key types is up to the
+  layout of the RIA.
+- `hid.mouse()` is a mouse of five buttons. `move(dx, dy, wheel, pan)` moves
+  it by counts, and `buttons(mask)` holds `LEFT`, `RIGHT`, `MIDDLE`, `BACK`
+  and `FORWARD`. As with a USB mouse, it also moves the pointer of the
+  tablet and of the console.
+- `hid.gamepad()` is a gamepad of sixteen buttons, a hat, two sticks and two
+  triggers. `set()` changes any of `buttons`, `dpad`, `lx`, `ly`, `rx`,
+  `ry`, `lt` and `rt` and sends the whole state. The buttons and the dpad
+  are the bits a program reads, with names such as `A` and `UP`. It is the
+  player of the lowest number that has no gamepad. A program that maps the
+  gamepads blanks them until the next report, and `set()` with nothing
+  sends one.
+- `hid.nop()` sends a message that does nothing and returns the seconds
+  until the RIA acknowledged it.
+- `hid.seats` lists every seat as the last acknowledgment gave it: the hid
+  slot of the device there, or `None`, and its drivers.
+
+Every message is acknowledged, and one that is not within `RttHid.TIMEOUT`,
+2 s, raises. A mount no driver takes raises, as does a standard device its
+own driver has no room for. A reboot of the RIA unmounts everything, and
+the next report to a device that was mounted raises.
+
+There are eight seats, and a descriptor or a report is 512 bytes at most.
+The devices share the RIA's 16 hid slots, four keyboards, four mice and
+four gamepads with those on USB and Bluetooth. The monitor's `STATUS` does
+not count them.
+
+On a Release RIA-W the option costs about 0.6 KB of RAM, 536 bytes of it
+for the message and the seats, and about 0.2 KB of flash.
 
 ## tput
 
@@ -194,6 +274,30 @@ its rows away, which drops it on both.
     python3 tests/hil/pico/hil.py -d 192.168.1.93 -k key \
         --elf build/ria-w/rp6502-ria-w.elf --probe RIA_SERIAL \
         --vga-elf build/vga/rp6502-vga.elf --vga-probe VGA_SERIAL select
+
+## hid
+
+The test to run after any change to the input devices of a debug probe,
+`rtt_hid.c` and `RttHid`. It needs a RIA built with `RP6502_RTT_HID`, a
+probe on it, and no ELF. It mounts a keyboard, taps the A key at the
+monitor's prompt, reads the echo from the console, and erases it with
+Backspace. The key is HID usage 4, which the layout of the RIA turns into a
+character, so the test expects a US layout. Then it times 100 messages that
+do nothing, there and back, with the console's polls running beside them
+when the console is on the same probe.
+
+    python3 tests/hil/pico/hil.py -d rtt hid
+
+With several probes, name the RIA's in both places:
+
+    python3 tests/hil/pico/hil.py -d rtt:SERIAL --probe SERIAL hid
+
+The probe is `--probe`'s. With the console on the same probe, both name it
+by the same serial number, as above, so that they share one OpenOCD. Any
+other console works too.
+
+The test fails when no keyboard mounts, the echo is not `a`, or a message
+is not acknowledged. The times have no reference yet.
 
 ## Cautions
 

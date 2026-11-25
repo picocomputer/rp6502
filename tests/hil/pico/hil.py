@@ -22,6 +22,11 @@ import build
 
 UPDATE_NAME = "hil-update.uf2"
 
+# The keys of the hid test, by HID usage, and how many messages it times.
+HID_KEY_A = 0x04
+HID_KEY_BACKSPACE = 0x2A
+HID_ROUND_TRIPS = 100
+
 
 class Fail(Exception):
     pass
@@ -263,6 +268,34 @@ def test_select(r):
             b.command("STATUS")
         if same("scrolled away")["shows"]:
             raise Fail("the selection outlived its rows")
+
+
+def test_hid(r):
+    """A keyboard on the debug probe types a key at the monitor, which echoes
+    it, and the time a message takes there and back. Needs a RIA built with
+    RP6502_RTT_HID and a probe on it, and no --elf."""
+    b = r.board
+    b.stop()
+    probe = r.probe or build.Probe(None, r.args.probe, b)
+    with probe, build.RttHid(probe) as hid:
+        keyboard = hid.keyboard()
+        print(f"a keyboard is in hid slot {keyboard.slot}", flush=True)
+        # What follows the prompt, such as its escapes, is not the echo.
+        time.sleep(0.5)
+        b.dev.flush_read_bufs()
+        keyboard.tap(HID_KEY_A)
+        echo = build.clean(b.read(2).decode("ascii", "replace"))
+        print(f"the A key echoes {echo!r}", flush=True)
+        keyboard.tap(HID_KEY_BACKSPACE)
+        erased = b.read(2)
+        if echo.lower() != "a":
+            raise Fail(f"the A key echoed {echo!r}, and a US layout types a")
+        if not erased:
+            raise Fail("Backspace echoed nothing")
+        times = sorted(hid.nop() * 1000 for _ in range(HID_ROUND_TRIPS))
+        print(f"{len(times)} messages there and back: {times[0]:.1f} ms at least, "
+              f"{times[len(times) // 2]:.1f} ms the median, {times[-1]:.1f} ms at most",
+              flush=True)
 
 
 def test_audio(r):

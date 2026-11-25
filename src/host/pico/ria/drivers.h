@@ -55,6 +55,7 @@
 #include "ria/usb/nfc.h"
 #include "ria/usb/vcp.h"
 #include "ria/mon/uf2.h"
+#include "rtt_hid.h"
 
 /* RP2350 comes first so the system clock is set before any init computes a
  * divider from it, and MANIFOLD_UART comes next so the console is up before
@@ -90,7 +91,8 @@
     DIR_DRIVER, CLK_DRIVER,                          \
     DRIVE_DRIVER, RAM_DRIVER,                        \
     VCP_DRIVER, NFC_DRIVER, API_DRIVER,              \
-    USB_DRIVER, PHI2_DRIVER, RESB_DRIVER
+    USB_DRIVER, RTT_HID_DRIVER,                      \
+    PHI2_DRIVER, RESB_DRIVER
 
 /* open() tries these drivers' STD rows in order, and the filesystem's
  * accepts every path, so it is last. ASSET_DRIVER is here for ROM:'s row

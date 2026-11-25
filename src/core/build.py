@@ -181,7 +181,8 @@ def same_path(path):
 #
 # A Picocomputer on the bench is reached through its console and through
 # CMSIS-DAP debug probes on the SWD ports of its chips, which OpenOCD drives.
-# The console is rp6502.py's, over a serial port, telnet, or RttDevice.
+# The console is rp6502.py's, over a serial port, telnet, or RttDevice. A
+# probe on the RIA is its keyboards, mice and gamepads too, through RttHid.
 
 PICO = ROOT / "src" / "host" / "pico"
 
@@ -319,7 +320,7 @@ class OpenOCD:
 
 class RttDevice:
     """The console over a debug probe, as SEGGER RTT channel 0, in a firmware
-    built with RP6502_RTT_DEBUG. It is a device of rp6502.Console, as the
+    built with RP6502_RTT_STDIO. It is a device of rp6502.Console, as the
     serial port and telnet are, named "rtt", or "rtt:SERIAL" to pick one of
     several probes.
 
@@ -412,7 +413,7 @@ proc rp6502_rtt_io {cb tx} {
             self.cb = int(self.ocd.command("rp6502_rtt_find %d %d" % self.RAM), 0)
             if not self.cb:
                 raise RuntimeError("no RTT console in the chip on this probe; "
-                                   "build its firmware with RP6502_RTT_DEBUG")
+                                   "build its firmware with RP6502_RTT_STDIO")
             # The ring holds the last of what was written with nobody
             # reading. The console starts from here.
             self.ocd.command("rp2350.ahb0 write_memory %d 32 [rp2350.ahb0 read_memory %d 32 1]" %
@@ -555,18 +556,20 @@ proc rp6502_rtt_io {cb tx} {
 
 class Probe:
     """A debug probe on the SWD port of a Pico, for reads and writes of its
-    memory by symbol. `elf` is the firmware on the chip, `serial` picks the
-    probe when there are several, and `board` is the Board whose RttDevice
-    may already hold this probe: only one OpenOCD can, so the reads and
-    writes then go through it. They are made inside `with`."""
+    memory by symbol. `elf` is the firmware on the chip, or None when nothing
+    is read by symbol, `serial` picks the probe when there are several, and
+    `board` is the Board whose RttDevice may already hold this probe: only
+    one OpenOCD can, so the reads and writes then go through it. They are
+    made inside `with`."""
 
     def __init__(self, elf, serial=None, board=None):
-        self.elf = str(elf)
+        self.elf = elf and str(elf)
         self.serial = serial
         self.board = board
         self.sym = {}
-        for name, value in rp6502.Symbols.elf_symbols(self.elf):
-            self.sym.setdefault(name.split(".")[0], value)
+        if elf:
+            for name, value in rp6502.Symbols.elf_symbols(self.elf):
+                self.sym.setdefault(name.split(".")[0], value)
         self.ocd = None
 
     def flash(self):
@@ -599,6 +602,391 @@ class Probe:
         (self.console() or self.ocd).write_memory(addr, width, values)
 
 
+class RttHid:
+    """Human input devices over a debug probe, in a RIA built with
+    RP6502_RTT_HID: the bench mounts keyboards, mice and gamepads by their
+    HID report descriptors and sends their reports, with nothing on the USB
+    port. The RIA takes them as it takes USB devices, and knows no more of
+    them than their descriptors say. src/host/pico/rtt_hid.h describes the
+    messages.
+
+    `probe` is a Probe on the RIA, and the devices are used inside its
+    `with`, so they share the one OpenOCD that holds the probe with the RTT
+    console and with the reads by symbol. Opening unmounts what an earlier
+    run left mounted, and closing unmounts this run's.
+
+    The firmware times nothing. A key held is a report, a wait here, and
+    another report. Nothing of the emulator's script language is here."""
+
+    ID = struct.unpack("<4I", b"RP6502 RTT HID\0\0")
+    MOUNT, REPORT, UMOUNT, NOP = 1, 2, 3, 4
+    # The drivers that take a device, HID_CLAIM_ in src/core/hid/hid.h.
+    KEYBOARD, MOUSE, TABLET, PAD = 1, 2, 4, 8
+    # How long the RIA has to take a message.
+    TIMEOUT = 2.0
+
+    def __init__(self, probe):
+        self.probe = probe
+        self.box = self.size = 0
+        # Each seat as the last acknowledgment gave it: the hid slot of the
+        # device mounted there, or None, and the drivers that took it.
+        self.seats = []
+
+    def __enter__(self):
+        self.open()
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+    def find(self):
+        """The address of the firmware's structure, found in RAM by its id,
+        or 0."""
+        lo, hi = RttDevice.RAM
+        for addr in range(lo, hi, 4096):
+            # Three words of the next page too, for an id across the two.
+            words = self.probe.read(addr, 32, 1024 + (3 if addr + 4096 < hi else 0))
+            at = -1
+            while self.ID[0] in words[at + 1:1024]:
+                at = words.index(self.ID[0], at + 1)
+                if tuple(words[at:at + 4]) == self.ID:
+                    return addr + at * 4
+        return 0
+
+    def open(self):
+        """Finds the structure, waits out a message an earlier run left, and
+        unmounts every device still mounted."""
+        block = self.find()
+        if not block:
+            raise RuntimeError("no HID devices in the chip on this probe; "
+                               "build the RIA's firmware with RP6502_RTT_HID")
+        self.box, sizes = self.probe.read(block + 16, 32, 2)
+        self.size, self.seats = sizes & 0xFFFF, [(None, 0)] * (sizes >> 16)
+        self.wait("a message left from before")
+        # What an earlier run left mounted goes as this run's will.
+        self.close()
+
+    def close(self):
+        """Unmounts every device."""
+        for seat, (slot, _) in enumerate(self.seats):
+            if slot is not None:
+                self.send(self.UMOUNT, seat)
+
+    def poll(self):
+        """Reads the head, which is 0 once the RIA has taken the message,
+        and the seats after it."""
+        n = len(self.seats)
+        words = self.probe.read(self.box + self.size + 4, 32, 1 + n // 2)
+        table = struct.pack("<%dI" % (n // 2), *words[1:])
+        self.seats = [(table[i] - 1 if table[i] else None, table[n + i]) for i in range(n)]
+        return words[0]
+
+    def wait(self, what):
+        """Polls until the RIA has taken the message, or raises."""
+        end = time.monotonic() + self.TIMEOUT
+        while self.poll():
+            if time.monotonic() > end:
+                raise TimeoutError(f"the RIA did not take {what} in {self.TIMEOUT} s")
+
+    @staticmethod
+    def pack(verb, seat=0, data=b"", vendor_id=0, product_id=0):
+        """The words of a message: its bytes, which end where the ids begin
+        and start on a word, then the ids, then the head."""
+        raw = bytes(-len(data) % 4) + bytes(data) + struct.pack(
+            "<HHI", vendor_id, product_id, verb | seat << 8 | len(data) << 16)
+        return struct.unpack("<%dI" % (len(raw) // 4), raw)
+
+    def send(self, verb, seat=0, data=b"", vendor_id=0, product_id=0):
+        """Sends one message and returns when the RIA has acted on it. The
+        seats are then as that left them."""
+        if len(data) > self.size:
+            raise ValueError(f"{len(data)} bytes do not fit a message of {self.size}")
+        words = self.pack(verb, seat, data, vendor_id, product_id)
+        # The head is the last word written. A long message goes in several
+        # writes, so the console's polls get their turns at the probe.
+        at = self.box + self.size + 8 - len(words) * 4
+        for i in range(0, len(words), 32):
+            self.probe.write(at + i * 4, 32, words[i:i + 32])
+        self.wait("the message")
+
+    def nop(self):
+        """Sends a message that does nothing and returns the seconds it took
+        the RIA to acknowledge it."""
+        start = time.monotonic()
+        self.send(self.NOP)
+        return time.monotonic() - start
+
+    def mount(self, descriptor, vendor_id=0, product_id=0, device=None):
+        """Mounts a device from its HID report descriptor and its USB ids, as
+        when one is plugged in, and returns it: a `device`, or a HidDevice."""
+        device = device or HidDevice
+        free = [seat for seat, (slot, _) in enumerate(self.seats) if slot is None]
+        if not free:
+            raise RuntimeError(f"all {len(self.seats)} seats are taken")
+        self.send(self.MOUNT, free[0], descriptor, vendor_id, product_id)
+        slot, claims = self.seats[free[0]]
+        if slot is None:
+            raise RuntimeError("the RIA did not mount the device: no driver "
+                               "took its descriptor, or has room for it")
+        mounted = device(self, free[0])
+        if claims & device.CLAIMS != device.CLAIMS:
+            mounted.unmount()
+            raise RuntimeError(f"the RIA mounted the device for drivers {claims:#x} "
+                               f"and not {device.CLAIMS:#x}")
+        return mounted
+
+    def keyboard(self):
+        """Mounts a standard keyboard."""
+        return self.mount(HidKeyboard.DESCRIPTOR, device=HidKeyboard)
+
+    def mouse(self):
+        """Mounts a mouse."""
+        return self.mount(HidMouse.DESCRIPTOR, device=HidMouse)
+
+    def gamepad(self):
+        """Mounts a gamepad, which is the player of the lowest number that
+        has none."""
+        return self.mount(HidGamepad.DESCRIPTOR, device=HidGamepad)
+
+
+class HidDevice:
+    """A device RttHid.mount() mounted, in its seat until unmount(). `slot`
+    is its hid slot in the RIA, and `claims` the drivers that took it."""
+
+    # The drivers a device of this class must have been taken by.
+    CLAIMS = 0
+
+    def __init__(self, hid, seat):
+        self.hid = hid
+        self.seat = seat
+        self.slot, self.claims = hid.seats[seat]
+
+    def report(self, data):
+        """Sends a report as the device sends it over USB, which is with its
+        report id first when the descriptor has ids."""
+        self.hid.send(RttHid.REPORT, self.seat, data)
+        if self.hid.seats[self.seat][0] != self.slot:
+            raise RuntimeError(f"the device in seat {self.seat} is gone; "
+                               "the RIA has rebooted")
+
+    def unmount(self):
+        """Unmounts the device, as when one is unplugged."""
+        self.hid.send(RttHid.UMOUNT, self.seat)
+
+
+class HidKeyboard(HidDevice):
+    """A standard keyboard, with the boot keyboard's report: a bit for each
+    modifier and six keys. A key is its HID usage, as src/core/hid/usage.h
+    names them: 0x04 is the key a US keyboard has A on, and what it types
+    is the RIA's layout's to say."""
+
+    CLAIMS = RttHid.KEYBOARD
+    (LEFT_CTRL, LEFT_SHIFT, LEFT_ALT, LEFT_GUI,
+     RIGHT_CTRL, RIGHT_SHIFT, RIGHT_ALT, RIGHT_GUI) = range(0xE0, 0xE8)
+
+    DESCRIPTOR = bytes([
+        0x05, 0x01,        # Usage Page (Generic Desktop)
+        0x09, 0x06,        # Usage (Keyboard)
+        0xA1, 0x01,        # Collection (Application)
+        0x05, 0x07,        # Usage Page (Keyboard)
+        0x19, 0xE0,        # Usage Minimum (Left Control)
+        0x29, 0xE7,        # Usage Maximum (Right GUI)
+        0x15, 0x00,        # Logical Minimum (0)
+        0x25, 0x01,        # Logical Maximum (1)
+        0x75, 0x01,        # Report Size (1)
+        0x95, 0x08,        # Report Count (8)
+        0x81, 0x02,        # Input (Data, Variable, Absolute)
+        0x95, 0x01,        # Report Count (1)
+        0x75, 0x08,        # Report Size (8)
+        0x81, 0x01,        # Input (Constant)
+        0x95, 0x05,        # Report Count (5)
+        0x75, 0x01,        # Report Size (1)
+        0x05, 0x08,        # Usage Page (LEDs)
+        0x19, 0x01,        # Usage Minimum (Num Lock)
+        0x29, 0x05,        # Usage Maximum (Kana)
+        0x91, 0x02,        # Output (Data, Variable, Absolute)
+        0x95, 0x01,        # Report Count (1)
+        0x75, 0x03,        # Report Size (3)
+        0x91, 0x01,        # Output (Constant)
+        0x95, 0x06,        # Report Count (6)
+        0x75, 0x08,        # Report Size (8)
+        0x15, 0x00,        # Logical Minimum (0)
+        0x26, 0xFF, 0x00,  # Logical Maximum (255)
+        0x05, 0x07,        # Usage Page (Keyboard)
+        0x19, 0x00,        # Usage Minimum (0)
+        0x2A, 0xFF, 0x00,  # Usage Maximum (255)
+        0x81, 0x00,        # Input (Data, Array)
+        0xC0,              # End Collection
+    ])
+
+    def __init__(self, hid, seat):
+        super().__init__(hid, seat)
+        self.keys = []
+
+    @staticmethod
+    def pack(keys):
+        """The report with `keys` down."""
+        modifiers = sum(1 << (k - 0xE0) for k in keys if 0xE0 <= k <= 0xE7)
+        codes = [k for k in keys if not 0xE0 <= k <= 0xE7]
+        if len(codes) > 6:
+            raise ValueError("this keyboard reports six keys and the modifiers")
+        return bytes([modifiers, 0] + codes + [0] * (6 - len(codes)))
+
+    def down(self, *keys):
+        """Presses the keys, which stay down."""
+        held = self.keys + [k for k in keys if k not in self.keys]
+        report = self.pack(held)
+        self.keys = held
+        self.report(report)
+
+    def up(self, *keys):
+        """Lets the keys go, or every key."""
+        self.keys = [k for k in self.keys if keys and k not in keys]
+        self.report(self.pack(self.keys))
+
+    def tap(self, *keys, hold=0):
+        """Presses the keys together, modifiers among them, and lets them go
+        after `hold` seconds."""
+        self.down(*keys)
+        time.sleep(hold)
+        self.up(*keys)
+
+
+class HidMouse(HidDevice):
+    """A mouse with five buttons, a wheel, and a pan. It moves the mouse of
+    a program and, as a USB mouse does, the pointer of the tablet and the
+    console. Two counts are one of the mouse block of a program."""
+
+    CLAIMS = RttHid.MOUSE | RttHid.TABLET
+    LEFT, RIGHT, MIDDLE, BACK, FORWARD = 1, 2, 4, 8, 16
+
+    DESCRIPTOR = bytes([
+        0x05, 0x01,        # Usage Page (Generic Desktop)
+        0x09, 0x02,        # Usage (Mouse)
+        0xA1, 0x01,        # Collection (Application)
+        0x09, 0x01,        # Usage (Pointer)
+        0xA1, 0x00,        # Collection (Physical)
+        0x05, 0x09,        # Usage Page (Button)
+        0x19, 0x01,        # Usage Minimum (1)
+        0x29, 0x05,        # Usage Maximum (5)
+        0x15, 0x00,        # Logical Minimum (0)
+        0x25, 0x01,        # Logical Maximum (1)
+        0x95, 0x05,        # Report Count (5)
+        0x75, 0x01,        # Report Size (1)
+        0x81, 0x02,        # Input (Data, Variable, Absolute)
+        0x95, 0x01,        # Report Count (1)
+        0x75, 0x03,        # Report Size (3)
+        0x81, 0x01,        # Input (Constant)
+        0x05, 0x01,        # Usage Page (Generic Desktop)
+        0x09, 0x30,        # Usage (X)
+        0x09, 0x31,        # Usage (Y)
+        0x16, 0x01, 0x80,  # Logical Minimum (-32767)
+        0x26, 0xFF, 0x7F,  # Logical Maximum (32767)
+        0x75, 0x10,        # Report Size (16)
+        0x95, 0x02,        # Report Count (2)
+        0x81, 0x06,        # Input (Data, Variable, Relative)
+        0x09, 0x38,        # Usage (Wheel)
+        0x15, 0x81,        # Logical Minimum (-127)
+        0x25, 0x7F,        # Logical Maximum (127)
+        0x75, 0x08,        # Report Size (8)
+        0x95, 0x01,        # Report Count (1)
+        0x81, 0x06,        # Input (Data, Variable, Relative)
+        0x05, 0x0C,        # Usage Page (Consumer)
+        0x0A, 0x38, 0x02,  # Usage (AC Pan)
+        0x95, 0x01,        # Report Count (1)
+        0x81, 0x06,        # Input (Data, Variable, Relative)
+        0xC0,              # End Collection
+        0xC0,              # End Collection
+    ])
+
+    def __init__(self, hid, seat):
+        super().__init__(hid, seat)
+        self.held = 0
+
+    @staticmethod
+    def pack(buttons, dx=0, dy=0, wheel=0, pan=0):
+        """The report: the buttons down and what moved since the last."""
+        return struct.pack("<Bhhbb", buttons, dx, dy, wheel, pan)
+
+    def move(self, dx=0, dy=0, wheel=0, pan=0):
+        """Moves right and down by counts, and the wheel up and the pan
+        right by notches."""
+        self.report(self.pack(self.held, dx, dy, wheel, pan))
+
+    def buttons(self, mask):
+        """Holds the buttons of `mask` down, and no others."""
+        self.held = mask
+        self.move()
+
+
+class HidGamepad(HidDevice):
+    """A gamepad with sixteen buttons, a hat for the dpad, two sticks and
+    two triggers. The buttons and the dpad are the bits a program reads in
+    BTN0, BTN1 and DPAD, a stick is -128 to 127, and a trigger 0 to 255."""
+
+    CLAIMS = RttHid.PAD
+    A, B, C, X, Y, Z, L1, R1, L2, R2, SELECT, START, HOME, L3, R3 = (
+        1 << i for i in range(15))
+    UP, DOWN, LEFT, RIGHT = 1, 2, 4, 8
+    # The hat of each dpad: clockwise from north, and 8 at rest.
+    HAT = {0: 8, 1: 0, 9: 1, 8: 2, 10: 3, 2: 4, 6: 5, 4: 6, 5: 7}
+
+    DESCRIPTOR = bytes([
+        0x05, 0x01,        # Usage Page (Generic Desktop)
+        0x09, 0x05,        # Usage (Gamepad)
+        0xA1, 0x01,        # Collection (Application)
+        0x05, 0x09,        # Usage Page (Button)
+        0x19, 0x01,        # Usage Minimum (1)
+        0x29, 0x10,        # Usage Maximum (16)
+        0x15, 0x00,        # Logical Minimum (0)
+        0x25, 0x01,        # Logical Maximum (1)
+        0x75, 0x01,        # Report Size (1)
+        0x95, 0x10,        # Report Count (16)
+        0x81, 0x02,        # Input (Data, Variable, Absolute)
+        0x05, 0x01,        # Usage Page (Generic Desktop)
+        0x09, 0x39,        # Usage (Hat Switch)
+        0x15, 0x00,        # Logical Minimum (0)
+        0x25, 0x07,        # Logical Maximum (7)
+        0x35, 0x00,        # Physical Minimum (0)
+        0x46, 0x3B, 0x01,  # Physical Maximum (315)
+        0x65, 0x14,        # Unit (Degrees)
+        0x75, 0x04,        # Report Size (4)
+        0x95, 0x01,        # Report Count (1)
+        0x81, 0x42,        # Input (Data, Variable, Absolute, Null State)
+        0x65, 0x00,        # Unit (None)
+        0x95, 0x01,        # Report Count (1)
+        0x81, 0x01,        # Input (Constant)
+        0x09, 0x30,        # Usage (X)
+        0x09, 0x31,        # Usage (Y)
+        0x09, 0x32,        # Usage (Z)
+        0x09, 0x35,        # Usage (Rz)
+        0x09, 0x33,        # Usage (Rx)
+        0x09, 0x34,        # Usage (Ry)
+        0x26, 0xFF, 0x00,  # Logical Maximum (255)
+        0x46, 0xFF, 0x00,  # Physical Maximum (255)
+        0x75, 0x08,        # Report Size (8)
+        0x95, 0x06,        # Report Count (6)
+        0x81, 0x02,        # Input (Data, Variable, Absolute)
+        0xC0,              # End Collection
+    ])
+
+    def __init__(self, hid, seat):
+        super().__init__(hid, seat)
+        self.state = {}
+
+    @classmethod
+    def pack(cls, buttons=0, dpad=0, lx=0, ly=0, rx=0, ry=0, lt=0, rt=0):
+        """The report: the buttons, the hat, the sticks, and the triggers."""
+        return struct.pack("<HB6B", buttons, cls.HAT[dpad],
+                           lx + 128, ly + 128, rx + 128, ry + 128, lt, rt)
+
+    def set(self, **changes):
+        """Changes any of buttons, dpad, lx, ly, rx, ry, lt and rt, and
+        sends the whole state, which with no change sends it again."""
+        self.state.update(changes)
+        self.report(self.pack(**self.state))
+
+
 class Board:
     """One console session with the monitor of the RIA, over telnet when
     there is a key, or over a serial port."""
@@ -619,7 +1007,7 @@ class Board:
 
     def open(self):
         if self.device == "rtt" or self.device.startswith("rtt:"):
-            self.dev = RttDevice(self.device.partition(":")[2])
+            self.dev = RttDevice(self.device.partition(":")[2] or None)
         elif self.key:
             self.dev = rp6502.TelnetDevice(*self.address(), self.key)
         else:

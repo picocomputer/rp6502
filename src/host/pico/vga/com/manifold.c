@@ -76,7 +76,7 @@ void manifold_out_write(char ch)
         cdc_task();
         tud_task();
     }
-#if RP6502_RTT_DEBUG
+#if RP6502_RTT_STDIO
     rtt_write(&ch, 1);
 #endif
     manifold_term_out(&ch, 1, true);

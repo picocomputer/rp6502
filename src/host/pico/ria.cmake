@@ -19,7 +19,8 @@ target_compile_definitions(${RIA_TARGET} PRIVATE ${RP6502_PROJECT_DEFINITIONS})
 rp6502_log_definitions(${RIA_TARGET} PRIVATE)
 pico_add_extra_outputs(${RIA_TARGET})
 pico_set_binary_type(${RIA_TARGET} default)
-rp6502_pico_rtt(${RIA_TARGET})
+rp6502_pico_rtt_stdio(${RIA_TARGET})
+rp6502_pico_rtt_hid(${RIA_TARGET})
 
 # Sources that run in an interrupt, on the main loop's hot path, or while the
 # RIA rewrites its own flash, whole: the SDK's, TinyUSB's, FatFs, the storage
