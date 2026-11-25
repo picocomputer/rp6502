@@ -16,30 +16,25 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* A key press with the modifiers held, as a HID report's modifier byte of
- * KEYBOARD_MODIFIER_ bits. True when it is a chord that acted, and then the
- * key types nothing. A repeat of a key whose press acted does nothing and is
- * true too, so a held chord acts once. */
-bool key_chord(uint8_t keycode, uint8_t modifier, bool repeat);
-
-/* The copy, cut and paste keys (clip.h). The copy and paste keys are
- * chords whatever a program has asked of the terminal, so they never type,
- * and Ctrl-Shift-C raises no SIGINT. This layer knows only that a key
- * was pressed and whether a line is being read (core/com/rln.h); what the
- * line has selected is the line editor's to judge, when it takes the key:
+/* The copy, cut and paste keys (clip.h), which are chords whatever a
+ * program has asked of the terminal. Each acts once for a press and never
+ * repeats:
  *
- * - copy: Ctrl-Shift-C and Ctrl-Insert, and on a Mac Cmd-C
- *   (host_mac_keys), put the line editor's selection in the clipboard, or
- *   with none, or no line being read, the primary;
- * - cut: Shift-Delete and Ctrl-Shift-X, and on a Mac Cmd-X, cut the line
- *   editor's selection to the clipboard, and do nothing with none; with
- *   no line being read they are no chord, and type as they would;
- * - paste: Ctrl-Shift-V and Shift-Insert, and on a Mac Cmd-V, paste the
- *   clipboard, which is typed after the keys before it, and typing
- *   replaces the line editor's selection.
+ * - paste: Ctrl-Shift-V and Shift-Insert, and on a Mac Cmd-V
+ *   (host_mac_keys), paste the clipboard. The key types nothing, and the
+ *   text comes in its place among the keys (typed.h);
+ * - copy: Ctrl-Shift-C and Ctrl-Insert, and on a Mac Cmd-C. The key types
+ *   nothing, so Ctrl-Shift-C raises no SIGINT. While the mouse's highlight
+ *   shows on the screen, the text it shows goes to the clipboard at the
+ *   press. Otherwise the copy waits in its place among the keys for the
+ *   line editor, which copies the line's selection (core/com/rln.h), and
+ *   with no line being read it does nothing;
+ * - cut: Shift-Delete and Ctrl-Shift-X, and on a Mac Cmd-X. The key is the
+ *   program's: it types what it would, behind a mark. The line editor
+ *   takes the mark and the bytes, and cuts the line's selection. With no
+ *   line being read the mark goes and the bytes are typed.
  *
- * The line editor takes a copy or cut after the keys typed before it, as
- * it takes the mouse. Plain Ctrl-C and Ctrl-V stay the program's. */
+ * Plain Ctrl-C and Ctrl-V stay the program's. */
 typedef enum
 {
     KEY_CLIP_NONE,
@@ -50,18 +45,20 @@ typedef enum
 
 /* Which of them a press is. A web page reads its clipboard only from the
  * paste event a paste key makes, so its host asks this to let the key make
- * one. */
+ * one, and to keep the copy and cut keys from the browser. */
 key_clip_t key_clip(uint8_t keycode, uint8_t modifier);
 
-/* A copy, cut or paste key acts, and true when it did. A web page, whose
- * paste keys are the browser's, acts with the paste event they make. */
-bool key_clip_act(key_clip_t clip);
+/* What a key press with the modifiers held is, as a HID report's modifier
+ * byte of KEYBOARD_MODIFIER_ bits. */
+typedef enum
+{
+    KEY_CHORD_NONE,  /* no chord: the key types */
+    KEY_CHORD_ACTED, /* a chord that acted, or is held: the key types nothing */
+    KEY_CHORD_CUT,   /* a cut key: what the key types goes to typed_cut */
+} key_chord_t;
 
-/* Whether a press of the key, or its repeat, is a copy, cut or paste key
- * that acts now, as key_chord would judge it: a copy or paste key always,
- * a cut key only while a line is being read, and a cut key's repeat when
- * its press acted. The web player withholds a copy or
- * cut key that acts from the browser (host/sokol/app/input.h). */
-bool key_clip_acts(uint8_t keycode, uint8_t modifier, bool repeat);
+/* A repeat of a key whose press was a chord does nothing and has acted, so
+ * a held chord acts once. */
+key_chord_t key_chord(uint8_t keycode, uint8_t modifier, bool repeat);
 
 #endif /* _CORE_HID_KEY_H_ */

@@ -9,7 +9,6 @@
 #include "core/aud/bel.h"
 #include "core/com/manifold.h"
 #include "core/hid/clip.h"
-#include "core/hid/paste.h"
 #include "core/hid/paste_host.h"
 #include "core/hid/typed.h"
 #include "core/ria/ria.h"
@@ -247,19 +246,20 @@ UTEST(com, tio_is_idle_with_a_lone_esc_until_an_answer_is_held_behind_it)
     ASSERT_TRUE(tio_idle());
 }
 
-UTEST(com, a_break_during_a_paste_cancels_the_drip_too)
+/* A break drops the paste being typed and the pastes that wait. */
+UTEST(com, a_break_during_a_paste_drops_it)
 {
     com_rx_clear();
     char big[TYPED_QUEUE_SIZE * 4];
     memset(big, 'p', sizeof big - 1);
     big[sizeof big - 1] = 0;
     paste_start(big);
-    paste_task();
-    ASSERT_TRUE(paste_busy());
+    paste_start("second");
+    char head[4];
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, sizeof head), sizeof head);
+    ASSERT_TRUE(queued());
     sys_break_request();
     sys_commit();
-    ASSERT_FALSE(paste_busy());
-    paste_task();
     ASSERT_FALSE(queued());
 }
 
@@ -270,12 +270,30 @@ UTEST(com, a_bracketed_paste_is_marked_and_cannot_end_early)
     com_rx_clear();
     manifold_write_to(COM_TERM_SCREEN, "\33[?2004h", 8);
     paste_start("a\33[201~b");
-    paste_task();
     char buf[64] = {0};
     ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, buf, sizeof buf - 1), (size_t)19);
     ASSERT_STREQ(buf, "\33[200~a[201~b\33[201~");
     manifold_write_to(COM_TERM_SCREEN, "\33[?2004l", 8);
     com_rx_clear();
+}
+
+/* A paste is bracketed as the console is set when its text starts, not
+ * when its key was pressed. */
+UTEST(com, a_paste_is_bracketed_as_its_text_starts)
+{
+    com_rx_clear();
+    typed_push("a", 1);
+    paste_start("one");
+    paste_start("two");
+    char buf[64] = {0};
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, buf, 1), (size_t)1);
+    manifold_write_to(COM_TERM_SCREEN, "\33[?2004h", 8);
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, buf, 15), (size_t)15);
+    ASSERT_STREQ(buf, "\33[200~one\33[201~");
+    manifold_write_to(COM_TERM_SCREEN, "\33[?2004l", 8);
+    memset(buf, 0, sizeof buf);
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, buf, sizeof buf - 1), (size_t)3);
+    ASSERT_STREQ(buf, "two");
 }
 
 /* A script's typing is typed as written: under bracketed paste it is not
@@ -284,12 +302,41 @@ UTEST(com, typed_text_is_never_bracketed)
 {
     com_rx_clear();
     manifold_write_to(COM_TERM_SCREEN, "\33[?2004h", 8);
-    typed_text("a\33[Ab\rc\n");
-    paste_task();
+    ASSERT_TRUE(typed_text("a\33[Ab\rc\n"));
     char buf[64] = {0};
     ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, buf, sizeof buf - 1), (size_t)8);
     ASSERT_STREQ(buf, "a\33[Ab\rc\n");
     manifold_write_to(COM_TERM_SCREEN, "\33[?2004l", 8);
+    com_rx_clear();
+}
+
+/* A Ctrl-C in a script's typing raises the SIGINT as it is typed, before
+ * any of it is read, and the pastes that wait still come. */
+UTEST(com, typed_text_raises_its_break_at_once)
+{
+    com_rx_clear();
+    ria_get_sigint();
+    paste_start("first");
+    ASSERT_TRUE(typed_text("a\3b"));
+    ASSERT_TRUE(ria_get_sigint());
+    char buf[16] = {0};
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, buf, sizeof buf - 1), (size_t)8);
+    ASSERT_STREQ(buf, "firsta\3b");
+    ASSERT_FALSE(ria_get_sigint());
+}
+
+/* Text for a queue with no room is not typed, and the script that typed
+ * it tries again. */
+UTEST(com, typed_text_waits_for_room)
+{
+    com_rx_clear();
+    char fill[TYPED_QUEUE_SIZE];
+    memset(fill, 'f', sizeof fill);
+    typed_push(fill, sizeof fill);
+    ASSERT_FALSE(typed_text("text"));
+    char one[1];
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, one, 1), (size_t)1);
+    ASSERT_TRUE(typed_text("text"));
     com_rx_clear();
 }
 
@@ -298,47 +345,37 @@ UTEST(com, a_pasted_line_end_is_enter)
 {
     com_rx_clear();
     paste_start("a\r\nb\nc\rd");
-    paste_task();
     char buf[64] = {0};
     ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, buf, sizeof buf - 1), (size_t)7);
     ASSERT_STREQ(buf, "a\rb\rc\rd");
     com_rx_clear();
 }
 
-/* New text cuts the paste in progress short and follows it, and empty text
- * ends it. */
-UTEST(com, empty_text_ends_the_paste_in_progress)
+/* Pastes wait their turn, and each is typed whole: a second cuts nothing
+ * of the first. Empty text queues nothing. */
+UTEST(com, two_pastes_both_finish)
 {
     com_rx_clear();
+    manifold_write_to(COM_TERM_SCREEN, "\33[?2004h", 8);
     paste_start("abc");
     paste_start("");
-    ASSERT_FALSE(paste_busy());
-    typed_text("abc");
-    typed_text("");
-    ASSERT_FALSE(paste_busy());
-    typed_text("abc");
-    paste_start(NULL);
-    ASSERT_FALSE(paste_busy());
-    paste_task();
-    char buf[8];
-    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, buf, sizeof buf), (size_t)0);
-    com_rx_clear();
+    ASSERT_TRUE(typed_text(""));
+    ASSERT_EQ(typed_free(), (size_t)TYPED_QUEUE_SIZE - 1);
+    char head[8] = {0};
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, 7), (size_t)7);
+    ASSERT_STREQ(head, "\33[200~a");
+    paste_start("def");
+    ASSERT_TRUE(typed_text("gh"));
+    char buf[64] = {0};
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, buf, sizeof buf - 1), (size_t)25);
+    ASSERT_STREQ(buf, "bc\33[201~\33[200~def\33[201~gh");
+    manifold_write_to(COM_TERM_SCREEN, "\33[?2004l", 8);
 }
 
-/* All the keyboard row gives, the paste staged as the main loop stages it
- * between reads. */
+/* All the keyboard row gives. */
 static size_t keyboard_all(char *out, size_t max)
 {
-    size_t got = 0;
-    for (int i = 0; i < 10000 && got < max; i++)
-    {
-        paste_task();
-        size_t n = com_read(COM_SOURCE_KEYBOARD, out + got, max - got);
-        got += n;
-        if (!n && !paste_busy())
-            break;
-    }
-    return got;
+    return com_read(COM_SOURCE_KEYBOARD, out, max);
 }
 
 /* Host text with nothing but control characters is a paste with no text,
@@ -391,23 +428,41 @@ UTEST(com, a_paste_spells_what_the_code_page_cannot_as_a_question_mark)
     ASSERT_STREQ(buf + 1, "?\?!");
 }
 
-/* Keys typed before a paste go first, then the paste, then the keys typed
- * while it went in. */
-UTEST(com, keys_typed_during_a_paste_arrive_after_it)
+/* A paste is typed where its key was pressed: after the keys typed before
+ * it and before the keys typed after it, for a program that reads bytes. */
+UTEST(com, a_paste_lands_between_the_keys_around_it)
 {
     com_rx_clear();
     manifold_write_to(COM_TERM_SCREEN, "\33[?2004h", 8);
     typed_push("ab", 2);
     paste_start("paste");
     typed_push("cd", 2);
+    ASSERT_EQ(com_peek(COM_SOURCE_KEYBOARD, 0), 'a');
+    ASSERT_EQ(com_peek(COM_SOURCE_KEYBOARD, 1), 'b');
+    ASSERT_EQ(com_peek(COM_SOURCE_KEYBOARD, 2), -1);
     char buf[64] = {0};
     ASSERT_EQ(keyboard_all(buf, sizeof buf - 1), (size_t)21);
     ASSERT_STREQ(buf, "ab\33[200~paste\33[201~cd");
     manifold_write_to(COM_TERM_SCREEN, "\33[?2004l", 8);
 }
 
-/* A paste longer than the typed queue arrives whole. Keys typed during it
- * fill the queue behind it, and past that are dropped. */
+/* A peek sees a paste being typed whole, and the keys behind it. */
+UTEST(com, a_peek_reads_through_a_paste_being_typed)
+{
+    com_rx_clear();
+    manifold_write_to(COM_TERM_SCREEN, "\33[?2004h", 8);
+    paste_start("xy");
+    typed_push("k", 1);
+    static const char want[] = "\33[200~xy\33[201~k";
+    for (size_t i = 0; i < sizeof want - 1; i++)
+        ASSERT_EQ(com_peek(COM_SOURCE_KEYBOARD, i), want[i]);
+    ASSERT_EQ(com_peek(COM_SOURCE_KEYBOARD, sizeof want - 1), -1);
+    manifold_write_to(COM_TERM_SCREEN, "\33[?2004l", 8);
+    com_rx_clear();
+}
+
+/* A paste longer than the queue arrives whole: it takes one entry. Keys
+ * typed during it fill the queue behind it, and past that are dropped. */
 UTEST(com, a_paste_longer_than_the_queue_arrives_whole)
 {
     com_rx_clear();
@@ -415,20 +470,22 @@ UTEST(com, a_paste_longer_than_the_queue_arrives_whole)
     for (size_t i = 0; i < sizeof big - 1; i++)
         big[i] = (char)('a' + i % 26);
     paste_start(big);
-    paste_task();
+    static char out[sizeof big + TYPED_QUEUE_SIZE + 8];
+    ASSERT_EQ(keyboard_all(out, 1), (size_t)1);
     char keys[TYPED_QUEUE_SIZE];
     memset(keys, 'k', sizeof keys);
     typed_push(keys, sizeof keys);
     typed_push("z", 1);
-    static char out[sizeof big + TYPED_QUEUE_SIZE + 8];
-    ASSERT_EQ(keyboard_all(out, sizeof out), sizeof big - 1 + TYPED_QUEUE_SIZE);
+    ASSERT_EQ(keyboard_all(out + 1, sizeof out - 1), sizeof big - 2 + TYPED_QUEUE_SIZE);
     ASSERT_EQ(memcmp(out, big, sizeof big - 1), 0);
     ASSERT_EQ(memcmp(out + sizeof big - 1, keys, sizeof keys), 0);
 }
 
 /* A Ctrl-C typed during a paste raises the SIGINT at once and ends the
- * paste: what was staged goes, then the closing bracket, then the Ctrl-C. */
-UTEST(com, a_ctrl_c_ends_a_paste_with_its_closing_bracket)
+ * paste: no more of its text, then the closing bracket, then the Ctrl-C.
+ * The pastes still waiting are dropped, and what was typed stays, plain
+ * text too. */
+UTEST(com, a_ctrl_c_ends_a_paste_and_drops_those_waiting)
 {
     com_rx_clear();
     ria_get_sigint();
@@ -436,19 +493,129 @@ UTEST(com, a_ctrl_c_ends_a_paste_with_its_closing_bracket)
     static char big[TYPED_QUEUE_SIZE * 3 + 1];
     memset(big, 'p', sizeof big - 1);
     paste_start(big);
-    paste_task();
-    char head[7] = {0};
-    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, 6), (size_t)6);
-    ASSERT_STREQ(head, "\33[200~");
+    typed_push("k", 1);
+    paste_start("second");
+    ASSERT_TRUE(typed_text("third"));
+    clip_paste(CLIP_PRIMARY);
+    char head[9] = {0};
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, 8), (size_t)8);
+    ASSERT_STREQ(head, "\33[200~pp");
     typed_push("\3", 1);
     ASSERT_TRUE(ria_get_sigint());
-    static char out[TYPED_QUEUE_SIZE + 8];
-    const size_t staged = TYPED_QUEUE_SIZE;
-    ASSERT_EQ(keyboard_all(out, sizeof out), staged + 7);
-    for (size_t i = 0; i < staged; i++)
-        ASSERT_EQ(out[i], 'p');
-    ASSERT_EQ(memcmp(out + staged, "\33[201~\3", 7), 0);
+    char out[32] = {0};
+    ASSERT_EQ(keyboard_all(out, sizeof out - 1), (size_t)13);
+    ASSERT_STREQ(out, "\33[201~kthird\3");
+    paste_start("after");
+    ASSERT_EQ(keyboard_all(out, sizeof out - 1), (size_t)17);
+    ASSERT_EQ(memcmp(out, "\33[200~after\33[201~", 17), 0);
     manifold_write_to(COM_TERM_SCREEN, "\33[?2004l", 8);
+}
+
+/* Plain text being typed is typing: a Ctrl-C leaves the rest of it, and
+ * the plain text that waits, each still with its own text, and drops the
+ * pastes between them. */
+UTEST(com, a_ctrl_c_leaves_plain_text)
+{
+    com_rx_clear();
+    ria_get_sigint();
+    ASSERT_TRUE(typed_text("abcd"));
+    paste_start("one");
+    ASSERT_TRUE(typed_text("ef"));
+    paste_start("two");
+    char out[16] = {0};
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, out, 2), (size_t)2);
+    typed_push("\3", 1);
+    ASSERT_TRUE(ria_get_sigint());
+    ASSERT_EQ(keyboard_all(out + 2, sizeof out - 3), (size_t)5);
+    ASSERT_STREQ(out, "abcdef\3");
+    paste_start("three");
+    ASSERT_TRUE(typed_text("gh"));
+    ASSERT_EQ(keyboard_all(out, sizeof out - 1), (size_t)7);
+    ASSERT_EQ(memcmp(out, "threegh", 7), 0);
+}
+
+/* A paste whose opening bracket no one has begun to read is dropped whole
+ * by a Ctrl-C: no bracket of it comes. */
+UTEST(com, a_ctrl_c_drops_a_paste_not_yet_read)
+{
+    com_rx_clear();
+    ria_get_sigint();
+    manifold_write_to(COM_TERM_SCREEN, "\33[?2004h", 8);
+    paste_start("one");
+    ASSERT_EQ(typed_peek(0), 033);
+    typed_push("\3", 1);
+    ASSERT_TRUE(ria_get_sigint());
+    char out[8] = {0};
+    ASSERT_EQ(keyboard_all(out, sizeof out - 1), (size_t)1);
+    ASSERT_STREQ(out, "\3");
+    manifold_write_to(COM_TERM_SCREEN, "\33[?2004l", 8);
+}
+
+/* A Ctrl-C with pastes waiting and none being typed drops them all. */
+UTEST(com, a_ctrl_c_drops_pastes_that_have_not_started)
+{
+    com_rx_clear();
+    ria_get_sigint();
+    typed_push("a", 1);
+    paste_start("one");
+    clip_paste(CLIP_CLIPBOARD);
+    typed_push("\3", 1);
+    ASSERT_TRUE(ria_get_sigint());
+    char out[8] = {0};
+    ASSERT_EQ(keyboard_all(out, sizeof out - 1), (size_t)2);
+    ASSERT_STREQ(out, "a\3");
+}
+
+/* What only the line editor takes does not hold up a program that reads
+ * bytes: with no line being read, each is dropped as it reaches the
+ * front, a cut key's bytes are typed, and the bytes behind them flow. */
+UTEST(com, with_no_line_read_the_line_s_entries_are_dropped)
+{
+    com_rx_clear();
+    typed_push("a", 1);
+    ASSERT_TRUE(typed_put(TYPED_ENTRY(TYPED_COPY, 0)));
+    typed_cut("\33[3;2~", 6);
+    ASSERT_TRUE(typed_put(TYPED_ENTRY(TYPED_PRESS, 2)));
+    typed_drag(2, 4);
+    ASSERT_TRUE(typed_put(TYPED_ENTRY(TYPED_RELEASE, 0)));
+    typed_cut("", 0);
+    typed_push("b", 1);
+    ASSERT_EQ(com_peek(COM_SOURCE_KEYBOARD, 0), 'a');
+    ASSERT_EQ(com_peek(COM_SOURCE_KEYBOARD, 1), -1);
+    char out[16] = {0};
+    ASSERT_EQ(keyboard_all(out, sizeof out - 1), (size_t)8);
+    ASSERT_STREQ(out, "a\33[3;2~b");
+    ASSERT_EQ(typed_free(), (size_t)TYPED_QUEUE_SIZE);
+}
+
+/* A cut key's mark and bytes are queued whole or not at all. */
+UTEST(com, a_cut_key_that_does_not_fit_is_dropped_whole)
+{
+    com_rx_clear();
+    char fill[TYPED_QUEUE_SIZE - 6];
+    memset(fill, 'f', sizeof fill);
+    typed_push(fill, sizeof fill);
+    typed_cut("\33[3;2~", 6);
+    ASSERT_EQ(typed_free(), (size_t)6);
+    typed_cut("\33[3~", 4);
+    ASSERT_EQ(typed_free(), (size_t)1);
+    ASSERT_TRUE(typed_put(TYPED_ENTRY(TYPED_COPY, 0)));
+    ASSERT_FALSE(typed_put(TYPED_ENTRY(TYPED_COPY, 0)));
+    com_rx_clear();
+}
+
+/* Motion of a drag in the line merges into the pair queued last, and
+ * starts a new pair once anything else is queued behind it. */
+UTEST(com, a_drag_merges_into_the_pair_before_it)
+{
+    com_rx_clear();
+    typed_drag(1, 2);
+    typed_drag(1, 3);
+    ASSERT_EQ(typed_free(), (size_t)TYPED_QUEUE_SIZE - 2);
+    typed_push("k", 1);
+    typed_drag(1, 4);
+    ASSERT_EQ(typed_free(), (size_t)TYPED_QUEUE_SIZE - 5);
+    com_rx_clear();
 }
 
 static void show(const char *s)
@@ -477,6 +644,21 @@ UTEST(com, the_primary_pastes_what_was_copied)
     ASSERT_STREQ(buf, "one\rtwo");
 }
 
+/* A paste of a machine buffer reads it as it is when the paste's turn
+ * comes: what is copied there while the paste waits is what it types. */
+UTEST(com, a_waiting_paste_types_its_buffer_as_it_is_at_its_turn)
+{
+    com_rx_clear();
+    show("\33[H\33[2Jone\r\ntwo\r\n");
+    copy(CLIP_PRIMARY, 0, 0, 0, 3);
+    typed_push("k", 1);
+    clip_paste(CLIP_PRIMARY);
+    copy(CLIP_PRIMARY, 1, 0, 1, 3);
+    char buf[16] = {0};
+    ASSERT_EQ(keyboard_all(buf, sizeof buf - 1), (size_t)4);
+    ASSERT_STREQ(buf, "ktwo");
+}
+
 /* The clipboard is the host's: a copy gives it each glyph's Unicode, and a
  * paste of it turns each character back into the code page's. */
 UTEST(com, the_clipboard_is_the_host_s)
@@ -492,43 +674,47 @@ UTEST(com, the_clipboard_is_the_host_s)
     ASSERT_STREQ(buf, "a\xc4\x82\rb\r");
 }
 
-/* Setting the host's clipboard can write over the text a paste of it
- * reads, so it ends that paste first: what was staged goes, then the
- * closing bracket, and nothing of the new text. */
-UTEST(com, setting_the_host_clipboard_ends_a_paste_of_it)
+/* A paste of the host's clipboard asks for it as its turn comes, and
+ * keeps the text it was given: the clipboard set while the paste waits is
+ * what it types, and the clipboard set while it is typed changes nothing
+ * of it. */
+UTEST(com, a_paste_asks_the_host_s_clipboard_as_its_turn_comes)
 {
     com_rx_clear();
     show("\33[?2004h");
+    ASSERT_TRUE(host_clipboard_set("old"));
+    typed_push("k", 1);
+    clip_paste(CLIP_CLIPBOARD);
     static char big[TYPED_QUEUE_SIZE * 3 + 1];
     memset(big, 'p', sizeof big - 1);
-    ASSERT_TRUE(clip_host_set(big));
-    clip_paste(CLIP_CLIPBOARD);
-    paste_task();
-    ASSERT_TRUE(clip_host_set("new"));
-    static char out[TYPED_QUEUE_SIZE + 16];
-    ASSERT_EQ(keyboard_all(out, sizeof out), (size_t)TYPED_QUEUE_SIZE + 12);
-    ASSERT_EQ(memcmp(out, "\33[200~pppp", 10), 0);
-    ASSERT_EQ(out[TYPED_QUEUE_SIZE + 5], 'p');
-    ASSERT_EQ(memcmp(out + TYPED_QUEUE_SIZE + 6, "\33[201~", 6), 0);
+    ASSERT_TRUE(host_clipboard_set(big));
+    static char out[sizeof big + 16];
+    ASSERT_EQ(keyboard_all(out, 11), (size_t)11);
+    ASSERT_EQ(memcmp(out, "k\33[200~pppp", 11), 0);
+    ASSERT_TRUE(host_clipboard_set("new"));
+    ASSERT_EQ(keyboard_all(out, sizeof out), sizeof big - 5 + 6);
+    ASSERT_EQ(out[sizeof big - 6], 'p');
+    ASSERT_EQ(memcmp(out + sizeof big - 5, "\33[201~", 6), 0);
     manifold_write_to(COM_TERM_SCREEN, "\33[?2004l", 8);
 }
 
-/* Text typed as written is not the clipboard's, so it goes on whole. */
-UTEST(com, setting_the_host_clipboard_leaves_typed_text_be)
+/* Text the host handed over, as a web page's paste event does, is kept as
+ * it was handed over: the clipboard set while it waits changes nothing of
+ * it. */
+UTEST(com, text_handed_over_is_typed_as_it_was)
 {
     com_rx_clear();
-    static char big[TYPED_QUEUE_SIZE * 3 + 1];
-    memset(big, 't', sizeof big - 1);
-    typed_text(big);
-    paste_task();
-    ASSERT_TRUE(clip_host_set("new"));
-    static char out[sizeof big + 8];
-    ASSERT_EQ(keyboard_all(out, sizeof out), sizeof big - 1);
-    ASSERT_EQ(memcmp(out, big, sizeof big - 1), 0);
+    ASSERT_TRUE(host_clipboard_set("old"));
+    typed_push("k", 1);
+    paste_start("handed over");
+    ASSERT_TRUE(host_clipboard_set("new"));
+    char buf[16] = {0};
+    ASSERT_EQ(keyboard_all(buf, sizeof buf - 1), (size_t)12);
+    ASSERT_STREQ(buf, "khanded over");
 }
 
-/* A copy into the buffer a paste is reading ends that paste, with its
- * closing bracket. */
+/* A copy into the machine buffer a paste is being typed from ends that
+ * paste, with its closing bracket. */
 UTEST(com, a_copy_into_the_buffer_ends_its_paste)
 {
     com_rx_clear();
@@ -540,13 +726,13 @@ UTEST(com, a_copy_into_the_buffer_ends_its_paste)
     }
     copy(CLIP_PRIMARY, 0, 0, 10, 0);
     clip_paste(CLIP_PRIMARY);
-    paste_task();
+    char out[32] = {0};
+    ASSERT_EQ(keyboard_all(out, 16), (size_t)16);
+    ASSERT_STREQ(out, "\33[200~0123456789");
     copy(CLIP_PRIMARY, 0, 0, 0, 2);
-    static char out[TYPED_QUEUE_SIZE + 16];
-    const size_t got = keyboard_all(out, sizeof out);
-    ASSERT_EQ(got, (size_t)TYPED_QUEUE_SIZE + 12);
-    ASSERT_EQ(memcmp(out, "\33[200~0123456789", 16), 0);
-    ASSERT_EQ(memcmp(out + got - 6, "\33[201~", 6), 0);
+    memset(out, 0, sizeof out);
+    ASSERT_EQ(keyboard_all(out, sizeof out - 1), (size_t)6);
+    ASSERT_STREQ(out, "\33[201~");
     manifold_write_to(COM_TERM_SCREEN, "\33[?2004l", 8);
 }
 
@@ -643,14 +829,14 @@ UTEST(com, a_paste_goes_only_where_the_type_ahead_goes)
     proc_api_exec();
     proc_stop();
     ASSERT_TRUE(proc_exec_inflight());
-    ASSERT_TRUE(paste_busy());
+    ASSERT_EQ(com_peek(COM_SOURCE_KEYBOARD, 0), 'f');
     proc_exec_init();
     arg_clear();
     proc_stop();
     ASSERT_FALSE(proc_exec_inflight());
     /* The chain ended; its end goes out now, as com_task would send it. */
     com_end_now();
-    ASSERT_FALSE(paste_busy());
+    ASSERT_EQ(com_peek(COM_SOURCE_KEYBOARD, 0), -1);
 }
 
 static const char *wire_data;

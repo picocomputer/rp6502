@@ -91,7 +91,7 @@ INDIRECT = {
     'weak_raw_vprintf': ('panic prints through vprintf', STDIO),
     'manifold_term_feed': ('the console\'s terminal; its FLASHING hook clears the pointer', []),
     'com_read': ('the console sources, RP6502_COM_SOURCES',
-                 ['paste_read', 'manifold_uart_read', 'com_telnet_read']),
+                 ['typed_read', 'manifold_uart_read', 'com_telnet_read']),
     'async_context_acquire_lock_blocking': ('the poll context type', ASYNC),
     'async_context_release_lock': ('the poll context type', ASYNC),
     'async_context_set_work_pending': ('the poll context type', ASYNC),

@@ -26,7 +26,6 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/clip.h"
 #include "core/hid/keymap.h"
-#include "core/hid/paste.h"
 #include "core/hid/layout.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
@@ -82,14 +81,15 @@
  * the cells, and VGA_FABRIC_DRIVER follows it, because its load computes the
  * vsync line from the canvas. VTERM_MOUSE_DRIVER follows DRAW_DRIVER,
  * because its load checks its points against the screens' rows DRAW_DRIVER
- * loads.
+ * loads. TYPED_DRIVER follows CLIP_DRIVER, because its load checks the
+ * paste being typed against the buffers CLIP_DRIVER loads.
  */
 #define RP6502_MACH_DRIVERS                             \
     LOG_DRIVER, CFG_DRIVER, FAB_DRIVER,                 \
     ARG_DRIVER, PROC_CHAIN_DRIVER, PROC_DRIVER,         \
     ASSET_DRIVER, XREG_DRIVER,                          \
     RANDOM_DRIVER, STR_DRIVER,                          \
-    MANIFOLD_DRIVER, TYPED_DRIVER, MANIFOLD_TX_DRIVER,  \
+    MANIFOLD_DRIVER, MANIFOLD_TX_DRIVER,                \
     RIA_DRIVER, COM_DRIVER,                             \
     STD_DRIVER, CONSOLE_DRIVER, TTY_DRIVER,             \
     FS_POCKET_DRIVER,                                   \
@@ -99,7 +99,7 @@
     VGA_FABRIC_DRIVER,                                  \
     LAYOUT_DRIVER, KEYBOARD_DRIVER,                     \
     APF_DRIVER, KEYMAP_DRIVER,                          \
-    CLIP_DRIVER, PASTE_DRIVER,                          \
+    CLIP_DRIVER, TYPED_DRIVER,                          \
     MOUSE_DRIVER, GAMEPAD_DRIVER, TABLET_DRIVER,        \
     VTERM_MOUSE_DRIVER,                                 \
     VID_DRIVER, TIM_DRIVER,                             \

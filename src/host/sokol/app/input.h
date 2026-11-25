@@ -23,14 +23,11 @@ void input_event(const struct sapp_event *e);
 bool input_paste_key(const struct sapp_event *e);
 
 /* Whether the event is a key going down that the browser must not act on:
- * a copy key, which the player acts on itself (a browser may open its
- * developer tools on Ctrl+Shift+C); a cut key that acts now, while a line
- * is being read (key_clip_acts), judged as the player then acts on the
- * event, with nothing between; plain Ctrl+V, which types
- * 0x16; and a held paste key's repeat, as a held chord acts once
+ * a copy or cut key, which the player acts on itself (a browser may open
+ * its developer tools on Ctrl+Shift+C); plain Ctrl+V, which types 0x16;
+ * and a held paste key's repeat, as a held chord acts once
  * (core/hid/key.h). The web player cancels it, so every paste event the
- * page gets pastes. A cut key that does not act types as it would, and
- * the browser has it as it has any other key. */
+ * page gets pastes. */
 bool input_key_withheld(const struct sapp_event *e);
 
 /* Take the three locks from the system, which owns them. A lock key changes

@@ -8,7 +8,7 @@
  * goes into the typed queue; see core/hid/typed.h.
  *
  * Which keys are down is core/hid/keyboard.h. A block of text is
- * core/hid/paste.h.
+ * core/hid/paste_host.h.
  */
 
 #ifndef _CORE_HID_HOSTKEY_H_
@@ -25,7 +25,8 @@ typedef enum
     HOSTKEY_CHORD, /* a chord of core/hid/key.h acted, or is held */
 } hostkey_result_t;
 
-/* Type a key press as vtkey_encode has it, unless key_chord takes it.
+/* Type a key press as vtkey_encode has it, unless key_chord takes it. A
+ * cut key is a chord that types what it would, behind its mark.
  * modifier is a HID report's modifier byte, KEYBOARD_MODIFIER_ bits, and
  * repeat says the key is held and the host is repeating it.
  *

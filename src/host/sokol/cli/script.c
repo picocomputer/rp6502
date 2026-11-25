@@ -22,13 +22,12 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/hid/hostkey.h"
-#include "core/hid/clip.h"
-#include "core/hid/paste.h"
 #include "core/hid/paste_host.h"
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/com/manifold.h"
+#include "core/com/rln.h"
 #include "core/com/tio.h"
 #include "core/wdc/cpu.h"
 #include "core/wdc/sram.h"
@@ -73,6 +72,9 @@ static script_wait_t script_wait;
 static unsigned long script_budget;
 static char script_needle[256];
 static size_t script_needle_len;
+/* The text a type command waits to type, while the keyboard's queue has no
+ * room for it. */
+static char script_typing[SCRIPT_LINE_MAX];
 
 /* The seeds and the memory fill that status prints. The RNG seed is the last
  * one that seed set, or host_seed() until then. */
@@ -1284,9 +1286,7 @@ static bool script_command(const char *line)
             if (!script_end(p))
                 return false;
             /* A script runs with no window, where the clipboard is one
-             * the emulator keeps, which asking for never writes over
-             * (app.c). So the check asks the host itself, and a paste of
-             * the clipboard going in goes on: clip_host_get would end it. */
+             * the emulator keeps (app.c). */
             const char *got = host_clipboard_get();
             if (!got)
                 return script_error("this host has no clipboard");
@@ -1372,20 +1372,15 @@ static bool script_command(const char *line)
 
     if (!strcasecmp(cmd, "type"))
     {
-        /* The paste stage reads the text where it is, so it is kept here
-         * until the next type, which waits until it is all staged. */
-        static char text[SCRIPT_LINE_MAX];
-        if (!script_string(&p, text, sizeof text))
+        if (!script_string(&p, script_typing, sizeof script_typing))
             return script_error("type wants a quoted string");
         long frames = SCRIPT_WAIT_FRAMES;
         if (script_more(&p) && (!script_number(&p, &frames) || frames < 0))
             return script_error("type wants a frame budget");
         if (!script_end(p))
             return false;
-        typed_text(text);
-        /* Waiting for the text to be staged, because typed_text cuts
-         * short whatever is still being staged and back-to-back type
-         * commands would otherwise truncate each other. */
+        /* The keyboard's queue takes the text whole, in its place among
+         * the keys, or waits here until it has room. */
         script_wait = SCRIPT_TYPING;
         script_budget = (unsigned long)frames;
         return true;
@@ -1403,7 +1398,7 @@ static bool script_command(const char *line)
             return script_error("clip set wants a quoted string");
         if (!script_end(p))
             return false;
-        if (!clip_host_set(text))
+        if (!host_clipboard_set(text))
             return script_error("this host has no clipboard");
         return true;
     }
@@ -1858,7 +1853,7 @@ static bool script_settle(void)
                             script_addr, script_addr_want, got);
     }
     case SCRIPT_TYPING:
-        if (!paste_staging())
+        if (typed_text(script_typing))
             break;
         if (script_spend())
             return false;
@@ -1871,8 +1866,8 @@ static bool script_settle(void)
         return script_error("timed out waiting for the program to exit");
     case SCRIPT_EOF:
         /* The moment console.c ends a piped stdin: a read is waiting and
-         * every whole item typed has been taken, so no typed key is lost. */
-        if (console_waiting() && tio_idle())
+         * everything typed has been taken, so no typed key is lost. */
+        if (console_waiting() && rln_idle())
         {
             console_eof();
             break;

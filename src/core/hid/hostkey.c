@@ -53,7 +53,8 @@ uint8_t hostkey_us_key(char ch, bool *shift)
 
 hostkey_result_t hostkey_press(uint8_t usage, uint8_t modifier, bool repeat, bool guess)
 {
-    if (key_chord(usage, modifier, repeat))
+    const key_chord_t chord = key_chord(usage, modifier, repeat);
+    if (chord == KEY_CHORD_ACTED)
         return HOSTKEY_CHORD;
     const uint8_t flags = vtkey_modifiers(modifier);
     char out[VTKEY_MAX];
@@ -70,6 +71,14 @@ hostkey_result_t hostkey_press(uint8_t usage, uint8_t modifier, bool repeat, boo
             ch = hostkey_us(usage, shift);
         }
         n = vtkey_char(out, usage, ch, flags);
+    }
+    if (chord == KEY_CHORD_CUT)
+    {
+        /* A Mac's Cmd is no modifier a terminal encodes, so its cut key
+         * types nothing, whatever the key alone would. */
+        const bool cmd = modifier & (KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_RIGHTGUI);
+        typed_cut(out, cmd ? 0 : (size_t)n);
+        return HOSTKEY_CHORD;
     }
     if (!n)
         return HOSTKEY_NONE;

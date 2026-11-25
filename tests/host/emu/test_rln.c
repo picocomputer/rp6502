@@ -8,6 +8,7 @@
 #include "core/api/xreg.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
+#include "core/hid/clip.h"
 #include "core/hid/typed.h"
 #include "core/com/tio.h"
 #include "core/ria/regs.h"
@@ -2467,6 +2468,112 @@ UTEST(rln, a_stop_empties_what_a_program_killed)
     rln_stop();
     console_stop();
     ASSERT_EQ(console_rln_kill()->len, 0);
+}
+
+/* ----- The keyboard queue's entries ----- */
+
+/* Keys typed on the keyboard. */
+static void keys(const char *s)
+{
+    typed_push(s, strlen(s));
+    tasks();
+}
+
+/* The line "abc", read to its end with Enter. */
+static const char *entered(void)
+{
+    keys("\r");
+    return last;
+}
+
+/* The copy key and a cut key are not the last key, with a selection or
+ * with none: a program is told of neither, and what a cut key would type
+ * is never seen. */
+UTEST(rln, a_copy_or_a_cut_is_no_last_key)
+{
+    editing();
+    keys("abc\33[1;2D");
+    ASSERT_EQ(lastkey_len(), 6);
+    ASSERT_TRUE(typed_put(TYPED_ENTRY(TYPED_COPY, 0)));
+    typed_cut("\33[3;2~", 6);
+    tasks();
+    ASSERT_EQ(lastkey_len(), 0);
+    ASSERT_TRUE(typed_put(TYPED_ENTRY(TYPED_COPY, 0)));
+    typed_cut("\x18", 1);
+    typed_cut("", 0);
+    tasks();
+    ASSERT_EQ(lastkey_len(), 0);
+    ASSERT_STREQ(entered(), "ab");
+}
+
+/* An entry of the line editor's at the queue's front is something the
+ * read still has to take, so the input is not idle until it has. */
+UTEST(rln, an_entry_waiting_is_not_idle)
+{
+    editing();
+    keys("abc\33[1;2D");
+    ASSERT_TRUE(rln_idle());
+    typed_cut("\33[3;2~", 6);
+    ASSERT_FALSE(rln_idle());
+    tasks();
+    ASSERT_TRUE(rln_idle());
+    ASSERT_STREQ(entered(), "ab");
+}
+
+/* A cut waits for the key before it that the RIA's RX latch has taken out
+ * of the queue: here an 'x', which replaces the selection first, so the
+ * cut finds none. */
+UTEST(rln, a_cut_waits_for_the_key_in_the_rx_latch)
+{
+    editing();
+    keys("abc\33[1;2D");
+    typed_push("x", 1);
+    ASSERT_TRUE(com_rx_stage());
+    ASSERT_EQ(com_rx_peek(COM_SOURCE_KEYBOARD), 'x');
+    typed_cut("\33[3;2~", 6);
+    tasks();
+    ASSERT_STREQ(entered(), "abx");
+}
+
+/* The mouse's entries: a press and its drag select, and its release keeps
+ * the selection. A drag or a release with no press taken in this read does
+ * nothing, and a key typed after them goes where the cursor was. */
+UTEST(rln, a_drag_with_no_press_in_this_read_does_nothing)
+{
+    editing();
+    keys("abc");
+    typed_drag(0, 2);
+    ASSERT_TRUE(typed_put(TYPED_ENTRY(TYPED_RELEASE, 0)));
+    tasks();
+    ASSERT_FALSE(rln_selected());
+    ASSERT_TRUE(typed_put(TYPED_ENTRY(TYPED_PRESS, 0)));
+    typed_drag(0, 2);
+    ASSERT_TRUE(typed_put(TYPED_ENTRY(TYPED_RELEASE, 0)));
+    tasks();
+    ASSERT_TRUE(rln_selected());
+    /* The next read has no press of its own. */
+    keys("\33[F\r");
+    ASSERT_STREQ(last, "abc");
+    keys("abc");
+    typed_drag(0, 2);
+    tasks();
+    ASSERT_FALSE(rln_selected());
+    keys("X");
+    ASSERT_STREQ(entered(), "abcX");
+}
+
+/* A paste is typed to the line editor in its place, and what only the
+ * line editor takes waits behind it until its text has all come. */
+UTEST(rln, a_cut_behind_a_paste_waits_for_its_text)
+{
+    editing();
+    keys("abc ");
+    clip_copy_bytes(CLIP_PRIMARY, "xyz", 3);
+    clip_paste(CLIP_PRIMARY);
+    typed_push("\33[1;2D", 6);
+    typed_cut("\33[3;2~", 6);
+    tasks();
+    ASSERT_STREQ(entered(), "abc xy");
 }
 
 UTEST_MAIN();

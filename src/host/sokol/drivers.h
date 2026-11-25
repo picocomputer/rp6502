@@ -29,7 +29,6 @@
 #include "core/com/tio.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/clip.h"
-#include "core/hid/paste.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
@@ -65,19 +64,20 @@
  * vga_init programs the console canvas, which sets the terminal's height.
  * DRAW comes before VTERM_MOUSE because a savestate walks the list in
  * order, and the mouse's load checks its points against the screens' rows
- * DRAW's load lays out. */
+ * DRAW's load lays out. CLIP comes before TYPED because the keyboard
+ * queue's load checks the paste being typed against the buffers CLIP's
+ * load fills. */
 #define RP6502_MACH_DRIVERS                                    \
     RIA_DRIVER, REGS_DRIVER, SRAM_DRIVER, XRAM_DRIVER,         \
     ARG_DRIVER, PROC_CHAIN_DRIVER, PROC_DRIVER, STR_DRIVER,    \
-    ASSET_DRIVER, MANIFOLD_DRIVER, TYPED_DRIVER,               \
-    MANIFOLD_TX_DRIVER,                                        \
+    ASSET_DRIVER, MANIFOLD_DRIVER, MANIFOLD_TX_DRIVER,         \
     COM_DRIVER, STD_DRIVER, CONSOLE_DRIVER, TTY_DRIVER,        \
     TIO_DRIVER, RLN_DRIVER, API_DRIVER, XREG_DRIVER,           \
     DRAW_DRIVER, MODE0_DRIVER, KEYBOARD_DRIVER, MOUSE_DRIVER,  \
     GAMEPAD_DRIVER, TABLET_DRIVER, VTERM_MOUSE_DRIVER,         \
     FONT_DRIVER, OEM_DRIVER,                                   \
     VGA_DRIVER, CANVAS_DRIVER, PROG_DRIVER, MODE6_DRIVER,      \
-    CLIP_DRIVER, PASTE_DRIVER,                                 \
+    CLIP_DRIVER, TYPED_DRIVER,                                 \
     PSG_DRIVER, OPL_DRIVER, AUD_DRIVER, BEL_DRIVER,            \
     TIM_DRIVER, DIR_DRIVER, CLK_DRIVER, RANDOM_DRIVER,         \
     PHI2_DRIVER, CPU_DRIVER, VIA_DRIVER, BUS_DRIVER
@@ -92,7 +92,7 @@
     SAVE_DRIVER, FS_DRIVER
 
 #define RP6502_COM_SOURCES                       \
-    [COM_SOURCE_KEYBOARD] = PASTE_COM_SOURCE,  \
+    [COM_SOURCE_KEYBOARD] = TYPED_COM_SOURCE,  \
     [COM_SOURCE_UART] = MANIFOLD_UART_SOURCE
 
 #endif /* _HOST_DRIVERS_H_ */

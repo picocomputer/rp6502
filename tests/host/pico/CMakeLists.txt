@@ -77,11 +77,11 @@ rp6502_add_test(vga_reply SPLIT
         ${CMAKE_CURRENT_LIST_DIR}/stub ${RP6502_SRC}/host/pico)
 
 # A paste of the machine's own text, through the RIA's keyboard row
-# (KEYMAP_COM_SOURCE) and its paste stage, keys typed through keymap.c and
-# its chords through key.c, built as the RIA's machine.h builds it.
+# (KEYMAP_COM_SOURCE) and its queue, keys typed through keymap.c and its
+# chords through key.c, built as the RIA's machine.h builds it.
 rp6502_add_test(ria_paste
     SOURCES test_paste.c
-        ${RP6502_SRC}/core/hid/paste.c ${RP6502_SRC}/core/hid/clip_byte.c
+        ${RP6502_SRC}/core/hid/clip_byte.c
         ${RP6502_SRC}/core/hid/typed.c ${RP6502_SRC}/core/hid/keymap.c
         ${RP6502_SRC}/core/hid/key.c ${RP6502_SRC}/core/hid/vtkey.c
         ${RP6502_SRC}/core/sys/ring.c

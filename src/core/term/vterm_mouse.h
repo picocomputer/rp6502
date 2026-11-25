@@ -103,6 +103,11 @@ extern vterm_mouse_queue_t vterm_mouse_queue;
  * above: a release is its press's. */
 bool vterm_mouse_acts(void);
 
+/* The copy key (core/hid/key.h): while the mouse's highlight shows on the
+ * screen showing, the primary's and not the line editor's, the text it
+ * shows goes to the clipboard, and true. */
+bool vterm_mouse_copy(void);
+
 /* The host's window gained the focus (true) or lost it. A host that can
  * lose it (host_focusable) says so on every change, or every frame; the
  * task tells a program that asked (?1004) of a change, in order with the

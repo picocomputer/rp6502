@@ -13,7 +13,7 @@
 #include "core/com/manifold.h"
 #include "core/com/tio.h"
 #include "core/hid/clip.h"
-#include "core/hid/paste.h"
+#include "core/hid/typed.h"
 #include "core/hid/vtkey.h"
 #include "core/sys/driver.h"
 #include "core/term/grid.h"
@@ -152,15 +152,14 @@ static bool rln_hl_due;
 static uint8_t rln_edit_from;
 static uint8_t rln_edit_to;
 
-/* The console's mouse in the line, which the task takes after the keys
- * waiting: the end the drag holds, where the press was, and the end it
- * moves, where the drag is, as indexes of the line as it was laid out
- * then (rln_mouse_drag), the unit the press selects by, none when no
- * press was made in this read's line, and whether the button has come up
- * since, when what the task takes fills the primary. A click, a press by
- * characters that has not dragged, selects nothing: its press is the
- * character under the pointer and its drag the gap nearest the pointer,
- * where the cursor goes in overwrite and in insert mode. */
+/* The console's mouse in the line, as the line editor has taken it from
+ * the keyboard's queue (rln_entry): the end the drag holds, where the
+ * press was, and the end it moves, where the drag is, as indexes of the
+ * line as it was laid out when the mouse was there, and the unit the press
+ * selects by, none when no press has been taken in this read's line. A
+ * click, a press by characters that has not dragged, selects nothing: its
+ * press is the character under the pointer and its drag the gap nearest
+ * the pointer, where the cursor goes in overwrite and in insert mode. */
 enum
 {
     RLN_UNIT_NONE,
@@ -169,30 +168,15 @@ enum
     RLN_UNIT_LINE,
     RLN_UNIT_CLICK,
 };
-static bool rln_mouse_due;
 static uint8_t rln_press_at;
 static uint8_t rln_drag_at;
 static uint8_t rln_press_unit;
-static bool rln_mouse_up;
 
-/* The copy or cut key pressed while the line is read, which the task takes
- * in its place among the keys, as it takes the mouse, or none. A cut takes
- * the place of a copy still to take, as it copies too. With the mouse due
- * too, they are taken in the order they came: the key first when it came
- * before the mouse became due.
- *
- * Neither has bytes to wait in the keyboard's row, so the first of them
- * held puts a mark there (core/hid/paste.h): the row gives the keys typed
- * before it and none typed after it until it is taken. What comes while
- * one is held is held at the same mark. */
-enum
-{
-    RLN_KEY_NONE,
-    RLN_KEY_COPY,
-    RLN_KEY_CUT,
-};
-static uint8_t rln_key_due;
-static bool rln_key_first;
+/* A press's entry: the index, whether the pointer is nearer the gap after
+ * it, and its place in its run of clicks, of which the second selects by
+ * words and the third by lines. */
+#define RLN_PRESS_AFTER 0x100
+#define RLN_PRESS_CLICKS(e) ((e) >> 9 & 3)
 
 /* Bracketed paste was asked of the terminals for this read. */
 static bool rln_bracketing;
@@ -490,12 +474,10 @@ static bool rln_sst_valid(sst_cursor_t *c)
         return sst_refuse(c, "an index past its line");
     if (rln_prompt_col && !rln_width)
         return sst_refuse(c, "a prompt column with no width");
-    if ((rln_mouse_due || rln_key_due || rln_press_unit != RLN_UNIT_NONE) && !rln_callback)
-        return sst_refuse(c, "a key held with no line to take it");
+    if (rln_press_unit != RLN_UNIT_NONE && !rln_callback)
+        return sst_refuse(c, "a press with no line it was in");
     if (rln_sel_anchor > rln_buflen || rln_sel_end > rln_buflen ||
-        rln_press_unit > RLN_UNIT_CLICK || (rln_mouse_due && rln_press_unit == RLN_UNIT_NONE) ||
-        (rln_mouse_up && !rln_mouse_due) ||
-        (rln_screen > 1 && rln_screen != RLN_NO_ROW) || rln_key_due > RLN_KEY_CUT)
+        rln_press_unit > RLN_UNIT_CLICK || (rln_screen > 1 && rln_screen != RLN_NO_ROW))
         return sst_refuse(c, "a selection past its line");
     for (unsigned i = 0; i < RLN_SOURCE_COUNT; i++)
         if (rln_paste_in[i] > RLN_PASTE_DROPPING)
@@ -566,13 +548,9 @@ static bool rln_sst_valid(sst_cursor_t *c)
     X(U8, rln_sel_anchor)                                               \
     X(U8, rln_sel_end)                                                  \
     X(BOOL, rln_hl_due)                                                 \
-    X(BOOL, rln_mouse_due)                                              \
     X(U8, rln_press_at)                                                 \
     X(U8, rln_drag_at)                                                  \
     X(U8, rln_press_unit)                                               \
-    X(BOOL, rln_mouse_up)                                               \
-    X(U8, rln_key_due)                                                  \
-    X(BOOL, rln_key_first)                                              \
     X(BOOL, rln_bracketing)                                             \
     X(BYTES, rln_paste_in)                                              \
     X(U16S, rln_paste_dropped)                                          \
@@ -996,40 +974,11 @@ static void HOST_IN_FLASH_FUNC rln_show(void)
         vterm_unselect();
 }
 
-/* The mouse or a key becomes held: the first puts the mark in the
- * keyboard's row, and with nothing held any more the mark goes. */
-static void rln_hold(void)
-{
-    if (!rln_mouse_due && !rln_key_due)
-        paste_mark_set();
-}
-
-static void rln_let_go(void)
-{
-    if (!rln_mouse_due && !rln_key_due)
-        paste_unmark();
-}
-
-/* Every key before what is held has reached the line: the row has given
- * all that is before the mark, and none of it waits in the RIA's RX latch,
- * which takes the row's next byte. */
-static bool HOST_IN_RAM_FUNC rln_reached(void)
-{
-    return paste_mark_reached() && com_rx_peek(COM_SOURCE_KEYBOARD) < 0;
-}
-
-bool rln_holds(void)
-{
-    return rln_mouse_due || rln_key_due;
-}
-
-/* No selection, its highlight off, and no press of the mouse still to
- * take. */
+/* No selection, its highlight off, and nothing of the mouse still to take
+ * from the keyboard's queue. */
 void rln_unselect(void)
 {
-    rln_mouse_due = false;
-    rln_mouse_up = false;
-    rln_let_go();
+    typed_void_mouse();
     rln_select(0, 0);
 }
 
@@ -1042,17 +991,6 @@ static void rln_selection_follow(void)
 {
     if (rln_sel_anchor != rln_sel_end && !rln_hl_due && !vterm_selection.shows)
         rln_sel_anchor = rln_sel_end;
-}
-
-/* A key still to take when the read ends: a copy copies the primary, as
- * the copy keys do with no read, and a cut has no line left to cut from. */
-static void rln_key_end(void)
-{
-    if (rln_key_due == RLN_KEY_COPY)
-        clip_copy_primary();
-    rln_key_due = RLN_KEY_NONE;
-    rln_key_first = false;
-    rln_let_go();
 }
 
 /* ----- History ----- */
@@ -1208,14 +1146,13 @@ static void rln_cursor_shape(uint8_t ps)
 }
 
 // The read is over, or given up: nothing more is read for it, the callback
-// never fires, its selection's highlight is off, a copy key it had still to
-// take copies the primary, and the cursor has its default shape again. A completed line
-// then gets its newline (rln_complete). Bracketed paste goes off last, so
-// every terminal sees the line and its newline as typed, unbroken.
+// never fires, its selection's highlight is off, and the cursor has its
+// default shape again. A completed line then gets its newline
+// (rln_complete). Bracketed paste goes off last, so every terminal sees the
+// line and its newline as typed, unbroken.
 static void rln_read_end(bool completed)
 {
     rln_unselect();
-    rln_key_end();
     rln_press_unit = RLN_UNIT_NONE;
     rln_callback = NULL;
     rln_idle_timeout_ms = 0;
@@ -2047,47 +1984,30 @@ static void rln_follow(void)
     rln_render_from(0);
 }
 
-/* ----- The mouse, and the copy and cut keys ----- */
-
-/* The mouse has something for the task to take, and a key still to take
- * came before it unless the mouse already had. */
-static void rln_mouse_becomes_due(void)
-{
-    if (!rln_mouse_due)
-        rln_key_first = rln_key_due != RLN_KEY_NONE;
-    rln_hold();
-    rln_mouse_due = true;
-}
+/* ----- The mouse, and the copy and cut keys -----
+ *
+ * None of them has bytes, so each waits in the keyboard's queue as an
+ * entry (core/hid/typed.h), and the line editor takes it in its place
+ * among the keys: after those typed before it and before those typed
+ * after. The mouse's entries are queued only while a line is read, and
+ * those still waiting are taken back when the line's selection is ended
+ * for it (rln_unselect), as it is when the read ends. */
 
 void rln_mouse_press(uint8_t index, bool after, uint8_t clicks)
 {
-    rln_press_at = rln_drag_at = index;
-    rln_press_unit = clicks == 3   ? RLN_UNIT_LINE
-                     : clicks == 2 ? RLN_UNIT_WORD
-                                   : RLN_UNIT_CLICK;
-    if (rln_press_unit == RLN_UNIT_CLICK && after && index < rln_buflen)
-        rln_drag_at++;
-    rln_mouse_up = false;
-    rln_mouse_becomes_due();
+    typed_put(TYPED_ENTRY(TYPED_PRESS, index | (after ? RLN_PRESS_AFTER : 0) | (clicks & 3) << 9));
 }
 
 void rln_mouse_drag(uint8_t hy, uint8_t hx, uint8_t y, uint8_t x)
 {
-    if (rln_press_unit == RLN_UNIT_NONE || !rln_on_screen())
-        return;
-    if (rln_press_unit == RLN_UNIT_CLICK)
-        rln_press_unit = RLN_UNIT_CHAR;
-    rln_press_at = (uint8_t)rln_index_of(hy, hx, true);
-    rln_drag_at = (uint8_t)rln_index_of(y, x, true);
-    rln_mouse_becomes_due();
+    if (rln_on_screen())
+        typed_drag((uint8_t)rln_index_of(hy, hx, true), (uint8_t)rln_index_of(y, x, true));
 }
 
 void rln_mouse_release(void)
 {
-    if (rln_press_unit == RLN_UNIT_NONE || rln_press_unit == RLN_UNIT_CLICK)
-        return;
-    rln_mouse_up = true;
-    rln_mouse_becomes_due();
+    if (rln_callback)
+        typed_put(TYPED_ENTRY(TYPED_RELEASE, 0));
 }
 
 /* The word index i is in: a run of characters that are not word
@@ -2106,22 +2026,19 @@ static void rln_word_at(uint8_t i, uint8_t *lo, uint8_t *hi)
         ++*hi;
 }
 
-/* The mouse's press and drag become the selection, after the keys that
- * were waiting, on the line as those keys left it: by characters from the
- * press to the drag, by words out to the ends of the words under each, or
- * the whole line. The cursor follows the mouse to the selection's end, so
- * a drag carries it along, and what is typed next goes where the cursor
- * shows. A click selects nothing and puts the cursor where the mode then
- * has it: the block on the character under the pointer, and the bar at
- * the gap nearest the pointer, as IntelliJ places its carets. Once the
- * button has come up, what it selected fills the primary, as a selection
- * the mouse makes anywhere on the screen does. It is taken from the line
- * the selection is of, the line editor's own bytes, which the echo still
- * going out may not yet show, and which a copy key copies as they are. */
-static void rln_mouse_take(void)
+/* The mouse's press and drag become the selection, on the line as the
+ * keys before them left it: by characters from the press to the drag, by
+ * words out to the ends of the words under each, or the whole line. The
+ * cursor follows the mouse to the selection's end, so a drag carries it
+ * along, and what is typed next goes where the cursor shows. A click
+ * selects nothing and puts the cursor where the mode then has it: the
+ * block on the character under the pointer, and the bar at the gap nearest
+ * the pointer, as IntelliJ places its carets. With up, the button has come
+ * up, and what it selected fills the primary, as a selection the mouse
+ * makes anywhere on the screen does. It is taken from the line the
+ * selection is of, the line editor's own bytes. */
+static void rln_mouse_apply(bool up)
 {
-    rln_mouse_due = false;
-    rln_killed = false;
     uint8_t anchor = rln_press_at < rln_buflen ? rln_press_at : rln_buflen;
     uint8_t end = rln_drag_at < rln_buflen ? rln_drag_at : rln_buflen;
     if (rln_press_unit == RLN_UNIT_CLICK)
@@ -2141,20 +2058,23 @@ static void rln_mouse_take(void)
         end = rln_buflen;
     }
     rln_select(anchor, end);
-    if (rln_mouse_up && anchor != end)
+    if (up && anchor != end)
     {
         const uint8_t lo = rln_sel_lo();
         clip_copy_bytes(CLIP_PRIMARY, &rln_buf[lo], (size_t)(rln_sel_hi() - lo));
     }
-    rln_mouse_up = false;
     rln_bufpos = end;
     rln_sync_cursor_to(rln_bufpos);
-    rln_let_go();
 }
 
-bool rln_reading(void)
+bool HOST_IN_RAM_FUNC rln_reading(void)
 {
     return rln_callback;
+}
+
+bool rln_idle(void)
+{
+    return !typed_entry() && tio_idle();
 }
 
 bool rln_selected(void)
@@ -2162,78 +2082,74 @@ bool rln_selected(void)
     return rln_callback && rln_sel_anchor != rln_sel_end;
 }
 
-/* The copy or cut key, on the line as the keys before it left it: the
- * selection goes to the clipboard, and a cut deletes it. With none, a copy
- * copies the primary and a cut does nothing. Either ends a run of kills,
- * as any key between two kills does. A cut edits the line, so it is
- * taken only once no reply is going out, as a reply reads the line as it
- * goes. */
-static void rln_key_take(void)
+/* An entry taken from the keyboard's queue. The copy key puts the
+ * selection in the clipboard and leaves it selected, and a cut key puts it
+ * there and deletes it; with nothing selected neither does anything. The
+ * mouse's press starts a click, or a selection by words or lines; its drag
+ * moves the two ends, a click becoming a selection by characters; and its
+ * release fills the primary. A drag or a release whose press was not taken
+ * in this read's line does nothing, and a click's release has nothing to
+ * fill it with. Any of them ends a run of kills, as a key between two
+ * kills does, and none is the last key. */
+static void rln_entry(typed_entry_t e)
 {
-    const uint8_t key = rln_key_due;
-    const uint8_t lo = rln_sel_lo(), hi = rln_sel_hi();
-    rln_key_due = RLN_KEY_NONE;
-    rln_key_first = false;
+    const uint8_t at = (uint8_t)e;
+    bool up = false;
     rln_killed = false;
-    /* The clipboard is filled before the mark goes, so a paste that waits
-     * behind the mark is of what this puts there. */
-    if (lo < hi)
+    switch (TYPED_KIND(e))
+    {
+    case TYPED_COPY:
+    case TYPED_CUT:
+    {
+        const uint8_t lo = rln_sel_lo(), hi = rln_sel_hi();
+        if (lo == hi)
+            return;
         clip_copy_bytes(CLIP_CLIPBOARD, &rln_buf[lo], (size_t)(hi - lo));
-    else if (key == RLN_KEY_COPY)
-        clip_copy_primary();
-    rln_let_go();
-    if (key == RLN_KEY_CUT && lo < hi)
-    {
-        rln_select(0, 0);
-        rln_delete_range(lo, hi);
+        if (TYPED_KIND(e) == TYPED_CUT)
+        {
+            rln_select(0, 0);
+            rln_delete_range(lo, hi);
+        }
+        return;
     }
+    case TYPED_PRESS:
+        rln_press_at = rln_drag_at = at;
+        rln_press_unit = RLN_PRESS_CLICKS(e) == 3   ? RLN_UNIT_LINE
+                         : RLN_PRESS_CLICKS(e) == 2 ? RLN_UNIT_WORD
+                                                    : RLN_UNIT_CLICK;
+        if (rln_press_unit == RLN_UNIT_CLICK && (e & RLN_PRESS_AFTER) && at < rln_buflen)
+            rln_drag_at++;
+        break;
+    case TYPED_HELD:
+        rln_press_at = at;
+        return;
+    case TYPED_DRAG:
+        if (rln_press_unit == RLN_UNIT_NONE)
+            return;
+        if (rln_press_unit == RLN_UNIT_CLICK)
+            rln_press_unit = RLN_UNIT_CHAR;
+        rln_drag_at = at;
+        break;
+    default:
+        if (rln_press_unit == RLN_UNIT_NONE || rln_press_unit == RLN_UNIT_CLICK)
+            return;
+        up = true;
+    }
+    rln_mouse_apply(up);
 }
 
-/* A copy or cut key while the line is read is the line's, to take after
- * the keys typed before it. */
-static bool rln_key_press(uint8_t key)
+/* The entry of the keyboard's queue that is the line editor's is taken in
+ * its turn: when it is at the queue's front, and no byte before it waits
+ * in the RIA's RX latch, which takes the keyboard's next byte. True when
+ * one was taken. From flash, as the keys' edits are, so the task in RAM
+ * does not take it in. */
+static bool HOST_IN_FLASH_FUNC rln_take_entry(void)
 {
-    if (!rln_callback)
+    typed_entry_t e;
+    if (com_rx_peek(COM_SOURCE_KEYBOARD) >= 0 || !typed_take(&e))
         return false;
-    if (key > rln_key_due)
-    {
-        rln_hold();
-        rln_key_first = !rln_mouse_due;
-        rln_key_due = key;
-    }
+    rln_entry(e);
     return true;
-}
-
-/* A copy edits nothing, so with no key and no mouse before it, it is taken
- * here, where a web page may still write its clipboard. */
-bool HOST_IN_FLASH_FUNC rln_copy(void)
-{
-    if (!rln_key_press(RLN_KEY_COPY))
-        return false;
-    if (rln_key_due == RLN_KEY_COPY && !rln_mouse_due && rln_reached())
-        rln_key_take();
-    return true;
-}
-
-bool HOST_IN_FLASH_FUNC rln_cut(void)
-{
-    return rln_key_press(RLN_KEY_CUT);
-}
-
-/* What the mouse and the keys left for the task, in the order they came,
- * once every key typed before them has reached the line. From flash, as the keys' edits are, so
- * the task in RAM does not take it in. */
-static void HOST_IN_FLASH_FUNC rln_take_due(void)
-{
-    if (rln_mouse_due && !(rln_key_due && rln_key_first))
-        rln_mouse_take();
-    if (rln_key_due && rln_out_send(false))
-    {
-        rln_key_take();
-        if (rln_mouse_due)
-            rln_mouse_take();
-    }
-    rln_out_send(false);
 }
 
 /* ----- Top-level task / driver hooks ----- */
@@ -2246,7 +2162,6 @@ static void rln_start(rln_read_callback_t callback, rln_history_t *history, rln_
      * another. */
     rln_out_then = NULL;
     rln_unselect();
-    rln_key_end();
     rln_press_unit = RLN_UNIT_NONE;
     rln_out_send(true);
     rln_idle_timeout_ms = 0;
@@ -2302,7 +2217,9 @@ bool rln_read_flush(void)
 }
 
 /* The items waiting are taken, each once the reply to the one before it
- * has gone out, and true once all are taken and answered. */
+ * has gone out, and true once all are taken and answered. What the
+ * keyboard's queue holds for the line editor alone is taken among them, in
+ * its turn. */
 static bool HOST_IN_RAM_FUNC rln_take_items(void)
 {
     if (!rln_out_send(false) || !rln_callback)
@@ -2319,24 +2236,24 @@ static bool HOST_IN_RAM_FUNC rln_take_items(void)
             rln_follow();
             rln_selection_follow();
         }
-        if (!rln_callback || !(len = tio_read(&src, item)))
+        if (!rln_callback)
             return true;
-        rln_idle_deadline = timer_mach_in_ms(rln_idle_timeout_ms);
-        rln_item(src, item, len);
+        if (!rln_take_entry())
+        {
+            if (!(len = tio_read(&src, item)))
+                return true;
+            rln_idle_deadline = timer_mach_in_ms(rln_idle_timeout_ms);
+            rln_item(src, item, len);
+        }
         if (!rln_out_send(false))
             return false;
     }
 }
 
-/* The mouse in the line, and the copy and cut keys, are taken once the
- * keys typed before them have been, and before any typed after them: the mouse even while a reply is still going out
- * at a slow speed, and a key once it has gone out. */
 void HOST_IN_RAM_FUNC rln_task(void)
 {
     const bool answered = rln_take_items();
     rln_selection_follow();
-    if ((rln_mouse_due || rln_key_due) && rln_callback && rln_reached())
-        rln_take_due();
     if (rln_hl_due && !rln_out_len && manifold_drained())
         rln_show();
     if (answered && rln_idle_timeout_ms && timer_mach_passed(rln_idle_deadline))
@@ -2357,12 +2274,7 @@ void HOST_IN_FLASH_FUNC rln_init(void)
     rln_pinned_height = 0;
     rln_sel_anchor = rln_sel_end = 0;
     rln_hl_due = false;
-    rln_mouse_due = false;
-    rln_mouse_up = false;
     rln_press_unit = RLN_UNIT_NONE;
-    rln_key_due = RLN_KEY_NONE;
-    rln_key_first = false;
-    paste_unmark();
     rln_bracketing = false;
     term_grid_init(&rln_grid, 80, rln_grid_lines, NULL, RLN_GRID_ROWS);
 }
@@ -2373,16 +2285,14 @@ void rln_run(void)
 }
 
 /* A read cut short by a stop or a break leaves the cursor on a new line
- * past everything typed, with its default shape and no highlight, and a
- * copy key it had still to take copies nothing. A program's own size goes
- * back to the screen's, and a bracketed paste of any source drops nothing
- * more (rln_reset). */
+ * past everything typed, with its default shape and no highlight. A
+ * program's own size goes back to the screen's, and a bracketed paste of
+ * any source drops nothing more (rln_reset). */
 void rln_stop(void)
 {
     if (rln_callback)
     {
         rln_unselect();
-        rln_key_due = RLN_KEY_NONE;
         rln_sync_past_line();
         if (!rln_below_line())
             rln_out_s("\r\n");

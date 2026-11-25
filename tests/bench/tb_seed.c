@@ -43,16 +43,24 @@ bool host_mac_keys(void)
 }
 
 /* The test bench's host has a clipboard, empty until something is put in
- * it, as a desktop's is, or has none, as the RIA has none, when a test
- * says so (tb_seed.h): the machine then keeps its own. */
+ * it, as a desktop's is. When a test says so (tb_seed.h) it has none, as
+ * the RIA has none, and the machine then keeps its own; or it has one that
+ * cannot be asked for, as a web page's cannot, which a test reads with
+ * tb_clipboard_text. */
 static char *tb_clipboard;
 bool tb_no_clipboard;
+bool tb_clipboard_unasked;
+
+const char *tb_clipboard_text(void)
+{
+    return tb_clipboard ? tb_clipboard : "";
+}
 
 const char *host_clipboard_get(void)
 {
-    if (tb_no_clipboard)
+    if (tb_no_clipboard || tb_clipboard_unasked)
         return NULL;
-    return tb_clipboard ? tb_clipboard : "";
+    return tb_clipboard_text();
 }
 
 bool host_clipboard_set(const char *utf8)
