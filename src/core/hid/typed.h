@@ -84,6 +84,12 @@ bool typed_take(typed_entry_t *entry);
 /* The mouse's entries still waiting are taken back. */
 void typed_void_mouse(void);
 
+/* The line editor's read is over, and the bracketed paste it asked for
+ * goes off with it: a bracket of the paste being typed that no one has
+ * begun to read goes too, so whoever reads the rest of the text, who did
+ * not ask for brackets, gets none. */
+void typed_paste_unbracket(void);
+
 /* The machine buffer which changed: a paste being typed from it ends here,
  * with its closing bracket. */
 void typed_clip_changed(uint8_t which);

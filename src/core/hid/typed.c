@@ -221,6 +221,14 @@ bool typed_take(typed_entry_t *entry)
     return true;
 }
 
+void typed_paste_unbracket(void)
+{
+    if (typed_paste_open == TYPED_BRACKET)
+        typed_paste_open = 0;
+    if (typed_paste_close == TYPED_BRACKET)
+        typed_paste_close = 0;
+}
+
 void typed_clip_changed(uint8_t which)
 {
     if (typed_paste_from == which + 1)

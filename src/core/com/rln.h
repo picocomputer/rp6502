@@ -81,13 +81,13 @@ typedef struct
 // with no history, such as a YES/no confirmation or a program's input.
 // What its kill keys take goes to kill; NULL for a read whose kill keys
 // only delete, and whose Ctrl-Y does nothing.
-// A read with history that lays its line out asks every terminal for
-// bracketed paste (?2004), and turns it off again when the read ends.
+// A read that lays its line out asks every terminal for bracketed paste
+// (?2004), and turns it off again when the read ends.
 //
-// A paste that comes bracketed, ESC [ 200 ~ to ESC [ 201 ~, is taken up to
-// its first line end, and its source's bytes after that, up to the closing
-// bracket, are dropped, whatever read they come to. A paste that comes
-// without brackets is typing.
+// A paste is typing: each line end in it is Enter, and the next read goes
+// on with the rest. One paste that comes bracketed, ESC [ 200 ~ to
+// ESC [ 201 ~, is not: a single line with its line end and nothing after.
+// That line end is dropped, so the line waits for the person's Enter.
 void rln_read_line(rln_read_callback_t callback, rln_history_t *history, rln_kill_t *kill);
 
 // Read a line typed by a script, such as the monitor's UPLOAD chunk headers:

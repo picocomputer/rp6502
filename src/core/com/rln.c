@@ -181,17 +181,21 @@ static uint8_t rln_press_unit;
 /* Bracketed paste was asked of the terminals for this read. */
 static bool rln_bracketing;
 
-/* Each source's bracketed paste: in it, taking its first line, or past
- * that line, dropping the rest of it, with how many bytes it dropped. A
- * source whose closing bracket never comes is let go after
- * RLN_PASTE_DROP_MAX bytes. */
+/* Each source's bracketed paste: in one that has had no line end yet, or
+ * holding that first line end until what follows it shows whether the
+ * paste is the one line that waits for Enter (rln_item), with the other
+ * half of its pair still to come or taken already. The line end held is in
+ * rln_line_ends. A source that sends nothing more is waited for no longer
+ * than RLN_PASTE_HOLD_MS. */
 enum
 {
     RLN_PASTE_NONE,
-    RLN_PASTE_TAKING,
-    RLN_PASTE_DROPPING,
+    RLN_PASTE_FIRST,
+    RLN_PASTE_HELD,
+    RLN_PASTE_PAIRED,
 };
-#define RLN_PASTE_DROP_MAX UINT16_MAX
+#define RLN_PASTE_HOLD_MS 5000
+static timer_mach_t rln_paste_deadline;
 
 // A program's own size for the console's terminal, while either is pinned:
 // a third grid the terminal also follows, which only the line editor uses.
@@ -205,7 +209,6 @@ static uint8_t rln_grid_lines[2 * RLN_GRID_ROWS];
 // ending a second line.
 static uint8_t rln_line_ends[RLN_SOURCE_COUNT];
 static uint8_t rln_paste_in[RLN_SOURCE_COUNT];
-static uint16_t rln_paste_dropped[RLN_SOURCE_COUNT];
 
 // Lastkey capture for the 6502 API. rln_action_taken is the live
 // "this dispatch mutated state" flag, sampled at lastkey publish time.
@@ -480,8 +483,10 @@ static bool rln_sst_valid(sst_cursor_t *c)
         rln_press_unit > RLN_UNIT_CLICK || (rln_screen > 1 && rln_screen != RLN_NO_ROW))
         return sst_refuse(c, "a selection past its line");
     for (unsigned i = 0; i < RLN_SOURCE_COUNT; i++)
-        if (rln_paste_in[i] > RLN_PASTE_DROPPING)
+        if (rln_paste_in[i] > RLN_PASTE_PAIRED)
             return sst_refuse(c, "a paste in no state");
+    if (rln_paste_in[RLN_POKE])
+        return sst_refuse(c, "a paste in what a program pokes");
     if (rln_out_len > RLN_OUT_PIECES || rln_out_at > rln_out_len ||
         rln_out_lit_len > RLN_OUT_LIT)
         return sst_refuse(c, "a reply past its pieces");
@@ -553,7 +558,7 @@ static bool rln_sst_valid(sst_cursor_t *c)
     X(U8, rln_press_unit)                                               \
     X(BOOL, rln_bracketing)                                             \
     X(BYTES, rln_paste_in)                                              \
-    X(U16S, rln_paste_dropped)                                          \
+    X(U64, rln_paste_deadline, "machine time, so carried whole")        \
     X(VALIDATE, rln_sst_valid)                                          \
     X(FN, rln_sst_put_grid, rln_sst_get_grid,                           \
       1 + TERM_GRID_SST_SIZE(RLN_GRID_ROWS), 3)                         \
@@ -1146,8 +1151,8 @@ static void rln_cursor_shape(uint8_t ps)
 }
 
 // The read is over, or given up: nothing more is read for it, the callback
-// never fires, its selection's highlight is off, and the cursor has its
-// default shape again. A completed line then gets its newline
+// never fires, its selection's highlight is off, a paste's line end it held
+// is dropped, and the cursor has its default shape again. A completed line then gets its newline
 // (rln_complete). Bracketed paste goes off last, so every terminal sees the
 // line and its newline as typed, unbroken.
 static void rln_read_end(bool completed)
@@ -1156,6 +1161,9 @@ static void rln_read_end(bool completed)
     rln_press_unit = RLN_UNIT_NONE;
     rln_callback = NULL;
     rln_idle_timeout_ms = 0;
+    for (unsigned i = 0; i < RLN_SOURCE_COUNT; i++)
+        if (rln_paste_in[i] >= RLN_PASTE_HELD)
+            rln_paste_in[i] = RLN_PASTE_NONE;
     tio_read_end();
     rln_cursor_shape(0);
     if (completed && !rln_suppress_newline && !rln_below_line())
@@ -1164,6 +1172,7 @@ static void rln_read_end(bool completed)
     {
         rln_bracketing = false;
         rln_out_s("\33[?2004l");
+        typed_paste_unbracket();
     }
     rln_out_send(false);
 }
@@ -1831,10 +1840,67 @@ static void rln_dispatch(com_source_t src, const char *item, size_t len,
 // lasts exactly one item, which is why "\r\r" is two lines and why a blank
 // line in a CRLF file survives.
 //
-// A bracketed paste, ESC [ 200 ~ to ESC [ 201 ~, is taken up to its first
-// line end, which is Enter, and the rest of it is dropped, read or no
-// read, up to the closing bracket or RLN_PASTE_DROP_MAX bytes. The brackets
-// are dropped too.
+// A bracketed paste, ESC [ 200 ~ to ESC [ 201 ~, is typing, and each line
+// end in it is Enter: the read ends, and the next read goes on with the rest
+// of the paste. One paste is not: a single line with its line end, a pair
+// as one, and nothing after. That line end is dropped, so the line waits to
+// be looked over, and Enter is for the person to press. So the first line
+// end of a paste is held until its source shows what follows it. The
+// brackets are dropped too.
+
+/* src's paste holds its line end no longer. With its pair whole, the line
+ * end that comes next is no half of it. */
+static void rln_paste_let_go(com_source_t src)
+{
+    if (rln_paste_in[src] == RLN_PASTE_PAIRED)
+        rln_line_ends[src] = 0;
+    rln_paste_in[src] = RLN_PASTE_NONE;
+}
+
+/* The line end src's paste holds is Enter after all, which remembers it
+ * for a half still to come (rln_enter). */
+static void rln_paste_enter(com_source_t src)
+{
+    const char end = (char)rln_line_ends[src];
+    const bool paired = rln_paste_in[src] == RLN_PASTE_PAIRED;
+    const tio_csi_t none = {0};
+    rln_paste_in[src] = RLN_PASTE_NONE;
+    rln_dispatch(src, &end, 1, &none);
+    rln_publish_lastkey(&end, 1);
+    if (paired)
+        rln_line_ends[src] = 0;
+}
+
+/* What follows the line end src's paste holds, looked at where it waits
+ * and not taken. The closing bracket, past the other half of a pair: the
+ * line end is dropped. Anything else: it is Enter. Nothing yet: it is held
+ * on, and dropped when its source has sent no more in time, so a line
+ * never enters itself behind a terminal that went quiet. True when it was
+ * Enter. */
+static bool rln_paste_decide(com_source_t src)
+{
+    static const char closing[] = "\33[201~";
+    size_t at = 0;
+    int c = com_peek(src, 0);
+    if (rln_paste_in[src] == RLN_PASTE_HELD && (c == '\r' || c == '\n') &&
+        c != rln_line_ends[src])
+        c = com_peek(src, ++at);
+    for (size_t i = 0; c == closing[i]; c = com_peek(src, at + ++i))
+        if (i == sizeof closing - 2)
+        {
+            rln_paste_let_go(src);
+            return false;
+        }
+    if (c >= 0)
+    {
+        rln_paste_enter(src);
+        return true;
+    }
+    if (timer_mach_passed(rln_paste_deadline))
+        rln_paste_let_go(src);
+    return false;
+}
+
 static void rln_item(com_source_t src, const char *item, size_t len)
 {
     tio_csi_t csi;
@@ -1843,21 +1909,29 @@ static void rln_item(com_source_t src, const char *item, size_t len)
         (len > 1 && item[1] == '[' && !is_csi) ||
         (len == 3 && item[1] == 'N'))
         return;
+    /* Past a line end held, the other half of its pair gets here when
+     * what follows it has not come yet: it is taken, once, and the hold
+     * goes on. Else only an Escape does: it is no closing bracket, and the
+     * read the Enter ends has no use for it. */
+    if (rln_paste_in[src] >= RLN_PASTE_HELD)
+    {
+        if (rln_paste_in[src] == RLN_PASTE_HELD && len == 1 &&
+            (item[0] == '\r' || item[0] == '\n') && item[0] != rln_line_ends[src])
+        {
+            rln_paste_in[src] = RLN_PASTE_PAIRED;
+            rln_paste_deadline = timer_mach_in_ms(RLN_PASTE_HOLD_MS);
+        }
+        else
+            rln_paste_enter(src);
+        return;
+    }
     uint8_t was = rln_line_ends[src];
     rln_line_ends[src] = 0;
     if (is_csi && csi.final == '~' && csi.count == 1 &&
         (csi.param[0] == 200 || csi.param[0] == 201))
     {
-        rln_paste_in[src] = csi.param[0] == 200 ? RLN_PASTE_TAKING : RLN_PASTE_NONE;
-        rln_paste_dropped[src] = 0;
-        return;
-    }
-    if (rln_paste_in[src] == RLN_PASTE_DROPPING)
-    {
-        if (len >= (size_t)(RLN_PASTE_DROP_MAX - rln_paste_dropped[src]))
-            rln_paste_in[src] = RLN_PASTE_NONE;
-        else
-            rln_paste_dropped[src] = (uint16_t)(rln_paste_dropped[src] + len);
+        rln_paste_in[src] = csi.param[0] == 200 && src != RLN_POKE ? RLN_PASTE_FIRST
+                                                                   : RLN_PASTE_NONE;
         return;
     }
     /* A modified-key sequence is the key it stands for, and the last key
@@ -1869,10 +1943,13 @@ static void rln_item(com_source_t src, const char *item, size_t len)
     const bool line_end = key_len == 1 && (key[0] == '\r' || key[0] == '\n');
     if (line_end && was && key[0] != was)
         return;
-    if (line_end && rln_paste_in[src] == RLN_PASTE_TAKING)
+    if (line_end && rln_paste_in[src] == RLN_PASTE_FIRST)
     {
-        rln_paste_in[src] = RLN_PASTE_DROPPING;
-        rln_paste_dropped[src] = 0;
+        rln_paste_in[src] = RLN_PASTE_HELD;
+        rln_line_ends[src] = (uint8_t)key[0];
+        rln_paste_deadline = timer_mach_in_ms(RLN_PASTE_HOLD_MS);
+        rln_paste_decide(src);
+        return;
     }
     rln_dispatch(src, key, key_len, &csi);
     rln_publish_lastkey(item, len);
@@ -1926,12 +2003,8 @@ static void rln_place(void)
     bool plain = rln_plain;
     if (!plain && !vterm.vt52)
     {
-        rln_out_s(RLN_MODES);
-        if (rln_history)
-        {
-            rln_out_s("\33[?2004h");
-            rln_bracketing = true;
-        }
+        rln_out_s(RLN_MODES "\33[?2004h");
+        rln_bracketing = true;
     }
     /* The line has the columns the terminal gives the cursor: from where a
      * CR lands to where a row of text ends, which are the left and right
@@ -2138,13 +2211,17 @@ static void rln_entry(typed_entry_t e)
     rln_mouse_apply(up);
 }
 
-/* The entry of the keyboard's queue that is the line editor's is taken in
- * its turn: when it is at the queue's front, and no byte before it waits
- * in the RIA's RX latch, which takes the keyboard's next byte. True when
- * one was taken. From flash, as the keys' edits are, so the task in RAM
+/* A paste's line end that is held is looked at again first, and is Enter
+ * here when more of its paste has come. Then the entry of the keyboard's
+ * queue that is the line editor's is taken in its turn: when it is at the
+ * queue's front, and no byte before it waits in the RIA's RX latch, which
+ * takes the keyboard's next byte. True when either was taken. From flash, as the keys' edits are, so the task in RAM
  * does not take it in. */
 static bool HOST_IN_FLASH_FUNC rln_take_entry(void)
 {
+    for (com_source_t s = COM_SOURCE_KEYBOARD; s < RLN_POKE; s++)
+        if (rln_paste_in[s] >= RLN_PASTE_HELD && rln_paste_decide(s))
+            return true;
     typed_entry_t e;
     if (com_rx_peek(COM_SOURCE_KEYBOARD) >= 0 || !typed_take(&e))
         return false;
@@ -2286,8 +2363,8 @@ void rln_run(void)
 
 /* A read cut short by a stop or a break leaves the cursor on a new line
  * past everything typed, with its default shape and no highlight. A
- * program's own size goes back to the screen's, and a bracketed paste of
- * any source drops nothing more (rln_reset). */
+ * program's own size goes back to the screen's, and every source's paste
+ * is over, a line end it held dropped with it (rln_reset). */
 void rln_stop(void)
 {
     if (rln_callback)
@@ -2317,7 +2394,6 @@ void rln_reset(void)
     rln_out_sent = 0;
     rln_out_then = NULL;
     memset(rln_paste_in, 0, sizeof rln_paste_in);
-    memset(rln_paste_dropped, 0, sizeof rln_paste_dropped);
     rln_init();
 }
 
@@ -2372,7 +2448,6 @@ void HOST_IN_RAM_FUNC rln_forget_source(com_source_t src)
 {
     rln_line_ends[src] = 0;
     rln_paste_in[src] = RLN_PASTE_NONE;
-    rln_paste_dropped[src] = 0;
     tio_forget(src);
 }
 

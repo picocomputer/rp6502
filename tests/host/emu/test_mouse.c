@@ -105,11 +105,17 @@ static const char *typed(void)
     return out;
 }
 
-/* The primary, as a paste of it types it. */
+/* The primary, as a paste of it types it, without the brackets a line
+ * being read asks for. */
 static const char *primary(void)
 {
     clip_paste(CLIP_PRIMARY);
-    return typed();
+    char *text = (char *)typed();
+    const size_t n = strlen(text);
+    if (n < 12 || memcmp(text, "\33[200~", 6))
+        return text;
+    text[n - 6] = 0;
+    return text + 6;
 }
 
 /* The selection shows from row y0, column x0 up to row y1, column x1 of the

@@ -9,6 +9,7 @@
 #include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/hid/clip.h"
+#include "core/hid/paste_host.h"
 #include "core/hid/typed.h"
 #include "core/com/tio.h"
 #include "core/ria/regs.h"
@@ -349,8 +350,7 @@ UTEST(rln, a_preload_is_drawn_at_this_reads_prompt)
     ASSERT_TRUE(strstr(shown, "\r\33[3Cx") != NULL);
 }
 
-/* A read with history asks for bracketed paste too, and one without does
- * not. */
+/* A read asks for bracketed paste too, with history or without. */
 UTEST(rln, a_read_start_sends_the_modes_and_asks_nothing)
 {
     fresh();
@@ -365,7 +365,7 @@ UTEST(rln, a_read_start_sends_the_modes_and_asks_nothing)
     reading();
     tasks();
     manifold_set_tx_tap(NULL);
-    ASSERT_STREQ(shown, "\33[4l");
+    ASSERT_STREQ(shown, "\33[4l\33[?2004h");
 }
 
 /* A prompt that fills the row leaves the terminal in a pending wrap, so the
@@ -2155,7 +2155,7 @@ UTEST(rln, the_highlight_waits_for_the_echo)
 
 /* ----- Bracketed paste (step 28) ----- */
 
-/* A read with history asks for bracketed paste, and turns it off when it
+/* A read asks for bracketed paste, and turns it off when it
  * ends, after the line's newline, so a terminal sees the echo and its line
  * end unbroken, as a monitor command's output follows them (build.py). */
 UTEST(rln, a_history_read_brackets_its_pastes_while_it_reads)
@@ -2174,53 +2174,191 @@ UTEST(rln, a_history_read_brackets_its_pastes_while_it_reads)
     ASSERT_FALSE(vterm.bracketed_paste);
 }
 
-/* A bracketed paste is taken up to its first line end, and the rest of it
- * is dropped, the next read's included; without brackets it is typing. */
-UTEST(rln, a_bracketed_paste_takes_its_first_line)
+/* A paste is typing: each line end in it is Enter, and the next read goes
+ * on with the rest of it, bracketed or not. */
+UTEST(rln, a_paste_s_line_ends_are_enter)
 {
     editing();
     wire("\33[200~one\rtwo\rthree\33[201~four\r");
-    ASSERT_EQ(lines, 2);
-    ASSERT_STREQ(last, "four");
+    ASSERT_EQ(lines, 3);
+    ASSERT_STREQ(last, "threefour");
     wire("one\rtwo\r");
-    ASSERT_EQ(lines, 4);
+    ASSERT_EQ(lines, 5);
+    ASSERT_STREQ(last, "two");
+    wire("\33[200~a\r\r\33[201~");
+    ASSERT_EQ(lines, 7);
+    ASSERT_STREQ(last, "");
+}
+
+/* One bracketed paste is held: a single line with its line end and nothing
+ * after. The line end is dropped, so the line waits for Enter. */
+UTEST(rln, a_paste_of_one_line_waits_for_enter)
+{
+    editing();
+    wire("x\33[200~one\r\33[201~");
+    ASSERT_EQ(lines, 0);
+    wire("y\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "xoney");
+    wire("\33[200~\r\33[201~");
+    ASSERT_EQ(lines, 1);
+    wire("\33[200~two\33[201~\r");
+    ASSERT_EQ(lines, 2);
     ASSERT_STREQ(last, "two");
 }
 
-/* A paste whose closing bracket never comes is let go after 64 KiB. */
-UTEST(rln, a_missing_closing_bracket_is_bounded)
+/* A pair of line ends is one, held and dropped as one, either half
+ * first. */
+UTEST(rln, a_paste_of_one_line_drops_a_pair)
 {
     editing();
-    wire("\33[200~a\r");
+    wire("\33[200~one\r\n\33[201~");
+    ASSERT_EQ(lines, 0);
+    wire("\33[200~two\n\r\33[201~");
+    ASSERT_EQ(lines, 0);
+    wire("\r");
     ASSERT_EQ(lines, 1);
-    char chunk[128];
-    memset(chunk, 'x', sizeof chunk);
-    for (unsigned n = 0; n < 65535 / sizeof chunk; n++)
-    {
-        manifold_uart_push(chunk, sizeof chunk);
-        tasks();
-    }
-    type_n(65535 % sizeof chunk, 'x');
-    ASSERT_EQ(lines, 1);
-    wire("b\r");
-    ASSERT_EQ(lines, 2);
+    ASSERT_STREQ(last, "onetwo");
+    wire("\33[200~a\r\nb\r\n\33[201~");
+    ASSERT_EQ(lines, 3);
     ASSERT_STREQ(last, "b");
 }
 
-/* A stop ends a source's paste, and so does its terminal going away. */
-UTEST(rln, a_stop_ends_a_paste_being_dropped)
+/* The halves of a pair may come apart, with what follows them later
+ * still: the line end is held through both, and the half is taken once,
+ * so a line end after the pair is a line of its own. */
+UTEST(rln, a_held_line_end_takes_its_pair_s_other_half)
 {
     editing();
+    wire("\33[200~one\r");
+    wire("\n");
+    ASSERT_EQ(lines, 0);
+    wire("\33[20");
+    ASSERT_EQ(lines, 0);
+    wire("1~");
+    ASSERT_EQ(lines, 0);
+    wire("\33[200~two\n\r");
+    ASSERT_EQ(lines, 0);
+    quiet_ms(5100);
+    ASSERT_EQ(lines, 0);
+    wire("\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "onetwo");
     wire("\33[200~a\r");
+    wire("\n");
+    wire("\nb\r\33[201~");
+    ASSERT_EQ(lines, 4);
+    ASSERT_STREQ(last, "b");
+}
+
+/* A reader that takes its line and reads no other. */
+static void got_line_once(bool timeout, const char *buf)
+{
+    (void)timeout;
+    lines++;
+    strncpy(last, buf, sizeof last - 1);
+}
+
+/* The read a paste's first line ends turns bracketed paste off, and the
+ * rest of the paste goes on with no closing bracket, to a program that
+ * reads it as typing. */
+UTEST(rln, a_paste_s_rest_goes_on_with_no_bracket)
+{
+    fresh();
+    lines = 0;
+    rln_read_line(got_line_once, NULL, NULL);
+    tasks();
+    paste_start("go\nrest");
+    tasks();
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "go");
+    char out[16] = {0};
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, out, sizeof out - 1), (size_t)4);
+    ASSERT_STREQ(out, "rest");
+}
+
+/* A paste's first line end is held until its source shows what follows:
+ * the closing bracket drops it, and more text makes it Enter. Other keys
+ * are taken meanwhile. */
+UTEST(rln, a_paste_s_line_end_is_held_for_what_follows)
+{
+    editing();
+    wire("\33[200~one\r");
+    ASSERT_EQ(lines, 0);
+    typed_push("k", 1);
+    tasks();
+    wire("\33[20");
+    ASSERT_EQ(lines, 0);
+    wire("1~");
+    ASSERT_EQ(lines, 0);
+    wire("\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "onek");
+    wire("\33[200~two\r");
+    ASSERT_EQ(lines, 1);
+    wire("three\r\33[201~");
+    ASSERT_EQ(lines, 3);
+    ASSERT_STREQ(last, "three");
+}
+
+/* A source that sends nothing after the line end is waited for five
+ * seconds. Then the line end is dropped, so the line never enters itself,
+ * and what the source sends later is typing. A read that ends meanwhile
+ * drops it too. */
+UTEST(rln, a_held_line_end_is_dropped_in_time)
+{
+    editing();
+    wire("\33[200~one\r");
+    quiet_ms(4000);
+    ASSERT_EQ(lines, 0);
+    quiet_ms(1100);
+    ASSERT_EQ(lines, 0);
+    wire("x\r");
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "onex");
+    wire("\33[200~two\r");
+    typed_push("\r", 1);
+    tasks();
+    ASSERT_EQ(lines, 2);
+    ASSERT_STREQ(last, "two");
+    wire("y\r");
+    ASSERT_EQ(lines, 3);
+    ASSERT_STREQ(last, "y");
+}
+
+/* The same from the keyboard's queue, where a paste of the clipboard
+ * comes from: one line waits, and two lines are two reads. */
+UTEST(rln, a_pasted_clipboard_line_waits_for_enter)
+{
+    editing();
+    paste_start("dir\n");
+    tasks();
+    ASSERT_EQ(lines, 0);
+    typed_push("\r", 1);
+    tasks();
+    ASSERT_EQ(lines, 1);
+    ASSERT_STREQ(last, "dir");
+    paste_start("a\nb\n");
+    tasks();
+    ASSERT_EQ(lines, 3);
+    ASSERT_STREQ(last, "b");
+}
+
+/* A stop ends a source's paste, and so does its terminal going away: the
+ * line end that follows is Enter. */
+UTEST(rln, a_stop_ends_a_paste)
+{
+    editing();
+    wire("\33[200~a");
     rln_stop();
     reading();
-    wire("b\r");
+    wire("b\r\33[201~");
     ASSERT_EQ(lines, 1);
     ASSERT_STREQ(last, "b");
-    wire("\33[200~c\r");
+    wire("\33[200~c");
     rln_forget_source(COM_SOURCE_UART);
-    wire("d\r");
-    ASSERT_STREQ(last, "d");
+    wire("d\r\33[201~");
+    ASSERT_STREQ(last, "cd");
 }
 
 /* A load in the middle of a read with history keeps its asking, and the
