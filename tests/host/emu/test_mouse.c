@@ -1937,6 +1937,41 @@ UTEST(mouse, the_mouse_waits_for_room_in_a_full_queue)
     ASSERT_STREQ(line_got, "abXc def");
 }
 
+/* The wheel's keys go into the queue before the room for the rest of the
+ * change is judged. Here a notch of alternate scroll comes with the motion
+ * of a drag in the line, and its keys leave room for one entry where the
+ * drag needs two: the keys are pressed once, the drag waits whole, and it
+ * selects when the queue has room again. */
+UTEST(mouse, the_wheel_s_keys_count_against_the_mouse_s_room)
+{
+    start();
+    show("\33[?1007;1049h> ");
+    line_count = 0;
+    line_got[0] = 0;
+    rln_read_line(line_read, NULL, &line_kills);
+    loop();
+    typed_push("abc def", 7);
+    loop();
+    edge(4, 0, 0);
+    edge(4, 0, TABLET_FLAG_LEFT);
+    edge(7, 0, TABLET_FLAG_LEFT);
+    loop();
+    char fill[TYPED_QUEUE_SIZE - 16];
+    memset(fill, '\1', sizeof fill);
+    typed_push(fill, sizeof fill);
+    tablet_host_pointer(8 * 8, 7, TABLET_FLAG_LEFT, true);
+    tablet_host_wheel(1, 0);
+    vterm_mouse_task();
+    ASSERT_EQ(typed_free(), (size_t)1);
+    ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 1u);
+    loop();
+    ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 0u);
+    edge(8, 0, 0);
+    loop();
+    ASSERT_STREQ(primary(), "c de");
+    show("\33[?1049;1007l");
+}
+
 /* ---- reports (step 31) ---------------------------------------------------- */
 
 /* X10's events tell a press of a button, with no release and no motion,
