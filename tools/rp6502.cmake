@@ -709,8 +709,9 @@ endfunction()
   of its own, which ``rp6502.parse_args()`` or ``rp6502.test_args()`` of
   ``tools/rp6502.py`` read.
 
-  Each test runs through ``tools/rp6502_test.cmake``, which holds the lock
-  of ``test/<name>/`` while the test runs and removes ``save/`` before it.
+  Each test runs through ``cmake -P tools/rp6502.cmake -- test``, which
+  holds the lock of ``test/<name>/`` while the test runs and removes
+  ``save/`` before it.
   A second run of the same test waits for the first, and a run of one test
   leaves the files of every other test. The output and the exit code of the
   test pass through. With CMake before 3.29, a test that fails exits with
@@ -749,8 +750,7 @@ function(rp6502_test)
     file(MAKE_DIRECTORY "${dir}")
     set(emu "${dir}/${RP6502_EMU_NAME}")
     # The test runs under the lock of its folder, with save/ removed first.
-    set(run "${CMAKE_COMMAND}" -D "RP6502_LOCK=${dir}" -D "RP6502_SAVE_DIR=${dir}/save"
-        -P "${RP6502_TOOLS_DIR}/rp6502_test.cmake" --)
+    set(run "${CMAKE_COMMAND}" -P "${RP6502_TOOLS_DIR}/rp6502.cmake" -- test "${dir}")
     if (path MATCHES "\\.py$")
         add_test(NAME ${name}
             COMMAND ${run} "${Python3_EXECUTABLE}" "${path}" --save-dir "${dir}/save" ${args}
@@ -1269,9 +1269,7 @@ function(_rp6502_finish)
         # ctest does not build the ROMs. The build runs under the lock of
         # test/, so two runs of ctest do not build at once.
         add_test(NAME rp6502.build COMMAND "${CMAKE_COMMAND}"
-            -D "RP6502_LOCK=${CMAKE_BINARY_DIR}/test"
-            -P "${RP6502_TOOLS_DIR}/rp6502_test.cmake" --
-            "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}")
+            -P "${RP6502_TOOLS_DIR}/rp6502.cmake" -- build "${CMAKE_BINARY_DIR}")
         set_tests_properties(rp6502.build PROPERTIES FIXTURES_SETUP rp6502.build)
     endif()
     # A new emulator, web player or BASIC in tools/ runs configure again at
@@ -1703,7 +1701,70 @@ function(_rp6502_hook_cmakelists)
     endif()
 endfunction()
 
+# The words after -- of cmake -P, which choose what the script does: none
+# updates the tools.
+function(_rp6502_script_args out)
+    set(words)
+    set(found FALSE)
+    math(EXPR last "${CMAKE_ARGC} - 1")
+    foreach(i RANGE ${last})
+        if(found)
+            list(APPEND words "${CMAKE_ARGV${i}}")
+        elseif(CMAKE_ARGV${i} STREQUAL "--")
+            set(found TRUE)
+        endif()
+    endforeach()
+    set(${out} "${words}" PARENT_SCOPE)
+endfunction()
+
+# Runs <command> while this process holds the lock of <folder>, so a second
+# run of the same test or build waits for the first. The output of the
+# command passes through, and its exit code is the script's, or 1 for a
+# failure with CMake before 3.29, which cannot choose its exit code.
+function(_rp6502_locked folder)
+    file(LOCK "${folder}" DIRECTORY GUARD PROCESS RESULT_VARIABLE busy TIMEOUT 0)
+    if(NOT busy STREQUAL "0")
+        message(STATUS "Waiting for another run to finish with ${folder}")
+        file(LOCK "${folder}" DIRECTORY GUARD PROCESS)
+    endif()
+    if(RP6502_EMPTY)
+        file(REMOVE_RECURSE "${RP6502_EMPTY}")
+    endif()
+    execute_process(COMMAND ${ARGN} RESULT_VARIABLE code)
+    if(code STREQUAL "0")
+        return()
+    endif()
+    # The text of a signal, or of a command that did not start.
+    if(NOT code MATCHES "^[0-9]+$")
+        message(FATAL_ERROR "${code}")
+    endif()
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.29)
+        cmake_language(EXIT ${code})
+    endif()
+    message(FATAL_ERROR "Exit code ${code}")
+endfunction()
+
 # This code runs at include, after every function above is defined.
+
+# cmake -P with words after -- runs a command of rp6502_test(), and never
+# updates the tools:
+#   test <folder> <command>...  a test, with <folder>/save/ emptied first
+#   build <folder>              cmake --build <folder>, one at a time
+if(CMAKE_SCRIPT_MODE_FILE)
+    _rp6502_script_args(rp6502_words)
+    if(rp6502_words)
+        list(POP_FRONT rp6502_words rp6502_verb rp6502_folder)
+        if(rp6502_verb STREQUAL "test" AND rp6502_words)
+            set(RP6502_EMPTY "${rp6502_folder}/save")
+            _rp6502_locked("${rp6502_folder}" ${rp6502_words})
+        elseif(rp6502_verb STREQUAL "build" AND NOT rp6502_words)
+            _rp6502_locked("${rp6502_folder}/test" "${CMAKE_COMMAND}" --build "${rp6502_folder}")
+        else()
+            message(FATAL_ERROR "cmake -P rp6502.cmake [-- test <folder> <command>... | -- build <folder>]")
+        endif()
+        return()
+    endif()
+endif()
 
 # cmake -P updates the tools and includes the new file when it changed.
 if(CMAKE_SCRIPT_MODE_FILE AND NOT RP6502_TOOLS_RELOADED)
