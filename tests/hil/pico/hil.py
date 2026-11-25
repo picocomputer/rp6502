@@ -613,6 +613,33 @@ def test_update(r):
         raise Fail(f"a second login got in: {second}")
 
 
+def test_wide(r):
+    """The display at 1280x720: a ROM puts the terminal on the 640x360
+    canvas, which a 16:9 display (SET VGA 1) shows at that size, with a line
+    on every row, and the capture reads each of them. Needs --video and
+    --elf or --vga-elf."""
+    if not r.args.video:
+        raise Fail("needs --video")
+    if not r.probe and not r.vga:
+        raise Fail("needs --elf or --vga-elf")
+    b = r.board
+    b.run_in_ram(r.rom("hil-wide"))
+    try:
+        # The display takes a while to follow a change of its timing.
+        time.sleep(4)
+        with contextlib.ExitStack() as stack:
+            eyes = stack.enter_context(r.vga or r.probe)
+            s = screen.Camera(r.args.video, eyes).look()
+    finally:
+        b.stop()
+    print("the capture has the picture {:+g} pixels right and {:+g} down of true, "
+          "and {} rows".format(*s.offset, len(s.text)), flush=True)
+    bad = [f"row {y + 1} reads {s.line(y)!r}" for y in range(roms.WIDE_ROWS)
+           if s.line(y) != roms.wide_line(y + 1)]
+    if len(s.text) != roms.WIDE_ROWS or bad:
+        raise Fail("; ".join(bad[:3]) or f"{len(s.text)} rows")
+
+
 TESTS = {name[5:]: fn for name, fn in globals().items() if name.startswith("test_")}
 
 

@@ -13,14 +13,21 @@ import build
 # The console's cells: 80 columns of the 8x16 font.
 COLS, CELL_W, CELL_H = 80, 8, 16
 
-# The display types read, DISPLAY of the VGA's control channel: the
-# display's pixels, and how many of them a pixel of the console canvas
-# takes each way.
-DISPLAYS = {0: (640, 480, 1), 2: (1280, 1024, 2)}
+# What is read, by the display type and the canvas, DISPLAY and CANVAS of
+# the VGA's control channel: the display's pixels, and how many of them a
+# pixel of the canvas takes each way. These are the ones captured on a rig:
+# the console canvas on each display type, and the 640x360 canvas on a 16:9
+# display, which shows it at 1280x720.
+CANVAS_CONSOLE, CANVAS_640X360 = 0, 4
+VIEWS = {(0, CANVAS_CONSOLE): (640, 480, 1),
+         (1, CANVAS_CONSOLE): (640, 480, 1),
+         (2, CANVAS_CONSOLE): (1280, 1024, 2),
+         (1, CANVAS_640X360): (1280, 720, 2)}
 
 # The display type as a chip keeps it: the VGA's own, or on the RIA the one
-# it last sent the VGA.
+# it last sent the VGA. The canvas the same way.
 DISPLAY_SYMBOLS = ("vga_display_selected", "vga_display_sent")
+CANVAS_SYMBOLS = ("vga_canvas_selected", "vga_canvas_current")
 
 # A cell that is no glyph: one under the pointer or the cursor.
 UNREADABLE = "\ufffd"
@@ -96,28 +103,34 @@ class Font:
 def console_view(probe):
     """What the chip on `probe` shows the console as, from its RAM: the
     display's width and height, the display pixels a canvas pixel takes, the
-    console's rows, and its code page. The probe is on the RIA or the VGA,
+    console's rows, its code page, and the display row its first row is on. The probe is on the RIA or the VGA,
     with the ELF of its firmware. Raises for what read() does not read: a
-    display type not in DISPLAYS, and any canvas but the console's, which a
-    program selects."""
-    name = next((n for n in DISPLAY_SYMBOLS if n in probe.sym), None)
-    if not name:
+    display type and canvas not in VIEWS, and a terminal that is not 80
+    columns wide and all on the canvas."""
+    names = [next((n for n in symbols if n in probe.sym), None)
+             for symbols in (DISPLAY_SYMBOLS, CANVAS_SYMBOLS)]
+    if None in names:
         raise RuntimeError("the screen is read at the size the board says, which "
                            "needs the ELF of the firmware on a probe: --elf or --vga-elf")
-    display = probe.read(probe.sym[name], 8, 1)[0]
-    if display not in DISPLAYS:
-        raise RuntimeError(f"display type {display} (SET VGA {display}) has not been "
-                           "captured on a rig, so the screen is not read on it")
-    width, height, scale = DISPLAYS[display]
+    display, canvas = (probe.read(probe.sym[n], 8, 1)[0] for n in names)
+    if (display, canvas) not in VIEWS:
+        raise RuntimeError(f"canvas {canvas} on display type {display} (SET VGA {display}) "
+                           "has not been captured on a rig, so the screen is not read "
+                           "on it")
+    width, height, scale = VIEWS[display, canvas]
     # vterm_placement_t in src/core/term/vterm.h.
     begin, begin_high, cols, rows, row_px, console, placed = probe.read(
         probe.sym["vterm_placement"], 8, 7)
-    if (not console or not placed or begin or begin_high or cols != COLS
-            or row_px != CELL_H or rows * CELL_H * scale != height):
-        raise RuntimeError("the console canvas is not placed as the screen is read: a "
-                           "program has selected a canvas, or the ELF is not the "
-                           "firmware on the chip")
-    return width, height, scale, rows, probe.read(probe.sym["vterm_code_page"], 16, 1)[0]
+    begin |= begin_high << 8
+    if (not placed or cols != COLS or row_px != CELL_H or not rows
+            or (begin + rows * CELL_H) * scale > height):
+        raise RuntimeError("the terminal is not placed as the screen is read, 80 columns "
+                           "on the canvas: a program has placed it otherwise, or the ELF "
+                           f"is not the firmware on the chip. It has {cols} columns and "
+                           f"{rows} rows of {row_px} scanlines from scanline {begin}, "
+                           f"placed {placed}")
+    return (width, height, scale, rows, probe.read(probe.sym["vterm_code_page"], 16, 1)[0],
+            begin * scale)
 
 
 def sizes(device):
@@ -188,12 +201,17 @@ def cells_at(luma, rows, scale, zoom, ox, oy):
     pixel is the brighter of the cell's two levels, or in a cell of one
     level where that level is bright; and packed the same way, which pixels
     the capture has. It has none for a pixel off its edge, as the last
-    column is when the picture sits to the right."""
+    column is when the picture sits to the right, nor for the display's
+    outermost pixels in a capture that is scaled up."""
     import numpy as np
     height, width = luma.shape
     ys = np.arange(rows * CELL_H * scale) * zoom + oy
     xs = np.arange(COLS * CELL_W * scale) * zoom + ox
-    known = np.logical_and.outer((ys >= 0) & (ys < height), (xs >= 0) & (xs < width))
+    # A device that scales the picture up does not scale its outermost
+    # pixels as it does the rest, so those are not read either.
+    edge = zoom if zoom > 1 else 0
+    known = np.logical_and.outer((ys >= edge) & (ys < height - edge),
+                                 (xs >= edge) & (xs < width - edge))
     pixels = np.where(known, luma[np.ix_(ys.clip(0, height - 1), xs.clip(0, width - 1))],
                       np.nan)
 
@@ -216,7 +234,7 @@ def read(luma, view, font):
     one right and down is tried, and the first where the most cells are
     glyphs is read. Raises when none is good, which is the capture's fault
     and not the console's."""
-    width, height, scale, rows = view[:4]
+    width, height, scale, rows, _, top = view
     zoom = luma.shape[1] // width
     if luma.shape != (zoom * height, zoom * width):
         raise RuntimeError(f"a capture of {luma.shape[1]}x{luma.shape[0]} is not a "
@@ -224,7 +242,7 @@ def read(luma, view, font):
     best = None
     for oy in range(-zoom, zoom + 1):
         for ox in range(-zoom, zoom + 1):
-            inked, pixels, known = cells_at(luma, rows, scale, zoom, ox, oy)
+            inked, pixels, known = cells_at(luma, rows, scale, zoom, ox, oy + top * zoom)
             found = [[font.match(pixels[y, x], known[y, x]) for x in range(COLS)]
                      for y in range(rows)]
             glyphs = sum(bool(found[y][x]) for y, x in zip(*inked.nonzero()))

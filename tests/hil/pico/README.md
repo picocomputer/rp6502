@@ -177,18 +177,19 @@ The reader holds the capture to three rules, and raises when one is broken.
 - **The board says what it is showing.** The size is never taken from the
   capture. The display type, where the console is placed, and the code page
   are read from the RAM of a chip through its probe: the VGA's with
-  `--vga-elf`, or else the RIA's copy with `--elf`. `SET VGA 0` is 640x480
-  with 30 rows, and `SET VGA 2` is 1280x1024 with 32 rows, each pixel of
-  the console two by two. `SET VGA 1` is refused, because nothing has
-  captured a 16:9 display yet. The VGA draws the console there with the
-  timing of `SET VGA 0`, so adding it to `DISPLAYS` in `screen.py` should
-  be all it takes. A program that selects a canvas of its own is refused
-  too: only the console canvas is read.
+  `--vga-elf`, or else the RIA's copy with `--elf`. The console canvas is
+  640x480 with 30 rows on `SET VGA 0` and `SET VGA 1`, and 1280x1024 with
+  32 rows on `SET VGA 2`, each pixel of the console two by two. The 640x360
+  canvas with the terminal on it, which a program selects, is 1280x720 on
+  `SET VGA 1`, with 22 rows. Any other canvas and display type is refused
+  until it has been captured on a rig and added to `VIEWS` in `screen.py`.
 - **The capture is the display's size, or a whole multiple of it.** The
   reader asks the device for its YUYV sizes, through ffmpeg, and takes the
   display's own, or the smallest whole multiple, such as 1280x960 for
   640x480. A device with neither is refused, since any other size mixes
-  the pixels.
+  the pixels. In a capture that is scaled up, the outermost pixels of the
+  display are not read, because a device does not scale its edges as it
+  does the rest.
 - **The picture is within one pixel of true.** A converter can put the
   picture a pixel of the display to the left or to the right of where it
   belongs, and the reader allows the same up and down. It tries every place
@@ -370,6 +371,22 @@ other console works too.
 
 The test fails when no keyboard mounts, the echo is not `a`, or a message
 is not acknowledged. The times have no reference yet.
+
+## wide
+
+The display at 1280x720. `hil-wide` selects the 640x360 canvas, puts the
+terminal over it, and writes a line on each of its 22 rows. On a 16:9
+display, `SET VGA 1`, the VGA shows that canvas at 1280x720, and the test
+reads every row off the capture. It needs `--video` and `--elf` or
+`--vga-elf`, and fails on the other display types, which the reader has not
+seen that canvas on.
+
+    python3 tests/hil/pico/hil.py -d rtt --elf build-rtt/ria-w/rp6502-ria-w.elf \
+        --video /dev/video0 wide
+
+A converter between the VGA and the capture device can take several seconds
+to follow a change of the display's timing, and now and then does not
+follow it at all until the display type is set again.
 
 ## editkeys, pasteline, pastelines
 
