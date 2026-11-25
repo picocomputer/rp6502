@@ -237,6 +237,29 @@ def flash(elf, serial=None):
         raise RuntimeError("flash failed:\n" + out[-2000:])
 
 
+class Turns:
+    """A lock that is taken in the order it was asked for. A thread that
+    polls with no pause, as the console on a probe does, takes a plain lock
+    again before a waiting thread wakes, and can keep it waiting for half a
+    second; here each waits for one command at most."""
+
+    def __init__(self):
+        self.ready = threading.Condition()
+        self.asked = 0
+        self.serving = 0
+
+    def __enter__(self):
+        with self.ready:
+            turn = self.asked
+            self.asked += 1
+            self.ready.wait_for(lambda: self.serving == turn)
+
+    def __exit__(self, *_):
+        with self.ready:
+            self.serving += 1
+            self.ready.notify_all()
+
+
 class OpenOCD:
     """OpenOCD on a probe, holding it until close. It reaches the RP2350
     through the memory access ports of its cores alone (memap.cfg), so it
@@ -253,7 +276,7 @@ class OpenOCD:
         self.proc = subprocess.Popen(openocd_argv(serial, PICO / "memap.cfg", commands),
                                      stdout=self.log, stderr=subprocess.STDOUT)
         self.sock = None
-        self.lock = threading.Lock()
+        self.lock = Turns()
         # A script that dies must not leave OpenOCD holding the probe.
         atexit.register(self.close)
         end = time.monotonic() + 10

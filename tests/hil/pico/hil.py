@@ -7,6 +7,7 @@ console and a debug probe. README.md describes the rig and each test."""
 
 import argparse
 import contextlib
+import random
 import re
 import socket
 import sys
@@ -17,6 +18,7 @@ from pathlib import Path
 
 import rig
 import roms
+import screen
 
 import build
 
@@ -26,6 +28,15 @@ UPDATE_NAME = "hil-update.uf2"
 HID_KEY_A = 0x04
 HID_KEY_BACKSPACE = 0x2A
 HID_ROUND_TRIPS = 100
+
+# The keys of the console tests, by HID usage, and the lines Desk.lay_out
+# types: the tallest console's 32 rows and two to spare.
+HID_KEY_C, HID_KEY_V, HID_KEY_X = 0x06, 0x19, 0x1B
+# Under the quarter second in which the RIA counts a click into a run
+# (VTERM_MOUSE_CLICK_MS).
+CLICK_S = 0.2
+HID_KEY_LEFT = 0x50
+LAY_OUT_LINES = 34
 
 
 class Fail(Exception):
@@ -85,6 +96,117 @@ class Watch:
             self.probe.__exit__()
             if self.error:
                 raise self.error
+
+
+def letters(count):
+    """Letter keys, each different, picked afresh."""
+    return random.sample(range(HID_KEY_A, HID_KEY_A + 26), count)
+
+
+class Desk:
+    """What someone at the machine has, for a test to use in their place: a
+    keyboard and a mouse, which are on the debug probe of the RIA
+    (build.RttHid), and the display, which --video captures and screen.py
+    reads at the size the board says it shows, by --vga-elf or else --elf.
+    Leaving the block unmounts the keyboard and the mouse, so no key or
+    button stays down."""
+
+    def __init__(self, r):
+        if not r.args.video:
+            raise Fail("needs --video")
+        if not r.probe and not r.vga:
+            raise Fail("needs --elf or --vga-elf")
+        self.r = r
+        self.offset = None
+
+    def __enter__(self):
+        r = self.r
+        with contextlib.ExitStack() as stack:
+            probe = stack.enter_context(r.probe or build.Probe(None, r.args.probe, r.board))
+            eyes = stack.enter_context(r.vga) if r.vga else probe
+            self.camera = screen.Camera(r.args.video, eyes)
+            hid = stack.enter_context(build.RttHid(probe))
+            self.keyboard, self.mouse = hid.keyboard(), hid.mouse()
+            self.stack = stack.pop_all()
+        return self
+
+    def __exit__(self, *_):
+        self.stack.close()
+
+    def tap(self, *keys):
+        """Presses the keys together and lets them go, at a typist's pace."""
+        self.keyboard.tap(*keys, hold=0.02)
+        time.sleep(0.03)
+
+    def cancel(self):
+        """Ctrl-C, which ends the line at the prompt without entering it."""
+        self.tap(self.keyboard.LEFT_CTRL, HID_KEY_C)
+
+    def point(self, x, y):
+        """Puts the pointer on a pixel of the console's canvas. The mouse
+        only moves by counts, two to a pixel, so it goes to the top left
+        corner first, from wherever it is."""
+        self.mouse.move(-4000, -4000)
+        time.sleep(0.1)
+        self.mouse.move(2 * x, 2 * y)
+        time.sleep(0.1)
+
+    def click(self, times):
+        """Clicks the left button, three times for a triple click. The RIA
+        counts a press into the run when it comes within a quarter second
+        of the last release, and a message to the RIA can take longer than
+        that. A run such a message may have broken is made again from its
+        first click, so a slow bench is no fault of the firmware's."""
+        for _ in range(5):
+            up = None
+            for _ in range(times):
+                self.mouse.buttons(self.mouse.LEFT)
+                late = up is not None and time.monotonic() - up > CLICK_S
+                time.sleep(0.03)
+                up = time.monotonic()
+                self.mouse.buttons(0)
+                if late:
+                    break
+            else:
+                return
+            time.sleep(0.3)
+        raise Fail("the messages to the RIA are too slow for a run of clicks")
+
+    def look(self, wait):
+        """The screen as the capture has it `wait` seconds from now, and
+        where the picture is in the capture when that is news."""
+        time.sleep(wait)
+        s = self.camera.look()
+        if s.offset != self.offset:
+            self.offset = s.offset
+            print("the capture has the picture {:+g} pixels right and {:+g} down "
+                  "of true".format(*s.offset), flush=True)
+        return s
+
+    def lay_out(self):
+        """Fills the screen with one line on every row and the prompt on the
+        last, and returns the line and the prompt's row. Each line is two
+        letter keys and Ctrl-C, so nothing is entered. The letters are
+        picked afresh each time, so what a test pastes can only be what it
+        copied, never what an earlier run left on the clipboard. A row copied from this
+        screen starts with the prompt's "]", which no command, ROM or
+        address does, so a paste of it can only run an unknown command. The
+        pointer waits at the right, off the lines."""
+        self.point(600, 240)
+        self.cancel()
+        keys = letters(2)
+        for _ in range(LAY_OUT_LINES):
+            for key in keys:
+                self.tap(key)
+            self.cancel()
+        s = self.look(0.5)
+        line, last = s.line(0), len(s.text) - 1
+        if not re.fullmatch(r"\]..\^C", line):
+            raise Fail(f"the top row reads {line!r}, not a line the test typed")
+        for y in range(1, last + 1):
+            if s.line(y) != (line if y < last else "]"):
+                raise Fail(f"row {y} reads {s.line(y)!r} under rows of {line!r}")
+        return line, last
 
 
 def check_load(rows):
@@ -298,6 +420,113 @@ def test_hid(r):
               flush=True)
 
 
+def test_editkeys(r):
+    """Keys of the line editor keep their order: at the monitor three
+    letters are typed and the last two selected, then cut, a fourth letter
+    and paste come with no wait between them, and the display has the first,
+    the fourth, then the two that were cut. The letters are picked afresh,
+    so the paste can only be this run's cut. Needs --video, --elf or
+    --vga-elf, and a RIA built with RP6502_RTT_HID."""
+    r.board.stop()
+    with Desk(r) as desk:
+        k = desk.keyboard
+        _, last = desk.lay_out()
+        try:
+            a, b, c, d = letters(4)
+            for key in (a, b, c):
+                desk.tap(key)
+            desk.tap(k.LEFT_SHIFT, HID_KEY_LEFT)
+            desk.tap(k.LEFT_SHIFT, HID_KEY_LEFT)
+            # Nothing waits between these three.
+            k.tap(k.LEFT_CTRL, k.LEFT_SHIFT, HID_KEY_X)
+            k.tap(d)
+            k.tap(k.LEFT_CTRL, k.LEFT_SHIFT, HID_KEY_V)
+            line = desk.look(0.6).line(last)
+        finally:
+            # Enter would run the line, which may be a hex address to the
+            # monitor.
+            desk.cancel()
+    want = "]" + "".join(chr(ord("a") + key - HID_KEY_A) for key in (a, d, b, c))
+    print(f"the prompt reads {line!r}", flush=True)
+    # Caps Lock is the machine's, and its own keyboard may have it on.
+    if line.lower() != want:
+        raise Fail(f"the prompt reads {line!r}, and a US layout leaves {want!r}")
+
+
+def test_pasteline(r):
+    """A paste of one line waits for Enter: a triple click selects the top
+    line of the screen, which the display shows highlighted, and copied and
+    pasted it is at the prompt, not entered. Needs what editkeys needs."""
+    r.board.stop()
+    with Desk(r) as desk:
+        k = desk.keyboard
+        line, last = desk.lay_out()
+        desk.point(3, 3)
+        desk.click(3)
+        s = desk.look(0.3)
+        # The pointer is on the first cells of the line, which read as nothing.
+        top = s.text[0]
+        plain = sum(not lit and c != screen.UNREADABLE for c, lit in zip(top, s.reverse[0]))
+        if plain or screen.UNREADABLE in top[4:]:
+            raise Fail(f"the top line is not highlighted: {plain} of its cells are "
+                       f"plain and {top.count(screen.UNREADABLE)} cannot be read")
+        if any(any(row) for row in s.reverse[1:last]):
+            raise Fail("more than the top line is highlighted")
+        print("the top line is highlighted", flush=True)
+        try:
+            desk.tap(k.LEFT_CTRL, k.LEFT_SHIFT, HID_KEY_C)
+            desk.tap(k.LEFT_CTRL, k.LEFT_SHIFT, HID_KEY_V)
+            prompt = desk.look(0.8).line(last)
+        finally:
+            desk.cancel()
+    print(f"the prompt reads {prompt!r}", flush=True)
+    # A line that was entered has scrolled up, and left a bare prompt here.
+    if prompt != "]" + line:
+        raise Fail(f"the prompt reads {prompt!r}, and the paste of {line!r} "
+                   f"leaves {']' + line!r} there")
+
+
+def test_pastelines(r):
+    """A paste of several lines enters all but the last: a drag from the top
+    line of the screen into the second selects a line and part of one, and
+    copied and pasted the first is entered, which the monitor answers, and
+    the part waits at the next prompt. Needs what editkeys needs."""
+    r.board.stop()
+    with Desk(r) as desk:
+        k = desk.keyboard
+        line, last = desk.lay_out()
+        desk.point(3, 3)
+        desk.mouse.buttons(desk.mouse.LEFT)
+        time.sleep(0.05)
+        desk.mouse.move(60, 50)
+        time.sleep(0.1)
+        desk.mouse.move()
+        time.sleep(0.05)
+        desk.mouse.buttons(0)
+        # The pointer goes off the text, so the cell the drag ended on reads.
+        desk.mouse.move(800, 300)
+        s = desk.look(0.3)
+        part = "".join(c for c, lit in zip(s.text[1], s.reverse[1]) if lit)
+        print(f"the drag highlights the top line and {part!r} of the second", flush=True)
+        if not all(s.reverse[0][:len(line)]):
+            raise Fail("the top line is not highlighted")
+        if not part or part == line or not line.startswith(part):
+            raise Fail(f"the second line's highlight is {part!r}, not a part of {line!r}")
+        try:
+            desk.tap(k.LEFT_CTRL, k.LEFT_SHIFT, HID_KEY_C)
+            desk.tap(k.LEFT_CTRL, k.LEFT_SHIFT, HID_KEY_V)
+            s = desk.look(1.0)
+        finally:
+            desk.cancel()
+    got = [s.line(y) for y in range(last - 2, last + 1)]
+    print(f"the last rows read {got}", flush=True)
+    # The entered line is unknown to the monitor, whose answer is in the
+    # words of the locale after a "?".
+    if got[0] != "]" + line or not got[1].startswith("?") or got[2] != "]" + part:
+        raise Fail(f"the last rows read {got}, and the paste leaves {']' + line!r}, "
+                   f"the monitor's answer, and {']' + part!r}")
+
+
 def test_audio(r):
     """The audio load of every sound engine at once with the bus busy, read
     through the probe. Needs --elf."""
@@ -391,7 +620,7 @@ def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="tests:\n" + "\n".join(
-            f"  {name:7} " + " ".join(fn.__doc__.split()) for name, fn in TESTS.items()))
+            f"  {name:10} " + " ".join(fn.__doc__.split()) for name, fn in TESTS.items()))
     ap.add_argument("tests", nargs="*", metavar="test", help="the tests to run, in order")
     ap.add_argument("-c", "--config", metavar="file",
                     help="the settings file of rp6502.py, for the device and the key")
@@ -420,7 +649,9 @@ def main():
     ap.add_argument("--emit", metavar="dir", help="write the ROMs of the tests to dir")
     ap.add_argument("--video", metavar="dev",
                     help="a capture device on the VGA output, such as /dev/video0;"
-                         " the term test then fails on a late scanline")
+                         " term and termload then fail on a late scanline, and"
+                         " editkeys, pasteline and pastelines read the console"
+                         " from it")
     a = ap.parse_args()
     unknown = [t for t in a.tests if t not in TESTS]
     if unknown:

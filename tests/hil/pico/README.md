@@ -38,6 +38,8 @@ on, so a developer runs them on a workstation with the rig attached.
   in `~/.pico-sdk/openocd/`, where the Pico extension of VS Code installs
   it, or on the PATH. For its reads and writes, a probe uses the memory
   access ports alone (`src/host/pico/memap.cfg`), so the cores never halt.
+- For `--video`, a capture device on the VGA output, such as a UVC HDMI
+  capture card behind a VGA-to-HDMI converter, with ffmpeg and NumPy.
 
 ## The console on a debug probe
 
@@ -142,6 +144,76 @@ not count them.
 
 On a Release RIA-W the option costs about 0.6 KB of RAM, 536 bytes of it
 for the message and the seats, and about 0.2 KB of flash.
+
+## The console on a capture device
+
+With `--video`, a test reads the console off the display: the character in
+each cell, and whether the cell is drawn reversed, as reverse video and the
+highlight of a selection are. With the keyboard and the mouse of a debug
+probe, a test then works the console as a person does and sees what that
+person sees.
+
+`screen.py` is the reader. Inside the `with` of a probe that has the ELF of
+its chip:
+
+    camera = screen.Camera("/dev/video0", probe)
+    s = camera.look()
+    s.text[0]         # the top row, a character for each of its 80 cells
+    s.line(0)         # the same without the blanks that end it
+    s.reverse[0][5]   # whether the cell at column 5 is drawn reversed
+    s.offset          # where the picture is in the capture, such as (1.0, 0.0)
+
+A character is its code in the console's code page, as `chr()` has it. A
+cell that is no glyph reads as `screen.UNREADABLE`: one under the pointer,
+or under the cursor while it is lit. `line()` leaves out the cursor's cell
+after the text. Italics, underlines and the DEC character sets are not read. The screen is
+read by brightness alone, so text or a background much dimmer than the
+brightest thing on the screen, such as blue or red beside white, reads as a
+blank. A screen with no text on it is not read, because there is no glyph to
+find the picture's place by, and the error says so.
+
+The reader holds the capture to three rules, and raises when one is broken.
+
+- **The board says what it is showing.** The size is never taken from the
+  capture. The display type, where the console is placed, and the code page
+  are read from the RAM of a chip through its probe: the VGA's with
+  `--vga-elf`, or else the RIA's copy with `--elf`. `SET VGA 0` is 640x480
+  with 30 rows, and `SET VGA 2` is 1280x1024 with 32 rows, each pixel of
+  the console two by two. `SET VGA 1` is refused, because nothing has
+  captured a 16:9 display yet. The VGA draws the console there with the
+  timing of `SET VGA 0`, so adding it to `DISPLAYS` in `screen.py` should
+  be all it takes. A program that selects a canvas of its own is refused
+  too: only the console canvas is read.
+- **The capture is the display's size, or a whole multiple of it.** The
+  reader asks the device for its YUYV sizes, through ffmpeg, and takes the
+  display's own, or the smallest whole multiple, such as 1280x960 for
+  640x480. A device with neither is refused, since any other size mixes
+  the pixels.
+- **The picture is within one pixel of true.** A converter can put the
+  picture a pixel of the display to the left or to the right of where it
+  belongs, and the reader allows the same up and down. It tries every place
+  from one pixel one way to one pixel the other, in steps of a pixel of the
+  capture, and reads the first place where the most cells are glyphs.
+  `offset` is that place, in pixels of the display right and down of true.
+  A column or a row the shift pushed off the capture is lost, and its cells
+  are read from the pixels that are left. The pointer and the cursor cover
+  a few cells. When more than 16 cells with ink, `COVERED_MAX`, are no
+  glyph at the best place, the picture is further off or is not sharp, and
+  the error says the fault is in the capture.
+
+The glyphs are the firmware's: `src/core/term/font.py` builds them from
+`src/core/term/font.c` each time, for the code page the board has. A cell
+is a glyph only when every pixel of it is that glyph's, either way round,
+and the way round is whether it is reversed, so a bright blank is a
+reversed space. Only the luma is read, which YUYV has for every pixel. A
+stream starts with black frames, which are skipped, and the mean of 8
+frames is read.
+
+Reference: 2026-11-24, a UVC HDMI capture card behind a VGA-to-HDMI
+converter. `SET VGA 2` captured at 1280x1024 has the picture one pixel to
+the right, an offset of (1.0, 0.0). `SET VGA 0` has no 640x480 on that
+device and is captured at 1280x960, doubled and smoothed by the device,
+with an offset of (1.0, 0.5).
 
 ## tput
 
@@ -298,6 +370,49 @@ other console works too.
 
 The test fails when no keyboard mounts, the echo is not `a`, or a message
 is not acknowledged. The times have no reference yet.
+
+## editkeys, pasteline, pastelines
+
+The tests of the line editor on the machine itself, to run after any change
+to its keys, the clipboard, or the console's mouse. A keyboard and a mouse
+on the RIA's debug probe do what a person would, and `--video` shows what
+that person would see. They need a RIA built with `RP6502_RTT_HID`, a probe
+on it, `--video`, and `--elf` or `--vga-elf` for the size of the display.
+
+    python3 tests/hil/pico/hil.py -d rtt:SERIAL --probe SERIAL \
+        --elf build-rtt/ria-w/rp6502-ria-w.elf --video /dev/video0 \
+        editkeys pasteline pastelines
+
+Each test first fills the screen: 34 times it types two letter keys and
+Ctrl-C, which ends a line without entering it, so every row reads the same,
+such as `]zq^C`, and the prompt is on the last row. The letters are picked
+afresh on every run, so what a test pastes can only be what that run copied
+or cut, never what an earlier run left on the clipboard. The display must show
+exactly that before the test goes on. A row copied from that screen starts
+with the prompt's `]`, which no command, ROM, or address starts with, so
+the only thing a paste can run is an unknown command. Each test ends with
+Ctrl-C at the prompt, and leaving a test unmounts the keyboard and the
+mouse, which lets go of anything held. Each prints where it found the
+picture in the capture.
+
+- `editkeys`: types three letters, selects the last two with Shift-Left
+  twice, and then sends Ctrl-Shift-X, a fourth letter, and Ctrl-Shift-V
+  with no wait between them. The prompt must read the first letter, the
+  fourth, and then the two that were cut: the cut, the key, and the paste
+  took effect in order, and the paste was what the cut took. The keys are HID usages, so
+  the test expects a US layout.
+- `pasteline`: triple-clicks the top line of the screen. The display must
+  show that whole row highlighted, but for the cells under the pointer, and
+  no other. After Ctrl-Shift-C and Ctrl-Shift-V the prompt must read `]`
+  and the line, on the last row still: a paste of one line waits for Enter.
+- `pastelines`: drags from the top line into the second, which the display
+  must show highlighted from the start of the first to partway into the
+  second. After copy and paste, the last three rows must read the first
+  line at a prompt, the monitor's answer to it, which starts with `?`, and
+  the part of the second line waiting at the next prompt.
+
+The mouse moves by counts, two to a pixel of the console's canvas, so a
+test sends it far up and left to the corner before it goes anywhere.
 
 ## Cautions
 
