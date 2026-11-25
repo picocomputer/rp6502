@@ -32,9 +32,17 @@ bool input_key_withheld(const struct sapp_event *e);
 
 /* Take the three locks from the system, which owns them. A lock key changes
  * nothing here: the system changes the lock and this reads it, once a frame
- * and before each key press. Only a window calls this, so a headless or
- * script run keeps its own locks. */
+ * and before each key press. input_read_locks asks the system, on the window's
+ * thread without the machine's lock, since an X server takes a round trip to
+ * answer; input_locks hands what it said to the machine, under the lock. Only
+ * a window calls these, so a headless or script run keeps its own locks. */
+void input_read_locks(void);
 void input_locks(void);
+
+/* What the events and the cursor task asked of the OS: the pointer captured
+ * or let go, and the cursor's shape. The window, after it lets go of the
+ * machine's lock. */
+void input_apply(void);
 
 /* sapp_mouse_locked(), limited on the web to the lock on Module.canvas. */
 bool input_mouse_locked(void);
@@ -52,7 +60,7 @@ bool input_pointer_to_tablet(void);
  * left to the page around the player, which scrolls with it. */
 bool input_wheel_to_tablet(void);
 
-/* Once a frame: lets go of a capture the mouse no longer wants, and tells
+/* Once a frame: asks to let go of a capture the mouse no longer wants, and tells
  * the tablet whether it has this host's pointer (tablet_host_give), so a
  * button held as it stops having it is let go. */
 void input_pointer_task(void);
@@ -61,10 +69,10 @@ void input_pointer_task(void);
  * cursor applies only there, and the system cursor shows in the letterbox. */
 void input_set_pointer_on_canvas(bool on);
 
-/* Apply the cursor the tablet program asked for, or the debugger's over one of
- * its panels. simgui's own cursor control is disabled, so the debugger's cursor
- * is written here, and this runs once a frame so a program's change or a panel
- * hover is answered promptly. */
-void input_update_cursor(void);
+/* Choose the cursor the tablet program asked for, or the debugger's over one
+ * of its panels, for input_apply. simgui's own cursor control is disabled, so
+ * the debugger's cursor is written here, and this runs once a frame so a
+ * program's change or a panel hover is answered promptly. */
+void input_cursor_task(void);
 
 #endif /* _HOST_SOKOL_APP_INPUT_H_ */

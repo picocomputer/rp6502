@@ -4,11 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The run/stop/step and breakpoint engine in dbg.c, shared by the DAP adapter
- * (dap.cpp) and the on-screen chips debugger (dbgui.cc). Entry points run on the
- * emulation thread, except dbg_request_pause, which stores an atomic flag and may
- * be called from a DAP reader thread, and dbg_is_stopped, which aud_render also
- * reads on the audio device's thread; the flag it reads is a plain bool, so that
- * read can be a buffer behind.
+ * (dap.cpp) and the on-screen chips debugger (dbgui.cc). Entry points are called
+ * with the machine held: on the thread that runs it, or by the window and the
+ * DAP reader under the host's machine lock. dbg_request_pause stores an atomic
+ * flag and may be called from any thread. The audio render reads none of it:
+ * aud_step tells it whether the machine is held.
  */
 
 #ifndef _CORE_DAP_DBG_H_

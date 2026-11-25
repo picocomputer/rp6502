@@ -15,9 +15,19 @@
 #ifndef _HOST_SOKOL_APP_GAMEPAD_H_
 #define _HOST_SOKOL_APP_GAMEPAD_H_
 
-void gamepad_input_task(void);
+/* The host's controllers are read once a frame in two halves. The poll asks
+ * the OS, which can take a millisecond for each empty XInput slot, so the
+ * window does it without the machine lock; the report hands what it found to
+ * the machine, under the lock, before the frames due. A poll goes by whether
+ * a program had the block mapped when the machine was last asked, and closes
+ * the controllers once none has; gamepad_input_watch asks, under the lock,
+ * after the frames, so a program's mapping is seen at the next poll. */
+void gamepad_input_poll(void);
+void gamepad_input_report(void);
+void gamepad_input_watch(void);
 
-/* Release the host's controllers and blank every player. */
+/* Release the host's controllers and blank every player, once the machine
+ * has stopped. */
 void gamepad_input_stop(void);
 
 #endif /* _HOST_SOKOL_APP_GAMEPAD_H_ */

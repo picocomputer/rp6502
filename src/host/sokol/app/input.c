@@ -140,9 +140,48 @@ bool input_key_withheld(const sapp_event *e)
            (hid == HID_KEY_V && input_modifier(e) == KEYBOARD_MODIFIER_LEFTCTRL);
 }
 
+/* What the window asks the OS for, read without the machine's lock, and asks
+ * of it in return once the lock is let go. */
+static uint8_t input_host_locks;
+/* The pointer's capture to take (1) or let go (0), or nothing (-1). */
+static int input_capture = -1;
+/* The cursor to show, or -1 for none to set. */
+static int input_cursor = -1;
+static bool input_cursor_shown = true;
+
+void input_read_locks(void)
+{
+    input_host_locks = host_locks();
+}
+
 void input_locks(void)
 {
-    keyboard_set_locks(host_locks());
+    keyboard_set_locks(input_host_locks);
+}
+
+void input_apply(void)
+{
+    if (input_capture >= 0)
+        sapp_lock_mouse(input_capture != 0);
+    input_capture = -1;
+    if (input_cursor != -1)
+    {
+        sapp_set_mouse_cursor((sapp_mouse_cursor)input_cursor);
+        sapp_show_mouse(input_cursor_shown);
+    }
+    input_cursor = -1;
+}
+
+/* A capture or a release, for input_apply. */
+static void input_capture_mouse(bool on)
+{
+    input_capture = on;
+}
+
+static void input_set_cursor(sapp_mouse_cursor cursor, bool shown)
+{
+    input_cursor = cursor;
+    input_cursor_shown = shown;
 }
 
 static void input_key(const sapp_event *e)
@@ -221,6 +260,17 @@ static void input_key(const sapp_event *e)
  * on-screen width against this fixed 640. A sweep across the drawn canvas is
  * then 640 counts whatever the canvas resolution and the window size are. */
 #define INPUT_MOUSE_REF_WIDTH 640.0f
+
+/* The event's motion, measured against a canvas onscreen_w wide in the
+ * motion's own units. */
+static void input_mouse_move(const sapp_event *e, float onscreen_w)
+{
+    if (onscreen_w <= 0.0f)
+        return;
+    const float gain = INPUT_MOUSE_REF_WIDTH / onscreen_w;
+    mouse_host_move((int32_t)lrintf(e->mouse_dx * gain * (float)MOUSE_ONE),
+                    (int32_t)lrintf(e->mouse_dy * gain * (float)MOUSE_ONE));
+}
 
 static uint8_t host_mouse_buttons;
 
@@ -311,17 +361,7 @@ static bool input_tablet(const sapp_event *e)
         {
             mouse_host_buttons(buttons);
             if (e->type == SAPP_EVENTTYPE_MOUSE_MOVE)
-            {
-                int cw, ch;
-                vga_canvas_size(&cw, &ch);
-                float onscreen_w = (float)cw * gfx_canvas_scale();
-                if (onscreen_w > 0.0f)
-                {
-                    float gain = INPUT_MOUSE_REF_WIDTH / onscreen_w;
-                    mouse_host_move((int32_t)lrintf(e->mouse_dx * gain * (float)MOUSE_ONE),
-                                (int32_t)lrintf(e->mouse_dy * gain * (float)MOUSE_ONE));
-                }
-            }
+                input_mouse_move(e, gfx_canvas_width());
         }
         return true;
     }
@@ -395,7 +435,7 @@ void input_pointer_task(void)
     /* The absolute tablet never captures the pointer, and a program that has
      * unmapped the mouse no longer wants it. */
     if (input_mouse_locked() && (!mouse_is_mapped() || to_tablet))
-        sapp_lock_mouse(false);
+        input_capture_mouse(false);
     tablet_host_give(to_tablet);
 }
 
@@ -411,7 +451,7 @@ void input_event(const sapp_event *e)
          * browser leaves pointer lock. */
         if (e->key_code == SAPP_KEYCODE_ESCAPE && input_mouse_locked())
         {
-            sapp_lock_mouse(false);
+            input_capture_mouse(false);
             break;
         }
         /* A key is typed by the locks the system has as it goes down. */
@@ -428,7 +468,7 @@ void input_event(const sapp_event *e)
             /* The first click captures the pointer, and only once a program has
              * mapped the mouse. That click is spent on the capture. */
             if (mouse_is_mapped())
-                sapp_lock_mouse(true);
+                input_capture_mouse(true);
         }
         else
             set_host_mouse_button(e->mouse_button, true);
@@ -440,21 +480,14 @@ void input_event(const sapp_event *e)
     case SAPP_EVENTTYPE_MOUSE_MOVE:
         if (input_mouse_locked())
         {
-            int cw, ch;
-            vga_canvas_size(&cw, &ch);
-            float onscreen_w = (float)cw * gfx_canvas_scale();
+            float onscreen_w = gfx_canvas_width();
 #if defined(__APPLE__)
             /* AppKit reports a captured pointer's motion in points, and a point
              * is dpi_scale framebuffer pixels under high_dpi, so the canvas is
              * measured in points too. */
             onscreen_w /= sapp_dpi_scale();
 #endif
-            if (onscreen_w > 0.0f)
-            {
-                float gain = INPUT_MOUSE_REF_WIDTH / onscreen_w;
-                mouse_host_move((int32_t)lrintf(e->mouse_dx * gain * (float)MOUSE_ONE),
-                                (int32_t)lrintf(e->mouse_dy * gain * (float)MOUSE_ONE));
-            }
+            input_mouse_move(e, onscreen_w);
         }
         break;
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
@@ -515,7 +548,7 @@ void input_set_pointer_on_canvas(bool on)
     pointer_on_canvas = on;
 }
 
-void input_update_cursor(void)
+void input_cursor_task(void)
 {
     static bool had_tablet;
 #ifdef EMU_WITH_DEBUGGER
@@ -523,8 +556,7 @@ void input_update_cursor(void)
     {
         /* Over a debugger panel ImGui chooses the shape, and the pointer stays
          * visible even where a program asked for it to be hidden. */
-        sapp_set_mouse_cursor((sapp_mouse_cursor)dbgui_mouse_cursor());
-        sapp_show_mouse(true);
+        input_set_cursor((sapp_mouse_cursor)dbgui_mouse_cursor(), true);
         return;
     }
 #endif
@@ -535,17 +567,13 @@ void input_update_cursor(void)
          * has none of is no pointer. */
         const uint8_t shape = tablet_shape();
         if (shape == TABLET_CURSOR_OFF || shape >= TABLET_CURSOR_COUNT || mode6_custom())
-            sapp_show_mouse(false);
+            input_set_cursor(SAPP_MOUSECURSOR_DEFAULT, false);
         else
-        {
-            sapp_set_mouse_cursor(tablet_cursor_to_sokol(shape));
-            sapp_show_mouse(true);
-        }
+            input_set_cursor(tablet_cursor_to_sokol(shape), true);
     }
     else if (had_tablet)
     {
         had_tablet = false;
-        sapp_set_mouse_cursor(SAPP_MOUSECURSOR_DEFAULT);
-        sapp_show_mouse(true);
+        input_set_cursor(SAPP_MOUSECURSOR_DEFAULT, true);
     }
 }

@@ -16,12 +16,11 @@ struct sapp_event;
  * size in pixels: the canvas aspect at the requested scale plus the debugger's
  * menu strip, or the size the last debug session was left at when the debugger
  * is active and have_scale is false. Call before sokol starts. */
-void app_prepare(uint32_t *fb, double scale, bool have_scale,
-                 bool exit_on_halt, int *out_w, int *out_h);
+void app_prepare(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt,
+                 int *out_w, int *out_h);
 
-/* --phi2 0: run without pacing. Each callback runs as many frames as one frame
- * period of wall time holds, so the window still answers the user while the
- * machine's time warps. Call before sokol starts. */
+/* --phi2 0: run without pacing, a frame after another as fast as the host
+ * runs them, while the window shows the newest. Call before sokol starts. */
 void app_set_unpaced(bool on);
 
 /* The four sokol lifecycle callbacks each platform's sapp_desc points at. */
@@ -54,8 +53,6 @@ char *app_rom_path(const char *host);
  * can fail, as on hardware where a failed LOAD leaves the CPU stopped in the
  * monitor. */
 bool app_boot_rom(const char *path);
-
-uint64_t app_machine_ns(void);
 
 /* sokol's logger, for every .logger.func. Its lines are the sokol log category,
  * and a panic (level 0) does not return. */

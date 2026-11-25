@@ -140,12 +140,14 @@ void HOST_IN_FLASH_FUNC clip_copy_bytes(uint8_t which, const char *bytes, size_t
 }
 
 /* A paste of the clipboard types the host's where it has one, asked for
- * as the paste's turn comes, and a paste of text the host handed over
- * types that. Either is the host's text, kept until it is typed
+ * as the paste's turn comes, perhaps more than once if the host gives it
+ * later, and a paste of text the host handed over types that. Either is the host's text, kept until it is typed
  * (paste_host.h). */
 uint8_t clip_paste_source(uint8_t source)
 {
     const char *host = source == CLIP_CLIPBOARD ? host_clipboard_get() : NULL;
+    if (host == HOST_CLIPBOARD_LATER)
+        return CLIP_LATER;
     if (!host && source != CLIP_HOST)
         return source;
     paste_host_begin(host);

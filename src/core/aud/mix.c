@@ -151,6 +151,11 @@ static void aud_pm_step(uint64_t to)
 /* The native sample the machine had reached at the end of its last frame. */
 static _Atomic uint64_t aud_now;
 
+/* Whether a debugger held the machine at the end of its last frame. The
+ * render reads this and never the machine, which may be running on another
+ * thread. */
+static _Atomic bool aud_held;
+
 /* ---------------- the render ---------------- */
 
 /* Held by the render and by the machine's thread whenever it reaches into
@@ -671,6 +676,8 @@ void aud_set_speed(double speed)
 void aud_step(void)
 {
     const uint64_t now = bus_now(AUD_NATIVE_RATE);
+    const bool held = dbg_is_stopped() && sys_running();
+    atomic_store(&aud_held, held);
     const uint64_t was = atomic_exchange(&aud_now, now);
     if (!aud_on)
     {
@@ -680,7 +687,7 @@ void aud_step(void)
     }
     else if (!atomic_load(&aud_streaming))
     {
-        if (dbg_is_stopped() && sys_running())
+        if (held)
             return;
         aud_lock();
         aud_skip(was);
@@ -899,7 +906,7 @@ int aud_render(float *dst, int samples)
     int made = 0;
     if (!aud_on)
         memset(dst, 0, (size_t)samples * 2 * sizeof *dst);
-    else if (dbg_is_stopped() && sys_running())
+    else if (atomic_load(&aud_held))
         aud_hold(dst, 0, samples);
     else if (atomic_load(&aud_streaming))
         made = aud_stream(dst, samples);
@@ -1097,6 +1104,7 @@ static bool aud_sst_loaded(sst_cursor_t *c)
     X(SKIP, aud_psg_at, "the PSG chunk's pointer, on load")     \
     X(SKIP, aud_opl_at, "the OPL chunk's pointer, on load")     \
     X(SKIP, aud_now, "the samples made, on load")               \
+    X(SKIP, aud_held, "the next step's")                        \
     X(SKIP, aud_probe, "a test's own engine")                   \
     X(SKIP, aud_busy, "a lock")                                 \
     X(SKIP, aud_on, "--mute is a session setting")              \

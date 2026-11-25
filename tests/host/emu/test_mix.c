@@ -491,7 +491,9 @@ static mix_hosted_t mix_hosted(const mix_host_t *o)
             }
             continue;
         }
-        pace_add(&pace, entered < 0 ? VGA_FRAME_NS : (uint64_t)((t - entered) * 1e9), true);
+        const uint64_t dt = entered < 0 ? VGA_FRAME_NS : (uint64_t)((t - entered) * 1e9);
+        pace_credit(&pace, dt);
+        pace_add(&pace, dt, true);
         aud_set_speed(pace_speed(&pace));
         entered = t;
         while (pace_due(&pace))

@@ -35,13 +35,16 @@
 #include <stdint.h>
 
 /* CLIP_HOST is no buffer: it is the host's text a paste types, on a
- * machine that builds clip_text.c (paste_host.h). */
+ * machine that builds clip_text.c (paste_host.h). CLIP_LATER is no source:
+ * the host has been asked for its clipboard and gives it later, and the
+ * paste waits at the front of the keyboard's queue until it does. */
 enum
 {
     CLIP_PRIMARY,
     CLIP_CLIPBOARD,
     CLIP_COUNT,
     CLIP_HOST = CLIP_COUNT,
+    CLIP_LATER,
 };
 
 #define CLIP_SIZE ((80 + 1) * TERM_MAX_HEIGHT)
@@ -65,7 +68,9 @@ static inline void clip_paste(uint8_t which)
 
 /* What the keyboard's queue asks as a paste's turn comes. The source its
  * text is read from: the buffer the paste names, or CLIP_HOST for the
- * host's text, the host's clipboard as it is now where the host has one.
+ * host's text, the host's clipboard as it is now where the host has one,
+ * or CLIP_LATER while the host has yet to give it, when the queue asks
+ * again.
  * Then how many code page bytes the source holds, and byte i of them, a
  * line end as CR. clip_paste_end says the text has all been read.
  * clip_paste_break says a Ctrl-C drops the pastes: the host's text that

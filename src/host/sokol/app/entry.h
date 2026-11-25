@@ -4,11 +4,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Every host/sokol/<os>, and src/host/web for the web, implements the
- * window functions here and nothing else implements any of them. A platform
- * that has nothing to do for one of these implements it with an empty body. Only
- * Windows implements entry_argv_utf8, and only the web entry_canvas_locked.
+ * window functions here. A platform that has nothing to do for one of these
+ * implements it with an empty body. The desktops share three things: entry_run
+ * (app/app.c), and the drop-a-ROM prompt's entry_wait_for_rom,
+ * host_window_menu_ functions and host_window_files_dropped (app/prompt.c);
+ * the web has its own of each in its entry.c. Only Windows implements
+ * entry_argv_utf8, and only the web entry_canvas_locked.
  * Only the desktop builds implement host_window_resize, because the debugger's
- * Window Scale menu, which calls it, is built only for the desktop emulator.
+ * Window Scale menu, which asks for it (gfx_canvas_changed carries it out), is
+ * built only for the desktop emulator.
  * The same goes for the three host_gamepad_ functions at the bottom and
  * app/gamepad.c, which calls them.
  */
@@ -23,7 +27,8 @@
  * been called; a ROM has not necessarily been booted, because the window opens
  * with nothing loaded in two cases: under --dap, and after entry_wait_for_rom
  * returns true. fb is the caller-owned framebuffer that vga renders into and
- * the window presents, and it must hold the largest canvas. scale may be
+ * the window presents, the first of the frames a machine on a thread of its
+ * own draws into (run.h), and it must hold the largest canvas. scale may be
  * fractional, and have_scale marks an explicit --scale, which beats the saved
  * debug-session window size. exit_on_halt closes the window when the program
  * exits instead of leaving its final output up. Returns app_exit_code. */
@@ -52,7 +57,7 @@ void host_window_init(void);
 
 /* True while a platform overlay is up, such as a desktop's drop-a-ROM prompt.
  * The canvas is not drawn while it is, and a halted program is not treated as
- * a program exiting. */
+ * a program exiting. The machine asks from its own thread. */
 bool host_window_menu_active(void);
 
 /* Draw that overlay into the current swapchain pass. */

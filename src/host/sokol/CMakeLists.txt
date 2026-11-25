@@ -32,12 +32,14 @@ include(${RP6502_SRC}/core/emu.cmake)
 if(WIN32)
     include(${RP6502_SRC}/osal/windows/windows.cmake)
     rp6502_osal_windows(emu_core TRANSPORT overlapped)
-    target_sources(emu_core PRIVATE ${RP6502_SRC}/osal/windows/console.c)
+    target_sources(emu_core PRIVATE ${RP6502_SRC}/osal/windows/console.c
+        ${RP6502_SRC}/osal/windows/thread.c)
 else()
     include(${RP6502_SRC}/osal/posix/posix.cmake)
     rp6502_osal_posix(emu_core TRANSPORT aio)
     target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c
-        ${RP6502_SRC}/osal/posix/console.c)
+        ${RP6502_SRC}/osal/posix/console.c
+        ${RP6502_SRC}/osal/posix/thread.c)
 endif()
 
 target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
@@ -57,6 +59,8 @@ if(NOT WIN32 AND NOT APPLE)
             "  sudo apt-get install libgl-dev libx11-dev libxi-dev libxcursor-dev libpulse-dev")
     endif()
     find_package(Threads REQUIRED)
+    # emu_core holds osal/posix/thread.c.
+    target_link_libraries(emu_core PUBLIC Threads::Threads)
 endif()
 
 add_executable(rp6502-emu
@@ -66,6 +70,7 @@ add_executable(rp6502-emu
     ${RP6502_SRC}/host/sokol/cli/console.c
     ${RP6502_SRC}/host/sokol/cli/log.c
     ${RP6502_EMU_WINDOW}
+    ${RP6502_SRC}/host/sokol/app/prompt.c
     ${RP6502_SOKOL_OS}/entry.c
     ${RP6502_SOKOL_OS}/gamepad.c
     ${RP6502_SRC}/host/sokol/app/gamepad.c)

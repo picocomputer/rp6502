@@ -21,41 +21,37 @@
 static bool gamepad_input_opened;
 static int gamepad_input_retry;
 
+/* Whether a program had the block mapped when the machine was last asked,
+ * after its last frames, which is what the next poll goes by. */
+static bool gamepad_input_mapped;
+
+/* What the last poll found, for the next gamepad_input_report. */
+static gamepad_host_t gamepad_input_found[GAMEPAD_PLAYERS];
+static int gamepad_input_count;
+
 /* Which host controller each player is, 0 for none. Keyed on the backend's id
  * rather than its position, so unplugging one controller does not renumber the
  * remaining players' slots. */
 static uint64_t gamepad_input_player[GAMEPAD_PLAYERS];
 
-static void gamepad_input_release(void)
+static void gamepad_input_close(void)
 {
     if (gamepad_input_opened)
     {
         host_gamepad_close();
         gamepad_input_opened = false;
     }
-    for (int player = 0; player < GAMEPAD_PLAYERS; player++)
-        if (gamepad_input_player[player])
-        {
-            gamepad_connect(player, false, GAMEPAD_TYPE_UNKNOWN, false);
-            gamepad_input_player[player] = 0;
-        }
+    gamepad_input_count = 0;
     gamepad_input_retry = 0;
 }
 
-void gamepad_input_stop(void)
+void gamepad_input_poll(void)
 {
-    gamepad_input_release();
-}
-
-void gamepad_input_task(void)
-{
-    if (!gamepad_is_mapped())
+    if (!gamepad_input_mapped)
     {
-        if (gamepad_input_opened)
-            gamepad_input_release();
+        gamepad_input_close();
         return;
     }
-
     if (!gamepad_input_opened)
     {
         if (gamepad_input_retry > 0)
@@ -68,9 +64,43 @@ void gamepad_input_task(void)
             return;
         gamepad_input_opened = true;
     }
+    gamepad_input_count = host_gamepad_poll(gamepad_input_found, GAMEPAD_PLAYERS);
+}
 
-    gamepad_host_t gamepads[GAMEPAD_PLAYERS];
-    int count = host_gamepad_poll(gamepads, GAMEPAD_PLAYERS);
+/* Every player blanked. */
+static void gamepad_input_unplug(void)
+{
+    for (int player = 0; player < GAMEPAD_PLAYERS; player++)
+        if (gamepad_input_player[player])
+        {
+            gamepad_connect(player, false, GAMEPAD_TYPE_UNKNOWN, false);
+            gamepad_input_player[player] = 0;
+        }
+}
+
+void gamepad_input_stop(void)
+{
+    gamepad_input_close();
+    gamepad_input_unplug();
+    gamepad_input_mapped = false;
+}
+
+void gamepad_input_watch(void)
+{
+    gamepad_input_mapped = gamepad_is_mapped();
+}
+
+void gamepad_input_report(void)
+{
+    gamepad_input_watch();
+    if (!gamepad_input_mapped || !gamepad_input_opened)
+    {
+        gamepad_input_unplug();
+        return;
+    }
+
+    const gamepad_host_t *gamepads = gamepad_input_found;
+    const int count = gamepad_input_count;
 
     for (int player = 0; player < GAMEPAD_PLAYERS; player++)
     {

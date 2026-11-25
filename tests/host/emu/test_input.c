@@ -48,7 +48,14 @@ void sapp_cancel_quit(void) {}
 void sapp_set_mouse_cursor(sapp_mouse_cursor cursor) { shown_cursor = cursor; }
 void sapp_show_mouse(bool show) { shown = show; }
 float sapp_dpi_scale(void) { return 1.0f; }
-float gfx_canvas_scale(void) { return 1.0f; }
+/* The canvas fills its width of the window, a pixel of each a pixel of the
+ * other. */
+float gfx_canvas_width(void)
+{
+    int w, h;
+    vga_canvas_size(&w, &h);
+    return (float)w;
+}
 
 /* The window is the canvas, a pixel of each a pixel of the other. */
 bool gfx_canvas_from_fb(float fx, float fy, int *cx, int *cy)
@@ -62,20 +69,44 @@ bool gfx_canvas_from_fb(float fx, float fy, int *cx, int *cy)
     return true;
 }
 
+/* An event as the window hands it over (app.c): the locks a key goes down
+ * with read first, and what the event asks of the OS done after. */
+static void event(const sapp_event *e)
+{
+    if (e->type == SAPP_EVENTTYPE_KEY_DOWN)
+        input_read_locks();
+    input_event(e);
+    input_apply();
+}
+
+/* The window's locks, as a frame reads and hands them over. */
+static void frame_locks(void)
+{
+    input_read_locks();
+    input_locks();
+}
+
+/* The cursor, as a frame chooses and sets it. */
+static void frame_cursor(void)
+{
+    input_cursor_task();
+    input_apply();
+}
+
 /* A key going down and up, with the character the system sends for it
  * between, if it sends one. */
 static void key(sapp_keycode code, uint32_t modifiers, uint32_t ch)
 {
     sapp_event e = {.type = SAPP_EVENTTYPE_KEY_DOWN, .key_code = code, .modifiers = modifiers};
-    input_event(&e);
+    event(&e);
     if (ch)
     {
         e.type = SAPP_EVENTTYPE_CHAR;
         e.char_code = ch;
-        input_event(&e);
+        event(&e);
     }
     e.type = SAPP_EVENTTYPE_KEY_UP;
-    input_event(&e);
+    event(&e);
 }
 
 /* What the keys since the last call typed, as a string. */
@@ -103,7 +134,7 @@ static void start(uint8_t locks)
 UTEST(input, the_locks_are_the_systems)
 {
     start(KEYBOARD_LED_CAPSLOCK);
-    input_locks();
+    frame_locks();
     ASSERT_EQ(keyboard_get_locks(), KEYBOARD_LED_CAPSLOCK);
 
     /* A lock key changes nothing until the system says the lock changed. */
@@ -114,7 +145,7 @@ UTEST(input, the_locks_are_the_systems)
     ASSERT_STREQ(typed(), "");
 
     fake_locks = KEYBOARD_LED_NUMLOCK | KEYBOARD_LED_SCROLLLOCK;
-    input_locks();
+    frame_locks();
     ASSERT_EQ(keyboard_get_locks(), KEYBOARD_LED_NUMLOCK | KEYBOARD_LED_SCROLLLOCK);
 }
 
@@ -122,10 +153,10 @@ UTEST(input, a_lock_key_shows_in_the_bitmap)
 {
     start(0);
     sapp_event e = {.type = SAPP_EVENTTYPE_KEY_DOWN, .key_code = SAPP_KEYCODE_NUM_LOCK};
-    input_event(&e);
+    event(&e);
     ASSERT_TRUE(keyboard_key_down(HID_KEY_NUM_LOCK));
     e.type = SAPP_EVENTTYPE_KEY_UP;
-    input_event(&e);
+    event(&e);
     ASSERT_FALSE(keyboard_key_down(HID_KEY_NUM_LOCK));
 }
 
@@ -134,7 +165,7 @@ UTEST(input, a_lock_key_shows_in_the_bitmap)
 UTEST(input, a_key_is_typed_by_the_lock_it_went_down_with)
 {
     start(0);
-    input_locks();
+    frame_locks();
     fake_locks = KEYBOARD_LED_NUMLOCK;
     key(SAPP_KEYCODE_KP_7, 0, '7');
     ASSERT_STREQ(typed(), "7");
@@ -232,7 +263,7 @@ static const char *pasted(void)
 static void sokol_pasted(void)
 {
     sapp_event e = {.type = SAPP_EVENTTYPE_CLIPBOARD_PASTED};
-    input_event(&e);
+    event(&e);
 }
 
 /* Plain Ctrl+V is the program's 0x16, and the paste sokol makes of it is
@@ -259,13 +290,13 @@ UTEST(input, the_paste_keys_paste_the_clipboard)
     ASSERT_STREQ(pasted(), "text");
     sapp_event e = {.type = SAPP_EVENTTYPE_KEY_DOWN, .key_code = SAPP_KEYCODE_V,
                     .modifiers = SAPP_MODIFIER_SUPER};
-    input_event(&e);
+    event(&e);
     e.type = SAPP_EVENTTYPE_CHAR;
     e.char_code = 'v';
-    input_event(&e);
+    event(&e);
     sokol_pasted();
     e.type = SAPP_EVENTTYPE_KEY_UP;
-    input_event(&e);
+    event(&e);
     tb_mac_keys = false;
     ASSERT_STREQ(pasted(), "text");
 }
@@ -277,12 +308,12 @@ UTEST(input, a_held_paste_key_pastes_once)
     ASSERT_TRUE(host_clipboard_set("text"));
     sapp_event e = {.type = SAPP_EVENTTYPE_KEY_DOWN, .key_code = SAPP_KEYCODE_INSERT,
                     .modifiers = SAPP_MODIFIER_SHIFT};
-    input_event(&e);
+    event(&e);
     e.key_repeat = true;
-    input_event(&e);
-    input_event(&e);
+    event(&e);
+    event(&e);
     e.type = SAPP_EVENTTYPE_KEY_UP;
-    input_event(&e);
+    event(&e);
     ASSERT_STREQ(pasted(), "text");
 }
 
@@ -401,9 +432,9 @@ UTEST(input, a_cut_key_with_no_line_read_types_its_bytes)
     start(0);
     tb_mac_keys = true;
     sapp_event e = key_down(SAPP_KEYCODE_X, SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT, false);
-    input_event(&e);
+    event(&e);
     e.key_repeat = true;
-    input_event(&e);
+    event(&e);
     ASSERT_STREQ(pasted(), "\x18");
     key(SAPP_KEYCODE_DELETE, SAPP_MODIFIER_SHIFT, 0);
     ASSERT_STREQ(pasted(), "\33[3;2~");
@@ -481,7 +512,7 @@ UTEST(input, a_copy_key_with_no_line_read_is_dropped)
 static void pointer_to(float x, float y)
 {
     sapp_event e = {.type = SAPP_EVENTTYPE_MOUSE_MOVE, .mouse_x = x, .mouse_y = y};
-    input_event(&e);
+    event(&e);
 }
 
 /* With no program on the tablet, the console's terminal has the pointer
@@ -496,7 +527,7 @@ UTEST(input, unmapped_over_the_console_the_pointer_feeds_the_tablet)
     ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 1u);
     vterm_mouse_task();
     ASSERT_TRUE(vterm_mouse_acts());
-    input_update_cursor();
+    frame_cursor();
     ASSERT_TRUE(shown);
     ASSERT_EQ(shown_cursor, SAPP_MOUSECURSOR_ARROW);
     /* The terminal does nothing with the wheel, so a page keeps it, and
@@ -504,13 +535,13 @@ UTEST(input, unmapped_over_the_console_the_pointer_feeds_the_tablet)
     ASSERT_TRUE(input_pointer_to_tablet());
     ASSERT_FALSE(input_wheel_to_tablet());
     sapp_event w = {.type = SAPP_EVENTTYPE_MOUSE_SCROLL, .scroll_y = 1.0f};
-    input_event(&w);
+    event(&w);
     ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 0u);
 
     ASSERT_TRUE(vga_canvas_select(vga_canvas_320_240));
     pointer_to(50, 50);
     ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 0u);
-    input_update_cursor();
+    frame_cursor();
     ASSERT_TRUE(shown);
     ASSERT_EQ(shown_cursor, SAPP_MOUSECURSOR_DEFAULT);
     ASSERT_TRUE(vga_canvas_select(vga_canvas_console));
@@ -529,15 +560,15 @@ UTEST(input, a_press_and_release_in_one_burst_give_both_edges)
     pointer_to(100, 100);
     sapp_event e = {.type = SAPP_EVENTTYPE_MOUSE_DOWN, .mouse_button = SAPP_MOUSEBUTTON_LEFT,
                     .mouse_x = 100, .mouse_y = 100};
-    input_event(&e);
+    event(&e);
     e.type = SAPP_EVENTTYPE_MOUSE_MOVE;
     e.modifiers = SAPP_MODIFIER_LMB;
     e.mouse_x = 104;
-    input_event(&e);
+    event(&e);
     e.mouse_x = 108;
-    input_event(&e);
+    event(&e);
     e.type = SAPP_EVENTTYPE_MOUSE_UP;
-    input_event(&e);
+    event(&e);
     ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 4u);
     const vterm_mouse_event_t *c = RING_AT(&vterm_mouse_queue, 1);
     ASSERT_TRUE(c->edge);
@@ -604,16 +635,16 @@ UTEST(input, small_scrolls_add_up)
     vterm_mouse_task();
     ASSERT_TRUE(input_wheel_to_tablet());
     sapp_event w = {.type = SAPP_EVENTTYPE_MOUSE_SCROLL, .scroll_y = 0.4f};
-    input_event(&w);
+    event(&w);
     vterm_mouse_task();
-    input_event(&w);
+    event(&w);
     vterm_mouse_task();
     ASSERT_STREQ(typed(), "");
-    input_event(&w);
+    event(&w);
     vterm_mouse_task();
     ASSERT_STREQ(typed(), "\33[M`-'");
     w.scroll_y = -1.3f;
-    input_event(&w);
+    event(&w);
     vterm_mouse_task();
     ASSERT_STREQ(typed(), "\33[Ma-'");
     manifold_write_to(COM_TERM_SCREEN, "\33[?1000l", 8);
@@ -631,6 +662,7 @@ UTEST(input, a_program_that_maps_only_the_mouse_captures_it)
     captured = false;
     pointer_to(100, 100);
     input_pointer_task();
+    input_apply();
     vterm_mouse_task();
     ASSERT_TRUE(input_pointer_to_tablet());
 
@@ -638,12 +670,13 @@ UTEST(input, a_program_that_maps_only_the_mouse_captures_it)
      * tablet, so the terminal is not left in a drag. */
     sapp_event e = {.type = SAPP_EVENTTYPE_MOUSE_DOWN, .mouse_button = SAPP_MOUSEBUTTON_LEFT,
                     .mouse_x = 100, .mouse_y = 100};
-    input_event(&e);
+    event(&e);
     vterm_mouse_task();
     ASSERT_TRUE(vterm_mouse_acts());
     ASSERT_TRUE(mouse_xreg(0xFE00));
     ASSERT_FALSE(input_pointer_to_tablet());
     input_pointer_task();
+    input_apply();
     ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 1u);
     ASSERT_EQ(RING_AT(&vterm_mouse_queue, 0)->flags, 0);
     vterm_mouse_task();
@@ -651,25 +684,27 @@ UTEST(input, a_program_that_maps_only_the_mouse_captures_it)
      * a contact there, as a script does. */
     tablet_host_pointer(100, 100, TABLET_FLAG_LEFT, true);
     input_pointer_task();
+    input_apply();
     ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 1u);
     ASSERT_EQ(RING_AT(&vterm_mouse_queue, 0)->flags, TABLET_FLAG_HOVER | TABLET_FLAG_LEFT);
     tablet_host_clear();
     vterm_mouse_task();
-    input_update_cursor();
+    frame_cursor();
     ASSERT_TRUE(shown);
     ASSERT_EQ(shown_cursor, SAPP_MOUSECURSOR_DEFAULT);
 
     /* The first click only captures. */
     e.type = SAPP_EVENTTYPE_MOUSE_UP;
-    input_event(&e);
+    event(&e);
     pointer_to(120, 100);
     ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 0u);
     ASSERT_FALSE(captured);
     e.type = SAPP_EVENTTYPE_MOUSE_DOWN;
-    input_event(&e);
+    event(&e);
     ASSERT_TRUE(captured);
     ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 0u);
     input_pointer_task();
+    input_apply();
     ASSERT_TRUE(captured);
 
     /* Mapping the tablet as well lets the capture go and feeds the tablet,
@@ -678,6 +713,7 @@ UTEST(input, a_program_that_maps_only_the_mouse_captures_it)
     ASSERT_TRUE(input_pointer_to_tablet());
     ASSERT_TRUE(input_wheel_to_tablet());
     input_pointer_task();
+    input_apply();
     ASSERT_FALSE(captured);
     pointer_to(130, 100);
     ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 1u);
@@ -686,6 +722,7 @@ UTEST(input, a_program_that_maps_only_the_mouse_captures_it)
     ASSERT_TRUE(mouse_xreg(0xFFFF));
     tablet_host_clear();
     input_pointer_task();
+    input_apply();
     vterm_mouse_task();
 }
 
