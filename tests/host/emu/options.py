@@ -2,10 +2,10 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
-"""A Python test that reads its own words with rp6502.parse_args() or
-rp6502.test_args() leaves the emulator the options that --list-options
-lists, as getopt_long reads them, and the ROMs and the ROM arguments. An
-emulator from before --list-options gets every word, as it did before."""
+"""A Python test that reads its own words with rp6502.parse_args() leaves
+the emulator the options that --list-options lists, as getopt_long reads
+them, and the ROMs and the ROM arguments. An emulator from before
+--list-options gets every word, as it did before."""
 
 import argparse
 import os
@@ -97,13 +97,6 @@ def test_options():
         want(raises(lambda: rp6502.parse_args(parser(option)), rp6502.ScriptError),
              f"{option} is reserved for the emulator", option)
 
-    # Without a parser, the test gets the options that the emulator does not
-    # list.
-    argv("--quick", "--miss=5", "--mute", "a.rp6502", "--", "--quick")
-    want(rp6502.test_args(), ["--quick", "--miss=5"], "test_args")
-    want(rp6502.Emu.command(), [emu, "--mute", "a.rp6502", "--", "--quick"],
-         "its command")
-
     # A shortened option is the same option for the check of Emu() and the
     # arguments of the test.
     argv("--fr", "10")
@@ -124,7 +117,6 @@ def test_options():
         argv("--miss", "5", "--aspect", "4:3", "a.rp6502")
         want(rp6502.parse_args(parser("--miss", "--frames")).miss, None,
              "parse_args of an older emulator")
-        want(rp6502.test_args(), [], "test_args of an older emulator")
         want(rp6502.Emu.command(), [sys.executable, "--miss", "5", "--aspect",
                                     "4:3", "a.rp6502"],
              "the command of an older emulator")

@@ -706,8 +706,7 @@ endfunction()
   variable ``RP6502_EMU``. Each ``<arg>`` is an emulator option or a ROM,
   such as ``$<TARGET_PROPERTY:hello,RP6502_ROM>``, and the words after
   ``--`` are the arguments of the ROM. A Python test may also take options
-  of its own, which ``rp6502.parse_args()`` or ``rp6502.test_args()`` of
-  ``tools/rp6502.py`` read.
+  of its own, which ``rp6502.parse_args()`` of ``tools/rp6502.py`` reads.
 
   Each test runs through ``cmake -P tools/rp6502.cmake -- test``, which
   holds the lock of ``test/<name>/`` while the test runs and removes

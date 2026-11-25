@@ -1720,7 +1720,7 @@ class Emu:
     closes the emulator, or kills it when the block raises.
 
     Every word of sys.argv[1:] is the emulator's until the test reads its
-    own words with parse_args() or test_args(). From then on, the emulator's
+    own words with parse_args(). From then on, the emulator's
     words are the options that it lists, with their values, the words that
     are not options, and the words after --."""
 
@@ -1940,21 +1940,6 @@ class Emu:
         else:
             self._proc.kill()
             self._proc.communicate()
-
-
-def test_args() -> list:
-    """The test's own words in sys.argv[1:]: each option that the emulator
-    does not list. The emulator takes the rest: its options with their
-    values, the words that are not options, and the words after --. So the
-    value of an option of the test goes in the same word, as --miss=5, or
-    the test reads its words with parse_args(). An emulator from before
-    --list-options takes every word, and the test gets none."""
-    options = Emu._options()
-    if options is None:
-        return []
-    rest = Emu._take(Emu._split(sys.argv[1:])[0], options)[1]
-    Emu._roms = [word for word in rest if Emu._positional(word)]
-    return [word for word in rest if not Emu._positional(word)]
 
 
 def parse_args(parser) -> argparse.Namespace:
