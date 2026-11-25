@@ -196,7 +196,7 @@ bool HOST_IN_RAM_FUNC tio_csi_parse(const char *item, size_t len, tio_csi_t *csi
     {
         if (isdigit(ch))
         {
-            if (!sub && csi->count < 2)
+            if (!sub && csi->count < 3)
             {
                 uint32_t v = (uint32_t)csi->param[csi->count] * 10 + (ch - '0');
                 csi->param[csi->count] = v > UINT16_MAX ? UINT16_MAX : (uint16_t)v;

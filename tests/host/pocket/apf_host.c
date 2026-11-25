@@ -10,11 +10,11 @@
 #include "core/com/rln.h"
 #include "core/hid/clip.h"
 #include "core/hid/hid.h"
-#include "core/hid/paste.h"
 #include "core/hid/tablet.h"
 #include "core/api/proc.h"
 #include "core/sys/sys.h"
 #include "core/term/vterm.h"
+#include "core/term/vterm_mouse.h"
 #include "core/vga/vga.h"
 #include "osal/os.h"
 
@@ -113,44 +113,48 @@ bool proc_key_chord(uint8_t keycode, bool ctrl, bool alt)
     return true;
 }
 
-/* The copy and paste the keys reach, the line editor's and the console's,
- * and the console's mouse, which owns the tablet. The test presses none of
- * their keys and moves no pointer. */
-bool rln_selected(void)
+/* What the copy and paste keys and the keyboard's queue reach: the line
+ * editor, the console's buffers, which hold nothing, and the console's
+ * mouse, which owns the tablet and has no highlight. The test presses none
+ * of their keys and moves no pointer. */
+bool rln_reading(void)
 {
     return false;
 }
 
-bool rln_copy(void)
+uint8_t clip_paste_source(uint8_t source)
+{
+    return source;
+}
+
+size_t clip_size(uint8_t source)
+{
+    (void)source;
+    return 0;
+}
+
+char clip_at(uint8_t source, size_t i)
+{
+    (void)source, (void)i;
+    return 0;
+}
+
+void clip_paste_end(void)
+{
+}
+
+bool clip_paste_break(void)
+{
+    return true;
+}
+
+void clip_paste_drop(void)
+{
+}
+
+bool vterm_mouse_copy(void)
 {
     return false;
-}
-
-bool rln_cut(void)
-{
-    return false;
-}
-
-bool rln_paste(void)
-{
-    return false;
-}
-
-void clip_copy_primary(void)
-{
-}
-
-void clip_paste(uint8_t which)
-{
-    (void)which;
-}
-
-void paste_cut(void)
-{
-}
-
-void paste_cancel(void)
-{
 }
 
 void tablet_on_contact(uint8_t old_flags, uint8_t flags, int16_t x, int16_t y,

@@ -295,8 +295,10 @@ TABLET_SCRIPT = r"""
 # tablet.rp6502 maps the tablet block at TABLET. Each contact is flags, y_lo,
 # x_lo, yx_hi.
 let contact = TABLET + 4
+# Until something moves it, the pointer is at the middle of the boot canvas,
+# 320,240 of 640x480.
 run 10
-peek xram:contact $00 $00 $00 $00
+peek xram:contact $00 $F0 $40 $01
 
 # Bit 0 of status is the program's. Mapping sets it to share the tablet,
 # and the tablet never writes it after.

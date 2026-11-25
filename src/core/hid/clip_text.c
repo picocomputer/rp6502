@@ -10,7 +10,6 @@
  * end is CLIP_LINE, which no character is. */
 
 #include "core/hid/clip.h"
-#include "core/hid/paste.h"
 #include "core/hid/paste_host.h"
 #include "core/str/unicode.h"
 #include "core/sys/sst.h"
@@ -99,25 +98,13 @@ static void clip_utf8_line(screen_sink_t *k)
 static bool clip_utf8_send(const clip_utf8_sink_t *u)
 {
     clip_utf8[u->len] = 0;
-    return clip_host_set(clip_utf8);
+    return host_clipboard_set(clip_utf8);
 }
 
-const char *clip_host_get(void)
-{
-    paste_host_clipboard_changed();
-    return host_clipboard_get();
-}
-
-bool clip_host_set(const char *utf8)
-{
-    paste_host_clipboard_changed();
-    return host_clipboard_set(utf8);
-}
-
-/* The clipboard goes to the host's when it has one. */
+/* The clipboard goes to the host's when it has one, and the machine's
+ * buffer stays as it was. */
 void clip_copy(uint8_t which, screen_t *s, uint8_t y0, uint8_t x0, uint8_t y1, uint8_t x1)
 {
-    paste_clip_changed(which);
     if (which == CLIP_CLIPBOARD)
     {
         clip_utf8_sink_t u = CLIP_UTF8_SINK;
@@ -125,35 +112,16 @@ void clip_copy(uint8_t which, screen_t *s, uint8_t y0, uint8_t x0, uint8_t y1, u
         if (clip_utf8_send(&u))
             return;
     }
+    typed_clip_changed(which);
     clip_len[which] = 0;
     clip_sink_t k = {{clip_text, clip_line}, which};
     screen_copy(s, y0, x0, y1, x1, &k.sink);
-}
-
-void HOST_IN_FLASH_FUNC clip_copy_primary(void)
-{
-    if (!clip_len[CLIP_PRIMARY])
-        return;
-    paste_clip_changed(CLIP_CLIPBOARD);
-    const uint16_t *primary = &clip_buf[CLIP_PRIMARY * CLIP_SIZE];
-    clip_utf8_sink_t u = CLIP_UTF8_SINK;
-    for (unsigned i = 0; i < clip_len[CLIP_PRIMARY]; i++)
-        if (primary[i] == CLIP_LINE)
-            u.sink.line(&u.sink);
-        else
-            u.sink.text(&u.sink, primary[i]);
-    if (clip_utf8_send(&u))
-        return;
-    memcpy(&clip_buf[CLIP_CLIPBOARD * CLIP_SIZE], primary,
-           clip_len[CLIP_PRIMARY] * sizeof *primary);
-    clip_len[CLIP_CLIPBOARD] = clip_len[CLIP_PRIMARY];
 }
 
 /* A code page byte is the cell_text word of the code page's set. */
 _Static_assert(CELL_SET_PAGE == 0, "a code page byte is its own word");
 void HOST_IN_FLASH_FUNC clip_copy_bytes(uint8_t which, const char *bytes, size_t n)
 {
-    paste_clip_changed(which);
     if (n > CLIP_SIZE)
         n = CLIP_SIZE;
     if (which == CLIP_CLIPBOARD)
@@ -164,28 +132,50 @@ void HOST_IN_FLASH_FUNC clip_copy_bytes(uint8_t which, const char *bytes, size_t
         if (clip_utf8_send(&u))
             return;
     }
+    typed_clip_changed(which);
     uint16_t *buf = &clip_buf[which * CLIP_SIZE];
     for (size_t i = 0; i < n; i++)
         buf[i] = (uint8_t)bytes[i];
     clip_len[which] = (uint16_t)n;
 }
 
-void HOST_IN_FLASH_FUNC clip_paste(uint8_t which)
+/* A paste of the clipboard types the host's where it has one, asked for
+ * as the paste's turn comes, and a paste of text the host handed over
+ * types that. Either is the host's text, kept until it is typed
+ * (paste_host.h). */
+uint8_t clip_paste_source(uint8_t source)
 {
-    const char *host = which == CLIP_CLIPBOARD ? clip_host_get() : NULL;
-    if (host)
-        paste_start(host);
-    else
-        paste_clip(which);
+    const char *host = source == CLIP_CLIPBOARD ? host_clipboard_get() : NULL;
+    if (!host && source != CLIP_HOST)
+        return source;
+    paste_host_begin(host);
+    return CLIP_HOST;
 }
 
-size_t clip_fill(uint8_t which, uint16_t *at, char *dst, size_t room)
+size_t clip_size(uint8_t source)
 {
-    size_t n = 0;
-    while (n < room && *at < clip_len[which])
-    {
-        const uint16_t e = clip_buf[which * CLIP_SIZE + (*at)++];
-        dst[n++] = e == CLIP_LINE ? '\r' : (char)cell_text_byte(e);
-    }
-    return n;
+    return source == CLIP_HOST ? paste_host_size() : clip_len[source];
+}
+
+char clip_at(uint8_t source, size_t i)
+{
+    if (source == CLIP_HOST)
+        return paste_host_at(i);
+    const uint16_t e = clip_buf[source * CLIP_SIZE + i];
+    return e == CLIP_LINE ? '\r' : (char)cell_text_byte(e);
+}
+
+void clip_paste_end(void)
+{
+    paste_host_end();
+}
+
+bool clip_paste_break(void)
+{
+    return paste_host_break();
+}
+
+void clip_paste_drop(void)
+{
+    paste_host_drop();
 }

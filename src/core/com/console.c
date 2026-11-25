@@ -30,6 +30,10 @@ static uint16_t console_rln_len;
 static bool console_closed;
 static bool console_was_asked;
 
+/* What the program's reads have killed, for Ctrl-Y to put back. A program
+ * starts with none, whatever the one before it killed. */
+static rln_kill_t console_kill;
+
 static bool console_sst_valid(sst_cursor_t *c)
 {
     if (console_rln_pos > console_rln_len ||
@@ -45,6 +49,8 @@ static bool console_sst_valid(sst_cursor_t *c)
     X(U16, console_rln_len)              \
     X(BOOL, console_closed)              \
     X(BOOL, console_was_asked)           \
+    X(U8, console_kill.len)              \
+    X(BYTES, console_kill.text)          \
     X(VALIDATE, console_sst_valid)
 SST_TABLE(console, CONSOLE_SST_ROWS)
 
@@ -60,6 +66,11 @@ static void HOST_IN_FLASH_FUNC console_rln_callback(bool timeout, const char *bu
 rln_read_callback_t console_rln_reader(void)
 {
     return console_rln_callback;
+}
+
+rln_kill_t *console_rln_kill(void)
+{
+    return &console_kill;
 }
 
 /* The cooked console: a line from the line editor, then its newline. It
@@ -80,7 +91,7 @@ static std_rw_result console_cooked_read(char *buf, uint32_t count, uint32_t *by
         if (!console_rln_active)
         {
             console_rln_active = true;
-            rln_read_line(console_rln_callback, NULL);
+            rln_read_line(console_rln_callback, NULL, &console_kill);
         }
         return STD_PENDING;
     }
@@ -185,6 +196,7 @@ void HOST_IN_FLASH_FUNC console_stop(void)
     console_rln_pos = 0;
     console_rln_len = 0;
     console_was_asked = false;
+    console_kill.len = 0;
 }
 
 void HOST_IN_FLASH_FUNC console_end(void)

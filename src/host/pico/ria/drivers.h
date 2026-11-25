@@ -24,7 +24,6 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/clip.h"
 #include "core/hid/keymap.h"
-#include "core/hid/paste.h"
 #include "core/hid/layout.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
@@ -56,6 +55,7 @@
 #include "ria/usb/nfc.h"
 #include "ria/usb/vcp.h"
 #include "ria/mon/uf2.h"
+#include "rtt_hid.h"
 
 /* RP2350 comes first so the system clock is set before any init computes a
  * divider from it, and MANIFOLD_UART comes next so the console is up before
@@ -83,7 +83,7 @@
     OEM_DRIVER, LED_DRIVER,                          \
     AUD_DRIVER, MID_DRIVER, KEYBOARD_DRIVER,         \
     LAYOUT_DRIVER, KEYMAP_DRIVER,                    \
-    CLIP_DRIVER, PASTE_DRIVER,                       \
+    CLIP_DRIVER,                                     \
     MOUSE_DRIVER, GAMEPAD_DRIVER,                    \
     TABLET_DRIVER, VTERM_MOUSE_DRIVER,               \
     MBUF_DRIVER, TIO_DRIVER, RLN_DRIVER, FIL_DRIVER,  \
@@ -91,7 +91,8 @@
     DIR_DRIVER, CLK_DRIVER,                          \
     DRIVE_DRIVER, RAM_DRIVER,                        \
     VCP_DRIVER, NFC_DRIVER, API_DRIVER,              \
-    USB_DRIVER, PHI2_DRIVER, RESB_DRIVER
+    USB_DRIVER, RTT_HID_DRIVER,                      \
+    PHI2_DRIVER, RESB_DRIVER
 
 /* open() tries these drivers' STD rows in order, and the filesystem's
  * accepts every path, so it is last. ASSET_DRIVER is here for ROM:'s row

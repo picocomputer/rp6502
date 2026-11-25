@@ -366,7 +366,9 @@ static void mouse_on_row(int y, bool left)
 
 /* libretro gives a core no clipboard, so the copy and paste keys use the
  * machine's: a line selected with a triple click, copied with Ctrl+Shift+C
- * and pasted with Ctrl+Shift+V, is typed to the program, which echoes it. */
+ * and pasted with Ctrl+Shift+V, is typed into the line the program reads.
+ * It is one line with its line end, so it waits there for Enter, and the
+ * program answers when Enter is pressed. */
 UTEST(input, the_copy_and_paste_keys_use_the_machine_s_buffers)
 {
     static uint32_t settled[640 * 480];
@@ -395,9 +397,14 @@ UTEST(input, the_copy_and_paste_keys_use_the_machine_s_buffers)
     fe_key(RETROK_v, 0, RETROKMOD_CTRL | RETROKMOD_SHIFT);
     fe_run(60);
     const size_t pasted = pixels_differing(settled, fe.frame_copy, px);
-    fprintf(stderr, "  idle %zu px, pasted %zu px\n", idle, pasted);
+    memcpy(settled, fe.frame_copy, px * sizeof(uint32_t));
+    fe_key(RETROK_RETURN, '\r', 0);
+    fe_run(60);
+    const size_t entered = pixels_differing(settled, fe.frame_copy, px);
+    fprintf(stderr, "  idle %zu px, pasted %zu px, entered %zu px\n", idle, pasted, entered);
     ASSERT_TRUE(idle < 2000);
-    ASSERT_TRUE(pasted > 5000);
+    ASSERT_TRUE(pasted > 0 && pasted < 2000);
+    ASSERT_TRUE(entered > 5000);
     memset(fe.pointer, 0, sizeof fe.pointer);
     fe.unload_game();
 }

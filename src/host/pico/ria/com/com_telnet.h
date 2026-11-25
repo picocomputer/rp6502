@@ -52,7 +52,7 @@ int com_telnet_key_response(char *buf, size_t buf_size, int state, unsigned widt
 
 #define COM_TELNET_CONFIG_PORT CONFIG_INT(O, com_telnet, port, uint16_t, 23, \
     nul_check, nul_apply, STR_PORT, com_telnet_port_response, STR_HELP_SET_PORT, NULL)
-#define COM_TELNET_CONFIG_KEY CONFIG_STR(A, com_telnet, key, COM_TELNET_KEY_SIZE, "", \
+#define COM_TELNET_CONFIG_KEY CONFIG_SECRET(A, com_telnet, key, COM_TELNET_KEY_SIZE, "", \
     nul_check, nul_apply, STR_KEY, com_telnet_key_response, STR_HELP_SET_KEY, NULL)
 #define COM_TELNET_DRIVER DRIVER( \
     TASK_ALWAYS(com_telnet_task)  \

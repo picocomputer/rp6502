@@ -48,16 +48,24 @@ rp6502_add_script_test(NAME stuck COMMAND stuck.txt ${ADVENTURE_ROM})
 set_tests_properties(script.stuck PROPERTIES PASS_REGULAR_EXPRESSION
     "timed out waiting for \"standing at the end of a road\"\nrp6502-emu: PC=[$][0-9A-F]+ A=[$][0-9A-F]+ X=[$][0-9A-F]+ Y=[$][0-9A-F]+ SP=[$][0-9A-F]+ P=[$][0-9A-F]+ OP=[$]16 BUSY=[$]FE RESB=1")
 
-# The symbols tests use two copies of adventure, each with a hand-written .sym
-# file, so a script can load the other copy and check that the symbols change.
-foreach(_rom adventure other)
+# The symbols tests use copies of adventure, each with a hand-written .sym
+# file, so a script can load another copy and check that the symbols change.
+# old.sym has the name and value lines of older tools.
+foreach(_rom adventure other old)
     configure_file(${ADVENTURE_ROM} ${CMAKE_CURRENT_BINARY_DIR}/symbols/${_rom}.rp6502 COPYONLY)
     configure_file(symbols/${_rom}.sym ${CMAKE_CURRENT_BINARY_DIR}/symbols/${_rom}.sym COPYONLY)
 endforeach()
 set(_symbols --install ${CMAKE_CURRENT_BINARY_DIR}/symbols/other.rp6502
+    --install ${CMAKE_CURRENT_BINARY_DIR}/symbols/old.rp6502
     ${CMAKE_CURRENT_BINARY_DIR}/symbols/adventure.rp6502)
 rp6502_add_script_test(NAME symbols COMMAND symbols.txt ${_symbols})
 rp6502_add_script_test(NAME symbols_fail COMMAND symbols_fail.py ${_symbols})
+rp6502_add_script_test(NAME symbols_python COMMAND symbols_fail.py ${_symbols})
+# A Python test with options of its own.
+rp6502_add_script_test(NAME options COMMAND options.py)
+rp6502_add_script_test(NAME options_run COMMAND options.py
+    --miss 5 --memse 1234 ${ADVENTURE_ROM})
+
 rp6502_add_script_test(NAME symbols_keys COMMAND symbols_keys.txt ${KEYBOARD_ROM})
 
 rp6502_add_script_test(NAME locks COMMAND locks.txt ${KEYBOARD_ROM})

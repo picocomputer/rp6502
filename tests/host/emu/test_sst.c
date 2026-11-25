@@ -17,7 +17,6 @@
 #include "core/com/rln.h"
 #include "core/com/com.h"
 #include "core/hid/clip.h"
-#include "core/hid/paste.h"
 #include "core/hid/paste_host.h"
 #include "core/hid/typed.h"
 #include "core/term/draw.h"
@@ -70,8 +69,8 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)251459);
-    ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 45u);
+    ASSERT_EQ(sst_size(), (size_t)251685);
+    ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 44u);
 }
 
 UTEST(sst, a_blob_is_framed)
@@ -312,35 +311,37 @@ UTEST(sst, the_palette_and_its_faint_twins_come_back)
     draw_publish();
 }
 
-/* A paste is host text on its way in: a save carries none of it, and a load
- * ends it. */
-UTEST(sst, a_load_mid_paste_cancels_it)
+/* All the keyboard row gives. */
+static size_t keyboard_all(char *out, size_t max)
 {
+    return com_read(COM_SOURCE_KEYBOARD, out, max);
+}
+
+/* A paste of the host's text is the host's: a save carries none of it,
+ * and a load ends the one being typed and those that wait, while the keys
+ * typed round them stay. */
+UTEST(sst, a_load_ends_the_host_s_pastes)
+{
+    com_rx_clear();
     char big[TYPED_QUEUE_SIZE * 4];
     memset(big, 'p', sizeof big - 1);
     big[sizeof big - 1] = 0;
     paste_start(big);
-    paste_task();
-    ASSERT_TRUE(paste_busy());
+    typed_push("a", 1);
+    paste_start("second");
+    ASSERT_TRUE(typed_text("third"));
+    typed_push("b", 1);
+    char head[4];
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, sizeof head), sizeof head);
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_TRUE(paste_busy());
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
-    ASSERT_FALSE(paste_busy());
-}
-
-/* All the keyboard row gives, the paste staged as the main loop stages it. */
-static size_t keyboard_all(char *out, size_t max)
-{
-    size_t got = 0;
-    for (int i = 0; i < 10000 && got < max; i++)
-    {
-        paste_task();
-        size_t n = com_read(COM_SOURCE_KEYBOARD, out + got, max - got);
-        got += n;
-        if (!n && !paste_busy())
-            break;
-    }
-    return got;
+    char rest[8] = {0};
+    ASSERT_EQ(keyboard_all(rest, sizeof rest - 1), (size_t)2);
+    ASSERT_STREQ(rest, "ab");
+    /* Text handed over after the load is typed as it is. */
+    paste_start("new");
+    ASSERT_EQ(keyboard_all(rest, sizeof rest - 1), (size_t)3);
+    ASSERT_STREQ(rest, "new");
 }
 
 static void say(const char *s)
@@ -358,7 +359,6 @@ UTEST(sst, a_bracketed_host_paste_comes_back_as_its_closing_bracket)
     static char big[TYPED_QUEUE_SIZE * 4];
     memset(big, 'p', sizeof big - 1);
     paste_start(big);
-    paste_task();
     char head[8];
     ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, sizeof head), sizeof head);
     ASSERT_EQ(memcmp(head, "\33[200~pp", 8), 0);
@@ -367,7 +367,6 @@ UTEST(sst, a_bracketed_host_paste_comes_back_as_its_closing_bracket)
     char rest[16] = {0};
     ASSERT_EQ(keyboard_all(rest, sizeof rest - 1), (size_t)6);
     ASSERT_STREQ(rest, "\33[201~");
-    ASSERT_FALSE(paste_busy());
     say("\33[?2004l");
 }
 
@@ -377,7 +376,6 @@ UTEST(sst, a_half_read_opening_bracket_is_finished_after_a_load)
     com_rx_clear();
     say("\33[?2004h");
     paste_start("text");
-    paste_task();
     char head[3];
     ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, sizeof head), sizeof head);
     ASSERT_EQ(take(), (const char *)NULL);
@@ -388,17 +386,21 @@ UTEST(sst, a_half_read_opening_bracket_is_finished_after_a_load)
     say("\33[?2004l");
 }
 
-/* A bracketed host paste the program has read nothing of goes whole. */
+/* A bracketed host paste the program has read nothing of goes whole,
+ * whether its turn had come or not. */
 UTEST(sst, an_unread_host_paste_leaves_nothing_after_a_load)
 {
     com_rx_clear();
     say("\33[?2004h");
     paste_start("text");
-    paste_task();
     ASSERT_EQ(take(), (const char *)NULL);
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
-    ASSERT_FALSE(paste_busy());
     char rest[16];
+    ASSERT_EQ(keyboard_all(rest, sizeof rest), (size_t)0);
+    paste_start("text");
+    ASSERT_EQ(com_peek(COM_SOURCE_KEYBOARD, 0), '\33');
+    ASSERT_EQ(take(), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_EQ(keyboard_all(rest, sizeof rest), (size_t)0);
     say("\33[?2004l");
 }
@@ -414,13 +416,11 @@ UTEST(sst, a_machine_paste_behind_host_text_comes_back)
     static char big[TYPED_QUEUE_SIZE * 4];
     memset(big, 'p', sizeof big - 1);
     paste_start(big);
-    paste_task();
     char head[8];
     ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, sizeof head), sizeof head);
     clip_paste(CLIP_PRIMARY);
-    paste_task();
     ASSERT_EQ(take(), (const char *)NULL);
-    clip_reset();
+    com_rx_clear();
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     char rest[32] = {0};
     ASSERT_EQ(keyboard_all(rest, sizeof rest - 1), (size_t)22);
@@ -440,7 +440,6 @@ UTEST(sst, a_paste_of_the_machine_s_own_text_comes_back)
     const term_grid_t *g = vterm_get_shown(&vterm);
     clip_copy(CLIP_PRIMARY, g->shown, 0, 0, (uint8_t)(g->height - 1), g->width);
     clip_paste(CLIP_PRIMARY);
-    paste_task();
     char head[100];
     ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, sizeof head), sizeof head);
     ASSERT_EQ(take(), (const char *)NULL);
@@ -451,7 +450,85 @@ UTEST(sst, a_paste_of_the_machine_s_own_text_comes_back)
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_EQ(keyboard_all(again, sizeof again), got);
     ASSERT_EQ(memcmp(rest, again, got), 0);
-    ASSERT_FALSE(paste_busy());
+    ASSERT_EQ(com_peek(COM_SOURCE_KEYBOARD, 0), -1);
+}
+
+/* The two bytes at off of the queue's chunk in the blob, the big end
+ * first. */
+static uint8_t *typd(size_t off)
+{
+    for (size_t i = 0; i + 4 <= sst_size(); i++)
+        if (!memcmp(blob + i, "TYPD", 4))
+            return blob + i + 10 + off;
+    return NULL;
+}
+
+/* A save of a queue holding a byte, a cut key of two bytes and a paste of
+ * the primary, with a paste of the primary being typed. Its chunk is the
+ * length, the entries, and the paste being typed. */
+static void take_queue(int *utest_result)
+{
+    com_rx_clear();
+    say("\33[H\33[2Jmine");
+    term_job_finish(&vterm);
+    clip_copy(CLIP_PRIMARY, vterm_get_shown(&vterm)->shown, 0, 0, 0, 4);
+    clip_paste(CLIP_PRIMARY);
+    char head[1];
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, 1), (size_t)1);
+    typed_push("a", 1);
+    typed_cut("xy", 2);
+    clip_paste(CLIP_PRIMARY);
+    ASSERT_EQ(take(), (const char *)NULL);
+    ASSERT_NE(typd(0), (uint8_t *)NULL);
+    ASSERT_EQ(typd(0)[1], 5);
+    ASSERT_EQ(typd(2)[1], 'a');
+    ASSERT_EQ(typd(4)[0], TYPED_CUT << 4);
+    ASSERT_EQ(typd(2 + 2 * TYPED_QUEUE_SIZE)[0], 1 + CLIP_PRIMARY);
+}
+
+/* What take_queue saved loads, and goes on. */
+UTEST(sst, a_queue_s_entries_come_back)
+{
+    take_queue(utest_result);
+    com_rx_clear();
+    ASSERT_EQ(sst_load(blob, sst_size(), SST_TRUSTED), (const char *)NULL);
+    char rest[16] = {0};
+    ASSERT_EQ(keyboard_all(rest, sizeof rest - 1), (size_t)10);
+    ASSERT_STREQ(rest, "ineaxymine");
+}
+
+/* A queue's chunk that holds what the queue cannot is refused: more
+ * entries than it has room for, an entry of no kind, a byte that is none,
+ * a paste of no buffer, a cut key with fewer bytes behind its mark than it
+ * says, or one with an entry among them that is no byte, a drag behind an
+ * entry that is not its held one, and a paste being
+ * typed from no buffer or past the text its buffer holds. */
+UTEST(sst, a_queue_that_cannot_be_is_refused)
+{
+    static const struct
+    {
+        size_t off;
+        uint8_t byte;
+    } bad[] = {
+        {0, 0xFF},                                 /* a length past the queue */
+        {2, 0x90},                                 /* an entry of no kind */
+        {2, 0x01},                                 /* a byte past a byte */
+        {11, CLIP_COUNT},                          /* a paste of the host's text */
+        {5, 9},                                    /* a cut key's bytes past the queue */
+        {6, TYPED_COPY << 4},                      /* a cut key's byte that is none */
+        {10, TYPED_DRAG << 4},                     /* a drag with no held entry before it */
+        {2 + 2 * TYPED_QUEUE_SIZE, CLIP_COUNT + 1}, /* typed from no buffer */
+        {2 + 2 * TYPED_QUEUE_SIZE + 2, 4},         /* typed past its text */
+        {2 + 2 * TYPED_QUEUE_SIZE + 3, 7},         /* more of a bracket than there is */
+        {2 + 2 * TYPED_QUEUE_SIZE + 4, 7},
+    };
+    for (size_t i = 0; i < sizeof bad / sizeof *bad; i++)
+    {
+        take_queue(utest_result);
+        *typd(bad[i].off) = bad[i].byte;
+        ASSERT_NE(sst_load(blob, sst_size(), SST_TRUSTED), (const char *)NULL);
+    }
+    com_rx_clear();
 }
 
 UTEST(sst, a_program_picks_up_where_it_was)

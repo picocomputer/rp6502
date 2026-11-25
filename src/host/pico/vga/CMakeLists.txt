@@ -14,7 +14,7 @@ pico_add_extra_outputs(rp6502-vga)
 pico_set_program_name(rp6502-vga "RP6502-VGA")
 add_dependencies(rp6502-vga rp6502_gen_c)
 pico_set_binary_type(rp6502-vga copy_to_ram)
-rp6502_pico_rtt(rp6502-vga)
+rp6502_pico_rtt_stdio(rp6502-vga)
 # The VGA's own linker files come first, so its memory_ram.incl takes the
 # place of the shared one; see ld/. The fonts and palettes the renderers read,
 # and the console's cells, go in its VIDEO region, where ld/ places them by

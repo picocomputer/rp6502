@@ -219,7 +219,6 @@ static char HOST_IN_RAM_FUNC keymap_layout_lookup(const keymap_press_t *k)
 
 void keymap_abandon(void)
 {
-    paste_cancel();
     typed_clear();
     keymap_alt_mode = false;
     keymap_dead_key0 = keymap_dead_key1 = 0;
@@ -326,18 +325,29 @@ static void HOST_IN_RAM_FUNC keymap_compose(char ch)
     keymap_queue_char(ch);
 }
 
-/* Chords and lock keys, which do something other than type. True when one of
- * them acted. GUI-Space and the locks are this driver's; the rest are every
+/* Chords and lock keys, which do something other than type: what the key
+ * is. GUI-Space and the locks are this driver's; the rest are every
  * machine's. Only a first press asks, so it has no repeat to pass. */
-static bool HOST_IN_RAM_FUNC keymap_chord(const keymap_press_t *k)
+static key_chord_t HOST_IN_RAM_FUNC keymap_chord(const keymap_press_t *k)
 {
     if (k->keycode == HID_KEY_SPACE && k->gui)
     {
         layout_list_cycle();
-        return true;
+        return KEY_CHORD_ACTED;
     }
-    return key_chord(k->keycode, k->mod, false) ||
-           keymap_lock_key(k->keycode);
+    const key_chord_t chord = key_chord(k->keycode, k->mod, false);
+    return chord == KEY_CHORD_NONE && keymap_lock_key(k->keycode) ? KEY_CHORD_ACTED : chord;
+}
+
+/* A dead key still being composed is typed as it is. Inlined, so it
+ * lands where its caller is. */
+static inline __attribute__((always_inline)) void keymap_flush(void)
+{
+    if (keymap_dead_key0)
+        keymap_queue_char(keymap_dead_key0);
+    if (keymap_dead_key1)
+        keymap_queue_char(keymap_dead_key1);
+    keymap_dead_key0 = keymap_dead_key1 = 0;
 }
 
 /* What the encoder made of a key. One byte goes through the composer, so DEL
@@ -350,17 +360,22 @@ static void HOST_IN_RAM_FUNC keymap_type(const char *seq, int n)
         keymap_compose(seq[0]);
         return;
     }
-    if (keymap_dead_key0)
-        keymap_queue_char(keymap_dead_key0);
-    if (keymap_dead_key1)
-        keymap_queue_char(keymap_dead_key1);
-    keymap_dead_key0 = keymap_dead_key1 = 0;
+    keymap_flush();
     typed_push(seq, (size_t)n);
 }
 
-/* A chord or a lock key acts once and never repeats. The encoder is asked
- * next, so a key sends what it sends on every machine, in the terminal's
- * modes, and the layout is left the keys that have characters. */
+/* What a cut key types is queued whole behind its mark, after any dead key
+ * it found waiting. From flash, as a cut is rare. */
+static void HOST_IN_FLASH_FUNC keymap_cut(const char *seq, int n)
+{
+    keymap_flush();
+    typed_cut(seq, (size_t)n);
+}
+
+/* A chord or a lock key acts once and never repeats, and a cut key types
+ * once. The encoder is asked next, so a key sends what it sends on every
+ * machine, in the terminal's modes, and the layout is left the keys that
+ * have characters. */
 static void HOST_IN_RAM_FUNC keymap_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
 {
     keymap_cache_ready();
@@ -369,11 +384,11 @@ static void HOST_IN_RAM_FUNC keymap_queue_key(uint8_t modifier, uint8_t keycode,
     keymap_decode(modifier, keycode, &k);
     if (keymap_alt_code_key(&k))
         return;
-    if (initial_press && keymap_chord(&k))
-    {
+    const key_chord_t chord = initial_press ? keymap_chord(&k) : KEY_CHORD_NONE;
+    if (chord != KEY_CHORD_NONE)
         keymap_repeat_keycode = 0;
+    if (chord == KEY_CHORD_ACTED)
         return;
-    }
     uint8_t flags = (uint8_t)((k.shift ? VTKEY_SHIFT : 0) | (k.alt ? VTKEY_ALT : 0) |
                               (k.ctrl ? VTKEY_CTRL : 0));
     char seq[VTKEY_MAX];
@@ -392,7 +407,9 @@ static void HOST_IN_RAM_FUNC keymap_queue_key(uint8_t modifier, uint8_t keycode,
             flags &= (uint8_t)~VTKEY_ALT;
         n = vtkey_char(seq, k.keycode, ch, flags);
     }
-    if (n)
+    if (chord == KEY_CHORD_CUT)
+        keymap_cut(seq, n);
+    else if (n)
         keymap_type(seq, n);
 }
 

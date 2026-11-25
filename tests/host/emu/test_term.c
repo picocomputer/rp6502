@@ -3697,7 +3697,7 @@ static void rln_cb(bool timeout, const char *buf)
 UTEST(term, a_read_waits_for_the_held_line)
 {
     ASSERT_TRUE(held_line_feed());
-    rln_read_line(rln_cb, NULL);
+    rln_read_line(rln_cb, NULL, NULL);
     manifold_uart_push("hi\r", 3);
     rln_got[0] = 0;
     int frames = 0;

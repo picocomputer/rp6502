@@ -67,7 +67,6 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_GEN}/layout_db.c
         ${RP6502_SRC}/core/hid/keymap.c
         ${RP6502_SRC}/core/hid/typed.c
-        ${RP6502_SRC}/core/hid/paste.c
         ${RP6502_SRC}/core/hid/clip_byte.c
         ${RP6502_SRC}/core/hid/vtkey.c
         ${RP6502_SRC}/core/hid/vtmouse.c

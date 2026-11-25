@@ -12,7 +12,6 @@
 #include "core/hid/typed.h"
 #include "core/com/manifold.h"
 #include "core/hid/clip.h"
-#include "core/hid/paste.h"
 #include "host/host.h"
 #include "tb_seed.h"
 #include "core/hid/keyboard.h"
@@ -219,21 +218,12 @@ UTEST(input, keypad_chords)
     ASSERT_STREQ(typed(), "\33[1;5E\33[1;3A*");
 }
 
-/* What the keys since the last call typed and pasted, the paste staged as
- * the main loop stages it. */
+/* What the keys since the last call typed and pasted, a paste's text
+ * among them. */
 static const char *pasted(void)
 {
     static char buf[64];
-    size_t n = 0;
-    for (int i = 0; i < 1000 && n < sizeof buf - 1; i++)
-    {
-        paste_task();
-        const size_t got = com_read(COM_SOURCE_KEYBOARD, buf + n, sizeof buf - 1 - n);
-        n += got;
-        if (!got && !paste_busy())
-            break;
-    }
-    buf[n] = 0;
+    buf[com_read(COM_SOURCE_KEYBOARD, buf, sizeof buf - 1)] = 0;
     return buf;
 }
 
@@ -256,8 +246,8 @@ UTEST(input, ctrl_v_types_syn)
     ASSERT_STREQ(pasted(), "\x16");
 }
 
-/* The paste keys paste the clipboard as they go down; on a Mac, Cmd+V's
- * paste from sokol after it pastes nothing more. */
+/* The paste keys paste the clipboard, asked for as the paste's turn
+ * comes; on a Mac, Cmd+V's paste from sokol after it pastes nothing more. */
 UTEST(input, the_paste_keys_paste_the_clipboard)
 {
     start(0);
@@ -280,6 +270,22 @@ UTEST(input, the_paste_keys_paste_the_clipboard)
     ASSERT_STREQ(pasted(), "text");
 }
 
+/* A paste key held pastes once: its repeats are the chord still held. */
+UTEST(input, a_held_paste_key_pastes_once)
+{
+    start(0);
+    ASSERT_TRUE(host_clipboard_set("text"));
+    sapp_event e = {.type = SAPP_EVENTTYPE_KEY_DOWN, .key_code = SAPP_KEYCODE_INSERT,
+                    .modifiers = SAPP_MODIFIER_SHIFT};
+    input_event(&e);
+    e.key_repeat = true;
+    input_event(&e);
+    input_event(&e);
+    e.type = SAPP_EVENTTYPE_KEY_UP;
+    input_event(&e);
+    ASSERT_STREQ(pasted(), "text");
+}
+
 /* A key down as the web player sees it, a repeat or not. */
 static sapp_event key_down(sapp_keycode code, uint32_t modifiers, bool repeat)
 {
@@ -289,7 +295,8 @@ static sapp_event key_down(sapp_keycode code, uint32_t modifiers, bool repeat)
 
 /* The web player leaves a paste key's press to the browser, which makes the
  * paste event that pastes, and cancels what must make none: plain Ctrl+V,
- * which types 0x16, and a held paste key's repeat, which acts once. */
+ * which types 0x16, and a held paste key's repeat, which acts once. The
+ * copy and cut keys are the player's alone, always, their repeats too. */
 UTEST(input, the_web_player_lets_a_paste_key_paste_once)
 {
     static const struct
@@ -324,23 +331,32 @@ UTEST(input, the_web_player_lets_a_paste_key_paste_once)
     {
         sapp_keycode code;
         uint32_t modifiers;
-    } copy_keys[] = {
+    } own_keys[] = {
         {SAPP_KEYCODE_C, SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT},
         {SAPP_KEYCODE_INSERT, SAPP_MODIFIER_CTRL},
         {SAPP_KEYCODE_C, SAPP_MODIFIER_SUPER},
+        {SAPP_KEYCODE_X, SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT},
+        {SAPP_KEYCODE_DELETE, SAPP_MODIFIER_SHIFT},
+        {SAPP_KEYCODE_X, SAPP_MODIFIER_SUPER},
     };
-    for (size_t i = 0; i < sizeof copy_keys / sizeof *copy_keys; i++)
+    for (size_t i = 0; i < sizeof own_keys / sizeof *own_keys; i++)
         for (int repeat = 0; repeat < 2; repeat++)
         {
-            sapp_event e = key_down(copy_keys[i].code, copy_keys[i].modifiers, repeat);
+            sapp_event e = key_down(own_keys[i].code, own_keys[i].modifiers, repeat);
             ASSERT_FALSE(input_paste_key(&e));
             ASSERT_TRUE(input_key_withheld(&e));
         }
     tb_mac_keys = false;
     sapp_event c = key_down(SAPP_KEYCODE_C, SAPP_MODIFIER_CTRL, false);
     ASSERT_FALSE(input_key_withheld(&c));
-    /* Off a Mac, Cmd+C and Cmd+V are the browser's. */
+    c = key_down(SAPP_KEYCODE_X, SAPP_MODIFIER_CTRL, false);
+    ASSERT_FALSE(input_key_withheld(&c));
+    c = key_down(SAPP_KEYCODE_DELETE, 0, false);
+    ASSERT_FALSE(input_key_withheld(&c));
+    /* Off a Mac, Cmd+C, Cmd+X and Cmd+V are the browser's. */
     c = key_down(SAPP_KEYCODE_C, SAPP_MODIFIER_SUPER, false);
+    ASSERT_FALSE(input_key_withheld(&c));
+    c = key_down(SAPP_KEYCODE_X, SAPP_MODIFIER_SUPER, false);
     ASSERT_FALSE(input_key_withheld(&c));
     c = key_down(SAPP_KEYCODE_V, SAPP_MODIFIER_SUPER, false);
     ASSERT_FALSE(input_paste_key(&c));
@@ -350,26 +366,55 @@ UTEST(input, the_web_player_lets_a_paste_key_paste_once)
     ASSERT_FALSE(input_key_withheld(&e));
 }
 
+static char line_got[RLN_LINE_MAX];
+
 static void line_read(bool timeout, const char *buf)
 {
-    (void)timeout, (void)buf;
+    (void)timeout;
+    strcpy(line_got, buf);
 }
 
-/* The line editor's turn, and the paste's. */
+/* The line editor's turn. */
 static void line_loop(void)
 {
     for (int i = 0; i < 64; i++)
-    {
-        paste_task();
         rln_task();
-    }
 }
 
-/* The web player withholds a cut key from the browser only when it cuts,
- * with the line editor's selection showing, and then its repeat too, as
- * the chord it is; with none, the key types as before and the browser
- * has it. Off a Mac, Cmd+X is always the browser's. */
-UTEST(input, the_web_player_withholds_a_cut_key_that_cuts)
+/* A line being read, with text typed into it. */
+static void line_start(const char *text)
+{
+    sys_init();
+    manifold_set_paced(false);
+    start(0);
+    rln_read_line(line_read, NULL, NULL);
+    line_loop();
+    typed_push(text, strlen(text));
+    line_loop();
+}
+
+/* A cut key with no line being read types what the key types, once, and
+ * its repeat types nothing. Cmd+X types nothing at all. */
+UTEST(input, a_cut_key_with_no_line_read_types_its_bytes)
+{
+    sys_init();
+    start(0);
+    tb_mac_keys = true;
+    sapp_event e = key_down(SAPP_KEYCODE_X, SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT, false);
+    input_event(&e);
+    e.key_repeat = true;
+    input_event(&e);
+    ASSERT_STREQ(pasted(), "\x18");
+    key(SAPP_KEYCODE_DELETE, SAPP_MODIFIER_SHIFT, 0);
+    ASSERT_STREQ(pasted(), "\33[3;2~");
+    key(SAPP_KEYCODE_X, SAPP_MODIFIER_SUPER, 'x');
+    ASSERT_STREQ(pasted(), "");
+    tb_mac_keys = false;
+}
+
+/* Each cut key cuts the line's selection to the clipboard, in its place
+ * among the keys, and what it would type is not typed. */
+UTEST(input, the_cut_keys_cut_in_the_line)
 {
     static const struct
     {
@@ -380,67 +425,57 @@ UTEST(input, the_web_player_withholds_a_cut_key_that_cuts)
         {SAPP_KEYCODE_DELETE, SAPP_MODIFIER_SHIFT},
         {SAPP_KEYCODE_X, SAPP_MODIFIER_SUPER},
     };
-    sys_init();
-    manifold_set_paced(false);
-    start(0);
-    rln_read_line(line_read, NULL);
-    line_loop();
-    typed_push("abcdef", 6);
-    line_loop();
+    static const char *const cut[] = {"f", "e", "d"};
+    line_start("abcdef");
     tb_mac_keys = true;
     for (size_t i = 0; i < sizeof cut_keys / sizeof *cut_keys; i++)
     {
-        sapp_event e = key_down(cut_keys[i].code, cut_keys[i].modifiers, false);
-        ASSERT_FALSE(input_key_withheld(&e));
         key(SAPP_KEYCODE_LEFT, SAPP_MODIFIER_SHIFT, 0);
+        key(cut_keys[i].code, cut_keys[i].modifiers, 0);
         line_loop();
-        ASSERT_TRUE(rln_selected());
-        ASSERT_TRUE(input_key_withheld(&e));
-        input_event(&e);
-        e.key_repeat = true;
-        ASSERT_TRUE(input_key_withheld(&e));
-        e.type = SAPP_EVENTTYPE_KEY_UP;
-        input_event(&e);
-        line_loop();
-        ASSERT_FALSE(rln_selected());
-        e = key_down(cut_keys[i].code, cut_keys[i].modifiers, false);
-        ASSERT_FALSE(input_key_withheld(&e));
+        ASSERT_STREQ(host_clipboard_get(), cut[i]);
     }
-    /* A press that typed is followed by repeats that type, which the
-     * browser has too. */
-    sapp_event e = key_down(SAPP_KEYCODE_X, SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT, false);
-    input_event(&e);
-    e.key_repeat = true;
-    ASSERT_FALSE(input_key_withheld(&e));
     tb_mac_keys = false;
-    key(SAPP_KEYCODE_LEFT, SAPP_MODIFIER_SHIFT, 0);
+    typed_push("\r", 1);
     line_loop();
-    ASSERT_TRUE(rln_selected());
-    e = key_down(SAPP_KEYCODE_X, SAPP_MODIFIER_SUPER, false);
-    ASSERT_FALSE(input_key_withheld(&e));
+    ASSERT_STREQ(line_got, "abc");
 }
 
-/* The copy keys put the primary in the clipboard, and type nothing. */
+/* Each copy key puts the line's selection in the clipboard, and types
+ * nothing. */
 UTEST(input, the_copy_keys_set_the_clipboard)
 {
-    sys_init();
-    manifold_set_paced(false);
-    start(0);
-    const char *show = "\33[H\33[2Jcopied\r\n";
-    manifold_write_to(COM_TERM_SCREEN, show, strlen(show));
-    clip_copy(CLIP_PRIMARY, vterm_get_shown(&vterm)->shown, 0, 0, 0, 6);
+    line_start("copied");
+    key(SAPP_KEYCODE_HOME, SAPP_MODIFIER_SHIFT, 0);
     ASSERT_TRUE(host_clipboard_set(""));
     key(SAPP_KEYCODE_C, SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT, 0);
+    line_loop();
     ASSERT_STREQ(host_clipboard_get(), "copied");
     ASSERT_TRUE(host_clipboard_set(""));
     key(SAPP_KEYCODE_INSERT, SAPP_MODIFIER_CTRL, 0);
+    line_loop();
     ASSERT_STREQ(host_clipboard_get(), "copied");
     ASSERT_TRUE(host_clipboard_set(""));
     tb_mac_keys = true;
     key(SAPP_KEYCODE_C, SAPP_MODIFIER_SUPER, 'c');
     tb_mac_keys = false;
+    line_loop();
     ASSERT_STREQ(host_clipboard_get(), "copied");
-    ASSERT_STREQ(pasted(), "");
+    typed_push("\r", 1);
+    line_loop();
+    ASSERT_STREQ(line_got, "copied");
+}
+
+/* With no line being read, a copy key does nothing and types nothing. */
+UTEST(input, a_copy_key_with_no_line_read_is_dropped)
+{
+    sys_init();
+    start(0);
+    ASSERT_TRUE(host_clipboard_set("kept"));
+    key(SAPP_KEYCODE_C, SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT, 0);
+    key(SAPP_KEYCODE_A, 0, 'a');
+    ASSERT_STREQ(pasted(), "a");
+    ASSERT_STREQ(host_clipboard_get(), "kept");
 }
 
 static void pointer_to(float x, float y)

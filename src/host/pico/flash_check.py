@@ -22,12 +22,16 @@
 #
 # A check that finds nothing to check fails: no roots, or no code found in a
 # RAM source, means the inputs were misread, not that all is well. So does a
-# section of ria.cmake's RIA_FLASH_SECTIONS that is not in flash, or that no
-# object of the link has, kept or discarded, as its rule in the linker script
-# then matches nothing.
+# section of ria.cmake's RIA_FLASH_SECTIONS that is not in flash, or that
+# matches nothing. A section there is a pattern, as it is in the linker script,
+# so one name covers the clones the compiler makes at any optimization level.
+# A function its source still has, but which this build inlined everywhere or
+# left out, matches nothing and is no finding: a name its source no longer
+# has is.
 
 import argparse
 import collections
+import fnmatch
 import json
 import os
 import re
@@ -452,9 +456,7 @@ def main():
              if build.split_location(loc)[0] not in ('??', '')}
     with open(args.map) as f:
         linked = set(re.findall(r'^ (\.(?:text|rodata)\.\S+)', f.read(), re.M))
-    where = collections.defaultdict(list)
-    for name, value in rp6502.Symbols.elf_symbols(args.elf):
-        where[name].append(value)
+    symbols = list(rp6502.Symbols.elf_symbols(args.elf))
     with open(args.flash_sections) as f:
         for entry in f.read().split('\n'):
             if not entry:
@@ -464,9 +466,13 @@ def main():
                 continue  # a source this RIA does not build
             for sec in sections.split():
                 name = re.sub(r'^\.(text|rodata)\.', '', sec)
-                if sec not in linked:
-                    report.append('flash section %s of %s matches nothing' % (sec, src))
-                elif where[name] and not any(flash(v) for v in where[name]):
+                where = [v for n, v, _, _ in symbols if fnmatch.fnmatchcase(n, name)]
+                if not fnmatch.filter(linked, sec):
+                    with open(src, errors='replace') as f:
+                        stale = not re.search(r'\b%s\b' % re.escape(name.rstrip('*')), f.read())
+                    if stale:
+                        report.append('flash section %s of %s matches nothing' % (sec, src))
+                elif where and not any(flash(v) for v in where):
                     report.append('flash section %s of %s is not in flash' % (sec, src))
     if not tasks:
         report.append('no TASK_ALWAYS task in the .flash_roots section')

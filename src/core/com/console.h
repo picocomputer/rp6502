@@ -44,10 +44,12 @@ bool console_rendered(void);
  * program stops. */
 bool console_asked(void);
 
-/* The reader rln calls back with a line. rln writes down whether a read was
- * outstanding as a token rather than as a pointer, so this is the reader its
- * load installs when the token says one was. */
+/* The reader rln calls back with a line, and the kill buffer of its
+ * reads. rln writes down whether a read was outstanding as a token rather
+ * than as a pointer, so these are the reader and the kill buffer its load
+ * installs when the token says one was. */
 rln_read_callback_t console_rln_reader(void);
+rln_kill_t *console_rln_kill(void);
 
 /* STDIO
  */

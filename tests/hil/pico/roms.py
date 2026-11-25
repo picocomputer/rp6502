@@ -866,5 +866,26 @@ def sizes():
     return p
 
 
+# The 640x360 canvas with the terminal over all of it, which a 16:9 display
+# shows at 1280x720: a line on each of its 22 rows, then nothing until a
+# break.
+WIDE_CANVAS, WIDE_ROWS = 4, 22
+
+
+def wide_line(row):
+    return f"hil wide {row:02} of {WIDE_ROWS}: The quick brown fox jumps over the lazy dog."
+
+
+def wide():
+    p = Asm()
+    p.xreg(1, 0, 0, WIDE_CANVAS)
+    p.xreg(1, 0, 1, 0)
+    p.say("\r\n".join(wide_line(row) for row in range(1, WIDE_ROWS + 1)))
+    p.symbol("spin")
+    p.jmp_abs("spin")
+    p.use(putc)
+    return p
+
+
 ROMS = {"hil-tput": tput, "hil-audio": audio, "hil-bus": bus, "hil-term": term,
-        "hil-term-loaded": term_loaded, "hil-sizes": sizes}
+        "hil-term-loaded": term_loaded, "hil-sizes": sizes, "hil-wide": wide}

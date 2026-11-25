@@ -6,14 +6,15 @@
 
 #include "core/hid/key.h"
 #include "core/hid/clip.h"
+#include "core/hid/typed.h"
 #include "core/hid/usage.h"
 #include "core/api/proc.h"
-#include "core/com/rln.h"
 #include "core/sys/sst.h"
+#include "core/term/vterm_mouse.h"
 #include "host/host.h"
 #include "machine.h"
 
-/* The key whose press last acted as a chord, or 0. */
+/* The key whose press was last a chord, or 0. */
 static uint8_t key_chord_down;
 
 #define KEY_SST(X) \
@@ -52,47 +53,30 @@ key_clip_t HOST_IN_RAM_FUNC key_clip(uint8_t keycode, uint8_t modifier)
     }
 }
 
-/* From flash, as the clip and line editor calls it makes are. */
-bool HOST_IN_FLASH_FUNC key_clip_act(key_clip_t clip)
+/* A copy or paste key acts. From flash, as the calls it makes are. */
+static void HOST_IN_FLASH_FUNC key_clip_act(key_clip_t clip)
 {
-    switch (clip)
-    {
-    case KEY_CLIP_COPY:
-        if (!rln_copy())
-            clip_copy_primary();
-        return true;
-    case KEY_CLIP_CUT:
-        return rln_cut();
-    case KEY_CLIP_PASTE:
-        if (!rln_paste())
-            clip_paste(CLIP_CLIPBOARD);
-        return true;
-    default:
-        return false;
-    }
+    if (clip == KEY_CLIP_PASTE)
+        clip_paste(CLIP_CLIPBOARD);
+    else if (!vterm_mouse_copy())
+        typed_put(TYPED_ENTRY(TYPED_COPY, 0));
 }
 
-bool key_clip_acts(uint8_t keycode, uint8_t modifier, bool repeat)
-{
-    switch (key_clip(keycode, modifier))
-    {
-    case KEY_CLIP_COPY:
-    case KEY_CLIP_PASTE:
-        return true;
-    case KEY_CLIP_CUT:
-        return repeat ? keycode == key_chord_down : rln_selected();
-    default:
-        return false;
-    }
-}
-
-bool HOST_IN_RAM_FUNC key_chord(uint8_t keycode, uint8_t modifier, bool repeat)
+key_chord_t HOST_IN_RAM_FUNC key_chord(uint8_t keycode, uint8_t modifier, bool repeat)
 {
     if (repeat)
-        return keycode && keycode == key_chord_down;
+        return keycode && keycode == key_chord_down ? KEY_CHORD_ACTED : KEY_CHORD_NONE;
     const key_clip_t clip = key_clip(keycode, modifier);
-    const bool acted = (clip != KEY_CLIP_NONE && key_clip_act(clip)) ||
-                       proc_key_chord(keycode, modifier & KEY_CTRL, modifier & KEY_ALT);
-    key_chord_down = acted ? keycode : 0;
-    return acted;
+    key_chord_t chord = KEY_CHORD_NONE;
+    if (clip == KEY_CLIP_CUT)
+        chord = KEY_CHORD_CUT;
+    else if (clip != KEY_CLIP_NONE)
+    {
+        key_clip_act(clip);
+        chord = KEY_CHORD_ACTED;
+    }
+    else if (proc_key_chord(keycode, modifier & KEY_CTRL, modifier & KEY_ALT))
+        chord = KEY_CHORD_ACTED;
+    key_chord_down = chord ? keycode : 0;
+    return chord;
 }

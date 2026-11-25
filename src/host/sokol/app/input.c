@@ -15,6 +15,7 @@
 #include "core/hid/hostkey.h"
 #include "core/hid/key.h"
 #include "core/hid/mouse.h"
+#include "core/hid/paste_host.h"
 #include "core/hid/tablet.h"
 #include "core/vga/mode/mode6.h"
 #include "core/vga/vga_emu.h"
@@ -121,26 +122,22 @@ static uint8_t input_modifier(const sapp_event *e)
                      ((e->modifiers & SAPP_MODIFIER_SUPER) ? KEYBOARD_MODIFIER_LEFTGUI : 0));
 }
 
-static bool input_is_paste_key(const sapp_event *e)
-{
-    return e->type == SAPP_EVENTTYPE_KEY_DOWN &&
-           key_clip(sokol_to_hid(e->key_code), input_modifier(e)) == KEY_CLIP_PASTE;
-}
-
 bool input_paste_key(const sapp_event *e)
 {
-    return input_is_paste_key(e) && !e->key_repeat;
+    return e->type == SAPP_EVENTTYPE_KEY_DOWN && !e->key_repeat &&
+           key_clip(sokol_to_hid(e->key_code), input_modifier(e)) == KEY_CLIP_PASTE;
 }
 
 bool input_key_withheld(const sapp_event *e)
 {
-    if (input_is_paste_key(e))
+    if (e->type != SAPP_EVENTTYPE_KEY_DOWN)
+        return false;
+    const uint8_t hid = sokol_to_hid(e->key_code);
+    const key_clip_t clip = key_clip(hid, input_modifier(e));
+    if (clip == KEY_CLIP_PASTE)
         return e->key_repeat;
-    if (e->type == SAPP_EVENTTYPE_KEY_DOWN &&
-        key_clip_acts(sokol_to_hid(e->key_code), input_modifier(e), e->key_repeat))
-        return true;
-    return e->type == SAPP_EVENTTYPE_KEY_DOWN && sokol_to_hid(e->key_code) == HID_KEY_V &&
-           input_modifier(e) == KEYBOARD_MODIFIER_LEFTCTRL;
+    return clip != KEY_CLIP_NONE ||
+           (hid == HID_KEY_V && input_modifier(e) == KEYBOARD_MODIFIER_LEFTCTRL);
 }
 
 void input_locks(void)
@@ -471,18 +468,16 @@ void input_event(const sapp_event *e)
     case SAPP_EVENTTYPE_CLIPBOARD_PASTED:
 #if defined(__EMSCRIPTEN__)
         /* The page's paste event, which a paste key left to the browser
-         * made, or the browser's own menu: the clipboard, which is the
-         * text the event handed over (entry.c), is pasted as a paste key
-         * pastes: at once, or in place of the line editor's selection
-         * showing, which the line editor takes after the keys typed before
-         * it. sokol keeps that text until the next paste event, which cuts
-         * this paste short as it starts. Plain Ctrl+V, which typed 0x16,
-         * makes none (input_key_withheld). */
-        key_clip_act(KEY_CLIP_PASTE);
+         * made, or the browser's own menu. The browser hands the
+         * clipboard's text over only here, so it is copied now and pasted
+         * in its place among the keys (paste_host.h). Plain Ctrl+V, which
+         * typed 0x16, makes none (input_key_withheld). */
+        paste_start(sapp_get_clipboard_string());
 #endif
         /* On the desktop the paste keys are chords (core/hid/key.h) that
-         * paste the desktop's clipboard themselves, reading it as they act,
-         * so the paste sokol makes of Ctrl+V or Cmd+V is no paste. */
+         * paste the desktop's clipboard themselves, asking for it as the
+         * paste's turn comes, so the paste sokol makes of Ctrl+V or Cmd+V
+         * is no paste. */
         break;
     case SAPP_EVENTTYPE_QUIT_REQUESTED:
         if (input_chord_held)

@@ -291,6 +291,14 @@ UTEST(tio, a_csi_parses_only_in_its_own_shape)
     ASSERT_EQ(csi.final, '[');
     ASSERT_FALSE(parse("\33[1M!!!", &csi));
     ASSERT_FALSE(parse("\33[AB", &csi));
+    /* A modified key's three parameters, and a fourth that is counted only. */
+    ASSERT_TRUE(parse("\33[27;5;97~", &csi));
+    ASSERT_EQ(csi.count, 3);
+    ASSERT_EQ(csi.param[1], 5);
+    ASSERT_EQ(csi.param[2], 97);
+    ASSERT_TRUE(parse("\33[1;2;3;4m", &csi));
+    ASSERT_EQ(csi.count, 4);
+    ASSERT_EQ(csi.param[2], 3);
 }
 
 /* ----- A sequence that does not finish ----- */

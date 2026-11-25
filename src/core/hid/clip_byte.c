@@ -9,7 +9,6 @@
  * (cell_text_byte), so a line end is kept as CR, as it is pasted. */
 
 #include "core/hid/clip.h"
-#include "core/hid/paste.h"
 #include "core/sys/sst.h"
 #include "core/term/cell.h"
 #include "machine.h"
@@ -62,44 +61,47 @@ static void clip_line(screen_sink_t *k)
 
 void clip_copy(uint8_t which, screen_t *s, uint8_t y0, uint8_t x0, uint8_t y1, uint8_t x1)
 {
-    paste_clip_changed(which);
+    typed_clip_changed(which);
     clip_len[which] = 0;
     clip_sink_t k = {{clip_text, clip_line}, which};
     screen_copy(s, y0, x0, y1, x1, &k.sink);
 }
 
-void HOST_IN_FLASH_FUNC clip_copy_primary(void)
-{
-    if (!clip_len[CLIP_PRIMARY])
-        return;
-    paste_clip_changed(CLIP_CLIPBOARD);
-    memcpy(&clip_buf[CLIP_CLIPBOARD * CLIP_SIZE], &clip_buf[CLIP_PRIMARY * CLIP_SIZE],
-           clip_len[CLIP_PRIMARY]);
-    clip_len[CLIP_CLIPBOARD] = clip_len[CLIP_PRIMARY];
-}
-
 void HOST_IN_FLASH_FUNC clip_copy_bytes(uint8_t which, const char *bytes, size_t n)
 {
-    paste_clip_changed(which);
+    typed_clip_changed(which);
     if (n > CLIP_SIZE)
         n = CLIP_SIZE;
     memcpy(&clip_buf[which * CLIP_SIZE], bytes, n);
     clip_len[which] = (uint16_t)n;
 }
 
-void HOST_IN_FLASH_FUNC clip_paste(uint8_t which)
+/* A paste reads its buffer where it is, from RAM as the keyboard's row
+ * does. There is no host's text here to let go. */
+uint8_t HOST_IN_RAM_FUNC clip_paste_source(uint8_t source)
 {
-    paste_clip(which);
+    return source;
 }
 
-size_t clip_fill(uint8_t which, uint16_t *at, char *dst, size_t room)
+size_t HOST_IN_RAM_FUNC clip_size(uint8_t source)
 {
-    if (*at >= clip_len[which])
-        return 0;
-    size_t n = (size_t)(clip_len[which] - *at);
-    if (n > room)
-        n = room;
-    memcpy(dst, &clip_buf[which * CLIP_SIZE + *at], n);
-    *at = (uint16_t)(*at + n);
-    return n;
+    return clip_len[source];
+}
+
+char HOST_IN_RAM_FUNC clip_at(uint8_t source, size_t i)
+{
+    return (char)clip_buf[source * CLIP_SIZE + i];
+}
+
+void HOST_IN_RAM_FUNC clip_paste_end(void)
+{
+}
+
+bool clip_paste_break(void)
+{
+    return true;
+}
+
+void clip_paste_drop(void)
+{
 }

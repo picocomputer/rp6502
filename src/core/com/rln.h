@@ -36,31 +36,59 @@ typedef void (*rln_read_callback_t)(bool timeout, const char *buf);
 #define RLN_LINE_MAX 256
 
 // The lines a read can bring back with the up and down keys. Its caller
-// owns it and says how many lines it has: `line` is that many, the first of
-// them the line being typed, kept while older ones are looked at, and the
-// rest the lines entered, newest first. A caller starts one with its lines
-// and their count and the rest zero, and hands it to each read that is to
-// use it.
+// owns it and gives it its memory: every line entered is kept, at its own
+// length, until alloc has no room for the next, and then the oldest lines
+// go to make the room. A caller starts one with alloc and free and the rest
+// zero, and hands it to each read that is to use it.
+//
+// A line brought back and changed stays changed while the read looks at
+// other lines, as the line being typed does. The read's end forgets the
+// changes: the line entered becomes the newest, and the lines it was made
+// from are as they were entered.
 typedef struct
 {
-    char (*line)[RLN_LINE_MAX];
-    uint8_t lines;
-    uint8_t count; // the lines entered that it holds
-    uint8_t pos;   // the line showing, 0 for the one being typed
+    void *(*alloc)(size_t size);
+    void (*free)(void *ptr);
+    struct rln_history_line *newest;
+    struct rln_history_line *oldest;
+    struct rln_history_line *at;      // the line showing, NULL for the one being typed
+    struct rln_history_line *entered; // the line the last read added, if it added one
+    struct rln_history_edit *edits;   // the lines the read has changed
 } rln_history_t;
+
+// The line the last read entered is taken out of its history again, as a
+// line with a password in it is. Nothing happens when that read added no
+// line.
+void rln_history_forget(rln_history_t *history);
+
+// What the kill keys take out of a line, for Ctrl-Y to put back: Ctrl-K
+// and Ctrl-U the line after and before the cursor, and Ctrl-W,
+// Alt-Backspace, Alt-D and Ctrl-Delete a word, or the selection when there
+// is one. Kills one after another are one piece, in the order they had in
+// the line; any other key between two starts it again. Its caller owns it,
+// starts it as zero, and hands it to each read that is to use it, so each
+// caller's reads put back only what they took: it lasts for as long as its
+// caller keeps it, and a caller empties it by setting its length to 0.
+typedef struct
+{
+    uint8_t len;
+    char text[RLN_LINE_MAX - 1];
+} rln_kill_t;
 
 // Prepare the line editor. The rln module can read entire
 // lines of input with editing on ANSI terminals. The line is recorded in
 // history, and the lines before it can be brought back; NULL for a read
 // with no history, such as a YES/no confirmation or a program's input.
-// A read with history that lays its line out asks every terminal for
-// bracketed paste (?2004), and turns it off again when the read ends.
+// What its kill keys take goes to kill; NULL for a read whose kill keys
+// only delete, and whose Ctrl-Y does nothing.
+// A read that lays its line out asks every terminal for bracketed paste
+// (?2004), and turns it off again when the read ends.
 //
-// A paste that comes bracketed, ESC [ 200 ~ to ESC [ 201 ~, is taken up to
-// its first line end, and its source's bytes after that, up to the closing
-// bracket, are dropped, whatever read they come to. A paste that comes
-// without brackets is typing.
-void rln_read_line(rln_read_callback_t callback, rln_history_t *history);
+// A paste is typing: each line end in it is Enter, and the next read goes
+// on with the rest. One paste that comes bracketed, ESC [ 200 ~ to
+// ESC [ 201 ~, is not: a single line with its line end and nothing after.
+// That line end is dropped, so the line waits for the person's Enter.
+void rln_read_line(rln_read_callback_t callback, rln_history_t *history, rln_kill_t *kill);
 
 // Read a line typed by a script, such as the monitor's UPLOAD chunk headers:
 // the line is laid out plainly, as rln_set_plain does, and it has no
@@ -133,7 +161,7 @@ void rln_poke(const char *str);
 /* ----- The line's selection -----
  *
  * The line being edited has a selection of its own, apart from the
- * console's primary (core/term/vterm_mouse.h): Shift with the arrows, Home
+ * console's primary (core/term/vterm_mouse.h): Shift with Left, Right, Home
  * and End selects, and so does the console's mouse inside the line. The
  * line editor shows it as the console's terminal's selection
  * (vterm_select), the part of the line it takes as the line is laid out on
@@ -142,11 +170,26 @@ void rln_poke(const char *str);
  * and ends it before anything of the line is drawn again and when the read
  * ends. One the mouse makes fills the primary when the button comes up,
  * as a selection the mouse makes anywhere on the screen does, and one
- * made with the keys does not. A typed character replaces it,
- * Delete and Backspace delete it, and the copy, cut and paste keys act on
- * it (rln_copy, rln_cut, rln_paste). There is one selection at a time,
- * the terminal's: the line's starting ends the primary's highlight, and the
- * primary's starting ends the line's (rln_unselect). */
+ * made with the keys does not. A typed character replaces it, as what a
+ * paste types does, Delete and Backspace delete it, the keys that kill a
+ * word kill it, Ctrl-Y puts what was killed in its place, and the copy and
+ * cut keys act on it. There is one selection at a time, the terminal's: the
+ * line's starting ends the primary's highlight, and the primary's starting
+ * ends the line's (rln_unselect).
+ *
+ * The mouse in the line and the copy and cut keys have no bytes, so each
+ * waits as an entry in the keyboard's queue (core/hid/typed.h), and the
+ * line editor takes it in its place among the keys, after those typed
+ * before it and before those typed after, against the line as the keys
+ * before it left it, and once the reply to the key before it has gone out.
+ * The copy key (core/hid/key.h) puts the selection in the clipboard
+ * (core/hid/clip.h) and leaves it selected. A cut key, Shift-Delete,
+ * Ctrl-Shift-X and on a Mac Cmd-X, puts it there and deletes it, and what
+ * the key would type is dropped. With nothing selected neither does
+ * anything. None of them is the last key (rln_api_lastkey).
+ *
+ * The paste keys are not the line's: what they paste is typed, in its
+ * place among the keys, and typing replaces the selection. */
 
 /* The index of the line at row y of the screen showing, column x of that
  * row's own, as the line is laid out now, from the line's first character
@@ -159,11 +202,10 @@ int rln_index_at(uint8_t y, uint8_t x);
  * when the pointer is nearer the gap after that character than the gap
  * before it, its place in its run of clicks as the console's mouse
  * counted it: the first and the fourth select by characters, the second a
- * word, the third the whole line. The line editor takes it after the keys
- * already waiting for it, against the line as those keys left it. Until
- * the button drags (rln_mouse_drag), a press by characters is a click,
- * which selects nothing and puts the cursor on the character in
- * overwrite mode and at the nearer gap in insert mode. */
+ * word, the third the whole line. Until the button drags (rln_mouse_drag),
+ * a press by characters is a click, which selects nothing and puts the
+ * cursor on the character in overwrite mode and at the nearer gap in
+ * insert mode. Its caller has seen to the queue's room (vterm_mouse.c). */
 void rln_mouse_press(uint8_t index, bool after, uint8_t clicks);
 
 /* The button held since that press moved: the selection is from row hy,
@@ -178,34 +220,23 @@ void rln_mouse_drag(uint8_t hy, uint8_t hx, uint8_t y, uint8_t x);
 /* The button held since that press came up: what the press and its drag
  * select, taken as they are, fills the primary (core/hid/clip.h) with the
  * line's characters. A click, which selects nothing, leaves the primary
- * as it was. */
+ * as it was, and so does a release with no line being read. */
 void rln_mouse_release(void);
 
 /* The line's selection ends, its highlight taken off, as the primary's
- * starting ends it. */
+ * starting ends it, and what the mouse did in the line that the line
+ * editor has yet to take is taken back. */
 void rln_unselect(void);
 
-/* Whether the line has a selection showing, which the copy, cut and
- * paste keys act on. */
+/* Whether a line is being read, when the line editor takes its entries
+ * from the keyboard's queue, and whether the line has a selection, which
+ * may not show yet. */
+bool rln_reading(void);
 bool rln_selected(void);
 
-/* The copy keys (core/hid/key.h), at once: the line's selection goes to
- * the clipboard (core/hid/clip.h), as it is at that moment. False with
- * none, when the copy keys copy the primary. */
-bool rln_copy(void);
-
-/* The cut keys, Shift-Delete, Ctrl-Shift-X and on a Mac Cmd-X, and the
- * paste keys, judged at once: with the line's selection showing they are
- * the line's, and true. The line editor takes them after the keys already
- * waiting for it, as it takes the mouse, on the line as those keys left
- * it: a cut puts the selection in the clipboard and deletes it, and a
- * paste deletes it and pastes the clipboard (core/hid/paste.h) in its
- * place. A later one takes the place of one still to take. A paste still
- * to take when the read ends pastes as it would with no read, unless a
- * stop or a break ends it. False with no selection showing, when a cut
- * key is not a chord and types as it would, and a paste pastes at once. */
-bool rln_cut(void);
-bool rln_paste(void);
+/* Nothing waits for the line editor to take: no whole item in any source,
+ * and no entry of its own at the front of the keyboard's queue. */
+bool rln_idle(void);
 
 // 6502 API entry points.
 bool rln_api_lastkey(void);

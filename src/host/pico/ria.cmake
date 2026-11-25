@@ -19,7 +19,8 @@ target_compile_definitions(${RIA_TARGET} PRIVATE ${RP6502_PROJECT_DEFINITIONS})
 rp6502_log_definitions(${RIA_TARGET} PRIVATE)
 pico_add_extra_outputs(${RIA_TARGET})
 pico_set_binary_type(${RIA_TARGET} default)
-rp6502_pico_rtt(${RIA_TARGET})
+rp6502_pico_rtt_stdio(${RIA_TARGET})
+rp6502_pico_rtt_hid(${RIA_TARGET})
 
 # Sources that run in an interrupt, on the main loop's hot path, or while the
 # RIA rewrites its own flash, whole: the SDK's, TinyUSB's, FatFs, the storage
@@ -89,12 +90,13 @@ set(_ria_ram_files "*libgcc.a: *libc.a: *lib*_a-mem*.o *lib*_a-strcmp.o *lib*_a-
 # Functions of the files above that run only at boot, at a radio start or
 # reset, or on a configuration change. They stay in flash. These files build
 # one section per function, so each entry is a source and the sections of
-# its cold functions.
+# its cold functions. A section is a pattern, and one that ends in * takes
+# the clones of its function, whose names change with the optimization level.
 set(RIA_FLASH_SECTIONS
     "${PICO_SDK_PATH}/src/rp2_common/hardware_clocks/clocks.c|.text.clock_configure_internal .text.clock_configure_undivided .text.check_sys_clock_khz .text.set_sys_clock_pll"
     "${PICO_SDK_PATH}/src/rp2_common/hardware_gpio/gpio.c|.text.gpio_init .text.gpio_set_drive_strength .text.gpio_set_slew_rate .text.gpio_set_input_hysteresis_enabled .text.gpio_add_raw_irq_handler_with_order_priority_masked .text.gpio_remove_raw_irq_handler_masked"
     "${PICO_SDK_PATH}/src/rp2_common/hardware_irq/irq.c|.text.irq_set_exclusive_handler .text.irq_add_shared_handler .text.irq_add_tail_to_free_list .text.irq_remove_handler .text.set_raw_irq_handler_and_unlock .text.irq_set_priority .text.irq_is_enabled .text.runtime_init_per_core_irq_priorities"
-    "${PICO_SDK_PATH}/src/rp2_common/hardware_pio/pio.c|.text.pio_add_program .text.find_offset_for_program.isra.0 .text.add_program_at_offset .text.add_program_at_offset_check .text.pio_remove_program .text.pio_claim_unused_sm .text.pio_claim_free_sm_and_add_program .text.pio_claim_free_sm_and_add_program_for_gpio_range .text.pio_remove_program_and_unclaim_sm .text.pio_sm_unclaim .text.pio_sm_init"
+    "${PICO_SDK_PATH}/src/rp2_common/hardware_pio/pio.c|.text.pio_add_program .text.find_offset_for_program* .text.add_program_at_offset .text.add_program_at_offset_check .text.pio_remove_program .text.pio_claim_unused_sm .text.pio_claim_free_sm_and_add_program .text.pio_claim_free_sm_and_add_program_for_gpio_range .text.pio_remove_program_and_unclaim_sm .text.pio_sm_unclaim .text.pio_sm_init"
     "${PICO_SDK_PATH}/src/rp2_common/hardware_timer/timer.c|.text.timer_hardware_alarm_claim_unused .text.hardware_alarm_claim_unused .text.timer_busy_wait_us .text.timer_busy_wait_us_32 .text.timer_busy_wait_ms .text.busy_wait_us .text.busy_wait_us_32 .text.busy_wait_ms"
     "${PICO_SDK_PATH}/src/rp2_common/pico_async_context/async_context_poll.c|.text.async_context_poll_init_with_defaults .text.async_context_poll_execute_sync"
     "${PICO_SDK_PATH}/src/rp2_common/pico_clib_interface/newlib_interface.c|.text.runtime_init .text._sbrk .text.exit .text._exit .text._fini"
@@ -107,7 +109,7 @@ set(RIA_FLASH_SECTIONS
     "${PICO_SDK_PATH}/src/rp2_common/pico_runtime/runtime.c|.text.runtime_run_initializers .text.runtime_run_per_core_initializers .text.first_per_core_initializer"
     "${PICO_SDK_PATH}/src/rp2_common/pico_stdio/stdio.c|.text.stdio_set_driver_enabled .text.stdio_get_until .text.stdio_getchar_timeout_us .text.__wrap_getchar"
     "${PICO_SDK_PATH}/lib/cyw43-driver/src/cyw43_ctrl.c|.text.cyw43_init .text.cyw43_deinit .text.cyw43_wifi_scan .text.cyw43_wifi_get_rssi .rodata.cyw43_async_event_name_table"
-    "${PICO_SDK_PATH}/lib/cyw43-driver/src/cyw43_ll.c|.text.cyw43_ll_init .text.cyw43_ll_deinit .text.cyw43_ll_bus_init .text.reset_device_core.constprop.0 .text.disable_device_core.constprop.0.isra.0 .text.cyw43_download_resource .text.cyw43_ll_wifi_scan"
+    "${PICO_SDK_PATH}/lib/cyw43-driver/src/cyw43_ll.c|.text.cyw43_ll_init .text.cyw43_ll_deinit .text.cyw43_ll_bus_init .text.reset_device_core* .text.disable_device_core* .text.cyw43_download_resource .text.cyw43_ll_wifi_scan"
     "${PICO_SDK_PATH}/lib/lwip/src/core/def.c|.text.lwip_strnicmp"
     "${PICO_SDK_PATH}/lib/lwip/src/core/dns.c|.text.dns_gethostbyname .text.dns_gethostbyname_addrtype"
     "${PICO_SDK_PATH}/lib/lwip/src/core/init.c|.text.lwip_init"
@@ -217,6 +219,8 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
     PICO_PRINTF_SUPPORT_EXPONENTIAL=0
     PICO_FLASH_ASSUME_CORE1_SAFE=1
     PICO_TIME_DEFAULT_ALARM_POOL_DISABLED=1 # sleeps spin, and there is no alarm pool interrupt
+    PICO_MALLOC_PANIC=0     # the monitor's history fills the heap, and its last malloc fails
+    PICO_USE_MALLOC_MUTEX=0 # the monitor, on core 0's main loop, is all that allocates
     LFS_NO_ASSERT=1
     LFS_NO_MALLOC=1
     LFS_NAME_MAX=16
@@ -272,7 +276,6 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/hid/layout.c
     ${RP6502_ROOT}/src/core/hid/keymap.c
     ${RP6502_ROOT}/src/core/hid/typed.c
-    ${RP6502_ROOT}/src/core/hid/paste.c
     ${RP6502_ROOT}/src/core/hid/clip_byte.c
     ${RP6502_ROOT}/src/core/hid/vtkey.c
     ${RP6502_ROOT}/src/core/hid/vtmouse.c
@@ -350,14 +353,6 @@ target_link_libraries(${RIA_TARGET} PRIVATE
 
 pico_generate_pio_header(${RIA_TARGET}
     ${RIA_SRC}/ria.pio
-)
-
-# Nothing here allocates: the time of day is core/tim's, and the radio's
-# driver is lent buf1k. The SDK's wrappers of malloc would keep the C
-# library's allocator in the link all the same, so they are not compiled.
-set_source_files_properties(
-    ${PICO_SDK_PATH}/src/rp2_common/pico_malloc/malloc.c
-    PROPERTIES HEADER_FILE_ONLY ON
 )
 
 # Override various lib files with custom code.

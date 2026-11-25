@@ -507,6 +507,12 @@ void tablet_task(void)
     vga_canvas_size(&cw, &ch);
     if (cw != tablet_cw || ch != tablet_ch)
     {
+        /* The first canvas, at boot, has the pointer at its middle. */
+        if (!tablet_cw)
+        {
+            tablet_ref_x = TABLET_REF_WIDTH / 2;
+            tablet_ref_y = (int16_t)(ch * TABLET_REF_WIDTH / cw / 2);
+        }
         /* The place in the reference space is kept as it is, so a pointer
          * low on a 512-line console is held at the bottom of a shorter canvas
          * and back where it was when the console returns. The next move of

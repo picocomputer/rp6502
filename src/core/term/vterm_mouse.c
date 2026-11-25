@@ -1009,9 +1009,10 @@ static void vterm_mouse_drag(const vterm_mouse_view_t *v, vterm_mouse_cell_t at)
     vterm_mouse_show(v);
 }
 
-/* The drag ends: the primary takes what it selected, if anything. A
- * selection that shows is the gesture's, on rows of the height. */
-static void vterm_mouse_keep(const vterm_mouse_view_t *v)
+/* Buffer which (clip.h) takes what is selected, if anything: the primary
+ * as a drag ends. A selection that shows is the gesture's, on rows of the
+ * height. */
+static void vterm_mouse_keep(const vterm_mouse_view_t *v, uint8_t which)
 {
     if (!vterm_selection.shows || vterm_selection.screen != v->s)
         return;
@@ -1020,8 +1021,16 @@ static void vterm_mouse_keep(const vterm_mouse_view_t *v)
         vterm_mouse_pos(v, (vterm_mouse_cell_t){sel->start_row, sel->start_col, 0});
     const vterm_mouse_pos_t end =
         vterm_mouse_pos(v, (vterm_mouse_cell_t){sel->end_row, sel->end_col, 0});
-    clip_copy(CLIP_PRIMARY, v->s, (uint8_t)start.y, (uint8_t)start.x, (uint8_t)end.y,
-              (uint8_t)end.x);
+    clip_copy(which, v->s, (uint8_t)start.y, (uint8_t)start.x, (uint8_t)end.y, (uint8_t)end.x);
+}
+
+bool vterm_mouse_copy(void)
+{
+    const vterm_mouse_view_t v = vterm_mouse_view();
+    if (!vterm_mouse_shows(&v))
+        return false;
+    vterm_mouse_keep(&v, CLIP_CLIPBOARD);
+    return true;
 }
 
 /* A drag ends, as xterm's EndExtend notes it: the next click goes on from
@@ -1060,7 +1069,13 @@ static void vterm_mouse_line(const vterm_mouse_view_t *v, vterm_mouse_cell_t p, 
     rln_mouse_press(index, after, vterm_mouse_gesture.clicks);
 }
 
-/* A change the terminal took, with the buttons that were down before it. */
+/* The most entries of the keyboard's queue (typed.h) one change the
+ * terminal takes can need while a line is read: a drag in the line
+ * editor's line, two, its release, and the middle button's paste. */
+#define VTERM_MOUSE_ENTRIES 4
+
+/* A change the terminal took, with the buttons that were down before it.
+ * While a line is read, the task has seen to the queue's room. */
 static void vterm_mouse_act(const vterm_mouse_event_t *e, uint8_t was)
 {
     const uint8_t down = e->flags & ~was & VTERM_MOUSE_BUTTONS;
@@ -1079,7 +1094,7 @@ static void vterm_mouse_act(const vterm_mouse_event_t *e, uint8_t was)
     /* A contact that has gone, as a finger lifted, is nowhere, so its
      * release ends the drag where it last was. A drag in the line editor's
      * line stays in the line, and the line fills the primary with what it
-     * selected, once it takes the drag (rln_mouse_release). */
+     * selected, once it takes the release (rln_mouse_release). */
     if (vterm_mouse_gesture.button && (e->flags & VTERM_MOUSE_PRESENT) &&
         (e->moved || (up & vterm_mouse_gesture.button)))
     {
@@ -1091,7 +1106,7 @@ static void vterm_mouse_act(const vterm_mouse_event_t *e, uint8_t was)
         if (vterm_mouse_gesture.line)
             rln_mouse_release();
         else
-            vterm_mouse_keep(&v);
+            vterm_mouse_keep(&v, CLIP_PRIMARY);
         vterm_mouse_ended(vterm_mouse_gesture.button == TABLET_FLAG_LEFT &&
                           !vterm_mouse_gesture.line);
         vterm_mouse_let_go();
@@ -1367,7 +1382,7 @@ static bool vterm_mouse_track_change(const vterm_mouse_event_t *e)
             return false;
     }
     vterm_mouse_ended(true);
-    vterm_mouse_keep(&v);
+    vterm_mouse_keep(&v, CLIP_PRIMARY);
     vterm_mouse_track_off();
     vterm_mouse_flags &= (uint8_t)~TABLET_FLAG_LEFT;
     return true;
@@ -1716,7 +1731,10 @@ static bool vterm_focus_tell(void)
 /* The locator reports the terminal asked for go first, then a change of the
  * focus, then the changes, in order. One the program takes, whose report
  * waits for room, stays first in the queue, where only motion merges into
- * it, and the rest wait behind it. */
+ * it, and the rest wait behind it. While a line is read, one the terminal
+ * takes waits there the same way, for the room the most it can queue
+ * needs, before anything of it is done. With none read, only the middle
+ * button's paste is queued, and a full queue drops it, as it drops a key. */
 void HOST_IN_FLASH_FUNC vterm_mouse_task(void)
 {
     for (; vterm_mouse_dues; vterm_mouse_dues--)
@@ -1749,7 +1767,8 @@ void HOST_IN_FLASH_FUNC vterm_mouse_task(void)
         }
         else
         {
-            if (vterm_mouse_acting && !vterm_mouse_scroll(e))
+            if (vterm_mouse_acting &&
+                (!vterm_mouse_scroll(e) || (rln_reading() && typed_free() < VTERM_MOUSE_ENTRIES)))
                 return;
             vterm_mouse_flags = e->flags;
             if (vterm_mouse_acting)

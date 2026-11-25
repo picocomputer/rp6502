@@ -61,12 +61,12 @@ tio_step_t tio_frame(uint8_t *frame, uint8_t ch, bool utf8);
  * any other unfinished sequence is dropped. */
 #define TIO_ESC_MS 100
 
-/* A CSI item's first two parameters, how many parameters it has, its private
+/* A CSI item's first three parameters, how many parameters it has, its private
  * marker ('<' '=' '>' '?', or 0), its last intermediate byte (or 0), and its
  * final byte. Subparameters, after ':', are skipped. */
 typedef struct
 {
-    uint16_t param[2];
+    uint16_t param[3];
     uint8_t count;
     uint8_t priv;
     uint8_t inter;

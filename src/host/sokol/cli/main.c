@@ -158,6 +158,11 @@ int main(int argc, char **argv)
         return 0;
     }
 
+    if (o.list_options)
+    {
+        cli_list_options(stdout);
+        return 0;
+    }
     if (o.version)
     {
         printf("%s\n", version_string());

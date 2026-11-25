@@ -35,14 +35,13 @@ extern "C"
      * display of its own has no focus to lose. */
     bool host_focusable(void);
 
-    /* The host's clipboard, in UTF-8. get gives its text, or NULL for a
-     * host that has no clipboard. The text stays where it is until the
-     * clipboard is asked for or set again, and either may write over it or
-     * free it. set puts text there, and is false for a host whose clipboard
-     * the machine cannot set. The machine reaches both only through
-     * clip_host_get and clip_host_set (clip.h), which first end a paste of
-     * the text get gave. A script's check asks get itself, as a script runs
-     * with no window, where asking writes over nothing (sokol's app.c). */
+    /* The host's clipboard, in UTF-8. get gives its text as it is now, or
+     * NULL for a host that has no clipboard, or whose clipboard cannot be
+     * asked for: a web page's, which hands its text over in a paste event
+     * (paste_host.h). The machine copies the text before it returns to the
+     * host, so the host may write over it or free it afterwards. set puts
+     * text there, and is false for a host whose clipboard the machine
+     * cannot set. */
     const char *host_clipboard_get(void);
     bool host_clipboard_set(const char *utf8);
 
