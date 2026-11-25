@@ -15,9 +15,9 @@ COLS, CELL_W, CELL_H = 80, 8, 16
 
 # What is read, by the display type and the canvas, DISPLAY and CANVAS of
 # the VGA's control channel: the display's pixels, and how many of them a
-# pixel of the canvas takes each way. These are the ones captured on a rig:
-# the console canvas on each display type, and the 640x360 canvas on a 16:9
-# display, which shows it at 1280x720.
+# pixel of the canvas takes each way. Each was checked against a capture
+# from a rig before it went in: the console canvas on each display type,
+# and the 640x360 canvas on a 16:9 display, which shows it at 1280x720.
 CANVAS_CONSOLE, CANVAS_640X360 = 0, 4
 VIEWS = {(0, CANVAS_CONSOLE): (640, 480, 1),
          (1, CANVAS_CONSOLE): (640, 480, 1),
@@ -115,8 +115,9 @@ def console_view(probe):
     display, canvas = (probe.read(probe.sym[n], 8, 1)[0] for n in names)
     if (display, canvas) not in VIEWS:
         raise RuntimeError(f"canvas {canvas} on display type {display} (SET VGA {display}) "
-                           "has not been captured on a rig, so the screen is not read "
-                           "on it")
+                           "is not in VIEWS of screen.py, which holds the layout of "
+                           "each canvas and display type the reader can read; add it "
+                           "from a capture of that screen")
     width, height, scale = VIEWS[display, canvas]
     # vterm_placement_t in src/core/term/vterm.h.
     begin, begin_high, cols, rows, row_px, console, placed = probe.read(

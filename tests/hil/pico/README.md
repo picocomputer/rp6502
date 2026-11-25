@@ -50,9 +50,9 @@ is one more end of the console's UART: it carries what the UART carries, at
 The telnet console holds a program's output to the pace of the network,
 about half of that over Wi-Fi, for as long as a session is connected.
 
-    cmake -S . -B build-rtt -DRP6502_RTT_STDIO=ON -DRP6502_RTT_HID=ON
+    cmake -S . -B build/rtt -DRP6502_RTT_STDIO=ON -DRP6502_RTT_HID=ON
     python3 tests/hil/pico/hil.py -d rtt:SERIAL --probe SERIAL \
-        --elf build-rtt/ria-w/rp6502-ria-w.elf term sizes bus audio tput
+        --elf build/rtt/ria-w/rp6502-ria-w.elf term sizes bus audio tput
 
 The option is off in a release. The RIA and the VGA both take it, and a
 probe on either reaches the same console. A break is a word the probe sets
@@ -182,7 +182,8 @@ The reader holds the capture to three rules, and raises when one is broken.
   32 rows on `SET VGA 2`, each pixel of the console two by two. The 640x360
   canvas with the terminal on it, which a program selects, is 1280x720 on
   `SET VGA 1`, with 22 rows. Any other canvas and display type is refused
-  until it has been captured on a rig and added to `VIEWS` in `screen.py`.
+  until its layout is added to `VIEWS` in `screen.py`, from a capture of
+  that screen.
 - **The capture is the display's size, or a whole multiple of it.** The
   reader asks the device for its YUYV sizes, through ffmpeg, and takes the
   display's own, or the smallest whole multiple, such as 1280x960 for
@@ -378,10 +379,10 @@ The display at 1280x720. `hil-wide` selects the 640x360 canvas, puts the
 terminal over it, and writes a line on each of its 22 rows. On a 16:9
 display, `SET VGA 1`, the VGA shows that canvas at 1280x720, and the test
 reads every row off the capture. It needs `--video` and `--elf` or
-`--vga-elf`, and fails on the other display types, which the reader has not
-seen that canvas on.
+`--vga-elf`, and fails on the other display types, whose layout of that
+canvas is not in the reader's `VIEWS` yet.
 
-    python3 tests/hil/pico/hil.py -d rtt --elf build-rtt/ria-w/rp6502-ria-w.elf \
+    python3 tests/hil/pico/hil.py -d rtt --elf build/rtt/ria-w/rp6502-ria-w.elf \
         --video /dev/video0 wide
 
 A converter between the VGA and the capture device can take several seconds
@@ -397,7 +398,7 @@ that person would see. They need a RIA built with `RP6502_RTT_HID`, a probe
 on it, `--video`, and `--elf` or `--vga-elf` for the size of the display.
 
     python3 tests/hil/pico/hil.py -d rtt:SERIAL --probe SERIAL \
-        --elf build-rtt/ria-w/rp6502-ria-w.elf --video /dev/video0 \
+        --elf build/rtt/ria-w/rp6502-ria-w.elf --video /dev/video0 \
         editkeys pasteline pastelines
 
 Each test first fills the screen: 34 times it types two letter keys and
