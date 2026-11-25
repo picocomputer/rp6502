@@ -112,11 +112,11 @@ set(cc65_DIR "${RP6502_TOOLS_DIR}")
 
     rp6502_align(<target> <regex>)
 
-  The value of each symbol in ``<target>.sym`` whose whole name matches
+  The value of each line in ``<target>.sym`` whose whole name matches
   ``<regex>``, a Python regular expression, must be even and in the range
-  $0-$FFFF. For each symbol that fails, the build of ``<target>`` reports
+  $0-$FFFF. For each line that fails, the build of ``<target>`` reports
   an error at the ``#define`` of the symbol, or at its line in
-  ``<target>.sym`` when the sources have no ``#define`` of it. A negative
+  ``<target>.sym`` when it is not a ``#define``. A negative
   lookahead exempts names, as in ``"XRAM_(?!LOGO$).*"``. Each call adds
   one ``<regex>``. Call this before :command:`rp6502_executable`.
 #]=======================================================================]
@@ -171,7 +171,8 @@ endfunction()
 
   ``RAM(<x>)`` and ``XRAM(<x>)`` load ``<file>`` into RAM or XRAM at
   ``<x>``, which ``rp6502.py`` reads when the build packages the asset.
-  ``<x>`` is a number in the same forms, or a symbol in ``<target>.sym``. A
+  ``<x>`` is a number in the same forms, or a name or a path in
+  ``<target>.sym``, such as ``XRAM_LOGO`` or ``src/title.c/XRAM_LOGO``. A
   CMake variable goes in as ``${<variable>}``. With :command:`rp6502_basic`,
   ``<x>`` must be a number, because a BASIC ROM has no ``.sym`` file.
 #]=======================================================================]
@@ -197,7 +198,7 @@ function(rp6502_asset target)
         if (NOT opened STREQUAL "(" OR NOT closed STREQUAL ")")
             message(FATAL_ERROR "rp6502_asset(${target} ${addr}(<address>) <in_file>)")
         endif()
-        # rp6502.py reads <x> as a number, or as a symbol in <target>.sym.
+        # rp6502.py reads <x> as a number, or as a name or a path in <target>.sym.
         set(addr "${addr}(${token})")
         set(sym TRUE)
         list(GET args 4 in_file)
@@ -268,8 +269,8 @@ endfunction()
   of the target. The ROM holds the linker output, the assets that
   :command:`rp6502_asset` and :command:`rp6502_byproduct` add, and each
   ``<rom>``, a path from the current source folder. The ``.sym`` file holds
-  each integer ``#define`` of the C sources and each linker symbol, one
-  ``NAME VALUE`` line each.
+  each integer ``#define`` of the C sources, each linker symbol, and the
+  size of each variable of the C sources, with the count of each array.
   Call :command:`rp6502_asset`, :command:`rp6502_byproduct`, and
   :command:`rp6502_align` for the target before this command.
 
@@ -408,6 +409,7 @@ function(rp6502_executable target)
                 --commands "${CMAKE_BINARY_DIR}/compile_commands.json"
                 --objects "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${target}.dir"
                 --work "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${target}.sym"
+                --root "${CMAKE_SOURCE_DIR}"
                 ${align_args}
         ${post_link}
         COMMAND ${CMAKE_COMMAND} -E rm -f "${rom_file}"
@@ -703,11 +705,20 @@ endfunction()
   ``tools/`` in ``PYTHONPATH`` and the emulator in the environment
   variable ``RP6502_EMU``. Each ``<arg>`` is an emulator option or a ROM,
   such as ``$<TARGET_PROPERTY:hello,RP6502_ROM>``, and the words after
-  ``--`` are the arguments of the ROM.
+  ``--`` are the arguments of the ROM. A Python test may also take options
+  of its own, which ``rp6502.parse_args()`` or ``rp6502.test_args()`` of
+  ``tools/rp6502.py`` read.
 
-  The tests also add two setup tests, which ctest runs before the other
-  tests: ``rp6502.build`` builds the project, and ``rp6502.save`` empties
-  each ``save/`` folder.
+  Each test runs through ``tools/rp6502_test.cmake``, which holds the lock
+  of ``test/<name>/`` while the test runs and removes ``save/`` before it.
+  A second run of the same test waits for the first, and a run of one test
+  leaves the files of every other test. The output and the exit code of the
+  test pass through. With CMake before 3.29, a test that fails exits with
+  1, whatever its own exit code.
+
+  The tests also add a setup test, ``rp6502.build``, which ctest runs
+  before the other tests. It builds the project, under a lock of ``test/``,
+  so two runs of ctest at once do not build at once.
 #]=======================================================================]
 function(rp6502_test)
     cmake_parse_arguments(PARSE_ARGV 0 arg "" "NAME" "COMMAND")
@@ -737,15 +748,18 @@ function(rp6502_test)
     set(dir "${CMAKE_BINARY_DIR}/test/${name}")
     file(MAKE_DIRECTORY "${dir}")
     set(emu "${dir}/${RP6502_EMU_NAME}")
+    # The test runs under the lock of its folder, with save/ removed first.
+    set(run "${CMAKE_COMMAND}" -D "RP6502_LOCK=${dir}" -D "RP6502_SAVE_DIR=${dir}/save"
+        -P "${RP6502_TOOLS_DIR}/rp6502_test.cmake" --)
     if (path MATCHES "\\.py$")
         add_test(NAME ${name}
-            COMMAND "${Python3_EXECUTABLE}" "${path}" --save-dir "${dir}/save" ${args}
+            COMMAND ${run} "${Python3_EXECUTABLE}" "${path}" --save-dir "${dir}/save" ${args}
             WORKING_DIRECTORY "${dir}")
         set_tests_properties(${name} PROPERTIES ENVIRONMENT
             "PYTHONPATH=${RP6502_TOOLS_DIR};PYTHONDONTWRITEBYTECODE=1;RP6502_EMU=${emu}")
     else()
         add_test(NAME ${name}
-            COMMAND "${emu}" --save-dir "${dir}/save" --script "${path}" ${args}
+            COMMAND ${run} "${emu}" --save-dir "${dir}/save" --script "${path}" ${args}
             WORKING_DIRECTORY "${dir}")
     endif()
     set_tests_properties(${name} PROPERTIES FIXTURES_REQUIRED rp6502.build)
@@ -1245,19 +1259,20 @@ function(_rp6502_finish)
         _rp6502_web_finish("${zip}")
     endforeach()
     get_property(tests GLOBAL PROPERTY RP6502_TESTS)
-    set(saves)
     foreach(name IN LISTS tests)
         get_property(dir GLOBAL PROPERTY RP6502_TEST_DIR_${name})
         set(folder "${CMAKE_BINARY_DIR}/test/${name}")
         _rp6502_resolve(EMU TEST ${name} "${dir}" emu source)
         _rp6502_link("${emu}" "${folder}/${RP6502_EMU_NAME}")
-        list(APPEND saves "${folder}/save")
     endforeach()
     if(tests)
-        # ctest does not build the ROMs, and a test starts with an empty save/.
-        add_test(NAME rp6502.build COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}")
-        add_test(NAME rp6502.save COMMAND "${CMAKE_COMMAND}" -E rm -rf ${saves})
-        set_tests_properties(rp6502.build rp6502.save PROPERTIES FIXTURES_SETUP rp6502.build)
+        # ctest does not build the ROMs. The build runs under the lock of
+        # test/, so two runs of ctest do not build at once.
+        add_test(NAME rp6502.build COMMAND "${CMAKE_COMMAND}"
+            -D "RP6502_LOCK=${CMAKE_BINARY_DIR}/test"
+            -P "${RP6502_TOOLS_DIR}/rp6502_test.cmake" --
+            "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}")
+        set_tests_properties(rp6502.build PROPERTIES FIXTURES_SETUP rp6502.build)
     endif()
     # A new emulator, web player or BASIC in tools/ runs configure again at
     # the next build.

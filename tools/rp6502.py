@@ -15,6 +15,7 @@ import re
 import time
 import binascii
 import codecs
+import collections
 import argparse
 import configparser
 import platform
@@ -1149,31 +1150,132 @@ class ROM:
 
 
 class Symbols(dict):
-    """The names and values of a .sym file. A name with two values is not
-    in the table but in self.ambiguous. A missing file gives an empty table."""
+    """The symbols of a .sym file. A name can have more than one line: a
+    #define and an address, or one line for each source file. The dict
+    holds each name whose lines agree on one value. A missing file gives an
+    empty table.
+
+    A lookup takes a name, or a source file's path from the project folder,
+    a /, and a name, as in "src/game.c/events". A path picks the lines of
+    that file. A name with no line of its own in the file is the name of
+    the whole program."""
+
+    # One line: a name, a kind, a value, a size, a count and a path. None is
+    # the - of what a line does not have. The path is last, so it can hold
+    # spaces.
+    Line = collections.namedtuple("Line", "name kind value size count path")
+
+    # What each lookup reads, and why a line does not have it.
+    _FORMS = {
+        "": ("value", None),
+        "address": ("value", "is a #define"),
+        "define": ("value", "is not a #define"),
+        "sizeof": ("size", "has no size"),
+        "countof": ("count", "is not an array"),
+    }
 
     def __init__(self, path):
         super().__init__()
-        self.ambiguous = set()
+        self.lines = {}
+        # A .sym of a name and a value a line, from older tools.
+        self.old = False
         try:
             with open(path) as f:
-                for line in f:
-                    name, value = line.split()
-                    value = int(value, 0)
-                    if name in self.ambiguous:
-                        continue
-                    if self.get(name, value) != value:
-                        del self[name]
-                        self.ambiguous.add(name)
-                    else:
-                        self[name] = value
+                for number, text in enumerate(f, 1):
+                    line = Symbols._parse(text)
+                    if not line:
+                        raise ValueError(f"cannot read '{path}' line {number}")
+                    self.old = self.old or line.kind is None
+                    self.lines.setdefault(line.name, []).append(line)
         except FileNotFoundError:
             pass
+        for name in self.lines:
+            try:
+                self[name] = self._find("", name)
+            except KeyError:
+                pass
+
+    @staticmethod
+    def _parse(text):
+        """The Line of a line of a .sym file, or None."""
+        words = text.rstrip("\r\n").split(" ", 5)
+        # 2026-11-24: reads the old two-column .sym, so projects built with older tools keep running their tests.
+        if len(words) == 2 and words[0]:
+            try:
+                return Symbols.Line(words[0], None, int(words[1], 0), None, None, None)
+            except ValueError:
+                return None
+        if len(words) != 6 or not words[0] or words[1] not in ("define", "address"):
+            return None
+        try:
+            numbers = [None if w == "-" else int(w, 0) for w in words[2:5]]
+        except ValueError:
+            return None
+        if words[1] == "define" and numbers[0] is None:
+            return None
+        path = None if words[5] == "-" else words[5]
+        return Symbols.Line(words[0], words[1], *numbers, path)
+
+    def _find(self, form, text):
+        """The value that a lookup gives. A lookup that fails raises KeyError
+        with the message that the emulator gives for it."""
+        where, slash, name = text.rpartition("/")
+        # A message starts with what was asked, unless that is the name.
+        asked = f"{form}({text}): " if form else f"{text}: " if slash else ""
+        if self.old and (form or slash):
+            raise KeyError(
+                f"{asked}the .sym was written by older tools; "
+                "rebuild the project with the new ones"
+            )
+        lines = self.lines.get(name, [])
+        if slash:
+            lines = [s for s in lines if s.path == where] or [
+                s for s in lines if s.path is None
+            ]
+        if not lines:
+            raise KeyError(f"unknown name '{text}'")
+        field, why = Symbols._FORMS[form]
+        if form:
+            kind = "define" if form == "define" else "address"
+            kept = [s for s in lines if s.kind == kind]
+        else:
+            kept = lines
+        values = {getattr(s, field) for s in kept}
+        # A size or a count that one line has and another has not is
+        # ambiguous, so it is refused only when no line has it.
+        if not kept or values == {None} and form in ("sizeof", "countof"):
+            raise KeyError(f"{asked}{name} {why}")
+        if len(values) == 1 and None not in values:
+            return values.pop()
+        # Only an address can be missing.
+        if None in values and (form == "address" or len(kept) == 1):
+            if any(s.path for s in kept if s.value is None):
+                raise KeyError(
+                    f"{asked}{name} is in more than one file, "
+                    "so its address is not known; rename one"
+                )
+            raise KeyError(f"{asked}{name} is not in the linked program")
+        paths = list(dict.fromkeys(f"{s.path}/{name}" for s in kept if s.path))
+        raise KeyError(f"ambiguous name '{text}'" + (": " + " ".join(paths) if paths else ""))
 
     def __missing__(self, name):
-        if name in self.ambiguous:
-            raise KeyError(f"{name} is ambiguous")
-        raise KeyError(name)
+        return self._find("", name)
+
+    def address(self, name):
+        """The address of a variable, a function or a label."""
+        return self._find("address", name)
+
+    def define(self, name):
+        """The value of a #define."""
+        return self._find("define", name)
+
+    def sizeof(self, name):
+        """The size of a C object in bytes."""
+        return self._find("sizeof", name)
+
+    def countof(self, name):
+        """The number of elements of a C array."""
+        return self._find("countof", name)
 
     @staticmethod
     def text(value: int) -> str:
@@ -1181,12 +1283,19 @@ class Symbols(dict):
         return f"0x{value:04X}" if 0 <= value <= 0xFFFF else str(value)
 
     @staticmethod
-    def write(path, pairs):
-        """Writes (name, value) pairs as a .sym file and returns its lines as pairs.
-        Repeated pairs make one line. Values outside int64 are left out."""
-        lines = sorted({(n, v) for n, v in pairs if -(1 << 63) <= v < (1 << 63)})
+    def write(path, lines):
+        """Writes Lines as a .sym file and returns them in their order.
+        Repeated Lines make one line. Values outside int64 are left out."""
+        lines = sorted(
+            {s for s in lines if s.value is None or -(1 << 63) <= s.value < (1 << 63)},
+            key=lambda s: (s.name, s.path or "", s.kind, -1 if s.value is None else s.value),
+        )
         with open(path, "w") as f:
-            f.writelines(f"{name} {Symbols.text(value)}\n" for name, value in lines)
+            for s in lines:
+                value = "-" if s.value is None else Symbols.text(s.value)
+                words = [s.name, s.kind, value]
+                words += ["-" if n is None else str(n) for n in (s.size, s.count)]
+                f.write(" ".join(words + [s.path or "-"]) + "\n")
         return lines
 
     @staticmethod
@@ -1251,9 +1360,43 @@ class Symbols(dict):
         )
 
     @staticmethod
+    def _ask(argv: list, directory: str, stub: str, include: str, asm: str,
+             questions: list):
+        """Compiles a stub that includes the source and asks one question a
+        line. A question with an error is left out, and the stub is
+        compiled again. Returns the assembly and the questions that stay."""
+        live = list(range(len(questions)))
+        while True:
+            with open(stub, "w") as f:
+                f.write(f'#include "{include}"\n')
+                f.writelines(questions[i] + "\n" for i in live)
+            result = Symbols._run_compiler(argv, directory)
+            if result.returncode == 0:
+                break
+            # Line 2+k of the stub holds the question live[k].
+            bad = set()
+            for match in re.finditer(
+                r"^(.+?):(\d+):(?:\d+:)? (?:fatal error|error|fatal):",
+                result.stdout,
+                re.M | re.I,
+            ):
+                k = int(match.group(2)) - 2
+                path = os.path.normpath(os.path.join(directory, match.group(1)))
+                if path == stub and 0 <= k < len(live):
+                    bad.add(live[k])
+            if not bad:
+                sys.exit(result.stdout.rstrip("\n"))
+            live = [i for i in live if i not in bad]
+        with open(asm) as f:
+            return f.read(), live
+
+    @staticmethod
     def _read_source(entry: dict, flags: list, cc65: bool, work: str, n: int):
         """The (name, value) pairs of the integer macros of one C source, the
-        files that its compile reads, and an error for each struct over 65535 bytes."""
+        (size, count) of each variable and function that it defines, the size
+        the compiler gives each variable in its assembly, the files that its
+        compile reads, and an error for each struct over
+        65535 bytes. A function has no size, and only an array has a count."""
         directory, source = entry["directory"], entry["file"]
 
         # A function-like macro has "(" after its name, so it does not match.
@@ -1271,8 +1414,6 @@ class Symbols(dict):
                 if match:
                     names.append(match.group(1))
 
-        # Each macro becomes two constants: its value, and 1 if it is negative.
-        # "| 0" is an error for floats and pointers. A name with an error is removed.
         stub = os.path.join(work, f"{n}.c")
         asm = os.path.join(work, f"{n}.s")
         dep = os.path.join(work, f"{n}.d")
@@ -1280,8 +1421,9 @@ class Symbols(dict):
         if cc65:
             mode = ["--create-full-dep", dep]
         else:
+            # The assembly keeps the variables that nothing uses, as cc65's does.
             mode = ["-fno-lto", "-ferror-limit=0", "-fno-color-diagnostics"]
-            mode += ["-MD", "-MF", dep]
+            mode += ["-fkeep-persistent-storage-variables", "-MD", "-MF", dep]
         # CMake 3.21 reads a -S in the cc65 wrapper call as its own option, which
         # takes the next word as a folder, so -S comes right before the stub.
         # cc65 aborts on an error message with a long file name, so the stub is
@@ -1292,49 +1434,74 @@ class Symbols(dict):
         # so the compiler opens this source and no other file of the same name.
         include = os.path.relpath(os.path.realpath(source), os.path.realpath(work))
         include = include.replace(os.sep, "/")
-        live = list(range(len(names)))
-        while True:
-            with open(stub, "w") as f:
-                f.write(f'#include "{include}"\n')
-                for i in live:
-                    f.write(f"const {wide} _sym_{i} = ({wide})(({names[i]}) | 0);\n")
-                    f.write(f"const unsigned char _neg_{i} = ({names[i]}) < 0;\n")
-            result = Symbols._run_compiler(argv, directory)
-            if result.returncode == 0:
-                break
-            # Lines 2+2k and 3+2k of the stub hold the name live[k].
-            bad = set()
-            for match in re.finditer(
-                r"^(.+?):(\d+):(?:\d+:)? (?:fatal error|error|fatal):",
-                result.stdout,
-                re.M | re.I,
-            ):
-                k = (int(match.group(2)) - 2) // 2
-                path = os.path.normpath(os.path.join(directory, match.group(1)))
-                if path == stub and 0 <= k < len(live):
-                    bad.add(live[k])
-            if not bad:
-                sys.exit(result.stdout.rstrip("\n"))
-            live = [i for i in live if i not in bad]
+        # The source alone, compiled, shows what it defines. cc65 puts _
+        # before a C name, and a function in .proc.
+        text, _ = Symbols._ask(argv, directory, stub, include, asm, [])
+        if cc65:
+            pattern = r"^(\.proc\s+)?_([A-Za-z_]\w*):"
+        else:
+            pattern = r"^\s*\.type\s+([A-Za-z_]\w*),@(function|object)"
+        functions, objects = {}, {}
+        for m in re.finditer(pattern, text, re.M):
+            kind, name = m.groups() if cc65 else m.groups()[::-1]
+            (objects if kind in (None, "object") else functions)[name] = None
+        objects = list(objects)
+        # The size the compiler gives each object, which the link keeps. It
+        # can be more than sizeof, as for an initialized flexible array member.
+        emitted = {} if cc65 else {
+            m.group(1): int(m.group(2))
+            for m in re.finditer(r"^\s*\.size\s+([A-Za-z_]\w*),\s*(\d+)\s*$", text, re.M)
+        }
 
+        # Each macro becomes two constants: its value, and 1 if it is negative.
+        # "| 0" is an error for floats and pointers. Each variable becomes its
+        # size and, for an array, its count. An array, unlike a pointer, is
+        # not of the type of a pointer to its first element, and that pointer
+        # is a constant. cc65 has no __typeof__, and clang takes a const
+        # pointer to a string as a constant, so each compiler has its test.
+        if cc65:
+            array = "const volatile void *const _arr_{0} = &({1})[0];"
+        else:
+            array = (
+                "_Static_assert(!__builtin_types_compatible_p("
+                '__typeof__({1}), __typeof__(&({1})[0])), "");'
+            )
+        questions = []
+        for i, name in enumerate(names):
+            questions.append(
+                f"const {wide} _sym_{i} = ({wide})(({name}) | 0); "
+                f"const unsigned char _neg_{i} = ({name}) < 0;"
+            )
+        for i, name in enumerate(objects):
+            questions.append(f"const {wide} _siz_{i} = sizeof({name});")
+            questions.append(
+                array.format(i, name)
+                + f" const {wide} _cnt_{i} = sizeof({name}) / sizeof(({name})[0]);"
+            )
+        text, live = "", []
+        if questions:
+            text, live = Symbols._ask(argv, directory, stub, include, asm, questions)
         # cc65 writes ".dword $XXXXXXXX" and ".byte $XX", llvm-mos writes decimal.
         if cc65:
-            pattern = r"^__(sym|neg)_(\d+):\s*\.(?:dword|byte)\s+\$([0-9A-Fa-f]+)"
+            pattern = r"^__(sym|neg|siz|cnt)_(\d+):\s*\.(?:dword|byte)\s+\$([0-9A-Fa-f]+)"
             base, bits = 16, 32
         else:
-            pattern = r"^_(sym|neg)_(\d+):\s*\.(?:quad|byte)\s+(-?\d+)"
+            pattern = r"^_(sym|neg|siz|cnt)_(\d+):\s*\.(?:quad|byte)\s+(-?\d+)"
             base, bits = 10, 64
-        with open(asm) as f:
-            found = {
-                (m.group(1), int(m.group(2))): int(m.group(3), base)
-                for m in re.finditer(pattern, f.read(), re.M)
-            }
+        found = {
+            (m.group(1), int(m.group(2))): int(m.group(3), base)
+            for m in re.finditer(pattern, text, re.M)
+        }
         pairs = []
         for i in live:
-            value = found[("sym", i)] & ((1 << bits) - 1)
-            if found[("neg", i)]:
-                value -= 1 << bits
-            pairs.append((names[i], value))
+            if i < len(names):
+                value = found[("sym", i)] & ((1 << bits) - 1)
+                if found[("neg", i)]:
+                    value -= 1 << bits
+                pairs.append((names[i], value))
+        sizes = {name: (None, None) for name in functions}
+        for i, name in enumerate(objects):
+            sizes[name] = (found.get(("siz", i)), found.get(("cnt", i)))
 
         files = []
         for path in Symbols._make_deps(dep, directory):
@@ -1374,7 +1541,7 @@ class Symbols(dict):
                 errors.append(
                     f"{where}: error: {what} is {size.group(1)} bytes, larger than 65535"
                 )
-        return pairs, files, errors
+        return pairs, sizes, emitted, files, errors
 
     @staticmethod
     def _dbg_symbols(path: str) -> list:
@@ -1398,9 +1565,10 @@ class Symbols(dict):
 
     @staticmethod
     def elf_symbols(path: str) -> list:
-        """The (name, value) pairs of the symbol table of a little-endian
-        ELF32 file, such as a program llvm-mos links or a Picocomputer's
-        firmware. Section and file symbols are left out."""
+        """The (name, value, size, kind) of each symbol of the symbol table
+        of a little-endian ELF32 file, such as a program llvm-mos links or a
+        Picocomputer's firmware. kind is "object", "function" or None.
+        Section and file symbols are left out."""
         with open(path, "rb") as f:
             data = f.read()
         (shoff,) = struct.unpack_from("<I", data, 0x20)
@@ -1415,15 +1583,27 @@ class Symbols(dict):
                 continue
             strings = sections[link][4]
             for at in range(offset, offset + size, 16):
-                name, value, _, info = struct.unpack_from("<IIIB", data, at)
+                name, value, length, info = struct.unpack_from("<IIIB", data, at)
                 if not name or (info & 0xF) in (3, 4):  # STT_SECTION, STT_FILE
                     continue
                 end = data.index(b"\0", strings + name)
-                pairs.append((data[strings + name : end].decode(), value))
+                kind = {1: "object", 2: "function"}.get(info & 0xF)
+                pairs.append((data[strings + name : end].decode(), value, length, kind))
         return pairs
 
     @staticmethod
-    def build(linked, out, commands, objects, work, aligns) -> list:
+    def _path(entry: dict, root: str) -> str:
+        """The path of the source of a compile_commands.json entry from the
+        project folder, with /."""
+        source = os.path.realpath(os.path.join(entry["directory"], entry["file"]))
+        try:
+            source = os.path.relpath(source, os.path.realpath(root))
+        except ValueError:  # on another drive
+            pass
+        return source.replace(os.sep, "/")
+
+    @staticmethod
+    def build(linked, out, commands, objects, work, aligns, root) -> list:
         """Writes the .sym file of a linked program. Returns the error lines."""
         target = os.path.splitext(os.path.basename(out))[0]
         errors = []
@@ -1434,33 +1614,91 @@ class Symbols(dict):
             except re.error as e:
                 errors.append(f'rp6502_align({target} "{regex}"): {e}')
 
+        # Each value of the link has what the link says it is: a variable's
+        # size, or "function". cc65's .dbg says nothing, and needs not, as
+        # cc65 removes nothing, so a source's own value is always there.
+        # Link-time optimization gives a static that has the name of another
+        # a number, as in hit.6. A C name has no dot, so the number goes.
         cc65 = linked.endswith(".dbg")
-        pairs = Symbols._dbg_symbols(linked) if cc65 else Symbols.elf_symbols(linked)
+        linker = {}
+        if cc65:
+            for name, value in Symbols._dbg_symbols(linked):
+                linker.setdefault(name, set()).add((value, None))
+        else:
+            for name, value, size, kind in Symbols.elf_symbols(linked):
+                name = re.sub(r"\.\d+$", "", name)
+                what = size if kind == "object" else kind or ""
+                linker.setdefault(name, set()).add((value, what))
         work = os.path.abspath(work)
         os.makedirs(work, exist_ok=True)
         sources = Symbols._sources(commands, objects)
-        files = []
+        files, reads = [], {}
+        defines, defined, emitted_in = {}, {}, {}
         with concurrent.futures.ThreadPoolExecutor(len(sources) or 1) as pool:
             jobs = [
                 pool.submit(Symbols._read_source, entry, flags, cc65, work, n)
                 for n, (entry, flags) in enumerate(sources)
             ]
-            for job in jobs:
-                found, read, records = job.result()
-                pairs += found
+            for (entry, _), job in zip(sources, jobs):
+                found, sizes, emitted, read, records = job.result()
+                source = Symbols._path(entry, root)
+                for name, value in found:
+                    defines.setdefault(name, {})[source] = value
+                for name, size in sizes.items():
+                    defined.setdefault(name, {})[source] = size
+                    emitted_in.setdefault(name, {})[source] = emitted.get(name)
                 files += [path for path in read if path not in files]
+                reads[source] = read
                 errors += [line for line in records if line not in errors]
 
-        lines = Symbols.write(out, pairs)
-        for number, (name, value) in enumerate(lines, 1):
-            regex = next((r for r, p in patterns if p.fullmatch(name)), None)
-            if regex is None or (0 <= value <= 0xFFFF and value % 2 == 0):
+        # A name that means the same in every source has one line with no
+        # path. Otherwise each source that has it has its line.
+        Line = Symbols.Line
+        lines = []
+        for name, values in defines.items():
+            if len(set(values.values())) == 1:
+                lines.append(Line(name, "define", values.popitem()[1], None, None, None))
+            else:
+                lines += [Line(name, "define", v, None, None, p) for p, v in values.items()]
+        for name in set(linker) | set(defined):
+            values, homes = linker.get(name, set()), defined.get(name, {})
+            # A value is a source's variable only when the link says it has
+            # the size the compiler gives it, and its function only when the
+            # link says it is a function. LTO can remove a source's static and
+            # keep a library's of the same name.
+            if len(homes) == 1:
+                source, (size, _) = next(iter(homes.items()))
+                want = "function" if size is None else emitted_in[name][source] or size
+                values = {(v, what) for v, what in values if what in (None, want)}
+            values = {v for v, _ in values}
+            if len(values) > 1 or len(homes) > 1:
+                # The link does not say which address is which file's.
+                lines += [Line(name, "address", None, *size, p) for p, size in homes.items()]
+                if not homes:
+                    lines += [Line(name, "address", v, None, None, None) for v in values]
                 continue
-            why = "odd" if 0 <= value <= 0xFFFF else "outside 0x0000-0xFFFF"
-            where = Symbols._first_line(files, rf"\s*#\s*define\s+{re.escape(name)}\b")
+            size = next(iter(homes.values()), (None, None))
+            value = next(iter(values), None)
+            # Without an address or a size, a line says nothing.
+            if value is not None or size[0] is not None:
+                lines.append(Line(name, "address", value, *size, None))
+
+        lines = Symbols.write(out, lines)
+        for number, s in enumerate(lines, 1):
+            regex = next((r for r, p in patterns if p.fullmatch(s.name)), None)
+            if regex is None or s.value is None or (0 <= s.value <= 0xFFFF and s.value % 2 == 0):
+                continue
+            why = "odd" if 0 <= s.value <= 0xFFFF else "outside 0x0000-0xFFFF"
+            where = None
+            if s.kind == "define":
+                # A path's line is the #define that the source compiled with.
+                where = Symbols._first_line(
+                    reads[s.path] if s.path else files,
+                    rf"\s*#\s*define\s+{re.escape(s.name)}\b",
+                )
             where = where or f"{out}:{number}"
             errors.append(
-                f"{where}: error: {name} is {Symbols.text(value)}, which is {why}; "
+                f"{where}: error: {s.name} is {Symbols.text(s.value)}, which is {why}; "
                 f'rp6502_align({target} "{regex}")'
             )
         return errors
@@ -1477,15 +1715,38 @@ class ScriptError(Exception):
 
 class Emu:
     """An emulator that a test drives with script commands. The command is
-    $RP6502_EMU --script - <args> <sys.argv[1:]>, with the ROM arguments after
-    -- from one of the two. A with statement closes the emulator, or kills it
-    when the block raises."""
+    $RP6502_EMU --script - <args> <the emulator's words of sys.argv[1:]>,
+    with the ROM arguments after -- from one of the two. A with statement
+    closes the emulator, or kills it when the block raises.
 
-    # The options of the emulator that take a value, and the one option that
-    # can repeat, from src/host/sokol/cli.
-    _VALUED = {"screenshot", "frames", "scale", "filter", "script", "install",
-               "save-dir", "bgcolor", "phi2", "cp", "memseed", "memfill", "ini"}
+    Every word of sys.argv[1:] is the emulator's until the test reads its
+    own words with parse_args() or test_args(). From then on, the emulator's
+    words are the options that it lists, with their values, the words that
+    are not options, and the words after --."""
+
+    # The options that take a value in any emulator from before
+    # --list-options.
+    _VALUED = {"screenshot", "frames", "scale", "filter", "aspect", "script",
+               "install", "save-dir", "bgcolor", "phi2", "cp", "seed", "fill",
+               "memseed", "memfill", "ini"}
+    # The one option of the emulator that can repeat.
     _REPEATABLE = {"install"}
+
+    @staticmethod
+    def _actions(parser):
+        """The actions of <parser> and of its subparsers."""
+        for action in parser._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                for sub in action.choices.values():
+                    yield from Emu._actions(sub)
+            else:
+                yield action
+
+    # The options of each emulator, from _options().
+    _listed = {}
+    # The words of sys.argv[1:] that are not options and that the test left
+    # to the emulator, once the test reads its own words. None before.
+    _roms = None
 
     def __init__(self, *args):
         cmd = Emu.command("--script", "-", *args)
@@ -1501,13 +1762,17 @@ class Emu:
 
     @staticmethod
     def command(*args) -> list:
-        """The command line $RP6502_EMU <args> <sys.argv[1:]>, with the ROM
-        arguments after -- from one of the two. An option other than --install
-        or a ROM in both, or ROM arguments in both, raise ScriptError."""
+        """The command line $RP6502_EMU <args> <the emulator's words of
+        sys.argv[1:]>, with the ROM arguments after -- from one of the two.
+        An option other than --install or a ROM in both, or ROM arguments in
+        both, raise ScriptError."""
+        options = Emu._options()
         given, given_rom = Emu._split(list(args))
         argv, argv_rom = Emu._split(sys.argv[1:])
-        given_names, given_roms = Emu._names(given)
-        argv_names, argv_roms = Emu._names(argv)
+        if options is not None and Emu._roms is not None:
+            argv = Emu._take(argv, options)[0] + Emu._roms
+        given_names, given_roms = Emu._names(given, options)
+        argv_names, argv_roms = Emu._names(argv, options)
         for name in given_names:
             if name in argv_names and name not in Emu._REPEATABLE:
                 raise ScriptError(f"--{name} is in Emu() and in the arguments of the test")
@@ -1523,6 +1788,58 @@ class Emu:
         return cmd
 
     @staticmethod
+    def _options():
+        """The long options of $RP6502_EMU, as a dict of each name to whether
+        it takes a value, from its --list-options. None for an emulator from
+        before --list-options, which exits with an error."""
+        emu = os.environ["RP6502_EMU"]
+        if emu not in Emu._listed:
+            result = subprocess.run([emu, "--list-options"],
+                                    stdin=subprocess.DEVNULL,
+                                    capture_output=True, encoding="utf-8",
+                                    errors="replace")
+            Emu._listed[emu] = None if result.returncode else {
+                word[2:].rstrip("="): word.endswith("=")
+                for word in result.stdout.split()}
+        return Emu._listed[emu]
+
+    @staticmethod
+    def _option(word, options):
+        """The option of <options> that getopt_long in the emulator reads
+        <word> as: --name or --name=value, where name is the whole name of an
+        option or the start of one name only. None for any other word."""
+        if not word.startswith("--"):
+            return None
+        name = word[2:].split("=", 1)[0]
+        if name in options:
+            return name
+        names = [option for option in options if option.startswith(name)]
+        return names[0] if len(names) == 1 else None
+
+    @staticmethod
+    def _take(words, options) -> tuple:
+        """Splits <words>, the words before --, into the options of
+        <options> with their values and the other words."""
+        taken, rest = [], []
+        i = 0
+        while i < len(words):
+            name = Emu._option(words[i], options)
+            if name is None:
+                rest.append(words[i])
+            else:
+                count = 2 if options[name] and "=" not in words[i] else 1
+                taken += words[i : i + count]
+                i += count - 1
+            i += 1
+        return taken, rest
+
+    @staticmethod
+    def _positional(word) -> bool:
+        """Whether getopt_long reads <word> as a word that is not an
+        option."""
+        return word == "-" or not word.startswith("-")
+
+    @staticmethod
     def _split(words) -> tuple:
         """Splits <words> at the first -- into the options and the ROM
         arguments."""
@@ -1532,17 +1849,22 @@ class Emu:
         return words[:split], words[split + 1 :]
 
     @staticmethod
-    def _names(options) -> tuple:
-        """The option names and the ROMs in <options>. An empty word is no
-        ROM, as for the emulator."""
+    def _names(words, options) -> tuple:
+        """The option names and the ROMs in <words>. An empty word is no
+        ROM, as for the emulator. <options> is from _options()."""
         names, roms = [], []
         i = 0
-        while i < len(options):
-            word = options[i]
+        while i < len(words):
+            word = words[i]
             if word.startswith("--") and len(word) > 2:
                 name = word[2:].split("=", 1)[0]
+                if options is None:
+                    valued = name in Emu._VALUED
+                else:
+                    name = Emu._option(word, options) or name
+                    valued = options.get(name, False)
                 names.append(name)
-                if "=" not in word and name in Emu._VALUED:
+                if "=" not in word and valued:
                     i += 1
             elif word:
                 roms.append(word)
@@ -1618,6 +1940,49 @@ class Emu:
         else:
             self._proc.kill()
             self._proc.communicate()
+
+
+def test_args() -> list:
+    """The test's own words in sys.argv[1:]: each option that the emulator
+    does not list. The emulator takes the rest: its options with their
+    values, the words that are not options, and the words after --. So the
+    value of an option of the test goes in the same word, as --miss=5, or
+    the test reads its words with parse_args(). An emulator from before
+    --list-options takes every word, and the test gets none."""
+    options = Emu._options()
+    if options is None:
+        return []
+    rest = Emu._take(Emu._split(sys.argv[1:])[0], options)[1]
+    Emu._roms = [word for word in rest if Emu._positional(word)]
+    return [word for word in rest if not Emu._positional(word)]
+
+
+def parse_args(parser) -> argparse.Namespace:
+    """Parses the test's own words in sys.argv[1:] with <parser>, an
+    argparse.ArgumentParser, and returns what parser.parse_args() returns.
+    The emulator takes its options with their values, the words after --,
+    and the words that are not options and that <parser> does not take. An
+    option of <parser> that the emulator would take raises ScriptError. An
+    emulator from before --list-options takes every word, and <parser>
+    parses none."""
+    options = Emu._options()
+    if options is None:
+        return parser.parse_args([])
+    for action in Emu._actions(parser):
+        # The -h and --help of argparse: -h is the test's, --help the
+        # emulator's.
+        if isinstance(action, argparse._HelpAction):
+            continue
+        for string in action.option_strings:
+            if Emu._option(string, options):
+                raise ScriptError(f"{string} is reserved for the emulator")
+    rest = Emu._take(Emu._split(sys.argv[1:])[0], options)[1]
+    args, extras = parser.parse_known_args(rest)
+    unknown = [word for word in extras if not Emu._positional(word)]
+    if unknown:
+        parser.error(f"unrecognized arguments: {' '.join(unknown)}")
+    Emu._roms = [word for word in extras if Emu._positional(word)]
+    return args
 
 
 def exec_args():
@@ -1754,7 +2119,8 @@ def exec_args():
         dest="address",
         metavar="addr",
         help="An address, RAM(<x>), XRAM(<x>), an asset name, or 'file' for the "
-        "address at the start of the file. <x> is a number or a symbol of --sym.",
+        "address at the start of the file. <x> is a number, or a name or a path "
+        "in --sym.",
     )
     for flags, dest, vector in (
         (("-r", "--reset"), "reset", "reset vector at $FFFC-$FFFD"),
@@ -1805,6 +2171,12 @@ def exec_args():
     )
     sym.add_argument(
         "--work", required=True, metavar="dir", help="A directory for temporary files."
+    )
+    sym.add_argument(
+        "--root",
+        required=True,
+        metavar="dir",
+        help="The project folder. The paths of the sources are from it.",
     )
     sym.add_argument(
         "--align",
@@ -2018,12 +2390,10 @@ def exec_args():
                     raise RuntimeError(
                         f"{args.address}: {name} is not a number, and the ROM has no .sym file"
                     )
-                symbols = Symbols(args.sym)
-                if name in symbols.ambiguous:
-                    raise RuntimeError(f"{args.address}: {name} is ambiguous")
-                if name not in symbols:
-                    raise RuntimeError(f"{args.address}: {name} is not in {args.sym}")
-                value = symbols[name]
+                try:
+                    value = Symbols(args.sym)[name]
+                except (KeyError, ValueError) as e:
+                    raise RuntimeError(f"{args.address}: {args.sym}: {e.args[0]}")
                 shown = f"{args.address}: {name} is {Symbols.text(value)}, which"
             end = 0xFFFF if form == "RAM" else 0x1FFFF
             if not 0 <= value <= end:
@@ -2082,6 +2452,7 @@ def exec_args():
             args.objects,
             args.work,
             args.align,
+            args.root,
         )
         # Raw lines, without the [rp6502.py] prefix, so IDEs read file:line.
         for line in errors:

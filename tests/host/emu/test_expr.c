@@ -15,28 +15,43 @@ UTEST_MAIN();
 
 static const char *const expr_names[] = {
     "ok", "bad", "unknown", "ambiguous", "zero",
-    "overflow", "shift", "float", "divide",
+    "overflow", "shift", "float", "divide", "refused",
 };
 
-/* The same names as NAMES in expr_cases.py. */
-static expr_status_t lookup(const char *name, size_t len, int64_t *value)
+/* The same names as NAMES and REFUSED in expr_cases.py. */
+static expr_status_t lookup(expr_form_t form, const char *name, size_t len,
+                            int64_t *value)
 {
     static const struct
     {
+        expr_form_t form;
         const char *name;
+        expr_status_t status;
         int64_t value;
     } names[] = {
-        {"a", 7},
-        {"b", -3},
-        {"p.q", 0x1234},
-        {"INT64_MAX", INT64_MAX},
-        {"INT64_MIN", INT64_MIN},
+        {EXPR_NAME, "a", EXPR_OK, 7},
+        {EXPR_NAME, "b", EXPR_OK, -3},
+        {EXPR_NAME, "p.q", EXPR_OK, 0x1234},
+        {EXPR_NAME, "INT64_MAX", EXPR_OK, INT64_MAX},
+        {EXPR_NAME, "INT64_MIN", EXPR_OK, INT64_MIN},
+        {EXPR_ADDRESS, "a", EXPR_OK, 7},
+        {EXPR_DEFINE, "b", EXPR_OK, -3},
+        {EXPR_SIZEOF, "t", EXPR_OK, 12},
+        {EXPR_COUNTOF, "t", EXPR_OK, 6},
+        {EXPR_SIZEOF, "src/m.c/t", EXPR_OK, 12},
+        {EXPR_COUNTOF, "src/m.c/t", EXPR_OK, 6},
+        {EXPR_DEFINE, "src/m.c/p.q", EXPR_OK, 0x1234},
+        {EXPR_ADDRESS, "b", EXPR_REFUSED, 0},
+        {EXPR_DEFINE, "a", EXPR_REFUSED, 0},
+        {EXPR_SIZEOF, "b", EXPR_REFUSED, 0},
+        {EXPR_COUNTOF, "a", EXPR_REFUSED, 0},
     };
     for (size_t i = 0; i < sizeof names / sizeof *names; i++)
-        if (strlen(names[i].name) == len && !memcmp(names[i].name, name, len))
+        if (names[i].form == form && strlen(names[i].name) == len &&
+            !memcmp(names[i].name, name, len))
         {
             *value = names[i].value;
-            return EXPR_OK;
+            return names[i].status;
         }
     return EXPR_UNKNOWN;
 }
@@ -61,10 +76,7 @@ UTEST(expr, matches_python)
         ASSERT_TRUE(text != NULL);
         *text++ = 0;
         int64_t v;
-        const char *name;
-        size_t name_len;
-        expr_status_t st =
-            expr_eval(text, strlen(text), lookup, &v, &name, &name_len);
+        expr_status_t st = expr_eval(text, strlen(text), lookup, &v);
         cases++;
         if (same(line, st, v))
             continue;

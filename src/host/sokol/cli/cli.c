@@ -74,7 +74,7 @@ enum
     OPT_HELP = 256, OPT_SCREENSHOT, OPT_FRAMES, OPT_SCALE, OPT_FILTER, OPT_SCRIPT,
     OPT_INSTALL, OPT_SAVE_DIR, OPT_BGCOLOR, OPT_PHI2, OPT_CP, OPT_MEMSEED, OPT_MEMFILL,
     OPT_MUTE, OPT_DEBUG, OPT_DAP, OPT_CREDITS, OPT_VERSION, OPT_INI,
-    OPT_CRC, OPT_HEADLESS, OPT_STDIN, OPT_ASPECT,
+    OPT_CRC, OPT_HEADLESS, OPT_STDIN, OPT_ASPECT, OPT_LIST_OPTIONS,
 };
 static const struct option longopts[] = {
     {"help",         no_argument,       NULL, OPT_HELP},
@@ -100,6 +100,7 @@ static const struct option longopts[] = {
     {"credits",      no_argument,       NULL, OPT_CREDITS},
     {"version",      no_argument,       NULL, OPT_VERSION},
     {"ini",          required_argument, NULL, OPT_INI},
+    {"list-options", no_argument,       NULL, OPT_LIST_OPTIONS},
     {NULL, 0, NULL, 0},
 };
 
@@ -108,6 +109,8 @@ void cli_usage(FILE *out, const char *argv0)
     fprintf(out,
             "usage: %s [rom.rp6502] [options] [-- <args...>]\n"
             "  --help                    print this and exit\n"
+            "  --list-options            print each option, with = after one that takes\n"
+            "                            a value, and exit\n"
             "  --screenshot <file.png>   render headlessly to PNG and exit\n"
             "  --crc                     render headlessly, print the canvas CRC-32 and exit\n"
             "  --frames <n>              frames to run before the screenshot or crc (default 120)\n"
@@ -150,6 +153,12 @@ void cli_usage(FILE *out, const char *argv0)
             "                            (ImGui format; e.g. the workspace .rp6502)\n"
             "  -- <args...>              pass the remaining words to the ROM as argv[1..]\n",
             argv0);
+}
+
+void cli_list_options(FILE *out)
+{
+    for (const struct option *opt = longopts; opt->name; opt++)
+        fprintf(out, "--%s%s\n", opt->name, opt->has_arg ? "=" : "");
 }
 
 
@@ -308,6 +317,7 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
         case OPT_CREDITS: o->credits = true; break;
         case OPT_VERSION: o->version = true; break;
         case OPT_INI: o->ini = optarg; break;
+        case OPT_LIST_OPTIONS: o->list_options = true; break;
         case ':':
             fprintf(stderr, "rp6502-emu: option '%s' requires a value\n",
                     argv[optind - 1]);

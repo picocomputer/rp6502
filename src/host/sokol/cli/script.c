@@ -506,8 +506,7 @@ static bool script_string(char **p, char *out, size_t outsz)
     return script_text(p, out, outsz, &len) && strlen(out) == len;
 }
 
-/* A name the script can use, from the .sym beside the ROM or set by the
- * script itself. */
+/* A variable that the script sets. */
 typedef struct
 {
     char *name;
@@ -520,7 +519,28 @@ typedef struct
     size_t count;
 } script_names_t;
 
-static script_names_t script_syms, script_vars;
+static script_names_t script_vars;
+
+/* A line of the .sym beside the ROM: a #define or an address, the size
+ * and count of a C object, and the source file of the line, or NULL for a
+ * line of the whole program. Each has_ says whether the line has it. */
+typedef struct
+{
+    char *name; /* the path follows it in the same allocation */
+    char *path;
+    bool define, has_value, has_size, has_count;
+    int64_t value, size, count;
+} script_sym_t;
+
+static struct
+{
+    script_sym_t *at;
+    size_t count;
+    bool old; /* a .sym of a name and a value a line, from older tools */
+} script_syms;
+
+/* Why the last lookup failed. */
+static char script_why[SCRIPT_LINE_MAX];
 
 static void script_names_clear(script_names_t *names)
 {
@@ -563,19 +583,173 @@ static int script_names_count(script_names_t *names, const char *name, size_t le
     return n;
 }
 
-/* A name on two .sym lines, or in both lists after a load, is ambiguous.
- * Names are case-sensitive, as in Python. */
-static expr_status_t script_lookup(const char *name, size_t len, int64_t *value)
+static void script_syms_clear(void)
 {
-    script_name_t *found = NULL;
-    int n = script_names_count(&script_syms, name, len, &found) +
-            script_names_count(&script_vars, name, len, &found);
-    if (n > 1)
+    for (size_t i = 0; i < script_syms.count; i++)
+        free(script_syms.at[i].name);
+    free(script_syms.at);
+    script_syms.at = NULL;
+    script_syms.count = 0;
+    script_syms.old = false;
+}
+
+/* Whether s, which can be NULL, is the text. */
+static bool script_same(const char *s, const char *text, size_t len)
+{
+    return s && !strncmp(s, text, len) && !s[len];
+}
+
+/* Whether a lookup of name reads a line. Without a path it reads every
+ * line of the name. With a path it reads the lines of that file, or when
+ * the file has none, the lines of the whole program. */
+static bool script_sym_read_by(const script_sym_t *sym, const char *name, size_t len,
+                               const char *path, size_t path_len, bool own)
+{
+    if (!script_same(sym->name, name, len))
+        return false;
+    if (!path)
+        return true;
+    return own ? script_same(sym->path, path, path_len) : !sym->path;
+}
+
+/* The value of a line that a form reads, or NULL when the line has none. */
+static const int64_t *script_sym_field(const script_sym_t *sym, expr_form_t form)
+{
+    if (form == EXPR_SIZEOF)
+        return sym->has_size ? &sym->size : NULL;
+    if (form == EXPR_COUNTOF)
+        return sym->has_count ? &sym->count : NULL;
+    return sym->has_value ? &sym->value : NULL;
+}
+
+/* Whether a form reads a line: address(), sizeof() and countof() an
+ * address, define() a #define, a name any line. */
+static bool script_sym_kept(const script_sym_t *sym, expr_form_t form)
+{
+    return form == EXPR_NAME || sym->define == (form == EXPR_DEFINE);
+}
+
+/* A name, or a path, a / and a name, as Symbols in rp6502.py reads them.
+ * A name on two .sym lines with two values is ambiguous, unless a form
+ * picks one. A plain name that is a variable and a symbol is ambiguous.
+ * Names are case-sensitive, as in Python. On a failure, script_why says
+ * why. */
+static expr_status_t script_lookup(expr_form_t form, const char *text, size_t len,
+                                   int64_t *value)
+{
+    static const char *const forms[] = {"", "address", "define", "sizeof", "countof"};
+    static const char *const whys[] = {"", "is a #define", "is not a #define",
+                                       "has no size", "is not an array"};
+    const char *name = text, *path = NULL;
+    size_t path_len = 0;
+    for (size_t i = len; i--;)
+        if (text[i] == '/')
+        {
+            path = text, path_len = i, name = text + i + 1;
+            break;
+        }
+    size_t name_len = len - (size_t)(name - text);
+    /* A refusal starts with what was asked, unless that is the name. */
+    int asked = 0;
+    if (form != EXPR_NAME)
+        asked = snprintf(script_why, sizeof script_why, "%s(%.*s): ", forms[form],
+                         (int)len, text);
+    else if (path)
+        asked = snprintf(script_why, sizeof script_why, "%.*s: ", (int)len, text);
+    if (asked >= (int)sizeof script_why)
+        asked = (int)sizeof script_why - 1;
+    char *why = script_why + asked;
+    size_t why_size = sizeof script_why - (size_t)asked;
+    if (script_syms.old && (form != EXPR_NAME || path))
+    {
+        snprintf(why, why_size,
+                 "the .sym was written by older tools; rebuild the project with the "
+                 "new ones");
+        return EXPR_REFUSED;
+    }
+
+    bool own = false;
+    size_t lines = 0;
+    for (size_t i = 0; i < script_syms.count; i++)
+    {
+        own = own || script_sym_read_by(&script_syms.at[i], name, name_len, path,
+                                        path_len, true);
+        lines += script_same(script_syms.at[i].name, name, name_len);
+    }
+    if (form == EXPR_NAME && !path)
+    {
+        script_name_t *var;
+        if (script_names_count(&script_vars, name, name_len, &var))
+        {
+            if (lines)
+            {
+                snprintf(script_why, sizeof script_why, "ambiguous name '%.*s'",
+                         (int)len, text);
+                return EXPR_AMBIGUOUS;
+            }
+            *value = var->value;
+            return EXPR_OK;
+        }
+    }
+
+    size_t read = 0, kept = 0, missing = 0;
+    bool agree = true, moved = false;
+    int64_t first = 0;
+    for (size_t i = 0; i < script_syms.count; i++)
+    {
+        const script_sym_t *sym = &script_syms.at[i];
+        if (!script_sym_read_by(sym, name, name_len, path, path_len, own))
+            continue;
+        read++;
+        if (!script_sym_kept(sym, form))
+            continue;
+        kept++;
+        const int64_t *v = script_sym_field(sym, form);
+        if (!v)
+            missing++, moved = moved || sym->path;
+        else if (kept - missing == 1)
+            first = *v;
+        else if (*v != first)
+            agree = false;
+    }
+    if (!read)
+        snprintf(script_why, sizeof script_why, "unknown name '%.*s'", (int)len, text);
+    /* A size or a count that one line has and another has not is
+     * ambiguous, so it is refused only when no line has it. */
+    else if (!kept || ((form == EXPR_SIZEOF || form == EXPR_COUNTOF) && missing == kept))
+        snprintf(why, why_size, "%.*s %s", (int)name_len, name, whys[form]);
+    else if (!missing && agree)
+    {
+        *value = first;
+        return EXPR_OK;
+    }
+    /* Only an address can be missing. */
+    else if (missing && (form == EXPR_ADDRESS || kept == 1))
+        snprintf(why, why_size,
+                 moved ? "%.*s is in more than one file, so its address is not "
+                         "known; rename one"
+                       : "%.*s is not in the linked program",
+                 (int)name_len, name);
+    else
+    {
+        /* The paths that pick each line, as Symbols in rp6502.py lists them. */
+        int n = snprintf(script_why, sizeof script_why, "ambiguous name '%.*s'",
+                         (int)len, text);
+        const char *last = NULL, *sep = ": ";
+        for (size_t i = 0; i < script_syms.count && n < (int)sizeof script_why; i++)
+        {
+            const script_sym_t *sym = &script_syms.at[i];
+            if (!script_sym_read_by(sym, name, name_len, path, path_len, own) ||
+                !script_sym_kept(sym, form) || !sym->path ||
+                (last && !strcmp(last, sym->path)))
+                continue;
+            n += snprintf(script_why + n, sizeof script_why - (size_t)n, "%s%s/%.*s", sep,
+                          sym->path, (int)name_len, name);
+            last = sym->path, sep = " ";
+        }
         return EXPR_AMBIGUOUS;
-    if (!n)
-        return EXPR_UNKNOWN;
-    *value = found->value;
-    return EXPR_OK;
+    }
+    return !read ? EXPR_UNKNOWN : EXPR_REFUSED;
 }
 
 /* The end of the name at s, or s when no name starts there. Names are as in
@@ -588,12 +762,70 @@ static char *script_name_end(char *s)
     return s;
 }
 
+/* Adds one line of a .sym file: a name, define or address, a value, a size,
+ * a count and a path, one space apart, with - for what the line does not
+ * have. The path is the rest of the line. False when the line is not one. */
+static bool script_sym_add(char *line)
+{
+    char *word[6] = {line};
+    int n = 1;
+    while (n < 6 && (line = strchr(line, ' ')))
+    {
+        *line++ = 0;
+        word[n++] = line;
+    }
+    script_sym_t sym = {0};
+    /* 2026-11-24: reads the old two-column .sym, so projects built with older tools keep running their tests. */
+    if (n == 2)
+    {
+        script_syms.old = true;
+        word[5] = "-";
+        if (!expr_int(word[1], strlen(word[1]), &sym.value))
+            return false;
+        sym.has_value = true;
+    }
+    else
+    {
+        if (n < 6)
+            return false;
+        sym.define = !strcmp(word[1], "define");
+        bool *has[] = {&sym.has_value, &sym.has_size, &sym.has_count};
+        int64_t *field[] = {&sym.value, &sym.size, &sym.count};
+        for (int i = 0; i < 3; i++)
+            if (strcmp(word[2 + i], "-"))
+            {
+                if (!expr_int(word[2 + i], strlen(word[2 + i]), field[i]))
+                    return false;
+                *has[i] = true;
+            }
+        if (!*word[5] || (!sym.define && strcmp(word[1], "address")) ||
+            (sym.define && !sym.has_value))
+            return false;
+    }
+    if (!*word[0])
+        return false;
+    bool path = strcmp(word[5], "-");
+    size_t len = strlen(word[0]) + 1;
+    script_sym_t *at = realloc(script_syms.at, (script_syms.count + 1) * sizeof *at);
+    if (!at)
+        return false;
+    script_syms.at = at;
+    sym.name = malloc(len + (path ? strlen(word[5]) + 1 : 0));
+    if (!sym.name)
+        return false;
+    memcpy(sym.name, word[0], len);
+    if (path)
+        sym.path = strcpy(sym.name + len, word[5]);
+    at[script_syms.count++] = sym;
+    return true;
+}
+
 /* Loads the .sym beside a ROM: the same path with a .sym extension, added
  * when it has none. No file means no names. False, with why filled in, when
- * a line is not a name and a whole number. */
+ * a line is not a line of a .sym file. */
 static bool script_symbols(const char *rom, char *why, size_t size)
 {
-    script_names_clear(&script_syms);
+    script_syms_clear();
     size_t len = strlen(rom);
     const char *dot = strrchr(rom, '.');
     if (dot && !strpbrk(dot, "/\\"))
@@ -611,10 +843,7 @@ static bool script_symbols(const char *rom, char *why, size_t size)
     {
         n++;
         line[strcspn(line, "\r\n")] = 0;
-        char *value = strchr(line, ' ');
-        int64_t v;
-        ok = value && value > line && expr_int(value + 1, strlen(value + 1), &v) &&
-             script_names_add(&script_syms, line, (size_t)(value - line), v);
+        ok = script_sym_add(line);
     }
     if (f)
         fclose(f);
@@ -645,9 +874,7 @@ static bool script_expr(const char *text, int64_t *out)
         return script_error("missing ) in '%s'", text);
     const char *shown = outer ? text + 1 : text;
     int n = outer ? len - 2 : len;
-    const char *name = NULL;
-    size_t name_len = 0;
-    expr_status_t st = expr_eval(text, (size_t)len, script_lookup, out, &name, &name_len);
+    expr_status_t st = expr_eval(text, (size_t)len, script_lookup, out);
     switch (st)
     {
     case EXPR_OK:
@@ -655,9 +882,9 @@ static bool script_expr(const char *text, int64_t *out)
     case EXPR_BAD:
         return script_error("bad expression '%.*s'", n, shown);
     case EXPR_UNKNOWN:
-        return script_error("unknown name '%.*s'", (int)name_len, name);
     case EXPR_AMBIGUOUS:
-        return script_error("ambiguous name '%.*s'", (int)name_len, name);
+    case EXPR_REFUSED:
+        return script_error("%s", script_why);
     case EXPR_ZERO:
         return script_error("%.*s divides by zero", n, shown);
     case EXPR_OVERFLOW:
@@ -730,9 +957,10 @@ static bool script_assign(const char *name, size_t len, char *expr)
     int64_t value;
     if (!script_expr(expr, &value))
         return false;
+    for (size_t i = 0; i < script_syms.count; i++)
+        if (script_same(script_syms.at[i].name, name, len))
+            return script_error("cannot assign symbol '%.*s'", (int)len, name);
     script_name_t *found;
-    if (script_names_count(&script_syms, name, len, &found))
-        return script_error("cannot assign symbol '%.*s'", (int)len, name);
     if (script_names_count(&script_vars, name, len, &found))
         found->value = value;
     else if (!script_names_add(&script_vars, name, len, value))
@@ -1450,7 +1678,7 @@ static bool script_command(const char *line)
                  * unknown key, not an unknown name. */
                 int64_t value;
                 if (!*script_name_end(name) &&
-                    script_lookup(name, strlen(name), &value) == EXPR_UNKNOWN)
+                    script_lookup(EXPR_NAME, name, strlen(name), &value) == EXPR_UNKNOWN)
                     return script_error("unknown key '%s'", name);
                 char *num = name;
                 long usage;
@@ -1995,9 +2223,10 @@ void script_usage(FILE *out)
             "\nEvery number is a Python 3 expression, such as 255, $FF or XRAM_PSG+5.\n"
             "Spaces separate arguments, so an expression with spaces must be in\n"
             "parentheses: poke xram:(XRAM_PSG + 5) $80. Names come from variables\n"
-            "and from the .sym beside the ROM. Floats are not allowed, so use // to\n"
-            "divide. A command that waits fails when its [frames] run out, 600 by\n"
-            "default.\n");
+            "and from the .sym beside the ROM. address(), define(), sizeof() and\n"
+            "countof() read one value of a name, or of a path such as\n"
+            "src/game.c/events. Floats are not allowed, so use // to divide. A\n"
+            "command that waits fails when its [frames] run out, 600 by default.\n");
 }
 
 bool script_load(const char *path, const char *rom)

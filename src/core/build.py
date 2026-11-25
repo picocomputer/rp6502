@@ -591,7 +591,7 @@ class Probe:
         self.board = board
         self.sym = {}
         if elf:
-            for name, value in rp6502.Symbols.elf_symbols(self.elf):
+            for name, value, _, _ in rp6502.Symbols.elf_symbols(self.elf):
                 self.sym.setdefault(name.split(".")[0], value)
         self.ocd = None
 

@@ -466,7 +466,7 @@ def main():
                 continue  # a source this RIA does not build
             for sec in sections.split():
                 name = re.sub(r'^\.(text|rodata)\.', '', sec)
-                where = [v for n, v in symbols if fnmatch.fnmatchcase(n, name)]
+                where = [v for n, v, _, _ in symbols if fnmatch.fnmatchcase(n, name)]
                 if not fnmatch.filter(linked, sec):
                     with open(src, errors='replace') as f:
                         stale = not re.search(r'\b%s\b' % re.escape(name.rstrip('*')), f.read())
