@@ -92,8 +92,8 @@ bool entry_canvas_locked(void);
  * render fills dst with frames of stereo float at the device's rate, which
  * is given each time, since it changes when the default device does. Opened
  * from the init callback and closed from cleanup. False when there is no
- * sound to be had. Windows has a WASAPI driver of its own (windows/audio.c);
- * Linux and macOS go through sokol_audio (app/audio_sokol.c). */
+ * sound to be had. Each desktop's driver is its audio.c: WASAPI on Windows,
+ * PulseAudio on Linux, the default output AudioUnit on macOS. */
 bool host_audio_open(void (*render)(float *dst, int frames, uint32_t rate));
 void host_audio_close(void);
 

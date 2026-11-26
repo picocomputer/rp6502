@@ -17,20 +17,15 @@ include(${CMAKE_CURRENT_LIST_DIR}/../../core/build.cmake)
 
 include(${RP6502_ROOT}/version.cmake)
 
-# The sound: Windows has a WASAPI driver of its own, and the others go
-# through sokol_audio.
 if(WIN32)
     set(RP6502_OSAL ${RP6502_SRC}/osal/windows)
     set(RP6502_SOKOL_OS ${CMAKE_CURRENT_LIST_DIR}/windows)
-    set(RP6502_SOKOL_AUDIO ${CMAKE_CURRENT_LIST_DIR}/windows/audio.c)
 elseif(APPLE)
     set(RP6502_OSAL ${RP6502_SRC}/osal/macos)
     set(RP6502_SOKOL_OS ${CMAKE_CURRENT_LIST_DIR}/macos)
-    set(RP6502_SOKOL_AUDIO ${CMAKE_CURRENT_LIST_DIR}/app/audio_sokol.c)
 else()
     set(RP6502_OSAL ${RP6502_SRC}/osal/linux)
     set(RP6502_SOKOL_OS ${CMAKE_CURRENT_LIST_DIR}/linux)
-    set(RP6502_SOKOL_AUDIO ${CMAKE_CURRENT_LIST_DIR}/app/audio_sokol.c)
 endif()
 
 include(${RP6502_SRC}/core/emu.cmake)
@@ -54,11 +49,10 @@ include(${RP6502_SRC}/host/sokol/sokol.cmake)
 if(NOT WIN32 AND NOT APPLE)
     find_package(OpenGL)
     find_package(X11)
-    find_path(PULSE_INCLUDE_DIR pulse/simple.h)
+    find_path(PULSE_INCLUDE_DIR pulse/pulseaudio.h)
     find_library(PULSE_LIBRARY pulse)
-    find_library(PULSE_SIMPLE_LIBRARY pulse-simple)
     if(NOT OPENGL_FOUND OR NOT X11_FOUND OR NOT X11_Xi_FOUND OR NOT X11_Xcursor_FOUND OR
-       NOT PULSE_INCLUDE_DIR OR NOT PULSE_LIBRARY OR NOT PULSE_SIMPLE_LIBRARY)
+       NOT PULSE_INCLUDE_DIR OR NOT PULSE_LIBRARY)
         message(FATAL_ERROR
             "rp6502-emu needs the desktop dev stack. On Debian/Ubuntu:\n"
             "  sudo apt-get install libgl-dev libx11-dev libxi-dev libxcursor-dev libpulse-dev")
@@ -78,7 +72,7 @@ add_executable(rp6502-emu
     ${RP6502_SRC}/host/sokol/app/prompt.c
     ${RP6502_SOKOL_OS}/entry.c
     ${RP6502_SOKOL_OS}/gamepad.c
-    ${RP6502_SOKOL_AUDIO}
+    ${RP6502_SOKOL_OS}/audio.c
     ${RP6502_SRC}/host/sokol/app/gamepad.c)
 target_link_libraries(rp6502-emu PRIVATE emu_core)
 target_compile_definitions(rp6502-emu PRIVATE SOKOL_NO_ENTRY RP6502_PAD_HOST)
@@ -116,12 +110,13 @@ elseif(APPLE)
         PROPERTIES COMPILE_FLAGS "-x objective-c")
     target_link_libraries(rp6502-emu PRIVATE
         "-framework Cocoa" "-framework QuartzCore" "-framework Metal"
-        "-framework MetalKit" "-framework AudioToolbox" "-framework GameController")
+        "-framework MetalKit" "-framework AudioToolbox" "-framework CoreAudio"
+        "-framework GameController")
 else()
     target_compile_definitions(rp6502-emu PRIVATE SOKOL_GLCORE)
     target_link_libraries(rp6502-emu PRIVATE
         OpenGL::GL X11::X11 X11::Xi X11::Xcursor
-        ${PULSE_SIMPLE_LIBRARY} ${PULSE_LIBRARY}
+        ${PULSE_LIBRARY}
         ${CMAKE_DL_LIBS} Threads::Threads)
     target_include_directories(rp6502-emu PRIVATE ${PULSE_INCLUDE_DIR})
 endif()

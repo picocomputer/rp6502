@@ -4,7 +4,7 @@
 set(RP6502_SOKOL ${CMAKE_CURRENT_LIST_DIR})
 
 rp6502_submodule(vendor/sokol SENTINEL sokol_app.h
-    WANTS "the emulator's window, input and audio")
+    WANTS "the emulator's window and input")
 
 set(RP6502_EMU_APP
     ${CMAKE_CURRENT_LIST_DIR}/cli/cli.c

@@ -10,7 +10,7 @@
  * The engine takes a period, 10 ms, at a time, from a buffer of about two
  * and a fifth of them, and wakes the device's thread after each. The thread
  * keeps a period and 2 ms in that buffer: the engine wants no more, and
- * filling all of it, as sokol_audio did, kept 17 ms there on average where
+ * filling all of it, as sokol_audio once did, kept 17 ms there on average where
  * this keeps 7. A shorter period, which IAudioClient3 asks for, is offered
  * by few drivers, none of them the NVIDIA HDMI or the USB Audio 2.0 class
  * driver this was measured on, so nothing here counts on one.
