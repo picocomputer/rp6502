@@ -7,10 +7,14 @@
 #include "core/api/api.h"
 #include "core/str/oem.h"
 #include "core/wdc/phi2.h"
+#include "core/com/rln.h"
+#include "core/hid/clip.h"
 #include "core/hid/hid.h"
+#include "core/hid/tablet.h"
 #include "core/api/proc.h"
 #include "core/sys/sys.h"
-#include "core/term/cells.h"
+#include "core/term/vterm.h"
+#include "core/term/vterm_mouse.h"
 #include "core/vga/vga.h"
 #include "osal/os.h"
 
@@ -19,7 +23,7 @@
 volatile uint8_t xram[0x10000];
 
 /* The console's terminal, whose key modes the test sets by hand. */
-term_t cells_term = {.autorepeat = true};
+term_t vterm = {.autorepeat = true};
 
 bool hid_boot_enumerating(void)
 {
@@ -116,4 +120,70 @@ bool proc_key_chord(uint8_t keycode, bool ctrl, bool alt)
         return false;
     apf_host_chords++;
     return true;
+}
+
+/* What the copy and paste keys and the keyboard's queue reach: the line
+ * editor, the console's buffers, which hold nothing, and the console's
+ * mouse, which owns the tablet and has no highlight. The test presses none
+ * of their keys and moves no pointer. */
+bool rln_reading(void)
+{
+    return false;
+}
+
+uint8_t clip_paste_source(uint8_t source)
+{
+    return source;
+}
+
+size_t clip_size(uint8_t source)
+{
+    (void)source;
+    return 0;
+}
+
+char clip_at(uint8_t source, size_t i)
+{
+    (void)source, (void)i;
+    return 0;
+}
+
+void clip_paste_end(void)
+{
+}
+
+bool clip_paste_break(void)
+{
+    return true;
+}
+
+void clip_paste_drop(void)
+{
+}
+
+bool vterm_mouse_copy(void)
+{
+    return false;
+}
+
+void tablet_on_contact(uint8_t old_flags, uint8_t flags, int16_t x, int16_t y,
+                       int8_t dwheel, int8_t dpan, bool moved_by_user)
+{
+    (void)old_flags, (void)flags, (void)x, (void)y;
+    (void)dwheel, (void)dpan, (void)moved_by_user;
+}
+
+bool tablet_claimed(void)
+{
+    return false;
+}
+
+bool tablet_wheel_claimed(void)
+{
+    return false;
+}
+
+void vga_set_pointer(uint8_t shape, int16_t x, int16_t y)
+{
+    (void)shape, (void)x, (void)y;
 }

@@ -22,12 +22,16 @@
 #
 # A check that finds nothing to check fails: no roots, or no code found in a
 # RAM source, means the inputs were misread, not that all is well. So does a
-# section of ria.cmake's RIA_FLASH_SECTIONS that is not in flash, or that no
-# object of the link has, kept or discarded, as its rule in the linker script
-# then matches nothing.
+# section of ria.cmake's RIA_FLASH_SECTIONS that is not in flash, or that
+# matches nothing. A section there is a pattern, as it is in the linker script,
+# so one name covers the clones the compiler makes at any optimization level.
+# A function its source still has, but which this build inlined everywhere or
+# left out, matches nothing and is no finding: a name its source no longer
+# has is.
 
 import argparse
 import collections
+import fnmatch
 import json
 import os
 import re
@@ -43,6 +47,8 @@ PRUNE = {
     'host_log': 'only prints a log message, and no message is needed while flashing',
     'com_telnet_handle_auth': 'the telnet FLASHING hook closed any session at the passkey prompt',
     'sys_set_flashing': 'the writer calls it first, and it runs the FLASHING hooks from flash still intact',
+    'vga_tell_code_page': 'vga_flashing waited out every answer and dropped the code page still to go, and nothing is awaited or owed again',
+    'vga_lose': 'the roots reach it only by an answer whose time is up (vga_gate_open), and vga_flashing waited out every answer, and nothing is awaited again',
     'cyw43_ll_bus_init': 'radio start-up: cyw43_ensure_up returns early while the chip is up',
     'initialise_rand': 'runs once, for the first random number at boot (get_rand_64)',
     'btstack_run_loop_poll_data_sources_from_irq':
@@ -85,7 +91,7 @@ INDIRECT = {
     'weak_raw_vprintf': ('panic prints through vprintf', STDIO),
     'manifold_term_feed': ('the console\'s terminal; its FLASHING hook clears the pointer', []),
     'com_read': ('the console sources, RP6502_COM_SOURCES',
-                 ['keymap_in_chars', 'manifold_uart_read', 'com_telnet_read']),
+                 ['typed_read', 'manifold_uart_read', 'com_telnet_read']),
     'async_context_acquire_lock_blocking': ('the poll context type', ASYNC),
     'async_context_release_lock': ('the poll context type', ASYNC),
     'async_context_set_work_pending': ('the poll context type', ASYNC),
@@ -450,9 +456,7 @@ def main():
              if build.split_location(loc)[0] not in ('??', '')}
     with open(args.map) as f:
         linked = set(re.findall(r'^ (\.(?:text|rodata)\.\S+)', f.read(), re.M))
-    where = collections.defaultdict(list)
-    for name, value in rp6502.Symbols.elf_symbols(args.elf):
-        where[name].append(value)
+    symbols = list(rp6502.Symbols.elf_symbols(args.elf))
     with open(args.flash_sections) as f:
         for entry in f.read().split('\n'):
             if not entry:
@@ -462,9 +466,13 @@ def main():
                 continue  # a source this RIA does not build
             for sec in sections.split():
                 name = re.sub(r'^\.(text|rodata)\.', '', sec)
-                if sec not in linked:
-                    report.append('flash section %s of %s matches nothing' % (sec, src))
-                elif where[name] and not any(flash(v) for v in where[name]):
+                where = [v for n, v, _, _ in symbols if fnmatch.fnmatchcase(n, name)]
+                if not fnmatch.filter(linked, sec):
+                    with open(src, errors='replace') as f:
+                        stale = not re.search(r'\b%s\b' % re.escape(name.rstrip('*')), f.read())
+                    if stale:
+                        report.append('flash section %s of %s matches nothing' % (sec, src))
+                elif where and not any(flash(v) for v in where):
                     report.append('flash section %s of %s is not in flash' % (sec, src))
     if not tasks:
         report.append('no TASK_ALWAYS task in the .flash_roots section')

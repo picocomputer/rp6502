@@ -7,11 +7,12 @@
 /* tio over sources this file stands in for, each queue holding the number of
  * bytes a test gives it, and one byte that can be staged ahead of a source as
  * the 6502's receive register holds it. The machine clock and the console's
- * terminal, of which tio reads only the VT52 mode, are stood in for too. */
+ * terminal, of which tio reads only the VT52 mode and the mouse's form, are
+ * stood in for too. */
 
 #include "core/com/tio.h"
 #include "core/sys/timer.h"
-#include "core/term/cells.h"
+#include "core/term/vterm.h"
 #include "utest.h"
 #include <string.h>
 
@@ -40,7 +41,7 @@ static void stage(com_source_t src, char c)
 
 static uint64_t fake_now;
 
-term_t cells_term;
+term_t vterm;
 
 static void sources(size_t keyboard, size_t uart)
 {
@@ -49,7 +50,8 @@ static void sources(size_t keyboard, size_t uart)
     fake[COM_SOURCE_UART].size = uart;
     fake[COM_SOURCE_TEL].size = 32;
     fake_staged_src = COM_SOURCE_ANY;
-    cells_term.vt52 = false;
+    vterm.vt52 = false;
+    vterm.mouse_form = TERM_MOUSE_FORM_X10;
     tio_init();
 }
 
@@ -232,6 +234,33 @@ UTEST(tio, an_x10_mouse_report_takes_its_three_bytes)
     ASSERT_STREQ(next(), "x");
 }
 
+/* In the console's UTF-8 form (?1005) the keyboard's reports, which the
+ * console's mouse types, take a value of two bytes, as a column of 100
+ * makes; another source frames the same bytes as X10's three. */
+UTEST(tio, the_keyboard_frames_a_report_in_utf8)
+{
+    sources(256, 256);
+    vterm.mouse_form = TERM_MOUSE_FORM_UTF8;
+    const char report[] = "\33[M \302\205!x";
+    push(COM_SOURCE_KEYBOARD, report);
+    ASSERT_STREQ(next(), "\33[M \302\205!");
+    ASSERT_EQ(got_src, COM_SOURCE_KEYBOARD);
+    ASSERT_STREQ(next(), "x");
+    push(COM_SOURCE_UART, report);
+    ASSERT_STREQ(next(), "\33[M \302\205");
+    ASSERT_STREQ(next(), "!");
+    ASSERT_STREQ(next(), "x");
+    vterm.mouse_form = TERM_MOUSE_FORM_X10;
+    push(COM_SOURCE_KEYBOARD, report);
+    ASSERT_STREQ(next(), "\33[M \302\205");
+    ASSERT_STREQ(next(), "!");
+    tio_csi_t csi;
+    ASSERT_TRUE(tio_csi_parse("\33[M \302\205!", 7, &csi));
+    ASSERT_EQ(csi.final, 'M');
+    ASSERT_TRUE(tio_csi_parse("\33[M\302\240\337\277\302\200", 9, &csi));
+    ASSERT_FALSE(tio_csi_parse("\33[M \302\205!!", 8, &csi));
+}
+
 static bool parse(const char *item, tio_csi_t *csi)
 {
     return tio_csi_parse(item, strlen(item), csi);
@@ -262,6 +291,14 @@ UTEST(tio, a_csi_parses_only_in_its_own_shape)
     ASSERT_EQ(csi.final, '[');
     ASSERT_FALSE(parse("\33[1M!!!", &csi));
     ASSERT_FALSE(parse("\33[AB", &csi));
+    /* A modified key's three parameters, and a fourth that is counted only. */
+    ASSERT_TRUE(parse("\33[27;5;97~", &csi));
+    ASSERT_EQ(csi.count, 3);
+    ASSERT_EQ(csi.param[1], 5);
+    ASSERT_EQ(csi.param[2], 97);
+    ASSERT_TRUE(parse("\33[1;2;3;4m", &csi));
+    ASSERT_EQ(csi.count, 4);
+    ASSERT_EQ(csi.param[2], 3);
 }
 
 /* ----- A sequence that does not finish ----- */
@@ -289,7 +326,7 @@ UTEST(tio, esc_question_takes_one_more_byte_only_in_vt52_mode)
     ASSERT_STREQ(next(), "\33?");
     ASSERT_STREQ(next(), "p");
     ASSERT_STREQ(next(), "q");
-    cells_term.vt52 = true;
+    vterm.vt52 = true;
     push(COM_SOURCE_UART, "\33?pq\33A\33?");
     ASSERT_STREQ(next(), "\33?p");
     ASSERT_STREQ(next(), "q");
@@ -301,7 +338,7 @@ UTEST(tio, esc_question_takes_one_more_byte_only_in_vt52_mode)
     ASSERT_STREQ(next(), "a");
     ASSERT_STREQ(next(), "\33?n");
     ASSERT_STREQ(next(), "");
-    cells_term.vt52 = false;
+    vterm.vt52 = false;
 }
 
 /* Alt+[ is ESC '[', which would otherwise take the next key as its final. */

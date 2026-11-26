@@ -88,6 +88,14 @@ static void HOST_IN_FLASH_FUNC set_string(const char *args, bool (*set)(const ch
     {                                                                       \
         set_string(args, pfx##_set_##name, resp);                           \
     }
+/* A line that sets a secret does not stay in the prompt's history. */
+#define CONFIG_SECRET(ltr, pfx, name, size, def, check, apply, attr, resp, ...) \
+    static void set_mon_##pfx##_##name(const char *args)                       \
+    {                                                                          \
+        if (*args)                                                             \
+            mon_forget_line();                                                 \
+        set_string(args, pfx##_set_##name, resp);                              \
+    }
 #define CONFIG_RAW(ltr, pfx, name, size, def, check, apply, attr, resp, ...) \
     static void set_mon_##pfx##_##name(const char *args)                    \
     {                                                                       \

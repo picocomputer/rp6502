@@ -5,6 +5,8 @@
  *
  */
 
+#include "core/vga/mode/mode6.h"
+#include "core/hid/tablet.h"
 #include "core/aud/mix.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
@@ -31,6 +33,7 @@ static bool vsynced;
 static bool vga_needs_reset;
 static bool vga_scanout = true;
 static uint32_t *g_framebuffer;
+static void (*vga_pause)(void);
 
 /* The emulators render one line at a time, so one set of caches serves. A
  * row of text is forgotten before every line, which builds its pairs again:
@@ -44,6 +47,7 @@ static vga_fill_cache_t vga_fill_cache[SCANVIDEO_PLANE_COUNT];
     X(BOOL, vga_needs_reset)                                           \
     X(SKIP, vga_scanout, "whether this host wants pixels at all")      \
     X(SKIP, g_framebuffer, "the host's; no row touches the pixels")    \
+    X(SKIP, vga_pause, "the host's")                                   \
     X(SKIP, vga_fill_cache, "keyed, and a row of text is built again " \
                             "on every line")
 SST_TABLE(vga, VGA_SST)
@@ -62,6 +66,11 @@ static inline uint32_t rgb555_to_rgba8(uint16_t px)
 bool vga_connected(void)
 {
     return true;
+}
+
+bool vga_console_busy(void)
+{
+    return false;
 }
 
 void vga_canvas_reset(void)
@@ -84,8 +93,16 @@ void vga_load_code_page(uint16_t cp)
     font_load_code_page(cp);
 }
 
+/* Where the host shows its own cursor for the system's shapes, only a
+ * program's own are drawn. */
+void vga_set_pointer(uint8_t shape, int16_t x, int16_t y)
+{
+    mode6_set(tablet_host_cursor_shown() && !mode6_custom() ? 0 : shape, x, y);
+}
+
 void vga_init(void)
 {
+    mode6_init();
     vga_canvas_select(0);
 }
 
@@ -152,9 +169,17 @@ bool vga_run_frame(void)
         }
         sys_task();
         sys_commit();
+        aud_progress();
+        if (vga_pause)
+            vga_pause();
     }
     aud_step();
     return whole;
+}
+
+void vga_set_pause(void (*pause)(void))
+{
+    vga_pause = pause;
 }
 
 void vga_task(void)
@@ -246,6 +271,9 @@ static void render_scanline(int y, uint32_t *fb)
         }
     }
 
+    mode6_render((int16_t)y, (int16_t)W, plane[SCANVIDEO_PLANE_COUNT - 1],
+                   &filled[SCANVIDEO_PLANE_COUNT - 1]);
+
     uint32_t *dst = fb + (size_t)y * W;
     for (int x = 0; x < W; x++)
     {
@@ -255,6 +283,13 @@ static void render_scanline(int y, uint32_t *fb)
                 px = plane[i][x];
         dst[x] = rgb555_to_rgba8(px);
     }
+}
+
+void vga_draw(uint32_t *fb)
+{
+    const int h = vga_canvas_height();
+    for (int y = 0; y < h; y++)
+        render_scanline(y, fb);
 }
 
 static void vga_render_scanline(int y)

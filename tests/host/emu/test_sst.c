@@ -15,7 +15,13 @@
 #include "core/aud/psg.h"
 #include "core/wdc/sram.h"
 #include "core/com/rln.h"
-#include "core/term/cells.h"
+#include "core/com/com.h"
+#include "core/hid/clip.h"
+#include "core/hid/paste_host.h"
+#include "core/hid/typed.h"
+#include "core/term/draw.h"
+#include "core/term/grid.h"
+#include "core/term/vterm.h"
 #include "core/vga/canvas.h"
 #include "tb_screen.h"
 #include "host/host.h"
@@ -63,8 +69,8 @@ UTEST(sst, a_size_is_fixed_and_answered_before_anything_runs)
 UTEST(sst, the_shape_is_the_shape)
 {
     ASSERT_EQ(take(), (const char *)NULL);
-    ASSERT_EQ(sst_size(), (size_t)242812);
-    ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 41u);
+    ASSERT_EQ(sst_size(), (size_t)251699);
+    ASSERT_EQ((unsigned)((blob[6] << 8) | blob[7]), 45u);
 }
 
 UTEST(sst, a_blob_is_framed)
@@ -195,20 +201,334 @@ UTEST(sst, what_a_row_carries_comes_back)
 UTEST(sst, a_programs_own_size_comes_back)
 {
     rln_set_term_width(132);
-    term_grid_t *g = cells_term.grids[TERM_SCREEN_GRIDS];
-    g->pos[0].x = 100;
+    term_grid_t *g = vterm.grids[TERM_SCREEN_GRIDS];
+    g->screen[0].pos.x = 100;
     ASSERT_EQ(take(), (const char *)NULL);
     rln_set_term_width(0);
-    ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS);
+    ASSERT_EQ(vterm.grid_count, TERM_SCREEN_GRIDS);
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
-    ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS + 1);
-    ASSERT_EQ(term_shown(&cells_term)->width, 132);
-    ASSERT_EQ(term_pos(term_shown(&cells_term))->x, 100);
+    ASSERT_EQ(vterm.grid_count, TERM_SCREEN_GRIDS + 1);
+    ASSERT_EQ(vterm.grids[TERM_SCREEN_GRIDS]->width, 132);
+    ASSERT_EQ(term_pos(vterm.grids[TERM_SCREEN_GRIDS])->x, 100);
     rln_set_term_width(0);
     ASSERT_EQ(take(), (const char *)NULL);
     rln_set_term_width(60);
     ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
-    ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS);
+    ASSERT_EQ(vterm.grid_count, TERM_SCREEN_GRIDS);
+}
+
+/* Where mode 0 sits on a canvas comes back with the console's terminal,
+ * though the canvas's load programs nothing, and the console placed since
+ * goes. */
+UTEST(sst, where_mode_0_sits_comes_back)
+{
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    ASSERT_TRUE(xreg1(0, 3, 16) && xreg1(0, 4, 224) && xreg1(0, 1, 0));
+    const vterm_placement_t was = vterm_placement;
+    ASSERT_TRUE(was.placed);
+    ASSERT_EQ(was.rows, 26);
+    ASSERT_EQ(take(), (const char *)NULL);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    ASSERT_TRUE(vterm_placement.console);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(memcmp(&was, &vterm_placement, sizeof was), 0);
+    ASSERT_EQ(vga_get_canvas(), vga_canvas_320_240);
+    ASSERT_EQ(vterm.grids[0]->height, 26);
+    ASSERT_TRUE(vterm_get_shown(&vterm) == vterm.grids[0]);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* Where mode 0 sits must be where the canvas saved beside it puts it: a
+ * record of the 40 on the console canvas, of the console off it, or of rows
+ * running past the canvas's foot is refused, though each could stand on
+ * another canvas. */
+static const char *save_placed(vterm_placement_t p)
+{
+    const vterm_placement_t was = vterm_placement;
+    vterm_placement = p;
+    const char *err = take();
+    vterm_placement = was;
+    return err;
+}
+
+UTEST(sst, mode_0_where_its_canvas_does_not_put_it_is_refused)
+{
+    ASSERT_EQ(save_placed((vterm_placement_t){.cols = 40}), (const char *)NULL);
+    ASSERT_NE(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(save_placed((vterm_placement_t){.cols = 80}), (const char *)NULL);
+    ASSERT_NE(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    const uint8_t rows = vterm.grids[0]->height;
+    ASSERT_EQ(save_placed((vterm_placement_t){.cols = 40, .rows = rows, .row_px = 8,
+                                              .begin = (int16_t)(248 - rows * 8),
+                                              .placed = true}),
+              (const char *)NULL);
+    ASSERT_NE(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    ASSERT_EQ(save_placed((vterm_placement_t){.cols = 40, .rows = rows, .row_px = 8,
+                                              .begin = (int16_t)(240 - rows * 8),
+                                              .placed = true}),
+              (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* The console's palette comes back with the console's terminal, the
+ * special colors with it, and mode 0's faint twins are made from them
+ * again. */
+UTEST(sst, the_palette_and_its_faint_twins_come_back)
+{
+    const uint16_t red = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(200, 100, 40);
+    const uint16_t cursor = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(0, 80, 160);
+    const uint16_t paper = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(240, 230, 200);
+    const uint16_t lit = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 255);
+    const uint16_t text = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(255, 255, 0);
+    vterm_set_color(&vterm, 1, red);
+    vterm_set_color(&vterm, VTERM_COLOR_CURSOR, cursor);
+    vterm_set_color(&vterm, VTERM_COLOR_BG, paper);
+    vterm_set_color(&vterm, VTERM_COLOR_HIGHLIGHT_BG, lit);
+    vterm_set_color(&vterm, VTERM_COLOR_HIGHLIGHT_FG, text);
+    draw_publish();
+    ASSERT_EQ(take(), (const char *)NULL);
+    vterm_reset_colors(&vterm);
+    draw_publish();
+    ASSERT_EQ(mode0_color(MODE0_ENTRY(1, true)), mode0_faint(color_256[1]));
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(vterm_palette[1], red);
+    ASSERT_EQ(vterm_get_color(&vterm, VTERM_COLOR_CURSOR), cursor);
+    ASSERT_EQ(vterm_get_color(&vterm, VTERM_COLOR_BG), paper);
+    ASSERT_EQ(vterm_get_color(&vterm, VTERM_COLOR_HIGHLIGHT_BG), lit);
+    ASSERT_EQ(vterm_get_color(&vterm, VTERM_COLOR_HIGHLIGHT_FG), text);
+    draw_publish();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | lit);
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | text);
+    ASSERT_EQ(mode0_color(MODE0_ENTRY(1, false)), red);
+    ASSERT_EQ(mode0_color(MODE0_ENTRY(1, true)), mode0_faint(red));
+    ASSERT_EQ(mode0_color(MODE0_ENTRY(MODE0_DEFAULT_BG, false)), paper);
+    ASSERT_EQ(mode0_color(MODE0_ENTRY(MODE0_DEFAULT_BG, true)), mode0_faint(paper));
+    ASSERT_EQ(mode0_color(MODE0_ENTRY(MODE0_DEFAULT_FG, true)), mode0_faint(color_256[7]));
+    vterm_reset_colors(&vterm);
+    draw_publish();
+}
+
+/* All the keyboard row gives. */
+static size_t keyboard_all(char *out, size_t max)
+{
+    return com_read(COM_SOURCE_KEYBOARD, out, max);
+}
+
+/* A paste of the host's text is the host's: a save carries none of it,
+ * and a load ends the one being typed and those that wait, while the keys
+ * typed round them stay. */
+UTEST(sst, a_load_ends_the_host_s_pastes)
+{
+    com_rx_clear();
+    char big[TYPED_QUEUE_SIZE * 4];
+    memset(big, 'p', sizeof big - 1);
+    big[sizeof big - 1] = 0;
+    paste_start(big);
+    typed_push("a", 1);
+    paste_start("second");
+    ASSERT_TRUE(typed_text("third"));
+    typed_push("b", 1);
+    char head[4];
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, sizeof head), sizeof head);
+    ASSERT_EQ(take(), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    char rest[8] = {0};
+    ASSERT_EQ(keyboard_all(rest, sizeof rest - 1), (size_t)2);
+    ASSERT_STREQ(rest, "ab");
+    /* Text handed over after the load is typed as it is. */
+    paste_start("new");
+    ASSERT_EQ(keyboard_all(rest, sizeof rest - 1), (size_t)3);
+    ASSERT_STREQ(rest, "new");
+}
+
+static void say(const char *s)
+{
+    while (*s)
+        term_write(&vterm, (uint8_t)*s++);
+}
+
+/* The host's text is left behind, but a program that has read the opening
+ * bracket is owed the closing one, which comes after a load. */
+UTEST(sst, a_bracketed_host_paste_comes_back_as_its_closing_bracket)
+{
+    com_rx_clear();
+    say("\33[?2004h");
+    static char big[TYPED_QUEUE_SIZE * 4];
+    memset(big, 'p', sizeof big - 1);
+    paste_start(big);
+    char head[8];
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, sizeof head), sizeof head);
+    ASSERT_EQ(memcmp(head, "\33[200~pp", 8), 0);
+    ASSERT_EQ(take(), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    char rest[16] = {0};
+    ASSERT_EQ(keyboard_all(rest, sizeof rest - 1), (size_t)6);
+    ASSERT_STREQ(rest, "\33[201~");
+    say("\33[?2004l");
+}
+
+/* Half an opening bracket read is finished, then closed. */
+UTEST(sst, a_half_read_opening_bracket_is_finished_after_a_load)
+{
+    com_rx_clear();
+    say("\33[?2004h");
+    paste_start("text");
+    char head[3];
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, sizeof head), sizeof head);
+    ASSERT_EQ(take(), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    char rest[16] = {0};
+    ASSERT_EQ(keyboard_all(rest, sizeof rest - 1), (size_t)9);
+    ASSERT_STREQ(rest, "00~\33[201~");
+    say("\33[?2004l");
+}
+
+/* A bracketed host paste the program has read nothing of goes whole,
+ * whether its turn had come or not. */
+UTEST(sst, an_unread_host_paste_leaves_nothing_after_a_load)
+{
+    com_rx_clear();
+    say("\33[?2004h");
+    paste_start("text");
+    ASSERT_EQ(take(), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    char rest[16];
+    ASSERT_EQ(keyboard_all(rest, sizeof rest), (size_t)0);
+    paste_start("text");
+    ASSERT_EQ(com_peek(COM_SOURCE_KEYBOARD, 0), '\33');
+    ASSERT_EQ(take(), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(keyboard_all(rest, sizeof rest), (size_t)0);
+    say("\33[?2004l");
+}
+
+/* A paste of a machine buffer that waits behind host text is saved: after
+ * a load the host paste's closing bracket comes, then the whole of it. */
+UTEST(sst, a_machine_paste_behind_host_text_comes_back)
+{
+    com_rx_clear();
+    say("\33[?2004h\33[H\33[2Jmine");
+    term_job_finish(&vterm);
+    clip_copy(CLIP_PRIMARY, vterm_get_shown(&vterm)->shown, 0, 0, 0, 4);
+    static char big[TYPED_QUEUE_SIZE * 4];
+    memset(big, 'p', sizeof big - 1);
+    paste_start(big);
+    char head[8];
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, sizeof head), sizeof head);
+    clip_paste(CLIP_PRIMARY);
+    ASSERT_EQ(take(), (const char *)NULL);
+    com_rx_clear();
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    char rest[32] = {0};
+    ASSERT_EQ(keyboard_all(rest, sizeof rest - 1), (size_t)22);
+    ASSERT_STREQ(rest, "\33[201~\33[200~mine\33[201~");
+    say("\33[?2004l");
+}
+
+/* A paste of the machine's own text is machine state: a load in the middle
+ * of one goes on from where the save was, with the buffer it reads. */
+UTEST(sst, a_paste_of_the_machine_s_own_text_comes_back)
+{
+    com_rx_clear();
+    for (int y = 0; y < 10; y++)
+        for (const char *t = "\r\n0123456789abcdefghijklmnopqrstuvwxyz"; *t; t++)
+            term_write(&vterm, (uint8_t)*t);
+    term_job_finish(&vterm);
+    const term_grid_t *g = vterm_get_shown(&vterm);
+    clip_copy(CLIP_PRIMARY, g->shown, 0, 0, (uint8_t)(g->height - 1), g->width);
+    clip_paste(CLIP_PRIMARY);
+    char head[100];
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, sizeof head), sizeof head);
+    ASSERT_EQ(take(), (const char *)NULL);
+    static char rest[2048], again[2048];
+    const size_t got = keyboard_all(rest, sizeof rest);
+    ASSERT_GT(got, (size_t)TYPED_QUEUE_SIZE);
+    clip_reset();
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(keyboard_all(again, sizeof again), got);
+    ASSERT_EQ(memcmp(rest, again, got), 0);
+    ASSERT_EQ(com_peek(COM_SOURCE_KEYBOARD, 0), -1);
+}
+
+/* The two bytes at off of the queue's chunk in the blob, the big end
+ * first. */
+static uint8_t *typd(size_t off)
+{
+    for (size_t i = 0; i + 4 <= sst_size(); i++)
+        if (!memcmp(blob + i, "TYPD", 4))
+            return blob + i + 10 + off;
+    return NULL;
+}
+
+/* A save of a queue holding a byte, a cut key of two bytes and a paste of
+ * the primary, with a paste of the primary being typed. Its chunk is the
+ * length, the entries, and the paste being typed. */
+static void take_queue(int *utest_result)
+{
+    com_rx_clear();
+    say("\33[H\33[2Jmine");
+    term_job_finish(&vterm);
+    clip_copy(CLIP_PRIMARY, vterm_get_shown(&vterm)->shown, 0, 0, 0, 4);
+    clip_paste(CLIP_PRIMARY);
+    char head[1];
+    ASSERT_EQ(com_read(COM_SOURCE_KEYBOARD, head, 1), (size_t)1);
+    typed_push("a", 1);
+    typed_cut("xy", 2);
+    clip_paste(CLIP_PRIMARY);
+    ASSERT_EQ(take(), (const char *)NULL);
+    ASSERT_NE(typd(0), (uint8_t *)NULL);
+    ASSERT_EQ(typd(0)[1], 5);
+    ASSERT_EQ(typd(2)[1], 'a');
+    ASSERT_EQ(typd(4)[0], TYPED_CUT << 4);
+    ASSERT_EQ(typd(2 + 2 * TYPED_QUEUE_SIZE)[0], 1 + CLIP_PRIMARY);
+}
+
+/* What take_queue saved loads, and goes on. */
+UTEST(sst, a_queue_s_entries_come_back)
+{
+    take_queue(utest_result);
+    com_rx_clear();
+    ASSERT_EQ(sst_load(blob, sst_size(), SST_TRUSTED), (const char *)NULL);
+    char rest[16] = {0};
+    ASSERT_EQ(keyboard_all(rest, sizeof rest - 1), (size_t)10);
+    ASSERT_STREQ(rest, "ineaxymine");
+}
+
+/* A queue's chunk that holds what the queue cannot is refused: more
+ * entries than it has room for, an entry of no kind, a byte that is none,
+ * a paste of no buffer, a cut key with fewer bytes behind its mark than it
+ * says, or one with an entry among them that is no byte, a drag behind an
+ * entry that is not its held one, and a paste being
+ * typed from no buffer or past the text its buffer holds. */
+UTEST(sst, a_queue_that_cannot_be_is_refused)
+{
+    static const struct
+    {
+        size_t off;
+        uint8_t byte;
+    } bad[] = {
+        {0, 0xFF},                                 /* a length past the queue */
+        {2, 0x90},                                 /* an entry of no kind */
+        {2, 0x01},                                 /* a byte past a byte */
+        {11, CLIP_COUNT},                          /* a paste of the host's text */
+        {5, 9},                                    /* a cut key's bytes past the queue */
+        {6, TYPED_COPY << 4},                      /* a cut key's byte that is none */
+        {10, TYPED_DRAG << 4},                     /* a drag with no held entry before it */
+        {2 + 2 * TYPED_QUEUE_SIZE, CLIP_COUNT + 1}, /* typed from no buffer */
+        {2 + 2 * TYPED_QUEUE_SIZE + 2, 4},         /* typed past its text */
+        {2 + 2 * TYPED_QUEUE_SIZE + 3, 7},         /* more of a bracket than there is */
+        {2 + 2 * TYPED_QUEUE_SIZE + 4, 7},
+    };
+    for (size_t i = 0; i < sizeof bad / sizeof *bad; i++)
+    {
+        take_queue(utest_result);
+        *typd(bad[i].off) = bad[i].byte;
+        ASSERT_NE(sst_load(blob, sst_size(), SST_TRUSTED), (const char *)NULL);
+    }
+    com_rx_clear();
 }
 
 UTEST(sst, a_program_picks_up_where_it_was)
@@ -753,8 +1073,7 @@ static void boot_row(char *dst, uint8_t y, uint8_t width)
 static bool boot_text(boot_text_t *t)
 {
     static char line[TERM_MAX_WIDTH + 1];
-    for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-        cells_task();
+    draw_task();
     tb_screen_t v;
     tb_screen(&v);
     int fence = -1, asked = -1;
@@ -784,7 +1103,7 @@ static bool boot_fixture(boot_text_t *t)
 {
     static const char fence[] = "\r\n" FENCE "\r\n";
     for (const char *s = fence; *s; s++)
-        term_write(&cells_term, (uint8_t)*s);
+        term_write(&vterm, (uint8_t)*s);
     if (!emu_restart(TEST_FIXTURE))
         return false;
     for (int i = 0; i < 100; i++)

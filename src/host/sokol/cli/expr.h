@@ -28,16 +28,29 @@ typedef enum
     EXPR_SHIFT,
     EXPR_FLOAT,
     EXPR_DIVIDE,
+    EXPR_REFUSED,
 } expr_status_t;
 
-/* The lookup sets a name's value and returns EXPR_OK, or it returns
- * EXPR_UNKNOWN or EXPR_AMBIGUOUS. */
-typedef expr_status_t (*expr_lookup_t)(const char *name, size_t len,
-                                       int64_t *value);
+/* A name, or the text between the parentheses of address(), define(),
+ * sizeof() or countof(). That text is not an expression, so it can hold a
+ * path such as src/game.c/events. */
+typedef enum
+{
+    EXPR_NAME,
+    EXPR_ADDRESS,
+    EXPR_DEFINE,
+    EXPR_SIZEOF,
+    EXPR_COUNTOF,
+} expr_form_t;
 
-/* When a name lookup fails, expr_eval sets name and name_len to that name. */
+/* The lookup sets the value and returns EXPR_OK, or it returns
+ * EXPR_UNKNOWN, EXPR_AMBIGUOUS, or EXPR_REFUSED for a name that has no such
+ * value. expr_eval returns what the lookup returns. */
+typedef expr_status_t (*expr_lookup_t)(expr_form_t form, const char *name,
+                                       size_t len, int64_t *value);
+
 expr_status_t expr_eval(const char *text, size_t len, expr_lookup_t lookup,
-                        int64_t *out, const char **name, size_t *name_len);
+                        int64_t *out);
 
 /* expr_int parses one whole-number literal with an optional leading -, for
  * reading .sym files. */

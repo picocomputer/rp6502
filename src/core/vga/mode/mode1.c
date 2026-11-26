@@ -11,9 +11,9 @@
 #include "core/term/color.h"
 #include "core/term/font.h"
 #include <string.h>
+#include "core/sys/hot.h"
 
-#pragma GCC push_options
-#pragma GCC optimize("O3")
+HOT_BEGIN
 
 typedef struct
 {
@@ -287,7 +287,7 @@ mode1_render_color(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t c
                        (uint32_t)(row_data - (const uint8_t *)xram)};
     _Static_assert(sizeof(cfg) <= 4 * sizeof(uint32_t), "the config fits the key");
     memcpy(&key[3], &cfg, sizeof(cfg));
-    const bool build = memcmp(cache->key, key, sizeof(key)) != 0;
+    const bool build = !vga_fill_cache_hit(cache, key);
     if (build)
         memcpy(cache->key, key, sizeof(key));
     /* Only the first and the last cell across a line can be cut, because
@@ -424,4 +424,4 @@ bool mode1_prog(uint16_t *xregs)
     return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, 1, attributes);
 }
 
-#pragma GCC pop_options
+HOT_END

@@ -32,12 +32,14 @@ include(${RP6502_SRC}/core/emu.cmake)
 if(WIN32)
     include(${RP6502_SRC}/osal/windows/windows.cmake)
     rp6502_osal_windows(emu_core TRANSPORT overlapped)
-    target_sources(emu_core PRIVATE ${RP6502_SRC}/osal/windows/console.c)
+    target_sources(emu_core PRIVATE ${RP6502_SRC}/osal/windows/console.c
+        ${RP6502_SRC}/osal/windows/thread.c)
 else()
     include(${RP6502_SRC}/osal/posix/posix.cmake)
     rp6502_osal_posix(emu_core TRANSPORT aio)
     target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c
-        ${RP6502_SRC}/osal/posix/console.c)
+        ${RP6502_SRC}/osal/posix/console.c
+        ${RP6502_SRC}/osal/posix/thread.c)
 endif()
 
 target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
@@ -47,16 +49,17 @@ include(${RP6502_SRC}/host/sokol/sokol.cmake)
 if(NOT WIN32 AND NOT APPLE)
     find_package(OpenGL)
     find_package(X11)
-    find_path(PULSE_INCLUDE_DIR pulse/simple.h)
+    find_path(PULSE_INCLUDE_DIR pulse/pulseaudio.h)
     find_library(PULSE_LIBRARY pulse)
-    find_library(PULSE_SIMPLE_LIBRARY pulse-simple)
     if(NOT OPENGL_FOUND OR NOT X11_FOUND OR NOT X11_Xi_FOUND OR NOT X11_Xcursor_FOUND OR
-       NOT PULSE_INCLUDE_DIR OR NOT PULSE_LIBRARY OR NOT PULSE_SIMPLE_LIBRARY)
+       NOT PULSE_INCLUDE_DIR OR NOT PULSE_LIBRARY)
         message(FATAL_ERROR
             "rp6502-emu needs the desktop dev stack. On Debian/Ubuntu:\n"
             "  sudo apt-get install libgl-dev libx11-dev libxi-dev libxcursor-dev libpulse-dev")
     endif()
     find_package(Threads REQUIRED)
+    # emu_core holds osal/posix/thread.c.
+    target_link_libraries(emu_core PUBLIC Threads::Threads)
 endif()
 
 add_executable(rp6502-emu
@@ -66,8 +69,10 @@ add_executable(rp6502-emu
     ${RP6502_SRC}/host/sokol/cli/console.c
     ${RP6502_SRC}/host/sokol/cli/log.c
     ${RP6502_EMU_WINDOW}
+    ${RP6502_SRC}/host/sokol/app/prompt.c
     ${RP6502_SOKOL_OS}/entry.c
     ${RP6502_SOKOL_OS}/gamepad.c
+    ${RP6502_SOKOL_OS}/audio.c
     ${RP6502_SRC}/host/sokol/app/gamepad.c)
 target_link_libraries(rp6502-emu PRIVATE emu_core)
 target_compile_definitions(rp6502-emu PRIVATE SOKOL_NO_ENTRY RP6502_PAD_HOST)
@@ -76,7 +81,7 @@ if(WIN32)
     target_compile_definitions(rp6502-emu PRIVATE SOKOL_D3D11 _BSD_SOURCE)
     # The XInput runtime is not linked here because windows/gamepad.c loads it
     # by name at run time.
-    target_link_libraries(rp6502-emu PRIVATE d3d11 dxgi shell32 hid user32)
+    target_link_libraries(rp6502-emu PRIVATE d3d11 dxgi shell32 hid user32 ole32 avrt)
     # The GUI subsystem keeps Windows from opening a console for the program,
     # and mainCRTStartup keeps main() as the entry point rather than the
     # WinMain the GUI subsystem would otherwise want.
@@ -105,12 +110,13 @@ elseif(APPLE)
         PROPERTIES COMPILE_FLAGS "-x objective-c")
     target_link_libraries(rp6502-emu PRIVATE
         "-framework Cocoa" "-framework QuartzCore" "-framework Metal"
-        "-framework MetalKit" "-framework AudioToolbox" "-framework GameController")
+        "-framework MetalKit" "-framework AudioToolbox" "-framework CoreAudio"
+        "-framework GameController")
 else()
     target_compile_definitions(rp6502-emu PRIVATE SOKOL_GLCORE)
     target_link_libraries(rp6502-emu PRIVATE
         OpenGL::GL X11::X11 X11::Xi X11::Xcursor
-        ${PULSE_SIMPLE_LIBRARY} ${PULSE_LIBRARY}
+        ${PULSE_LIBRARY}
         ${CMAKE_DL_LIBS} Threads::Threads)
     target_include_directories(rp6502-emu PRIVATE ${PULSE_INCLUDE_DIR})
 endif()
@@ -142,5 +148,6 @@ enable_testing()
 include(${RP6502_ROOT}/tests/rp6502_tests.cmake)
 add_subdirectory(${RP6502_ROOT}/tests/host/emu tests/host/emu)
 add_subdirectory(${RP6502_ROOT}/tests/host/pico tests/host/pico)
+add_subdirectory(${RP6502_ROOT}/tests/host/xcheck tests/host/xcheck)
 add_subdirectory(${RP6502_ROOT}/tests/host/vttest tests/host/vttest)
 add_subdirectory(${RP6502_ROOT}/tests/cpu tests/cpu)

@@ -19,6 +19,8 @@
 #define RP6502_HAS_MONITOR 0
 #define TERM_MAX_HEIGHT 30
 #define MANIFOLD_RING_SIZE 256
+/* The size of the typed queue. */
+#define TYPED_QUEUE_SIZE 256
 /* The C library's stdout is the host's, so com_printf formats into a buffer
  * of its own. */
 #define COM_LIBC_STDOUT 0

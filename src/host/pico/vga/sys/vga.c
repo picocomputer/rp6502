@@ -4,19 +4,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/term/vterm.h"
+#include "core/vga/mode/mode6.h"
 #include "vga/main.h"
 #include "vga/sys/ria.h"
 #include "vga/sys/vga.h"
 #include "core/vga/prog.h"
-#include "core/term/cells.h"
 #include "vga/scanvideo/scanvideo.h"
 #include <pico/stdlib.h>
 #include <pico/multicore.h>
 #include <hardware/clocks.h>
 #include <string.h>
+#include "core/sys/hot.h"
 
-#pragma GCC push_options
-#pragma GCC optimize("O3")
+HOT_BEGIN
 
 /* A render and a switch of the view keep out of each other's way with two
  * flags and no lock. A render sets its core's vga_rendering and then reads
@@ -274,6 +275,12 @@ unsigned long vga_frame_count(void)
     return __atomic_load_n(&vga_frames, __ATOMIC_RELAXED);
 }
 
+/* The VGA is the display's, so it is always there. */
+bool vga_connected(void)
+{
+    return true;
+}
+
 /* Both cores render lines at once, so each keeps its own fill caches. They
  * are in the VIDEO region with the other data the renderers read, which the
  * boot code does not zero, so vga_init does; see ld/. */
@@ -331,6 +338,8 @@ static void vga_render_scanline(void)
                               prog.sprite_length[i]);
         }
     }
+    mode6_render(scanline_id, (int16_t)width, scanline_buffer->pixels[SCANVIDEO_PLANE_COUNT - 1],
+                   &filled[SCANVIDEO_PLANE_COUNT - 1]);
     scanvideo_end_scanline_generation(scanline_buffer, filled);
     vga_scanline_complete(buffer_scanline_id);
     *rendering = false;
@@ -406,8 +415,12 @@ void vga_xreg_canvas(uint16_t *xregs)
     vga_prog_reset();
     vga_canvas_selected = (vga_canvas_t)canvas;
     vga_scanvideo_update();
+    vterm_canvas((uint8_t)vga_term_columns(vga_canvas_width()), canvas == vga_canvas_console);
     if (canvas == vga_canvas_console)
+    {
+        vga_prog_pointer(0xFFFF); /* the console has the system's pointers */
         vga_reset_console_prog();
+    }
     if (xregs)
         ria_ack();
 }
@@ -432,6 +445,7 @@ void vga_init(void)
 {
     /* The VIDEO region is not zeroed at boot. */
     memset(vga_fill_cache, 0, sizeof(vga_fill_cache));
+    mode6_init();
     vga_set_display(vga_sd);
     vga_scanvideo_switch();
 }
@@ -447,7 +461,12 @@ bool vga_canvas_is_console(void)
     return vga_canvas_selected == vga_canvas_console;
 }
 
-#pragma GCC pop_options
+bool vga_switching(void)
+{
+    return vga_view_switching;
+}
+
+HOT_END
 
 void vga_start_render_core(void)
 {

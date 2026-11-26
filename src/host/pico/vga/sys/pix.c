@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/vga/mode/mode6.h"
 #include "vga/main.h"
 #include "core/com/manifold.h"
 #include "vga.pio.h"
@@ -16,7 +17,7 @@
 #include "vga/usb/cdc.h"
 #include "vga/usb/usb.h"
 #include "core/term/font.h"
-#include "core/term/cells.h"
+#include "core/term/vterm.h"
 #include <pico/stdlib.h>
 #include <hardware/dma.h>
 #include <hardware/watchdog.h>
@@ -51,6 +52,12 @@ static bool pix_ch0_xreg(uint8_t index, uint16_t word)
     return false;
 }
 
+/* The pointer's x, until its y says where it goes. */
+static int16_t pix_pointer_x;
+
+/* The selection's margins and start, until its end applies it. */
+static vterm_select_words_t pix_select;
+
 static bool pix_ch15_xreg(uint8_t index, uint16_t word)
 {
     switch (index)
@@ -64,11 +71,13 @@ static bool pix_ch15_xreg(uint8_t index, uint16_t word)
         // Also performs a reset.
         vga_xreg_canvas(NULL);
         vga_set_display(word);
-        cells_RIS_no_clear();
+        vterm_RIS_no_clear();
         memset(xregs, 0, sizeof(xregs));
+        ria_ack();
         return true;
-    case 0x01: // CODE_PAGE
+    case 0x01: // CODE_PAGE, never refused: a page it lacks becomes one it has
         font_set_code_page(word);
+        ria_ack();
         return true;
     case 0x03: // UART_TX
         manifold_out_write((char)word);
@@ -80,6 +89,7 @@ static bool pix_ch15_xreg(uint8_t index, uint16_t word)
         manifold_term_putc((char)word);
         return false;
     case 0x06: // REBOOT_OR_LOCKUP
+        flash_lock();
         if (word == 0)
             watchdog_reboot(0, 0, 0);
         /* A failed flash leaves the fonts and the view table, which stay in
@@ -99,6 +109,25 @@ static bool pix_ch15_xreg(uint8_t index, uint16_t word)
         if (!flash_program_request(word))
             ria_nak();
         return true;
+    case 0x08: // POINTER_SHAPE
+        mode6_set_shape((uint8_t)word);
+        return false;
+    case 0x09: // POINTER_X, until POINTER_Y moves the pointer
+        pix_pointer_x = (int16_t)word;
+        return false;
+    case 0x0A: // POINTER_Y: the pointer moves to it and to POINTER_X
+        mode6_move(pix_pointer_x, (int16_t)word);
+        return false;
+    case 0x0B: // SELECT_MARGINS, until SELECT_END applies the selection
+        pix_select.margins = word;
+        return false;
+    case 0x0C: // SELECT_START, until SELECT_END applies the selection
+        pix_select.start = word;
+        return false;
+    case 0x0D: // SELECT_END: the selection from SELECT_START to it
+        pix_select.end = word;
+        (void)vterm_select_apply(pix_select);
+        return false;
     }
     return false;
 }

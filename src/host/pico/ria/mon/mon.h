@@ -45,6 +45,10 @@ void mon_add_response_errno(api_errno err);
 typedef void (*mon_confirm_fn)(void);
 void mon_response_confirm(mon_confirm_fn cb);
 
+// The command line being run is taken out of the prompt's history, for a
+// command whose line has a secret in it.
+void mon_forget_line(void);
+
 // Test if commands exists. Used to determine
 // acceptable names when installing ROMs.
 bool mon_command_exists(const char *buf);

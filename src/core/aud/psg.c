@@ -7,6 +7,7 @@
 #include "core/aud/mix.h"
 #include "core/aud/psg.h"
 #include "machine.h"
+#include "core/sys/hot.h"
 #include <stddef.h>
 #include <string.h>
 
@@ -168,8 +169,7 @@ bool psg_bel_idle(void)
            (psg_regs[PSG_BEL].wave_release >> 4) != 4;
 }
 
-#pragma GCC push_options
-#pragma GCC optimize("O3")
+HOT_BEGIN
 static inline __attribute__((always_inline)) int16_t psg_round(int32_t acc)
 {
     acc = (acc + 2048) >> 12;
@@ -337,7 +337,7 @@ void HOST_IN_RAM_FUNC psg_put(unsigned offset, uint8_t val)
     if (offset % sizeof(struct psg_channel) == offsetof(struct psg_channel, pan_gate))
         psg_gate(offset / sizeof(struct psg_channel), val);
 }
-#pragma GCC pop_options
+HOT_END
 
 uint16_t HOST_IN_RAM_FUNC psg_xaddr_get(void) { return psg_xaddr; }
 

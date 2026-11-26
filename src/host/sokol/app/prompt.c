@@ -5,7 +5,8 @@
  *
  * The drop-a-ROM card: a rounded box, a dashed border, the application icon,
  * two message lines and a link. sokol_gl draws the vectors and sokol_debugtext
- * the text, both into the pass the application has already begun.
+ * the text, both into the pass the application has already begun. And what
+ * the card stands for: a desktop window waiting for a ROM to be dropped on it.
  */
 
 #include "host/sokol/app/prompt.h"
@@ -18,6 +19,7 @@
 #include "sokol/util/sokol_gl.h"
 #include "core/sys/version.h"
 #include <math.h>
+#include <stdatomic.h>
 #include <string.h>
 
 static void prompt_round_rect(float x, float y, float w, float h, float rad,
@@ -152,7 +154,7 @@ static struct
     float x, y, w, h;
 } prompt_url;
 
-void prompt_setup(void)
+static void prompt_setup(void)
 {
     sdtx_setup(&(sdtx_desc_t){
         .fonts[0] = sdtx_font_c64(),
@@ -225,7 +227,7 @@ static void prompt_text_line(const char *s, float gh, float x_px, float y_px,
     sdtx_puts(s);
 }
 
-void prompt_draw(const char *line1, const char *line2)
+static void prompt_draw(const char *line1, const char *line2)
 {
     float w = sapp_widthf(), h = sapp_heightf();
     if (w < 1.0f || h < 1.0f)
@@ -309,13 +311,61 @@ void prompt_draw(const char *line1, const char *line2)
     sdtx_draw();
 }
 
-bool prompt_url_hit(float x, float y)
+static bool prompt_url_hit(float x, float y)
 {
     return x >= prompt_url.x && x < prompt_url.x + prompt_url.w &&
            y >= prompt_url.y && y < prompt_url.y + prompt_url.h;
 }
 
-void prompt_url_open(void)
+/* Whether the window waits for a ROM. The machine reads it from its own
+ * thread, at a program's exit, which is no exit while the card is up. */
+static _Atomic bool prompt_waiting;
+static bool prompt_ready;
+
+bool entry_wait_for_rom(void)
 {
-    host_window_open_url(PROMPT_DOCS_URL);
+    atomic_store(&prompt_waiting, true);
+    return true;
+}
+
+bool host_window_menu_active(void)
+{
+    return atomic_load(&prompt_waiting);
+}
+
+void host_window_menu_draw(void)
+{
+    if (!atomic_load(&prompt_waiting))
+        return;
+    if (!prompt_ready)
+    {
+        prompt_setup();
+        prompt_ready = true;
+    }
+    prompt_draw("Drop a .rp6502", "ROM file here");
+}
+
+void host_window_files_dropped(void)
+{
+    if (app_boot_rom(sapp_get_dropped_file_path(0)))
+        atomic_store(&prompt_waiting, false);
+}
+
+bool prompt_event(const sapp_event *e)
+{
+    /* The docs link's rectangle is set by prompt_draw, so it means something
+     * only while the card is on screen. */
+    if (!atomic_load(&prompt_waiting))
+        return false;
+    if (e->type == SAPP_EVENTTYPE_MOUSE_MOVE)
+        sapp_set_mouse_cursor(prompt_url_hit(e->mouse_x, e->mouse_y)
+                                  ? SAPP_MOUSECURSOR_POINTING_HAND
+                                  : SAPP_MOUSECURSOR_DEFAULT);
+    else if (e->type == SAPP_EVENTTYPE_MOUSE_UP && e->mouse_button == SAPP_MOUSEBUTTON_LEFT &&
+             prompt_url_hit(e->mouse_x, e->mouse_y))
+    {
+        host_window_open_url(PROMPT_DOCS_URL);
+        return true;
+    }
+    return false;
 }

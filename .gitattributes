@@ -1,0 +1,2 @@
+# cmd.exe reads its scripts by CRLF lines.
+*.cmd text eol=crlf

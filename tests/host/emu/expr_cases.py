@@ -5,13 +5,19 @@
 """This script writes the cases for test_expr.c, one `<want> <expr>` line per
 case. Each `<want>` is the answer Python gives when every whole number must
 fit in 64 bits. Floats are not allowed, so a float literal, a / or a
-negative power is an error."""
+negative power is an error.
+
+address(), define(), sizeof() and countof() take text, such as a path with
+/ and ., not an expression, so Python cannot read them. Before Python reads
+a case, each of them becomes a name with the value that test_expr.c gives
+it."""
 
 import argparse
 import ast
 import io
 import operator
 import random
+import re
 import tokenize
 import types
 import warnings
@@ -23,7 +29,20 @@ NAMES = {
     "p.q": 0x1234,
     "INT64_MAX": 2**63 - 1,
     "INT64_MIN": -2**63,
+    "address(a)": 7,
+    "define(b)": -3,
+    "sizeof(t)": 12,
+    "countof(t)": 6,
+    "sizeof(src/m.c/t)": 12,
+    "countof(src/m.c/t)": 6,
+    "define(src/m.c/p.q)": 0x1234,
 }
+
+# The lookups that test_expr.c refuses, as for a #define's address.
+REFUSED = {"address(b)", "define(a)", "sizeof(b)", "countof(a)"}
+
+# A lookup, with spaces allowed before the ( and around the text.
+FORM = re.compile(r"(?<![\w.$])(address|define|sizeof|countof)[ \t]*\(([^)]*)\)")
 
 EDGES = [
     "INT64_MIN // -1", "INT64_MIN % -1", "-INT64_MIN", "INT64_MIN * -1",
@@ -43,7 +62,15 @@ EDGES = [
     "1.", ".5", "2.5e-3", "1E3", "1e+", "010.5", "01e1", "0_9.5", "1e309",
     "1 and.5", "0 or.5", "not.5", "1e3 / (1", "(1", "1)", "()", "", "1 1",
     "a +", "not", "- not 1", "1 < not 1", "f(1)", "1 if 1 else 2", "1 = 1",
-    "\"a\"", "1j",
+    "\"a\"", "1j", "sizeof(t) + 1", "countof(src/m.c/t) * 2",
+    "sizeof( src/m.c/t ) - countof (t)", "address(a) // 2", "define(src/m.c/p.q)",
+    "define(a)", "1 or define(a)", "sizeof(nope)", "sizeof(src/x.c/t)",
+    "sizeof()", "sizeof( )", "sizeof(t", "(sizeof(t)", "sizeof(t))",
+    "sizeof((t)", "sizeof(t)(1)", "sizeof", "sizeof + 1", "p.sizeof(t)",
+    "sizeof.x(t)", "notsizeof(t)", "not sizeof(t)", "f(src/m.c/t)",
+    "sizeof(src/m.c/t)/2", "2 ** countof(t)", "-sizeof(b)", "count(t)",
+    "sizeof(t)and 1", "sizeof(t)or 0", "sizeof(t)1", "sizeof(t)sizeof(t)",
+    "$sizeof(t)", "1sizeof(t)", "sizeof(t)if 1 else 2",
 ]
 
 UNARY = {ast.USub: operator.neg, ast.UAdd: operator.pos,
@@ -67,6 +94,26 @@ class Big(Exception):
 
 class Power(Exception):
     """A negative power, which gives a float in Python."""
+
+
+class Refused(Exception):
+    """A lookup that test_expr.c refuses."""
+
+
+def forms(text):
+    """The text with each lookup as a name (_f<n>), and a dict of those names
+    to the lookups. The parentheses keep the name one atom, apart from what
+    is next to it. A lookup without text stays, as a call that is bad."""
+    found = {}
+
+    def name(m):
+        inside = m.group(2).strip(" \t")
+        if not inside:
+            return m.group(0)
+        found[f"_f{len(found)}"] = f"{m.group(1)}({inside})"
+        return f"(_f{len(found) - 1})"
+
+    return FORM.sub(name, text), found
 
 
 def dotted(n):
@@ -100,21 +147,24 @@ def fit(v):
     return v
 
 
-def walk(n):
+def walk(n, lookups):
     """Works n out in Python's order, stopping at the first error."""
     if isinstance(n, ast.Constant):
         return fit(n.value)
     if isinstance(n, (ast.Name, ast.Attribute)):
-        if dotted(n) not in NAMES:
-            raise NameError(dotted(n))
-        return NAMES[dotted(n)]
+        name = lookups.get(dotted(n), dotted(n))
+        if name in REFUSED:
+            raise Refused
+        if name not in NAMES:
+            raise NameError(name)
+        return NAMES[name]
     if isinstance(n, ast.UnaryOp):
-        v = walk(n.operand)
+        v = walk(n.operand, lookups)
         if isinstance(n.op, ast.Not):
             return int(not v)
         return fit(UNARY[type(n.op)](v))
     if isinstance(n, ast.BinOp):
-        a, b = walk(n.left), walk(n.right)
+        a, b = walk(n.left, lookups), walk(n.right, lookups)
         op = type(n.op)
         # Python would build a huge number before the check.
         if op is ast.Pow and b >= 64 and abs(a) >= 2:
@@ -125,15 +175,15 @@ def walk(n):
             raise Power
         return fit(BINARY[op](a, b))
     if isinstance(n, ast.BoolOp):
-        v = walk(n.values[0])
+        v = walk(n.values[0], lookups)
         for x in n.values[1:]:
             if bool(v) == isinstance(n.op, ast.Or):
                 break
-            v = walk(x)
+            v = walk(x, lookups)
         return v
-    a = walk(n.left)
+    a = walk(n.left, lookups)
     for op, x in zip(n.ops, n.comparators):
-        b = walk(x)
+        b = walk(x, lookups)
         if not COMPARE[type(op)](a, b):
             return 0
         a = b
@@ -162,6 +212,7 @@ def refused(text):
 
 def answer(text):
     """The want text, and whether eval() should give it too."""
+    text, lookups = forms(text)
     try:
         tree = ast.parse(text.replace("$", "0x"), mode="eval")
     except SyntaxError:
@@ -172,18 +223,22 @@ def answer(text):
     if why:
         return why, False
     try:
-        return show(walk(tree.body)), True
+        return show(walk(tree.body, lookups)), True
     except Big:
         return "overflow", False
     except Power:
         return "float", False
+    except Refused:
+        return "refused", False
     except tuple(ERRORS) as e:
         return ERRORS[type(e)], True
 
 
 def python(text):
+    text, lookups = forms(text)
     names = {k: v for k, v in NAMES.items() if "." not in k}
     names["p"] = types.SimpleNamespace(q=NAMES["p.q"])
+    names.update({k: NAMES[v] for k, v in lookups.items() if v in NAMES})
     try:
         return show(eval(text.replace("$", "0x"), {"__builtins__": {}}, names))
     except SyntaxError:
@@ -247,6 +302,9 @@ def atom(r):
         return whole(r)
     if k < 0.73:
         return float_text(r)
+    if k < 0.78:
+        return r.choice(sorted(NAMES.keys() - {"a", "b", "p.q", "INT64_MAX", "INT64_MIN"})
+                        + sorted(REFUSED) + ["sizeof(nope)", "countof (t)"])
     return r.choice(["a", "b", "p.q", "INT64_MAX", "INT64_MIN", "nope"])
 
 

@@ -44,7 +44,9 @@ void manifold_write_to(uint8_t to, const char *buf, size_t n);
 
 /* The console's line runs at 115200 baud, 8N1, each way, on the machine's
  * clock: a byte goes out to the terminals and comes in from the host's wire
- * no faster. A machine run flat out, with no pace to keep, turns it off. */
+ * no faster, and goes out no faster than the speed the console's terminal
+ * keeps (term_speed) either. A machine run flat out, with no pace to keep,
+ * turns it off. */
 void manifold_set_paced(bool paced);
 
 /* Returns once every byte queued so far has gone out. */
@@ -63,35 +65,19 @@ void manifold_uart_clear(void);
 
 /* Terminal: the terminal emulator's link to the console. */
 
-/* The answer of the terminal in core/term/cells.c to a query: com_reply where
- * that terminal is the console's, dropped where another chip answers. */
-void manifold_reply(const char *s, size_t n);
-
-/* The bell of the terminal in core/term/cells.c: rung where that terminal
- * is the console's and the bell is on, and nothing where another chip
- * rings it. */
-void manifold_bell(void);
-
 /* The terminal emulator's input: every byte the console sends to the UART or
  * to COM_TERM_SCREEN. It returns how many it took: it stops at a byte that
- * has to wait for a smooth scroll still moving, unless force. */
+ * has to wait for a smooth scroll still moving, unless force, and after a
+ * byte that changes its speed (term_speed), so the bytes after it go at
+ * the new one. */
 void manifold_set_term_out(int (*out_chars)(const char *buf, int len, bool force));
 
-/* Software console: the keyboard and UART rings of a machine with no serial
- * port, the host terminal that feeds the UART ring, and the taps that see the
- * console's output. */
+/* Software console: the UART ring of a machine with no serial port, the host
+ * terminal that feeds it, and the taps that see the console's output. */
 
 /* A Ctrl-C in what is pushed raises the SIGINT, even when the ring is full and
- * the bytes are dropped. The keyboard ring takes all of a push or none of it,
- * so a key's sequence is never cut. The UART ring takes what fits. */
-void manifold_keyboard_push(const char *s, size_t n);
+ * the bytes are dropped. The ring takes what fits. */
 void manifold_uart_push(const char *s, size_t n);
-
-size_t manifold_keyboard_free(void);
-
-size_t manifold_keyboard_read(char *buf, size_t length);
-int manifold_keyboard_peek(size_t offset);
-void manifold_keyboard_clear(void);
 
 /* The host terminal: tx is given every byte the console sends to the UART, and
  * manifold_task reads rx into the UART ring. A console wire is a person

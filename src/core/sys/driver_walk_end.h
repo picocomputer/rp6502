@@ -21,6 +21,7 @@
 #undef FLASHING
 #undef CONFIG_INT
 #undef CONFIG_STR
+#undef CONFIG_SECRET
 #undef CONFIG_RAW
 #undef CONFIG_HIDDEN
 #undef CONFIG_SAVE

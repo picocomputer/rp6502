@@ -12,6 +12,7 @@ set(RP6502_GENERATORS
     str/unicode.py
     term/color.py
     term/font.py
+    vga/mode/mode6.py
     wdc/cpu.py)
 list(TRANSFORM RP6502_GENERATORS PREPEND ${CMAKE_CURRENT_LIST_DIR}/)
 

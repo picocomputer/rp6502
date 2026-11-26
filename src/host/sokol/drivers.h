@@ -26,12 +26,14 @@
 #include "core/aud/vol.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
+#include "core/hid/typed.h"
 #include "core/com/tio.h"
 #include "core/hid/gamepad.h"
-#include "core/hid/paste.h"
+#include "core/hid/clip.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
+#include "core/term/vterm_mouse.h"
 #include "core/wdc/sram.h"
 #include "core/sys/xram.h"
 #include "core/ria/ria.h"
@@ -40,6 +42,7 @@
 #include "core/aud/bel.h"
 #include "core/vga/canvas.h"
 #include "core/vga/mode/mode0.h"
+#include "core/vga/mode/mode6.h"
 #include "core/vga/prog.h"
 #include "core/rom/rom.h"
 #include "core/aud/pcm.h"
@@ -47,7 +50,7 @@
 #include "core/com/rln.h"
 #include "core/str/str.h"
 #include "core/term/font.h"
-#include "core/term/cells.h"
+#include "core/term/draw.h"
 #include "core/vga/vga_emu.h"
 #include "core/wdc/bus.h"
 #include "core/wdc/cpu.h"
@@ -58,17 +61,24 @@
  * columns, and backward for stop and break.
  *
  * VGA comes before BUS because vga_task advances the beam one scanline and
- * bus_task then runs the 6502 up to it. CELLS comes before VGA because
- * vga_init programs the console canvas, which sets the terminal's height. */
+ * bus_task then runs the 6502 up to it. DRAW comes before VGA because
+ * vga_init programs the console canvas, which sets the terminal's height.
+ * DRAW comes before VTERM_MOUSE because a savestate walks the list in
+ * order, and the mouse's load checks its points against the screens' rows
+ * DRAW's load lays out. CLIP comes before TYPED because the keyboard
+ * queue's load checks the paste being typed against the buffers CLIP's
+ * load fills. */
 #define RP6502_MACH_DRIVERS                                    \
     RIA_DRIVER, REGS_DRIVER, SRAM_DRIVER, XRAM_DRIVER,         \
     ARG_DRIVER, PROC_CHAIN_DRIVER, PROC_DRIVER, STR_DRIVER,    \
     ASSET_DRIVER, MANIFOLD_DRIVER, MANIFOLD_TX_DRIVER,         \
     COM_DRIVER, STD_DRIVER, CONSOLE_DRIVER, TTY_DRIVER,        \
     TIO_DRIVER, RLN_DRIVER, API_DRIVER, XREG_DRIVER,           \
-    CELLS_DRIVER, MODE0_DRIVER, KEYBOARD_DRIVER, MOUSE_DRIVER, \
-    GAMEPAD_DRIVER, TABLET_DRIVER, FONT_DRIVER, OEM_DRIVER,    \
-    VGA_DRIVER, CANVAS_DRIVER, PROG_DRIVER, PASTE_DRIVER,      \
+    DRAW_DRIVER, MODE0_DRIVER, KEYBOARD_DRIVER, MOUSE_DRIVER,  \
+    GAMEPAD_DRIVER, TABLET_DRIVER, VTERM_MOUSE_DRIVER,         \
+    FONT_DRIVER, OEM_DRIVER,                                   \
+    VGA_DRIVER, CANVAS_DRIVER, PROG_DRIVER, MODE6_DRIVER,      \
+    CLIP_DRIVER, TYPED_DRIVER,                                 \
     PSG_DRIVER, OPL_DRIVER, AUD_DRIVER, VOL_DRIVER, BEL_DRIVER, \
     TIM_DRIVER, DIR_DRIVER, CLK_DRIVER, RANDOM_DRIVER,         \
     PHI2_DRIVER, CPU_DRIVER, VIA_DRIVER, BUS_DRIVER
@@ -83,7 +93,7 @@
     SAVE_DRIVER, FS_DRIVER
 
 #define RP6502_COM_SOURCES                       \
-    [COM_SOURCE_KEYBOARD] = PASTE_COM_SOURCE,  \
+    [COM_SOURCE_KEYBOARD] = TYPED_COM_SOURCE,  \
     [COM_SOURCE_UART] = MANIFOLD_UART_SOURCE
 
 #endif /* _HOST_DRIVERS_H_ */

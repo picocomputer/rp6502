@@ -14,15 +14,14 @@
 #include "core/sys/sst.h"
 #include "core/sys/timer.h"
 #include "machine.h"
-#include "core/sys/ria.h"
 #include "core/str/oem.h"
 #include "core/str/unicode.h"
-#include "core/api/proc.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/vtkey.h"
 #include "core/hid/layout.h"
+#include "core/hid/key.h"
 #include "core/hid/keymap.h"
-#include "core/sys/ring.h"
+#include "core/hid/typed.h"
 #include "core/hid/usage.h"
 
 #define KEYMAP_REPEAT_DELAY 500000
@@ -32,7 +31,6 @@ static int keymap_layout_index;
 static timer_deadline_t keymap_repeat_timer;
 static uint8_t keymap_repeat_modifier;
 static uint8_t keymap_repeat_keycode;
-static RING(char, KEYMAP_KEY_QUEUE_SIZE) keymap_key_queue;
 static bool keymap_alt_mode;
 static uint8_t keymap_alt_code;
 static char keymap_dead_key0;
@@ -51,14 +49,13 @@ static char const (*keymap_cached_dead3)[4];
 static uint16_t keymap_cache_code_page;
 static bool keymap_cache_valid;
 
-/* The keys held, typed and repeating are the player's, and the Pocket sends
- * them again after a load. The layout and the cache are the session's. */
+/* The keys held and repeating are the player's, and the Pocket sends them
+ * again after a load. The layout and the cache are the session's. */
 #define KEYMAP_SST(X)                                           \
     X(SKIP, keymap_layout_index)                                \
     X(SKIP, keymap_repeat_timer)                                \
     X(SKIP, keymap_repeat_modifier)                             \
     X(SKIP, keymap_repeat_keycode)                              \
-    X(SKIP, keymap_key_queue)                                   \
     X(SKIP, keymap_alt_mode)                                    \
     X(SKIP, keymap_alt_code)                                    \
     X(SKIP, keymap_dead_key0)                                   \
@@ -70,21 +67,9 @@ static bool keymap_cache_valid;
     X(SKIP, keymap_cache_valid)
 SST_TABLE(keymap, KEYMAP_SST)
 
-/* Everything reaches the queue through here. A run is queued whole or not at
- * all, and a Ctrl-C latches SIGINT before the space is checked, so a break is
- * seen even when the queue is too full to take the byte. */
-static void HOST_IN_RAM_FUNC keymap_queue(const char *s, size_t n)
-{
-    for (size_t i = 0; i < n; i++)
-        if (s[i] == 0x03)
-            ria_trigger_sigint();
-    if (n <= RING_AVAIL(&keymap_key_queue))
-        RING_IN(&keymap_key_queue, s, (uint32_t)n);
-}
-
 static void HOST_IN_RAM_FUNC keymap_queue_char(char ch)
 {
-    keymap_queue(&ch, 1);
+    typed_push(&ch, 1);
 }
 
 void keymap_use_layout(int index)
@@ -235,7 +220,7 @@ static char HOST_IN_RAM_FUNC keymap_layout_lookup(const keymap_press_t *k)
 
 void keymap_abandon(void)
 {
-    RING_SKIP(&keymap_key_queue, RING_LEN(&keymap_key_queue));
+    typed_clear();
     keymap_alt_mode = false;
     keymap_dead_key0 = keymap_dead_key1 = 0;
 }
@@ -341,17 +326,29 @@ static void HOST_IN_RAM_FUNC keymap_compose(char ch)
     keymap_queue_char(ch);
 }
 
-/* Chords and lock keys, which do something other than type. True when one of
- * them acted. */
-static bool HOST_IN_RAM_FUNC keymap_chord(const keymap_press_t *k)
+/* Chords and lock keys, which do something other than type: what the key
+ * is. GUI-Space and the locks are this driver's; the rest are every
+ * machine's. Only a first press asks, so it has no repeat to pass. */
+static key_chord_t HOST_IN_RAM_FUNC keymap_chord(const keymap_press_t *k)
 {
     if (k->keycode == HID_KEY_SPACE && k->gui)
     {
         layout_list_cycle();
-        return true;
+        return KEY_CHORD_ACTED;
     }
-    return proc_key_chord(k->keycode, k->ctrl, k->alt) ||
-           keymap_lock_key(k->keycode);
+    const key_chord_t chord = key_chord(k->keycode, k->mod, false);
+    return chord == KEY_CHORD_NONE && keymap_lock_key(k->keycode) ? KEY_CHORD_ACTED : chord;
+}
+
+/* A dead key still being composed is typed as it is. Inlined, so it
+ * lands where its caller is. */
+static inline __attribute__((always_inline)) void keymap_flush(void)
+{
+    if (keymap_dead_key0)
+        keymap_queue_char(keymap_dead_key0);
+    if (keymap_dead_key1)
+        keymap_queue_char(keymap_dead_key1);
+    keymap_dead_key0 = keymap_dead_key1 = 0;
 }
 
 /* What the encoder made of a key. One byte goes through the composer, so DEL
@@ -364,17 +361,22 @@ static void HOST_IN_RAM_FUNC keymap_type(const char *seq, int n)
         keymap_compose(seq[0]);
         return;
     }
-    if (keymap_dead_key0)
-        keymap_queue_char(keymap_dead_key0);
-    if (keymap_dead_key1)
-        keymap_queue_char(keymap_dead_key1);
-    keymap_dead_key0 = keymap_dead_key1 = 0;
-    keymap_queue(seq, (size_t)n);
+    keymap_flush();
+    typed_push(seq, (size_t)n);
 }
 
-/* A chord or a lock key acts once and never repeats. The encoder is asked
- * next, so a key sends what it sends on every machine, in the terminal's
- * modes, and the layout is left the keys that have characters. */
+/* What a cut key types is queued whole behind its mark, after any dead key
+ * it found waiting. From flash, as a cut is rare. */
+static void HOST_IN_FLASH_FUNC keymap_cut(const char *seq, int n)
+{
+    keymap_flush();
+    typed_cut(seq, (size_t)n);
+}
+
+/* A chord or a lock key acts once and never repeats, and a cut key types
+ * once. The encoder is asked next, so a key sends what it sends on every
+ * machine, in the terminal's modes, and the layout is left the keys that
+ * have characters. */
 static void HOST_IN_RAM_FUNC keymap_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
 {
     keymap_cache_ready();
@@ -383,11 +385,11 @@ static void HOST_IN_RAM_FUNC keymap_queue_key(uint8_t modifier, uint8_t keycode,
     keymap_decode(modifier, keycode, &k);
     if (keymap_alt_code_key(&k))
         return;
-    if (initial_press && keymap_chord(&k))
-    {
+    const key_chord_t chord = initial_press ? keymap_chord(&k) : KEY_CHORD_NONE;
+    if (chord != KEY_CHORD_NONE)
         keymap_repeat_keycode = 0;
+    if (chord == KEY_CHORD_ACTED)
         return;
-    }
     uint8_t flags = (uint8_t)((k.shift ? VTKEY_SHIFT : 0) | (k.alt ? VTKEY_ALT : 0) |
                               (k.ctrl ? VTKEY_CTRL : 0));
     char seq[VTKEY_MAX];
@@ -406,7 +408,9 @@ static void HOST_IN_RAM_FUNC keymap_queue_key(uint8_t modifier, uint8_t keycode,
             flags &= (uint8_t)~VTKEY_ALT;
         n = vtkey_char(seq, k.keycode, ch, flags);
     }
-    if (n)
+    if (chord == KEY_CHORD_CUT)
+        keymap_cut(seq, n);
+    else if (n)
         keymap_type(seq, n);
 }
 
@@ -448,18 +452,6 @@ static void HOST_IN_FLASH_FUNC keymap_rebuild_code_page_cache(void)
             keymap_deadkey_cache[cache_index++] = ff_uni2oem(
                 layout_dead3(keymap_layout_index, i, j), code_page);
     keymap_deadkey_cache[cache_index] = 0;
-}
-
-size_t HOST_IN_RAM_FUNC keymap_in_chars(char *buf, size_t length)
-{
-    return RING_OUT(&keymap_key_queue, buf, (uint32_t)length);
-}
-
-int HOST_IN_RAM_FUNC keymap_in_peek(size_t offset)
-{
-    return offset < RING_LEN(&keymap_key_queue)
-               ? (unsigned char)*RING_AT(&keymap_key_queue, offset)
-               : -1;
 }
 
 /* Called once per report, so that an Alt code typed while Alt was held is

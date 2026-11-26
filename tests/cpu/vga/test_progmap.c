@@ -361,8 +361,10 @@ UTEST(progmap, the_terminal_draws_every_underline_style)
                         if ((attr & TERM_ATTR_STRIKE) && y == ch / 2)
                             bits = 0xFF;
                         const uint8_t ul = underline[(attr >> TERM_ATTR_UL_SHIFT) & 7];
-                        uint16_t fg = mode0_color(colors[i].fg_color);
-                        uint16_t bg = mode0_color(colors[i].bg_color);
+                        uint16_t fg, bg;
+                        mode0_cell_shows(&cell[i], &colors[i], &fg, &bg);
+                        fg = mode0_color(fg);
+                        bg = mode0_color(bg);
                         if (reverse)
                         {
                             const uint16_t t = fg;

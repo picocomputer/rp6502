@@ -9,41 +9,45 @@
 
 #include <stdint.h>
 
+/* Each address goes to a pointer through uintptr_t, because the host's tests
+ * build these sources too, where a pointer is wider than the soft CPU's 32
+ * bits. */
+
 /* The bitstream's register layout version, which gen/version.py states.
  * ver_check reads it before the firmware uses any other register and
  * goes no further when it is not this firmware's own. So this address
  * never moves, whatever else in this file does. */
-#define VER_REG (*(volatile const uint32_t *)0x80030000u)
+#define VER_REG (*(volatile const uint32_t *)(uintptr_t)0x80030000u)
 
-#define MMIO_CONSOLE (*(volatile uint32_t *)0xF0000000u)
-#define MMIO_PHI2 (*(volatile uint32_t *)0xF000000Cu)
+#define MMIO_CONSOLE (*(volatile uint32_t *)(uintptr_t)0xF0000000u)
+#define MMIO_PHI2 (*(volatile uint32_t *)(uintptr_t)0xF000000Cu)
 /* mtime in microseconds. A write of MTIME_LO is kept until a write of
  * MTIME_HI puts the two in together, so the low half is written first. */
-#define MTIME_LO (*(volatile uint32_t *)0xF0000010u)
-#define MTIME_HI (*(volatile uint32_t *)0xF0000014u)
-#define MMIO_SLOT (*(volatile uint32_t *)0xF0000018u)
+#define MTIME_LO (*(volatile uint32_t *)(uintptr_t)0xF0000010u)
+#define MTIME_HI (*(volatile uint32_t *)(uintptr_t)0xF0000014u)
+#define MMIO_SLOT (*(volatile uint32_t *)(uintptr_t)0xF0000018u)
 /* Microseconds from configuration. Nothing stops or writes it, so it goes
  * on through a hold, when mtime stands still. */
-#define UPTIME_LO (*(volatile const uint32_t *)0xF0000020u)
-#define UPTIME_HI (*(volatile const uint32_t *)0xF0000024u)
-#define MMIO_HIDKEY (*(volatile uint32_t *)0xF000001Cu)
-#define MMIO_UPD_ID (*(volatile uint32_t *)0xF0000044u)
-#define MMIO_UPD_LEN (*(volatile uint32_t *)0xF0000048u)
-#define MMIO_UPD_N (*(volatile uint32_t *)0xF000004Cu)
-#define MMIO_CONT_KEY(s) (*(volatile uint32_t *)(0xF0000050u + (s) * 12u))
-#define MMIO_CONT_JOY(s) (*(volatile uint32_t *)(0xF0000054u + (s) * 12u))
-#define MMIO_CONT_TRIG(s) (*(volatile uint32_t *)(0xF0000058u + (s) * 12u))
+#define UPTIME_LO (*(volatile const uint32_t *)(uintptr_t)0xF0000020u)
+#define UPTIME_HI (*(volatile const uint32_t *)(uintptr_t)0xF0000024u)
+#define MMIO_HIDKEY (*(volatile uint32_t *)(uintptr_t)0xF000001Cu)
+#define MMIO_UPD_ID (*(volatile uint32_t *)(uintptr_t)0xF0000044u)
+#define MMIO_UPD_LEN (*(volatile uint32_t *)(uintptr_t)0xF0000048u)
+#define MMIO_UPD_N (*(volatile uint32_t *)(uintptr_t)0xF000004Cu)
+#define MMIO_CONT_KEY(s) (*(volatile uint32_t *)(uintptr_t)(0xF0000050u + (s) * 12u))
+#define MMIO_CONT_JOY(s) (*(volatile uint32_t *)(uintptr_t)(0xF0000054u + (s) * 12u))
+#define MMIO_CONT_TRIG(s) (*(volatile uint32_t *)(uintptr_t)(0xF0000058u + (s) * 12u))
 #define MMIO_CONT_SLOTS 4
 
-#define SRAM ((volatile uint8_t *)0x10000000u)
-#define XRAM_WIN ((volatile uint8_t *)0x30000000u)
+#define SRAM ((volatile uint8_t *)(uintptr_t)0x10000000u)
+#define XRAM_WIN ((volatile uint8_t *)(uintptr_t)0x30000000u)
 /* The SDRAM at its bridge addresses, past the cache. It reads and
  * writes as memory does, a byte, a half or a word. The hardware keeps
  * the last 16-byte line it fetched, so a word read costs what a byte
  * read does, and a write drops that line. The cache holds only the
  * memory this firmware runs in, so everything else in the SDRAM is
  * reached here. */
-#define STAGE ((volatile const uint8_t *)0x60000000u)
+#define STAGE ((volatile const uint8_t *)(uintptr_t)0x60000000u)
 
 /* These addresses must agree with the slots in data.json.
  * stage_map_gate.py checks every one of them against it and against the
@@ -58,7 +62,7 @@
  * that run to the end of the SDRAM, where the host reads a save and
  * writes a load, both at the window's start. SST_BLOB is the window in the staging store, where the
  * firmware writes a save and reads a load. */
-#define ROM_IMG ((volatile const uint8_t *)0x60000000u)
+#define ROM_IMG ((volatile const uint8_t *)(uintptr_t)0x60000000u)
 #define ROM_BRIDGE 0x00000000u
 #define ROM_MAX 0x03E00000u
 #define MEM_BRIDGE 0x03E00000u
@@ -67,11 +71,11 @@
 #define MEM_RAM 0x00040000u
 #define MEM_RAM_MAX 0x00010000u
 #define SLOT_WIN_SIZE 0x8000u
-#define SLOT_WIN_BASE ((volatile const uint8_t *)0x63E80000u)
+#define SLOT_WIN_BASE ((volatile const uint8_t *)(uintptr_t)0x63E80000u)
 #define SLOT_WIN(d) (SLOT_WIN_BASE + (uint32_t)(d) * SLOT_WIN_SIZE)
 #define SLOT_WIN_BRIDGE(d) (0x03E80000u + (uint32_t)(d) * SLOT_WIN_SIZE)
 #define FILE_XFER_MAX SLOT_WIN_SIZE
-#define GETFILE_WIN ((volatile const uint8_t *)0x63EC0000u)
+#define GETFILE_WIN ((volatile const uint8_t *)(uintptr_t)0x63EC0000u)
 #define GETFILE_BRIDGE 0x03EC0000u
 #define GETFILE_MAX 0x1000u
 #define SST_BLOB_BRIDGE 0x03EC1000u
@@ -86,13 +90,13 @@
  *
  * A write to FILE_CTL starts the command that the other registers
  * describe. */
-#define FILE_ID (*(volatile uint32_t *)0x80000000u)
-#define FILE_OFFSET (*(volatile uint32_t *)0x80000004u)
-#define FILE_LENGTH (*(volatile uint32_t *)0x80000008u)
-#define FILE_BRIDGE (*(volatile uint32_t *)0x8000000Cu)
-#define FILE_CTL (*(volatile uint32_t *)0x80000010u)
-#define FILE_RESULT (*(volatile uint32_t *)0x80000014u)
-#define FILE_WIN ((volatile uint32_t *)0x80001000u)
+#define FILE_ID (*(volatile uint32_t *)(uintptr_t)0x80000000u)
+#define FILE_OFFSET (*(volatile uint32_t *)(uintptr_t)0x80000004u)
+#define FILE_LENGTH (*(volatile uint32_t *)(uintptr_t)0x80000008u)
+#define FILE_BRIDGE (*(volatile uint32_t *)(uintptr_t)0x8000000Cu)
+#define FILE_CTL (*(volatile uint32_t *)(uintptr_t)0x80000010u)
+#define FILE_RESULT (*(volatile uint32_t *)(uintptr_t)0x80000014u)
+#define FILE_WIN ((volatile uint32_t *)(uintptr_t)0x80001000u)
 
 /* The host's savestate commands. SST_SAVE_REQ reads set from the host's
  * save request until the firmware writes SST_SAVE_OK or SST_SAVE_ERR,
@@ -106,7 +110,7 @@
  * the load is answered: while it is set a load is on its way.
  * SST_WQ_EMPTY is set while no host write waits to reach the SDRAM, so
  * a blob the host wrote is all in the window. */
-#define SST_CTL (*(volatile uint32_t *)0x80020000u)
+#define SST_CTL (*(volatile uint32_t *)(uintptr_t)0x80020000u)
 #define SST_SAVE_REQ 0x01u
 #define SST_LOAD_REQ 0x02u
 #define SST_BLOB_SEEN 0x04u
@@ -119,15 +123,15 @@
  * list holds at most sixteen options and the offset spans twenty-seven
  * whole hours. SET_KB is a position in def/keyboard.def plus one, so zero
  * means that the host has not written a layout to it. */
-#define SET_KB (*(volatile uint32_t *)0x80010000u)
-#define SET_TZ_HOUR (*(volatile uint32_t *)0x80010008u)
-#define RTC_EPOCH (*(volatile uint32_t *)0x8001000Cu)
-#define RTC_VALID (*(volatile uint32_t *)0x80010010u)
-#define SET_TZ_MIN (*(volatile uint32_t *)0x80010014u)
-#define SET_TZ_WEST (*(volatile uint32_t *)0x80010018u)
+#define SET_KB (*(volatile uint32_t *)(uintptr_t)0x80010000u)
+#define SET_TZ_HOUR (*(volatile uint32_t *)(uintptr_t)0x80010008u)
+#define RTC_EPOCH (*(volatile uint32_t *)(uintptr_t)0x8001000Cu)
+#define RTC_VALID (*(volatile uint32_t *)(uintptr_t)0x80010010u)
+#define SET_TZ_MIN (*(volatile uint32_t *)(uintptr_t)0x80010014u)
+#define SET_TZ_WEST (*(volatile uint32_t *)(uintptr_t)0x80010018u)
 /* 1 from the host's request to write the ROM slot until the new image's
  * size is in MMIO_SLOT. The bitstream holds the 6502 in reset meanwhile. */
-#define ROM_COMING (*(volatile const uint32_t *)0x8001001Cu)
+#define ROM_COMING (*(volatile const uint32_t *)(uintptr_t)0x8001001Cu)
 
 static inline int32_t set_tz_minutes(void)
 {
@@ -158,9 +162,9 @@ static inline int32_t set_tz_minutes(void)
 #define FILE_ST_WROTE 0x40u
 
 /* mode0.sv's registers from 0x50010000 are core/vga/mode/mode0.h's
- * mode0_regs, which link.ld places there. */
+ * mode0_regs, which link.ld places there, and above them the frame count. */
 /* The frames since power-up. A write sets the count. */
-#define VID_FRAME (*(volatile uint32_t *)0x500100A0u)
+#define VID_FRAME (*(volatile uint32_t *)(uintptr_t)0x500100FCu)
 
 /* The scanline program, which reads back as it was written, less the
  * bits it does not keep: core/vga/vga.h's VGA_PROG_MAX lines of
@@ -168,66 +172,80 @@ static inline int32_t set_tz_minutes(void)
  * stride of 16 words a line. */
 #define VID_XPROG_WORDS 4
 #define VID_XPROG(line, plane, w) \
-    (((volatile uint32_t *)0x50020000u)[(line) * 16 + (plane) * 4 + (w)])
-#define VID_CANVAS (*(volatile uint32_t *)0x50028000u)
-#define VID_VSYNC_LINE (*(volatile uint32_t *)0x50028004u)
-#define REGS_WIN ((volatile uint8_t *)0x20000000u)
-#define UART_POP (*(volatile uint32_t *)0x20000040u)
+    (((volatile uint32_t *)(uintptr_t)0x50020000u)[(line) * 16 + (plane) * 4 + (w)])
+#define VID_CANVAS (*(volatile uint32_t *)(uintptr_t)0x50028000u)
+#define VID_VSYNC_LINE (*(volatile uint32_t *)(uintptr_t)0x50028004u)
+
+/* mode6.sv's pointer, which takes whole words and reads back nothing: the
+ * shape, 0 for none, with the copy of the system shape's image to draw
+ * in bit 8; the hot spot {y, x} in canvas pixels; the program's sprite
+ * array in XRAM, or $FFFF for the system's shape; each copy's
+ * {width_height, hot_y, hot_x}; and each copy's image, 128 words. The
+ * shape, the hot spot and the config latch as a frame starts. */
+#define VID_PTR_SHAPE (*(volatile uint32_t *)(uintptr_t)0x50200000u)
+#define VID_PTR_WHERE (*(volatile uint32_t *)(uintptr_t)0x50200004u)
+#define VID_PTR_CONFIG (*(volatile uint32_t *)(uintptr_t)0x50200008u)
+#define VID_PTR_SYS(copy) (((volatile uint32_t *)(uintptr_t)0x5020000Cu)[copy])
+#define VID_PTR_IMG_WORDS 128
+#define VID_PTR_IMG(copy, w) \
+    (((volatile uint32_t *)(uintptr_t)0x50201000u)[(copy) * VID_PTR_IMG_WORDS + (w)])
+#define REGS_WIN ((volatile uint8_t *)(uintptr_t)0x20000000u)
+#define UART_POP (*(volatile uint32_t *)(uintptr_t)0x20000040u)
 /* The low byte is the $FFF0 enable mask and the next byte holds the pending
  * sources. A write to the $FFF0 cell in REGS_WIN changes neither, because that
  * cell is a copy of the pending byte and is rewritten every clock. */
-#define REGS_IRQ (*(volatile uint32_t *)0x20000044u)
+#define REGS_IRQ (*(volatile uint32_t *)(uintptr_t)0x20000044u)
 /* A write sets SIGINT, bit 6 of the pending sources. A read returns what
  * REGS_IRQ does and clears SIGINT on the same clock, so RIA_ATTR_SIGINT and
  * the $FFF0 interrupt share one latch. */
-#define REGS_SIGINT (*(volatile uint32_t *)0x2000006Cu)
-#define RX_OFFER (*(volatile uint32_t *)0x20000048u)
+#define REGS_SIGINT (*(volatile uint32_t *)(uintptr_t)0x2000006Cu)
+#define RX_OFFER (*(volatile uint32_t *)(uintptr_t)0x20000048u)
 /* Bit 8 is set while the 6502 has a byte from the OS it has not read, in the
  * offer slot or in its receive register, and bits 7:0 are that byte. A read
  * of RX_RECLAIM also takes the byte back, unless a $FFE2 read on the same
  * clock takes it first. */
-#define RX_PEEK (*(volatile uint32_t *)0x20000064u)
-#define RX_RECLAIM (*(volatile uint32_t *)0x20000068u)
-#define AUD_PSG_XADDR (*(volatile uint32_t *)0x70000000u)
+#define RX_PEEK (*(volatile uint32_t *)(uintptr_t)0x20000064u)
+#define RX_RECLAIM (*(volatile uint32_t *)(uintptr_t)0x20000068u)
+#define AUD_PSG_XADDR (*(volatile uint32_t *)(uintptr_t)0x70000000u)
 /* 1 from a write to AUD_PSG_XADDR until the PSG has zeroed its eight
  * voices' registers, about 64 clocks after any sample in progress ends. */
-#define AUD_PSG_BUSY (*(volatile uint32_t *)0x70000004u)
-#define AUD_OPL_XADDR (*(volatile uint32_t *)0x70000008u)
+#define AUD_PSG_BUSY (*(volatile uint32_t *)(uintptr_t)0x70000004u)
+#define AUD_OPL_XADDR (*(volatile uint32_t *)(uintptr_t)0x70000008u)
 /* The OPL's overruns, writes dropped because its queue was full, since the
  * last read, which clears it. */
-#define AUD_OPL_OVERRUNS (*(volatile uint32_t *)0x7000000Cu)
+#define AUD_OPL_OVERRUNS (*(volatile uint32_t *)(uintptr_t)0x7000000Cu)
 /* One byte of the bell's channel structure: bits 10:8 its index, 7:0 its
  * value. Byte 6, the gate, strikes or releases. */
-#define AUD_BEL (*(volatile uint32_t *)0x70000010u)
+#define AUD_BEL (*(volatile uint32_t *)(uintptr_t)0x70000010u)
 /* The PCM: device. Bit 0 opens or closes, bit 1 is 16-bit and bit 2 is
  * stereo. An open empties the buffer; the sound restarts at the next
  * sample. */
-#define AUD_PCM_CTRL (*(volatile uint32_t *)0x70000018u)
+#define AUD_PCM_CTRL (*(volatile uint32_t *)(uintptr_t)0x70000018u)
 /* Frames per 48 kHz sample, Q32, less one: pcm_step(rate) - 1. Written
  * while closed. */
-#define AUD_PCM_STEP (*(volatile uint32_t *)0x7000001Cu)
+#define AUD_PCM_STEP (*(volatile uint32_t *)(uintptr_t)0x7000001Cu)
 /* Four bytes into the buffer, the low byte first, at a word of it. */
-#define AUD_PCM_DATA (*(volatile uint32_t *)0x70000020u)
+#define AUD_PCM_DATA (*(volatile uint32_t *)(uintptr_t)0x70000020u)
 /* One byte into the buffer, in every lane of the word. */
-#define AUD_PCM_BYTE (*(volatile uint32_t *)0x70000024u)
+#define AUD_PCM_BYTE (*(volatile uint32_t *)(uintptr_t)0x70000024u)
 /* Empties the buffer. */
-#define AUD_PCM_CLEAR (*(volatile uint32_t *)0x70000028u)
+#define AUD_PCM_CLEAR (*(volatile uint32_t *)(uintptr_t)0x70000028u)
 /* The bytes waiting to play, 0 to 4096. Nothing checks a write against
  * the room, 4096 less this. */
-#define AUD_PCM_LEVEL (*(volatile uint32_t *)0x7000002Cu)
+#define AUD_PCM_LEVEL (*(volatile uint32_t *)(uintptr_t)0x7000002Cu)
 /* Times the buffer ran dry since the last read or open. A read clears
  * it. */
-#define AUD_PCM_UNDERRUNS (*(volatile uint32_t *)0x70000030u)
+#define AUD_PCM_UNDERRUNS (*(volatile uint32_t *)(uintptr_t)0x70000030u)
 /* Makes the bytes written since the last commit playable at once, as one
  * write. */
-#define AUD_PCM_COMMIT (*(volatile uint32_t *)0x70000034u)
+#define AUD_PCM_COMMIT (*(volatile uint32_t *)(uintptr_t)0x70000034u)
 /* The volume's Q15 gains, right in bits 31:16 and left in 15:0: the PSG's
  * eight voices, the OPL and PCM together, and the bell apart. 0x8000 is
  * unity, which both hold from configuration. */
-#define AUD_GAIN_ENG (*(volatile uint32_t *)0x70000038u)
-#define AUD_GAIN_BEL (*(volatile uint32_t *)0x7000003Cu)
-#define CPU_RESB (*(volatile uint8_t *)0x40000000u)
-#define API_PENDING (*(volatile uint8_t *)0x40000004u)
+#define AUD_GAIN_ENG (*(volatile uint32_t *)(uintptr_t)0x70000038u)
+#define AUD_GAIN_BEL (*(volatile uint32_t *)(uintptr_t)0x7000003Cu)
+#define CPU_RESB (*(volatile uint8_t *)(uintptr_t)0x40000000u)
+#define API_PENDING (*(volatile uint8_t *)(uintptr_t)0x40000004u)
 
 /* The machine's state for a savestate. MACH_HOLD written with
  * MACH_HOLD_ON stops the machine on the first clock its audio engines
@@ -258,11 +276,11 @@ static inline int32_t set_tz_minutes(void)
  * AUD_OWN set gives the audio engines' state to AUD_SST, at psg.sv's,
  * opl.sv's and pcm.sv's savestate addresses. It is taken only while
  * MACH_HELD reads set, and the hold's end drops it. */
-#define MACH_HOLD (*(volatile uint32_t *)0x90000000u)
+#define MACH_HOLD (*(volatile uint32_t *)(uintptr_t)0x90000000u)
 #define MACH_HOLD_ON 0x01u
 #define MACH_HELD 0x02u
-#define ST_SEL (*(volatile uint32_t *)0x90000004u)
-#define ST_DATA (*(volatile const uint32_t *)0x90000008u)
+#define ST_SEL (*(volatile uint32_t *)(uintptr_t)0x90000004u)
+#define ST_DATA (*(volatile const uint32_t *)(uintptr_t)0x90000008u)
 #define ST_PICK(group, word) (((group) << 3) | (word))
 #define ST_MACH 0u
 #define ST_CPU 1u
@@ -272,15 +290,15 @@ static inline int32_t set_tz_minutes(void)
 #define ST_CPU_WORDS 5
 #define ST_VIA_WORDS 7
 #define ST_BUS_WORDS 1
-#define JAM (*(volatile uint32_t *)0x9000000Cu)
-#define REGS_RESTORE (*(volatile uint32_t *)0x90000010u)
-#define AUD_OWN (*(volatile uint32_t *)0x90000014u)
-#define JAM_DATA(n) (((volatile uint32_t *)0x90000040u)[n])
+#define JAM (*(volatile uint32_t *)(uintptr_t)0x9000000Cu)
+#define REGS_RESTORE (*(volatile uint32_t *)(uintptr_t)0x90000010u)
+#define AUD_OWN (*(volatile uint32_t *)(uintptr_t)0x90000014u)
+#define JAM_DATA(n) (((volatile uint32_t *)(uintptr_t)0x90000040u)[n])
 #define JAM_CPU 0
 #define JAM_VIA 5
 #define JAM_MACH 12
 #define JAM_BUS 14
-#define AUD_SST(w) (((volatile uint32_t *)0x90002000u)[w])
+#define AUD_SST(w) (((volatile uint32_t *)(uintptr_t)0x90002000u)[w])
 #define AUD_SST_WORDS 2048
 
 #endif /* _HOST_POCKET_SW_MMIO_H_ */

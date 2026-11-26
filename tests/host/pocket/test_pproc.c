@@ -30,7 +30,6 @@ static int pproc_chain_ends;
 void com_rx_clear(void) { pproc_chain_ends++; }
 void com_end_reset(void) {}
 void manifold_flush(void) {}
-void com_set_bel(bool on) { (void)on; }
 void oem_restore_code_page(void) {}
 
 void sys_stop(void) {}

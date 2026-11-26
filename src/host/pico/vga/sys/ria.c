@@ -5,6 +5,7 @@
  */
 
 #include "vga.pio.h"
+#include "vga/main.h"
 #include "vga/com/manifold.h"
 #include "core/sys/version.h"
 #include "vga/sys/ria.h"
@@ -26,12 +27,13 @@ static uint32_t version_asked_us;
 
 #define RIA_BACKCHAN_BYTE_US (11 * 1000000 / RIA_BACKCHAN_BAUDRATE)
 
-// ria_vsync runs on either core, ria_ack/ria_nak on core 0. Without this the
-// check could pass on one core while the other queues VSYNC ahead of us.
+// ria_vsync runs on either core, ria_task on core 0. Without this the check
+// could pass on one core while the other queues VSYNC ahead of us.
 static spin_lock_t *ria_lock;
 static uint32_t ria_vsync_us;
 static bool ria_vsync_seen;
-static uint8_t ria_held; // 0 when nothing is waiting for the window to clear
+// The ack or nak owed the RIA, 0 for none. ria_task sends it (ria.h).
+static uint8_t ria_reply;
 
 // Is a VSYNC expected close enough that nothing else may be sent?
 static bool ria_locked_out(void)
@@ -44,16 +46,6 @@ static bool ria_locked_out(void)
     uint32_t since = time_us_32() - ria_vsync_us;
     return since + RIA_BACKCHAN_BYTE_US >= RIA_VSYNC_PERIOD_US - RIA_VSYNC_LOCKOUT_US &&
            since <= RIA_VSYNC_PERIOD_US + RIA_VSYNC_LOCKOUT_US;
-}
-
-static void ria_send(uint8_t byte)
-{
-    uint32_t save = spin_lock_blocking(ria_lock);
-    if (ria_locked_out())
-        ria_held = byte;
-    else
-        pio_sm_put(RIA_BACKCHAN_PIO, RIA_BACKCHAN_SM, byte);
-    spin_unlock(ria_lock, save);
 }
 
 void ria_init(void)
@@ -95,13 +87,13 @@ void ria_task(void)
         pio_sm_put(RIA_BACKCHAN_PIO, RIA_BACKCHAN_SM, ch);
     }
 
-    if (ria_held)
+    if (ria_reply && !main_busy())
     {
         uint32_t save = spin_lock_blocking(ria_lock);
-        if (ria_held && !ria_locked_out())
+        if (!ria_locked_out())
         {
-            pio_sm_put(RIA_BACKCHAN_PIO, RIA_BACKCHAN_SM, ria_held);
-            ria_held = 0;
+            pio_sm_put(RIA_BACKCHAN_PIO, RIA_BACKCHAN_SM, ria_reply);
+            ria_reply = 0;
         }
         spin_unlock(ria_lock, save);
     }
@@ -129,7 +121,7 @@ void ria_backchan(uint16_t word)
     case 0: // detach backchannel (restore UART function on pin)
         gpio_set_function(RIA_BACKCHAN_PIN, GPIO_FUNC_UART);
         ria_vsync_seen = false;
-        ria_held = 0;
+        ria_reply = 0;
         break;
     case 1: // attach backchannel (PIO drives pin) and queue version string
         pio_gpio_init(RIA_BACKCHAN_PIO, RIA_BACKCHAN_PIN);
@@ -155,10 +147,10 @@ void ria_vsync(void)
 
 void ria_ack(void)
 {
-    ria_send(0x90);
+    ria_reply = 0x90;
 }
 
 void ria_nak(void)
 {
-    ria_send(0xA0);
+    ria_reply = 0xA0;
 }

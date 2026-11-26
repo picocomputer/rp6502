@@ -23,6 +23,14 @@
 #define PIX_DEVICE_VGA 1
 #define PIX_DEVICE_IDLE 7
 
+/* The key to the flash of a Pico's VGA: the page of XRAM after the one that
+ * FLASH_PROGRAM writes from, filled with the 32-bit word "FLSH". The RIA
+ * fills it before the first FLASH_PROGRAM, and the VGA clears it and the
+ * page before it at REBOOT_OR_LOCKUP, so a stray FLASH_PROGRAM finds no key. */
+#define PIX_FLASH_KEY 0x48534C46u /* "FLSH", least significant byte first */
+#define PIX_FLASH_KEY_ADDR 0x0100
+#define PIX_FLASH_KEY_SIZE 0x0100
+
 /* Op 0x01: the xreg burst off the xstack, to a device and channel. */
 bool pix_api_xreg(void);
 

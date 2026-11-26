@@ -29,7 +29,7 @@
 #define STR_CAT1(a, b) a##b
 #define STR_CAT(a, b) STR_CAT1(a, b)
 
-static_assert(PHI2_MIN_KHZ >= 0); // catch missing include
+static_assert(PHI2_MIN_KHZ >= 0, "core/wdc/phi2.h is included");
 #define STR_PHI2_MIN_MAX STR_XSTR(PHI2_MIN_KHZ) "-" STR_XSTR(PHI2_MAX_KHZ)
 
 #define X(name, value) \

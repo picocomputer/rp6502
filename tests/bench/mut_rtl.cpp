@@ -23,6 +23,9 @@ static uint32_t mut_fb[640 * 480];
 
 static std::string mut_tap;
 
+/* Whether the dock has the bench's mouse in it, which a boot takes out. */
+static bool mut_mouse_on;
+
 #define FILL_STATE dut->rootp->wiring__DOT__fill__DOT__state
 #define SCHED_STATE dut->rootp->wiring__DOT__sched__DOT__state
 #define SCHED_PENDING dut->rootp->wiring__DOT__sched__DOT__plane_pending
@@ -242,6 +245,7 @@ bool mut_boot(const char *rom)
     dut->final();
     delete dut;
     dut = new Vwiring;
+    mut_mouse_on = false;
 
     bool ever_ran = false;
     bool quiet = tb_boot_each(dut, mut_rom, nullptr, [&] {
@@ -273,6 +277,73 @@ const uint32_t *mut_frame(int w, int h)
 {
     tb_capture(dut, mut_rom, mut_fb, (size_t)w * (size_t)h);
     return mut_fb;
+}
+
+/* The pointer is a mouse in the dock's first slot, as host/pocket/sw/apf.c
+ * reads one: a report is the slot's registers with a new count, its
+ * movement relative, each 16-bit field's low byte in the high half of its
+ * halfword. The firmware takes the latest report when it looks, so each is
+ * given two frames to be seen. The tablet tracks a mouse in a space 640
+ * wide at two counts a pixel (core/hid/tablet.c), so a move far up and
+ * left first puts the pointer at 0,0, and the moves after are counted from
+ * there. The dock's mouse draws no cursor of its own, so the system's
+ * pointer is drawn into the frame. */
+static uint16_t mut_mouse_count;
+static int mut_mouse_x, mut_mouse_y;  // in the tablet's reference space
+
+static uint32_t mut_swap16(int v)
+{
+    return ((uint32_t)v & 0xFFu) << 8 | ((uint32_t)v >> 8 & 0xFFu);
+}
+
+static void mut_mouse(int dx, int dy, uint8_t buttons)
+{
+    const uint32_t mouse = 5;  // APF_TYPE_MOUSE
+    mut_mouse_count++;
+    dut->cont_key[0] = mouse << 28 | mut_swap16(mut_mouse_count);
+    dut->cont_joy[0] = (uint32_t)buttons << 16 | mut_swap16(dx & 0xFFFF);
+    /* The four slots' triggers are one 64-bit port, slot 0 the low 16. */
+    dut->cont_trig = (dut->cont_trig & ~(uint64_t)0xFFFF) | mut_swap16(dy & 0xFFFF);
+    for (int i = 0; i < 2; i++)
+    {
+        tb_frame_start(dut, mut_rom);
+        tb_platform_clock(dut, mut_rom, nullptr);
+    }
+}
+
+bool mut_has_pointer(void)
+{
+    return true;
+}
+
+void mut_pointer(int x, int y, uint8_t buttons, int w, int h)
+{
+    (void)h;
+    if (!mut_mouse_on)
+    {
+        /* A mouse's first report moves nothing. */
+        mut_mouse(0, 0, 0);
+        mut_mouse(-32768, -32768, 0);
+        mut_mouse_on = true;
+        mut_mouse_x = mut_mouse_y = 0;
+    }
+    const int rx = x * 640 / w, ry = y * 640 / w;
+    mut_mouse(2 * (rx - mut_mouse_x), 2 * (ry - mut_mouse_y), buttons);
+    mut_mouse_x = rx;
+    mut_mouse_y = ry;
+}
+
+void mut_pointer_gone(void)
+{
+    dut->cont_key[0] = 0;
+    dut->cont_joy[0] = 0;
+    dut->cont_trig &= ~(uint64_t)0xFFFF;
+    mut_mouse_on = false;
+    for (int i = 0; i < 2; i++)
+    {
+        tb_frame_start(dut, mut_rom);
+        tb_platform_clock(dut, mut_rom, nullptr);
+    }
 }
 
 mut_budget_t mut_measure(const char *name)

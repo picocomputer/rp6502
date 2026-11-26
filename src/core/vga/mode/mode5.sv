@@ -23,6 +23,12 @@ module mode5
     input logic [8:0] t_row,
     input logic [9:0] cw,
 
+    /* The pointer (core/vga/mode/mode6.c): the descriptor's position is
+     * its hot spot, and the sprite is drawn with that at ptr_x, ptr_y. */
+    input logic ptr,
+    input logic signed [15:0] ptr_x,
+    input logic signed [15:0] ptr_y,
+
     output logic mode5_a_req,
     output logic [13:0] mode5_a_addr,
     input logic a_gnt,
@@ -85,8 +91,8 @@ module mode5
     logic [7:0] n4_attr;    /* the fixed size in 4-pixel units */
     logic [1:0] bpp_attr;
 
-    typedef enum logic [1:0] {
-        M5_IDLE, M5_DECODE, M5_CLIP, M5_PIX
+    typedef enum logic [2:0] {
+        M5_IDLE, M5_DECODE, M5_CLIP, M5_PIX, M5_HOT
     } state_t;
     state_t state;
 
@@ -356,8 +362,14 @@ module mode5
                         d_vflip <= custom && lq_dsc[77];
                         d_hdbl <= custom && lq_dsc[78];
                         d_vdbl <= custom && lq_dsc[79];
-                        state <= M5_CLIP;
+                        state <= ptr ? M5_HOT : M5_CLIP;
                     end
+                /* The pointer's sprite is placed by its hot spot. */
+                M5_HOT: begin
+                    d_x <= ptr_x - d_x;
+                    d_y <= ptr_y - d_y;
+                    state <= M5_CLIP;
+                end
                 M5_CLIP: begin
                     px_i <= a_img;
                     px_end <= 9'(d_w - 10'd1) - b_img;

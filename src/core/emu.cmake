@@ -26,12 +26,16 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/dap/dbg.c
     ${RP6502_SRC}/core/hid/hid.c
     ${RP6502_SRC}/core/hid/keyboard.c
+    ${RP6502_SRC}/core/hid/key.c
     ${RP6502_SRC}/core/hid/mouse.c
     ${RP6502_SRC}/core/hid/gamepad.c
     ${RP6502_SRC}/core/hid/tablet.c
     ${RP6502_SRC}/core/hid/vtkey.c
+    ${RP6502_SRC}/core/hid/vtmouse.c
     ${RP6502_SRC}/core/hid/hostkey.c
-    ${RP6502_SRC}/core/hid/paste.c
+    ${RP6502_SRC}/core/hid/paste_host.c
+    ${RP6502_SRC}/core/hid/clip_text.c
+    ${RP6502_SRC}/core/hid/typed.c
     ${RP6502_SRC}/core/rom/alias.c
     ${RP6502_SRC}/core/rom/rom.c
     ${RP6502_SRC}/core/rom/asset.c
@@ -89,40 +93,26 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/vga/mode/mode3.c
     ${RP6502_SRC}/core/vga/mode/mode4.c
     ${RP6502_SRC}/core/vga/mode/mode5.c
+    ${RP6502_SRC}/core/vga/mode/mode6.c
     ${RP6502_SRC}/core/term/color.c
     ${RP6502_SRC}/core/term/font.c
     ${RP6502_SRC}/core/term/term.c
     ${RP6502_SRC}/core/term/grid.c
-    ${RP6502_SRC}/core/term/cells.c
+    ${RP6502_SRC}/core/term/screen.c
+    ${RP6502_SRC}/core/term/cell.c
+    ${RP6502_SRC}/core/term/cell_mode0.c
+    ${RP6502_SRC}/core/term/vterm.c
+    ${RP6502_SRC}/core/term/vterm_mouse.c
+    ${RP6502_SRC}/core/term/draw.c
 )
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    set_source_files_properties(
-        ${RP6502_SRC}/core/vga/mode/mode1.c
-        ${RP6502_SRC}/core/vga/mode/mode2.c
-        ${RP6502_SRC}/core/vga/mode/mode3.c
-        ${RP6502_SRC}/core/vga/mode/mode4.c
-        ${RP6502_SRC}/core/vga/mode/mode5.c
-        PROPERTIES COMPILE_OPTIONS "-Wno-pointer-to-int-cast"
-    )
     # sram (core/wdc/sram.c) is a 64 KB tentative definition; -fno-common keeps it in
     # .bss (the modern GCC/Clang default) so macOS ld doesn't warn about reducing its
     # oversized __common alignment.
     target_compile_options(emu_core PRIVATE -fno-common)
     target_compile_options(emu_core PUBLIC
         $<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>)
-    if(CMAKE_C_COMPILER_ID MATCHES "Clang")
-        target_compile_options(emu_core PRIVATE -Wno-c23-extensions)
-    endif()
-elseif(MSVC)
-    set_source_files_properties(
-        ${RP6502_SRC}/core/vga/mode/mode1.c
-        ${RP6502_SRC}/core/vga/mode/mode2.c
-        ${RP6502_SRC}/core/vga/mode/mode3.c
-        ${RP6502_SRC}/core/vga/mode/mode4.c
-        ${RP6502_SRC}/core/vga/mode/mode5.c
-        PROPERTIES COMPILE_OPTIONS "/wd4311;/wd4312"
-    )
 endif()
 
 add_dependencies(emu_core rp6502_gen_c)
@@ -145,3 +135,9 @@ endif()
 
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
+# GCC's objects carry machine code beside the LTO bytecode, so the tests,
+# which link without LTO (rp6502_add_test), link them as they are. The
+# emulators link with LTO and use the bytecode.
+if(RP6502_EMU_IPO AND CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(emu_core PRIVATE -ffat-lto-objects)
+endif()

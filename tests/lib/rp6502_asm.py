@@ -236,10 +236,12 @@ class Asm:
         self.rom.add_binary_data(self.code(), self.org)
         self.rom.add_reset_vector(self.org)
         size = self.rom.write(path)
-        pairs = list(self._sym.items())
+        Line = rp6502.Symbols.Line
+        lines = [Line(k, "address", v, None, None, None) for k, v in self._sym.items()]
         for table in (globals(), names or {}):
-            pairs += [(k, v) for k, v in table.items() if type(v) is int]
-        rp6502.Symbols.write(os.path.splitext(str(path))[0] + ".sym", pairs)
+            lines += [Line(k, "define", v, None, None, None)
+                      for k, v in table.items() if type(v) is int]
+        rp6502.Symbols.write(os.path.splitext(str(path))[0] + ".sym", lines)
         return size
 
     def __len__(self):

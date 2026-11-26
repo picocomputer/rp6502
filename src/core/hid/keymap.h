@@ -7,6 +7,7 @@
 #ifndef _CORE_HID_KEYMAP_H_
 #define _CORE_HID_KEYMAP_H_
 
+#include "core/hid/typed.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -19,20 +20,15 @@ void keymap_init(void);
 // it, and so does the terminal turning repeat off (DECARM).
 void keymap_task(void);
 
-/* The queue of typed bytes, which holds KEYMAP_KEY_QUEUE_SIZE of them. */
-#define KEYMAP_KEY_QUEUE_SIZE 16
-size_t keymap_in_chars(char *buf, size_t length);
-int keymap_in_peek(size_t offset);
-
-/* Drop whatever was half-typed: the queue, and any dead key or Alt code still
- * being composed. */
+/* Drop whatever was half-typed: the keyboard's queue, the paste being
+ * typed with it, and any dead key or Alt code still being composed. */
 void keymap_abandon(void);
 
 /* The keyboard row core/com/com.c reads on a machine with a layout engine of
  * its own. There is no dwell, because a pause here is a person who stopped
  * typing rather than a gap in a burst arriving over a wire. */
-#define KEYMAP_COM_SOURCE {.read = keymap_in_chars, .peek = keymap_in_peek, \
-    .clear = keymap_abandon, .size = KEYMAP_KEY_QUEUE_SIZE}
+#define KEYMAP_COM_SOURCE {.read = typed_read, .peek = typed_peek, \
+    .clear = keymap_abandon, .size = TYPED_QUEUE_SIZE}
 
 /* Type through this layout of the database from the next key on. */
 void keymap_use_layout(int index);

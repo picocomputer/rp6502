@@ -39,6 +39,11 @@ uint64_t vga_beam_lines(void);
  * steps the mix up to where it got. False when it was held. */
 bool vga_run_frame(void);
 
+/* Called between the machine's steps inside vga_run_frame, where the machine
+ * is whole, as it is between frames: a host that runs the machine on a thread
+ * of its own lets others at it there. NULL, the default, calls nothing. */
+void vga_set_pause(void (*pause)(void));
+
 /* No canvas is larger than 640x480, and a framebuffer must hold that. */
 #define VGA_MAX_WIDTH 640
 #define VGA_MAX_HEIGHT 480
@@ -60,6 +65,10 @@ void vga_set_framebuffer(uint32_t *fb);
 void vga_set_scanout(bool on);
 
 uint32_t *vga_get_framebuffer(void);
+
+/* Draws the canvas as it stands into fb, every row, without running the
+ * machine: for a test that needs the pixels only now and then. */
+void vga_draw(uint32_t *fb);
 
 bool vga_frame_crc(uint32_t *crc);
 

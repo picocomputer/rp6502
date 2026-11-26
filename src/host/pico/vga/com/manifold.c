@@ -32,18 +32,6 @@ void manifold_in_write(char ch)
     RING_PUT(&manifold_in, ch);
 }
 
-/* The RIA answers the program's queries; its terminal follows this one. */
-void manifold_reply(const char *s, size_t n)
-{
-    (void)s;
-    (void)n;
-}
-
-/* The bell is the RIA's too. */
-void manifold_bell(void)
-{
-}
-
 bool manifold_out_empty(void)
 {
     return !RING_LEN(&manifold_out);
@@ -66,7 +54,7 @@ char manifold_out_read(void)
     return ch;
 }
 
-/* The console's terminal, which cells_init sets first of all; see drivers.h. */
+/* The console's terminal, which draw_init sets first of all; see drivers.h. */
 static int (*manifold_term_out)(const char *buf, int len, bool force);
 
 void manifold_set_term_out(int (*out_chars)(const char *buf, int len, bool force))
@@ -88,7 +76,7 @@ void manifold_out_write(char ch)
         cdc_task();
         tud_task();
     }
-#if RP6502_RTT_DEBUG
+#if RP6502_RTT_STDIO
     rtt_write(&ch, 1);
 #endif
     manifold_term_out(&ch, 1, true);

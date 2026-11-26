@@ -11,7 +11,7 @@
 #include <string.h>
 #include <time.h>
 
-void tim_init(void)
+void tim_run(void)
 {
     os_locale_reset();
 }

@@ -21,6 +21,15 @@
 #define VTKEY_CTRL 4
 #define VTKEY_MODIFIERS 7
 
+/* The modifiers a HID report's modifier byte, KEYBOARD_MODIFIER_ bits, holds,
+ * either side's. */
+uint8_t vtkey_modifiers(uint8_t modifier);
+
+/* What Ctrl makes of a character, as xterm makes it: a control byte of a
+ * letter, a space and some digits and punctuation, and the character
+ * itself of any other. */
+char vtkey_ctrl(char ch);
+
 /* The longest sequence, ESC ESC [ 2 7 ; 8 ; 2 5 5 ~. */
 #define VTKEY_MAX 13
 

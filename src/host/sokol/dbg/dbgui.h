@@ -50,6 +50,11 @@ float dbgui_menu_height(void);
  * measured the real bar. */
 float dbgui_menu_bar_estimate(void);
 
+/* Reads the desktop's clipboard for a paste into a debugger field, from an
+ * input event (a const sapp_event *), before the window takes the machine's
+ * lock for the event, under which the clipboard is not asked for. */
+void dbgui_clipboard_read(const void *sapp_event_ptr);
+
 /* Offers a host input event (a const sapp_event *). True when ImGui consumed
  * it, and the window layer then keeps it from the emulated machine. */
 bool dbgui_handle_event(const void *sapp_event_ptr);

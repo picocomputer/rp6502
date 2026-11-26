@@ -35,6 +35,16 @@ uint32_t ff_wtoupper(uint32_t uni);
  * U+FFFD. */
 unsigned char unicode_from_codepoint(uint32_t cp, uint16_t page);
 unsigned char unicode_from_utf8_next(const char **p, uint16_t page);
+
+/* The code point of the UTF-8 sequence at *p, which moves *p past it: 0 at
+ * the NUL, which it stays on, and UNICODE_MALFORMED for a sequence that is
+ * malformed, overlong or past U+10FFFF. */
+#define UNICODE_MALFORMED 0xFFFFFFFFu
+uint32_t unicode_utf8_next(const char **p);
+
+/* Code point cp as UTF-8 at dst, at most 4 bytes and no NUL; returns the
+ * count. */
+int unicode_utf8_put(uint32_t cp, char *dst);
 int unicode_to_utf8_char(unsigned char b, uint16_t page, char *dst);
 
 #endif /* _CORE_STR_UNICODE_H_ */

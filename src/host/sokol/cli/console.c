@@ -46,13 +46,13 @@ static size_t stdin_rx(char *buf, size_t max)
     }
     if (n || !os_console_ended())
         return n;
-    /* End of file is reported only while a read is outstanding and no whole
-     * item is waiting, because console_eof gives that read up and items
-     * still queued would never reach it. A sequence the input ended inside,
+    /* End of file is reported only while a read is outstanding and nothing
+     * waits for it (rln_idle), because console_eof gives that read up and
+     * what is still queued would never reach it. A sequence the input ended inside,
      * such as a lone ESC, is no item and is left where it is. console.c keeps
      * that the input ended until the end of the exec chain, and a launcher
      * started again that reads stdin is told again here. */
-    if (console_waiting() && tio_idle())
+    if (console_waiting() && rln_idle())
         console_eof();
     return 0;
 }
@@ -91,7 +91,7 @@ bool console_open(bool window)
 
 void console_idle(void)
 {
-    if (!console_waiting() || !tio_idle())
+    if (!console_waiting() || !rln_idle())
         return;
     fflush(stdout);
     os_console_wait(VGA_FRAME_NS);

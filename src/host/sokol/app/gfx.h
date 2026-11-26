@@ -49,22 +49,30 @@ void gfx_set_fixed_aspect(bool fixed);
  * Resize the window to what --scale <n> opens: the frame aspect at n times
  * VGA_MAX_HEIGHT, plus the debugger's menu strip when the overlay is up. Docked
  * panels are not counted, because this is a reset to a known size after a manual
- * resize. The window manager may ignore the request. */
+ * resize. The window manager may ignore the request. The menu runs under the
+ * machine's lock, so the resize waits for gfx_canvas_changed, which does not. */
 void gfx_set_scale(double scale);
 
 /* The window's current scale by the same formula; 0 when there is no window. */
 double gfx_get_scale(void);
 #endif
 
-/* On-screen pixels per canvas pixel. The input layer divides host mouse motion
- * by this, so pointer speed does not change with the window size. */
-float gfx_canvas_scale(void);
+/* The canvas's width on screen, in framebuffer pixels. The input layer
+ * measures host mouse motion against it, so pointer speed does not change
+ * with the window size. */
+float gfx_canvas_width(void);
 
 /* Map a framebuffer-pixel point, such as a sokol event's mouse_x and mouse_y or
  * a touchpoint, to canvas pixel coordinates clamped to the canvas. True when the
  * point was over the drawn canvas, false when it was in the letterbox or outside
  * the window. */
 bool gfx_canvas_from_fb(float px, float py, int *cx, int *cy);
+
+/* The frame the window shows (run.h), whose shape the window, the viewport
+ * and the pointer's mapping go by: what is on screen, which can be a frame
+ * behind the machine. Set before gfx_prepare, and at every frame. */
+struct run_frame_t;
+void gfx_set_frame(const struct run_frame_t *frame);
 
 /* The rest of these are called in the order declared: gfx_prepare before sokol
  * starts, gfx_setup from the init callback, gfx_canvas_changed through
@@ -73,7 +81,7 @@ bool gfx_canvas_from_fb(float px, float py, int *cx, int *cy);
  * Seed the canvas from the launch options and report the window's initial size
  * in pixels: the frame aspect at the requested scale plus the debugger's menu
  * strip, or the size the last debug session was left at. */
-void gfx_prepare(uint32_t *fb, double scale, bool have_scale, int *out_w, int *out_h);
+void gfx_prepare(double scale, bool have_scale, int *out_w, int *out_h);
 
 /* From the sokol init callback, after sg_setup. */
 void gfx_setup(void);
@@ -81,7 +89,9 @@ void gfx_setup(void);
 /* A program picking a new mode changes the canvas size mid-run, which changes
  * a dynamic frame, and a savestate load can change the console, which changes a
  * fixed one. Notice a new frame shape, keep the window's aspect lock honest,
- * and re-fit a window the user has not resized off-aspect. */
+ * and re-fit a window the user has not resized off-aspect. Also makes a resize
+ * gfx_set_scale asked for. Outside the machine's lock: these are calls to the
+ * window system. */
 void gfx_canvas_changed(void);
 
 /* Size the canvas to the window and take the frame the machine just rendered,
