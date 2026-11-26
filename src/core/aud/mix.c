@@ -266,7 +266,7 @@ static int aud_clean; /* half seconds since the render was last short */
 static uint32_t aud_window;
 static double aud_trim_i, aud_trim, aud_hint;
 
-/* A machine that stopped is not a frame come late: a window being moved,
+/* A machine that stopped is not a frame come late: a breakpoint, a pause,
  * or the host busy for a while, takes time the machine never makes up. So
  * the shortfall since the machine last stepped is counted, and once it
  * passes two frames the trim, which has nothing to learn from it, waits for

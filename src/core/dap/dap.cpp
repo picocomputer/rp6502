@@ -638,7 +638,7 @@ void unwind_stack()
             uint16_t pushed = (uint16_t)(sram[0x100 + lo_s] | (sram[0x100 + hi_s] << 8));
             if (!stack_return_target(pushed, nullptr))
                 continue;
-            g_frames.push_back({pushed, (uint16_t)(pushed + 1)});
+            g_frames.push_back({pushed, (uint16_t)(pushed + 1), 0, false});
             sp = (uint8_t)(sp + 2 + skip);
             found = true;
             break;
@@ -1774,7 +1774,7 @@ extern "C" void dap_start(void)
             else
             {
                 /* cc65, no .debug_frame, or a pc no FDE covers: heuristic scan. */
-                g_frames.push_back({pc0, pc0});
+                g_frames.push_back({pc0, pc0, 0, false});
                 unwind_stack();
                 compute_frame_bases();
             }

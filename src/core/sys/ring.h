@@ -66,7 +66,7 @@ typedef struct
 
 /* rd first, so wr - rd never goes below zero. */
 static inline __attribute__((always_inline)) uint32_t
-ring_len(ring_t *i)
+ring_len(const ring_t *i)
 {
     const uint32_t rd = atomic_load_explicit(&i->rd, memory_order_acquire);
     return atomic_load_explicit(&i->wr, memory_order_acquire) - rd;
