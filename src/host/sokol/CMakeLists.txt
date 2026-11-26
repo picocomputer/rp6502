@@ -17,15 +17,20 @@ include(${CMAKE_CURRENT_LIST_DIR}/../../core/build.cmake)
 
 include(${RP6502_ROOT}/version.cmake)
 
+# The sound: Windows has a WASAPI driver of its own, and the others go
+# through sokol_audio.
 if(WIN32)
     set(RP6502_OSAL ${RP6502_SRC}/osal/windows)
     set(RP6502_SOKOL_OS ${CMAKE_CURRENT_LIST_DIR}/windows)
+    set(RP6502_SOKOL_AUDIO ${CMAKE_CURRENT_LIST_DIR}/windows/audio.c)
 elseif(APPLE)
     set(RP6502_OSAL ${RP6502_SRC}/osal/macos)
     set(RP6502_SOKOL_OS ${CMAKE_CURRENT_LIST_DIR}/macos)
+    set(RP6502_SOKOL_AUDIO ${CMAKE_CURRENT_LIST_DIR}/app/audio_sokol.c)
 else()
     set(RP6502_OSAL ${RP6502_SRC}/osal/linux)
     set(RP6502_SOKOL_OS ${CMAKE_CURRENT_LIST_DIR}/linux)
+    set(RP6502_SOKOL_AUDIO ${CMAKE_CURRENT_LIST_DIR}/app/audio_sokol.c)
 endif()
 
 include(${RP6502_SRC}/core/emu.cmake)
@@ -73,6 +78,7 @@ add_executable(rp6502-emu
     ${RP6502_SRC}/host/sokol/app/prompt.c
     ${RP6502_SOKOL_OS}/entry.c
     ${RP6502_SOKOL_OS}/gamepad.c
+    ${RP6502_SOKOL_AUDIO}
     ${RP6502_SRC}/host/sokol/app/gamepad.c)
 target_link_libraries(rp6502-emu PRIVATE emu_core)
 target_compile_definitions(rp6502-emu PRIVATE SOKOL_NO_ENTRY RP6502_PAD_HOST)
@@ -81,7 +87,7 @@ if(WIN32)
     target_compile_definitions(rp6502-emu PRIVATE SOKOL_D3D11 _BSD_SOURCE)
     # The XInput runtime is not linked here because windows/gamepad.c loads it
     # by name at run time.
-    target_link_libraries(rp6502-emu PRIVATE d3d11 dxgi shell32 hid user32)
+    target_link_libraries(rp6502-emu PRIVATE d3d11 dxgi shell32 hid user32 ole32 avrt)
     # The GUI subsystem keeps Windows from opening a console for the program,
     # and mainCRTStartup keeps main() as the entry point rather than the
     # WinMain the GUI subsystem would otherwise want.

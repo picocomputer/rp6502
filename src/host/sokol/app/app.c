@@ -19,7 +19,6 @@
 #include "sokol/util/sokol_letterbox.h"
 #include "sokol/util/sokol_debugtext.h"
 #include "sokol/util/sokol_gl.h"
-#include "sokol/sokol_audio.h"
 #ifdef EMU_WITH_DEBUGGER
 #include "host/sokol/dbg/dbgui.h"
 #include "core/dap/dap.h"
@@ -141,13 +140,13 @@ static void update_title(int v)
 }
 
 #ifndef __EMSCRIPTEN__
-/* Called on the audio device's own thread on WASAPI, PulseAudio and
- * CoreAudio. It makes what it plays on the spot, from what the frames have
- * stamped. The web player has its own sound (host/web/audio.c). */
-static void stream_cb(float *buffer, int num_frames, int num_channels)
+/* Called on the sound device's own thread (entry.h). It makes what it plays
+ * on the spot, from what the frames have stamped, at the device's rate. The
+ * web player has its own sound (host/web/audio.c). */
+static void app_sound(float *dst, int frames, uint32_t rate)
 {
-    (void)num_channels;
-    aud_render(buffer, num_frames);
+    aud_set_sink_rate(rate);
+    aud_render(dst, frames);
 }
 #endif
 
@@ -164,46 +163,8 @@ void app_init(void)
 #ifndef __EMSCRIPTEN__
     if (aud_enabled())
     {
-        /* Most devices run at 48000 Hz, so asking for it keeps the resampler's
-         * ratio near one. WASAPI, PulseAudio and CoreAudio keep the 48000
-         * asked for and the OS resamples.
-         *
-         * buffer_frames is what the callback is asked for at a time, and
-         * the sound plays that far behind the machine. What the device
-         * holds beyond that is each backend's own. The sizes are the least
-         * that measured clean:
-         *
-         * WASAPI in shared mode takes 480 frames every 10 ms from a buffer of
-         * its own choosing, about 22 ms for any size asked for up to that. So
-         * 480 is one callback for each period it takes; 512 would skip every
-         * sixteenth and leave the mix a beat to cover.
-         *
-         * PulseAudio is asked to hold buffer_frames in all, and holds three
-         * quarters of it in the stream, 8 ms at 512. That ran minutes
-         * without running dry on a host with little else to do, where 256
-         * did not, and ran dry a few times a minute beside a compiler.
-         *
-         * CoreAudio's queue is two buffers of buffer_frames, a callback for
-         * each. 512 is 94 callbacks a second with 10.7 ms in hand; fewer
-         * frames would be more calls into the OS for nothing.
-         *
-         * Sokol wants buffer_frames a multiple of its packets, which only
-         * its push model uses, so they are a frame each. */
-#if defined(_WIN32)
-        const int buffer_frames = 480;
-#else
-        const int buffer_frames = 512;
-#endif
         aud_set_streaming(true);
-        saudio_setup(&(saudio_desc){
-            .sample_rate = 48000,
-            .num_channels = 2,
-            .buffer_frames = buffer_frames,
-            .packet_frames = 1,
-            .stream_cb = stream_cb,
-            .logger.func = app_log,
-        });
-        aud_set_sink_rate((uint32_t)saudio_sample_rate());
+        host_audio_open(app_sound);
     }
 #endif
     gfx_setup();
@@ -618,7 +579,7 @@ int app_exit_code(void)
 void app_cleanup(void)
 {
     /* The machine stops first, so nothing below runs beside it. proc_shutdown
-     * runs before saudio, gfx and sg shut down, so every driver's stop hook
+     * runs before the sound, gfx and sg shut down, so every driver's stop hook
      * still has the host under it. Reaching here without app_quit_asked means
      * the close button stopped a machine that was still running, which is a
      * break. */
@@ -642,7 +603,7 @@ void app_cleanup(void)
 #endif
 #ifndef __EMSCRIPTEN__
     if (aud_enabled())
-        saudio_shutdown();
+        host_audio_close();
 #endif
 #ifdef EMU_WITH_DEBUGGER
     dap_stop();

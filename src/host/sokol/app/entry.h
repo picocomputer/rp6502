@@ -88,6 +88,15 @@ char **entry_argv_utf8(int *argc);
  * sapp_mouse_locked() is true while the lock is on any canvas in the page. */
 bool entry_canvas_locked(void);
 
+/* The sound, on a desktop: a device that asks for it on a thread of its own.
+ * render fills dst with frames of stereo float at the device's rate, which
+ * is given each time, since it changes when the default device does. Opened
+ * from the init callback and closed from cleanup. False when there is no
+ * sound to be had. Windows has a WASAPI driver of its own (windows/audio.c);
+ * Linux and macOS go through sokol_audio (app/audio_sokol.c). */
+bool host_audio_open(void (*render)(float *dst, int frames, uint32_t rate));
+void host_audio_close(void);
+
 /* One host controller, in the units gamepad_host_report takes. Each backend
  * does the scaling, because the range of each axis comes from the platform's
  * controller API. A backend sets type only when it has identified the
