@@ -499,13 +499,9 @@ class TelnetDevice:
         """Write data, escaping IAC (0xFF) per telnet spec."""
         self._send_raw(data.replace(b"\xff", b"\xff\xff"))
 
-    def read(self, size: int = 1, timeout: float = RESPONSE_TIMEOUT) -> bytes:
-        """Read up to `size` bytes; gives up after `timeout` of silence."""
-        deadline = time.monotonic() + timeout
+    def read(self, size: int = 1) -> bytes:
+        """Read up to `size` bytes; returns immediately to allow Windows terminal polling."""
         while len(self._read_buf) < size:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
             try:
                 # Only recv what we still need so fileno() readiness stays in
                 # sync with _read_buf -- callers select() on us for terminals.
@@ -513,9 +509,9 @@ class TelnetDevice:
                 if not chunk:
                     break  # peer closed
                 self._read_buf += self._strip_iac(chunk)
-                deadline = time.monotonic() + timeout
             except BlockingIOError:
-                ready, _, _ = select.select([self._sock], [], [], remaining)
+                # 1ms timeout instead of 2 seconds to prevent blocking the Windows terminal polling loop
+                ready, _, _ = select.select([self._sock], [], [], 0.001)
                 if not ready:
                     break
             except OSError:
