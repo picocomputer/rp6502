@@ -949,7 +949,7 @@ void dbgui_init(float display_scale)
     dbgui_layout_load();
     g_inited = true;
 
-    /* Drive ui_dbg's view from main.c's tick loop (heatmap/history/PC). */
+    /* Drive ui_dbg's view from the bus's cycle loop, core/wdc/bus.c (heatmap/history/PC). */
     cpu_dbg_cycle_cb = dbgui_tick;
 }
 
@@ -1093,7 +1093,7 @@ void dbgui_draw(void)
             ui_dbg_continue(&g_dbg, false);
     }
 
-    /* ui_dbg_tick (driven from main.c every cycle) maintains the PC highlight while
+    /* ui_dbg_tick (driven from core/wdc/bus.c every cycle) maintains the PC highlight while
      * the CPU runs. When stopped, pin it to dbg.c's authoritative stop PC (also
      * covers dbg_note_stop, which is not produced by a tick) and scroll to it on
      * entry to the stop; while running, ui_dbg's own draw keeps the PC in view. */
@@ -1254,14 +1254,20 @@ void dbgui_render(void) { simgui_draw(); }
  * fetch, IRQ/NMI on a rising pin edge). A trap files a break request that dbg.c
  * honors at the next W65C02_SYNC, so dbg.c stays the one stop authority; an
  * op-level trap lands on the very instruction that tripped it because this runs
- * before main.c's dbg_at_instruction on the same cycle. We never set ui_dbg's
+ * before bus.c's dbg_at_instruction on the same cycle. We never set ui_dbg's
  * step_mode, so it never self-steps. */
 void dbgui_tick(uint64_t pins)
 {
     if (!g_inited)
         return;
     ui_dbg_tick(&g_dbg, pins);
-    if (g_dbg.dbg.last_trap_id >= UI_DBG_BP_BASE_TRAPID)
+    /* Only ui_dbg's own kinds of breakpoint stop here: memory, IRQ and NMI.
+     * The EXEC ones in its list are dbg.c's, mirrored for the gutter, and dbg.c
+     * stops on them itself, past a DAP client's condition, hit count or
+     * logpoint, which a stop requested here would skip. */
+    const int i = g_dbg.dbg.last_trap_id - UI_DBG_BP_BASE_TRAPID;
+    if (i >= 0 && i < g_dbg.dbg.num_breakpoints &&
+        g_dbg.dbg.breakpoints[i].type != UI_DBG_BREAKTYPE_EXEC)
         dbg_request_break();
 }
 
