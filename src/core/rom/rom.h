@@ -46,6 +46,12 @@ typedef enum
 
 bool rom_pump_open(rom_pump_t *p, const char *path, api_errno *err);
 bool rom_pump_open_fd(rom_pump_t *p, int fd, api_errno *err);
+
+/* Whether the first n bytes of a file head a ROM that rom_pump_open would
+ * open: a shebang naming rp6502, and a "#>" line after it, if there is one,
+ * that parses. ROM_HEAD bytes, or the whole of a shorter file, are enough. */
+#define ROM_HEAD (2 * ROM_RECORD_MAX)
+bool rom_head_ok(const char *head, size_t n);
 rom_pump_result rom_pump_next(rom_pump_t *p, rom_record_t *rec, api_errno *err);
 bool rom_pump_complete(const rom_pump_t *p); /* both reset-vector bytes arrived */
 void rom_pump_close(rom_pump_t *p);

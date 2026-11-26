@@ -5,7 +5,6 @@
  */
 
 #include "osal/dir.h"
-#include "osal/fs.h"
 #include "osal/os.h"
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
@@ -351,31 +350,28 @@ bool app_boot_rom(const char *path)
     if (dap_is_active())
         return false;
 #endif
+    /* The file is checked before proc_boot stops the machine, so an accidental
+     * drop leaves the running program running; the loader would refuse the file
+     * too, but only after stopping that program. Its first line is read from
+     * the host's file, with nothing the running program may be using: the
+     * file system's one transfer, which a program streaming its assets keeps
+     * busy, and the buffers its calls read into. */
+    char head[ROM_HEAD];
+    FILE *f = os_fopen(path, "rb");
+    const size_t n = f ? fread(head, 1, sizeof head, f) : 0;
+    const bool read = f && !ferror(f);
+    if (f)
+        fclose(f);
+    if (!read || !rom_head_ok(head, n))
+    {
+        com_printf(read ? "not a .rp6502 file (bad magic)\n" : "cannot read dropped file\n");
+        return false;
+    }
     char *rom = app_rom_path(path);
     if (!rom)
     {
         com_printf("cannot read dropped file\n");
         return false;
-    }
-    /* The file is checked before proc_boot stops the machine, so an accidental
-     * drop leaves the running program running; the loader would refuse the file
-     * too, but only after stopping that program. The check uses an ordinary
-     * descriptor, because there is one ROM descriptor and the running program
-     * has it open for its assets. A file on the null drive opens only as a ROM
-     * image, on that one descriptor, so it goes to the loader unchecked. */
-    if (rom[0] != ':')
-    {
-        rom_pump_t pump;
-        api_errno err;
-        int fd = fs_std_open(rom, FS_RD, &err);
-        if (fd < 0 || !rom_pump_open_fd(&pump, fd, &err))
-        {
-            com_printf(err == API_ENOEXEC ? "not a .rp6502 file (bad magic)\n"
-                                          : "cannot read dropped file\n");
-            free(rom);
-            return false;
-        }
-        rom_pump_close(&pump);
     }
     bool ok = proc_boot(rom, 0, NULL, 0);
     /* The install from the previous drop is removed once proc_boot has
