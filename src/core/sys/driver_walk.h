@@ -40,6 +40,9 @@
 #ifndef BREAK
 #define BREAK(f)
 #endif
+#ifndef RESET
+#define RESET(f)
+#endif
 #ifndef FLASHING
 #define FLASHING(f)
 #endif
@@ -48,6 +51,10 @@
 #endif
 #ifndef CONFIG_STR
 #define CONFIG_STR(ltr, pfx, name, size, def, check, apply, attr, resp, help, helpfn)
+#endif
+/* A CONFIG_STR whose value is a secret, such as a password. */
+#ifndef CONFIG_SECRET
+#define CONFIG_SECRET CONFIG_STR
 #endif
 #ifndef CONFIG_RAW
 #define CONFIG_RAW(ltr, pfx, name, size, def, check, apply, attr, resp, help, helpfn)
@@ -59,7 +66,7 @@
 #define CONFIG_SAVE(fn)
 #endif
 #ifndef SST
-#define SST(...)
+#define SST(id, name)
 #endif
 #ifndef STD
 #define STD(...)

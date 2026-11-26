@@ -54,16 +54,10 @@ bool clk_api_strftime(void);
  * what clk_get_run measures against. Every machine that saves state also
  * restores that clock, so the reading means the same thing after a load as it
  * did when it was written. */
-#define CLK_SST_SIZE 8
-void clk_sst_save(sst_cursor_t *c, unsigned flags);
-bool clk_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t clk_sst;
 
 #define CLK_DRIVER DRIVER(                                  \
     RUN(clk_run)                                            \
-    SST(.id = "CLK_",                                       \
-        .version = 1,                                       \
-        .size = CLK_SST_SIZE,                               \
-        .save = clk_sst_save,                               \
-        .load = clk_sst_load))
+    SST("CLK_", clk))
 
 #endif /* _CORE_TIM_CLK_H_ */

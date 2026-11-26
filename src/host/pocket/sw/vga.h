@@ -13,10 +13,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* vid.c's savestate row carries this file's record of the scanline
- * table. */
-#define VGA_TABLE_SST_SIZE (2 + VGA_PROG_MAX / 32 * 4 + 2)
-void vga_table_save(sst_cursor_t *c);
-bool vga_table_load(sst_cursor_t *c);
+/* What vga.c keeps of the fabric's scanline table. It loads after the
+ * canvas, which VID_VSYNC_LINE is computed from. */
+extern const sst_table_t vga_fabric_sst;
+
+#define VGA_FABRIC_DRIVER DRIVER(                              \
+    SST("VGA_", vga_fabric))
 
 #endif /* _HOST_POCKET_SW_VGA_H_ */

@@ -47,7 +47,7 @@ int wifi_pass_response(char *buf, size_t buf_size, int state, unsigned width);
 #define WIFI_CONFIG_SSID CONFIG_STR(W, wifi, ssid, WIFI_SSID_SIZE, "", \
     nul_check, wifi_apply_ssid, STR_SSID, wifi_ssid_response, \
     STR_HELP_SET_SSID, wifi_scan_response)
-#define WIFI_CONFIG_PASS CONFIG_STR(K, wifi, pass, WIFI_PASS_SIZE, "", \
+#define WIFI_CONFIG_PASS CONFIG_SECRET(K, wifi, pass, WIFI_PASS_SIZE, "", \
     wifi_check_pass, wifi_apply_pass, STR_PASS, wifi_pass_response, \
     STR_HELP_SET_PASS, NULL)
 #define WIFI_DRIVER DRIVER( \

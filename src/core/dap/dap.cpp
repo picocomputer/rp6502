@@ -87,11 +87,60 @@ namespace
 std::unique_ptr<dap::Session> g_session;
 
 std::mutex g_mtx;
-std::vector<std::function<void()>> g_queue; /* main-thread work */
-std::vector<uint16_t> g_instr_bps;          /* current instruction breakpoints (main thread) */
-std::vector<uint16_t> g_func_bps;           /* current function breakpoints (main thread) */
+std::vector<std::function<void()>> g_queue; /* the machine thread's work */
+std::vector<uint16_t> g_instr_bps;          /* current instruction breakpoints (the machine thread) */
+std::vector<uint16_t> g_func_bps;           /* current function breakpoints (the machine thread) */
 
-std::mutex g_src_mtx;
+/* The host's lock on the machine, and its wake for the thread that runs it
+ * (dap_set_host). Every reader-thread handler that reads or writes the
+ * machine or the source maps holds the lock, as the machine's own thread does
+ * whenever it runs, so neither sees the other's work half done. */
+void (*g_host_lock)(void);
+void (*g_host_unlock)(void);
+void (*g_host_wake)(void);
+
+struct machine_lock
+{
+    machine_lock()
+    {
+        if (g_host_lock)
+            g_host_lock();
+    }
+    ~machine_lock()
+    {
+        if (g_host_unlock)
+            g_host_unlock();
+    }
+    machine_lock(const machine_lock &) = delete;
+    machine_lock &operator=(const machine_lock &) = delete;
+};
+
+void wake_machine()
+{
+    if (g_host_wake)
+        g_host_wake();
+}
+
+/* What goes to the client from the machine's side waits here, in order, and
+ * is sent by dap_send once the machine lock is let go: a client slow to read
+ * blocks the write, and must not block the machine and the window with it. */
+std::mutex g_outbox_mtx;
+std::vector<std::function<void()>> g_outbox;
+
+void outbox(std::function<void()> fn)
+{
+    std::lock_guard<std::mutex> lk(g_outbox_mtx);
+    g_outbox.push_back(std::move(fn));
+}
+
+template <typename T>
+void outbox_send(const T &ev)
+{
+    outbox([ev]() {
+        if (g_session)
+            g_session->send(ev);
+    });
+}
 dwarf_line_t *g_dwarf = nullptr;
 dwarf_info_t *g_dinfo = nullptr;
 dwarf_frame_t *g_dframe = nullptr; /* .debug_frame CFI, for principled unwinding */
@@ -115,7 +164,7 @@ std::map<std::string, std::vector<SrcBp>> g_src_bps; /* source breakpoints, per 
 std::map<uint16_t, BpMeta> g_bp_meta;                /* flattened; consulted by bp_filter */
 
 /* Data breakpoints (watchpoints): a store/load into [addr, addr+width) trips a
- * stop. Owned by the main thread (SetDataBreakpoints post lambda + the bus hook). */
+ * stop. Owned by the machine thread (SetDataBreakpoints post lambda + the bus hook). */
 struct Watch
 {
     uint16_t addr;
@@ -148,7 +197,7 @@ static bool bp_referenced(uint16_t a, const std::string *skip_src, bool with_ins
     return false;
 }
 
-/* Rebuild g_bp_meta from all source files' non-plain breakpoints (main thread). */
+/* Rebuild g_bp_meta from all source files' non-plain breakpoints (the machine thread). */
 void rebuild_bp_meta()
 {
     g_bp_meta.clear();
@@ -250,7 +299,7 @@ void push_segments()
     dbg_set_segments(segs, n);
 }
 
-/* addr -> source line, for dbg.c's source-level stepping (main thread). */
+/* addr -> source line, for dbg.c's source-level stepping (the machine thread). */
 bool line_lookup(uint16_t addr, const char **file, int *line)
 {
     return src_addr_to_line(addr, file, line);
@@ -277,8 +326,11 @@ std::vector<std::string> g_default_args; /* ROM argv[1..] for launch requests th
 
 void post(std::function<void()> fn)
 {
-    std::lock_guard<std::mutex> lk(g_mtx);
-    g_queue.push_back(std::move(fn));
+    {
+        std::lock_guard<std::mutex> lk(g_mtx);
+        g_queue.push_back(std::move(fn));
+    }
+    wake_machine();
 }
 
 w65c02_t *cpu() { return (w65c02_t *)cpu_chip(); }
@@ -312,10 +364,11 @@ void send_stopped(int reason)
     ev.reason = reason_str(reason);
     ev.threadId = 1;
     ev.allThreadsStopped = true;
-    g_session->send(ev);
+    outbox_send(ev);
 }
 
-/* dbg.c stopped callback — fires on the MAIN thread when execution halts. */
+/* dbg.c stopped callback — fires on the machine thread, under the machine
+ * lock, when execution halts. */
 void on_stopped(int reason, uint16_t pc)
 {
     (void)pc;
@@ -331,7 +384,7 @@ void on_stopped(int reason, uint16_t pc)
 
 /* Program output -> the Debug Console: one OutputEvent per category per
  * frame rather than one per byte. The buffer grows to its high-water mark
- * and stays there. The taps feed it from the main thread; a log line can
+ * and stays there. The taps feed it from the machine thread; a log line can
  * come from any, so the lock. */
 char *g_out_buf;
 size_t g_out_len, g_out_cap;
@@ -345,7 +398,7 @@ void out_flush_locked()
         dap::OutputEvent ev;
         ev.category = g_out_category;
         ev.output = std::string(g_out_buf, g_out_len);
-        g_session->send(ev);
+        outbox_send(ev);
     }
     g_out_len = 0;
 }
@@ -529,7 +582,7 @@ struct FrameCtx
 
 /* Map a client frameId to its resolution context. Falls back to the innermost
  * frame (live base) when the stack hasn't been unwound or the id is out of range.
- * Caller holds g_src_mtx. */
+ * Caller holds the machine lock. */
 FrameCtx frame_ctx(int64_t frameId)
 {
     FrameCtx fc;
@@ -549,7 +602,7 @@ FrameCtx frame_ctx(int64_t frameId)
  * and its operand is EXACTLY a known function's entry. Requiring the entry (not
  * merely an in-range address) is what makes the scan below safe: register/data
  * bytes practically never form a JSR pointing at a real entry, so no frame is
- * fabricated. Caller holds g_src_mtx (the source map reads). */
+ * fabricated. Caller holds the machine lock (the source map reads). */
 bool stack_return_target(uint16_t pushed, uint16_t *target_out)
 {
     uint16_t jsr = (uint16_t)(pushed - 2);
@@ -571,7 +624,7 @@ bool stack_return_target(uint16_t pushed, uint16_t *target_out)
  * imaginary registers), so return addresses are not adjacent; cc65 keeps its
  * frame on the soft stack, so its slots are. The scan skips those saved bytes but
  * truncates once no return slot appears within the window (under-report, never
- * fabricate). Caller must hold g_src_mtx. */
+ * fabricate). Caller holds the machine lock. */
 constexpr int UNWIND_SCAN_MAX = 16; /* bytes of register saves to step over */
 void unwind_stack()
 {
@@ -585,7 +638,7 @@ void unwind_stack()
             uint16_t pushed = (uint16_t)(sram[0x100 + lo_s] | (sram[0x100 + hi_s] << 8));
             if (!stack_return_target(pushed, nullptr))
                 continue;
-            g_frames.push_back({pushed, (uint16_t)(pushed + 1)});
+            g_frames.push_back({pushed, (uint16_t)(pushed + 1), 0, false});
             sp = (uint8_t)(sp + 2 + skip);
             found = true;
             break;
@@ -601,7 +654,7 @@ void unwind_stack()
  * base is chained outward from stack-adjustment deltas (callee argument region +
  * caller frame size). Fail-closed: an unresolved delta leaves that frame and every
  * outer frame base_ok=false so frame-relative locals show as unavailable rather
- * than fabricated. Caller holds g_src_mtx. */
+ * than fabricated. Caller holds the machine lock. */
 void compute_frame_bases()
 {
     if (g_frames.empty())
@@ -633,7 +686,7 @@ void compute_frame_bases()
  * heuristic, because evaluating the llvm-mos .debug_frame CIE/FDE rules yields
  * each caller's PC and soft-stack pointer directly. A caller PC that lands
  * outside any known function ends the unwind, so no frame is fabricated for
- * it. This function is called with g_src_mtx held. */
+ * it. Caller holds the machine lock. */
 void unwind_stack_cfi(uint16_t pc0)
 {
     uint16_t pc = pc0;
@@ -892,8 +945,8 @@ std::vector<dap::Variable> expand_node(VarNode n)
  * A small C-ish evaluator shared by EvaluateRequest (watch/hover/repl),
  * SetVariable/SetExpression (target + RHS), and breakpoint conditions. Reuses the
  * DWARF/cc65 symbol resolvers, the dtype_t graph, and make_var() for formatting.
- * Reads sram[] + the source map, so reader-thread callers hold g_src_mtx; the
- * main-thread condition filter is the sole writer and needs no lock. cc65 has no
+ * Reads sram[] + the source map, so every caller holds the machine lock: the
+ * reader thread's handlers and the condition filter on the machine's. cc65 has no
  * type graph, so member/typed-index there report an honest error. */
 
 struct EvalResult
@@ -1419,11 +1472,13 @@ std::string interp_log(const std::string &msg, uint16_t pc)
     return out;
 }
 
-/* Main-thread gate registered via dbg_set_break_filter: a breakpoint's bitmap bit
- * matched — honor its condition, hit-count, and logpoint. Consulted only for
- * addresses carrying metadata (g_bp_meta is sparse), so plain breakpoints stay
- * O(1). Runs while the CPU is live at an instruction boundary, so eval reads the
- * about-to-execute frame/registers directly (no lock: main thread is sole writer). */
+/* The machine thread's gate registered via dbg_set_break_filter: a breakpoint's
+ * bitmap bit matched — honor its condition, hit-count, and logpoint. Consulted
+ * only for addresses carrying metadata (g_bp_meta is sparse), so plain
+ * breakpoints stay O(1). Runs while the CPU is live at an instruction boundary,
+ * so eval reads the about-to-execute frame/registers directly, under the
+ * machine lock, which every writer holds, the reader thread's Set and Write
+ * handlers too. */
 bool bp_filter(uint16_t pc)
 {
     auto it = g_bp_meta.find(pc);
@@ -1451,7 +1506,7 @@ bool bp_filter(uint16_t pc)
     return true;
 }
 
-/* Runs on the main thread mid-cycle; the store has already landed, so we latch a
+/* Runs on the machine thread mid-cycle; the store has already landed, so we latch a
  * stop for the next instruction boundary (standard watchpoint semantics). */
 void dbg_watch_on_access(uint16_t addr, uint8_t val, bool is_write)
 {
@@ -1536,6 +1591,7 @@ extern "C" void dap_start(void)
 
     g_session->registerHandler([](const dap::RP6502LaunchRequest &req)
                                    -> dap::ResponseOrError<dap::LaunchResponse> {
+        machine_lock lk; /* the machine and the source maps are the machine thread's */
         std::string program = req.program.value("");
         /* Request args are UTF-8 JSON and convert here; the --dap command-line
          * defaults arrived already OEM (main.c converted its argv), so they
@@ -1566,12 +1622,10 @@ extern "C" void dap_start(void)
 
         post([program, args, soe, sox, elf, dbg]() {
             /* Debug-info (g_cc65/g_dwarf/g_dinfo/g_segments) and CPU state are owned
-             * by this main/emulation thread; the loads and segment push run here,
-             * never on the cppdap reader thread that delivered the request. g_src_mtx
-             * fences the free+reload so a reader-thread handler can't observe a
-             * half-freed/half-loaded map. */
+             * by the machine's thread; the loads and segment push run here, under
+             * the machine lock dap_pump runs in, so a reader-thread handler, which
+             * takes it too, never sees a half-freed or half-loaded map. */
             {
-                std::lock_guard<std::mutex> lk(g_src_mtx);
                 src_free();
                 std::string base = program; /* program path with a trailing ".rp6502" removed */
                 const std::string ext = ".rp6502";
@@ -1633,7 +1687,7 @@ extern "C" void dap_start(void)
                                   std::function<void(dap::SetBreakpointsResponse)> respond) {
         std::string path = req.source.path.value("");
         auto sbs = req.breakpoints.value({});
-        /* Resolve on the main thread: the post queue is FIFO, so a launch
+        /* Resolve on the machine thread: the post queue is FIFO, so a launch
          * queued ahead of us has loaded the source map before the lookup runs.
          * cppdap frees req when this handler returns (hence the copies);
          * respond() is thread-safe and may fire after we return. */
@@ -1674,12 +1728,13 @@ extern "C" void dap_start(void)
             for (const SrcBp &sb : bps)
                 dbg_add_breakpoint(sb.addr);
             rebuild_bp_meta();
-            respond(r);
+            outbox([respond, r]() { respond(r); });
         });
     });
 
     g_session->registerHandler([](const dap::ConfigurationDoneRequest &) {
         g_configured.store(true);
+        wake_machine(); /* dap_pump resolves the launch hold */
         return dap::ConfigurationDoneResponse();
     });
 
@@ -1699,6 +1754,7 @@ extern "C" void dap_start(void)
     });
 
     g_session->registerHandler([](const dap::StackTraceRequest &req) {
+        machine_lock lk; /* the machine and the source maps are the machine thread's */
         dap::StackTraceResponse r;
         /* Invalidate expandable-variable refs only on a genuinely new stop — VS Code
          * issues several StackTrace requests per stop when paging the call stack
@@ -1712,16 +1768,13 @@ extern "C" void dap_start(void)
         }
         g_frames.clear();
         {
-            /* file/fn/unwind all read the source map; hold g_src_mtx so a
-             * concurrent (re)load on the main thread can't free it mid-use. */
-            std::lock_guard<std::mutex> lk(g_src_mtx);
             uint16_t pc0 = dbg_stop_pc();
             if (g_dframe && dwarf_frame_has(g_dframe, pc0))
                 unwind_stack_cfi(pc0); /* exact CFI unwind (llvm-mos DWARF5) */
             else
             {
                 /* cc65, no .debug_frame, or a pc no FDE covers: heuristic scan. */
-                g_frames.push_back({pc0, pc0});
+                g_frames.push_back({pc0, pc0, 0, false});
                 unwind_stack();
                 compute_frame_bases();
             }
@@ -1768,12 +1821,10 @@ extern "C" void dap_start(void)
     });
 
     g_session->registerHandler([](const dap::ScopesRequest &req) {
+        machine_lock lk; /* the machine and the source maps are the machine thread's */
         dap::ScopesResponse r;
         bool have_map;
-        {
-            std::lock_guard<std::mutex> lk(g_src_mtx);
-            have_map = (g_dinfo || g_cc65);
-        }
+        have_map = (g_dinfo || g_cc65);
         /* Locals apply to any frame (the Variables handler resolves them against
          * that frame's reconstructed base, marking unresolvable ones unavailable).
          * Globals are frame-independent (fixed addresses). Registers are the live
@@ -1808,6 +1859,7 @@ extern "C" void dap_start(void)
     });
 
     g_session->registerHandler([](const dap::VariablesRequest &req) {
+        machine_lock lk; /* the machine and the source maps are the machine thread's */
         dap::VariablesResponse r;
         int64_t ref = req.variablesReference;
         if (ref == 1)
@@ -1834,10 +1886,9 @@ extern "C" void dap_start(void)
         {
             /* Locals of the selected frame, resolved at that frame's call-site PC
              * against its reconstructed base. The resolvers read the source/type
-             * map and return name pointers into it; fence against a concurrent
-             * (re)load on the main thread. */
+             * map and return name pointers into it, which the machine lock keeps
+             * a (re)load from freeing. */
             size_t fi = (size_t)(ref - LOCALS_REF_BASE);
-            std::lock_guard<std::mutex> lk(g_src_mtx);
             if (fi < g_frames.size())
             {
                 uint16_t pc = g_frames[fi].src_pc;
@@ -1862,7 +1913,6 @@ extern "C" void dap_start(void)
         else if (ref == 3)
         {
             /* Global / file-static variables. */
-            std::lock_guard<std::mutex> lk(g_src_mtx);
             if (g_dinfo)
             {
                 dwarf_var_t buf[512];
@@ -1881,9 +1931,8 @@ extern "C" void dap_start(void)
         else if (ref >= 1000)
         {
             /* Expand a previously emitted aggregate/pointer node. The node holds a
-             * dtype_t* into g_dinfo, so fence against a concurrent (re)load that
-             * frees the type graph — like the ref==2/3 branches above. */
-            std::lock_guard<std::mutex> lk(g_src_mtx);
+             * dtype_t* into g_dinfo, which the machine lock keeps a (re)load from
+             * freeing. */
             size_t idx = (size_t)(ref - 1000);
             if (g_dinfo && idx < g_varnodes.size())
                 r.variables = expand_node(g_varnodes[idx]);
@@ -1899,6 +1948,7 @@ extern "C" void dap_start(void)
     });
     g_session->registerHandler([](const dap::PauseRequest &) {
         dbg_request_pause(); /* atomic; safe from the reader thread */
+        wake_machine();
         return dap::PauseResponse();
     });
     /* Stepping granularity: "instruction" (the Disassembly view) -> one machine
@@ -1946,6 +1996,7 @@ extern "C" void dap_start(void)
     });
 
     g_session->registerHandler([](const dap::ReadMemoryRequest &req) {
+        machine_lock lk; /* the machine and the source maps are the machine thread's */
         dap::ReadMemoryResponse r;
         long base = (long)parse_addr(req.memoryReference);
         if (req.offset.has_value())
@@ -1967,6 +2018,7 @@ extern "C" void dap_start(void)
     });
 
     g_session->registerHandler([](const dap::DisassembleRequest &req) {
+        machine_lock lk; /* the machine and the source maps are the machine thread's */
         dap::DisassembleResponse r;
         long base = (long)parse_addr(req.memoryReference);
         if (req.offset.has_value())
@@ -2045,11 +2097,11 @@ extern "C" void dap_start(void)
     });
 
     /* Expression evaluation (watch/hover/repl). Read-only; runs on the reader
-     * thread under g_src_mtx like VariablesRequest — the CPU is idle while
-     * stopped, so sram[]/registers are stable. */
+     * thread under the machine lock like VariablesRequest, so sram[] and the
+     * registers hold still whether or not the CPU is stopped. */
     g_session->registerHandler(
         [](const dap::EvaluateRequest &req) -> dap::ResponseOrError<dap::EvaluateResponse> {
-            std::lock_guard<std::mutex> lk(g_src_mtx);
+            machine_lock lk; /* the machine and the source maps are the machine thread's */
             if (!g_dinfo && !g_cc65)
                 return dap::Error("no debug info loaded");
             /* Evaluate in the client-selected frame (watch/hover on a caller frame),
@@ -2077,12 +2129,11 @@ extern "C" void dap_start(void)
             return r;
         });
 
-    /* SetVariable / SetExpression / WriteMemory: writes to sram[]/registers. Safe
-     * on the reader thread while stopped (CPU idle, no concurrent writer) — the
-     * same invariant the reads rely on; take g_src_mtx for the resolvers. */
+    /* SetVariable / SetExpression / WriteMemory: writes to sram[]/registers, on
+     * the reader thread under the machine lock, as the reads are. */
     g_session->registerHandler(
         [](const dap::SetVariableRequest &req) -> dap::ResponseOrError<dap::SetVariableResponse> {
-            std::lock_guard<std::mutex> lk(g_src_mtx);
+            machine_lock lk; /* the machine and the source maps are the machine thread's */
             int64_t ref = req.variablesReference;
             /* The Locals scope ref encodes the frame (LOCALS_REF_BASE + frameId);
              * resolve both the value expression and the target in that frame. */
@@ -2136,7 +2187,7 @@ extern "C" void dap_start(void)
 
     g_session->registerHandler(
         [](const dap::SetExpressionRequest &req) -> dap::ResponseOrError<dap::SetExpressionResponse> {
-            std::lock_guard<std::mutex> lk(g_src_mtx);
+            machine_lock lk; /* the machine and the source maps are the machine thread's */
             FrameCtx fc = frame_ctx(req.frameId.value(0));
             EvalResult tgt = eval_expr_at(req.expression.c_str(), fc);
             if (!tgt.ok || !tgt.lvalue)
@@ -2158,6 +2209,7 @@ extern "C" void dap_start(void)
         });
 
     g_session->registerHandler([](const dap::WriteMemoryRequest &req) {
+        machine_lock lk; /* the machine and the source maps are the machine thread's */
         dap::WriteMemoryResponse r;
         long base = (long)parse_addr(req.memoryReference);
         if (req.offset.has_value())
@@ -2177,11 +2229,12 @@ extern "C" void dap_start(void)
     });
 
     /* Data breakpoints (watchpoints). Info: resolve an expression/variable to an
-     * address + width and mint a dataId. Read-only, reader thread under g_src_mtx. */
+     * address + width and mint a dataId. Read-only, reader thread under the
+     * machine lock. */
     g_session->registerHandler(
         [](const dap::DataBreakpointInfoRequest &req)
             -> dap::ResponseOrError<dap::DataBreakpointInfoResponse> {
-            std::lock_guard<std::mutex> lk(g_src_mtx);
+            machine_lock lk; /* the machine and the source maps are the machine thread's */
             dap::DataBreakpointInfoResponse r;
             EvalResult e;
             if (req.variablesReference.has_value() && req.variablesReference.value() >= 1000)
@@ -2244,7 +2297,7 @@ extern "C" void dap_start(void)
         return r;
     });
 
-    /* Function breakpoints: resolve each name to its entry on the main thread
+    /* Function breakpoints: resolve each name to its entry on the machine thread
      * (FIFO after the launch that loads the map), then respond — same ordering as
      * SetBreakpoints, since these arrive during configuration before the map exists. */
     g_session->registerHandler(
@@ -2278,7 +2331,7 @@ extern "C" void dap_start(void)
                 g_func_bps = addrs;
                 for (uint16_t a : g_func_bps)
                     dbg_add_breakpoint(a);
-                respond(r);
+                outbox([respond, r]() { respond(r); });
             });
         });
 
@@ -2334,7 +2387,7 @@ extern "C" void dap_pump(void)
             const char *why = proc_boot_error();
             ev.output = std::string("rp6502-emu: ") +
                         (why[0] ? why : "program failed to start\n");
-            g_session->send(ev);
+            outbox_send(ev);
         }
     }
 
@@ -2349,7 +2402,7 @@ extern "C" void dap_pump(void)
             /* The numeric exit code the client (VS Code) renders itself. */
             dap::ExitedEvent exited;
             exited.exitCode = proc_get_exit_code();
-            g_session->send(exited);
+            outbox_send(exited);
             if (g_stop_on_exit)
             {
                 g_stop_gen++; /* a new client-visible stop: stale last stop's var refs */
@@ -2360,11 +2413,11 @@ extern "C" void dap_pump(void)
                                  ") — press Stop to close";
                 ev.threadId = 1;
                 ev.allThreadsStopped = true;
-                g_session->send(ev);
+                outbox_send(ev);
             }
             else
             {
-                g_session->send(dap::TerminatedEvent());
+                outbox_send(dap::TerminatedEvent());
                 g_term_sent = true;
             }
         }
@@ -2372,6 +2425,24 @@ extern "C" void dap_pump(void)
 }
 
 extern "C" bool dap_quit_requested(void) { return g_quit.load(); }
+
+extern "C" void dap_send(void)
+{
+    std::vector<std::function<void()>> out;
+    {
+        std::lock_guard<std::mutex> lk(g_outbox_mtx);
+        out.swap(g_outbox);
+    }
+    for (auto &fn : out)
+        fn();
+}
+
+extern "C" void dap_set_host(void (*lock)(void), void (*unlock)(void), void (*wake)(void))
+{
+    g_host_lock = lock;
+    g_host_unlock = unlock;
+    g_host_wake = wake;
+}
 
 extern "C" void dap_stop(void)
 {
@@ -2381,6 +2452,7 @@ extern "C" void dap_stop(void)
      * when the client disconnected or closed the pipe (g_quit) or a
      * TerminatedEvent already went out. */
     out_flush();
+    dap_send();
     if (g_session && !g_quit.load() && !g_term_sent)
     {
         g_session->send(dap::TerminatedEvent());

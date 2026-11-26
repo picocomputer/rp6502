@@ -33,15 +33,9 @@ void sys_random_seed(void);
 /* Restarts the stream of sys_random from seed. */
 void sys_random_set(uint32_t seed);
 
-#define RANDOM_SST_SIZE 4
-void random_sst_save(sst_cursor_t *c, unsigned flags);
-bool random_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t random_sst;
 
 #define RANDOM_DRIVER DRIVER(                                        \
-    SST(.id = "RAND",                                                \
-        .version = 1,                                                \
-        .size = RANDOM_SST_SIZE,                                     \
-        .save = random_sst_save,                                     \
-        .load = random_sst_load))
+    SST("RAND", random))
 
 #endif /* _CORE_SYS_RANDOM_H_ */

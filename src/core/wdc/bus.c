@@ -61,44 +61,39 @@ static void bus_at_next(void)
     bus_at_cycle = bus_cycle_count;
 }
 
-void bus_sst_save(sst_cursor_t *c, unsigned flags)
+/* The batch marks are not saved, because between batches they follow from
+ * the rows: a load starts the next batch where the saved bus stands, at the
+ * rate PHI2_DRIVER, earlier in the list, has loaded. */
+static void bus_sst_put_at(sst_cursor_t *c, unsigned flags)
 {
+    (void)c;
     (void)flags;
-    sst_put_u64(c, bus_lines);
-    sst_put_i64(c, bus_owed);
-    sst_put_u64(c, bus_cycle_count);
-    sst_put_u16(c, bus_addr);
-    sst_put_u8(c, bus_data);
-    sst_put_bool(c, bus_read);
-    sst_put_bool(c, bus_via_irq);
-    sst_put_bool(c, bus_ria_irq);
 }
 
-bool bus_sst_load(sst_cursor_t *c, unsigned flags)
+static bool bus_sst_get_at(sst_cursor_t *c, unsigned flags)
 {
+    (void)c;
     (void)flags;
-    uint64_t lines = sst_get_u64(c);
-    int64_t owed = sst_get_i64(c);
-    uint64_t count = sst_get_u64(c);
-    uint16_t addr = sst_get_u16(c);
-    uint8_t data = sst_get_u8(c);
-    bool read = sst_get_bool(c);
-    bool via_irq = sst_get_bool(c);
-    bool ria_irq = sst_get_bool(c);
-    if (!sst_ok(c))
-        return false;
-    bus_lines = lines;
-    bus_owed = owed;
-    bus_cycle_count = count;
-    bus_addr = addr;
-    bus_data = data;
-    bus_read = read;
-    bus_via_irq = via_irq;
-    bus_ria_irq = ria_irq;
     bus_at_khz = phi2_get_khz_run();
     bus_at_next();
     return true;
 }
+
+#define BUS_SST(X)                                              \
+    X(U64, bus_lines)                                           \
+    X(I64, bus_owed)                                            \
+    X(U64, bus_cycle_count)                                     \
+    X(U16, bus_addr)                                            \
+    X(U8, bus_data)                                             \
+    X(BOOL, bus_read)                                           \
+    X(BOOL, bus_via_irq)                                        \
+    X(BOOL, bus_ria_irq)                                        \
+    X(FN, bus_sst_put_at, bus_sst_get_at, 0, 1)                 \
+    X(IN_FN, bus_at_line)                                       \
+    X(IN_FN, bus_at_off)                                        \
+    X(IN_FN, bus_at_cycle)                                      \
+    X(IN_FN, bus_at_khz)
+SST_TABLE(bus, BUS_SST)
 
 void bus_reset(void)
 {
@@ -107,6 +102,20 @@ void bus_reset(void)
     bus_read = true;
     bus_via_irq = false;
     bus_ria_irq = false;
+}
+
+/* The load may leave bus_lines far from the beam, which owes the 6502 a debt
+ * or a burst as long as the gap, and bus_at_khz at a rate that is not
+ * running. A cycle count near the top of its range wraps the batch end and
+ * the 6502 never runs again, so the count starts over; only differences are
+ * read. sys_reset has already put back the configured PHI2 rate. */
+void bus_resync(void)
+{
+    bus_lines = vga_beam_lines();
+    bus_owed = 0;
+    bus_cycle_count = 0;
+    bus_at_khz = phi2_get_khz_run();
+    bus_at_next();
 }
 
 static inline void bus_hoist(uint16_t *addr, uint8_t *data, bool *read,

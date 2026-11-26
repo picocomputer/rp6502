@@ -7,7 +7,6 @@
 #include "host/sokol/cli/state.h"
 
 #include "core/hid/keyboard.h"
-#include "core/hid/paste.h"
 #include "core/sys/sst.h"
 #include "osal/fs.h"
 #include "osal/os.h"
@@ -73,13 +72,8 @@ bool state_load_file(const char *path, const char **why)
         return false;
     }
     void *buf = malloc((size_t)len ? (size_t)len : 1);
-    /* Where the load saves the machine first, so a refused one puts it
-     * back. */
-    void *undo = malloc(sst_size());
-    if (!buf || !undo)
+    if (!buf)
     {
-        free(buf);
-        free(undo);
         fclose(f);
         *why = "out of memory";
         return false;
@@ -89,19 +83,13 @@ bool state_load_file(const char *path, const char **why)
     if (!read)
     {
         free(buf);
-        free(undo);
         *why = "cannot read the whole file";
         return false;
     }
 
-    /* A paste is a queue of keys the outgoing machine was going to receive
-     * and the incoming one never asked for. Cancelling it on every load is
-     * what lets it carry no savestate chunk. */
-    paste_cancel();
     fs_std_settle();
-    const char *bad = sst_load(buf, (size_t)len, undo, 0);
+    const char *bad = sst_load(buf, (size_t)len, 0);
     free(buf);
-    free(undo);
     if (bad)
     {
         *why = bad;

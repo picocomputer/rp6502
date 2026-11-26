@@ -5,6 +5,7 @@
  */
 
 #include "cfg.h"
+#include "core/sys/sst.h"
 #include "tim.h"
 #include "mmio.h"
 
@@ -16,6 +17,11 @@
 
 static int32_t cfg_tz;
 static int32_t cfg_kb = -1;
+
+#define CFG_SST(X)                                                      \
+    X(SKIP, cfg_tz, "the host's settings, which cfg_task reads again")    \
+    X(SKIP, cfg_kb)
+SST_TABLE(cfg, CFG_SST)
 
 static void cfg_apply_layout(int32_t kb)
 {

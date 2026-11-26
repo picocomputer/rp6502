@@ -9,6 +9,7 @@
 #include "core/vga/mode/mode.h"
 #include "core/sys/xram.h"
 #include "core/vga/vga.h"
+#include "core/sys/hot.h"
 #include <assert.h>
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -21,8 +22,7 @@
 #include <hardware/interp.h>
 #endif
 
-#pragma GCC push_options
-#pragma GCC optimize("O3")
+HOT_BEGIN
 
 typedef struct
 {
@@ -135,6 +135,31 @@ static inline void sprite_blit16(uint16_t *dst, const uint16_t *src, unsigned le
     } while (dst > dst_start);
 }
 
+/* Eight pixels, as pixel pairs: stored whole when all eight are opaque,
+ * which is most of a sprite, and otherwise each pixel by its alpha bit. */
+static inline __attribute__((always_inline)) void
+sprite_group16_alpha(uint16_t *dst, const uint16_t *src)
+{
+    const mode_word_t *s = (const mode_word_t *)src;
+    mode_word_t *d = (mode_word_t *)dst;
+    const uint32_t w0 = s[0], w1 = s[1], w2 = s[2], w3 = s[3];
+    const uint32_t opaque = 0x00200020;
+    if ((w0 & w1 & w2 & w3 & opaque) == opaque)
+    {
+        d[0] = w0;
+        d[1] = w1;
+        d[2] = w2;
+        d[3] = w3;
+    }
+    else
+    {
+        d[0] = mode_alpha_merge(w0, d[0]);
+        d[1] = mode_alpha_merge(w1, d[1]);
+        d[2] = mode_alpha_merge(w2, d[2]);
+        d[3] = mode_alpha_merge(w3, d[3]);
+    }
+}
+
 static inline void sprite_blit16_alpha(uint16_t *dst, const uint16_t *src, unsigned len)
 {
     uint16_t *dst_start = dst;
@@ -181,36 +206,18 @@ static inline void sprite_blit16_alpha(uint16_t *dst, const uint16_t *src, unsig
     {
         dst -= 8;
         src -= 8;
-        if (src[0] & (1 << 5))
-            dst[0] = src[0];
-        if (src[1] & (1 << 5))
-            dst[1] = src[1];
-        if (src[2] & (1 << 5))
-            dst[2] = src[2];
-        if (src[3] & (1 << 5))
-            dst[3] = src[3];
-        if (src[4] & (1 << 5))
-            dst[4] = src[4];
-        if (src[5] & (1 << 5))
-            dst[5] = src[5];
-        if (src[6] & (1 << 5))
-            dst[6] = src[6];
-        if (src[7] & (1 << 5))
-            dst[7] = src[7];
+        sprite_group16_alpha(dst, src);
     } while (dst > dst_start);
 }
 
-/* A whole row of a plain sprite, n a constant, unrolled whole. */
+/* A whole row of a plain sprite, n a constant multiple of 8, unrolled
+ * whole. */
 static inline __attribute__((always_inline)) void
 sprite_row16_alpha(uint16_t *dst, const uint16_t *src, unsigned n)
 {
-#pragma GCC unroll 64
-    for (unsigned i = 0; i < n; i++)
-    {
-        const uint16_t px = src[i];
-        if (px & (1 << 5))
-            dst[i] = px;
-    }
+    HOT_UNROLL(8)
+    for (unsigned i = 0; i < n; i += 8)
+        sprite_group16_alpha(dst + i, src + i);
 }
 
 static inline void sprite_scanline16(
@@ -303,6 +310,9 @@ static struct
     unsigned shift[2];
     uint32_t mask[2];
 } sw_interp;
+
+#define MODE4_SST(X) X(SKIP, sw_interp, "scratch, set up for every sprite")
+SST_TABLE(mode4, MODE4_SST)
 
 static inline uint32_t sw_interp_mask(unsigned lsb, unsigned msb)
 {
@@ -504,8 +514,8 @@ static void mode4_render_asprite(
 
 /* Every attribute this mode defines and the renderer it names is written here
  * once. mode4_sprite_fn and mode4_sprite_valid both expand this list, so
- * neither can drift from the other. Each attribute's own bounds check stays in
- * mode4_prog, which has the array length in hand.
+ * neither can drift from the other. Each attribute's own bounds check is in
+ * mode4_config_ok, which has the array length in hand.
  *
  * A fabric build expands only the attribute column. Nothing there calls these
  * renderers, and that image has one 96 KB memory for text, stack and heap. */
@@ -553,6 +563,12 @@ bool mode4_sprite_attr(vga_sprite_fn_t fn, uint16_t *attributes)
 }
 #endif
 
+bool mode4_config_ok(uint16_t attributes, uint16_t config_ptr, uint16_t length)
+{
+    const uint32_t size = attributes ? sizeof(mode4_asprite_t) : sizeof(mode4_sprite_t);
+    return vga_xram_ok(config_ptr, size * length);
+}
+
 bool mode4_prog(uint16_t *xregs)
 {
     const uint16_t attributes = xregs[2];
@@ -562,32 +578,11 @@ bool mode4_prog(uint16_t *xregs)
     const int16_t scanline_begin = xregs[6];
     const int16_t scanline_end = xregs[7];
 
-    if (config_ptr & 1)
+    if (!mode4_sprite_valid(attributes) ||
+        !mode4_config_ok(attributes, config_ptr, length))
         return false;
-
-    if (!mode4_sprite_valid(attributes))
-        return false;
-    switch (attributes)
-    {
-    case 0:
-    {
-        const uint32_t region_size = (uint32_t)sizeof(mode4_sprite_t) * length;
-        if (region_size > 0x10000 || config_ptr > 0x10000 - region_size)
-            return false;
-        break;
-    }
-    case 1:
-    {
-        const uint32_t region_size = (uint32_t)sizeof(mode4_asprite_t) * length;
-        if (region_size > 0x10000 || config_ptr > 0x10000 - region_size)
-            return false;
-        break;
-    }
-    default:
-        return false;
-    }
 
     return vga_prog_sprite(plane, scanline_begin, scanline_end, config_ptr, length, 4, attributes);
 }
 
-#pragma GCC pop_options
+HOT_END

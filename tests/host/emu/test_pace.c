@@ -52,7 +52,9 @@ static pace_got_t pace_run(const pace_case_t *c)
             t += 0.0035;
         if (c->miss && k % c->miss == 0)
             continue;
-        pace_add(&p, before < 0 ? VGA_FRAME_NS : (uint64_t)((t - before) * 1e9), true);
+        const uint64_t dt = before < 0 ? VGA_FRAME_NS : (uint64_t)((t - before) * 1e9);
+        pace_credit(&p, dt);
+        pace_add(&p, dt, true);
         before = t;
         int n = 0;
         for (; pace_due(&p); n++)

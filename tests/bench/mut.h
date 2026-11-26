@@ -34,6 +34,17 @@ extern "C"
 
     const char *mut_console(size_t *len);
 
+    /* Whether the bench drives a pointer: a suite that needs one skips its
+     * case without it. */
+    bool mut_has_pointer(void);
+
+    /* The pointer at canvas pixel x, y of the w by h canvas showing, the
+     * tablet's TABLET_FLAG_ buttons held, as a mouse over the machine has
+     * it, from the next frame. mut_pointer_gone takes it off the canvas, so
+     * nothing of it is drawn. Only on a bench that has one. */
+    void mut_pointer(int x, int y, uint8_t buttons, int w, int h);
+    void mut_pointer_gone(void);
+
     typedef enum
     {
         MUT_BUDGET_NONE,

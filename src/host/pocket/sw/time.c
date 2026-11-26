@@ -23,6 +23,7 @@
 #include "tim.h"
 
 #include "core/tim/tim.h"
+#include "core/sys/sst.h"
 
 #include "host/host.h"
 #include "osal/os.h"
@@ -147,8 +148,40 @@ bool host_minimized(void)
     return false;
 }
 
+bool host_focusable(void)
+{
+    return false;
+}
+
+bool host_mac_keys(void)
+{
+    return false;
+}
+
+/* The machine keeps its own clipboard. */
+const char *host_clipboard_get(void)
+{
+    return NULL;
+}
+
+bool host_clipboard_set(const char *utf8)
+{
+    (void)utf8;
+    return false;
+}
+
 static uint32_t seed;
 static bool seed_taken;
+
+#define TIM_POCKET_SST(X)                                               \
+    X(SKIP, tim_tz_min, "wall time, which is this session's")           \
+    X(SKIP, tim_local_boot)                                             \
+    X(SKIP, tim_base_sec)                                               \
+    X(SKIP, tim_base_us)                                                \
+    X(SKIP, tim_zone_name)                                              \
+    X(SKIP, seed, "taken once from the RTC for this session")           \
+    X(SKIP, seed_taken)
+SST_TABLE(tim_pocket, TIM_POCKET_SST)
 
 uint32_t host_seed(void)
 {

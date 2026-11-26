@@ -26,11 +26,21 @@ function(rp6502_pico_memory TARGET)
 endfunction()
 
 # The console on a debug probe, for the bench; see rtt.h. A release has none.
-option(RP6502_RTT_DEBUG "Put the console on a debug probe, as SEGGER RTT" OFF)
-function(rp6502_pico_rtt TARGET)
-    if(RP6502_RTT_DEBUG)
+option(RP6502_RTT_STDIO "Put the console on a debug probe, as SEGGER RTT" OFF)
+function(rp6502_pico_rtt_stdio TARGET)
+    if(RP6502_RTT_STDIO)
         target_sources(${TARGET} PRIVATE ${RP6502_ROOT}/src/host/pico/rtt.c)
-        target_compile_definitions(${TARGET} PRIVATE RP6502_RTT_DEBUG=1)
+        target_compile_definitions(${TARGET} PRIVATE RP6502_RTT_STDIO=1)
+    endif()
+endfunction()
+
+# Keyboards, mice and gamepads on a debug probe, for the bench; see
+# rtt_hid.h. They are the RIA's, so the VGA takes none. A release has none.
+option(RP6502_RTT_HID "Take human input devices from a debug probe" OFF)
+function(rp6502_pico_rtt_hid TARGET)
+    if(RP6502_RTT_HID)
+        target_sources(${TARGET} PRIVATE ${RP6502_ROOT}/src/host/pico/rtt_hid.c)
+        target_compile_definitions(${TARGET} PRIVATE RP6502_RTT_HID=1)
     endif()
 endfunction()
 
@@ -50,6 +60,10 @@ elseif(PICO_BOARD STREQUAL "pico2")
 else()
     message(FATAL_ERROR "Unknown board: ${PICO_BOARD}")
 endif()
+
+# Both chips build C files the generators make, so the generators' variables
+# are set here, where both directories see them.
+include(${RP6502_ROOT}/src/core/gen.cmake)
 
 add_subdirectory(vga ${CMAKE_BINARY_DIR}/vga)
 add_subdirectory(${_ria} ${CMAKE_BINARY_DIR}/${_ria})

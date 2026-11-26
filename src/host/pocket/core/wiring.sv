@@ -346,7 +346,7 @@ module wiring
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_bus;
-    always_comb unused_bus = ^{soc_addr[27:21]};
+    always_comb unused_bus = ^{soc_addr[27:22]};
     /* verilator lint_on UNUSEDSIGNAL */
     logic [7:0] soc_wbyte;
     always_comb begin
@@ -394,7 +394,7 @@ module wiring
     end
 
     logic api_pending;
-    logic soc_ctl_api, vid_prog_q;
+    logic soc_ctl_api, vid_prog_q, vid_m6_q;
     logic [31:0] regs_b_rdata, regs_b_q;
     logic [31:0] mode0_b_rdata, prog_b_rdata;
     logic [31:0] aud_rdata, aud_q, mach_q, aud_sst_rdata, aud_sst_q;
@@ -403,6 +403,7 @@ module wiring
         soc_rsel = 4'd0;
         soc_ctl_api = 1'b0;
         vid_prog_q = 1'b0;
+        vid_m6_q = 1'b0;
         stage_q = '0;
         aud_q = '0;
         mach_q = '0;
@@ -420,6 +421,7 @@ module wiring
                 : 4'd0;
             soc_ctl_api <= soc_addr[2];
             vid_prog_q <= soc_addr[17];
+            vid_m6_q <= soc_addr[21];
             stage_q <= stage_word;
             /* regs_b_q is captured at the strobe, because a read of word
              * 16 of the regs window pops the console queue on this edge,
@@ -461,7 +463,8 @@ module wiring
         case (soc_rsel)
             4'd1: soc_rdata = regs_b_q;
             4'd3: soc_rdata = stage_q;
-            4'd4: soc_rdata = vid_prog_q ? prog_b_rdata : mode0_b_rdata;
+            4'd4: soc_rdata = vid_m6_q ? 32'h0
+                : vid_prog_q ? prog_b_rdata : mode0_b_rdata;
             4'd6: soc_rdata = host_rdata;
             4'd7: soc_rdata = aud_q;
             4'd8: soc_rdata = mach_q;
@@ -583,7 +586,8 @@ module wiring
         .clk(clk_sys),
         .addr(mf_addr[f_sel]),
         .font_bits(font_bits),
-        .w_stb(soc_stb && soc_we && soc_sel_vid && soc_addr[18]),
+        .w_stb(soc_stb && soc_we && soc_sel_vid && !soc_addr[21]
+               && soc_addr[18]),
         .w_addr(soc_addr[13:0]),
         .w_data(soc_wdata)
     );
@@ -694,7 +698,7 @@ module wiring
         .prog_p_config(pm_config),
         .s_idx(sp_s_idx),
         .prog_s_data(sp_s_data),
-        .b_stb(soc_stb && soc_sel_vid && !soc_addr[18]
+        .b_stb(soc_stb && soc_sel_vid && !soc_addr[21] && !soc_addr[18]
                && soc_addr[17]),
         .b_we(soc_we),
         .b_addr(soc_addr[15:0]),
@@ -737,7 +741,7 @@ module wiring
         .mode0_f_addr(mf_addr[1]),
         .f_gnt(f_any && f_sel == 1'd1),
         .f_data(font_bits),
-        .b_stb(soc_stb && soc_sel_vid && !soc_addr[18]
+        .b_stb(soc_stb && soc_sel_vid && !soc_addr[21] && !soc_addr[18]
                && !soc_addr[17]),
         .b_we(soc_we),
         .b_sel(soc_addr[20] ? 2'd3 : soc_addr[19] ? 2'd2
@@ -834,6 +838,33 @@ module wiring
         end
     endgenerate
 
+    /* The pointer's registers and the system shape's image, at
+     * 0x50200000, where soc_addr[21] sets them apart. */
+    logic m6_on, m6_sys;
+    logic [15:0] m6_at;
+    logic signed [15:0] m6_x, m6_y;
+    logic [7:0] m6_hot_x, m6_hot_y, m6_wh;
+    logic [6:0] sp_img_addr;
+    logic [31:0] m6_q;
+    mode6 mode6 (
+        .clk(clk_sys),
+        .frame_start(vid_frame_start),
+        .b_stb(soc_stb && soc_sel_vid && soc_addr[21]),
+        .b_we(soc_we),
+        .b_addr(soc_addr[12:0]),
+        .b_wdata(soc_wdata),
+        .mode6_on(m6_on),
+        .mode6_sys(m6_sys),
+        .mode6_at(m6_at),
+        .mode6_x(m6_x),
+        .mode6_y(m6_y),
+        .mode6_hot_x(m6_hot_x),
+        .mode6_hot_y(m6_hot_y),
+        .mode6_wh(m6_wh),
+        .img_addr(sp_img_addr),
+        .mode6_q(m6_q)
+    );
+
     sprite sprite (
         .clk(clk_sys),
         .sc_addr(vid_sc_addr),
@@ -851,7 +882,17 @@ module wiring
         .sprite_pix(sp_pix),
         .sprite_a_req(ma_req[1]),
         .sprite_a_addr(ma_addr[1]),
-        .a_rdata(xram_s_rdata)
+        .a_rdata(xram_s_rdata),
+        .m6_on(m6_on),
+        .m6_sys(m6_sys),
+        .m6_at(m6_at),
+        .m6_x(m6_x),
+        .m6_y(m6_y),
+        .m6_hot_x(m6_hot_x),
+        .m6_hot_y(m6_hot_y),
+        .m6_wh(m6_wh),
+        .sprite_img_addr(sp_img_addr),
+        .m6_q(m6_q)
     );
 
     logic aud_we, aud_rd;

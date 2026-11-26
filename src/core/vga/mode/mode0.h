@@ -9,11 +9,15 @@
 
 /* Mode 0 draws the console's terminal. Everything it draws from is here:
  * the cells and a few words that say which cells make each row, where the
- * cursor is and how the screen looks. cells.c writes them and the renderer
+ * cursor is and how the screen looks. The cell store (core/term/screen.c)
+ * writes the cells, draw.c the words and the palette, and the renderer
  * reads them: mode0.c on a machine that draws in software, mode0.sv on one
  * that draws in fabric, where the linker places them on its memories. */
 
+#include "core/sys/sst.h"
+#include "core/term/color.h"
 #include "core/term/term.h"
+#include "core/vga/mode/mode.h"
 #include "core/vga/pixel_format.h"
 #include "core/vga/prog.h"
 #include "core/vga/vga.h"
@@ -24,7 +28,7 @@
 /* A cell is in two tables, indexed alike. mode0_cells has its glyph and
  * its attributes in one word, which is all a scanline reads. mode0_colors
  * has its three colors, which are read when a row's pixel pairs are built.
- * cells.c takes both from the pen as the cell is written.
+ * The cell store takes both from the pen as the cell is written.
  *
  * The glyph is its place in a row of the font (core/term/font.h), so a
  * scanline draws any cell with one lookup. A character of the code page is
@@ -42,16 +46,24 @@
  * MODE0_ATTR_GUARD: DECSCA or SPA guards the cell from the selective
  * erases.
  *
- * MODE0_ATTR_BOLD: bold made the cell's ink the bright entry of its
- * palette color, 8 above it, and with MODE0_ATTR_BOLD_DEFAULT the ink was
- * the default foreground and is entry 15.
+ * MODE0_ATTR_BOLD: the cell is bold. Its ink is drawn in the bright entry
+ * of its palette color, 8 above it, and the default foreground in entry 15;
+ * an RGB ink, or any other entry, is drawn as it is.
  *
- * MODE0_ATTR_REVERSE: the colors are swapped, so the ink is the
+ * MODE0_ATTR_CONCEAL: the ink is drawn in the background's color.
+ *
+ * MODE0_ATTR_REVERSE: the colors are drawn swapped, so the ink is the
  * background.
  *
- * The guard, the bolds and the reverse are the console's own, for the
- * sequences that change the attributes of cells already written (DECCARA
- * and DECRARA). No renderer draws them: the colors already show them.
+ * MODE0_ATTR_WRITTEN: the cell was written, as xterm's CHARDRAWN has it,
+ * not only erased (core/term/cell.h).
+ *
+ * The guard is for the selective erases and the written bit for a copy of
+ * the text; no renderer draws them. A cell's colors are the pen's, and its
+ * bold, conceal and reverse are drawn from its attributes
+ * (mode0_cell_shows) when a row's colors are looked up, so the sequences
+ * that change the attributes of cells already written (DECCARA and
+ * DECRARA) change bits alone.
  *
  * Only the underlines, the strike and the overline change what a scanline
  * draws, and only on their own rows of the glyph. On every other row a
@@ -64,31 +76,43 @@ typedef struct
 #define MODE0_GLYPH_OTHER(rows) (0x100u * (rows))
 #define MODE0_GLYPH_ITALIC(rows, code) ((uint16_t)(MODE0_GLYPH_OTHER(rows) + (code)))
 #define MODE0_GLYPH_DEC(rows, code) ((uint16_t)(MODE0_GLYPH_OTHER(rows) + 0x80u + (code)))
+#define MODE0_GLYPH_TECH(rows, code) ((uint16_t)(MODE0_GLYPH_OTHER(rows) + 0x5Fu + (code)))
 #define MODE0_ATTR_UL_COLOR (1u << 8)
 #define MODE0_ATTR_GUARD (1u << 9)
 #define MODE0_ATTR_BOLD (1u << 10)
-#define MODE0_ATTR_BOLD_DEFAULT (1u << 11)
+#define MODE0_ATTR_CONCEAL (1u << 11)
 #define MODE0_ATTR_REVERSE (1u << 12)
+#define MODE0_ATTR_WRITTEN (1u << 13)
 /* The attributes that put a line through a cell. */
 #define MODE0_ATTR_LINES (TERM_ATTR_UL_MASK | TERM_ATTR_STRIKE | TERM_ATTR_OVERLINE)
 
 /* Whether a glyph is in a font of this many rows: the code page's 256, the
- * italics of ASCII, or DEC Special Graphics's 0x5F to 0x7E. */
+ * italics of ASCII, DEC Technical's 0x21 to 0x7E, or DEC Special Graphics's
+ * 0x5F to 0x7E. */
 static inline bool mode0_glyph_ok(uint16_t glyph, unsigned rows)
 {
     return glyph < 0x100 || (uint16_t)(glyph - MODE0_GLYPH_OTHER(rows)) < 0x80 ||
+           (uint16_t)(glyph - MODE0_GLYPH_TECH(rows, 0x21)) < 0x5E ||
            (uint16_t)(glyph - MODE0_GLYPH_DEC(rows, 0x5F)) < 0x20;
 }
 
-/* The character a glyph is, and whether it is DEC Special Graphics's. */
-static inline uint8_t mode0_glyph_code(uint16_t glyph)
-{
-    return glyph < 0x100 ? (uint8_t)glyph : (uint8_t)(glyph & 0x7F);
-}
-
+/* Whether a glyph is DEC Special Graphics's, or DEC Technical's. */
 static inline bool mode0_glyph_is_dec(uint16_t glyph)
 {
-    return glyph >= 0x100 && (glyph & 0x80);
+    return glyph >= 0x100 && (glyph & 0xFF) >= 0xDF;
+}
+
+static inline bool mode0_glyph_is_tech(uint16_t glyph)
+{
+    return glyph >= 0x100 && (glyph & 0xFF) >= 0x80 && (glyph & 0xFF) < 0xDF;
+}
+
+/* The character a glyph is. */
+static inline uint8_t mode0_glyph_code(uint16_t glyph)
+{
+    if (glyph < 0x100)
+        return (uint8_t)glyph;
+    return mode0_glyph_is_tech(glyph) ? (uint8_t)((glyph & 0xFF) - 0x5F) : (uint8_t)(glyph & 0x7F);
 }
 
 /* The underlines: the pixels of each TERM_UL_ style, leftmost in bit 7, on
@@ -103,7 +127,7 @@ extern const uint8_t mode0_underline8[4][8];
  *
  * A color is one of two things, told apart by the pixel format's opaque
  * bit. Set, it is a pixel, drawn as it is: an RGB color. Clear, it is an
- * entry of mode0_palette, in bits 15:6, so a cell drawn in a palette color
+ * entry of the palette, in bits 15:6, so a cell drawn in a palette color
  * or a default color takes a change to that color with no one touching the
  * cell. Whether such a color is transparent is the entry's to say. */
 typedef struct
@@ -113,24 +137,125 @@ typedef struct
     uint16_t ul_color;
 } mode0_colors_t;
 
-/* The colors a cell can name: the 256 palette entries and the default
- * foreground and background, then all of those again at half brightness,
- * for SGR 2. cells.c writes them. */
-#define MODE0_ENTRIES 258
+/* The colors a cell can name, in bits 15:6 of a color whose opaque bit is
+ * clear: 8 bits of an entry of the console's palette (vterm_palette), then
+ * a bit for faint, SGR 2, so bits 8:0 are the address of a palette of 512,
+ * the console's 256 then their faint twins. A bit above them says the color
+ * is a default instead, the foreground or the background by bit 0, which
+ * are two of the console's special colors (vterm_specials), or with the
+ * faint bit their faint twins. A faint color is mode0_faint of its own.
+ * MODE0_ENTRY names a color by the console's number for it, 0 to 255 for
+ * the palette and MODE0_DEFAULT_FG or _BG for the defaults.
+ *
+ * The software renderer keeps the faint twins in tables (mode0_faint_palette
+ * and mode0_faint_defaults), which draw.c makes from the console's. A fabric
+ * halves the channels in wiring as it draws, and reads the palette from its
+ * own memory (mode0_palette), which draw.c copies the console's palette to,
+ * two entries a word, entry 0 in the low half. */
 #define MODE0_DEFAULT_FG 256
 #define MODE0_DEFAULT_BG 257
+#define MODE0_DEFAULTS 2
 #define MODE0_ENTRY_SHIFT 6
-#define MODE0_ENTRY(entry, faint) \
-    ((uint16_t)(((unsigned)(entry) + ((faint) ? MODE0_ENTRIES : 0u)) << MODE0_ENTRY_SHIFT))
-extern uint16_t mode0_palette[2 * MODE0_ENTRIES];
+#define MODE0_CODE_FAINT 0x100u
+#define MODE0_CODE_DEFAULT 0x200u
+#define MODE0_ENTRY(entry, faint)                                                       \
+    ((uint16_t)((((unsigned)(entry) < VTERM_PALETTE                                     \
+                      ? (unsigned)(entry)                                               \
+                      : MODE0_CODE_DEFAULT | ((unsigned)(entry) - VTERM_PALETTE)) |    \
+                 ((faint) ? MODE0_CODE_FAINT : 0u))                                     \
+                << MODE0_ENTRY_SHIFT))
+#ifdef RP6502_VGA_FABRIC
+extern volatile uint32_t mode0_palette[VTERM_PALETTE / 2];
+#else
+extern uint16_t mode0_faint_palette[VTERM_PALETTE];
+extern uint16_t mode0_faint_defaults[MODE0_DEFAULTS];
+#endif
+
+_Static_assert(MODE0_DEFAULT_FG == VTERM_COLOR_FG && MODE0_DEFAULT_BG == VTERM_COLOR_BG &&
+                   VTERM_PALETTE == 256,
+               "mode 0's colors are the console's palette of 256 and its default colors");
 
 _Static_assert(MODE0_ENTRY_SHIFT == SCANVIDEO_ALPHA_PIN + 1,
-               "an entry sits above the opaque bit, which is clear for one");
+               "a color's code sits above the opaque bit, which is clear for one");
 
-/* The pixel a cell's color is drawn as. */
+#ifndef RP6502_VGA_FABRIC
+/* The pixel of a faint color, of the palette or a default, by its code. */
+uint16_t mode0_color_rest(unsigned code);
+
+/* The pixel a cell's color is drawn as. The default colors, which plain
+ * text has, and the entries of the console's palette are the commonest, so
+ * the renderer takes them in line; the faint ones are rarer. */
 static inline uint16_t mode0_color(uint16_t color)
 {
-    return (color & SCANVIDEO_ALPHA_MASK) ? color : mode0_palette[color >> MODE0_ENTRY_SHIFT];
+    if (color & SCANVIDEO_ALPHA_MASK)
+        return color;
+    const unsigned code = color >> MODE0_ENTRY_SHIFT;
+    if (MODE_LIKELY(code < VTERM_PALETTE))
+        return vterm_palette[code];
+    if ((code | 1) == (MODE0_CODE_DEFAULT | 1))
+        return vterm_specials[code & 1];
+    return mode0_color_rest(code);
+}
+#endif
+
+/* A bold cell's ink: entries 0 to 7 of the palette, faint or not, are drawn
+ * 8 above, and the default foreground, faint or not, as entry 15. */
+static inline uint16_t mode0_bold(uint16_t ink)
+{
+    if (ink & SCANVIDEO_ALPHA_MASK)
+        return ink;
+    const unsigned code = ink >> MODE0_ENTRY_SHIFT;
+    if (!(code & MODE0_CODE_DEFAULT) && (code & 0xFF) < 8)
+        return (uint16_t)((code + 8) << MODE0_ENTRY_SHIFT);
+    if (code == MODE0_CODE_DEFAULT || code == (MODE0_CODE_DEFAULT | MODE0_CODE_FAINT))
+        return MODE0_ENTRY(15, code & MODE0_CODE_FAINT);
+    return ink;
+}
+
+/* The ink and the background a cell shows, as colors of mode0_color: its
+ * own, the ink made bright when it is bold, the two swapped when it is
+ * reversed, then the ink the background when it is concealed. */
+static inline void mode0_cell_shows(const mode0_cell_t *cell, const mode0_colors_t *colors,
+                                    uint16_t *fg, uint16_t *bg)
+{
+    const uint16_t a = cell->attributes;
+    uint16_t f = colors->fg_color;
+    uint16_t b = colors->bg_color;
+    if (a & MODE0_ATTR_BOLD)
+        f = mode0_bold(f);
+    if (a & MODE0_ATTR_REVERSE)
+    {
+        const uint16_t t = f;
+        f = b;
+        b = t;
+    }
+    if (a & MODE0_ATTR_CONCEAL)
+        f = b;
+    *fg = f;
+    *bg = b;
+}
+
+/* Whether two pixels show the same color, opaque or not. */
+static inline bool mode0_same(uint16_t a, uint16_t b)
+{
+    return !((a ^ b) & ~SCANVIDEO_ALPHA_MASK);
+}
+
+/* Whether a color names an entry the palette has, as every RGB color does. */
+static inline bool mode0_color_ok(uint16_t color)
+{
+    const unsigned code = color >> MODE0_ENTRY_SHIFT;
+    return (color & SCANVIDEO_ALPHA_MASK) || code < MODE0_CODE_DEFAULT ||
+           (code & ~(MODE0_CODE_FAINT | 1u)) == MODE0_CODE_DEFAULT;
+}
+
+/* A pixel at half brightness, for SGR 2. */
+static inline uint16_t mode0_faint(uint16_t c)
+{
+    uint16_t r = SCANVIDEO_R5_FROM_PIXEL(c) >> 1;
+    uint16_t g = SCANVIDEO_G5_FROM_PIXEL(c) >> 1;
+    uint16_t b = SCANVIDEO_B5_FROM_PIXEL(c) >> 1;
+    return SCANVIDEO_PIXEL_FROM_RGB5(r, g, b) | (c & SCANVIDEO_ALPHA_MASK);
 }
 
 _Static_assert(sizeof(mode0_cell_t) == 4, "a cell is a word");
@@ -139,17 +264,71 @@ _Static_assert(sizeof(mode0_colors_t) == 6, "a cell's colors are three halfwords
 /* The cells of every screen: the 40-column terminal's primary and
  * alternate, then the 80-column terminal's. */
 #define MODE0_SCREENS (TERM_ALT_SCREEN ? 2 : 1)
-#define MODE0_CELLS ((40 + 80) * TERM_MEM_ROWS * MODE0_SCREENS)
+#define MODE0_CELLS_40 (40 * TERM_MEM_ROWS * MODE0_SCREENS)
+#define MODE0_CELLS (MODE0_CELLS_40 + 80 * TERM_MEM_ROWS * MODE0_SCREENS)
 extern mode0_cell_t mode0_cells[MODE0_CELLS];
 extern mode0_colors_t mode0_colors[MODE0_CELLS];
 
 /* The words, all of them whole 32-bit words, because a fabric's registers
  * take nothing smaller. They describe the terminal showing.
  *
- * row: a row's first cell in mode0_cells, and its TERM_LINE_ size.
- * cursor: x; y; the DECSCUSR style; whether its blink has it lit; and
- *   whether it is shown at all.
+ * row: a row's first cell in mode0_cells, its TERM_LINE_ size, and the
+ *   columns [from, to) of the row the selection takes; from equal to to is
+ *   none. The columns are the row's own, half the width on a row of double
+ *   width.
+ * cursor: x; y; the DECSCUSR style; whether its blink has it lit; whether
+ *   it is shown at all; and whether the host's window has lost the focus.
  * cursor_color: OSC 12's color.
+ * highlight: OSC 17's color, xterm's highlightColor, the selection's
+ *   background, in bits 15:0, a pixel, and MODE0_HIGHLIGHT when it
+ *   counts: when it is neither the default foreground as DECSCNM shows it
+ *   now nor the default foreground at power-up, as xterm's updatedXtermGC
+ *   has it (use_selbg, with T_COLOR(TEXT_FG) and dft_foreground).
+ * highlight_text: OSC 19's color, xterm's highlightTextColor, the
+ *   selection's text, the same way: MODE0_HIGHLIGHT when it is neither the
+ *   default background as DECSCNM shows it now nor the default background
+ *   at power-up (use_selfg, with T_COLOR(TEXT_BG) and dft_background).
+ * defaults: the default foreground in bits 15:0 and the default background
+ *   in bits 31:16, the console's (vterm_specials), as pixels. A fabric draws
+ *   the default colors from them; the software renderer reads the
+ *   console's.
+ *
+ * A cell shows its colors as xterm's updatedXtermGC draws them, with
+ * highlightColorMode and highlightReverse on. Its ink is made bright when
+ * it is bold, and the two are swapped by DECSCNM. A selection color is
+ * used on a cell when it counts and is neither of the cell's two colors.
+ * A cell that the selection takes, or that is reversed, but not both, so
+ * a reversed cell outside the selection too, as on xterm, shows:
+ *   both colors used: the text color on its paper;
+ *   the background color alone: its ink on the background color;
+ *   the text color alone: the text color on its ink;
+ *   neither: its two colors swapped.
+ * A reversed cell in the selection shows:
+ *   both used: the background color on the text color;
+ *   the background color alone: the background color on its ink;
+ *   the text color alone: its ink on the text color;
+ *   neither: its two colors as they are.
+ * Last, a cell concealed, or blinking in its off phase, shows its paper
+ * for its ink.
+ *
+ * The cursor is drawn as xterm draws it, from the colors its cell shows,
+ * but a blank cell with an ink of its own on the default background shows
+ * the default ink under it, as xterm's ShowCursor has it. An ink that is
+ * the background is first whichever default color is further from it. A
+ * block fills the cell and draws the glyph and its lines in the
+ * background, but no glyph of a cell concealed or blinking off. Its fill
+ * is the cell's ink where the cursor's color is the cell's default ink
+ * (the default foreground, or the default background on a cell shown
+ * reversed by its own reverse, DECSCNM or the selection, xterm's
+ * ReverseOrHilite), the default ink where it is the default paper, and the
+ * cursor's color otherwise; then the ink where that is the background, so
+ * no block hides its glyph, as xterm's can. An underline on the row's last
+ * two scanlines, or a bar of two pixels at the cell's left and four on a
+ * row of double width, is drawn over the cell as it shows, in the cursor's
+ * color, or the ink where that is the background. With the focus lost, a
+ * block is a box instead, as xterm's: a pixel's outline of the cell, over
+ * the cell as it shows, in the color an underline takes; and no cursor
+ * blinks.
  * screen: the blink phase a cell's TERM_ATTR_ANY_BLINK bits are tested
  *   against, and DECSCNM.
  * smooth: a smooth scroll (DECSCLM) moving, which mode 0 draws over the
@@ -162,13 +341,17 @@ extern mode0_colors_t mode0_colors[MODE0_CELLS];
  *   the row words any more.
  * publish: written last, once the others describe one picture. A fabric
  *   that copies the words as a frame starts takes none of them while a
- *   publish is part way through. */
+ *   publish is part way through, and then reads this word back 0 until the
+ *   next publish is taken whole. Memory reads back the 1 written. */
 #define MODE0_ROWS 32
 typedef struct
 {
     uint32_t row[MODE0_ROWS];
     uint32_t cursor;
     uint32_t cursor_color;
+    uint32_t highlight;
+    uint32_t highlight_text;
+    uint32_t defaults;
     uint32_t screen;
     uint32_t smooth;
     uint32_t smooth_frame;
@@ -202,9 +385,16 @@ static inline unsigned mode0_smooth_moved(uint32_t start, uint32_t now, unsigned
 }
 
 #define MODE0_ROW(cell, size) ((uint32_t)(cell) | ((uint32_t)(size) << 16))
+#define MODE0_ROW_SELECT(from, to) (((uint32_t)(from) << 18) | ((uint32_t)(to) << 25))
 #define MODE0_ROW_CELL(w) ((uint16_t)(w))
 #define MODE0_ROW_SIZE(w) ((uint8_t)(((w) >> 16) & 3))
+#define MODE0_ROW_FROM(w) ((uint8_t)(((w) >> 18) & 0x7F))
+#define MODE0_ROW_TO(w) ((uint8_t)((w) >> 25))
+_Static_assert(80 <= 0x7F, "a column of the selection in seven bits");
 
+#define MODE0_HIGHLIGHT (1u << 16)
+
+#define MODE0_CURSOR_UNFOCUSED (1u << 26)
 #define MODE0_CURSOR_ENABLED (1u << 25)
 #define MODE0_CURSOR_LIT (1u << 24)
 #define MODE0_CURSOR(x, y, style) \
@@ -260,6 +450,19 @@ static inline bool mode0_place(int16_t w, int16_t h, const uint16_t *xregs,
     return plane >= 0 && plane < SCANVIDEO_PLANE_COUNT &&
            *begin >= 0 && *end <= h && *end - *begin >= 1;
 }
+
+/* The savestate carries the cells and their colors, written as they lie in
+ * memory, in this build's byte order. The palette is the console's
+ * terminal's, which DRAW_DRIVER saves, and draw.c makes the faint half
+ * from it again. The words are not carried: the canvas's load publishes the
+ * console again.
+ *
+ * MODE0_DRIVER follows DRAW_DRIVER in the driver list, because the cells'
+ * save first finishes the screens' jobs, which changes cells. */
+extern const sst_table_t mode0_sst;
+
+#define MODE0_DRIVER DRIVER(                                   \
+    SST("MOD0", mode0))
 
 /* The renderer, for options of 0, which is all mode 0 has. A fabric build
  * has no renderers. */

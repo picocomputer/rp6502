@@ -112,19 +112,10 @@ void opl_xaddr_set(uint16_t word);
  * it. The mixer calls it with its engines held still. */
 void opl_park(void);
 
-/* The pointer, 18 slots of 12, 9 channels of 10, 33 of globals and counters,
- * then the queue: its count, 256 entries of 2, the credit and the drop count.
- * A load that refuses the bytes leaves the engine reset. */
-#define OPL_SST_SIZE (2 + 18 * 12 + 9 * 10 + 33 + 2 + OPL_QUEUE_SIZE * 2 + 1 + 4)
-void opl_sst_save(sst_cursor_t *c, unsigned flags);
-bool opl_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t opl_sst;
 
 #define OPL_DRIVER DRIVER(                                  \
     INIT(opl_reset)                                         \
-    SST(.id = "OPL_",                                       \
-        .version = 2,                                       \
-        .size = OPL_SST_SIZE,                               \
-        .save = opl_sst_save,                               \
-        .load = opl_sst_load))
+    SST("OPL_", opl))
 
 #endif /* _CORE_AUD_OPL_H_ */

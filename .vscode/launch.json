@@ -146,6 +146,36 @@
             }
         },
         {
+            // From WSL: the Windows emulator runs by interop, so it runs
+            // without a C debugger (.vscode/run.py).
+            "name": "Emulator (Windows)",
+            "type": "debugpy",
+            "request": "launch",
+            "console": "integratedTerminal",
+            "program": "${workspaceFolder}/.vscode/run.py",
+            "args": [
+                "windows",
+                "${input:romPath}"
+            ],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "emu: Build (Windows)"
+        },
+        {
+            // The web player, served on 127.0.0.1 and opened in a browser
+            // until the run is stopped (.vscode/run.py).
+            "name": "Emulator (Web)",
+            "type": "debugpy",
+            "request": "launch",
+            "console": "integratedTerminal",
+            "program": "${workspaceFolder}/.vscode/run.py",
+            "args": [
+                "web",
+                "${input:romPath}"
+            ],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "web: Build"
+        },
+        {
             // The core is not a program, so the program is the frontend and
             // the core is what it is told to load. Breakpoints in retro.c
             // bind when RetroArch dlopens it.

@@ -92,14 +92,25 @@ static inline int64_t pace_round(int64_t ns, int64_t of)
     return (ns + (ns < 0 ? -of : of) / 2) / of;
 }
 
-/* A callback dt_ns after the one before, paced by the display or not. A
- * stall of more than three frames is dropped, not replayed as a burst. */
+/* Wall time owed to the machine, from the time it was last owed to now. More
+ * than three frames owed, by one gap or by many that a machine that did not
+ * get to run let pile up, is dropped, not replayed as a burst. The frames it
+ * makes due are a run of their own for pace_due. */
+static inline void pace_credit(pace_t *p, uint64_t ns)
+{
+    p->debt_ns += ns > 3 * VGA_FRAME_NS ? 3 * PACE_FRAME_NS : (int64_t)ns;
+    if (p->debt_ns > 3 * PACE_FRAME_NS)
+        p->debt_ns = 3 * PACE_FRAME_NS;
+    p->ran = false;
+}
+
+/* A display callback dt_ns after the one before, paced by the display or
+ * not. It measures the display; the time itself is owed by pace_credit. A
+ * gap of more than three frames is a display that stopped. */
 static inline void pace_add(pace_t *p, uint64_t dt_ns, bool paced)
 {
     const bool stalled = dt_ns > 3 * VGA_FRAME_NS;
     const int64_t dt = stalled ? 3 * PACE_FRAME_NS : (int64_t)dt_ns;
-    p->debt_ns += dt;
-    p->ran = false;
     if (!p->period_ns)
         p->period_ns = dt > PACE_LEAST_NS ? dt : PACE_LEAST_NS;
     /* The periods this callback was. The carry leaks, so what the smoothed
@@ -169,12 +180,6 @@ static inline void pace_add(pace_t *p, uint64_t dt_ns, bool paced)
 static inline double pace_speed(const pace_t *p)
 {
     return p->follows && p->frame_ns ? (double)PACE_FRAME_NS / (double)p->frame_ns : 1;
-}
-
-/* Time the callback slept through itself, when nothing paced it. */
-static inline void pace_slept(pace_t *p, uint64_t ns)
-{
-    p->debt_ns += ns > 3 * VGA_FRAME_NS ? 3 * PACE_FRAME_NS : (int64_t)ns;
 }
 
 // Whether a frame is due, which pace_ran then takes off the debt.

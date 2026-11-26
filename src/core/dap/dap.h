@@ -12,9 +12,14 @@
 
 #include <stdarg.h>
 
+/* The host's lock on the machine, and a wake for the thread that runs it. A
+ * handler on cppdap's thread takes the lock to read or write the machine;
+ * work queued for dap_pump, a pause and the end of configuration wake it.
+ * Call before dap_start. Without them the handlers take no lock. */
+void dap_set_host(void (*lock)(void), void (*unlock)(void), void (*wake)(void));
+
 /* Call once, after sys_init. cppdap reads messages on a thread of its own, so a
- * handler either queues its work for dap_pump or reads machine state that is
- * still because the CPU is stopped. */
+ * handler either queues its work for dap_pump or takes the machine lock. */
 void dap_start(void);
 
 bool dap_is_active(void);
@@ -23,8 +28,13 @@ bool dap_is_active(void);
 void dap_set_default_args(int argc, char **argv);
 
 /* Applies the queued DAP requests and emits the launch and termination events.
- * Call once per frame, on the thread that runs the machine. */
+ * Call once per step, on the thread that runs the machine, under its lock. */
 void dap_pump(void);
+
+/* Sends what the machine's side has for the client: events, its output and
+ * the answers to queued requests, in the order they were made. Call without
+ * the machine lock, since a client slow to read holds up the caller. */
+void dap_send(void);
 
 /* True once the client has disconnected, which asks the window loop to quit. */
 bool dap_quit_requested(void);

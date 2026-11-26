@@ -46,6 +46,12 @@ typedef enum
 
 bool rom_pump_open(rom_pump_t *p, const char *path, api_errno *err);
 bool rom_pump_open_fd(rom_pump_t *p, int fd, api_errno *err);
+
+/* Whether the first n bytes of a file head a ROM that rom_pump_open would
+ * open: a shebang naming rp6502, and a "#>" line after it, if there is one,
+ * that parses. ROM_HEAD bytes, or the whole of a shorter file, are enough. */
+#define ROM_HEAD (2 * ROM_RECORD_MAX)
+bool rom_head_ok(const char *head, size_t n);
 rom_pump_result rom_pump_next(rom_pump_t *p, rom_record_t *rec, api_errno *err);
 bool rom_pump_complete(const rom_pump_t *p); /* both reset-vector bytes arrived */
 void rom_pump_close(rom_pump_t *p);
@@ -103,23 +109,17 @@ long rom_read_asset(const char *name, char *buf, size_t bufsz);
  * tell that the ROM changed while its window was open. */
 uint32_t rom_generation(void);
 
-/* 1 byte for whether an image is open, 4 for the asset directory offset, 4 for
- * the image length, 4 for the generation. The path is not among them, because
- * proc already carries the running program's name; the length is the
- * cross-check that the file on disk is still the one the blob was made from. */
-#define ASSET_SST_SIZE 13
-void asset_sst_save(sst_cursor_t *c, unsigned flags);
-bool asset_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t asset_sst;
 
 /* A stop closes the image, as the Pico's monitor does, because the stop also
- * clears the running program's name that a savestate reopens it by. */
+ * clears the running program's name that a savestate reopens it by. A failed
+ * savestate load closes it too: rom_fd is only ever what a load or the loader
+ * opened, so the close is safe, and STD's reset, later in the list and so run
+ * first, has already closed the ROM: windows that read through it. */
 #define ASSET_DRIVER DRIVER(          \
     STOP(rom_assets_reset)            \
-    SST(.id = "ASET",                 \
-        .version = 1,                 \
-        .size = ASSET_SST_SIZE,       \
-        .save = asset_sst_save,       \
-        .load = asset_sst_load)       \
+    RESET(rom_assets_reset)           \
+    SST("ASET", asset)                \
     STD(.handles = rom_std_handles,   \
         .open = rom_std_open,         \
         .close = rom_std_close,       \

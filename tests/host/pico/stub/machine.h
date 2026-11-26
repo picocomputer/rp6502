@@ -16,6 +16,7 @@
 #define HOST_IN_RAM_FUNC
 #define HOST_ISR_FUNC
 #define HOST_REGISTER_RAM(name) name
+#define HOST_BSS_OWN(name) name
 
 #define HID_MAX_SLOTS 16
 

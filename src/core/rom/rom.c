@@ -46,6 +46,9 @@ static void rom_deposit(const rom_record_t *rec, const uint8_t *buf)
 /* The console message for the reason that the last rom_load failed. */
 static const char *rom_error;
 
+#define ROM_SST(X) X(SKIP, rom_error, "read right after the load that sets it")
+SST_TABLE(rom, ROM_SST)
+
 const char *rom_load_error(void)
 {
     return rom_error;

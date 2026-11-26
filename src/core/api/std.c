@@ -167,14 +167,6 @@ bool std_sst_refused(void)
     return false;
 }
 
-/* Which of xstack and xram a transfer is landing in. A savestate has to
- * record where the buffer started, because it cannot be worked back out: a
- * read into xram advances std_xram_addr as std_task drains it, and a write
- * into xram never records the address at all. */
-#define STD_BUF_NONE 0
-#define STD_BUF_XSTACK 1
-#define STD_BUF_XRAM 2
-
 /* A savestate sent to another machine for netplay (SST_SHARED) does not
  * record files opened by path, because that path may not exist on the other
  * machine, and loading the state closes them. A SAVE: file is recorded by its
@@ -189,7 +181,15 @@ static bool std_carried(const std_open_t *o, unsigned flags)
     return o->refs && !std_left_out(o, flags);
 }
 
-void std_sst_save(sst_cursor_t *c, unsigned flags)
+/* What a descriptor's ident writes at most: a path slot and a position. */
+#define STD_IDENT_MAX (FS_PATH_SLOT + 4)
+
+/* Each open file as a carry flag, then its driver's row, its open mode and
+ * the driver's ident of it. The reference counts are the descriptors, so the
+ * load counts them from those. What this machine has open is closed before
+ * the blob's open files take their places, because otherwise the host's own
+ * file handles leak. */
+static void std_opens_put(sst_cursor_t *c, unsigned flags)
 {
     /* Before std_left_out, so a netplay state refuses a writer too rather
      * than leaving it out. */
@@ -218,145 +218,217 @@ void std_sst_save(sst_cursor_t *c, unsigned flags)
             return;
         }
     }
-    /* A descriptor of an open file left out is closed by the load. The
-     * reference counts are the descriptors, so they are not written down. */
+}
+
+/* An open file reopened here is held with one reference until the
+ * descriptors are counted. */
+static bool std_opens_get(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    size_t count;
+    const std_driver_t *drivers = std_drivers(&count);
+    std_close_all();
+    for (int i = 0; i < STD_OPEN_MAX; i++)
+    {
+        if (!sst_get_bool(c))
+            continue;
+        uint8_t row = sst_get_u8(c);
+        uint8_t mode = sst_get_u8(c);
+        if (!sst_ok(c))
+            return false;
+        if (row >= count || !drivers[row].sst.reopen ||
+            !(mode & (FS_RD | FS_WR)) || (mode & ~(FS_RD | FS_WR)))
+            return sst_refuse(c, "an open file's driver or mode is wrong");
+        api_errno err = API_EIO;
+        int desc = drivers[row].sst.reopen(c, mode, &err);
+        if (desc < 0)
+            return sst_refuse(c, "an open file did not reopen");
+        std_opens[i] = (std_open_t){.refs = 1, .driver = row, .mode = mode, .desc = desc};
+    }
+    return sst_ok(c);
+}
+
+/* Each descriptor as its open file's index, STD_NONE when free. A descriptor
+ * of an open file left out is closed by the load. */
+static void std_fds_put(sst_cursor_t *c, unsigned flags)
+{
     for (int fd = 0; fd < STD_FD_MAX; fd++)
     {
         uint8_t i = std_fds[fd];
         sst_put_u8(c, i && std_carried(&std_opens[i - 1], flags) ? (uint8_t)(i - 1) : STD_NONE);
     }
-    uint8_t kind = STD_BUF_NONE;
-    uint16_t at = 0;
-    if (std_buf)
-    {
-        if (std_buf >= (char *)xstack && std_buf <= (char *)xstack + XSTACK_SIZE)
-        {
-            kind = STD_BUF_XSTACK;
-            at = (uint16_t)(std_buf - (char *)xstack);
-        }
-        else
-        {
-            kind = STD_BUF_XRAM;
-            at = (uint16_t)(std_buf - (char *)xram);
-        }
-    }
-    /* A read or write in progress on a file that the state does not record
-     * is not recorded either, so its op is dispatched again after the load
-     * and fails. */
-    bool active = std_fd_active && !std_left_out(std_fd_active, flags);
-    sst_put_u8(c, active ? (uint8_t)(std_fd_active - std_opens) : STD_NONE);
-    /* So is a dup2 whose descriptors are not both recorded. */
-    bool dup2 = std_dup2_from != STD_NONE &&
-                std_carried(std_file(std_dup2_from), flags) &&
-                std_carried(std_file(std_dup2_to), flags);
-    sst_put_u8(c, dup2 ? std_dup2_from : STD_NONE);
-    sst_put_u8(c, dup2 ? std_dup2_to : STD_NONE);
-    sst_put_u8(c, kind);
-    sst_put_u16(c, at);
-    sst_put_u16(c, std_size);
-    sst_put_u16(c, std_pos);
-    sst_put_u16(c, (uint16_t)std_xram_addr);
-    sst_put_u16(c, (uint16_t)(std_xram_end - std_xram_addr));
 }
 
-bool std_sst_load(sst_cursor_t *c, unsigned flags)
+static bool std_fds_get(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    size_t count;
-    const std_driver_t *drivers = std_drivers(&count);
-
-    /* What this machine has open is closed before the blob's open files take
-     * their places, because otherwise the host's own file handles leak. A
-     * load that fails closes what it reopened, for the same reason. */
-    std_close_all();
-    bool carried[STD_OPEN_MAX];
-    for (int i = 0; i < STD_OPEN_MAX; i++)
-    {
-        carried[i] = sst_get_bool(c);
-        if (!sst_ok(c))
-            goto fail;
-        if (!carried[i])
-            continue;
-        uint8_t row = sst_get_u8(c);
-        uint8_t mode = sst_get_u8(c);
-        if (!sst_ok(c) || row >= count || !drivers[row].sst.reopen || !(mode & (FS_RD | FS_WR)) ||
-            (mode & ~(FS_RD | FS_WR)))
-            goto fail;
-        api_errno err = API_EIO;
-        int desc = drivers[row].sst.reopen(c, mode, &err);
-        if (desc < 0)
-            goto fail;
-        // Held by the load until the descriptors are counted.
-        std_opens[i] = (std_open_t){.refs = 1, .driver = row, .mode = mode, .desc = desc};
-        if (!sst_ok(c))
-            goto fail;
-    }
     uint8_t named[STD_OPEN_MAX] = {0};
     for (int fd = 0; fd < STD_FD_MAX; fd++)
     {
         uint8_t i = sst_get_u8(c);
-        if (!sst_ok(c) || (i != STD_NONE && (i >= STD_OPEN_MAX || !carried[i])))
-            goto fail;
+        if (!sst_ok(c))
+            return false;
         if (i == STD_NONE)
             continue;
+        if (i >= STD_OPEN_MAX || !std_opens[i].refs)
+            return sst_refuse(c, "a descriptor names no open file");
         std_fds[fd] = (uint8_t)(i + 1);
         named[i]++;
     }
     /* An open file that no descriptor names would never be closed. */
     for (int i = 0; i < STD_OPEN_MAX; i++)
-        if (carried[i])
+        if (std_opens[i].refs)
         {
             if (!named[i])
                 std_close_now(&std_opens[i]);
             std_opens[i].refs = named[i];
         }
+    return true;
+}
 
+/* The open file an op in flight works on, then a dup2 in flight. One on a
+ * file that the state does not record is not recorded either, so its op is
+ * dispatched again after the load and fails. */
+static void std_flight_put(sst_cursor_t *c, unsigned flags)
+{
+    bool active = std_fd_active && !std_left_out(std_fd_active, flags);
+    sst_put_u8(c, active ? (uint8_t)(std_fd_active - std_opens) : STD_NONE);
+    bool dup2 = std_dup2_from != STD_NONE &&
+                std_carried(std_file(std_dup2_from), flags) &&
+                std_carried(std_file(std_dup2_to), flags);
+    sst_put_u8(c, dup2 ? std_dup2_from : STD_NONE);
+    sst_put_u8(c, dup2 ? std_dup2_to : STD_NONE);
+}
+
+/* An active open file must be one that is open, or the first re-dispatch
+ * after the load calls through a row whose desc names nothing. A dup2 in
+ * flight is between two open descriptors that differ. */
+static bool std_flight_get(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
     uint8_t active = sst_get_u8(c);
     uint8_t from = sst_get_u8(c), to = sst_get_u8(c);
-    uint8_t kind = sst_get_u8(c);
-    uint16_t at = sst_get_u16(c);
-    uint16_t size = sst_get_u16(c), pos = sst_get_u16(c);
-    uint16_t xaddr = sst_get_u16(c), xlen = sst_get_u16(c);
     if (!sst_ok(c))
-        goto fail;
-    /* An active open file must be one that is open, or the first re-dispatch
-     * after the load calls through a row whose desc names nothing. A dup2
-     * in flight is between two open descriptors that differ. */
+        return false;
     if (active != STD_NONE && (active >= STD_OPEN_MAX || !std_opens[active].refs))
-        goto fail;
+        return sst_refuse(c, "the op in flight names no open file");
     if ((from == STD_NONE) != (to == STD_NONE) ||
         (from != STD_NONE && (from >= STD_FD_MAX || to >= STD_FD_MAX || from == to ||
                               !std_fds[from] || !std_fds[to])))
-        goto fail;
-    if (kind > STD_BUF_XRAM)
-        goto fail;
-    if (kind == STD_BUF_XSTACK && at > XSTACK_SIZE)
-        goto fail;
-    if (kind != STD_BUF_NONE && (uint32_t)at + size > 0x10000)
-        goto fail;
-    if (pos > size)
-        goto fail;
-
+        return sst_refuse(c, "the dup2 in flight names no open descriptors");
     std_fd_active = (active == STD_NONE) ? NULL : &std_opens[active];
     std_dup2_from = from;
     std_dup2_to = to;
+    return true;
+}
+
+/* Which of xstack and xram a transfer is landing in, and where. A savestate
+ * has to record where the buffer started, because it cannot be worked back
+ * out: a read into xram advances std_xram_addr as std_task drains it, and a
+ * write into xram never records the address at all. */
+#define STD_BUF_NONE 0
+#define STD_BUF_XSTACK 1
+#define STD_BUF_XRAM 2
+
+static uint8_t std_buf_kind(uint16_t *at)
+{
+    *at = 0;
+    if (!std_buf)
+        return STD_BUF_NONE;
+    if (std_buf >= (char *)xstack && std_buf <= (char *)xstack + XSTACK_SIZE)
+    {
+        *at = (uint16_t)(std_buf - (char *)xstack);
+        return STD_BUF_XSTACK;
+    }
+    *at = (uint16_t)(std_buf - (char *)xram);
+    return STD_BUF_XRAM;
+}
+
+static void std_buf_put(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t at;
+    sst_put_u8(c, std_buf_kind(&at));
+    sst_put_u16(c, at);
+}
+
+static bool std_buf_get(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint8_t kind = sst_get_u8(c);
+    uint16_t at = sst_get_u16(c);
+    if (!sst_ok(c))
+        return false;
+    if (kind > STD_BUF_XRAM || (kind == STD_BUF_XSTACK && at > XSTACK_SIZE))
+        return sst_refuse(c, "the transfer's buffer is out of range");
     std_buf = (kind == STD_BUF_XSTACK) ? (char *)xstack + at
               : (kind == STD_BUF_XRAM) ? (char *)xram + at
                                        : NULL;
-    std_size = size;
-    std_pos = pos;
+    return true;
+}
+
+/* The buffer lies wholly inside the xstack or xram it names, because a
+ * re-dispatched transfer writes up to its end. */
+static bool std_buf_fits(sst_cursor_t *c)
+{
+    uint16_t at;
+    uint8_t kind = std_buf_kind(&at);
+    uint32_t room = (kind == STD_BUF_XSTACK) ? XSTACK_SIZE
+                    : (kind == STD_BUF_XRAM) ? 0x10000
+                                             : UINT32_MAX;
+    if ((uint32_t)at + std_size > room || std_pos > std_size)
+        return sst_refuse(c, "the transfer runs past its buffer");
+    return true;
+}
+
+/* A read into xram as the next byte to forward and how many have landed
+ * past it. Its range is the buffer's. */
+static void std_xram_put(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u16(c, (uint16_t)std_xram_addr);
+    sst_put_u16(c, (uint16_t)(std_xram_end - std_xram_addr));
+}
+
+static bool std_xram_get(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t xaddr = sst_get_u16(c), xlen = sst_get_u16(c);
+    if (!sst_ok(c))
+        return false;
+    uint16_t at;
+    bool xram_buf = std_buf_kind(&at) == STD_BUF_XRAM;
     std_xram_addr = xaddr;
     std_xram_end = (uint32_t)xaddr + xlen;
-    std_xram_lo = (kind == STD_BUF_XRAM) ? at : 0;
-    std_xram_hi = (kind == STD_BUF_XRAM) ? (uint32_t)at + size : 0;
-    /* Not carried. A machine that saves streams nothing, so a failed read
-     * returns at once. */
+    std_xram_lo = xram_buf ? at : 0;
+    std_xram_hi = xram_buf ? (uint32_t)at + std_size : 0;
     std_xram_err = -1;
     return true;
-fail:
-    std_close_all();
-    return false;
 }
+
+#define STD_SST_ROWS(X)                                                   \
+    X(FN, std_opens_put, std_opens_get,                                   \
+      STD_OPEN_MAX * (3 + STD_IDENT_MAX), 1)                              \
+    X(IN_FN, std_opens)                                                   \
+    X(FN, std_fds_put, std_fds_get, STD_FD_MAX, 1)                        \
+    X(IN_FN, std_fds)                                                     \
+    X(FN, std_flight_put, std_flight_get, 3, 1)                           \
+    X(IN_FN, std_fd_active)                                               \
+    X(IN_FN, std_dup2_from)                                               \
+    X(IN_FN, std_dup2_to)                                                 \
+    X(FN, std_buf_put, std_buf_get, 3, 1)                                 \
+    X(IN_FN, std_buf)                                                     \
+    X(U16, std_size)                                                      \
+    X(U16, std_pos)                                                       \
+    X(VALIDATE, std_buf_fits)                                             \
+    X(FN, std_xram_put, std_xram_get, 4, 1)                               \
+    X(IN_FN, std_xram_addr)                                               \
+    X(IN_FN, std_xram_end)                                                \
+    X(IN_FN, std_xram_lo)                                                 \
+    X(IN_FN, std_xram_hi)                                                 \
+    X(SKIP, std_xram_err, "a saver streams nothing, so the load sets -1") \
+    X(SKIP, std_driver_table, "fixed at build")
+SST_TABLE(std, STD_SST_ROWS)
 
 /* This machine's stdio driver table: one row for each driver in its
  * drivers.h's RP6502_STD_DRIVERS, made of that driver's STD and STD_SST. The
@@ -786,4 +858,15 @@ void HOST_IN_FLASH_FUNC std_stop(void)
     std_dup2_from = std_dup2_to = STD_NONE;
     std_xram_hi = 0;
     std_xram_end = std_xram_addr;
+}
+
+/* After a failed load, the table of open files holds the old machine's
+ * files, or the blob's that the load had reopened, each with a reference
+ * that a close drops. The transfer in flight may be either machine's, so it
+ * is dropped, then every open file closes and the console is on 0, 1 and 2
+ * again. */
+void std_sst_reset(void)
+{
+    std_stop();
+    std_reset();
 }

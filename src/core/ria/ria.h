@@ -65,27 +65,20 @@ bool ria_irq_asserted(void);
 
 /* Drops the byte the $FFE2 latch is holding. The console clears its own queues
  * on a break, but this byte has already left them, so nothing else can drop it
- * and the next program would read what was typed at the one just stopped. */
+ * and the next program would read what was typed at the one just stopped. A
+ * failed savestate load drops it for the same reason. */
 void ria_break(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-/* PINS and the two interrupt bytes, then the register file, the xstack and
- * its pointer:
- * 8 + 1 + 1 + 32 + 513 + 2 */
-#define RIA_SST_SIZE 557
-void ria_sst_save(sst_cursor_t *c, unsigned flags);
-bool ria_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t ria_sst;
 
 #define RIA_DRIVER DRIVER(                                  \
     RUN(ria_run)                                            \
     BREAK(ria_break)                                        \
-    SST(.id = "RIA_",                                       \
-        .version = 2,                                       \
-        .size = RIA_SST_SIZE,                               \
-        .save = ria_sst_save,                               \
-        .load = ria_sst_load))
+    RESET(ria_break)                                        \
+    SST("RIA_", ria))
 
 #endif /* _CORE_RIA_RIA_H_ */

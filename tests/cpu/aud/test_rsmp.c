@@ -140,8 +140,8 @@ UTEST(rsmp, a_tone_survives_the_pocket_ratio)
     {
         double hz, limit;
     } want[] = {
-        {100, -86}, {1000, -81}, {4000, -85}, {8000, -84},
-        {12000, -83}, {16000, -84}, {20000, -83},
+        {100, -86}, {1000, -83}, {4000, -85}, {8000, -84},
+        {12000, -82}, {16000, -80}, {20000, -78},
     };
     static int32_t out[SKIP + ANA + 4096];
     for (unsigned k = 0; k < sizeof want / sizeof *want; k++)

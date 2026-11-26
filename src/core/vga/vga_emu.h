@@ -20,6 +20,12 @@
 void vga_init(void);
 
 void vga_stop(void);
+void vga_run(void);
+
+/* The console canvas again, at a size a host gives, with the frame count
+ * the beam's. The canvas and the table are put back by the console reset
+ * at the start of the next vga_task, before any row is drawn. */
+void vga_reset(void);
 
 void vga_task(void);
 
@@ -32,6 +38,11 @@ uint64_t vga_beam_lines(void);
 /* Runs the machine to the next frame, or until a debugger holds it, then
  * steps the mix up to where it got. False when it was held. */
 bool vga_run_frame(void);
+
+/* Called between the machine's steps inside vga_run_frame, where the machine
+ * is whole, as it is between frames: a host that runs the machine on a thread
+ * of its own lets others at it there. NULL, the default, calls nothing. */
+void vga_set_pause(void (*pause)(void));
 
 /* No canvas is larger than 640x480, and a framebuffer must hold that. */
 #define VGA_MAX_WIDTH 640
@@ -55,42 +66,23 @@ void vga_set_scanout(bool on);
 
 uint32_t *vga_get_framebuffer(void);
 
+/* Draws the canvas as it stands into fb, every row, without running the
+ * machine: for a test that needs the pixels only now and then. */
+void vga_draw(uint32_t *fb);
+
 bool vga_frame_crc(uint32_t *crc);
 
-/* The savestate carries the beam, the canvas, the console's height, and the
- * scanline program. frame_n is not in it, because it is beam_n divided by the
- * scanlines in a frame exactly.
- *
- * The console's size is in it because the host chooses it, and a program left
- * on the console canvas would come back with its terminal laid out for another
- * size. Every console a host gives is 640 wide, so the height is all of the
- * size there is to carry. The load sets the size it carries in place of the
- * host's, and stops and resets keep it, so it stays for the rest of the
- * session.
- *
- * Rows at or past 480 are never booked, because every booking is bounded
- * against the canvas and no canvas the emulator has is taller than that.
- *
- * The 16 leading bytes are 8 beam, 1 vsynced, 1 needs_reset, 2 canvas,
- * 2 console height and 2 highest scanline; each row is 3 planes of 12 bytes.
- * The terminal's begin is the config of each of its rows. */
-#define VGA_SST_ROWS 480
-#define VGA_SST_SIZE (16 + VGA_SST_ROWS * SCANVIDEO_PLANE_COUNT * 12)
-
-#define VGA_MODE_NONE 0xFF
-bool vga_mode_sprite_id(vga_sprite_fn_t fn, uint8_t *mode, uint16_t *attributes);
-
-void vga_sst_save(sst_cursor_t *c, unsigned flags);
-bool vga_sst_load(sst_cursor_t *c, unsigned flags);
+/* The savestate carries the beam and the frame's vsync. The frame count is
+ * the beam divided by the scanlines in a frame, and the canvas and the
+ * scanline program are their own files' rows. */
+extern const sst_table_t vga_sst;
 
 #define VGA_DRIVER DRIVER(                                  \
     INIT(vga_init)                                          \
     TASK_PUMPED(vga_task)                                   \
+    RUN(vga_run)                                            \
     STOP(vga_stop)                                          \
-    SST(.id = "VGA_",                                       \
-        .version = 3,                                       \
-        .size = VGA_SST_SIZE,                               \
-        .save = vga_sst_save,                               \
-        .load = vga_sst_load))
+    RESET(vga_reset)                                        \
+    SST("VGA_", vga))
 
 #endif /* _CORE_VGA_VGA_EMU_H_ */

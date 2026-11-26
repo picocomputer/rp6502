@@ -22,7 +22,9 @@
  * A write takes what fits and returns the count, so the program resends the
  * rest. lseek with an offset of 0 is the only seek: SEEK_SET empties the
  * buffer, SEEK_CUR gives the bytes waiting to play and SEEK_END the buffer's
- * size. close and fsync wait until the buffer has played. */
+ * size. close and fsync wait until the buffer holds less than a frame,
+ * which a close then drops and fsync leaves for the next write to finish.
+ * After a close the filter plays out what it holds, fading to silence. */
 
 #define PCM_BUF_SIZE 4096
 #define PCM_RATE_MAX 48000
@@ -59,7 +61,17 @@ typedef struct
 /* Frames per native sample at rate, Q32. */
 uint64_t pcm_step(uint32_t rate);
 
+/* An open: the format, and the first sample taking the first frame. The
+ * buffer is empty already, because a close leaves it so. The filter's
+ * history carries on from what played before, so a tail still in it plays
+ * out behind the new frames rather than being cut off. pcm_reset is an
+ * open on an emptied buffer and a filter cleared to silence. */
+void pcm_open(pcm_t *s, const pcm_fmt_t *fmt);
 void pcm_reset(pcm_t *s, const pcm_fmt_t *fmt);
+
+/* Nothing left to play: a player that stops calling pcm_sample now cuts
+ * nothing off. A closed device plays on until it is. */
+bool pcm_settled(const pcm_t *s);
 
 static inline uint16_t pcm_level(pcm_t *s)
 {
@@ -74,9 +86,18 @@ uint32_t pcm_put(pcm_t *s, const uint8_t *src, uint32_t n);
 void pcm_clear(pcm_t *s);
 
 /* The next native sample. A frame is taken when the phase reaches one; with
- * none whole in the buffer the filter takes silence instead, so time goes on
- * and an underrun is heard as a gap. */
+ * none whole in the buffer the filter takes each channel's newest sample
+ * moved toward zero instead, so time goes on and an underrun is heard as a
+ * gap that the sound fades into rather than drops into. */
 void pcm_sample(pcm_t *s, int32_t *left, int32_t *right);
+
+/* What an underrun takes in place of a frame: v, a channel's newest sample,
+ * moved toward zero by 2^-k of itself, and by one at least, so it gets
+ * there. k is the place of the top bit of step - 1 above bit 25, which
+ * grows with the rate and makes 2^k frames about 1.3 to 2.7 ms at any rate.
+ * At a 64th of the native rate and below, a frame is that long by itself,
+ * k is 0 and the first silent frame is zero. */
+int32_t pcm_fade(int32_t v, uint64_t step);
 
 /* How many frames pcm_sample takes over the next n samples, with the phase
  * moved on past them, buffer or no buffer. A machine that answers the

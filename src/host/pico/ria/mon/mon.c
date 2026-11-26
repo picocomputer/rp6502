@@ -34,6 +34,7 @@
 #include <pico/stdio.h>
 #include <pico/stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 
@@ -64,11 +65,12 @@ static bool mon_needs_read_line = true;
 static bool mon_needs_break = false;
 static mon_confirm_fn mon_confirm_cb;
 
-// The command prompt's history: the line being typed and the last seven
-// entered.
-#define MON_HISTORY_LINES 8
-static char mon_history_lines[MON_HISTORY_LINES][RLN_LINE_MAX];
-static rln_history_t mon_history = {mon_history_lines, MON_HISTORY_LINES, 0, 0};
+// The command prompt's history. Nothing else here allocates, so it has the
+// whole heap for its lines.
+static rln_history_t mon_history = {.alloc = malloc, .free = free};
+
+// What the command prompt's kill keys took, kept while a program runs.
+static rln_kill_t mon_kill;
 static enum {
     MON_MORE_OFF,
     MON_MORE_START,
@@ -222,6 +224,12 @@ static void HOST_IN_FLASH_FUNC mon_confirm_enter(bool timeout, const char *buf)
 void mon_response_confirm(mon_confirm_fn cb)
 {
     mon_confirm_cb = cb;
+}
+
+void HOST_IN_FLASH_FUNC mon_forget_line(void)
+{
+    rln_history_forget(&mon_history);
+    mon_kill.len = 0;
 }
 
 static int HOST_IN_FLASH_FUNC mon_utf8_response(char *buf, size_t buf_size,
@@ -674,9 +682,9 @@ static void HOST_IN_RAM_FUNC mon_step(void)
         mon_response_width_aware = false;
         ria_get_sigint(); // discard any SIGINT raised while monitor was idle
         if (mon_confirm_cb)
-            rln_read_line(mon_confirm_enter, NULL);
+            rln_read_line(mon_confirm_enter, NULL, NULL);
         else
-            rln_read_line(mon_enter, &mon_history);
+            rln_read_line(mon_enter, &mon_history, &mon_kill);
         return;
     }
     // A Ctrl-C cancels the line once no whole item is waiting.
@@ -703,8 +711,9 @@ bool HOST_IN_RAM_FUNC mon_busy(void)
  * the 6502 while no program does. */
 void HOST_IN_RAM_FUNC mon_task(void)
 {
-    // The monitor must never print while 6502 is running.
-    if (!sys_active() && resb_held())
+    // The monitor must never print while 6502 is running, nor before a
+    // session's end or the line editor's last reply, which go out first.
+    if (!sys_active() && resb_held() && !com_ending() && !rln_replying())
         mon_step();
 }
 

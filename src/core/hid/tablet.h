@@ -31,9 +31,11 @@
 #define TABLET_OFF_PAN 3
 #define TABLET_OFF_CONTACTS 4
 
-/* status (firmware to ROM). A machine that has a cursor of its own to lend the
- * program says so here; a Pico has none and never sets it. */
-#define TABLET_STATUS_HOST_CURSOR 0x01
+/* status (the program's): mapping sets it to TABLET_STATUS_SHARED, and the
+ * firmware never writes it again. While its bit 0 is set the program shares
+ * the tablet with the console's terminal (core/term/vterm_mouse.h); a
+ * program that clears it has the tablet to itself. */
+#define TABLET_STATUS_SHARED 0x01
 
 /* contact flags. Hover is bit 7 so that the 6502 can test it with BIT and
  * BMI. */
@@ -44,17 +46,22 @@
 #define TABLET_FLAG_BTN5 0x10
 #define TABLET_FLAG_HOVER 0x80
 
-/* control (program to firmware): the cursor shapes a program may ask for. A
- * host with no cursor of its own ignores them. */
+/* control (program to firmware): the cursor shape the program asks for. The
+ * host draws it where it has a cursor of its own, and the system draws it
+ * over the canvas everywhere else (core/vga/mode/mode6.h). */
 enum
 {
-    TABLET_CURSOR_OFF = 0, /* the host cursor is hidden and the program draws its own */
+    TABLET_CURSOR_OFF = 0, /* no cursor: the program draws its own, or none */
     TABLET_CURSOR_ARROW,
     TABLET_CURSOR_CROSSHAIR,
     TABLET_CURSOR_IBEAM,
     TABLET_CURSOR_HAND,
     TABLET_CURSOR_RESIZE_EW,
     TABLET_CURSOR_RESIZE_NS,
+    TABLET_CURSOR_RESIZE_NWSE,
+    TABLET_CURSOR_RESIZE_NESW,
+    TABLET_CURSOR_MOVE,
+    TABLET_CURSOR_NOT_ALLOWED,
     TABLET_CURSOR_COUNT,
 };
 
@@ -92,11 +99,32 @@ typedef struct tablet_connection
 } tablet_connection_t;
 
 void tablet_init(void);
+/* Unmaps the block. It is also the RESET hook: a failed load can leave the
+ * address pointing into the next program's XRAM, and the next mapping
+ * rewrites the block. */
 void tablet_stop(void);
 
 bool tablet_xreg(uint16_t word);
 
 bool tablet_is_mapped(void);
+
+/* Whether the program shares the tablet (TABLET_STATUS_SHARED), read from
+ * its block as it is now. An unmapped tablet is no program's, so it is
+ * shared. It runs from RAM, so the owner can read it as a change comes. */
+bool tablet_shared(void);
+
+/* Whether the tablet wants the host's pointer: the host delivers pointer
+ * events, shows the shape from tablet_shape, and keeps the pointer out of
+ * the browser's hands. A program has mapped it, or its owner claims it. A
+ * host that captures its pointer for the mouse still does so for a program
+ * that maps the mouse and not the tablet, which is not on the tablet. */
+bool tablet_wanted(void);
+
+/* Whether the tablet wants the host's wheel and sideways scrolling: a
+ * program has mapped it, so its counters are read, or its owner claims the
+ * wheel. A host with a page around it leaves an unwanted wheel to scroll
+ * the page. */
+bool tablet_wheel_wanted(void);
 
 bool tablet_mount(int slot, const tablet_connection_t *desc);
 
@@ -106,8 +134,8 @@ void tablet_report(int slot, uint8_t const *report, size_t size);
 
 /* A hovering pointer at x,y in canvas pixels, which is what the block carries,
  * with a bitmap of TABLET_FLAG_ buttons, taking contact 0. host_cursor says
- * whether this host can draw a cursor for the program; a host that cannot says
- * so and the program draws its own. */
+ * whether this host draws the cursor itself; where it does not, the system
+ * draws it over the canvas. */
 void tablet_host_pointer(int x, int y, uint8_t buttons, bool host_cursor);
 
 /* n touch contacts in canvas pixels, tip down and not hovering. The rest go
@@ -121,24 +149,57 @@ void tablet_host_wheel(int dwheel, int dpan);
 /* The pointer left the window, or every contact was released. */
 void tablet_host_clear(void);
 
-/* The cursor shape the program asked for, one of TABLET_CURSOR_. */
-uint8_t tablet_control(void);
+/* A host says on every poll whether it gives its pointer to the tablet. As
+ * it stops, the pointer is let go (tablet_host_clear), so no button is left
+ * held on the tablet; while it does not give it, nothing is cleared, so the
+ * tablet keeps whatever else puts a contact there. The last answer is saved
+ * with the machine, so the edge holds across a state load, runahead's
+ * included. */
+void tablet_host_give(bool given);
 
-/* The blob carries the block and whether a host lends its own cursor:
- * 2 + TABLET_BLOCK_SIZE + 1. The six counters behind the block are not saved,
- * because only tablet_report writes them and no machine that saves state has
- * a report to give it. */
-#define TABLET_SST_SIZE (3 + TABLET_BLOCK_SIZE)
-void tablet_sst_save(sst_cursor_t *c, unsigned flags);
-bool tablet_sst_load(sst_cursor_t *c, unsigned flags);
+/* The cursor shape over the canvas: the one the program asked for, one of
+ * TABLET_CURSOR_ or, with the program's own pointers, any up to 255. With
+ * no program on the tablet, the arrow while its owner claims it, and
+ * otherwise none. */
+uint8_t tablet_shape(void);
+
+/* The host shows its own cursor at the pointer, as the last host pointer
+ * event said, for the system's shapes: a machine that draws its own canvas
+ * then draws only a program's own (core/vga/mode/mode6.h). */
+bool tablet_host_cursor_shown(void);
+
+/* ---- the tablet's owner -------------------------------------------------
+ *
+ * The machine's console (core/term/vterm_mouse.c) supplies these, on every
+ * machine that has the tablet. */
+
+/* Contact 0 or the wheel and pan counters changed: every change, mapped or
+ * not, once. old_flags and flags are contact 0's TABLET_FLAG_ before and
+ * after, x and y where it is now in canvas pixels, and dwheel and dpan what
+ * the counters moved by. moved_by_user is false for a pointer the firmware
+ * moved, as onto a new canvas, or one that did not move. It runs from RAM,
+ * as the HID reports do. */
+void tablet_on_contact(uint8_t old_flags, uint8_t flags, int16_t x, int16_t y,
+                       int8_t dwheel, int8_t dpan, bool moved_by_user);
+
+/* Whether the owner wants the pointer with no program on the tablet. */
+bool tablet_claimed(void);
+
+/* Whether the owner does something with the wheel and sideways scrolling,
+ * mapped or not. */
+bool tablet_wheel_claimed(void);
+
+extern const sst_table_t tablet_sst;
+
+/* Puts the system's pointer where the tablet is, in the shape tablet_shape
+ * gives, while it hovers and the host draws no cursor of its own. */
+void tablet_task(void);
 
 #define TABLET_DRIVER DRIVER(                                        \
     INIT(tablet_init)                                                \
+    TASK_PUMPED(tablet_task)                                         \
     STOP(tablet_stop)                                                \
-    SST(.id = "TBLT",                                                \
-        .version = 3,                                                \
-        .size = TABLET_SST_SIZE,                                     \
-        .save = tablet_sst_save,                                     \
-        .load = tablet_sst_load))
+    RESET(tablet_stop)                                               \
+    SST("TBLT", tablet))
 
 #endif /* _CORE_HID_TABLET_H_ */

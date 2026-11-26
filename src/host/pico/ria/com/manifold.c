@@ -12,8 +12,9 @@
 #include "ria/sys/ria.h"
 #include "ria/sys/vga.h"
 #include "core/sys/ring.h"
-#include "core/term/cells.h"
+#include "core/term/vterm.h"
 #include "ria/com/manifold.h"
+#include "core/com/rln.h"
 #include "ria/com/com_telnet.h"
 #include "rtt.h"
 #include "machine.h"
@@ -106,16 +107,18 @@ static void manifold_uart_tx_write(char ch)
 /* With the VGA connected, the UART's TX pin carries the backchannel, so a
  * byte written to the UART reaches no wire. Each byte sent to the VGA over
  * PIX still goes through the UART, which spaces them one character time
- * apart, so the VGA's small PIX FIFO is never overrun. */
+ * apart, so the VGA's small PIX FIFO is never overrun. None goes while the
+ * VGA's gate is shut, a code page is still to go, or the byte before it has
+ * not had its time at the console's speed (vga_console_ready). */
 static bool HOST_IN_RAM_FUNC manifold_vga_writable(void)
 {
-    return (uart_get_hw(MANIFOLD_UART)->fr & UART_UARTFR_TXFE_BITS) && pix_ready();
+    return (uart_get_hw(MANIFOLD_UART)->fr & UART_UARTFR_TXFE_BITS) && vga_console_ready();
 }
 
 static void HOST_IN_RAM_FUNC manifold_vga_write(uint8_t reg, char ch)
 {
     uart_putc_raw(MANIFOLD_UART, ch);
-    pix_send(PIX_DEVICE_VGA, 0xF, reg, (uint8_t)ch);
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, reg, (uint8_t)ch);
 }
 
 static void HOST_IN_RAM_FUNC manifold_uart_drain_tx(void)
@@ -129,7 +132,7 @@ static void HOST_IN_RAM_FUNC manifold_uart_drain_tx(void)
         char ch = (char)*RING_AT(&manifold_uart_tx, 0);
         /* A byte that would scroll a region the VGA is still moving waits,
          * and everything behind it. */
-        if (vga && manifold_term_out && term_holds(&cells_term, (uint8_t)ch))
+        if (vga && manifold_term_out && term_holds(&vterm, (uint8_t)ch))
             break;
         RING_SKIP(&manifold_uart_tx, 1);
         if (vga)
@@ -158,7 +161,10 @@ static bool manifold_tx_from_ria;
 
 static bool HOST_IN_RAM_FUNC manifold_tx_waiting(void)
 {
-    return manifold_tx_from_ria ? !ria_uart_tx_empty() : manifold_tx_len() != 0;
+    /* The line editor's reply to a key goes out whole, and the 6502's
+     * output waits behind it. */
+    return manifold_tx_from_ria ? !ria_uart_tx_empty() && !rln_replying()
+                                : manifold_tx_len() != 0;
 }
 
 /* A byte for the screen's terminal alone goes over PIX as TERM_TX, never on
@@ -173,7 +179,7 @@ static bool HOST_IN_RAM_FUNC manifold_screen_writable(void)
 /* The same wait for a byte to the screen alone, which is never the 6502's. */
 static bool HOST_IN_RAM_FUNC manifold_screen_holds(uint8_t ch)
 {
-    return vga_connected() && manifold_term_out && term_holds(&cells_term, ch);
+    return vga_connected() && manifold_term_out && term_holds(&vterm, ch);
 }
 
 static void HOST_IN_RAM_FUNC manifold_screen_write(char ch)

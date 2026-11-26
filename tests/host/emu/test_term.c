@@ -13,11 +13,16 @@
 #include "core/com/rln.h"
 #include "core/com/console.h"
 #include "core/str/str.h"
+#include "core/str/unicode.h"
 #include "core/sys/sst.h"
 #include "core/sys/sys.h"
 #include "core/sys/version.h"
 #include "core/term/color.h"
-#include "core/term/cells.h"
+#include "core/term/draw.h"
+#include "core/term/font.h"
+#include "core/term/grid.h"
+#include "core/term/vterm.h"
+#include "core/term/vterm_mouse.h"
 #include "tb_screen.h"
 #include "core/vga/vga.h"
 #include "core/vga/vga_emu.h"
@@ -60,23 +65,51 @@ static const char *ask(const char *q)
 static void fresh(void)
 {
     sys_init();
+    /* No frames run, so the console's line keeps no pace. */
+    manifold_set_paced(false);
     feed("\30\33c");
-    for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-        cells_task();
+    draw_task();
     answer();
 }
 
 static const mode0_cell_t *cell(int x, int y)
 {
-    for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-        cells_task();
+    draw_task();
     return tb_screen_row((uint8_t)y) + x;
 }
 
+/* The attributes of a cell, but for whether it was written, which
+ * written() says. */
+static unsigned attrs(int x, int y)
+{
+    return cell(x, y)->attributes & ~MODE0_ATTR_WRITTEN;
+}
+
+static bool written(int x, int y)
+{
+    return cell(x, y)->attributes & MODE0_ATTR_WRITTEN;
+}
+
 /* The colors of a cell. */
-static const mode0_colors_t *ink(int x, int y)
+/* The colors a cell holds. */
+static const mode0_colors_t *held(int x, int y)
 {
     return &mode0_colors[cell(x, y) - mode0_cells];
+}
+
+/* The colors a cell shows: its bold, conceal and reverse drawn
+ * (mode0_cell_shows), and its underline's color, which is the ink's but
+ * for one of its own. A few at once, for comparing cells. */
+static const mode0_colors_t *ink(int x, int y)
+{
+    static mode0_colors_t shown[4];
+    static unsigned next;
+    mode0_colors_t *s = &shown[next++ % 4];
+    const mode0_cell_t *c = cell(x, y);
+    const mode0_colors_t *k = &mode0_colors[c - mode0_cells];
+    mode0_cell_shows(c, k, &s->fg_color, &s->bg_color);
+    s->ul_color = (c->attributes & MODE0_ATTR_UL_COLOR) ? k->ul_color : s->fg_color;
+    return s;
 }
 
 static char ch(int x, int y)
@@ -215,7 +248,7 @@ UTEST(term, esc_starts_over)
     feed("\33\33[1mB\33]0;title\33[4mC");
     ASSERT_TRUE(cell(0, 0)->glyph == 'B');
     ASSERT_STREQ(row(0), "BC");
-    ASSERT_TRUE(cell(1, 0)->attributes & TERM_ATTR_UL_MASK);
+    ASSERT_TRUE(attrs(1, 0) & TERM_ATTR_UL_MASK);
 }
 
 UTEST(term, esc_intermediates_print_nothing)
@@ -388,7 +421,7 @@ UTEST(term, insert_mode_is_suspended_in_vt52_mode)
     fresh();
     feed("abc\r\33[4h\33[?2lX");
     ASSERT_STREQ(row(0), "Xbc");
-    ASSERT_TRUE(cells_term.insert_mode);
+    ASSERT_TRUE(vterm.insert_mode);
     feed("\33<X");
     ASSERT_STREQ(row(0), "XXbc");
     feed("\33[3b");
@@ -463,7 +496,7 @@ UTEST(term, the_system_soft_reset_keeps_the_screen)
 {
     fresh();
     feed("hello\33[?1049hALT\33]4;1;#123456\7\33[4h");
-    cells_RIS_no_clear();
+    vterm_RIS_no_clear();
     ASSERT_STREQ(row(0), "hello");
     ASSERT_EQ(cx(), 5);
     feed("\33[31mX\33[4$p");
@@ -487,14 +520,29 @@ UTEST(term, the_reset_strings_leave_vt52_mode)
 UTEST(term, the_soft_reset_string_puts_the_keys_back)
 {
     fresh();
-    feed("\33[?1h\33=\33[?8l");
-    ASSERT_TRUE(cells_term.app_cursor);
-    ASSERT_TRUE(cells_term.app_keypad);
-    ASSERT_FALSE(cells_term.autorepeat);
+    feed("\33[?1h\33=\33[?8l\33[?67h\33*0");
+    ASSERT_TRUE(vterm.app_cursor);
+    ASSERT_TRUE(vterm.app_keypad);
+    ASSERT_FALSE(vterm.autorepeat);
+    ASSERT_TRUE(vterm.backarrow_bs);
     feed(STR_TERM_SOFT_RESET);
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_FALSE(cells_term.app_keypad);
-    ASSERT_TRUE(cells_term.autorepeat);
+    ASSERT_FALSE(vterm.app_cursor);
+    ASSERT_FALSE(vterm.app_keypad);
+    ASSERT_TRUE(vterm.autorepeat);
+    ASSERT_FALSE(vterm.backarrow_bs);
+    feed("\33NqA");
+    ASSERT_STREQ(row(0), "qA");
+}
+
+/* The soft reset ends a speed a program set, first, so the rest of it and
+ * the prompt go at the line's pace. */
+UTEST(term, the_soft_reset_string_ends_the_speed)
+{
+    fresh();
+    feed("\33[0;1*r");
+    ASSERT_EQ(term_speed(&vterm), 300u);
+    feed(STR_TERM_SOFT_RESET);
+    ASSERT_EQ(term_speed(&vterm), 0u);
 }
 
 /* Each item of an OSC 4 takes effect as it ends, so the CAN keeps entry 1's
@@ -518,25 +566,38 @@ UTEST(term, alt_1049_off_restores_on_the_primary_too)
     ASSERT_EQ(ch(2, 2), 'A');
 }
 
+/* A row the grid gains while the other screen shows comes in blank on the
+ * screen not showing too, as on xterm, not with what its memory held. */
+UTEST(term, the_other_screen_grows_blank_rows)
+{
+    fresh();
+    feed("\33[30;1HOLD\33[H");
+    vterm_place(80, 29, 0, 16);
+    feed("\33[?1049h");
+    vterm_place(80, 30, 0, 16);
+    feed("\33[?1049l");
+    ASSERT_STREQ(row(29), "");
+}
+
 UTEST(term, ed_3_forgets_the_scrollback)
 {
     fresh();
-    cells_set_height(80, 29);
+    vterm_place(80, 29, 0, 16);
     feed("one\r\n");
     for (int i = 0; i < 28; i++)
         feed("\r\n");
-    cells_set_height(80, 30);
+    vterm_place(80, 30, 0, 16);
     ASSERT_STREQ(row(0), "one");
 
     fresh();
-    cells_set_height(80, 29);
+    vterm_place(80, 29, 0, 16);
     feed("one\r\n");
     for (int i = 0; i < 28; i++)
         feed("\r\n");
     feed("\33[3J");
-    cells_set_height(80, 30);
+    vterm_place(80, 30, 0, 16);
     ASSERT_STREQ(row(0), "");
-    cells_set_height(80, 30);
+    vterm_place(80, 30, 0, 16);
 }
 
 /* ---- replies ---- */
@@ -544,11 +605,11 @@ UTEST(term, ed_3_forgets_the_scrollback)
 UTEST(term, device_attributes)
 {
     fresh();
-    ASSERT_STREQ(ask("\33[c"), "\33[?6c");
-    ASSERT_STREQ(ask("\33[0c"), "\33[?6c");
+    ASSERT_STREQ(ask("\33[c"), "\33[?64;6;21;22;28;29c");
+    ASSERT_STREQ(ask("\33[0c"), "\33[?64;6;21;22;28;29c");
     ASSERT_STREQ(ask("\33[1c"), "");
-    ASSERT_STREQ(ask("\33Z"), "\33[?6c");
-    ASSERT_STREQ(ask("\33[>c"), "\33[>0;1;0c");
+    ASSERT_STREQ(ask("\33Z"), "\33[?64;6;21;22;28;29c");
+    ASSERT_STREQ(ask("\33[>c"), "\33[>41;10;0c");
     ASSERT_STREQ(ask("\33[>1c"), "");
     ASSERT_STREQ(ask("\33[=c"), "\33P!|00000000\33\\");
 }
@@ -556,9 +617,50 @@ UTEST(term, device_attributes)
 UTEST(term, decreqtparm)
 {
     fresh();
-    ASSERT_STREQ(ask("\33[x"), "\33[2;1;1;112;112;1;0x");
-    ASSERT_STREQ(ask("\33[1x"), "\33[3;1;1;112;112;1;0x");
+    ASSERT_STREQ(ask("\33[x"), "\33[2;1;1;128;128;1;0x");
+    ASSERT_STREQ(ask("\33[1x"), "\33[3;1;1;128;128;1;0x");
     ASSERT_STREQ(ask("\33[2x"), "");
+}
+
+/* DECREQTPARM reports the DECSCS speed both ways, in the VT100's codes;
+ * 38400 and faster, and unlimited, are 128. RIS puts it back to 128. */
+UTEST(term, decreqtparm_reports_the_speed)
+{
+    static const unsigned code[] = {128, 48, 56, 64, 88, 104, 112, 120,
+                                    128, 128, 128, 128};
+    fresh();
+    for (unsigned i = 0; i < sizeof code / sizeof code[0]; i++)
+    {
+        char seq[16], want[32];
+        snprintf(seq, sizeof seq, "\33[0;%u*r", i);
+        feed(seq);
+        snprintf(want, sizeof want, "\33[2;1;1;%u;%u;1;0x", code[i], code[i]);
+        ASSERT_STREQ(ask("\33[x"), want);
+    }
+    feed("\33[0;6*r");
+    ASSERT_STREQ(ask("\33[1x"), "\33[3;1;1;112;112;1;0x");
+    feed("\33c");
+    ASSERT_STREQ(ask("\33[x"), "\33[2;1;1;128;128;1;0x");
+}
+
+/* The DEC status reports, CSI ? Ps n, as xterm's VT420 answers them. */
+UTEST(term, dec_status_reports)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33[?5n"), "\33[?0n");
+    ASSERT_STREQ(ask("\33[3;7H\33[?6n"), "\33[?3;7;1R");
+    ASSERT_STREQ(ask("\33[2;20r\33[?6h\33[2;4H\33[?6n\33[?6l\33[r"), "\33[?2;4;1R");
+    ASSERT_STREQ(ask("\33[?15n"), "\33[?13n");
+    ASSERT_STREQ(ask("\33[?25n"), "\33[?20n");
+    ASSERT_STREQ(ask("\33[?26n"), "\33[?27;1;0;0n");
+    ASSERT_STREQ(ask("\33[?55n"), "\33[?50n");
+    ASSERT_STREQ(ask("\33[?56n"), "\33[?57;1n");
+    ASSERT_STREQ(ask("\33[?62n"), "\33[0000*{");
+    ASSERT_STREQ(ask("\33[?63;7n"), "\33P7!~0000\33\\");
+    ASSERT_STREQ(ask("\33[?75n"), "\33[?70n");
+    ASSERT_STREQ(ask("\33[?85n"), "\33[?83n");
+    ASSERT_STREQ(ask("\33[?99n"), "");
+    ASSERT_STREQ(ask("\33[15n"), "");
 }
 
 /* XTVERSION: the console's name and the firmware's version. */
@@ -581,7 +683,8 @@ UTEST(term, window_reports)
     ASSERT_STREQ(ask("\33[14t"), "\33[4;480;640t");
     ASSERT_STREQ(ask("\33[16t"), "\33[6;16;8t");
     ASSERT_STREQ(ask("\33[11t"), "\33[1t");
-    ASSERT_STREQ(ask("\33[13t\33[21t\33[22;0t"), "");
+    ASSERT_STREQ(ask("\33[13t"), "\33[3;1;1t");
+    ASSERT_STREQ(ask("\33[21t\33[22;0t"), "");
 }
 
 UTEST(term, decrqm)
@@ -614,15 +717,15 @@ UTEST(term, the_keyboard_modes_set_reset_and_report)
     fresh();
     ASSERT_STREQ(ask("\33[?1$p\33[?8$p\33[?66$p"),
                  "\33[?1;2$y\33[?8;1$y\33[?66;2$y");
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_TRUE(cells_term.autorepeat);
-    ASSERT_FALSE(cells_term.app_keypad);
+    ASSERT_FALSE(vterm.app_cursor);
+    ASSERT_TRUE(vterm.autorepeat);
+    ASSERT_FALSE(vterm.app_keypad);
     feed("\33[?1;66h\33[?8l");
     ASSERT_STREQ(ask("\33[?1$p\33[?8$p\33[?66$p"),
                  "\33[?1;1$y\33[?8;2$y\33[?66;1$y");
-    ASSERT_TRUE(cells_term.app_cursor);
-    ASSERT_FALSE(cells_term.autorepeat);
-    ASSERT_TRUE(cells_term.app_keypad);
+    ASSERT_TRUE(vterm.app_cursor);
+    ASSERT_FALSE(vterm.autorepeat);
+    ASSERT_TRUE(vterm.app_keypad);
     feed("\33[?1;66l\33[?8h");
     ASSERT_STREQ(ask("\33[?1$p\33[?8$p\33[?66$p"),
                  "\33[?1;2$y\33[?8;1$y\33[?66;2$y");
@@ -636,11 +739,11 @@ UTEST(term, the_keypad_mode_escapes_work_in_both_modes)
     feed("\33>");
     ASSERT_STREQ(ask("\33[?66$p"), "\33[?66;2$y");
     feed("\33[?2l\33=");
-    ASSERT_TRUE(cells_term.app_keypad);
+    ASSERT_TRUE(vterm.app_keypad);
     feed("\33>");
-    ASSERT_FALSE(cells_term.app_keypad);
+    ASSERT_FALSE(vterm.app_keypad);
     feed("\33=\33<x");
-    ASSERT_TRUE(cells_term.app_keypad); /* leaving VT52 mode keeps it */
+    ASSERT_TRUE(vterm.app_keypad); /* leaving VT52 mode keeps it */
     ASSERT_STREQ(row(0), "x");
 }
 
@@ -650,18 +753,18 @@ UTEST(term, the_resets_and_the_keyboard_modes)
 {
     fresh();
     feed("\33[?1;66h\33[?8l\33[!p");
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_FALSE(cells_term.app_keypad);
-    ASSERT_FALSE(cells_term.autorepeat);
+    ASSERT_FALSE(vterm.app_cursor);
+    ASSERT_FALSE(vterm.app_keypad);
+    ASSERT_FALSE(vterm.autorepeat);
     feed("\33[?1h\33=\33c");
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_FALSE(cells_term.app_keypad);
-    ASSERT_TRUE(cells_term.autorepeat);
+    ASSERT_FALSE(vterm.app_cursor);
+    ASSERT_FALSE(vterm.app_keypad);
+    ASSERT_TRUE(vterm.autorepeat);
     feed("\33[?1h\33=\33[?8l");
-    cells_RIS_no_clear();
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_FALSE(cells_term.app_keypad);
-    ASSERT_TRUE(cells_term.autorepeat);
+    vterm_RIS_no_clear();
+    ASSERT_FALSE(vterm.app_cursor);
+    ASSERT_FALSE(vterm.app_keypad);
+    ASSERT_TRUE(vterm.autorepeat);
 }
 
 /* A saved cursor and the alternate screen carry none of them. */
@@ -669,38 +772,39 @@ UTEST(term, the_keyboard_modes_belong_to_no_screen)
 {
     fresh();
     feed("\0337\33[?1h\33=\33[?8l\0338\33[?1049h");
-    ASSERT_TRUE(cells_term.app_cursor);
-    ASSERT_TRUE(cells_term.app_keypad);
-    ASSERT_FALSE(cells_term.autorepeat);
+    ASSERT_TRUE(vterm.app_cursor);
+    ASSERT_TRUE(vterm.app_keypad);
+    ASSERT_FALSE(vterm.autorepeat);
     feed("\33[?1l\33[?1049l");
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_TRUE(cells_term.app_keypad);
+    ASSERT_FALSE(vterm.app_cursor);
+    ASSERT_TRUE(vterm.app_keypad);
 }
 
 UTEST(term, a_savestate_carries_the_keyboard_modes)
 {
-    static uint8_t blob[CELLS_SST_SIZE];
+    static uint8_t blob[1 << 18];
     fresh();
     feed("\33[?1h\33=\33[?8l");
-    sst_cursor_t c = {blob, blob + sizeof blob, false};
-    cells_sst_save(&c, 0);
+    ASSERT_LE((size_t)draw_sst.size, sizeof blob);
+    sst_cursor_t c = {blob, blob + draw_sst.size, false, NULL};
+    draw_sst.save(&c, 0);
     ASSERT_TRUE(sst_ok(&c));
     feed("\33c");
-    c = (sst_cursor_t){blob, blob + sizeof blob, false};
-    ASSERT_TRUE(cells_sst_load(&c, 0));
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    ASSERT_TRUE(draw_sst.load(&c, 0));
     ASSERT_TRUE(sst_ok(&c));
-    ASSERT_TRUE(cells_term.app_cursor);
-    ASSERT_TRUE(cells_term.app_keypad);
-    ASSERT_FALSE(cells_term.autorepeat);
+    ASSERT_TRUE(vterm.app_cursor);
+    ASSERT_TRUE(vterm.app_keypad);
+    ASSERT_FALSE(vterm.autorepeat);
     feed("\33[?1l\33[?8h");
-    c = (sst_cursor_t){blob, blob + sizeof blob, false};
-    cells_sst_save(&c, 0);
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    draw_sst.save(&c, 0);
     feed("\33[?1h\33[?8l");
-    c = (sst_cursor_t){blob, blob + sizeof blob, false};
-    ASSERT_TRUE(cells_sst_load(&c, 0));
-    ASSERT_FALSE(cells_term.app_cursor);
-    ASSERT_TRUE(cells_term.app_keypad);
-    ASSERT_TRUE(cells_term.autorepeat);
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    ASSERT_TRUE(draw_sst.load(&c, 0));
+    ASSERT_FALSE(vterm.app_cursor);
+    ASSERT_TRUE(vterm.app_keypad);
+    ASSERT_TRUE(vterm.autorepeat);
 }
 
 UTEST(term, rep_repeats_the_last_glyph)
@@ -749,7 +853,7 @@ UTEST(term, erase_takes_the_background_and_no_attributes)
     feed("\33[4;7;5;41;32mx\33[2K");
     const mode0_cell_t *c = cell(0, 0);
     ASSERT_EQ(c->glyph, ' ');
-    ASSERT_EQ(c->attributes, 0);
+    ASSERT_EQ(attrs(0, 0), 0);
     ASSERT_EQ(mode0_color(ink(0, 0)->bg_color), color_256[1]);
     ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), color_256[2]);
 }
@@ -800,6 +904,36 @@ UTEST(term, osc_ignores_line_feeds_inside)
     ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), rgb(1, 2, 3));
 }
 
+/* In iCE colors mode, SyncTERM's ?33, a blinking pen writes a bright
+ * background, and the cell still blinks, as SyncTERM's does. ?35 stops every
+ * cell blinking, those already on the screen too, and both are reset by
+ * RIS. */
+UTEST(term, ice_colors_keep_the_blink_and_35_stops_it)
+{
+    fresh();
+    feed("\33[?33h\33[5;41mA\33[mB");
+    ASSERT_EQ(mode0_color(ink(0, 0)->bg_color), color_256[9]);
+    ASSERT_EQ(attrs(0, 0) & TERM_ATTR_ANY_BLINK, TERM_ATTR_BLINK);
+    ASSERT_STREQ(ask("\33[?35$p"), "\33[?35;2$y");
+    feed("\33[?35h");
+    ASSERT_STREQ(ask("\33[?35$p"), "\33[?35;1$y");
+    for (int i = 0; i < 120; i++)
+    {
+        vga_run_frame();
+        ASSERT_EQ(MODE0_SCREEN_BLINK(mode0_regs.screen), 0);
+    }
+    feed("\33[?35l");
+    bool blinked = false;
+    for (int i = 0; i < 120 && !blinked; i++)
+    {
+        vga_run_frame();
+        blinked = MODE0_SCREEN_BLINK(mode0_regs.screen) != 0;
+    }
+    ASSERT_TRUE(blinked);
+    feed("\33[?35h\33c");
+    ASSERT_STREQ(ask("\33[?35$p"), "\33[?35;2$y");
+}
+
 UTEST(term, ice_colors_survive_osc_11)
 {
     fresh();
@@ -815,7 +949,7 @@ UTEST(term, extended_colors_check_their_numbers)
     ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), color_256[2]);
     ASSERT_EQ(mode0_color(ink(1, 0)->fg_color), color_256[2]);
     ASSERT_EQ(mode0_color(ink(2, 0)->fg_color), color_256[2]);
-    ASSERT_EQ(cell(2, 0)->attributes & TERM_ATTR_ANY_BLINK, 0);
+    ASSERT_EQ(attrs(2, 0) & TERM_ATTR_ANY_BLINK, 0);
     feed("\33[38:2::1:2:3mD\33[38:2:4:5:6mE\33[48:5:3mF");
     ASSERT_EQ(mode0_color(ink(3, 0)->fg_color), rgb(1, 2, 3));
     ASSERT_EQ(mode0_color(ink(4, 0)->fg_color), rgb(4, 5, 6));
@@ -835,22 +969,22 @@ UTEST(term, underline_styles)
 {
     fresh();
     feed("\33[4:3mA\33[4:2mB\33[4:0mC\33[1:5mD");
-    ASSERT_EQ(cell(0, 0)->attributes, TERM_ATTR_UL(TERM_UL_CURLY));
-    ASSERT_EQ(cell(1, 0)->attributes, TERM_ATTR_UL(TERM_UL_DOUBLE));
-    ASSERT_EQ(cell(2, 0)->attributes, 0);
+    ASSERT_EQ(attrs(0, 0), TERM_ATTR_UL(TERM_UL_CURLY));
+    ASSERT_EQ(attrs(1, 0), TERM_ATTR_UL(TERM_UL_DOUBLE));
+    ASSERT_EQ(attrs(2, 0), 0);
     /* 1:5 is bold, not blink */
-    ASSERT_EQ(cell(3, 0)->attributes, MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT);
+    ASSERT_EQ(attrs(3, 0), MODE0_ATTR_BOLD);
     ASSERT_EQ(mode0_color(ink(3, 0)->fg_color), color_256[15]);
     /* Every style, the last one set standing; a style past the last is
      * none; SGR 21 is the double one and SGR 24 ends them all. */
     feed("\33[H\33[m\33[4mA\33[4:1mB\33[4:4mC\33[4:5mD\33[4:6mE\33[4;21mF\33[24mG");
-    ASSERT_EQ(cell(0, 0)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
-    ASSERT_EQ(cell(1, 0)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
-    ASSERT_EQ(cell(2, 0)->attributes, TERM_ATTR_UL(TERM_UL_DOTTED));
-    ASSERT_EQ(cell(3, 0)->attributes, TERM_ATTR_UL(TERM_UL_DASHED));
-    ASSERT_EQ(cell(4, 0)->attributes, 0);
-    ASSERT_EQ(cell(5, 0)->attributes, TERM_ATTR_UL(TERM_UL_DOUBLE));
-    ASSERT_EQ(cell(6, 0)->attributes, 0);
+    ASSERT_EQ(attrs(0, 0), TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(attrs(1, 0), TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(attrs(2, 0), TERM_ATTR_UL(TERM_UL_DOTTED));
+    ASSERT_EQ(attrs(3, 0), TERM_ATTR_UL(TERM_UL_DASHED));
+    ASSERT_EQ(attrs(4, 0), 0);
+    ASSERT_EQ(attrs(5, 0), TERM_ATTR_UL(TERM_UL_DOUBLE));
+    ASSERT_EQ(attrs(6, 0), 0);
 }
 
 /* SGR 58 colors the underline and SGR 59 gives it back to the foreground.
@@ -860,14 +994,14 @@ UTEST(term, an_underline_says_when_its_color_is_its_own)
 {
     fresh();
     feed("\33[58;2;1;2;3mA\33[4:3mB\33[59mC\33[58;5;2;4mD\33[mE");
-    ASSERT_EQ(cell(0, 0)->attributes, 0);
-    ASSERT_EQ(cell(1, 0)->attributes, TERM_ATTR_UL(TERM_UL_CURLY) | MODE0_ATTR_UL_COLOR);
+    ASSERT_EQ(attrs(0, 0), 0);
+    ASSERT_EQ(attrs(1, 0), TERM_ATTR_UL(TERM_UL_CURLY) | MODE0_ATTR_UL_COLOR);
     ASSERT_EQ(mode0_color(ink(1, 0)->ul_color), rgb(1, 2, 3));
-    ASSERT_EQ(cell(2, 0)->attributes, TERM_ATTR_UL(TERM_UL_CURLY));
+    ASSERT_EQ(attrs(2, 0), TERM_ATTR_UL(TERM_UL_CURLY));
     ASSERT_EQ(ink(2, 0)->ul_color, ink(2, 0)->fg_color);
-    ASSERT_EQ(cell(3, 0)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE) | MODE0_ATTR_UL_COLOR);
+    ASSERT_EQ(attrs(3, 0), TERM_ATTR_UL(TERM_UL_SINGLE) | MODE0_ATTR_UL_COLOR);
     ASSERT_EQ(mode0_color(ink(3, 0)->ul_color), color_256[2]);
-    ASSERT_EQ(cell(4, 0)->attributes, 0);
+    ASSERT_EQ(attrs(4, 0), 0);
 }
 
 /* A cell holds where the font has its glyph. SGR 3 is the italics for
@@ -885,7 +1019,7 @@ UTEST(term, a_cell_names_its_glyph_in_the_font)
     ASSERT_EQ(cell(5, 0)->glyph, MODE0_GLYPH_ITALIC(16, 'q'));
     ASSERT_EQ(cell(6, 0)->glyph, 'q');
     for (int x = 0; x < 7; x++)
-        ASSERT_EQ(cell(x, 0)->attributes, 0);
+        ASSERT_EQ(attrs(x, 0), 0);
     ASSERT_STREQ(row(0), "AA\xC4qaqq");
 }
 
@@ -898,8 +1032,51 @@ UTEST(term, the_uk_set_has_the_pound)
     ASSERT_EQ(cell(0, 0)->glyph, MODE0_GLYPH_DEC(16, 0x7D));
     ASSERT_EQ(ch(1, 0), 'a');
     ASSERT_EQ(ch(2, 0), '#');
-    ASSERT_EQ(cell(3, 0)->attributes, 0);
+    ASSERT_EQ(attrs(3, 0), 0);
     ASSERT_TRUE(mode0_glyph_is_dec(cell(4, 0)->glyph));
+}
+
+/* G2 and G3, by a locking shift (LS2, LS3) or a single one (SS2, SS3),
+ * which draws one glyph and is spent. A 96-character set is not taken. */
+UTEST(term, g2_and_g3_shift_in)
+{
+    fresh();
+    feed("\33*0\33+A\33Nq#\33O#q\33nqa\33o#\17q\33-A\33-0\33)A\16#");
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(0, 0)->glyph));
+    ASSERT_EQ(ch(1, 0), '#');
+    ASSERT_EQ(cell(2, 0)->glyph, MODE0_GLYPH_DEC(16, 0x7D));
+    ASSERT_EQ(ch(3, 0), 'q');
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(4, 0)->glyph));
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(5, 0)->glyph));
+    ASSERT_EQ(cell(6, 0)->glyph, MODE0_GLYPH_DEC(16, 0x7D));
+    ASSERT_EQ(ch(7, 0), 'q');
+    ASSERT_EQ(cell(8, 0)->glyph, MODE0_GLYPH_DEC(16, 0x7D));
+    /* DECSC keeps the sets and the shifts, and DECSTR puts them back. */
+    feed("\33[H\33*0\33n\33" "7\17\33" "8q\33[!pq");
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(0, 0)->glyph));
+    ASSERT_EQ(ch(1, 0), 'q');
+    /* REP draws the glyph again from the set it came from. */
+    feed("\33[2;1H\33*0\33Nq\33[2bq");
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(0, 1)->glyph));
+    ASSERT_TRUE(mode0_glyph_is_dec(cell(2, 1)->glyph));
+    ASSERT_EQ(ch(3, 1), 'q');
+}
+
+/* DEC Technical: 0x21 to 0x7E from the second table, the space and DEL as
+ * they are. */
+UTEST(term, the_technical_set)
+{
+    fresh();
+    feed("\33(>!~ \33(Ba\33+>\33O<");
+    ASSERT_EQ(cell(0, 0)->glyph, MODE0_GLYPH_TECH(16, '!'));
+    ASSERT_EQ(cell(1, 0)->glyph, MODE0_GLYPH_TECH(16, '~'));
+    ASSERT_TRUE(mode0_glyph_is_tech(cell(1, 0)->glyph));
+    ASSERT_FALSE(mode0_glyph_is_dec(cell(1, 0)->glyph));
+    ASSERT_EQ(mode0_glyph_code(cell(1, 0)->glyph), '~');
+    ASSERT_EQ(ch(2, 0), ' ');
+    ASSERT_EQ(ch(3, 0), 'a');
+    ASSERT_EQ(cell(4, 0)->glyph, MODE0_GLYPH_TECH(16, '<'));
+    ASSERT_STREQ(ask("\33[1$w"), "\33P1$u1;6;1;@;@;@;0;2;@;BBB>\33\\");
 }
 
 /* ---- VT52 ---- */
@@ -911,7 +1088,7 @@ UTEST(term, vt52_mode)
     ASSERT_EQ(ch(10, 5), 'Z');
     ASSERT_STREQ(answer(), "\33/Z");
     ASSERT_TRUE(mode0_glyph_is_dec(cell(11, 5)->glyph));
-    ASSERT_EQ(cell(12, 5)->attributes, 0);
+    ASSERT_EQ(attrs(12, 5), 0);
     ASSERT_EQ(ch(15, 5), 'x');
 }
 
@@ -941,7 +1118,7 @@ UTEST(term, a_double_width_line_has_forty_columns)
     feed("\33#6");
     ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_WIDE);
     ASSERT_EQ(ch(39, 0), 'a');
-    ASSERT_EQ(ch(40, 0), ' '); /* the right half is lost */
+    ASSERT_EQ(ch(40, 0), 'b'); /* the right half is kept, out of sight */
     ASSERT_EQ(cx(), 39);
     feed("\33[1;70Hz");
     ASSERT_EQ(ch(39, 0), 'z');
@@ -951,6 +1128,7 @@ UTEST(term, a_double_width_line_has_forty_columns)
     ASSERT_EQ(ch(0, 1), 'y');
     feed("\33#5\33[1;1H\33#5");
     ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
+    ASSERT_EQ(ch(40, 0), 'b'); /* and comes back */
     feed("\33[1;60Hq");
     ASSERT_EQ(ch(59, 0), 'q');
 }
@@ -967,6 +1145,46 @@ UTEST(term, line_sizes_move_with_their_lines)
     ASSERT_EQ(tb_screen_row_size(2), TERM_LINE_BOTTOM);
     feed("\33[2J");
     ASSERT_EQ(tb_screen_row_size(1), TERM_LINE_NORMAL);
+}
+
+/* A line's size is its row's, so a double-width row that a line feed sends
+ * into the scrollback comes back double width when a grow brings it back. */
+UTEST(term, a_line_size_comes_back_from_the_scrollback)
+{
+    fresh();
+    vterm_place(80, 29, 0, 16);
+    feed("\33#6one\r\n");
+    for (int i = 0; i < 28; i++)
+        feed("\r\n");
+    ASSERT_STREQ(row(0), "");
+    vterm_place(80, 30, 0, 16);
+    ASSERT_STREQ(row(0), "one");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_WIDE);
+    ASSERT_EQ(tb_screen_row_size(1), TERM_LINE_NORMAL);
+}
+
+/* A program's own size of 255 rows turns its ring past every slot. Its
+ * line sizes go with their rows, and the cursor keeps to its row's columns. */
+UTEST(term, a_255_row_size_keeps_its_line_sizes_through_its_ring)
+{
+    fresh();
+    rln_set_term_height(255);
+    term_grid_t *g = vterm.grids[TERM_SCREEN_GRIDS];
+    ASSERT_EQ(g->height, 255);
+    feed("\33[255;1H\33#6");
+    ASSERT_EQ(screen_size(g->shown, 254), TERM_LINE_WIDE);
+    for (int i = 0; i < 200; i++)
+        feed("\n");
+    ASSERT_EQ(screen_size(g->shown, 54), TERM_LINE_WIDE);
+    for (unsigned y = 0; y < 255; y++)
+        if (y != 54)
+            ASSERT_EQ(screen_size(g->shown, (uint8_t)y), TERM_LINE_NORMAL);
+    feed("\33[55;70H");
+    ASSERT_EQ(term_pos(g)->y, 54);
+    ASSERT_EQ(term_pos(g)->x, 39);
+    feed("\33[56;70H");
+    ASSERT_EQ(term_pos(g)->x, 69);
+    rln_set_term_height(0);
 }
 
 UTEST(term, a_scroll_keeps_the_cursor_on_its_line)
@@ -993,25 +1211,28 @@ UTEST(term, a_quiet_terminal_answers_nothing)
 UTEST(term, the_soft_reset_sets_the_40_back_to_30)
 {
     fresh();
-    cells_set_height(40, 22);
-    ASSERT_EQ(cells_term.grids[0]->height, 22);
-    cells_RIS_no_clear();
-    ASSERT_EQ(cells_term.grids[0]->height, TERM_STD_HEIGHT);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    vterm_place(40, 22, 0, 8);
+    ASSERT_EQ(vterm.grids[0]->height, 22);
+    vga_console_reset();
+    ASSERT_EQ(vterm.grids[0]->height, TERM_STD_HEIGHT);
 }
 
-/* A program's own size is a third grid: the answers come from it, and the
- * screen's 80 columns go on as they were. */
-UTEST(term, a_pinned_width_answers_from_its_own_grid)
+/* A program's own size for the line editor is a third grid the terminal
+ * follows, but the terminal answers from the screen: its size, its cursor. */
+UTEST(term, a_pinned_width_is_the_line_editors_alone)
 {
     fresh();
     rln_set_term_width(132);
-    ASSERT_EQ(cells_term.grid_count, 3);
-    ASSERT_STREQ(ask("\33[18t"), "\33[8;30;132t");
+    ASSERT_EQ(vterm.grid_count, 3);
+    ASSERT_EQ(vterm.grids[TERM_SCREEN_GRIDS]->width, 132);
+    ASSERT_STREQ(ask("\33[18t"), "\33[8;30;80t");
     feed("\33[1;100H");
-    ASSERT_STREQ(ask("\33[6n"), "\33[1;100R");
-    ASSERT_EQ(cx(), 79); /* the screen's terminal stops at its edge */
+    ASSERT_STREQ(ask("\33[6n"), "\33[1;80R");
+    ASSERT_EQ(term_pos(vterm.grids[TERM_SCREEN_GRIDS])->x, 99);
+    ASSERT_STREQ(ask("\33P$q$|\33\\"), "\33P1$r80$|\33\\");
     rln_set_term_width(0);
-    ASSERT_EQ(cells_term.grid_count, 2);
+    ASSERT_EQ(vterm.grid_count, 2);
     ASSERT_STREQ(ask("\33[6n"), "\33[1;80R");
 }
 
@@ -1021,12 +1242,14 @@ UTEST(term, a_pinned_height_fixes_the_width_and_stops_with_the_program)
 {
     fresh();
     rln_set_term_height(20);
-    ASSERT_STREQ(ask("\33[18t"), "\33[8;20;80t");
+    ASSERT_EQ(vterm.grids[TERM_SCREEN_GRIDS]->height, 20);
+    ASSERT_EQ(vterm.grids[TERM_SCREEN_GRIDS]->width, 80);
+    ASSERT_STREQ(ask("\33[18t"), "\33[8;30;80t");
     rln_set_term_width(132);
     feed("\33[1;81H\t");
-    ASSERT_STREQ(ask("\33[6n"), "\33[1;89R");
+    ASSERT_EQ(term_pos(vterm.grids[TERM_SCREEN_GRIDS])->x, 88);
     rln_stop();
-    ASSERT_EQ(cells_term.grid_count, TERM_SCREEN_GRIDS);
+    ASSERT_EQ(vterm.grid_count, TERM_SCREEN_GRIDS);
 }
 
 UTEST(term, scroll_left_and_right)
@@ -1100,10 +1323,10 @@ UTEST(term, a_palette_change_touches_no_cell)
     fresh();
     feed("\33[31mA\33[2;32mB\33[0m\33[38;2;9;8;7mC");
     const mode0_cell_t before[3] = {*cell(0, 0), *cell(1, 0), *cell(2, 0)};
-    const mode0_colors_t inks[3] = {*ink(0, 0), *ink(1, 0), *ink(2, 0)};
+    const mode0_colors_t inks[3] = {*held(0, 0), *held(1, 0), *held(2, 0)};
     feed("\33]4;1;#102030\7\33]4;2;#204060\7");
     ASSERT_EQ(0, memcmp(before, cell(0, 0), sizeof before));
-    ASSERT_EQ(0, memcmp(inks, ink(0, 0), sizeof inks));
+    ASSERT_EQ(0, memcmp(inks, held(0, 0), sizeof inks));
     ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), rgb(0x10, 0x20, 0x30));
     ASSERT_EQ(mode0_color(ink(1, 0)->fg_color),
               SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB5(0x20 >> 4, 0x40 >> 4, 0x60 >> 4));
@@ -1111,6 +1334,19 @@ UTEST(term, a_palette_change_touches_no_cell)
     /* An RGB color is the pixel itself. */
     ASSERT_TRUE(ink(2, 0)->fg_color & SCANVIDEO_ALPHA_MASK);
     ASSERT_FALSE(ink(0, 0)->fg_color & SCANVIDEO_ALPHA_MASK);
+}
+
+/* A color names an entry of a palette of 512 by its low 9 bits: the
+ * console's 256, then the faint ones above them. The defaults are apart. */
+UTEST(term, a_faint_color_is_the_palette_address_with_bit_8)
+{
+    fresh();
+    feed("\33[31mA\33[2;31mB\33[2;39mC");
+    ASSERT_EQ(held(0, 0)->fg_color >> MODE0_ENTRY_SHIFT, 1u);
+    ASSERT_EQ(held(1, 0)->fg_color >> MODE0_ENTRY_SHIFT, 1u | MODE0_CODE_FAINT);
+    ASSERT_EQ(held(2, 0)->fg_color >> MODE0_ENTRY_SHIFT, MODE0_CODE_DEFAULT | MODE0_CODE_FAINT);
+    ASSERT_EQ(mode0_color(held(1, 0)->fg_color), mode0_faint_palette[1]);
+    ASSERT_EQ(mode0_color(held(2, 0)->fg_color), mode0_faint_defaults[0]);
 }
 
 /* SGR 38:1 and 48:1 were the console's own transparent color. They are
@@ -1126,8 +1362,8 @@ UTEST(term, sgr_38_1_is_no_color)
     ASSERT_EQ(mode0_color(ink(2, 0)->fg_color), color_256[1]);
 }
 
-/* A lazy erase still owed takes a recolor too. */
-UTEST(term, an_owed_erase_takes_a_recolor)
+/* An erase of rows takes a recolor too. */
+UTEST(term, an_erase_of_rows_takes_a_recolor)
 {
     fresh();
     feed("\33[44m\33[2J\33]4;4;#123456\7");
@@ -1142,6 +1378,164 @@ UTEST(term, bracketed_paste_is_a_mode)
     ASSERT_STREQ(ask("\33[?2004$p"), "\33[?2004;1$y");
     feed("\33c");
     ASSERT_STREQ(ask("\33[?2004$p"), "\33[?2004;2$y");
+}
+
+/* The mouse's modes: DECRQM tells each, set and reset. */
+UTEST(term, the_mouse_modes_are_modes)
+{
+    static const char *const modes[] = {"9", "1000", "1001", "1002", "1003", "1004",
+                                        "1005", "1006", "1007", "1015", "1016"};
+    char q[16], a[16];
+    fresh();
+    for (size_t i = 0; i < sizeof modes / sizeof *modes; i++)
+    {
+        snprintf(q, sizeof q, "\33[?%s$p", modes[i]);
+        snprintf(a, sizeof a, "\33[?%s;2$y", modes[i]);
+        ASSERT_STREQ(ask(q), a);
+        snprintf(q, sizeof q, "\33[?%sh", modes[i]);
+        feed(q);
+        snprintf(q, sizeof q, "\33[?%s$p", modes[i]);
+        snprintf(a, sizeof a, "\33[?%s;1$y", modes[i]);
+        ASSERT_STREQ(ask(q), a);
+        snprintf(q, sizeof q, "\33[?%sl", modes[i]);
+        feed(q);
+        snprintf(q, sizeof q, "\33[?%s$p", modes[i]);
+        snprintf(a, sizeof a, "\33[?%s;2$y", modes[i]);
+        ASSERT_STREQ(ask(q), a);
+    }
+}
+
+/* One mouse event is told at a time: setting one replaces the others, and
+ * resetting any of them, another included, tells none, as xterm. */
+UTEST(term, resetting_another_mouse_event_tells_none)
+{
+    fresh();
+    feed("\33[?1000h\33[?1002h");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_BUTTON);
+    ASSERT_STREQ(ask("\33[?1000$p"), "\33[?1000;2$y");
+    feed("\33[?9l");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_OFF);
+    feed("\33[?9h");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_X10);
+    feed("\33[?1003h");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_ANY);
+}
+
+/* One form at a time too, but resetting one that is not set changes
+ * nothing, as xterm. */
+UTEST(term, resetting_another_mouse_form_keeps_the_form)
+{
+    fresh();
+    feed("\33[?1005h\33[?1006h");
+    ASSERT_EQ(vterm.mouse_form, TERM_MOUSE_FORM_SGR);
+    feed("\33[?1005l\33[?1015l\33[?1016l");
+    ASSERT_EQ(vterm.mouse_form, TERM_MOUSE_FORM_SGR);
+    feed("\33[?1006l");
+    ASSERT_EQ(vterm.mouse_form, TERM_MOUSE_FORM_X10);
+    feed("\33[?1016h");
+    ASSERT_EQ(vterm.mouse_form, TERM_MOUSE_FORM_PIXELS);
+    feed("\33[?1015h");
+    ASSERT_EQ(vterm.mouse_form, TERM_MOUSE_FORM_URXVT);
+}
+
+/* RIS clears the mouse's modes and DECSTR leaves them, as xterm; the
+ * system's soft reset clears them. */
+UTEST(term, the_resets_and_the_mouse_modes)
+{
+    fresh();
+    const char *set = "\33[?1003;1004;1006;1007h";
+    feed(set);
+    feed("\33[!p");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_ANY);
+    ASSERT_EQ(vterm.mouse_form, TERM_MOUSE_FORM_SGR);
+    ASSERT_TRUE(vterm.focus_events);
+    ASSERT_TRUE(vterm.alt_scroll);
+    feed("\33c");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_OFF);
+    ASSERT_EQ(vterm.mouse_form, TERM_MOUSE_FORM_X10);
+    ASSERT_FALSE(vterm.focus_events);
+    ASSERT_FALSE(vterm.alt_scroll);
+    feed(set);
+    feed("\33[?1016h");
+    feed(STR_TERM_SOFT_RESET);
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_OFF);
+    ASSERT_EQ(vterm.mouse_form, TERM_MOUSE_FORM_X10);
+    ASSERT_FALSE(vterm.focus_events);
+    ASSERT_FALSE(vterm.alt_scroll);
+}
+
+/* CSI T is SD, but for highlight tracking's answer, which xterm tells apart
+ * by more than one parameter or a first one of 0: those scroll nothing. */
+UTEST(term, highlight_tracking_s_answer_is_not_a_scroll)
+{
+    fresh();
+    feed("a\r\nb\r\nc\33[H");
+    feed("\33[T");
+    ASSERT_STREQ(row(1), "a");
+    feed("\33[1T");
+    ASSERT_STREQ(row(2), "a");
+    feed("\33[0T\33[1;2;3;4;5T\33[;T");
+    ASSERT_STREQ(row(2), "a");
+    ASSERT_STREQ(row(3), "b");
+}
+
+/* The DEC locator is one of the mouse's events: DECELR 1 and 2 set it, and
+ * DECELR 0 turns any event off and leaves the settings, the one-shot one
+ * too, as xterm's locator_reset; setting ?9 or ?1000 to ?1003 ends it. Its
+ * settings are DECELR's, DECSLE's and DECEFR's. */
+UTEST(term, the_locator_is_a_mouse_event)
+{
+    fresh();
+    feed("\33[?1000h\33[1'z");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_LOCATOR);
+    ASSERT_STREQ(ask("\33[?1000$p"), "\33[?1000;2$y");
+    ASSERT_FALSE(vterm.locator.once);
+    ASSERT_FALSE(vterm.locator.pixels);
+    feed("\33[?1002h");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_BUTTON);
+    feed("\33[2;1'z");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_LOCATOR);
+    ASSERT_TRUE(vterm.locator.once);
+    ASSERT_TRUE(vterm.locator.pixels);
+    feed("\33['z");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_OFF);
+    ASSERT_TRUE(vterm.locator.once);
+    ASSERT_TRUE(vterm.locator.pixels);
+    feed("\33[?1000h\33[0'z");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_OFF);
+    feed("\33[1;3'{");
+    ASSERT_EQ(vterm.locator.events, TERM_LOCATOR_DOWN | TERM_LOCATOR_UP);
+    feed("\33[2'{");
+    ASSERT_EQ(vterm.locator.events, TERM_LOCATOR_UP);
+    feed("\33[4;1'{");
+    ASSERT_EQ(vterm.locator.events, TERM_LOCATOR_DOWN);
+    feed("\33['{");
+    ASSERT_EQ(vterm.locator.events, 0);
+    /* DECEFR is taken only while the locator is on. */
+    feed("\33[2;3;4;5'w");
+    ASSERT_EQ(vterm.locator.bottom, 0);
+    ASSERT_FALSE(vterm.locator.filter);
+}
+
+/* RIS clears the locator's settings, and DECSTR leaves them, as xterm. The
+ * system's soft reset ends the locator and its events. */
+UTEST(term, the_resets_and_the_locator)
+{
+    fresh();
+    feed("\33[2;1'z\33[1;3'{");
+    feed("\33[!p");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_LOCATOR);
+    ASSERT_TRUE(vterm.locator.once);
+    ASSERT_EQ(vterm.locator.events, TERM_LOCATOR_DOWN | TERM_LOCATOR_UP);
+    feed("\33c");
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_OFF);
+    ASSERT_FALSE(vterm.locator.once);
+    ASSERT_FALSE(vterm.locator.pixels);
+    ASSERT_EQ(vterm.locator.events, 0);
+    feed("\33[1;1'z\33[1;3'{");
+    feed(STR_TERM_SOFT_RESET);
+    ASSERT_EQ(vterm.mouse_event, TERM_MOUSE_OFF);
+    ASSERT_EQ(vterm.locator.events, 0);
 }
 
 /* Linux's palette sequences are not taken: ESC ] P begins an OSC like any
@@ -1182,9 +1576,9 @@ UTEST(term, spa_guards_from_every_erase_unless_erm)
     ASSERT_STREQ(row(0), "");
 }
 
-/* A selective erase owed to a row spares its protected cells when it lands,
- * and leaves the row's size. */
-UTEST(term, a_selective_lazy_erase_spares_and_keeps_the_size)
+/* A selective erase of rows spares their protected cells, and leaves the
+ * rows' sizes. */
+UTEST(term, a_selective_erase_of_rows_spares_and_keeps_the_size)
 {
     fresh();
     feed("\33#6\33[1\"qA\33[0\"qB\r\nC\33[?2J");
@@ -1196,7 +1590,7 @@ UTEST(term, a_selective_lazy_erase_spares_and_keeps_the_size)
     ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
 }
 
-/* SR moves the protected cells of a row still owed a selective erase. */
+/* SR moves the protected cells a selective erase of rows spares. */
 UTEST(term, a_shift_moves_what_a_selective_erase_spares)
 {
     fresh();
@@ -1225,12 +1619,11 @@ UTEST(term, a_guard_moves_with_its_cell)
     ASSERT_EQ(mode0_color(ink(4, 0)->bg_color), color_256[1]);
 }
 
-/* SL and SR against a model of the row. A row is owed its shifts, and a
- * second shift only changes what it is owed, so each run of one to six
- * shifts, in three colors, is checked as one: the glyphs that are left,
- * the color of every blank, and the guard beside every cell. The row is the
- * cursor's on every fourth run, where it is paid at each shift. */
-UTEST(term, shifts_owed_to_a_row_are_the_shifts_done)
+/* SL and SR against a model of the row: each run of one to six shifts, in
+ * three colors, is checked as one, the glyphs that are left, the color of
+ * every blank, and the guard beside every cell. The row is the cursor's on
+ * every fourth run. */
+UTEST(term, a_run_of_shifts_is_the_shifts_done)
 {
     uint32_t state = 1;
     for (int run = 0; run < 3000; run++)
@@ -1335,152 +1728,8 @@ UTEST(term, a_run_of_cells_moves_whole_at_every_length)
             }
 }
 
-/* What a row is owed is never seen once it is paid. The same bytes are fed
- * twice: once with every owed fill paid after each sequence, and once with
- * them left owing until the end, through every scroll, insert, erase, shift
- * and change of height that comes meanwhile. The two screens are the same,
- * cell for cell, with the guards beside them. */
-static uint32_t lazy_state;
-static unsigned lazy_rand(unsigned n)
-{
-    lazy_state = lazy_state * 1664525u + 1013904223u;
-    return (lazy_state >> 8) % n;
-}
-
-static void lazy_op(char *out, size_t size)
-{
-    switch (lazy_rand(27))
-    {
-    case 0:
-    case 1:
-    case 2:
-    {
-        unsigned n = 1 + lazy_rand(100);
-        for (unsigned i = 0; i < n; i++)
-            out[i] = (char)('a' + lazy_rand(26));
-        out[n] = 0;
-        break;
-    }
-    case 3: snprintf(out, size, "\r\n"); break;
-    case 4: snprintf(out, size, "\n\n\n"); break;
-    case 5: snprintf(out, size, "\33M"); break;
-    case 6: snprintf(out, size, "\33[%u;%uH", 1 + lazy_rand(30), 1 + lazy_rand(80)); break;
-    case 7: snprintf(out, size, "\33[%uJ", lazy_rand(3)); break;
-    case 8: snprintf(out, size, "\33[%uK", lazy_rand(3)); break;
-    case 9: snprintf(out, size, "\33[?%u%c", lazy_rand(3), lazy_rand(2) ? 'J' : 'K'); break;
-    case 10: snprintf(out, size, "\33[%u%c", 1 + lazy_rand(31), lazy_rand(2) ? 'L' : 'M'); break;
-    case 11: snprintf(out, size, "\33[%u%c", 1 + lazy_rand(31), lazy_rand(2) ? 'S' : 'T'); break;
-    case 12: snprintf(out, size, "\33[%u%c", 1 + lazy_rand(81), "@PX"[lazy_rand(3)]); break;
-    case 13: snprintf(out, size, "\33[%u %c", 1 + lazy_rand(81), lazy_rand(2) ? '@' : 'A'); break;
-    case 14: snprintf(out, size, "%c\33[%ub", (char)('A' + lazy_rand(26)), 1 + lazy_rand(3000)); break;
-    case 15: snprintf(out, size, "%c\33[%ub", (char)('A' + lazy_rand(26)), 1 + lazy_rand(200)); break;
-    case 16:
-    {
-        unsigned top = 1 + lazy_rand(29);
-        snprintf(out, size, "\33[%u;%ur", top, top + lazy_rand(31 - top));
-        break;
-    }
-    case 17: snprintf(out, size, "\33[r"); break;
-    case 18: snprintf(out, size, "\33[%u;%um", 30 + lazy_rand(8), 40 + lazy_rand(8)); break;
-    case 19: snprintf(out, size, "\33[%um", (unsigned[]){0, 4, 7, 2, 5, 1}[lazy_rand(6)]); break;
-    case 20: snprintf(out, size, "\33[%u\"q", lazy_rand(2)); break;
-    case 21: snprintf(out, size, "\33#8"); break;
-    case 22: snprintf(out, size, "\33[?1049%c", lazy_rand(2) ? 'h' : 'l'); break;
-    case 23: snprintf(out, size, "\33#%c", "3456"[lazy_rand(4)]); break;
-    case 24: snprintf(out, size, "\33[4%c", lazy_rand(2) ? 'h' : 'l'); break;
-    case 25: snprintf(out, size, "\33[?7%c", lazy_rand(4) ? 'h' : 'l'); break;
-    default: out[0] = 0; break; /* a change of height, which the caller makes */
-    }
-}
-
-#define LAZY_OPS 60
-static char lazy_seq[LAZY_OPS][128];
-static uint8_t lazy_height[LAZY_OPS];
-static bool lazy_skip[LAZY_OPS];
-
-static void lazy_make(uint32_t seed)
-{
-    lazy_state = seed;
-    for (int k = 0; k < LAZY_OPS; k++)
-    {
-        lazy_op(lazy_seq[k], sizeof lazy_seq[k]);
-        lazy_height[k] = lazy_seq[k][0] ? 0 : (uint8_t)(10 + lazy_rand(21));
-        lazy_skip[k] = false;
-    }
-}
-
-static void lazy_run(bool pay_each, uint8_t *screen)
-{
-    fresh();
-    for (int k = 0; k < LAZY_OPS; k++)
-    {
-        if (lazy_skip[k])
-            continue;
-        if (lazy_height[k])
-            cells_set_height(80, lazy_height[k]);
-        else
-            feed(lazy_seq[k]);
-        if (pay_each)
-            for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-                cells_task();
-    }
-    cells_set_height(80, 30);
-    for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-        cells_task();
-    for (int y = 0; y < 30; y++)
-    {
-        const mode0_cell_t *r = tb_screen_row((uint8_t)y);
-        memcpy(screen + y * 80 * 10, r, 80 * 4);
-        memcpy(screen + y * 80 * 10 + 80 * 4, &mode0_colors[r - mode0_cells], 80 * 6);
-    }
-}
-
-static uint8_t lazy_paid[30 * 80 * 10], lazy_owing[30 * 80 * 10];
-static bool lazy_differs(void)
-{
-    lazy_run(true, lazy_paid);
-    lazy_run(false, lazy_owing);
-    return memcmp(lazy_paid, lazy_owing, sizeof lazy_paid) != 0;
-}
-
-UTEST(term, what_a_row_is_owed_is_never_seen)
-{
-    for (uint32_t seed = 1; seed <= 2000; seed++)
-    {
-        lazy_make(seed);
-        if (!lazy_differs())
-            continue;
-        /* The fewest of this seed's sequences that still differ. */
-        for (int k = 0; k < LAZY_OPS; k++)
-        {
-            lazy_skip[k] = true;
-            if (!lazy_differs())
-                lazy_skip[k] = false;
-        }
-        ASSERT_TRUE(lazy_differs());
-        int at = 0;
-        while (lazy_paid[at] == lazy_owing[at])
-            at++;
-        printf("seed %u: row %d, byte %d is %02x paid at once and %02x left owing, after:\n",
-               (unsigned)seed, at / 800, at % 800, lazy_paid[at], lazy_owing[at]);
-        for (int k = 0; k < LAZY_OPS; k++)
-        {
-            if (lazy_skip[k])
-                continue;
-            printf("  ");
-            if (lazy_height[k])
-                printf("height %u", lazy_height[k]);
-            for (const char *c = lazy_seq[k]; *c; c++)
-                printf(*c == 27 ? "ESC" : *c < 32 ? "^%c" : "%c", *c < 32 ? *c + 64 : *c);
-            printf("\n");
-        }
-        ASSERT_TRUE(false);
-    }
-}
-
 /* REP draws what printing the glyph that many times draws: the same cells,
- * with the pen's attributes and guard, and the cursor in the same place.
- * Its whole rows are only owed their glyphs, so this is those rows paid. */
+ * with the pen's attributes and guard, and the cursor in the same place. */
 static void rep_screen(const char *before, int n, bool rep, uint8_t *screen, int *x, int *y)
 {
     char seq[32];
@@ -1497,8 +1746,7 @@ static void rep_screen(const char *before, int n, bool rep, uint8_t *screen, int
             feed("Q");
     /* The far half of a double-size row shows when the row is single again. */
     feed("\0337\33[10;1H\33#5\0338");
-    for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-        cells_task();
+    draw_task();
     for (int r = 0; r < 30; r++)
     {
         const mode0_cell_t *row = tb_screen_row((uint8_t)r);
@@ -1541,36 +1789,18 @@ UTEST(term, rep_draws_what_printing_draws)
  * savestate: both come back over a console that has since lost them. */
 UTEST(term, the_palette_and_the_guards_come_back)
 {
-    static uint8_t blob[1 << 20], undo[1 << 20];
+    static uint8_t blob[1 << 20];
     fresh();
     feed("\33]4;1;#102030\7\33]10;#405060\7\33[31mA\33[39mB\33[1\"qG\33[0\"qh");
     ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
     feed("\33c");
     ASSERT_STREQ(row(0), "");
-    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_STREQ(row(0), "ABGh");
     ASSERT_EQ(mode0_color(ink(0, 0)->fg_color), rgb(0x10, 0x20, 0x30));
     ASSERT_EQ(mode0_color(ink(1, 0)->fg_color), rgb(0x40, 0x50, 0x60));
     feed("\33[?2K");
     ASSERT_STREQ(row(0), "  G");
-}
-
-/* A shift a row is still owed is saved with the row and paid after the
- * load: the survivors, and the blank color for each side. */
-UTEST(term, a_shift_still_owed_comes_back)
-{
-    static uint8_t blob[1 << 20], undo[1 << 20];
-    fresh();
-    feed("\33[3;1HABCDEF\33[10;1H\33[41m\33[2 A\33[42m\33[3 @");
-    ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
-    feed("\33c");
-    ASSERT_STREQ(row(2), "");
-    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
-    ASSERT_STREQ(row(2), "BCDEF");
-    ASSERT_EQ(mode0_color(ink(79, 2)->bg_color), color_256[2]);
-    feed("\33[3;1H\33[43m\33[2 A");
-    ASSERT_STREQ(row(2), "  BCDEF");
-    ASSERT_EQ(mode0_color(ink(0, 2)->bg_color), color_256[3]);
 }
 
 /* Printing and DCH ignore protection, and DECSTR ends it. */
@@ -1812,15 +2042,36 @@ UTEST(term, declrmm_has_no_double_size_lines)
     ASSERT_EQ(ch(10, 0), 'z');
 }
 
+/* DECLRMM set makes every line single size: both screens', and the rows in
+ * the scrollback, which come back single size. */
+UTEST(term, declrmm_makes_both_screens_single_size)
+{
+    fresh();
+    vterm_place(80, 29, 0, 16);
+    feed("\33#6one\r\n");
+    for (int i = 0; i < 28; i++)
+        feed("\r\n");
+    feed("\33[H\33#6\33[?1049h\33#3");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_TOP);
+    feed("\33[?69h\33[?69l");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
+    feed("\33[?1049l");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
+    feed("\33[29H");
+    vterm_place(80, 30, 0, 16);
+    ASSERT_STREQ(row(0), "one");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
+}
+
 /* The margins are part of a savestate. */
 UTEST(term, the_left_and_right_margins_come_back)
 {
-    static uint8_t blob[1 << 20], undo[1 << 20];
+    static uint8_t blob[1 << 20];
     fresh();
     feed("\33[?69h\33[5;10s");
     ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
     feed("\33c");
-    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     feed("\33[1;5Habcdefgh");
     ASSERT_STREQ(row(0), "    abcdef");
     ASSERT_STREQ(row(1), "    gh");
@@ -1828,8 +2079,7 @@ UTEST(term, the_left_and_right_margins_come_back)
 
 /* ---- rectangles ---------------------------------------------------------- */
 
-/* DECFRA fills with a character as the pen writes it. A whole row is owed
- * its fill, and the cursor's row is filled at once. */
+/* DECFRA fills with a character as the pen writes it. */
 UTEST(term, decfra_fills_a_rectangle_in_the_pen)
 {
     fresh();
@@ -1839,7 +2089,7 @@ UTEST(term, decfra_fills_a_rectangle_in_the_pen)
     ASSERT_STREQ(row(3), "  XXXX");
     ASSERT_STREQ(row(4), "");
     ASSERT_EQ(mode0_color(ink(2, 1)->fg_color), color_256[1]);
-    ASSERT_EQ(cell(5, 3)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(attrs(5, 3), TERM_ATTR_UL(TERM_UL_SINGLE));
     ASSERT_EQ(cx(), 0);
     ASSERT_EQ(cy(), 0);
     feed("\33[45;1;1;3;80$x");
@@ -1859,14 +2109,32 @@ UTEST(term, decfra_fills_a_rectangle_in_the_pen)
     ASSERT_EQ(ch(0, 0), '-');
 }
 
-/* A rectangle on a row that is still owed an erase lands on the erased row. */
-UTEST(term, a_rectangle_lands_on_a_row_as_it_is_owed)
+/* A rectangle on a row just erased lands on the erased row. */
+UTEST(term, a_rectangle_lands_on_an_erased_row)
 {
     fresh();
     feed("old\33[5;1Hold\33[1;1H\33[44m\33[2J\33[0m\33[88;5;5;5;6$x");
     ASSERT_STREQ(row(4), "    XX");
     ASSERT_EQ(mode0_color(ink(0, 4)->bg_color), color_256[4]);
     ASSERT_EQ(mode0_color(ink(4, 4)->bg_color), color_256[0]);
+}
+
+/* VPR and HPR go where VPA and HPA would, past the margins, as in xterm;
+ * under DECOM, as far as the margins. */
+UTEST(term, vpr_and_hpr_position)
+{
+    fresh();
+    feed("\33[5;10r\33[?69h\33[5;20s\33[7;8H\33[10e");
+    ASSERT_EQ(cy(), 16);
+    ASSERT_EQ(cx(), 7);
+    feed("\33[30a");
+    ASSERT_EQ(cx(), 37);
+    feed("\33[99e\33[99a");
+    ASSERT_EQ(cy(), 29);
+    ASSERT_EQ(cx(), 79);
+    feed("\33[?6h\33[2;3H\33[99e\33[99a");
+    ASSERT_EQ(cy(), 9);
+    ASSERT_EQ(cx(), 19);
 }
 
 /* DECERA erases protected cells too; DECSERA leaves them. */
@@ -1888,6 +2156,17 @@ UTEST(term, decera_erases_and_decsera_spares_the_protected)
     ASSERT_STREQ(row(4), "");
 }
 
+/* DECSERA makes the characters spaces and leaves the cells' colors and
+ * attributes, as xterm does, whatever the pen. */
+UTEST(term, decsera_keeps_the_colors)
+{
+    fresh();
+    feed("\33[42;4mabc\33[44;24m\33[1;1;1;2${");
+    ASSERT_STREQ(row(0), "  c");
+    ASSERT_EQ(mode0_color(ink(0, 0)->bg_color), color_256[2]);
+    ASSERT_EQ(attrs(1, 0) & TERM_ATTR_UL_MASK, TERM_ATTR_UL(TERM_UL_SINGLE));
+}
+
 /* DECCRA copies cells, colors and attributes, onto itself too, and loses
  * what would land past the edge. */
 UTEST(term, deccra_copies_a_rectangle)
@@ -1897,7 +2176,7 @@ UTEST(term, deccra_copies_a_rectangle)
     feed("\33[1;1;1;3;1;3;10;1$v");
     ASSERT_STREQ(row(2), "         abc");
     ASSERT_EQ(mode0_color(ink(9, 2)->fg_color), color_256[1]);
-    ASSERT_EQ(cell(11, 2)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(attrs(11, 2), TERM_ATTR_UL(TERM_UL_SINGLE));
     ASSERT_STREQ(row(0), "abcde");
     /* Onto itself, a column right and then a row down. */
     feed("\33[1;1;1;5;1;1;2;1$v");
@@ -1926,16 +2205,15 @@ UTEST(term, deccara_changes_the_attributes_of_cells)
     const uint16_t fg = MODE0_ENTRY(MODE0_DEFAULT_FG, false);
     const uint16_t bg = MODE0_ENTRY(MODE0_DEFAULT_BG, false);
     feed("\33[2*xhello\33[1;1;1;4;1;4;5;7$r");
-    ASSERT_EQ(cell(0, 0)->attributes,
-              TERM_ATTR_UL(TERM_UL_SINGLE) | TERM_ATTR_BLINK | MODE0_ATTR_BOLD |
-                  MODE0_ATTR_BOLD_DEFAULT | MODE0_ATTR_REVERSE);
+    ASSERT_EQ(attrs(0, 0),
+              TERM_ATTR_UL(TERM_UL_SINGLE) | TERM_ATTR_BLINK | MODE0_ATTR_BOLD | MODE0_ATTR_REVERSE);
     ASSERT_EQ(ink(0, 0)->fg_color, bg);
     ASSERT_EQ(ink(0, 0)->bg_color, MODE0_ENTRY(15, false));
     ASSERT_EQ(ink(0, 0)->ul_color, bg);
-    ASSERT_EQ(cell(4, 0)->attributes, 0);
+    ASSERT_EQ(attrs(4, 0), 0);
     /* The same cells as the pen writes them. */
     feed("\33[2;1H\33[1;4;5;7mhell\33[0m");
-    ASSERT_EQ(cell(0, 1)->attributes, cell(0, 0)->attributes);
+    ASSERT_EQ(attrs(0, 1), attrs(0, 0));
     ASSERT_EQ(ink(0, 1)->fg_color, ink(0, 0)->fg_color);
     ASSERT_EQ(ink(0, 1)->bg_color, ink(0, 0)->bg_color);
     /* One at a time off, on either row. */
@@ -1944,15 +2222,15 @@ UTEST(term, deccara_changes_the_attributes_of_cells)
     ASSERT_EQ(ink(1, 1)->bg_color, bg);
     feed("\33[1;1;2;4;22;24$r");
     ASSERT_EQ(ink(1, 1)->fg_color, fg);
-    ASSERT_EQ(cell(1, 1)->attributes, TERM_ATTR_BLINK);
+    ASSERT_EQ(attrs(1, 1), TERM_ATTR_BLINK);
     feed("\33[1;1;2;4;25$r");
-    ASSERT_EQ(cell(1, 0)->attributes, 0);
-    ASSERT_EQ(cell(1, 1)->attributes, 0);
+    ASSERT_EQ(attrs(1, 0), 0);
+    ASSERT_EQ(attrs(1, 1), 0);
     /* 0 clears the four, and no parameter is 0. */
     feed("\33[1;1;1;4;1;7$r\33[1;1;1;2;0$r\33[1;3;1;4$r");
     for (int x = 0; x < 4; x++)
     {
-        ASSERT_EQ(cell(x, 0)->attributes, 0);
+        ASSERT_EQ(attrs(x, 0), 0);
         ASSERT_EQ(ink(x, 0)->fg_color, fg);
         ASSERT_EQ(ink(x, 0)->bg_color, bg);
     }
@@ -1980,7 +2258,7 @@ UTEST(term, deccara_bold_is_the_pens_bold)
     ASSERT_EQ(ink(0, 1)->bg_color, MODE0_ENTRY(10, false));
     feed("\33[2;1;2;1;0$r");
     ASSERT_EQ(ink(0, 1)->fg_color, MODE0_ENTRY(2, false));
-    ASSERT_EQ(cell(0, 1)->attributes, 0);
+    ASSERT_EQ(attrs(0, 1), 0);
 }
 
 /* An underline DECCARA takes off takes its color with it, and blink is not
@@ -1989,13 +2267,13 @@ UTEST(term, deccara_underline_and_blink)
 {
     fresh();
     feed("\33[2*x\33[4:3;58;5;2mA\33[0mB\33[1;1;1;2;24$r\33[1;1;1;2;4$r");
-    ASSERT_EQ(cell(0, 0)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
-    ASSERT_EQ(cell(1, 0)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(attrs(0, 0), TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(attrs(1, 0), TERM_ATTR_UL(TERM_UL_SINGLE));
     ASSERT_EQ(ink(0, 0)->ul_color, ink(0, 0)->fg_color);
     feed("\33[1;1;1;2;4$r");
-    ASSERT_EQ(cell(0, 0)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(attrs(0, 0), TERM_ATTR_UL(TERM_UL_SINGLE));
     feed("\33[?33h\33[1;1;1;2;5$r");
-    ASSERT_EQ(cell(0, 0)->attributes & TERM_ATTR_ANY_BLINK, 0);
+    ASSERT_EQ(attrs(0, 0) & TERM_ATTR_ANY_BLINK, TERM_ATTR_BLINK);
 }
 
 /* DECRARA reverses the attributes, and twice is as it was. */
@@ -2003,22 +2281,21 @@ UTEST(term, decrara_reverses_the_attributes)
 {
     fresh();
     feed("\33[2*x\33[1mA\33[0mB\33[1;1;1;2;1;7$t");
-    ASSERT_EQ(cell(0, 0)->attributes, MODE0_ATTR_REVERSE);
+    ASSERT_EQ(attrs(0, 0), MODE0_ATTR_REVERSE);
     ASSERT_EQ(ink(0, 0)->bg_color, MODE0_ENTRY(MODE0_DEFAULT_FG, false));
-    ASSERT_EQ(cell(1, 0)->attributes,
-              MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT | MODE0_ATTR_REVERSE);
+    ASSERT_EQ(attrs(1, 0),
+              MODE0_ATTR_BOLD | MODE0_ATTR_REVERSE);
     ASSERT_EQ(ink(1, 0)->bg_color, MODE0_ENTRY(15, false));
     feed("\33[1;1;1;2;1;7$t");
-    ASSERT_EQ(cell(0, 0)->attributes, MODE0_ATTR_BOLD | MODE0_ATTR_BOLD_DEFAULT);
-    ASSERT_EQ(cell(1, 0)->attributes, 0);
+    ASSERT_EQ(attrs(0, 0), MODE0_ATTR_BOLD);
+    ASSERT_EQ(attrs(1, 0), 0);
     ASSERT_EQ(ink(1, 0)->fg_color, MODE0_ENTRY(MODE0_DEFAULT_FG, false));
     /* 0 is all four. */
     feed("\33[1;2;1;2;0$t");
-    ASSERT_EQ(cell(1, 0)->attributes,
-              TERM_ATTR_UL(TERM_UL_SINGLE) | TERM_ATTR_BLINK | MODE0_ATTR_BOLD |
-                  MODE0_ATTR_BOLD_DEFAULT | MODE0_ATTR_REVERSE);
+    ASSERT_EQ(attrs(1, 0),
+              TERM_ATTR_UL(TERM_UL_SINGLE) | TERM_ATTR_BLINK | MODE0_ATTR_BOLD | MODE0_ATTR_REVERSE);
     feed("\33[1;2;1;2$t");
-    ASSERT_EQ(cell(1, 0)->attributes, 0);
+    ASSERT_EQ(attrs(1, 0), 0);
 }
 
 /* Without DECSACE 2 the attributes change in the stream of cells from the
@@ -2027,20 +2304,20 @@ UTEST(term, decsace_chooses_the_stream_or_the_rectangle)
 {
     fresh();
     feed("\33[1;3;3;5;4$r");
-    ASSERT_EQ(cell(1, 0)->attributes, 0);
-    ASSERT_NE(cell(2, 0)->attributes, 0);
-    ASSERT_NE(cell(79, 0)->attributes, 0);
-    ASSERT_NE(cell(0, 1)->attributes, 0);
-    ASSERT_NE(cell(79, 1)->attributes, 0);
-    ASSERT_NE(cell(4, 2)->attributes, 0);
-    ASSERT_EQ(cell(5, 2)->attributes, 0);
+    ASSERT_EQ(attrs(1, 0), 0);
+    ASSERT_NE(attrs(2, 0), 0);
+    ASSERT_NE(attrs(79, 0), 0);
+    ASSERT_NE(attrs(0, 1), 0);
+    ASSERT_NE(attrs(79, 1), 0);
+    ASSERT_NE(attrs(4, 2), 0);
+    ASSERT_EQ(attrs(5, 2), 0);
     feed("\33[2*x\33[5;3;7;5;4$r");
-    ASSERT_EQ(cell(1, 5)->attributes, 0);
-    ASSERT_NE(cell(2, 5)->attributes, 0);
-    ASSERT_NE(cell(4, 5)->attributes, 0);
-    ASSERT_EQ(cell(5, 5)->attributes, 0);
+    ASSERT_EQ(attrs(1, 5), 0);
+    ASSERT_NE(attrs(2, 5), 0);
+    ASSERT_NE(attrs(4, 5), 0);
+    ASSERT_EQ(attrs(5, 5), 0);
     feed("\33c\33[1;3;2;5;4$r");
-    ASSERT_NE(cell(79, 0)->attributes, 0);
+    ASSERT_NE(attrs(79, 0), 0);
 }
 
 /* Under DECOM a rectangle counts from the margins and stays inside them. */
@@ -2162,36 +2439,36 @@ UTEST(term, a_scroll_between_margins_is_right_at_every_width)
             }
 }
 
-/* A change of attributes a row is owed is saved with the row. */
-UTEST(term, attributes_still_owed_come_back)
+/* A change of attributes is saved with the row. */
+UTEST(term, a_change_of_attributes_comes_back)
 {
-    static uint8_t blob[1 << 20], undo[1 << 20];
+    static uint8_t blob[1 << 20];
     fresh();
     feed("\33[3;1HABCDEF\33[10;1H\33[2*x\33[3;2;3;4;4;7$r");
     ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
     feed("\33c");
-    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
-    ASSERT_EQ(cell(0, 2)->attributes, 0);
-    ASSERT_EQ(cell(1, 2)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE) | MODE0_ATTR_REVERSE);
-    ASSERT_EQ(cell(3, 2)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE) | MODE0_ATTR_REVERSE);
-    ASSERT_EQ(cell(4, 2)->attributes, 0);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(attrs(0, 2), 0);
+    ASSERT_EQ(attrs(1, 2), TERM_ATTR_UL(TERM_UL_SINGLE) | MODE0_ATTR_REVERSE);
+    ASSERT_EQ(attrs(3, 2), TERM_ATTR_UL(TERM_UL_SINGLE) | MODE0_ATTR_REVERSE);
+    ASSERT_EQ(attrs(4, 2), 0);
 }
 
-/* What a row is owed is paid in order: a change of attributes, then a
- * shift, a selective erase or an erase over it. */
-UTEST(term, attributes_owed_are_paid_before_what_comes_after)
+/* A change of attributes, then a shift, a selective erase or an erase over
+ * it, are done in that order. */
+UTEST(term, a_change_of_attributes_is_done_before_what_comes_after)
 {
     fresh();
     feed("\33[3;1HABCDEF\33[4;1H\33[1\"qGH\33[0\"qIJ\33[5;1HKLMN\33[10;1H\33[2*x");
     feed("\33[3;1;5;6;7$r\33[2 A\33[4;1;4;80${\33[5;1;5;80$z\33[5;1;5;2;4$r");
     ASSERT_STREQ(row(2), "  ABCDEF");
-    ASSERT_EQ(cell(1, 2)->attributes, 0);
-    ASSERT_EQ(cell(2, 2)->attributes, MODE0_ATTR_REVERSE);
+    ASSERT_EQ(attrs(1, 2), 0);
+    ASSERT_EQ(attrs(2, 2), MODE0_ATTR_REVERSE);
     ASSERT_STREQ(row(3), "  GH");
-    ASSERT_EQ(cell(2, 3)->attributes, MODE0_ATTR_REVERSE | MODE0_ATTR_GUARD);
+    ASSERT_EQ(attrs(2, 3), MODE0_ATTR_REVERSE | MODE0_ATTR_GUARD);
     ASSERT_STREQ(row(4), "");
-    ASSERT_EQ(cell(0, 4)->attributes, TERM_ATTR_UL(TERM_UL_SINGLE));
-    ASSERT_EQ(cell(2, 4)->attributes, 0);
+    ASSERT_EQ(attrs(0, 4), TERM_ATTR_UL(TERM_UL_SINGLE));
+    ASSERT_EQ(attrs(2, 4), 0);
 }
 
 /* REP between margins draws what printing draws, wherever the cursor starts
@@ -2237,12 +2514,112 @@ UTEST(term, rep_between_margins_draws_what_printing_draws)
     }
 }
 
-/* Line feeds between margins add up to one scroll, and whatever comes
- * between them is done in its turn: another pen, the other screen, a
- * savestate. */
-UTEST(term, line_feeds_between_margins_add_up)
+/* REP in insert mode draws what printing in insert mode draws: a run that
+ * ends short of the stop pushes the rest of its row right, once, and the
+ * rows a scroll brings in, between margins or not, take the glyphs as
+ * printing leaves them. */
+UTEST(term, rep_in_insert_mode_draws_what_printing_draws)
 {
-    static uint8_t blob[1 << 20], undo[1 << 20];
+    static const char *const cases[] = {
+        "\33[4h\33[12;30H",
+        "\33[4h\33[30;30H",
+        "\33[4h\33[5;9r\33[3;40H",
+        "\33[?69h\33[21;60s\33[4h\33[1;30H",
+        "\33[?69h\33[21;60s\33[4h\33[30;30H",
+        "\33[?69h\33[21;60s\33[5;25r\33[4h\33[20;10H",
+        "\33[?69h\33[21;60s\33[5;25r\33[4h\33[28;30H",
+    };
+    static const int counts[] = {1, 2, 39, 40, 41, 81, 200, 1201};
+    static uint8_t a[30 * 80 * 10], b[30 * 80 * 10];
+    static char before[30 * 90 + 80];
+    for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++)
+    {
+        int at = 0;
+        for (int y = 0; y < 30; y++)
+        {
+            at += snprintf(before + at, sizeof before - (size_t)at, "\33[%d;1H", y + 1);
+            for (int x = 0; x < 79; x++)
+                before[at++] = (char)(33 + (y * 7 + x * 5) % 90);
+        }
+        snprintf(before + at, sizeof before - (size_t)at, "%s", cases[i]);
+        for (unsigned k = 0; k < sizeof counts / sizeof counts[0]; k++)
+        {
+            int ax, ay, bx, by;
+            rep_screen(before, counts[k], true, a, &ax, &ay);
+            rep_screen(before, counts[k], false, b, &bx, &by);
+            if (memcmp(a, b, sizeof a) || ax != bx || ay != by)
+                printf("REP %d after case %u differs\n", counts[k], i);
+            ASSERT_EQ(0, memcmp(a, b, sizeof a));
+            ASSERT_EQ(ax, bx);
+            ASSERT_EQ(ay, by);
+        }
+    }
+}
+
+/* What the 40-column size holds after a Q and n more by REP or by printing,
+ * from where before leaves the cursor, on a screen 4 rows shorter than its
+ * ring: the rows above row 0 the ring keeps, the newest last, then the
+ * screen's rows, a row of 40 cell_text words each. */
+static void rep_ring(const char *before, int n, bool rep, uint16_t *out, int *above)
+{
+    static char glyphs[2048];
+    fresh();
+    xreg1(0, 0, vga_canvas_320_240);
+    vterm_place(40, TERM_MAX_HEIGHT - 4, 0, 8);
+    feed(before);
+    feed("Q");
+    if (rep)
+    {
+        char seq[32];
+        snprintf(seq, sizeof seq, "\33[%db", n);
+        feed(seq);
+    }
+    else
+    {
+        memset(glyphs, 'Q', (size_t)n);
+        feedn(glyphs, (size_t)n);
+    }
+    screen_t *s = vterm_40.grid.shown;
+    memset(out, 0, TERM_MAX_HEIGHT * 40 * sizeof *out);
+    *above = s->hidden;
+    for (int k = s->hidden; k > 0; k--)
+        screen_row_text(s, (uint8_t)(s->rows - k), out + (s->hidden - k) * 40);
+    for (int y = 0; y < vterm_40.grid.height; y++)
+        screen_row_text(s, (uint8_t)y, out + (s->hidden + y) * 40);
+    xreg1(0, 0, vga_canvas_console);
+}
+
+/* The rows a REP scrolls past the top of the screen go above row 0 as
+ * printing sends them, full of the glyph, as many as the ring keeps. */
+UTEST(term, rep_leaves_the_rows_above_row_0_as_printing_does)
+{
+    static const char *const cases[] = {
+        "\33[26;5H",
+        "\33[3;5H",
+        "\33[HABC\33[2;1HDEF\33[26;5H",
+        "\33[HABC\33[5;20r\33[20;5H",
+    };
+    static const int counts[] = {1, 36, 37, 120, 207, 1040, 1080, 1123, 1600};
+    static uint16_t a[TERM_MAX_HEIGHT * 40], b[TERM_MAX_HEIGHT * 40];
+    for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++)
+        for (unsigned k = 0; k < sizeof counts / sizeof counts[0]; k++)
+        {
+            int an, bn;
+            rep_ring(cases[i], counts[k], true, a, &an);
+            rep_ring(cases[i], counts[k], false, b, &bn);
+            if (memcmp(a, b, sizeof a) || an != bn)
+                printf("REP %d after case %u differs\n", counts[k], i);
+            ASSERT_EQ(an, bn);
+            ASSERT_EQ(0, memcmp(a, b, sizeof a));
+        }
+}
+
+/* Each line feed between margins moves the cells between them a row, with
+ * its own pen's blank coming in, and the other screen and a savestate
+ * leave what it moved. */
+UTEST(term, line_feeds_between_margins_move_the_cells_between_them)
+{
+    static uint8_t blob[1 << 20];
     fresh();
     lettered(6);
     feed("\33[?69h\33[2;5r\33[4;7s\33[5;5H\n\n");
@@ -2260,18 +2637,419 @@ UTEST(term, line_feeds_between_margins_add_up)
     feed("\33[2;5Hxy\33[5;5H\nz");
     ASSERT_STREQ(row(1), "bbb    bbb");
     ASSERT_STREQ(row(4), "eee z  eee");
-    /* The other screen, with a scroll still owed to this one. */
+    /* A scroll on the other screen leaves this one's cells. */
     feed("\33[2;4Hpq\33[5;5H\n\33[?47h\33[?69h\33[2;5r\33[4;7s\33[5;5H\nalt\33[?47l");
     ASSERT_STREQ(row(1), "bbb    bbb");
     ASSERT_STREQ(row(3), "ddd z  ddd");
-    /* A savestate with a scroll owed. */
+    /* A savestate right after a scroll. */
     feed("\33[2;4Hrs\33[5;5H\n");
     ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
     feed("\33c");
-    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_STREQ(row(1), "bbb    bbb");
     ASSERT_STREQ(row(2), "ccc z  ccc");
     ASSERT_STREQ(row(0), "aaaaaaaaaa");
+}
+
+/* ---- written cells -------------------------------------------------------- */
+
+/* Where row y's written cells end: one past the last, or 0 for none. */
+static int written_end(int y)
+{
+    tb_screen_t v;
+    tb_screen(&v);
+    for (int x = v.width; x > 0; x--)
+        if (written(x - 1, y))
+            return x;
+    return 0;
+}
+
+/* Each operation leaves its rows' written cells ending where xterm 412's
+ * do. xterm prints a row up to its last written cell (print.c, printLine),
+ * and these are the lengths it printed for the same bytes (xmirror). */
+UTEST(term, written_cells_end_where_xterms_do)
+{
+    static const struct
+    {
+        const char *seq;
+        int end[4];
+    } cases[] = {
+        {"AB", {2}},
+        {"A\33[4b", {5}},
+        {"\33[4h\33[1;5HX", {5}},
+        {"\33[1;11H\33[5X", {15}},
+        {"\33[1;76H\33[10X", {0}},
+        {"\33[1;76H\33[5X", {0}},
+        {"\33[1;76H\33[4X", {79}},
+        {"\33[1;11H\33[K", {0}},
+        {"\33[1;11H\33[1K", {11}},
+        {"\33[1;80H\33[1K", {0}},
+        {"\33[1;11H\33[2K", {0}},
+        {"AB\r\nCD\33[2;11H\33[1J", {0, 11}},
+        {"AB\r\nCD\33[1;2H\33[J", {1, 0}},
+        {"\33[1;11H\33[3@", {13}},
+        {"ABCDE\33[1;1H\33[P", {4}},
+        {"\33[?69h\33[1;20sABCDE\33[1;1H\33[P", {4}},
+        {"\33[?69h\33[1;20s\33[1;2r\33[1;1H\33[2 A", {2, 2}},
+        {"\33[?69h\33[1;20s\33[1;2rAB\33[1;1H\33[2 @", {0}},
+        {"\33[1;2rABCDE\r\nABCDE\33[1;1H\33[2 @", {3, 3}},
+        {"\33[1;2r\33[1;1H\33[2 A", {2, 2}},
+        {"\33[1;2r\33[1;5H\33[2'}", {6, 6}},
+        {"\33[?69h\33[1;20s\33[1;2rABCDE\33[1;1H\33[2'~", {3}},
+        {"\33[1;2r\33[1;1H\0336", {1, 1}},
+        {"\33[?69h\33[1;20s\33[1;2rAB\33[1;20H\0339", {1}},
+        {"\33[3;1;3;80$z", {0, 0, 80}},
+        {"\33[3;1;3;5$z", {0, 0, 5}},
+        {"\33[3;1;3;5${", {0, 0, 5}},
+        {"\33[120;3;1;3;5$x", {0, 0, 5}},
+        {"\33[3;1;3;5;1;4;1;1$v", {0, 0, 0, 5}},
+        {"\33[3;1;3;10;1$r", {0}},
+        {"\33[2*x\33[3;1;3;10;1$r", {0, 0, 10}},
+        {"\33[2*x\33[3;1;3;10;7$t", {0, 0, 10}},
+        {"\33#8", {80, 80, 80, 80}},
+        {"AB\r\nCD\33[1;1H\33[L", {0, 2, 2}},
+        {"AB\r\nCD\33[1;1H\33[S", {2}},
+        {"\33[?69h\33[1;20s\33[1;2rAB\r\nCD\33[2;1H\n", {2, 0}},
+        {"\33[?69h\33[1;20s\33[1;3rAB\r\nCD\33[1;1H\33[L", {0, 2, 2}},
+        {"\33[1\"qP\33[0\"q\33[1;1H\33[?2K", {1}},
+        {"\33[1\"qP\33[0\"q\r\nQ\33[3;1H\33[?2J", {1, 0}},
+        {"\33[1;5H\33VP\33W\33[1;1H\33[K", {5}},
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++)
+    {
+        fresh();
+        feed(cases[i].seq);
+        for (int y = 0; y < 4; y++)
+        {
+            if (written_end(y) != cases[i].end[y])
+                printf("case %u, row %d\n", (unsigned)i, y);
+            ASSERT_EQ(written_end(y), cases[i].end[y]);
+        }
+    }
+}
+
+/* A written cell is written wherever its row goes: into the scrollback and
+ * back, and through a savestate. */
+UTEST(term, a_written_cell_goes_with_its_row)
+{
+    fresh();
+    vterm_place(80, 29, 0, 16);
+    feed("AB\33[1;11H\33[1K\33[2;76H\33[4X\33[29;1H\n");
+    ASSERT_EQ(written_end(0), 79);
+    vterm_place(80, 30, 0, 16);
+    ASSERT_EQ(written_end(0), 11);
+    ASSERT_EQ(written_end(1), 79);
+    static uint8_t blob[1 << 20];
+    ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
+    feed("\33c");
+    ASSERT_EQ(written_end(0), 0);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_EQ(written_end(0), 11);
+    ASSERT_EQ(written_end(1), 79);
+}
+
+/* Whether row y of the screen showing wrapped on its own. */
+static bool wrapped(int y)
+{
+    return screen_wrapped(vterm_get_shown(&vterm)->shown, (uint8_t)y);
+}
+
+/* n A's from the cursor. */
+static void feed_as(int n)
+{
+    char a[96];
+    memset(a, 'A', (size_t)n);
+    feedn(a, (size_t)n);
+}
+
+/* ---- a cell's character, as Unicode and as a byte ---------------------- */
+
+static uint16_t word(unsigned set, unsigned code)
+{
+    return (uint16_t)(code | set << CELL_TEXT_SET_SHIFT);
+}
+
+/* xterm's DEC Special Graphics and Technical, as vtrun's tables have them,
+ * the screens' text the vttest walk prints. */
+static const uint32_t xterm_dec[32] = {
+    ' ', 0x25C6, 0x2592, 0x2409, 0x240C, 0x240D, 0x240A, 0x00B0,
+    0x00B1, 0x2424, 0x240B, 0x2518, 0x2510, 0x250C, 0x2514, 0x253C,
+    0x23BA, 0x23BB, 0x2500, 0x23BC, 0x23BD, 0x251C, 0x2524, 0x2534,
+    0x252C, 0x2502, 0x2A7D, 0x2A7E, 0x03C0, 0x2260, 0x00A3, 0x00B7,
+};
+static const uint32_t xterm_tech[0x5E] = {
+    0x23B7, 0x250C, 0x2500, 0x2320, 0x2321, 0x2502, 0x23A1, 0x23A3,
+    0x23A4, 0x23A6, 0x23A7, 0x23A9, 0x23AB, 0x23AD, 0x23A8, 0x23AC,
+    0xE000, 0xE001, 0xE002, 0xE003, 0xE004, 0xE005, 0xE006, ' ',
+    ' ', ' ', ' ', 0x2264, 0x2260, 0x2265, 0x222B, 0x2234,
+    0x221D, 0x221E, 0x00F7, 0x0394, 0x2207, 0x03A6, 0x0393, 0x223C,
+    0x2243, 0x0398, 0x00D7, 0x039B, 0x21D4, 0x21D2, 0x2261, 0x03A0,
+    0x03A8, ' ', 0x03A3, ' ', ' ', 0x221A, 0x03A9, 0x039E,
+    0x03A5, 0x2282, 0x2283, 0x2229, 0x222A, 0x2227, 0x2228, 0x00AC,
+    0x03B1, 0x03B2, 0x03C7, 0x03B4, 0x03B5, 0x03C6, 0x03B3, 0x03B7,
+    0x03B9, 0x03B8, 0x03BA, 0x03BB, ' ', 0x03BD, 0x2202, 0x03C0,
+    0x03C8, 0x03C1, 0x03C3, 0x03C4, ' ', 0x0192, 0x03C9, 0x03BE,
+    0x03C5, 0x03B6, 0x2190, 0x2191, 0x2192, 0x2193,
+};
+
+/* A copy gives the host xterm's characters, but for the top and bottom left
+ * of the big sigma, which Unicode has. */
+UTEST(term, the_dec_sets_copy_as_xterm_s)
+{
+    fresh();
+    for (unsigned c = 0x5F; c <= 0x7E; c++)
+        ASSERT_EQ(cell_text_unicode(word(CELL_SET_DEC, c)), xterm_dec[c - 0x5F]);
+    for (unsigned c = 0x21; c <= 0x7E; c++)
+    {
+        const uint32_t want = c == 0x31 ? 0x23B2 : c == 0x32 ? 0x23B3 : xterm_tech[c - 0x21];
+        ASSERT_EQ(cell_text_unicode(word(CELL_SET_TECH, c)), want);
+    }
+}
+
+/* Every glyph of the two sets that the font takes from CP437 is the
+ * character CP437 has there: its byte inside the machine is the glyph it
+ * shows. */
+UTEST(term, the_dec_sets_are_the_glyphs_the_font_draws)
+{
+    fresh();
+    ASSERT_EQ(vterm_get_code_page(), 437);
+    unsigned checked = 0;
+    for (unsigned c = 0x21; c <= 0x7E; c++)
+        for (unsigned set = CELL_SET_DEC; set <= CELL_SET_TECH; set++)
+        {
+            if (set == CELL_SET_DEC && c < 0x5F)
+                continue;
+            const unsigned slot = set == CELL_SET_DEC ? (c | 0x80) : FONT_OTHER_HIGH + c - 0x21;
+            const uint8_t b = cell_text_byte(word(set, c));
+            if (b < 0x80)
+                continue;
+            for (int row = 0; row < 16; row++)
+                ASSERT_EQ(font16[FONT_OTHER(16) + row * 256 + slot], font16[row * 256 + b]);
+            checked++;
+        }
+    ASSERT_GE(checked, 40u);
+}
+
+/* Inside the machine, a code page byte stays as it is, and every other
+ * character becomes the code page's nearest, or '?': never a control byte,
+ * so the C0 glyphs and DEL's go too. */
+UTEST(term, a_byte_is_the_code_page_s_nearest)
+{
+    fresh();
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_PAGE, 'A')), 'A');
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_PAGE, 0x82)), 0x82);
+    ASSERT_EQ(cell_text_unicode(word(CELL_SET_PAGE, 0x82)), 0x00E9u);
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_DEC, 'q')), 0xC4);
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_DEC, 'y')), 0xF3);
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_DEC, 'z')), 0xF2);
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_TECH, 'a')), 0xE0);
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_TECH, '1')), '?');
+    ASSERT_EQ(cell_text_unicode(word(CELL_SET_PAGE, 0x01)), 0x263Au);
+    ASSERT_EQ(cell_text_unicode(word(CELL_SET_PAGE, 0x7F)), 0x2302u);
+    for (unsigned c = 0; c < 0x20; c++)
+        ASSERT_GE(cell_text_byte(word(CELL_SET_PAGE, c)), 0x20);
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_PAGE, 0x7F)), '?');
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_DEC, '_')), ' ');
+}
+
+/* A code page with no box drawing has '?' for DEC's line. */
+UTEST(term, a_page_with_no_line_has_a_question_mark_for_dec_s)
+{
+    fresh();
+    vterm_load_code_page(1252);
+    ASSERT_EQ(vterm_get_code_page(), 0);
+    ASSERT_EQ(cell_text_byte(word(CELL_SET_DEC, 'q')), '?');
+    vterm_load_code_page(437);
+}
+
+/* ---- what a copy takes ------------------------------------------------- */
+
+static char copied[1024];
+static size_t copied_len;
+
+static void copy_text(screen_sink_t *k, uint16_t w)
+{
+    (void)k;
+    copied[copied_len++] = (char)cell_text_byte(w);
+}
+
+static void copy_line(screen_sink_t *k)
+{
+    (void)k;
+    copied[copied_len++] = '\n';
+}
+
+/* The text of the screen showing from row y0, column x0 up to row y1,
+ * column x1, a line end as \n. */
+static const char *copy(int y0, int x0, int y1, int x1)
+{
+    draw_task();
+    term_job_finish(&vterm);
+    copied_len = 0;
+    screen_sink_t k = {copy_text, copy_line};
+    screen_copy(vterm_get_shown(&vterm)->shown, (uint8_t)y0, (uint8_t)x0, (uint8_t)y1,
+                (uint8_t)x1, &k);
+    copied[copied_len] = 0;
+    return copied;
+}
+
+/* Cells never written before a row's last written cell copy as spaces, and
+ * none after it. */
+UTEST(term, a_copy_takes_a_row_up_to_its_last_written_cell)
+{
+    fresh();
+    feed("foo\33[5Cbar");
+    ASSERT_STREQ(copy(0, 0, 0, 11), "foo     bar");
+    ASSERT_STREQ(copy(0, 2, 0, 5), "o  ");
+    ASSERT_STREQ(copy(0, 0, 1, 0), "foo     bar\n");
+}
+
+/* Written spaces are text. */
+UTEST(term, a_copy_keeps_written_spaces)
+{
+    fresh();
+    feed("ab  ");
+    ASSERT_STREQ(copy(0, 0, 0, 80), "ab  ");
+    feed("\33[2;1Hab\33[K");
+    ASSERT_STREQ(copy(1, 0, 1, 80), "ab");
+}
+
+/* A line that ended early ends with a line end, but the copy's last row
+ * never does, however far past its text the copy reaches: a copy takes a
+ * row's line end by going on into the next row. */
+UTEST(term, a_copy_ends_a_line_that_ended_early)
+{
+    fresh();
+    feed("a\r\nb");
+    ASSERT_STREQ(copy(0, 0, 1, 80), "a\nb");
+    ASSERT_STREQ(copy(0, 0, 1, 1), "a\nb");
+    ASSERT_STREQ(copy(0, 0, 1, 0), "a\n");
+    ASSERT_STREQ(copy(0, 1, 0, 80), "");
+    ASSERT_STREQ(copy(0, 1, 1, 0), "\n");
+}
+
+/* A line that wrapped on its own joins the next with nothing between, and
+ * an erase that clears its wrap mark ends it. */
+UTEST(term, a_copy_joins_a_wrapped_line)
+{
+    fresh();
+    feed_as(81);
+    feed("yz");
+    char want[96];
+    memset(want, 'A', 81);
+    memcpy(want + 81, "yz", 3);
+    ASSERT_STREQ(copy(0, 0, 1, 80), want);
+    feed("\33[1;80H\33[K");
+    memcpy(want + 79, "\nAyz", 5);
+    ASSERT_STREQ(copy(0, 0, 1, 80), want);
+}
+
+/* A row of double width has half the columns. */
+UTEST(term, a_copy_of_a_double_width_row_has_half_the_columns)
+{
+    fresh();
+    feed("\33#6abc");
+    ASSERT_STREQ(copy(0, 1, 0, 40), "bc");
+    ASSERT_STREQ(copy(0, 0, 0, 2), "ab");
+}
+
+/* Each operation leaves the first rows wrapped where xterm 412 does. xterm
+ * prints a row that wrapped on its own with no newline after it (print.c,
+ * printLine, with printerNewLine false), and these are the rows it printed
+ * so for the same bytes. */
+UTEST(term, lines_wrap_where_xterms_do)
+{
+    static const struct
+    {
+        int as; /* A's printed first, from home */
+        const char *seq;
+        bool wrapped[4];
+    } cases[] = {
+        {81, "", {1}},
+        {0, "AB\r\nCD", {0}},
+        {80, "", {0}},
+        {81, "\33[1;11H\33[K", {0}},
+        {81, "\33[1;11H\33[1K", {1}},
+        {81, "\33[1;11H\33[2K", {1}},
+        {81, "\33[1;11H\33[X", {0}},
+        {81, "\33[1;11H\33[P", {0}},
+        {81, "\33[1;11H\33[@", {1}},
+        {81, "\33[2J", {0}},
+        {81, "\33[2;5H\33[1J", {0}},
+        {81, "\33[1;5H\33[J", {0}},
+        {81, "\33[1;5H\33[?K", {0}},
+        {81, "\33[1;5H\33[?2J", {0}},
+        {81, "\33#8", {1}},
+        {81, "\33[1;1H\33#6", {1}},
+        {81, "\33[?69h", {1}},
+        {81, "\33[1 @", {0}},
+        {81, "\33[1 A", {1}},
+        {81, "\33[1;5H\33[1'~", {0}},
+        {81, "\33[1;5H\33[1'}", {1}},
+        {81, "\33[1;80H\33" "9", {0}},
+        {81, "\33[1;1H\33" "6", {1}},
+        {81, "\33[1;1H\33M", {0, 1}},
+        {81, "\33[1;1H\33[L", {0, 1}},
+        {81, "\33[1;1H\33[M", {0}},
+        {81, "\33[1;4r\33[?69h\33[1;40s\33[1;1H\33[S", {1}},
+        {81, "\33[1;5H\33[1;1;1;80$z", {1}},
+        {0, "\33[1\"qP\33[0\"qA\33[79b\33[1;5H\33[?K", {0}},
+        {70, "\33[20b", {1}},
+        {81, "\33[?1049h\33[?1049l", {1}},
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++)
+    {
+        fresh();
+        feed_as(cases[i].as);
+        feed(cases[i].seq);
+        for (int y = 0; y < 4; y++)
+        {
+            if (wrapped(y) != cases[i].wrapped[y])
+                printf("case %u, row %d\n", (unsigned)i, y);
+            ASSERT_EQ((int)wrapped(y), (int)cases[i].wrapped[y]);
+        }
+    }
+}
+
+/* Between left and right margins narrower than the screen no line is
+ * marked, printed or repeated, where xterm marks the row a print leaves:
+ * a run between margins is not a line of text. */
+UTEST(term, a_wrap_between_narrower_margins_marks_no_line)
+{
+    fresh();
+    feed("\33[?69h\33[1;40s\33[1;1H");
+    feed_as(41);
+    ASSERT_FALSE(wrapped(0));
+    ASSERT_STREQ(row(1), "A");
+    feed("\33[3;1HB\33[40b");
+    ASSERT_FALSE(wrapped(2));
+    ASSERT_STREQ(row(3), "B");
+    feed("\33[?69l\33[5;1H");
+    feed_as(81);
+    ASSERT_TRUE(wrapped(4));
+}
+
+/* A wrapped line is wrapped wherever its row goes: into the scrollback and
+ * back, and through a savestate. */
+UTEST(term, a_wrapped_line_goes_with_its_row)
+{
+    fresh();
+    vterm_place(80, 29, 0, 16);
+    feed_as(81);
+    ASSERT_TRUE(wrapped(0));
+    feed("\33[29;1H\n");
+    ASSERT_FALSE(wrapped(0));
+    ASSERT_STREQ(row(0), "A");
+    vterm_place(80, 30, 0, 16);
+    ASSERT_TRUE(wrapped(0));
+    ASSERT_FALSE(wrapped(1));
+    static uint8_t blob[1 << 20];
+    ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
+    feed("\33c");
+    ASSERT_FALSE(wrapped(0));
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
+    ASSERT_TRUE(wrapped(0));
+    ASSERT_FALSE(wrapped(1));
 }
 
 /* ---- xterm's key options, and columns -------------------------------------- */
@@ -2294,7 +3072,7 @@ UTEST(term, xterm_key_options_set_and_report)
     /* The options of the other keys are not the console's to set or tell. */
     ASSERT_STREQ(ask("\33[?1m\33[?2g"), "");
     /* The secondary device attributes are still asked with the same marker. */
-    ASSERT_STREQ(ask("\33[>c"), "\33[>0;1;0c");
+    ASSERT_STREQ(ask("\33[>c"), "\33[>41;10;0c");
     /* The end of a program turns them off. */
     feed("\33[>4;2m\33[>4;1f");
     feed(STR_TERM_SOFT_RESET);
@@ -2395,8 +3173,182 @@ UTEST(term, decrqss_answers_with_the_other_settings)
     ASSERT_STREQ(ask("\33[1\"q\33P$q\"q\33\\"), "\33P1$r1\"q\33\\");
     ASSERT_STREQ(ask("\33P$q*x\33\\"), "\33P1$r0*x\33\\");
     ASSERT_STREQ(ask("\33[2*x\33P$q*x\33\\"), "\33P1$r2*x\33\\");
-    ASSERT_STREQ(ask("\33P$q\"p\33\\"), "\33P0$r\33\\");
+    ASSERT_STREQ(ask("\33P$q\"p\33\\"), "\33P1$r64;1\"p\33\\");
+    ASSERT_STREQ(ask("\33P$qt\33\\"), "\33P1$r30t\33\\");
+    ASSERT_STREQ(ask("\33P$q$|\33\\"), "\33P1$r80$|\33\\");
+    ASSERT_STREQ(ask("\33P$q*|\33\\"), "\33P1$r30*|\33\\");
     ASSERT_STREQ(ask("\33P$qz\33\\"), "\33P0$r\33\\");
+}
+
+/* DECSCS, CSI Ps1 ; Ps2 * r, keeps the speed SyncTERM's table gives Ps2,
+ * 0 unlimited. An empty parameter is 0, and Ps1 is empty, 0 or 1. */
+UTEST(term, decscs_sets_the_speed)
+{
+    static const uint32_t bps[] = {0, 300, 600, 1200, 2400, 4800, 9600,
+                                   19200, 38400, 57600, 76800, 115200};
+    fresh();
+    ASSERT_EQ(term_speed(&vterm), 0u);
+    for (unsigned i = 0; i < sizeof bps / sizeof bps[0]; i++)
+    {
+        char seq[16];
+        snprintf(seq, sizeof seq, "\33[%u;%u*r", i % 2, i);
+        feed(seq);
+        ASSERT_EQ(term_speed(&vterm), bps[i]);
+    }
+    feed("\33[;6*r");
+    ASSERT_EQ(term_speed(&vterm), 9600u);
+    feed("\33[*r");
+    ASSERT_EQ(term_speed(&vterm), 0u);
+    feed("\33[0;3*r\33[1*r");
+    ASSERT_EQ(term_speed(&vterm), 0u);
+    feed("\33[0;3*r\33[1;5;9*r");
+    ASSERT_EQ(term_speed(&vterm), 4800u);
+}
+
+/* Any other DECSCS is ignored and the speed kept: another line, a speed
+ * past the table, and sequences that are not DECSCS. */
+UTEST(term, decscs_ignores_what_it_does_not_take)
+{
+    fresh();
+    feed("\33[0;3*r");
+    const char *const ignored[] = {
+        "\33[2;6*r", "\33[3*r", "\33[5;1*r", "\33[0;12*r", "\33[;99999*r",
+        "\33[?0;6*r", "\33[0:6*r", "\33[0;6**r", "\33[0;6+r"};
+    for (unsigned i = 0; i < sizeof ignored / sizeof ignored[0]; i++)
+    {
+        feed(ignored[i]);
+        ASSERT_EQ(term_speed(&vterm), 1200u);
+    }
+    ASSERT_STREQ(row(0), "");
+}
+
+/* DECRQSS answers DECSCS's speed as SyncTERM does, Ps1 empty. */
+UTEST(term, decrqss_answers_with_the_speed)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33P$q*r\33\\"), "\33P1$r;0*r\33\\");
+    ASSERT_STREQ(ask("\33[0;6*r\33P$q*r\33\\"), "\33P1$r;6*r\33\\");
+    ASSERT_STREQ(ask("\33[1;11*r\33P$q*r\33\\"), "\33P1$r;11*r\33\\");
+    ASSERT_STREQ(ask("\33[0;12*r\33P$q*r\33\\"), "\33P1$r;11*r\33\\");
+}
+
+/* RIS and the system's soft reset set the speed back to unlimited; DECSTR,
+ * and DECSCL with it, leave it. */
+UTEST(term, the_resets_and_the_speed)
+{
+    fresh();
+    feed("\33[0;3*r\33[!p");
+    ASSERT_EQ(term_speed(&vterm), 1200u);
+    feed("\33[63\"p");
+    ASSERT_EQ(term_speed(&vterm), 1200u);
+    feed("\33c");
+    ASSERT_EQ(term_speed(&vterm), 0u);
+    feed("\33[0;3*r");
+    vterm_RIS_no_clear();
+    ASSERT_EQ(term_speed(&vterm), 0u);
+}
+
+/* A savestate carries the speed and refuses one past the table. */
+UTEST(term, a_savestate_carries_the_speed)
+{
+    static uint8_t blob[1 << 18];
+    fresh();
+    feed("\33[0;7*r");
+    ASSERT_LE((size_t)draw_sst.size, sizeof blob);
+    sst_cursor_t c = {blob, blob + draw_sst.size, false, NULL};
+    draw_sst.save(&c, 0);
+    ASSERT_TRUE(sst_ok(&c));
+    feed("\33c");
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    ASSERT_TRUE(draw_sst.load(&c, 0));
+    ASSERT_EQ(term_speed(&vterm), 19200u);
+    vterm.speed = TERM_SPEED_MAX + 1;
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    draw_sst.save(&c, 0);
+    vterm.speed = 0;
+    feed("\33c");
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    ASSERT_FALSE(draw_sst.load(&c, 0));
+}
+
+/* DECRQPSR reports the cursor (DECCIR) and the tab stops (DECTABSR), and
+ * DECRSPS takes the reports back. */
+UTEST(term, decrqpsr_and_decrsps)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33[1$w"), "\33P1$u1;1;1;@;@;@;0;2;@;BBBB\33\\");
+    ASSERT_STREQ(ask("\33[5;10H\33[1;4;7m\33[1\"q\33*0\33)A\33n\33[1$w"),
+                 "\33P1$u5;10;1;K;A;@;2;2;@;BA0B\33\\");
+    ASSERT_STREQ(ask("\33[0m\33[0\"q\33[30;80Hx\33O\33[1$w"),
+                 "\33P1$u30;80;1;@;@;L;2;2;@;BA0B\33\\");
+    ASSERT_STREQ(ask("\33[2$w"), "\33P2$u9/17/25/33/41/49/57/65/73\33\\");
+    ASSERT_STREQ(ask("\33[3g\33[2$w"), "\33P2$u\33\\");
+
+    fresh();
+    feed("\33[2;20r\33P1$t3;4;1;C;A;I;3;2;@;A%50B\33\\");
+    ASSERT_EQ(cx(), 3);
+    ASSERT_EQ(cy(), 2);
+    ASSERT_STREQ(ask("\33[1$w"), "\33P1$u3;4;1;C;A;I;3;2;@;AB0B\33\\");
+    ASSERT_STREQ(ask("\33P$qm\33\\"), "\33P1$r0;1;4m\33\\");
+    /* Out of range, or garbled, it changes nothing. */
+    feed("\33P1$t31;4;1;@;@;@;0;2;@;BBBB\33\\");
+    feed("\33P1$t1;1;1;@;@;F;0;2;@;BBBB\33\\");
+    feed("\33P1$t1;1;1;@@;@;@;0;2;@;BBBB\33\\");
+    feed("\33P1$t1;1;1;@;@;@;0;2;@;BBB\33\\");
+    ASSERT_STREQ(ask("\33[1$w"), "\33P1$u3;4;1;C;A;I;3;2;@;AB0B\33\\");
+
+    feed("\33P2$t5/12/80\33\\");
+    ASSERT_STREQ(ask("\33[2$w"), "\33P2$u5/12/80\33\\");
+    feed("\33P2$t5/x\33\\");
+    ASSERT_STREQ(ask("\33[2$w"), "\33P2$u5/12/80\33\\");
+    feed("\33P2$t\33\\");
+    ASSERT_STREQ(ask("\33[2$w"), "\33P2$u\33\\");
+}
+
+/* DECCOLM does nothing until xterm's ?40 allows it; then, as in xterm
+ * where the window may not resize, the width stays and the screen is
+ * erased, every line single size, the margins whole and the cursor home. */
+UTEST(term, deccolm_with_allow_80_to_132)
+{
+    fresh();
+    feed("abc\33#6\33[5;20r\33[?69h\33[3;30s\33[10;10H\33[?3h");
+    ASSERT_STREQ(row(0), "abc");
+    ASSERT_EQ(cx(), 9);
+    ASSERT_STREQ(ask("\33[?40$p"), "\33[?40;2$y");
+    feed("\33[?40h\33[?3l");
+    ASSERT_STREQ(row(0), "");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_NORMAL);
+    ASSERT_EQ(cx(), 0);
+    ASSERT_EQ(cy(), 0);
+    ASSERT_STREQ(ask("\33P$qr\33\\\33P$qs\33\\"), "\33P1$r1;30r\33\\\33P1$r1;80s\33\\");
+    ASSERT_STREQ(ask("\33[?40$p\33[?3$p"), "\33[?40;1$y\33[?3;4$y");
+    ASSERT_STREQ(ask("\33c\33[!p\33[?40$p"), "\33[?40;1$y");
+    feed(STR_TERM_SOFT_RESET);
+    ASSERT_STREQ(ask("\33[?40$p"), "\33[?40;2$y");
+}
+
+UTEST(term, decbkm_is_a_mode)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33[?67$p"), "\33[?67;2$y");
+    ASSERT_STREQ(ask("\33[?67h\33[?67$p"), "\33[?67;1$y");
+    ASSERT_TRUE(vterm.backarrow_bs);
+    ASSERT_STREQ(ask("\33c\33[?67$p"), "\33[?67;2$y");
+}
+
+/* DECSCL sets the level DECRQSS reports, with a soft reset, and takes no
+ * level it has not. Controls stay 7-bit whatever it asks. */
+UTEST(term, decscl_sets_the_level_with_a_soft_reset)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33[61\"p\33P$q\"p\33\\"), "\33P1$r61\"p\33\\");
+    ASSERT_STREQ(ask("\33[62;0\"p\33P$q\"p\33\\"), "\33P1$r62;1\"p\33\\");
+    ASSERT_STREQ(ask("\33[65\"p\33P$q\"p\33\\"), "\33P1$r62;1\"p\33\\");
+    ASSERT_STREQ(ask("\33[5;20r\33[4h\33[1m\33[63\"p\33P$qr\33\\\33P$qm\33\\"),
+                 "\33P1$r1;30r\33\\\33P1$r0m\33\\");
+    ASSERT_STREQ(ask("\33[4$p"), "\33[4;2$y");
+    ASSERT_STREQ(ask("\33[!p\33P$q\"p\33\\"), "\33P1$r63;1\"p\33\\");
+    ASSERT_STREQ(ask("\33c\33P$q\"p\33\\"), "\33P1$r64;1\"p\33\\");
 }
 
 /* Any other DCS string is dropped to its ST, and so is one cut short. */
@@ -2412,11 +3364,11 @@ UTEST(term, a_dcs_string_that_is_not_decrqss_is_dropped)
     ASSERT_STREQ(ask("\33P+qmmmmmmmmmmmmmmmmmmmmmmmm\33\\"), "");
     ASSERT_STREQ(row(0), "abcdef");
     /* A string split across a savestate is still answered. */
-    static uint8_t blob[1 << 20], undo[1 << 20];
+    static uint8_t blob[1 << 20];
     feed("\33P$qr\33");
     ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
     feed("\33c");
-    ASSERT_EQ(sst_load(blob, sst_size(), undo, 0), (const char *)NULL);
+    ASSERT_EQ(sst_load(blob, sst_size(), 0), (const char *)NULL);
     ASSERT_STREQ(ask("\\"), "\33P1$r1;30r\33\\");
 }
 
@@ -2463,6 +3415,35 @@ UTEST(term, osc_colors_can_be_asked_for)
     /* No entry 256, and a reset gives the first colors back. */
     ASSERT_STREQ(ask("\33]4;256;?\7"), "");
     ASSERT_STREQ(ask("\33c\33]4;1;?\7"), color_answer("\33]4;1", color_256[1], "\7"));
+    /* Under DECSCNM each dynamic color asked for is the one its own
+     * command sets then, as xterm's oppositeColor pairs them, under the
+     * number asked: OSC 10's the default background kept, the foreground
+     * shown, and OSC 17's the selection's text. The answer is the colour
+     * now; xterm's ReportColorRequest can answer from a cache filled
+     * before the DECSCNM, which is not copied. */
+    ASSERT_STREQ(ask("\33]19;#ff0000\7\33]11;#00ff00\7\33[?5h\33]17;?\7\33]10;?\7"),
+                 "\33]17;rgb:ffff/0000/0000\7\33]10;rgb:0000/ffff/0000\7");
+    ASSERT_STREQ(ask("\33]19;?\33\\"), color_answer("\33]19", color_256[7], "\33\\"));
+    ASSERT_STREQ(ask("\33]11;?\7"), color_answer("\33]11", color_256[7], "\7"));
+    ASSERT_STREQ(ask("\33[?5l\33]17;?\7"), color_answer("\33]17", color_256[7], "\7"));
+}
+
+/* As on xterm, the cursor's color starts as the default foreground and
+ * follows a change to it, by OSC 10 or OSC 110, while it is the same
+ * color. A cursor color of its own stays. */
+UTEST(term, the_cursor_color_follows_the_default_foreground)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33]10;#ff0000\7\33]12;?\7"), "\33]12;rgb:ffff/0000/0000\7");
+    ASSERT_STREQ(ask("\33]110\7\33]12;?\7"), color_answer("\33]12", color_256[7], "\7"));
+    /* The cursor's color set in the same OSC is the one it keeps. */
+    ASSERT_STREQ(ask("\33]10;#ff0000;#000000;#0000ff\7\33]12;?\7"),
+                 "\33]12;rgb:0000/0000/ffff\7");
+    ASSERT_STREQ(ask("\33]10;#00ff00\7\33]12;?\7"), "\33]12;rgb:0000/0000/ffff\7");
+    ASSERT_STREQ(ask("\33]112\7\33]12;?\7"), color_answer("\33]12", color_256[7], "\7"));
+    /* Set to the default foreground, it follows again. */
+    ASSERT_STREQ(ask("\33]10;#00ff00\7\33]12;#00ff00\7\33]10;#ff00ff\7\33]12;?\7"),
+                 "\33]12;rgb:ffff/0000/ffff\7");
 }
 
 /* Everything Neovim asks as it starts, in one burst with nothing read
@@ -2484,17 +3465,17 @@ UTEST(term, what_neovim_asks_as_it_starts_is_all_answered)
     ASSERT_STREQ(answer(),
                  "\33[?69;2$y\33[?2026;0$y\33[?2027;0$y\33[?2031;0$y\33[?2048;0$y"
                  "\33P1$r0;4:3m\33\\"
-                 "\33[?6c"
+                 "\33[?64;6;21;22;28;29c"
                  "\33]11;rgb:0000/0000/0000\7\33[0n"
                  "\33]11;rgb:0000/0000/0000\7\33[0n"
                  "\33P1$r0;48:2::1:2:3m\33\\"
-                 "\33[?6c");
+                 "\33[?64;6;21;22;28;29c");
     ASSERT_STREQ(row(0), "");
     ASSERT_EQ(cx(), 0);
     ASSERT_EQ(cy(), 0);
     ASSERT_STREQ(ask("\33P$qm\33\\"), "\33P1$r0m\33\\");
     /* And as it leaves. */
-    ASSERT_STREQ(ask("\33[>4;0m\33[c"), "\33[?6c");
+    ASSERT_STREQ(ask("\33[>4;0m\33[c"), "\33[?64;6;21;22;28;29c");
 }
 
 /* ---- smooth scroll ---- */
@@ -2504,8 +3485,10 @@ static const char *ghost(void)
 {
     static char text[96];
     const mode0_cell_t *c = &mode0_cells[MODE0_ROW_CELL(mode0_regs.smooth_ghost)];
+    tb_screen_t v;
+    tb_screen(&v);
     int last = 0;
-    for (int x = 0; x < 80; x++)
+    for (int x = 0; x < v.width; x++)
     {
         text[x] = (char)mode0_glyph_code(c[x].glyph);
         if (text[x] != ' ')
@@ -2515,6 +3498,31 @@ static const char *ghost(void)
     return text;
 }
 
+/* A smooth REP moves out the row the last of its scrolls takes out, as it
+ * was: a row it never wrote, the row it started on, or a row of the glyph,
+ * which is kept aside from the ring and still takes it. */
+UTEST(term, a_smooth_rep_moves_out_the_row_its_last_scroll_takes)
+{
+    static char started[81], full[81];
+    memset(started, ' ', 40);
+    memset(started + 40, 'Q', 40);
+    memset(full, 'Q', 80);
+    static const struct
+    {
+        int n;
+        const char *out;
+    } cases[] = {{119, "OLD"}, {519, started}, {599, full}};
+    for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++)
+    {
+        char seq[64];
+        fresh();
+        snprintf(seq, sizeof seq, "\33[5;1HOLD\33[?4h\33[5;10r\33[10;41HQ\33[%db", cases[i].n);
+        feed(seq);
+        ASSERT_TRUE(mode0_regs.smooth & MODE0_SMOOTH_ON);
+        ASSERT_STREQ(ghost(), cases[i].out);
+    }
+}
+
 UTEST(term, decsclm_is_reported)
 {
     fresh();
@@ -2522,8 +3530,8 @@ UTEST(term, decsclm_is_reported)
     ASSERT_STREQ(ask("\33[?4h\33[?4$p"), "\33[?4;1$y");
 }
 
-/* The row going out still shows while it goes, so an erase it was owed is
- * paid first: a whole-screen scroll after ED 2 moves out a blank row. */
+/* The row going out still shows while it goes, as it is: a whole-screen
+ * scroll after ED 2 moves out a blank row. */
 UTEST(term, a_smooth_scroll_moves_out_the_row_as_it_is)
 {
     fresh();
@@ -2542,6 +3550,72 @@ UTEST(term, a_smooth_reverse_index_moves_out_the_bottom_row_as_it_is)
     feed("\33[r");
 }
 
+/* A smooth line feed on a screen shorter than its ring moves out the top
+ * row, which joins the scrollback as it is and comes back with a grow. The
+ * 80-column size, not showing, at its full height with no slot to spare,
+ * scrolls the same line feed with its spare row and keeps its text. */
+UTEST(term, a_smooth_scroll_with_scrollback_keeps_both_sizes_text)
+{
+    fresh();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    vterm_place(40, TERM_MAX_HEIGHT - 1, 0, 8);
+    feed("\33[?4h\33[HA\33[2;1HB\33[99;1HZ\n");
+    ASSERT_TRUE(mode0_regs.smooth & MODE0_SMOOTH_ON);
+    ASSERT_STREQ(ghost(), "A");
+    ASSERT_STREQ(row(0), "B");
+    ASSERT_STREQ(row(TERM_MAX_HEIGHT - 3), "Z");
+    ASSERT_STREQ(row(TERM_MAX_HEIGHT - 2), "");
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+    ASSERT_EQ(vterm.grids[1]->height, TERM_MAX_HEIGHT);
+    ASSERT_STREQ(row(0), "B");
+    ASSERT_STREQ(row(TERM_MAX_HEIGHT - 2), "Z");
+    ASSERT_STREQ(row(TERM_MAX_HEIGHT - 1), "");
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    vterm_place(40, TERM_MAX_HEIGHT, 0, 8);
+    ASSERT_STREQ(row(0), "A");
+    ASSERT_STREQ(row(1), "B");
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* The row a smooth scroll moves out is drawn at its own size: from the
+ * spare row on a screen with no slot to spare, and from the scrollback on
+ * one shorter than its ring, where it comes back at that size too. */
+UTEST(term, a_smooth_scroll_moves_out_a_double_size_row_at_its_size)
+{
+    fresh();
+    feed("\33[?4h\33[H\33#3A\33[30;1H\n");
+    ASSERT_TRUE(mode0_regs.smooth & MODE0_SMOOTH_ON);
+    ASSERT_STREQ(ghost(), "A");
+    ASSERT_EQ(MODE0_ROW_SIZE(mode0_regs.smooth_ghost), TERM_LINE_TOP);
+    ASSERT_EQ(tb_screen_row_size(TERM_MAX_HEIGHT - 1), TERM_LINE_NORMAL);
+
+    fresh();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_320_240));
+    vterm_place(40, TERM_MAX_HEIGHT - 1, 0, 8);
+    feed("\33[?4h\33[H\33#3A\33[99;1HZ\n");
+    ASSERT_TRUE(mode0_regs.smooth & MODE0_SMOOTH_ON);
+    ASSERT_STREQ(ghost(), "A");
+    ASSERT_EQ(MODE0_ROW_SIZE(mode0_regs.smooth_ghost), TERM_LINE_TOP);
+    ASSERT_EQ(tb_screen_row_size(TERM_MAX_HEIGHT - 2), TERM_LINE_NORMAL);
+    vterm_place(40, TERM_MAX_HEIGHT, 0, 8);
+    ASSERT_STREQ(row(0), "A");
+    ASSERT_EQ(tb_screen_row_size(0), TERM_LINE_TOP);
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
+}
+
+/* DECLRMM's set makes every line single size, the row going out too, so it
+ * ends a smooth scroll, and with it the hold. */
+UTEST(term, declrmm_ends_a_smooth_scroll_and_its_hold)
+{
+    fresh();
+    feed("\33[?4h\33[30;1H\n");
+    ASSERT_TRUE(term_holds(&vterm, '\n'));
+    feed("\33[?69h");
+    ASSERT_FALSE(term_holds(&vterm, '\n'));
+    ASSERT_TRUE(vterm_smooth_grid() == NULL);
+    feed("\33[?69l");
+}
+
 /* A line feed that would scroll the moving rows again waits for them to
  * land, which takes TERM_SMOOTH_FRAMES frames. Text goes on into the row
  * coming in. */
@@ -2549,15 +3623,28 @@ UTEST(term, a_smooth_scroll_holds_the_next_line_feed)
 {
     fresh();
     feed("\33[?4h\33[30;1H\n");
-    ASSERT_TRUE(term_holds(&cells_term, '\n'));
-    ASSERT_FALSE(term_holds(&cells_term, 'A'));
+    ASSERT_TRUE(term_holds(&vterm, '\n'));
+    ASSERT_FALSE(term_holds(&vterm, 'A'));
     int frames = 0;
-    while (term_holds(&cells_term, '\n') && frames < 100)
+    while (term_holds(&vterm, '\n') && frames < 100)
     {
         vga_run_frame();
         frames++;
     }
     ASSERT_EQ(frames, TERM_SMOOTH_FRAMES);
+}
+
+/* RIS ends a smooth scroll on every machine, and with it the hold: the
+ * next line feed goes at once. */
+UTEST(term, ris_ends_a_smooth_scroll_and_its_hold)
+{
+    fresh();
+    feed("\33[?4h\33[30;1H\n");
+    ASSERT_TRUE(vterm_smoothing.grid == vterm_get_shown(&vterm));
+    ASSERT_TRUE(term_holds(&vterm, '\n'));
+    feed("\33c");
+    ASSERT_TRUE(vterm_smoothing.grid == NULL);
+    ASSERT_FALSE(term_holds(&vterm, '\n'));
 }
 
 /* A line feed that has to wait, behind one that is scrolling: what the
@@ -2590,7 +3677,7 @@ UTEST(term, a_console_sync_waits_for_the_scroll)
 UTEST(term, the_end_of_a_chain_releases_a_held_line)
 {
     ASSERT_TRUE(held_line_feed());
-    term_release_smooth(&cells_term);
+    term_release_smooth(&vterm);
     manifold_task();
     ASSERT_TRUE(manifold_drained());
     /* DECSCLM set again holds again. */
@@ -2610,7 +3697,7 @@ static void rln_cb(bool timeout, const char *buf)
 UTEST(term, a_read_waits_for_the_held_line)
 {
     ASSERT_TRUE(held_line_feed());
-    rln_read_line(rln_cb, NULL);
+    rln_read_line(rln_cb, NULL, NULL);
     manifold_uart_push("hi\r", 3);
     rln_got[0] = 0;
     int frames = 0;
@@ -2622,6 +3709,2008 @@ UTEST(term, a_read_waits_for_the_held_line)
     ASSERT_STREQ(rln_got, "hi");
     ASSERT_TRUE(frames > TERM_SMOOTH_FRAMES);
     ASSERT_EQ(cy(), 29);
+}
+
+/* ---- jobs (screen.h) ----------------------------------------------------
+ *
+ * Work on more than one row of a screen, a row at a time, on the 80-column
+ * terminal's screen showing. */
+
+static screen_t *job_screen(void)
+{
+    return vterm_get_shown(&vterm)->shown;
+}
+
+/* A job of a kind on rows first to last, in that order, up the screen
+ * when first is below last, and columns [left, right]. */
+static screen_job_t job(uint8_t kind, uint8_t first, uint8_t last, uint8_t left, uint8_t right)
+{
+    screen_job_t j;
+    memset(&j, 0, sizeof j);
+    j.kind = kind;
+    j.first = first;
+    j.last = last;
+    j.up = first > last;
+    j.left = left;
+    j.right = right;
+    return j;
+}
+
+/* A job left pending with none of its rows done, as a machine that does a
+ * job a few rows at a time leaves one. */
+static void job_pending(const screen_job_t *j)
+{
+    screen_t *s = job_screen();
+    s->cells->job = *j;
+    s->cells->job.next = j->first;
+}
+
+/* A character as the pen writes it, and the blank a clear brings in. */
+static cell_fill_t job_char(uint8_t code)
+{
+    return cell_from_pen(&vterm, 80, code, CELL_SET_PAGE);
+}
+
+static cell_fill_t job_blank(bool written)
+{
+    return cell_blank(' ', cell_side_default(), false, written);
+}
+
+/* Rows 1 to 6 of the screen, a letter a row from a. */
+static void job_rows(void)
+{
+    fresh();
+    feed("aaaaaa\r\nbbbbbb\r\ncccccc\r\ndddddd\r\neeeeee\r\nffffff");
+}
+
+/* A fill: its columns of its rows, and nothing else. A job starts and runs
+ * to the end at once. */
+UTEST(job, a_fill_fills_its_columns_of_its_rows)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_FILL, 1, 3, 2, 4);
+    j.fill = job_char('x');
+    screen_job_start(job_screen(), &j);
+    ASSERT_FALSE(screen_job_pending(job_screen()));
+    ASSERT_STREQ(row(0), "aaaaaa");
+    ASSERT_STREQ(row(1), "bbxxxb");
+    ASSERT_STREQ(row(3), "ddxxxd");
+    ASSERT_STREQ(row(4), "eeeeee");
+}
+
+/* A step does the next rows, as many as it is given, from the first row to
+ * the last, here up the screen, and says whether any are left. */
+UTEST(job, a_step_does_the_next_rows)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_FILL, 4, 0, 0, 1);
+    j.fill = job_char('x');
+    job_pending(&j);
+    ASSERT_TRUE(screen_job_step(job_screen(), 2));
+    ASSERT_STREQ(row(4), "xxeeee");
+    ASSERT_STREQ(row(3), "xxdddd");
+    ASSERT_STREQ(row(2), "cccccc");
+    ASSERT_TRUE(screen_job_pending(job_screen()));
+    ASSERT_TRUE(screen_job_step(job_screen(), 2));
+    ASSERT_STREQ(row(1), "xxbbbb");
+    ASSERT_STREQ(row(0), "aaaaaa");
+    ASSERT_FALSE(screen_job_step(job_screen(), 2));
+    ASSERT_STREQ(row(0), "xxaaaa");
+    ASSERT_FALSE(screen_job_pending(job_screen()));
+    ASSERT_STREQ(row(5), "ffffff");
+}
+
+/* The end of a job is the rest of it at once. */
+UTEST(job, a_finish_does_the_rest)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_FILL, 0, 5, 0, 0);
+    j.fill = job_char('x');
+    job_pending(&j);
+    ASSERT_TRUE(screen_job_step(job_screen(), 1));
+    screen_job_finish(job_screen());
+    ASSERT_FALSE(screen_job_pending(job_screen()));
+    ASSERT_STREQ(row(5), "xfffff");
+}
+
+/* A scroll up between margins: each row takes the cells of the row below,
+ * read before it is written, and the rows after the moves take the fill
+ * coming in. */
+UTEST(job, a_move_up_reads_each_row_before_it_writes_it)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_MOVE, 0, 3, 1, 2);
+    j.move.row = 1;
+    j.move.col = 1;
+    j.move.moves = 3;
+    j.move.in = job_blank(false);
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(0), "abbaaa");
+    ASSERT_STREQ(row(1), "bccbbb");
+    ASSERT_STREQ(row(2), "cddccc");
+    ASSERT_STREQ(row(3), "d  ddd");
+    ASSERT_STREQ(row(4), "eeeeee");
+    /* A scroll's cells are not made written. */
+    ASSERT_FALSE(written(1, 3));
+}
+
+/* And down, the rows done from the bottom. */
+UTEST(job, a_move_down_reads_each_row_before_it_writes_it)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_MOVE, 3, 0, 1, 2);
+    j.move.row = 2;
+    j.move.col = 1;
+    j.move.moves = 3;
+    j.move.in = job_blank(false);
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(0), "a  aaa");
+    ASSERT_STREQ(row(1), "baabbb");
+    ASSERT_STREQ(row(2), "cbbccc");
+    ASSERT_STREQ(row(3), "dccddd");
+    ASSERT_STREQ(row(4), "eeeeee");
+}
+
+/* A DECCRA: the cells from other columns of rows elsewhere, every row
+ * moved, each cell moved to written. */
+UTEST(job, a_copy_takes_other_columns_and_writes_its_cells)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_MOVE, 7, 8, 2, 4);
+    j.sized = true;
+    j.move.row = 0;
+    j.move.col = 4;
+    j.move.moves = 2;
+    j.move.written = true;
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(7), "  aa");
+    ASSERT_STREQ(row(8), "  bb");
+    ASSERT_TRUE(written(2, 7));
+    ASSERT_TRUE(written(4, 8));
+    ASSERT_FALSE(written(1, 7));
+}
+
+/* Sized, a row's columns stop at its line's: a double-width line has half
+ * of them. */
+UTEST(job, a_sized_job_stops_at_a_lines_columns)
+{
+    fresh();
+    feed("\33[2;1H\33#6\33[3;1H\33#6");
+    screen_job_t j = job(SCREEN_JOB_FILL, 0, 2, 0, 79);
+    j.fill = job_char('x');
+    j.sized = true;
+    screen_job_start(job_screen(), &j);
+    ASSERT_EQ(strlen(row(0)), 80u);
+    ASSERT_EQ(strlen(row(1)), 40u);
+    j.last = 2;
+    j.first = 2;
+    j.sized = false;
+    screen_job_start(job_screen(), &j);
+    ASSERT_EQ(strlen(row(2)), 80u);
+}
+
+/* A shift left: the cells move left and the fill comes in at the right. */
+UTEST(job, a_shift_left_brings_its_fill_in_at_the_right)
+{
+    fresh();
+    feed("abcdef\r\nuvwxyz\r\nlmnopq");
+    screen_job_t j = job(SCREEN_JOB_SHIFT, 0, 1, 1, 4);
+    j.shift.n = 2;
+    j.shift.left = true;
+    j.shift.in = job_char('-');
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(0), "ade--f");
+    ASSERT_STREQ(row(1), "uxy--z");
+    ASSERT_STREQ(row(2), "lmnopq");
+}
+
+/* A shift right: the cells move right and the fill comes in at the left.
+ * One of more than its columns leaves every cell the fill. */
+UTEST(job, a_shift_right_brings_its_fill_in_at_the_left)
+{
+    fresh();
+    feed("abcdef\r\nuvwxyz");
+    screen_job_t j = job(SCREEN_JOB_SHIFT, 0, 1, 0, 5);
+    j.shift.n = 2;
+    j.shift.in = job_blank(true);
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(0), "  abcd");
+    ASSERT_STREQ(row(1), "  uvwx");
+    ASSERT_TRUE(written(0, 0));
+    j.shift.n = 9;
+    j.shift.in = job_char('-');
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(0), "------");
+}
+
+/* A change of attributes: its columns of its rows. */
+UTEST(job, a_change_of_attributes_changes_its_columns)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_ATTRS, 0, 1, 1, 2);
+    j.attrs.set = SCREEN_MARK_BOLD;
+    screen_job_start(job_screen(), &j);
+    ASSERT_TRUE(attrs(1, 0) & MODE0_ATTR_BOLD);
+    ASSERT_TRUE(attrs(2, 1) & MODE0_ATTR_BOLD);
+    ASSERT_FALSE(attrs(0, 0) & MODE0_ATTR_BOLD);
+    ASSERT_FALSE(attrs(3, 1) & MODE0_ATTR_BOLD);
+    ASSERT_FALSE(attrs(1, 2) & MODE0_ATTR_BOLD);
+    j.attrs.set = 0;
+    j.attrs.toggle = SCREEN_MARK_BOLD;
+    screen_job_start(job_screen(), &j);
+    ASSERT_FALSE(attrs(1, 0) & MODE0_ATTR_BOLD);
+}
+
+/* A wipe, DECSERA's: the characters become spaces, the cells keep their
+ * colors and are written, and a selective one leaves the guarded cells. */
+UTEST(job, a_wipe_makes_spaces_and_keeps_the_colors)
+{
+    fresh();
+    feed("\33[42mab\33[1\"qc\33[0\"qde\r\nfghij\r\nklmno");
+    screen_job_t j = job(SCREEN_JOB_WIPE, 0, 1, 1, 7);
+    j.wipe.selective = true;
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(0), "a c");
+    ASSERT_STREQ(row(1), "f");
+    ASSERT_STREQ(row(2), "klmno");
+    ASSERT_EQ(mode0_color(ink(1, 0)->bg_color), color_256[2]);
+    ASSERT_EQ(mode0_color(ink(3, 1)->bg_color), color_256[2]);
+    ASSERT_TRUE(written(7, 0));
+    ASSERT_FALSE(written(8, 0));
+    j.wipe.selective = false;
+    screen_job_start(job_screen(), &j);
+    ASSERT_EQ(ch(2, 0), ' ');
+    ASSERT_EQ(ch(0, 0), 'a');
+}
+
+/* A REP's rows: the first moves rows take the cells of the rows by below,
+ * the rest the glyph, and the last only to its column, the rest erased as
+ * a scroll brings it in. */
+UTEST(job, a_rep_moves_then_fills_and_erases_after_its_last_glyph)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_REP, 0, 3, 1, 4);
+    j.rep.glyph = job_char('x');
+    j.rep.erase = job_blank(false);
+    j.rep.moves = 2;
+    j.rep.by = 1;
+    j.rep.to = 3;
+    j.rep.tail = SCREEN_REP_ERASE;
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(0), "abbbba");
+    ASSERT_STREQ(row(1), "bccccb");
+    ASSERT_STREQ(row(2), "cxxxxc");
+    ASSERT_STREQ(row(3), "dxx  d");
+    ASSERT_STREQ(row(4), "eeeeee");
+    ASSERT_FALSE(written(3, 3));
+}
+
+/* In insert mode the last row's cells move right past its glyphs, once,
+ * and off the row; with nothing after the glyphs they stay. */
+UTEST(job, a_rep_in_insert_mode_pushes_its_last_row_right)
+{
+    fresh();
+    feed("abcdef\r\nuvwxyz\r\nlmnopq");
+    screen_job_t j = job(SCREEN_JOB_REP, 0, 1, 1, 4);
+    j.rep.glyph = job_char('x');
+    j.rep.to = 3;
+    j.rep.tail = SCREEN_REP_INSERT;
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(0), "axxxxf");
+    ASSERT_STREQ(row(1), "uxxvwz");
+    j.first = 2;
+    j.last = 2;
+    j.rep.tail = SCREEN_REP_KEEP;
+    screen_job_start(job_screen(), &j);
+    ASSERT_STREQ(row(2), "lxxopq");
+}
+
+/* A job's rows are counted round the ring: one can start above row 0, in
+ * the rows the ring keeps there, and go down onto the screen. */
+UTEST(job, a_job_goes_down_round_the_ring)
+{
+    job_rows();
+    xreg1(0, 0, vga_canvas_320_240);
+    vterm_place(40, TERM_MAX_HEIGHT - 4, 0, 8);
+    feed("\33[99;1H\n");
+    screen_t *s = job_screen();
+    ASSERT_EQ(s->hidden, 1);
+    screen_job_t j = job(SCREEN_JOB_FILL, (uint8_t)(s->rows - 1), 0, 0, 1);
+    j.up = false;
+    j.fill = cell_from_pen(&vterm, 40, 'x', CELL_SET_PAGE);
+    screen_job_start(s, &j);
+    uint16_t text[40];
+    screen_row_text(s, (uint8_t)(s->rows - 1), text);
+    ASSERT_EQ(text[1] & CELL_TEXT_CODE, 'x');
+    ASSERT_EQ(text[2] & CELL_TEXT_CODE, 'a');
+    ASSERT_STREQ(row(0), "xxbbbb");
+    ASSERT_STREQ(row(1), "cccccc");
+    xreg1(0, 0, vga_canvas_console);
+}
+
+/* A save never holds a job: a put finishes it first. */
+UTEST(job, a_save_finishes_the_job)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_FILL, 0, 5, 0, 0);
+    j.fill = job_char('x');
+    job_pending(&j);
+    static uint8_t blob[SCREEN_SST_SIZE];
+    sst_cursor_t c = {blob, blob + sizeof blob, false, NULL};
+    screen_sst_put(&c, job_screen());
+    ASSERT_TRUE(sst_ok(&c));
+    ASSERT_FALSE(screen_job_pending(job_screen()));
+    ASSERT_STREQ(row(5), "xfffff");
+}
+
+/* Whether any screen of either size has a job pending. */
+static bool job_any_pending(void)
+{
+    vterm_size_t *const all[] = {&vterm_40, &vterm_80};
+    for (int n = 0; n < 2; n++)
+        for (int b = 0; b < 2; b++)
+            if (screen_job_pending(&all[n]->grid.screen[b]))
+                return true;
+    return false;
+}
+
+/* The terminal never takes a byte while a job is pending: none is pending
+ * after any byte of the sequences that work on many rows. */
+UTEST(job, no_byte_comes_while_a_job_is_pending)
+{
+    fresh();
+    static const char ops[] =
+        "x\33[200b\33[2J\33[5;5H\33[1J\33[J\33[?2J\33#8\33[42;1;1;9;80$x"
+        "\33[1;1;9;80$z\33[1;1;9;80${\33[1;1;5;40;1;10;5;1$v\33[1;1;9;80;1$r"
+        "\33[1;1;9;80;4$t\33[3L\33[3M\33[2S\33[2T\33[3 @\33[3 A\33[3'}\33[3'~"
+        "\33[?69h\33[5;40s\33[2;9r\33[3L\33[2S\33[9;5H\n\n\33[1 @\33[?69l\33[r"
+        "\33[?1049h\33[2J\33[?1049l\33[?40h\33[?3h\33c";
+    for (const char *p = ops; *p; p++)
+    {
+        feedn(p, 1);
+        ASSERT_FALSE(job_any_pending());
+    }
+}
+
+/* A byte that comes while a job is pending, as the RIA's hold should never
+ * let one on the Pico VGA, finishes the job before it goes in, and is
+ * counted once. A byte with none pending is not counted. */
+UTEST(job, a_byte_during_a_job_finishes_it_first)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_FILL, 0, 5, 0, 0);
+    j.fill = job_char('x');
+    job_pending(&j);
+    draw_bytes_in_jobs = 0;
+    feed("\33[6;1Hy");
+    ASSERT_FALSE(job_any_pending());
+    ASSERT_EQ(draw_bytes_in_jobs, 1u);
+    ASSERT_STREQ(row(0), "xaaaaa");
+    ASSERT_STREQ(row(5), "yfffff");
+    feed("z");
+    ASSERT_EQ(draw_bytes_in_jobs, 1u);
+}
+
+/* A step does the next rows of every screen's job in turn, as many in all
+ * as it is given: the 40's, then the 80's. */
+UTEST(job, a_step_shares_its_rows_among_the_screens)
+{
+    job_rows();
+    screen_t *const s40 = vterm_40.grid.shown, *const s80 = vterm_80.grid.shown;
+    screen_job_t j = job(SCREEN_JOB_FILL, 0, 2, 0, 0);
+    j.fill = job_char('x');
+    s40->cells->job = j;
+    s80->cells->job = j;
+    term_job_step(&vterm, 2);
+    ASSERT_TRUE(screen_job_pending(s40));
+    ASSERT_TRUE(screen_job_pending(s80));
+    ASSERT_EQ(s40->cells->job.next, 2);
+    term_job_step(&vterm, 2);
+    ASSERT_FALSE(screen_job_pending(s40));
+    ASSERT_EQ(s80->cells->job.next, 1);
+    ASSERT_STREQ(row(0), "xaaaaa");
+    ASSERT_STREQ(row(1), "bbbbbb");
+    ASSERT_TRUE(term_job_pending(&vterm));
+    term_job_step(&vterm, 2);
+    ASSERT_FALSE(term_job_pending(&vterm));
+    ASSERT_STREQ(row(2), "xccccc");
+}
+
+/* What changes the screens outside the stream finishes the jobs pending
+ * first: a new height, and the soft reset that a change of display or of
+ * canvas makes. */
+UTEST(job, a_new_height_or_a_reset_finishes_the_job_first)
+{
+    job_rows();
+    screen_job_t j = job(SCREEN_JOB_FILL, 0, 5, 0, 0);
+    j.fill = job_char('x');
+    job_pending(&j);
+    vterm_place(80, 29, 0, 16);
+    ASSERT_FALSE(job_any_pending());
+    ASSERT_STREQ(row(0), "xaaaaa");
+    vterm_place(80, 30, 0, 16);
+    job_pending(&j);
+    vterm_RIS_no_clear();
+    ASSERT_FALSE(job_any_pending());
+    ASSERT_STREQ(row(5), "xfffff");
+}
+
+/* The character the store holds at a cell of the screen showing, with no
+ * draw_task run. */
+static char job_held(int x, int y)
+{
+    return (char)mode0_glyph_code(screen_row(job_screen(), (uint8_t)y)[x].glyph);
+}
+
+/* A fill or a wipe of many rows is done by the byte that asks for it, and
+ * no row is left owing it: an erase of rows, DECALN, a rectangle, a clear
+ * and a reset. */
+UTEST(job, a_fill_of_many_rows_is_done_by_its_byte)
+{
+    job_rows();
+    feed("\33[H\33[J");
+    ASSERT_EQ(job_held(0, 3), ' ');
+    feed("\33#8");
+    ASSERT_EQ(job_held(0, 0), 'E');
+    ASSERT_EQ(job_held(79, 29), 'E');
+    feed("\33[5;1H\33[1J");
+    ASSERT_EQ(job_held(10, 2), ' ');
+    ASSERT_EQ(job_held(10, 5), 'E');
+    feed("\33[88;7;3;9;6$x");
+    ASSERT_EQ(job_held(2, 6), 'X');
+    ASSERT_EQ(job_held(5, 8), 'X');
+    feed("\33[7;3;9;6$z");
+    ASSERT_EQ(job_held(2, 6), ' ');
+    ASSERT_EQ(job_held(5, 8), ' ');
+    ASSERT_EQ(job_held(6, 8), 'E');
+    feed("\33[7;3;9;8${");
+    ASSERT_EQ(job_held(7, 6), ' ');
+    ASSERT_EQ(job_held(6, 8), ' ');
+    ASSERT_EQ(job_held(8, 8), 'E');
+    feed("\33[2J");
+    ASSERT_EQ(job_held(79, 29), ' ');
+    feed("\33[?1049h\33#8\33[?1049l\33[?1049h");
+    ASSERT_EQ(job_held(5, 5), ' ');
+    feed("\33[?1049l\33#8\33c");
+    ASSERT_EQ(job_held(79, 29), ' ');
+}
+
+/* Whether the store holds a cell of the screen showing as bold, with no
+ * draw_task run. */
+static bool job_bold(int x, int y)
+{
+    return screen_row(job_screen(), (uint8_t)y)[x].attributes & MODE0_ATTR_BOLD;
+}
+
+/* A change of attributes of many rows is done by the byte that asks for
+ * it, and no row is left owing it: DECCARA's and DECRARA's rectangle, and
+ * their stream, whose first and last rows are changed from and to its
+ * corners and the rows between from the first column to the last. A row
+ * of double width has its own columns of them. */
+UTEST(job, a_change_of_attributes_of_many_rows_is_done_by_its_byte)
+{
+    job_rows();
+    feed("\33[4;1H\33#6\33[H\33[2;3;5;70;1$r");
+    ASSERT_FALSE(job_bold(1, 1));
+    ASSERT_TRUE(job_bold(2, 1));
+    ASSERT_TRUE(job_bold(79, 1));
+    ASSERT_TRUE(job_bold(0, 2));
+    ASSERT_TRUE(job_bold(39, 3));
+    ASSERT_FALSE(job_bold(40, 3));
+    ASSERT_TRUE(job_bold(69, 4));
+    ASSERT_FALSE(job_bold(70, 4));
+    feed("\33[2*x\33[2;3;5;70;1$t");
+    ASSERT_FALSE(job_bold(2, 1));
+    ASSERT_TRUE(job_bold(79, 1));
+    ASSERT_TRUE(job_bold(1, 2));
+    ASSERT_FALSE(job_bold(2, 2));
+    ASSERT_FALSE(job_bold(69, 2));
+    ASSERT_TRUE(job_bold(70, 2));
+    ASSERT_FALSE(job_bold(39, 3));
+}
+
+/* A shift of many rows is done by the byte that asks for it, and no row is
+ * left owing it: SL and SR of the whole width, where a row of double width
+ * has its own columns, and SL and DECIC between margins, which leave the
+ * rows and columns outside them. */
+UTEST(job, a_shift_of_many_rows_is_done_by_its_byte)
+{
+    job_rows();
+    feed("\33[4;1H\33#6\33[H\33[2 @");
+    ASSERT_EQ(job_held(3, 0), 'a');
+    ASSERT_EQ(job_held(4, 0), ' ');
+    ASSERT_EQ(job_held(3, 3), 'd');
+    ASSERT_EQ(job_held(4, 3), ' ');
+    ASSERT_EQ(job_held(3, 5), 'f');
+    ASSERT_EQ(job_held(4, 5), ' ');
+    feed("\33[39 A");
+    ASSERT_EQ(job_held(38, 0), ' ');
+    ASSERT_EQ(job_held(39, 0), 'a');
+    ASSERT_EQ(job_held(42, 0), 'a');
+    ASSERT_EQ(job_held(39, 3), 'd');
+    ASSERT_EQ(job_held(40, 3), ' ');
+    ASSERT_FALSE(screen_job_pending(job_screen()));
+    job_rows();
+    feed("\33[?69h\33[2;5r\33[3;8s\33[2;3H\33[2 @");
+    ASSERT_EQ(job_held(3, 1), 'b');
+    ASSERT_EQ(job_held(4, 1), ' ');
+    ASSERT_EQ(job_held(3, 4), 'e');
+    ASSERT_EQ(job_held(4, 4), ' ');
+    ASSERT_EQ(job_held(5, 0), 'a');
+    ASSERT_EQ(job_held(5, 5), 'f');
+    feed("\33[2'}");
+    ASSERT_EQ(job_held(1, 1), 'b');
+    ASSERT_EQ(job_held(2, 1), ' ');
+    ASSERT_EQ(job_held(4, 1), 'b');
+    ASSERT_EQ(job_held(5, 1), 'b');
+    ASSERT_EQ(job_held(6, 1), ' ');
+    ASSERT_EQ(job_held(5, 4), 'e');
+    ASSERT_EQ(job_held(5, 5), 'f');
+    ASSERT_FALSE(screen_job_pending(job_screen()));
+}
+
+/* Whether each row of the screen showing is in the row of memory it was
+ * in, as mems has them. */
+static bool job_ring_kept(const uint8_t *mems, int rows)
+{
+    for (int y = 0; y < rows; y++)
+        if (screen_mem(job_screen(), (uint8_t)y) != mems[y])
+            return false;
+    return true;
+}
+
+/* A move of many rows is done by the byte that asks for it, no row is left
+ * owing it, and the ring stays as it was: a line feed, a reverse index, DL,
+ * IL, SU and SD between left and right margins, which leave the rows and
+ * columns outside them, and DECCRA down and up over itself, which reads
+ * each row before it writes it. */
+UTEST(job, a_move_of_many_rows_is_done_by_its_byte)
+{
+    job_rows();
+    uint8_t mems[30];
+    for (int y = 0; y < 30; y++)
+        mems[y] = screen_mem(job_screen(), (uint8_t)y);
+    feed("\33[?69h\33[2;5r\33[3;8s\33[5;3H\n");
+    ASSERT_EQ(job_held(1, 1), 'b');
+    ASSERT_EQ(job_held(2, 1), 'c');
+    ASSERT_EQ(job_held(2, 3), 'e');
+    ASSERT_EQ(job_held(1, 4), 'e');
+    ASSERT_EQ(job_held(2, 4), ' ');
+    feed("\33[2;3H\33M");
+    ASSERT_EQ(job_held(1, 1), 'b');
+    ASSERT_EQ(job_held(2, 1), ' ');
+    ASSERT_EQ(job_held(2, 2), 'c');
+    ASSERT_EQ(job_held(2, 4), 'e');
+    feed("\33[3;3H\33[2M");
+    ASSERT_EQ(job_held(2, 2), 'e');
+    ASSERT_EQ(job_held(1, 3), 'd');
+    ASSERT_EQ(job_held(2, 3), ' ');
+    feed("\33[3;3H\33[L");
+    ASSERT_EQ(job_held(1, 2), 'c');
+    ASSERT_EQ(job_held(2, 2), ' ');
+    ASSERT_EQ(job_held(2, 3), 'e');
+    feed("\33[S");
+    ASSERT_EQ(job_held(2, 2), 'e');
+    ASSERT_EQ(job_held(2, 3), ' ');
+    feed("\33[2T");
+    ASSERT_EQ(job_held(2, 2), ' ');
+    ASSERT_EQ(job_held(2, 4), 'e');
+    ASSERT_EQ(job_held(2, 0), 'a');
+    ASSERT_EQ(job_held(2, 5), 'f');
+    ASSERT_EQ(job_held(1, 4), 'e');
+    ASSERT_TRUE(job_ring_kept(mems, 30));
+    ASSERT_FALSE(screen_job_pending(job_screen()));
+    job_rows();
+    feed("\33[1;1;3;6;1;2;1;1$v");
+    ASSERT_EQ(job_held(0, 0), 'a');
+    ASSERT_EQ(job_held(0, 1), 'a');
+    ASSERT_EQ(job_held(0, 2), 'b');
+    ASSERT_EQ(job_held(0, 3), 'c');
+    ASSERT_EQ(job_held(0, 4), 'e');
+    feed("\33[2;1;4;6;1;1;1;1$v");
+    ASSERT_EQ(job_held(0, 0), 'a');
+    ASSERT_EQ(job_held(0, 1), 'b');
+    ASSERT_EQ(job_held(0, 2), 'c');
+    ASSERT_EQ(job_held(0, 3), 'c');
+    ASSERT_FALSE(screen_job_pending(job_screen()));
+}
+
+/* ---- the selection (screen.h, vterm.h) ----------------------------------
+ *
+ * The console's selection on the 80-column terminal showing, made in rows
+ * of the screen and kept in rows of memory, and what drops its highlight. */
+
+/* Rows 0 to 9 of the screen full of their digit, row 0 of 0s. */
+static void sel_rows(void)
+{
+    fresh();
+    for (int y = 0; y < 10; y++)
+    {
+        char line[96];
+        memset(line, '0' + y, 80);
+        line[80] = 0;
+        feed(line);
+        if (y < 9)
+            feed("\r\n");
+    }
+    feed("\33[20;1H");
+}
+
+/* The user selects from row y0, column x0 up to row y1, column x1 of the
+ * screen showing, which sel_rows filled. */
+static void sel(int y0, int x0, int y1, int x1)
+{
+    term_grid_t *g = vterm_get_shown(&vterm);
+    const screen_t *s = g->shown;
+    vterm_select(g, (uint8_t)(s - g->screen), screen_mem(s, (uint8_t)y0), (uint8_t)x0,
+                 screen_mem(s, (uint8_t)y1), (uint8_t)x1, 0, SCREEN_SELECTION_EDGE);
+}
+
+static bool sel_shows(void)
+{
+    return vterm_selection.shows;
+}
+
+/* The selection's columns of row y, as the row word draw.c writes carries
+ * them, from and to packed as from * 100 + to; 0 for none. */
+static unsigned sel_word(int y)
+{
+    draw_task();
+    const uint32_t w = mode0_regs.row[y];
+    return MODE0_ROW_FROM(w) * 100u + MODE0_ROW_TO(w);
+}
+
+/* A selection whose start is its end is none, and one whose end comes
+ * before its start is none too. */
+UTEST(select, a_start_at_its_end_selects_nothing)
+{
+    sel_rows();
+    sel(2, 5, 2, 5);
+    ASSERT_FALSE(sel_shows());
+    sel(3, 0, 2, 5);
+    ASSERT_FALSE(sel_shows());
+    sel(2, 5, 2, 6);
+    ASSERT_TRUE(sel_shows());
+    vterm_unselect();
+    ASSERT_FALSE(sel_shows());
+}
+
+/* A glyph drops it when it lands in its columns, and not just outside
+ * them: the start's column is in it, the end's is not. */
+UTEST(select, a_glyph_drops_it_in_its_columns)
+{
+    sel_rows();
+    sel(2, 5, 2, 10);
+    feed("\33[3;5Hx\33[3;11Hx\33[2;6Hx\33[4;6Hx");
+    ASSERT_TRUE(sel_shows());
+    feed("\33[3;10Hx");
+    ASSERT_FALSE(sel_shows());
+    sel(2, 5, 2, 10);
+    feed("\33[3;6Hx");
+    ASSERT_FALSE(sel_shows());
+}
+
+/* Over several rows it takes the start's row from its column, the rows
+ * between whole, and the end's row up to its column. */
+UTEST(select, over_rows_it_takes_the_rows_between_whole)
+{
+    sel_rows();
+    sel(2, 5, 4, 10);
+    feed("\33[3;5Hx\33[5;11Hx");
+    ASSERT_TRUE(sel_shows());
+    feed("\33[3;80Hx");
+    ASSERT_FALSE(sel_shows());
+    sel(2, 5, 4, 10);
+    feed("\33[4;1Hx");
+    ASSERT_FALSE(sel_shows());
+    sel(2, 5, 4, 10);
+    feed("\33[5;10Hx");
+    ASSERT_FALSE(sel_shows());
+}
+
+/* An erase, an insert and a delete of one row drop it when they reach its
+ * columns: an insert or a delete moves every cell to the end of the row. */
+UTEST(select, an_erase_insert_or_delete_reaching_it_drops_it)
+{
+    sel_rows();
+    sel(2, 5, 4, 10);
+    feed("\33[5;11H\33[K\33[5;11H\33[4@\33[5;11H\33[4P\33[3;1H\33[4X\33[1;1H\33[2K");
+    ASSERT_TRUE(sel_shows());
+    feed("\33[5;10H\33[X");
+    ASSERT_FALSE(sel_shows());
+    sel(2, 5, 4, 10);
+    feed("\33[3;1H\33[K");
+    ASSERT_FALSE(sel_shows());
+    sel(2, 5, 4, 10);
+    feed("\33[3;1H\33[@");
+    ASSERT_FALSE(sel_shows());
+    sel(2, 5, 4, 10);
+    feed("\33[5;1H\33[P");
+    ASSERT_FALSE(sel_shows());
+}
+
+/* A job of more than one row drops it when it works on its columns: a fill
+ * (an erase of rows, DECFRA), a move (DECCRA into it), a shift (SL), a
+ * wipe (DECSERA) and REP's rows. One that misses it keeps it, and a change
+ * of attributes (DECCARA, DECRARA) never drops it. */
+UTEST(select, a_job_reaching_it_drops_it)
+{
+    static const struct
+    {
+        const char *seq;
+        bool keeps;
+    } cases[] = {
+        {"\33[6;1H\33[J", true},
+        {"\33[5;1H\33[J", false},
+        {"\33[1;1H\33[1J", true},
+        {"\33[4;1H\33[1J", false},
+        {"\33[88;1;1;2;80$x", true},
+        {"\33[88;1;1;3;5$x", true},
+        {"\33[88;1;1;3;6$x", false},
+        {"\33[3;1;3;80;1;7;1;1$v", true},
+        {"\33[7;1;7;80;1;4;1;1$v", false},
+        {"\33[1;1;2;80$z", true},
+        {"\33[2;1;9;80${", false},
+        {"\33[2;1;9;80;7$r", true},
+        {"\33[2;1;9;80;7$t", true},
+        {"\33[6;10r\33[7;1H\33[2 @", true},
+        {"\33[1;10r\33[5;1H\33[2 @", false},
+        {"\33[7;1Hx\33[200b", true},
+        {"\33[1;1Hx\33[200b", false},
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof *cases; i++)
+    {
+        sel_rows();
+        sel(2, 5, 4, 10);
+        feed(cases[i].seq);
+        EXPECT_EQ((int)sel_shows(), (int)cases[i].keeps);
+        if (sel_shows() != cases[i].keeps)
+            printf("case %u: %s\n", (unsigned)i, cases[i].seq + 1);
+    }
+}
+
+/* A scroll of the whole screen moves it with its rows, and drops it when
+ * one of its rows goes out at the top. */
+UTEST(select, a_scroll_moves_it_and_one_taking_its_row_out_drops_it)
+{
+    sel_rows();
+    sel(2, 5, 4, 10);
+    ASSERT_EQ(sel_word(2), 580u);
+    feed("\33[30;1H\n\n");
+    ASSERT_TRUE(sel_shows());
+    ASSERT_EQ(sel_word(0), 580u);
+    ASSERT_EQ(sel_word(1), 80u);
+    ASSERT_EQ(sel_word(2), 10u);
+    ASSERT_EQ(sel_word(3), 0u);
+    feed("\n");
+    ASSERT_FALSE(sel_shows());
+    ASSERT_EQ(sel_word(0), 0u);
+    /* A reverse index takes the last row out. */
+    sel_rows();
+    sel(27, 0, 29, 3);
+    feed("\33[1;1H\33M");
+    ASSERT_FALSE(sel_shows());
+}
+
+/* A smooth scroll is the same: its row going out drops it, and a row it
+ * keeps moving out is never one of the selection's. */
+UTEST(select, a_smooth_index_moves_it_too)
+{
+    sel_rows();
+    feed("\33[?4h");
+    sel(3, 0, 4, 80);
+    feed("\33[30;1H\n");
+    ASSERT_TRUE(sel_shows());
+    ASSERT_EQ(sel_word(2), 80u);
+    sel(0, 0, 0, 3);
+    for (int i = 0; i < 20; i++)
+        vga_run_frame();
+    feed("\n");
+    ASSERT_FALSE(sel_shows());
+}
+
+/* A REP that scrolls moves it, or drops it with the row it takes out. */
+UTEST(select, a_rep_that_scrolls_moves_or_drops_it)
+{
+    sel_rows();
+    sel(5, 0, 5, 80);
+    feed("\33[30;1Hx\33[160b");
+    ASSERT_TRUE(sel_shows());
+    ASSERT_EQ(sel_word(3), 80u);
+    sel(1, 0, 1, 80);
+    feed("\33[30;1Hx\33[160b");
+    ASSERT_FALSE(sel_shows());
+}
+
+/* At a height of fewer rows than the ring, the row going out joins the
+ * rows above row 0, which drops a selection it is in. */
+UTEST(select, the_rows_above_row_0_hold_none)
+{
+    sel_rows();
+    vterm_place(80, 20, 0, 16);
+    sel(0, 0, 1, 80);
+    ASSERT_TRUE(sel_shows());
+    feed("\33[20;1H\n");
+    ASSERT_FALSE(sel_shows());
+    sel(4, 0, 5, 80);
+    feed("\n");
+    ASSERT_TRUE(sel_shows());
+    ASSERT_EQ(sel_word(3), 80u);
+    vterm_place(80, 30, 0, 16);
+}
+
+/* Output on the other screen keeps it, and it shows only while its screen
+ * does. Selecting on the other screen moves it there. */
+UTEST(select, it_is_its_screens_alone)
+{
+    sel_rows();
+    sel(2, 5, 4, 10);
+    feed("\33[?1049hhello\33[2J\33[3;1Hthere");
+    ASSERT_TRUE(sel_shows());
+    ASSERT_EQ(sel_word(2), 0u);
+    feed("\33[?1049l");
+    ASSERT_TRUE(sel_shows());
+    ASSERT_EQ(sel_word(2), 580u);
+    feed("\33[?1049h");
+    sel(0, 0, 0, 2);
+    ASSERT_EQ(sel_word(0), 2u);
+    ASSERT_EQ(sel_word(2), 0u);
+    feed("\33[?1049l");
+    ASSERT_EQ(sel_word(0), 0u);
+    ASSERT_EQ(sel_word(2), 0u);
+}
+
+/* A selected row taking another size drops it, and the same size or a row
+ * outside it keeps it. DECLRMM's set makes every line single size. */
+UTEST(select, a_selected_row_changing_size_drops_it)
+{
+    sel_rows();
+    sel(2, 5, 4, 10);
+    feed("\33[6;1H\33#6\33[3;1H\33#5");
+    ASSERT_TRUE(sel_shows());
+    feed("\33#6");
+    ASSERT_FALSE(sel_shows());
+    feed("\33#5");
+    sel(2, 5, 4, 10);
+    feed("\33[?69h");
+    ASSERT_TRUE(sel_shows());
+    feed("\33[?69l\33[3;1H\33#6");
+    sel(2, 5, 4, 10);
+    ASSERT_EQ(sel_word(2), 540u);
+    feed("\33[?69h");
+    ASSERT_FALSE(sel_shows());
+}
+
+/* A scroll of some rows that holds some of its rows and not all, which
+ * would open a gap in it, drops it, as does one that takes one of its rows
+ * out at the edge. One that holds it all and takes none out moves it. */
+UTEST(select, a_scroll_of_some_rows_moves_or_drops_it)
+{
+    sel_rows();
+    sel(2, 5, 4, 10);
+    feed("\33[4;10r\33[S");
+    ASSERT_FALSE(sel_shows());
+    sel_rows();
+    sel(2, 5, 4, 10);
+    feed("\33[1;10r\33[S");
+    ASSERT_TRUE(sel_shows());
+    ASSERT_EQ(sel_word(1), 580u);
+    feed("\33[3;10r\33[T");
+    ASSERT_FALSE(sel_shows());
+    sel_rows();
+    sel(2, 5, 4, 10);
+    feed("\33[6;10r\33[S\33[r\33[8;1H\33[L");
+    ASSERT_TRUE(sel_shows());
+    feed("\33[4;1H\33[M");
+    ASSERT_FALSE(sel_shows());
+    /* Between left and right margins a scroll is a move of cells. */
+    sel_rows();
+    sel(2, 0, 2, 10);
+    feed("\33[?69h\33[11;20s\33[1;10r\33[S");
+    ASSERT_TRUE(sel_shows());
+    feed("\33[1;10s\33[S");
+    ASSERT_FALSE(sel_shows());
+}
+
+/* RIS clears it, and so do a clear of its screen and a new height. */
+UTEST(select, a_reset_clear_or_new_height_drops_it)
+{
+    sel_rows();
+    sel(2, 5, 4, 10);
+    feed("\33c");
+    ASSERT_FALSE(sel_shows());
+    sel_rows();
+    sel(2, 5, 4, 10);
+    feed("\33[2J");
+    ASSERT_FALSE(sel_shows());
+    sel_rows();
+    sel(2, 5, 4, 10);
+    vterm_RIS();
+    ASSERT_FALSE(sel_shows());
+    sel_rows();
+    sel(2, 5, 4, 10);
+    vterm_place(80, 29, 0, 16);
+    ASSERT_FALSE(sel_shows());
+    vterm_place(80, 30, 0, 16);
+}
+
+/* The system's soft reset at a program's end keeps it on the 80-column
+ * terminal's primary screen, and drops one on the alternate screen, which
+ * it erases. */
+UTEST(select, the_soft_reset_keeps_it)
+{
+    sel_rows();
+    sel(2, 5, 4, 10);
+    vterm_RIS_no_clear();
+    ASSERT_TRUE(sel_shows());
+    feed("\33[!p");
+    ASSERT_TRUE(sel_shows());
+    feed("\33[?1049h");
+    sel(2, 5, 4, 10);
+    ASSERT_TRUE(sel_shows());
+    ASSERT_TRUE(vterm_selection.screen == &vterm_get_shown(&vterm)->screen[1]);
+    vterm_RIS_no_clear();
+    ASSERT_FALSE(sel_shows());
+}
+
+/* A save state carries the selection, and a load checks it against the
+ * rows it loads: one whose ends are not rows of its screen in order is
+ * refused. */
+UTEST(select, a_savestate_carries_it)
+{
+    static uint8_t blob[1 << 18];
+    sel_rows();
+    feed("\33[30;1H\n\n");
+    sel(2, 5, 4, 10);
+    const screen_selection_t was = vterm_selection;
+    sst_cursor_t c = {blob, blob + draw_sst.size, false, NULL};
+    draw_sst.save(&c, 0);
+    ASSERT_TRUE(sst_ok(&c));
+    feed("\33c");
+    ASSERT_FALSE(sel_shows());
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    ASSERT_TRUE(draw_sst.load(&c, 0));
+    ASSERT_TRUE(sel_shows());
+    ASSERT_TRUE(vterm_selection.screen == was.screen);
+    ASSERT_EQ(vterm_selection.rows, was.rows);
+    ASSERT_EQ(vterm_selection.start_row, was.start_row);
+    ASSERT_EQ(vterm_selection.end_col, was.end_col);
+    ASSERT_EQ(sel_word(2), 580u);
+    /* Its start below its end. */
+    const uint8_t start = vterm_selection.start_row;
+    vterm_selection.start_row = vterm_selection.end_row;
+    vterm_selection.end_row = start;
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    draw_sst.save(&c, 0);
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    ASSERT_FALSE(draw_sst.load(&c, 0));
+    /* None loads as none. */
+    fresh();
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    draw_sst.save(&c, 0);
+    c = (sst_cursor_t){blob, blob + draw_sst.size, false, NULL};
+    ASSERT_TRUE(draw_sst.load(&c, 0));
+    ASSERT_FALSE(sel_shows());
+}
+
+/* ---- the marks (screen.h) ------------------------------------------------
+ *
+ * The points the console's mouse holds, which the store keeps on their
+ * text and at the edge of the screen when their rows leave it. */
+
+static screen_mark_t marks[3];
+
+/* Marks 0 to 2 on the screen showing, at rows of the screen y and columns
+ * x, which sel_rows filled. */
+static void mark(int y0, int x0, int y1, int x1, int y2, int x2)
+{
+    const screen_t *s = vterm_get_shown(&vterm)->shown;
+    const int at[3][2] = {{y0, x0}, {y1, x1}, {y2, x2}};
+    for (int i = 0; i < 3; i++)
+        marks[i] = (screen_mark_t){screen_mem(s, (uint8_t)at[i][0]), (uint8_t)at[i][1]};
+    vterm_marks = (screen_marks_t){.screen = s, .at = marks, .n = 3};
+}
+
+/* Where mark i is on the screen it is on, as y * 100 + x, or -1 when its
+ * row of memory is no row of the height. */
+static int marked(int i)
+{
+    const term_grid_t *g = vterm_get_shown(&vterm);
+    const screen_t *s = vterm_marks.screen;
+    for (int y = 0; y < g->height; y++)
+        if (screen_mem(s, (uint8_t)y) == marks[i].row)
+            return y * 100 + marks[i].col;
+    return -1;
+}
+
+/* A scroll keeps them on their text. One whose row goes out at the top
+ * goes to the first cell of row 0, and stays on the screen however far
+ * the ring goes round after: its row of memory, coming back as the last
+ * row, takes none. */
+UTEST(marks, an_index_keeps_them_on_their_text_or_at_the_top)
+{
+    sel_rows();
+    mark(0, 7, 5, 9, 29, 80);
+    feed("\33[30;1H\n\n\n");
+    ASSERT_EQ(marked(0), 0);
+    ASSERT_EQ(marked(1), 209);
+    ASSERT_EQ(marked(2), 2680);
+    for (int i = 0; i < 40; i++)
+        feed("\n");
+    ASSERT_EQ(marked(0), 0);
+    ASSERT_EQ(marked(1), 0);
+    ASSERT_EQ(marked(2), 0);
+}
+
+/* A reverse index takes the last row out at the bottom: its marks go one
+ * past the last cell of the row that is last then. */
+UTEST(marks, a_reverse_index_takes_them_to_the_end)
+{
+    sel_rows();
+    feed("\33[5;1H\33#6");
+    mark(29, 3, 3, 4, 4, 20);
+    feed("\33[1;1H\33M\33M");
+    ASSERT_EQ(marked(0), 2980);
+    ASSERT_EQ(marked(1), 504);
+    ASSERT_EQ(marked(2), 620);
+    /* A last row of double width then ends at half the width. */
+    feed("\33[29;1H\33#6\33[1;1H\33M");
+    ASSERT_EQ(marked(0), 2940);
+}
+
+/* A scroll of a region takes the marks of the rows going out of it to its
+ * edge, and leaves the others where they are. A REP's scroll does the
+ * same. */
+UTEST(marks, a_region_scroll_takes_them_to_its_edge)
+{
+    sel_rows();
+    mark(2, 5, 4, 6, 12, 7);
+    feed("\33[3;10r\33[2S");
+    ASSERT_EQ(marked(0), 200);
+    ASSERT_EQ(marked(1), 206);
+    ASSERT_EQ(marked(2), 1207);
+    mark(9, 5, 7, 6, 1, 7);
+    feed("\33[2T");
+    ASSERT_EQ(marked(0), 980);
+    ASSERT_EQ(marked(1), 906);
+    ASSERT_EQ(marked(2), 107);
+    feed("\33[r");
+    mark(0, 5, 3, 6, 29, 7);
+    feed("\33[30;1Hx\33[160b");
+    ASSERT_EQ(marked(0), 0);
+    ASSERT_EQ(marked(1), 106);
+    ASSERT_EQ(marked(2), 2707);
+}
+
+/* A height a row less takes the row that leaves, the last with the cursor
+ * above it and row 0 with the cursor on the last row, and its marks to
+ * the edge it left by. */
+UTEST(marks, a_smaller_height_takes_them_to_its_edge)
+{
+    sel_rows();
+    mark(29, 5, 3, 6, 0, 7);
+    vterm_place(80, 29, 0, 16);
+    ASSERT_EQ(marked(0), 2880);
+    ASSERT_EQ(marked(1), 306);
+    ASSERT_EQ(marked(2), 7);
+    feed("\33[29;1H");
+    vterm_place(80, 28, 0, 16);
+    ASSERT_EQ(marked(0), 2780);
+    ASSERT_EQ(marked(1), 206);
+    ASSERT_EQ(marked(2), 0);
+    vterm_place(80, 30, 0, 16);
+}
+
+/* A clear puts the ring back in order, and each mark stays on its row of
+ * the screen. Output on another screen keeps them. */
+UTEST(marks, a_clear_keeps_their_rows_of_the_screen)
+{
+    sel_rows();
+    feed("\33[30;1H\n\n\n\n\n");
+    mark(2, 5, 7, 6, 29, 7);
+    feed("\33[?1049h\33[30;1H\n\n\n\33[?1049l");
+    ASSERT_EQ(marked(0), 205);
+    ASSERT_EQ(marked(1), 706);
+    ASSERT_EQ(marked(2), 2907);
+    feed("\33c");
+    ASSERT_EQ(marked(0), 205);
+    ASSERT_EQ(marked(1), 706);
+    ASSERT_EQ(marked(2), 2907);
+    vterm_marks.screen = NULL;
+}
+
+/* ---- mode 0 draws the selection ---- */
+
+/* The row words carry each row's columns of it: the start's row from its
+ * column, the rows between whole, the end's row to its column, a row of
+ * double width in its own columns, and the ghost of a smooth scroll none. A
+ * drop takes them all away, with no byte after it. */
+UTEST(select, the_row_words_carry_it)
+{
+    sel_rows();
+    feed("\33[5;1H\33#6");
+    sel(2, 5, 4, 30);
+    ASSERT_EQ(sel_word(1), 0u);
+    ASSERT_EQ(sel_word(2), 580u);
+    ASSERT_EQ(sel_word(3), 80u);
+    ASSERT_EQ(sel_word(4), 30u);
+    ASSERT_EQ(sel_word(5), 0u);
+    sel(3, 0, 4, 40);
+    ASSERT_EQ(sel_word(4), 40u);
+    ASSERT_EQ(sel_word(2), 0u);
+    vterm_unselect();
+    ASSERT_EQ(sel_word(3), 0u);
+    ASSERT_EQ(sel_word(4), 0u);
+}
+
+/* A change of the selection with no byte of the console after it is
+ * published by draw_task alone. */
+UTEST(select, draw_task_publishes_it_alone)
+{
+    sel_rows();
+    draw_task();
+    sel(2, 5, 2, 10);
+    ASSERT_EQ(MODE0_ROW_FROM(mode0_regs.row[2]), 0);
+    draw_task();
+    ASSERT_EQ(MODE0_ROW_FROM(mode0_regs.row[2]), 5);
+    ASSERT_EQ(MODE0_ROW_TO(mode0_regs.row[2]), 10);
+    ASSERT_FALSE(vterm_selection.changed);
+    vterm_unselect();
+    draw_task();
+    ASSERT_EQ(MODE0_ROW_TO(mode0_regs.row[2]), 0);
+}
+
+/* A pixel of a cell: its first scanline's second pixel, a space's ground. */
+static uint32_t sel_pixel(const uint32_t *fb, int x, int y)
+{
+    return fb[(y * 16 + 1) * 640 + x * 8 + 1];
+}
+
+/* The selection's cells are drawn with their colors swapped over what
+ * DECSCNM draws, as reverse video draws them. */
+UTEST(select, mode_0_draws_its_cells_swapped)
+{
+    static uint32_t fb[640 * 480];
+    fresh();
+    feed("\33[?25l\33[7m \33[m\r\n\33[41m    \33[m\33[2;3H\33[41;7m \33[m\33[20;1H");
+    sel(1, 1, 1, 2);
+    draw_task();
+    vga_draw(fb);
+    const uint32_t ink = sel_pixel(fb, 0, 0), red = sel_pixel(fb, 0, 1);
+    ASSERT_NE(ink, red);
+    ASSERT_EQ(sel_pixel(fb, 1, 1), ink);
+    ASSERT_EQ(sel_pixel(fb, 2, 1), ink);
+    ASSERT_EQ(sel_pixel(fb, 3, 1), red);
+    feed("\33[?5h");
+    draw_task();
+    vga_draw(fb);
+    ASSERT_EQ(sel_pixel(fb, 1, 1), red);
+    ASSERT_EQ(sel_pixel(fb, 0, 1), ink);
+    feed("\33[?5l");
+    vterm_unselect();
+    draw_task();
+    vga_draw(fb);
+    ASSERT_EQ(sel_pixel(fb, 1, 1), red);
+}
+
+/* The block cursor draws its glyph in what its cell shows as the ground:
+ * the cell's ink when the cell is selected. */
+UTEST(select, the_block_cursor_draws_over_it)
+{
+    static uint32_t fb[640 * 480];
+    fresh();
+    feed("\33]12;#0000ff\7\33[2 q\33[7m \33[m \r\n#\33[2;1H");
+    const int x = 0, y = 1;
+    for (int pass = 0; pass < 2; pass++)
+    {
+        if (pass)
+            sel(1, 0, 1, 1);
+        draw_task();
+        vga_draw(fb);
+        const uint32_t cursor = sel_pixel(fb, x, y);
+        const uint32_t want = pass ? sel_pixel(fb, 0, 0) : sel_pixel(fb, 1, 0);
+        unsigned glyph = 0;
+        for (int py = 0; py < 16; py++)
+            for (int px = 0; px < 8; px++)
+            {
+                const uint32_t p = fb[(y * 16 + py) * 640 + x * 8 + px];
+                if (p != cursor)
+                {
+                    ASSERT_EQ(p, want);
+                    glyph++;
+                }
+            }
+        ASSERT_GT(glyph, 0u);
+    }
+}
+
+/* ---- mode 0 draws the cursor, by xterm's rules ----
+ *
+ * The cursor works from the colors its cell shows. A block fills the cell
+ * and draws the glyph in the cell's background: with the cursor's color
+ * left as the default foreground, the fill is the cell's ink, or the
+ * default background on a cell shown reversed. An underline or a bar goes
+ * over the cell as it shows, in the cursor's color. Where the cursor's
+ * color would be the cell's background, it is the cell's ink instead, and
+ * a cell that shows no ink takes as its ink the default color further from
+ * its background. */
+
+static uint32_t cur_fb[640 * 480];
+static int cur_w, cur_ch;
+static bool cur_blink_off;
+
+/* A fresh terminal on the 80-column console, or on the 40-column one of a
+ * 320 by 240 canvas, with reference cells on row 0: the default
+ * background, the default foreground (a reversed space), and RGB blue. */
+static void cur_fresh(bool forty)
+{
+    fresh();
+    if (forty)
+    {
+        xreg1(0, 0, vga_canvas_320_240);
+        xreg1(0, 1, 0);
+    }
+    cur_blink_off = false;
+    cur_w = forty ? 320 : 640;
+    cur_ch = forty ? 8 : 16;
+    feed("\33[H \33[7m \33[m\33[48;2;0;0;255m \33[41m \33[107m \33[m");
+}
+
+static void cur_done(void)
+{
+    xreg1(0, 0, vga_canvas_console);
+}
+
+/* The frame, with the cursor or without it, and with SGR 5's blink in its
+ * off phase when cur_blink_off, set over the words draw.c published. */
+static void cur_draw(bool cursor)
+{
+    draw_task();
+    mode0_regs.screen &= ~3u;
+    if (cur_blink_off)
+        mode0_regs.screen |= TERM_ATTR_BLINK;
+    if (cursor)
+        mode0_regs.cursor |= MODE0_CURSOR_ENABLED;
+    else
+        mode0_regs.cursor &= ~MODE0_CURSOR_ENABLED;
+    vga_draw(cur_fb);
+}
+
+static uint32_t cur_at(int x, int y, int px, int py)
+{
+    return cur_fb[(y * cur_ch + py) * cur_w + x * 8 + px];
+}
+
+/* The reference colors of row 0. */
+static uint32_t cur_bg0(void) { return cur_at(0, 0, 1, 1); }
+static uint32_t cur_fg0(void) { return cur_at(1, 0, 1, 1); }
+static uint32_t cur_blue(void) { return cur_at(2, 0, 1, 1); }
+static uint32_t cur_red(void) { return cur_at(3, 0, 1, 1); }
+static uint32_t cur_white(void) { return cur_at(4, 0, 1, 1); }
+
+/* How many pixels of the cell at x, y, `cw` wide, are `ink` where every
+ * other is `fill`; -1 when one is neither. */
+static int cur_two(int x, int y, int cw, uint32_t fill, uint32_t ink)
+{
+    int n = 0;
+    for (int py = 0; py < cur_ch; py++)
+        for (int px = 0; px < cw; px++)
+        {
+            const uint32_t p = cur_fb[(y * cur_ch + py) * cur_w + x * cw + px];
+            if (p == ink && ink != fill)
+                n++;
+            else if (p != fill)
+                return -1;
+        }
+    return n;
+}
+
+/* Whether the cell at x, y, `cw` wide, is drawn as it is with no cursor,
+ * but for a stripe in `color`: the last `thick` scanlines for an
+ * underline, or the first `thick` pixels of each for a bar. False too
+ * when the stripe was already all `color`, which would show nothing. */
+static bool cur_stripe(int x, int y, int cw, bool bar, int thick, uint32_t color)
+{
+    static uint32_t off[16][16];
+    cur_draw(false);
+    bool differs = false;
+    for (int py = 0; py < cur_ch; py++)
+        for (int px = 0; px < cw; px++)
+            off[py][px] = cur_fb[(y * cur_ch + py) * cur_w + x * cw + px];
+    cur_draw(true);
+    for (int py = 0; py < cur_ch; py++)
+        for (int px = 0; px < cw; px++)
+        {
+            const uint32_t p = cur_fb[(y * cur_ch + py) * cur_w + x * cw + px];
+            const bool in = bar ? px < thick : py >= cur_ch - thick;
+            if (in && off[py][px] != color)
+                differs = true;
+            if (p != (in ? color : off[py][px]))
+                return false;
+        }
+    return differs;
+}
+
+/* A block on a cell shown reversed, by SGR 7, by DECSCNM, or by the
+ * selection, whose background is the cursor's default color: the cell is
+ * filled with its ink and the glyph drawn in its background, so a reversed
+ * space shows as a block of the ink. A reversed cell in the selection shows
+ * as it is not reversed. */
+UTEST(cursor, a_block_on_a_reversed_cell_fills_with_its_ink)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1H\33[7mA \33[m\33[2 q\33[3;1H");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0();
+        ASSERT_NE(bg0, fg0);
+        ASSERT_GT(cur_two(0, 2, 8, bg0, fg0), 0);
+        feed("\33[3;2H");
+        cur_draw(true);
+        ASSERT_EQ(cur_two(1, 2, 8, bg0, fg0), 0);
+        /* DECSCNM's reverse of a plain cell. */
+        feed("\33[4;1HA\33[4;1H\33[?5h");
+        cur_draw(true);
+        ASSERT_GT(cur_two(0, 3, 8, bg0, fg0), 0);
+        feed("\33[?5l");
+        /* The selection's, and the selection over a reversed cell. */
+        for (int pass = 0; pass < 2; pass++)
+        {
+            feed(pass ? "\33[5;1H\33[7mA\33[m\33[5;1H" : "\33[5;1HA\33[5;1H");
+            sel(4, 0, 4, 1);
+            cur_draw(true);
+            if (pass)
+                ASSERT_GT(cur_two(0, 4, 8, fg0, bg0), 0);
+            else
+                ASSERT_GT(cur_two(0, 4, 8, bg0, fg0), 0);
+            vterm_unselect();
+        }
+        cur_done();
+    }
+}
+
+/* A cell whose ink is its background takes the default foreground as its
+ * ink, or the default background where its background is the default
+ * foreground. A program's colors show the glyph under the block; a
+ * concealed cell, or one blinking off, shows none. */
+UTEST(cursor, a_block_on_a_cell_with_no_ink_shows)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1H\33[38;2;0;0;255;48;2;0;0;255mA\33[m"
+             "\33[7;8mA\33[m\33[8mA\33[m\33[5mA\33[m\33[2 q");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0(), blue = cur_blue();
+        /* Blue on blue: a block of the default foreground, the glyph blue. */
+        feed("\33[3;1H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(0, 2, 8, fg0, blue), 0);
+        /* The default foreground on itself, by a reversed cell concealed:
+         * its ink is the default background, and so is the block, since the
+         * cursor's color is the background. */
+        feed("\33[3;2H");
+        cur_draw(true);
+        ASSERT_EQ(cur_two(1, 2, 8, bg0, fg0), 0);
+        /* Concealed, the default background on itself: its ink is the
+         * default foreground, which fills the block, and no glyph. */
+        feed("\33[3;3H");
+        cur_draw(true);
+        ASSERT_EQ(cur_two(2, 2, 8, fg0, bg0), 0);
+        /* Blinking: the glyph in the on phase, none in the off phase. */
+        feed("\33[3;4H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(3, 2, 8, fg0, bg0), 0);
+        cur_blink_off = true;
+        cur_draw(true);
+        ASSERT_EQ(cur_two(3, 2, 8, fg0, bg0), 0);
+        cur_done();
+    }
+}
+
+/* OSC 12's color is the block's fill, but where it is the cell's
+ * background, which is then the cell's ink. */
+UTEST(cursor, the_cursor_color_is_never_the_background)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1H\33[48;2;0;0;255mA\33[m\33[38;2;0;0;255mA\33[m"
+             "\33]12;#0000ff\7\33[2 q");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0(), blue = cur_blue();
+        feed("\33[3;1H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(0, 2, 8, fg0, blue), 0);
+        feed("\33[6 q");
+        ASSERT_TRUE(cur_stripe(0, 2, 8, true, 2, fg0));
+        feed("\33[4 q");
+        ASSERT_TRUE(cur_stripe(0, 2, 8, false, 2, fg0));
+        feed("\33[2 q\33[3;2H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(1, 2, 8, blue, bg0), 0);
+        feed("\33[6 q");
+        ASSERT_TRUE(cur_stripe(1, 2, 8, true, 2, blue));
+        cur_done();
+    }
+}
+
+/* The underline is the cell's last two scanlines and the bar its first two
+ * pixels, on both fonts, and on a cell shown reversed they are its ink.
+ * A row of double width doubles the bar with its cells. A cell blinking
+ * off shows as it does, with the stripe over it. */
+UTEST(cursor, the_underline_and_the_bar_are_two_pixels)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1HA\33[7mA\33[m\33[5mA\33[m\33[5;1H\33#6AB");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0();
+        feed("\33[3;1H\33[4 q");
+        ASSERT_TRUE(cur_stripe(0, 2, 8, false, 2, fg0));
+        feed("\33[6 q");
+        ASSERT_TRUE(cur_stripe(0, 2, 8, true, 2, fg0));
+        feed("\33[3;2H\33[4 q");
+        ASSERT_TRUE(cur_stripe(1, 2, 8, false, 2, bg0));
+        feed("\33[6 q");
+        ASSERT_TRUE(cur_stripe(1, 2, 8, true, 2, bg0));
+        /* A cell blinking off shows its background, with the bar over it. */
+        feed("\33[3;3H");
+        cur_blink_off = true;
+        ASSERT_TRUE(cur_stripe(2, 2, 8, true, 2, fg0));
+        cur_draw(false);
+        ASSERT_EQ(cur_two(2, 2, 8, bg0, fg0), 0);
+        cur_blink_off = false;
+        /* A row of double width: cells 16 pixels wide. */
+        feed("\33[5;2H");
+        ASSERT_TRUE(cur_stripe(1, 4, 16, true, 4, fg0));
+        feed("\33[4 q");
+        ASSERT_TRUE(cur_stripe(1, 4, 16, false, 2, fg0));
+        cur_done();
+    }
+}
+
+/* With the cursor's color left as it starts, the default foreground, a
+ * block shows the cell as xterm does. On a cell not reversed it fills with
+ * the cell's ink, so red text takes a red block with its glyph in the
+ * background. On a cell shown reversed the cursor's color is the default
+ * paper, so the block is the default background with the glyph in what
+ * the cell shows as its background. */
+UTEST(cursor, a_block_of_the_default_color_is_the_cell_reversed)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1H\33[31mA\33[7mA\33[m\33[41mA\33[m\33[1;31mA\33[m\33[2 q");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0(), red = cur_red();
+        ASSERT_NE(red, bg0);
+        feed("\33[3;1H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(0, 2, 8, red, bg0), 0);
+        feed("\33[3;2H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(1, 2, 8, bg0, red), 0);
+        /* The ink is the default foreground on a red background. */
+        feed("\33[3;3H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(2, 2, 8, fg0, red), 0);
+        /* Bold red is the bright red of entry 9. */
+        feed("\33[3;4H");
+        cur_draw(false);
+        uint32_t ink = bg0;
+        for (int py = 0; py < cur_ch && ink == bg0; py++)
+            for (int px = 0; px < 8 && ink == bg0; px++)
+                ink = cur_at(3, 2, px, py);
+        ASSERT_NE(ink, red);
+        ASSERT_NE(ink, bg0);
+        cur_draw(true);
+        ASSERT_GT(cur_two(3, 2, 8, ink, bg0), 0);
+        /* The selection over the red text reverses it, and over the
+         * reversed red text shows it as it is not reversed. */
+        sel(2, 0, 2, 2);
+        feed("\33[3;1H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(0, 2, 8, bg0, red), 0);
+        feed("\33[3;2H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(1, 2, 8, red, bg0), 0);
+        vterm_unselect();
+        /* A cursor color of its own fills the block on either. */
+        feed("\33]12;#0000ff\7\33[3;1H");
+        cur_draw(true);
+        const uint32_t blue = cur_blue();
+        ASSERT_GT(cur_two(0, 2, 8, blue, bg0), 0);
+        feed("\33[3;2H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(1, 2, 8, blue, red), 0);
+        /* So does a red one, except on the red background, where it is
+         * the ink. */
+        feed("\33]4;1;#ff0000\7\33]12;#ff0000\7\33[3;3H");
+        cur_draw(true);
+        const uint32_t red2 = cur_red();
+        ASSERT_GT(cur_two(2, 2, 8, fg0, red2), 0);
+        feed("\33[3;2H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(1, 2, 8, bg0, red2), 0);
+        cur_done();
+    }
+}
+
+/* A cursor of the default background's color fills a block with the
+ * default foreground, or on a cell shown reversed with the cell's ink. */
+UTEST(cursor, a_block_of_the_default_background_shows)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1HA\33[41mA\33[m\33[7mA\33[m\33]12;#000000\7\33[2 q");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0(), red = cur_red();
+        feed("\33[3;1H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(0, 2, 8, fg0, bg0), 0);
+        feed("\33[3;2H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(1, 2, 8, fg0, red), 0);
+        feed("\33[3;3H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(2, 2, 8, bg0, fg0), 0);
+        cur_done();
+    }
+}
+
+/* A cell whose ink is its background takes whichever default color is
+ * further from that background: on bright white, the black of the default
+ * background, not the default foreground's gray. */
+UTEST(cursor, a_cell_with_no_ink_takes_the_further_default)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1H\33[97;107mA\33[m\33]12;#ffffff\7\33[2 q");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), white = cur_white();
+        feed("\33[3;1H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(0, 2, 8, bg0, white), 0);
+        feed("\33[4 q");
+        ASSERT_TRUE(cur_stripe(0, 2, 8, false, 2, bg0));
+        feed("\33[6 q");
+        ASSERT_TRUE(cur_stripe(0, 2, 8, true, 2, bg0));
+        cur_done();
+    }
+}
+
+/* The underline and the bar are in the cursor's color, or the ink where
+ * that is what the cell shows as its background: a cell in the selection,
+ * a reversed one in the selection, and DECSCNM's. */
+UTEST(cursor, the_underline_and_the_bar_follow_the_selection_and_decscnm)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1HA\33[7mA\33[m");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0();
+        sel(2, 0, 2, 2);
+        for (int bar = 0; bar < 2; bar++)
+        {
+            feed(bar ? "\33[6 q" : "\33[4 q");
+            feed("\33[3;1H");
+            ASSERT_TRUE(cur_stripe(0, 2, 8, bar, 2, bg0));
+            feed("\33[3;2H");
+            ASSERT_TRUE(cur_stripe(1, 2, 8, bar, 2, fg0));
+        }
+        vterm_unselect();
+        feed("\33[?5h");
+        for (int bar = 0; bar < 2; bar++)
+        {
+            feed(bar ? "\33[6 q" : "\33[4 q");
+            feed("\33[3;1H");
+            ASSERT_TRUE(cur_stripe(0, 2, 8, bar, 2, bg0));
+            feed("\33[3;2H");
+            ASSERT_TRUE(cur_stripe(1, 2, 8, bar, 2, fg0));
+        }
+        feed("\33[?5l");
+        cur_done();
+    }
+}
+
+/* On the top half of a double-height row, and in the last column. */
+UTEST(cursor, draws_on_a_double_height_row_and_in_the_last_column)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        const int last = forty ? 40 : 80;
+        char at[32];
+        feed("\33[5;1H\33#3AB");
+        snprintf(at, sizeof at, "\33[3;%dHA", last);
+        feed(at);
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0();
+        feed("\33[2 q\33[5;2H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(1, 4, 16, fg0, bg0), 0);
+        feed("\33[4 q");
+        ASSERT_TRUE(cur_stripe(1, 4, 16, false, 2, fg0));
+        feed("\33[6 q");
+        ASSERT_TRUE(cur_stripe(1, 4, 16, true, 4, fg0));
+        snprintf(at, sizeof at, "\33[2 q\33[3;%dH", last);
+        feed(at);
+        cur_draw(true);
+        ASSERT_GT(cur_two(last - 1, 2, 8, fg0, bg0), 0);
+        feed("\33[4 q");
+        ASSERT_TRUE(cur_stripe(last - 1, 2, 8, false, 2, fg0));
+        feed("\33[6 q");
+        ASSERT_TRUE(cur_stripe(last - 1, 2, 8, true, 2, fg0));
+        cur_done();
+    }
+}
+
+/* ---- the selection's colors, OSC 17 and OSC 19 ----
+ *
+ * xterm's highlightColor and highlightTextColor: set, asked for and reset
+ * as the other dynamic colors are, and drawn as xterm draws them with
+ * highlightColorMode and highlightReverse on: OSC 17's color is the
+ * selection's background and OSC 19's its text, by updatedXtermGC's rule
+ * (mode0.h). */
+
+/* OSC 17 and OSC 19 set and answer the selection's background and text,
+ * which start as the default foreground and background; OSC 117 and OSC
+ * 119, and RIS, put them back. The run of items from OSC 10 goes through
+ * the colors the console has not, the pointer's and the Tektronix
+ * window's, taking an item for each and doing nothing with it. */
+UTEST(term, osc_17_and_19_are_the_selection_s_colors)
+{
+    fresh();
+    ASSERT_STREQ(ask("\33]17;?\7"), color_answer("\33]17", color_256[7], "\7"));
+    ASSERT_STREQ(ask("\33]19;?\33\\"), "\33]19;rgb:0000/0000/0000\33\\");
+    ASSERT_STREQ(ask("\33]17;#0000ff\7\33]17;?\7"), "\33]17;rgb:0000/0000/ffff\7");
+    ASSERT_STREQ(ask("\33]19;#ff0000\7\33]19;?\7"), "\33]19;rgb:ffff/0000/0000\7");
+    ASSERT_STREQ(ask("\33]16;?;#00ff00;?;?\7"), "\33]19;rgb:ffff/0000/0000\7");
+    ASSERT_STREQ(ask("\33]17;?\7"), "\33]17;rgb:0000/ffff/0000\7");
+    ASSERT_STREQ(ask("\33]10;?;?;?;?;?;?;?;?;?;?;?\7"),
+                 "\33]10;rgb:e738/e738/e738\7\33]11;rgb:0000/0000/0000\7"
+                 "\33]12;rgb:e738/e738/e738\7\33]17;rgb:0000/ffff/0000\7"
+                 "\33]19;rgb:ffff/0000/0000\7");
+    ASSERT_STREQ(ask("\33]117\7\33]17;?\7"), color_answer("\33]17", color_256[7], "\7"));
+    ASSERT_STREQ(ask("\33]119\7\33]19;?\7"), "\33]19;rgb:0000/0000/0000\7");
+    char want[96];
+    snprintf(want, sizeof want, "%s\33]19;rgb:0000/0000/0000\7",
+             color_answer("\33]17", color_256[7], "\7"));
+    ASSERT_STREQ(ask("\33]17;#0000ff;?;#ff0000\7\33c\33]17;?;?;?\7"), want);
+}
+
+static uint32_t rgb_pixel(int r, int g, int b)
+{
+    return SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(r, g, b);
+}
+
+/* The colors mode 0 is given for the selection, as xterm's updatedXtermGC
+ * counts them: OSC 17's once it is neither the default foreground as
+ * DECSCNM shows it now nor the default foreground at power-up, and OSC
+ * 19's once it is neither the default background as DECSCNM shows it now
+ * nor the default background at power-up. */
+UTEST(term, the_selection_s_colors_count_as_xterm_s_do)
+{
+    fresh();
+    const uint32_t blue = rgb_pixel(0, 0, 255), red = rgb_pixel(255, 0, 0);
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, 0u);
+    ASSERT_EQ(mode0_regs.highlight_text, 0u);
+    feed("\33]19;#ff0000\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, 0u);
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | red);
+    feed("\33]17;#0000ff\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | red);
+    feed("\33]119\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
+    ASSERT_EQ(mode0_regs.highlight_text, 0u);
+    feed("\33]19;#ff0000\7\33]117\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, 0u);
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | red);
+    feed("\33]17;#0000ff\7");
+    /* Not while each is its default color. */
+    feed("\33]10;#0000ff\7\33]11;#ff0000\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, 0u);
+    ASSERT_EQ(mode0_regs.highlight_text, 0u);
+    feed("\33]110\7\33]111\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | red);
+    /* Under DECSCNM the default background set before shows as the
+     * foreground, which OSC 17's color is held against. */
+    feed("\33]11;#0000ff\7\33[?5h");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, 0u);
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | red);
+    feed("\33[?5l\33]111\7\33]10;#ff0000\7\33[?5h");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
+    ASSERT_EQ(mode0_regs.highlight_text, 0u);
+    feed("\33[?5l");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | red);
+    feed("\33]110\7");
+    /* As xterm's ReverseVideo swaps its default foreground and background,
+     * under DECSCNM OSC 10 and 11 name the colors shown, and OSC 110 and
+     * 111 reset them, so the background and the foreground they were. */
+    feed("\33[?5h\33]10;#0000ff\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, 0u);
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | red);
+    ASSERT_EQ(vterm_get_color(&vterm, VTERM_COLOR_BG), blue);
+    feed("\33]110\7\33]11;#ff0000\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
+    ASSERT_EQ(mode0_regs.highlight_text, 0u);
+    ASSERT_EQ(vterm_get_color(&vterm, VTERM_COLOR_FG), red);
+    feed("\33]111\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | red);
+    ASSERT_EQ(vterm_get_color(&vterm, VTERM_COLOR_FG), vterm_default_color(VTERM_COLOR_FG));
+    ASSERT_EQ(vterm_get_color(&vterm, VTERM_COLOR_BG), vterm_default_color(VTERM_COLOR_BG));
+    /* Its ReverseVideo does not swap the selection's two, but its
+     * oppositeColor does, so OSC 17 names the selection's text, and OSC 19
+     * its background, and so do OSC 117 and 119. */
+    const uint32_t green = rgb_pixel(0, 255, 0);
+    feed("\33]17;#00ff00\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | blue);
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | green);
+    feed("\33]19;#ff0000\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | red);
+    ASSERT_EQ(mode0_regs.highlight_text, MODE0_HIGHLIGHT | green);
+    feed("\33]117\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, MODE0_HIGHLIGHT | red);
+    ASSERT_EQ(mode0_regs.highlight_text, 0u);
+    feed("\33]119\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, 0u);
+    ASSERT_EQ(mode0_regs.highlight_text, 0u);
+    feed("\33[?5l\33]17;#0000ff\7\33]19;#ff0000\7");
+    /* Nor while each is its default color at power-up, whatever that is
+     * now. */
+    feed("\33]10;#00ff00\7\33]11;#00ff00\7\33]117\7\33]119\7");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, 0u);
+    ASSERT_EQ(mode0_regs.highlight_text, 0u);
+    feed("\33]17;#0000ff\7\33]19;#ff0000\7\33c");
+    draw_task();
+    ASSERT_EQ(mode0_regs.highlight, 0u);
+    ASSERT_EQ(mode0_regs.highlight_text, 0u);
+}
+
+/* The selection in its colors, on plain and reversed cells in it and out
+ * of it, as xterm's updatedXtermGC draws them with highlightColorMode on.
+ * Row 2 is a plain cell, a reversed one, a plain one, a reversed one, one
+ * on blue and one concealed; the selection takes the first two. Unset, a
+ * cell in the selection shows reversed, and a reversed one in it plain. */
+UTEST(highlight, the_selection_is_drawn_in_its_colors)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1HA\33[7mB\33[mC\33[7mD\33[m\33[48;2;0;0;255mE\33[m\33[8mF\33[m\33[4;1H");
+        cur_draw(false);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0(), blue = cur_blue(), white = cur_white();
+        sel(2, 0, 2, 2);
+        cur_draw(false);
+        ASSERT_GT(cur_two(0, 2, 8, fg0, bg0), 0);
+        ASSERT_GT(cur_two(1, 2, 8, bg0, fg0), 0);
+        ASSERT_GT(cur_two(2, 2, 8, bg0, fg0), 0);
+        ASSERT_GT(cur_two(3, 2, 8, fg0, bg0), 0);
+        /* The background color alone: a plain cell in it shows its ink on
+         * that color, and so does a reversed cell outside it, as on xterm;
+         * a reversed cell in it shows that color on its ink. */
+        feed("\33]17;#0000ff\7");
+        cur_draw(false);
+        ASSERT_GT(cur_two(0, 2, 8, blue, fg0), 0);
+        ASSERT_GT(cur_two(1, 2, 8, fg0, blue), 0);
+        ASSERT_GT(cur_two(2, 2, 8, bg0, fg0), 0);
+        ASSERT_GT(cur_two(3, 2, 8, blue, fg0), 0);
+        /* The text color alone: a plain cell in it, or a reversed one
+         * outside, shows that color on its ink, and a reversed cell in it
+         * its ink on that color. */
+        feed("\33]117\7\33]19;#ffffff\7");
+        cur_draw(false);
+        ASSERT_GT(cur_two(0, 2, 8, fg0, white), 0);
+        ASSERT_GT(cur_two(1, 2, 8, white, fg0), 0);
+        ASSERT_GT(cur_two(2, 2, 8, bg0, fg0), 0);
+        ASSERT_GT(cur_two(3, 2, 8, fg0, white), 0);
+        /* Both: a plain cell in it, or a reversed one outside, shows the
+         * text color on its own paper, as xterm's code has it, and a
+         * reversed cell in it the background color on the text color. */
+        feed("\33]17;#0000ff\7");
+        cur_draw(false);
+        ASSERT_GT(cur_two(0, 2, 8, bg0, white), 0);
+        ASSERT_GT(cur_two(1, 2, 8, white, blue), 0);
+        ASSERT_GT(cur_two(2, 2, 8, bg0, fg0), 0);
+        ASSERT_GT(cur_two(3, 2, 8, bg0, white), 0);
+        /* A color that is one of the cell's own is not used on it: on
+         * blue, only the text color is, on the cell's ink; and a concealed
+         * cell shows its paper alone. */
+        sel(2, 4, 2, 6);
+        cur_draw(false);
+        ASSERT_GT(cur_two(4, 2, 8, fg0, white), 0);
+        ASSERT_EQ(cur_two(5, 2, 8, bg0, white), 0);
+        /* Under DECSCNM a cell's two colors are swapped first. */
+        sel(2, 0, 2, 2);
+        feed("\33[?5h");
+        cur_draw(false);
+        ASSERT_GT(cur_two(0, 2, 8, fg0, white), 0);
+        ASSERT_GT(cur_two(1, 2, 8, white, blue), 0);
+        ASSERT_GT(cur_two(2, 2, 8, fg0, bg0), 0);
+        feed("\33[?5l");
+        /* Reset, the selection inverts again. */
+        feed("\33]117\7\33]119\7");
+        cur_draw(false);
+        ASSERT_GT(cur_two(0, 2, 8, fg0, bg0), 0);
+        ASSERT_GT(cur_two(1, 2, 8, bg0, fg0), 0);
+        ASSERT_GT(cur_two(3, 2, 8, fg0, bg0), 0);
+        cur_done();
+    }
+}
+
+/* A cell whose ink is the text color is drawn with the background color
+ * alone: white text in the selection, with OSC 19 white, shows on the
+ * background color. */
+UTEST(highlight, a_selection_color_that_is_the_cell_s_own_is_not_used)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1H\33[97mA\33[m\33[4;1H");
+        cur_draw(false);
+        const uint32_t blue = cur_blue(), white = cur_white();
+        feed("\33]17;#0000ff\7\33]19;#ffffff\7");
+        sel(2, 0, 2, 1);
+        cur_draw(false);
+        ASSERT_GT(cur_two(0, 2, 8, blue, white), 0);
+        cur_done();
+    }
+}
+
+/* A block on a selected cell works from the colors the cell shows. With
+ * the background color alone, the cell is its ink on that color; it shows
+ * reversed, by the selection, so the cursor's color, the default
+ * foreground, is its default paper: the block fills with the default ink,
+ * the default background, and draws the glyph in the selection's color.
+ * With both colors, the cell is the text color on its own paper, the
+ * default background: the default ink is that background too, so the
+ * block fills with the cell's ink, the text color, and draws the glyph in
+ * the default background. */
+UTEST(highlight, the_cursor_works_from_the_selection_s_colors)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1HA\33[3;1H\33[2 q");
+        cur_draw(false);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0(), blue = cur_blue(), white = cur_white();
+        feed("\33]17;#0000ff\7");
+        sel(2, 0, 2, 1);
+        cur_draw(false);
+        ASSERT_GT(cur_two(0, 2, 8, blue, fg0), 0);
+        cur_draw(true);
+        ASSERT_GT(cur_two(0, 2, 8, bg0, blue), 0);
+        feed("\33]19;#ffffff\7");
+        cur_draw(false);
+        ASSERT_GT(cur_two(0, 2, 8, bg0, white), 0);
+        cur_draw(true);
+        ASSERT_GT(cur_two(0, 2, 8, white, bg0), 0);
+        cur_done();
+    }
+}
+
+/* ---- the cursor without the focus, and on a blank of an ink alone ---- */
+
+/* With the host's window out of focus, a block is xterm's box: a pixel's
+ * outline of the cell in the cursor's color over the cell as it shows,
+ * shown whether or not its blink has it lit. An underline and a bar are
+ * as they are, and shown always too. The focus back, the block is filled
+ * again. */
+UTEST(cursor, without_the_focus_a_block_is_a_box)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1H \33[3;1H\33[2 q");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0();
+        ASSERT_EQ(cur_two(0, 2, 8, fg0, bg0), 0);
+        vterm_focus(false);
+        cur_draw(true);
+        ASSERT_TRUE(mode0_regs.cursor & MODE0_CURSOR_UNFOCUSED);
+        for (int py = 0; py < cur_ch; py++)
+            for (int px = 0; px < 8; px++)
+            {
+                const bool edge = py == 0 || py == cur_ch - 1 || px == 0 || px == 7;
+                if (edge)
+                    ASSERT_EQ(cur_at(0, 2, px, py), fg0);
+            }
+        ASSERT_EQ(cur_at(0, 2, 3, 5), bg0);
+        ASSERT_EQ(cur_two(0, 2, 8, bg0, fg0), 2 * 8 + 2 * (cur_ch - 2));
+        /* No blink: a blinking block shows unlit too. */
+        feed("\33[1 q");
+        cur_draw(true);
+        mode0_regs.cursor &= ~MODE0_CURSOR_LIT;
+        vga_draw(cur_fb);
+        ASSERT_EQ(cur_at(0, 2, 0, 0), fg0);
+        /* A blinking underline shows unlit. */
+        feed("\33[3 q");
+        cur_draw(true);
+        mode0_regs.cursor &= ~MODE0_CURSOR_LIT;
+        vga_draw(cur_fb);
+        ASSERT_EQ(cur_at(0, 2, 3, cur_ch - 1), fg0);
+        ASSERT_EQ(cur_at(0, 2, 3, 1), bg0);
+        ASSERT_EQ(cur_at(0, 2, 0, 1), bg0);
+        vterm_focus(true);
+        feed("\33[2 q");
+        cur_draw(true);
+        ASSERT_FALSE(mode0_regs.cursor & MODE0_CURSOR_UNFOCUSED);
+        ASSERT_EQ(cur_at(0, 2, 3, 5), fg0);
+        cur_done();
+    }
+}
+
+/* The box on a row of double width outlines the wide cell. */
+UTEST(cursor, the_box_on_a_double_width_row_outlines_the_wide_cell)
+{
+    cur_fresh(false);
+    feed("\33[3;1H\33#6 \33[3;1H\33[2 q");
+    cur_draw(true);
+    const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0();
+    vterm_focus(false);
+    cur_draw(true);
+    ASSERT_EQ(cur_at(0, 2, 0, 5), fg0);
+    ASSERT_EQ(cur_at(1, 2, 7, 5), fg0);
+    ASSERT_EQ(cur_at(0, 2, 7, 5), bg0);
+    ASSERT_EQ(cur_at(1, 2, 0, 5), bg0);
+    vterm_focus(true);
+    cur_done();
+}
+
+/* xterm's ShowCursor: a blank with an ink of its own and no background of
+ * its own shows the default ink under the cursor, so a block of the
+ * default cursor color fills with the default foreground, where a red
+ * glyph fills with red. With a background of its own the ink stays. */
+UTEST(cursor, a_blank_with_an_ink_alone_is_a_default_cell)
+{
+    for (int forty = 0; forty < 2; forty++)
+    {
+        cur_fresh(forty);
+        feed("\33[3;1H\33[31m \33[mx\33[31mA\33[m\33[31;44m \33[m\33[2 q\33[3;1H");
+        cur_draw(true);
+        const uint32_t bg0 = cur_bg0(), fg0 = cur_fg0(), red = cur_red();
+        ASSERT_EQ(cur_two(0, 2, 8, fg0, bg0), 0);
+        feed("\33[3;3H");
+        cur_draw(true);
+        ASSERT_GT(cur_two(2, 2, 8, red, bg0), 0);
+        feed("\33[3;4H");
+        cur_draw(true);
+        ASSERT_EQ(cur_two(3, 2, 8, red, red), 0);
+        /* An underline in the default background, the cell's background,
+         * takes the ink: the default foreground on the blank. */
+        feed("\33]12;#000000\7\33[4 q\33[3;1H");
+        cur_draw(true);
+        ASSERT_EQ(cur_at(0, 2, 3, cur_ch - 1), fg0);
+        cur_done();
+    }
 }
 
 UTEST_MAIN();

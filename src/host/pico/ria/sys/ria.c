@@ -278,11 +278,11 @@ void HOST_IN_FLASH_FUNC ria_write_buf(uint16_t addr, ria_callback_t callback)
     ria_action_start();
 }
 
-// The TX register holds one byte, as a UART's transmit holding register
-// does. Its producer is act_loop on core 1, and its consumer is the console
-// on core 0 through ria_uart_tx_dequeue, which moves it on into the ring
-// that keeps the wire busy, so one byte keeps up with the wire.
-static RING(uint8_t, 1) ria_uart_tx;
+// The TX register feeds a FIFO of 16 bytes, the depth of a 16550's. Its
+// producer is act_loop on core 1, and its consumer is the console on core 0
+// through ria_uart_tx_dequeue, which moves the bytes on into the ring that
+// keeps the wire busy.
+static RING(uint8_t, 16) ria_uart_tx;
 
 bool HOST_IN_RAM_FUNC ria_uart_tx_dequeue(uint8_t *ch)
 {

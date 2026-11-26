@@ -24,10 +24,35 @@ static struct
 static uint16_t mouse_x;
 static uint16_t mouse_y;
 
+/* The fraction of a count a host's motion leaves over, in Q16.16. */
+static int32_t mouse_acc_x, mouse_acc_y;
+
 static uint16_t mouse_xram;
 
-
 static mouse_connection_t mouse_connections[MOUSE_MAX_MICE];
+
+/* An address that would put the block past the end of XRAM would have the
+ * next write of it go past it. */
+static bool mouse_xram_check(sst_cursor_t *c)
+{
+    if (mouse_xram > 0x10000 - sizeof(mouse_state) && mouse_xram != 0xFFFF)
+        return sst_refuse(c, "mouse block past the end of XRAM");
+    return true;
+}
+
+#define MOUSE_STATE_ROWS(Y, s)                              \
+    Y(U8, s.buttons) Y(U8, s.x) Y(U8, s.y)                  \
+    Y(U8, s.wheel) Y(U8, s.pan)
+#define MOUSE_SST(X)                                        \
+    X(U16, mouse_xram)                                      \
+    X(STRUCT, mouse_state, MOUSE_STATE_ROWS)                \
+    X(U16, mouse_x)                                         \
+    X(U16, mouse_y)                                         \
+    X(I32, mouse_acc_x)                                     \
+    X(I32, mouse_acc_y)                                     \
+    X(VALIDATE, mouse_xram_check)                           \
+    X(SKIP, mouse_connections, "nothing mounts on a machine that saves")
+SST_TABLE(mouse, MOUSE_SST)
 
 static mouse_connection_t *HOST_IN_RAM_FUNC mouse_get_connection_by_slot(int slot)
 {
@@ -154,8 +179,6 @@ bool mouse_is_mapped(void)
     return mouse_xram != 0xFFFF;
 }
 
-static int32_t mouse_acc_x, mouse_acc_y;
-
 /* A host count is already in the block's units, and the counters behind the
  * block run at twice that, so host motion is doubled on the way in. */
 void mouse_host_move(int32_t dx, int32_t dy)
@@ -173,45 +196,6 @@ void mouse_host_move(int32_t dx, int32_t dy)
     mouse_state.x = mouse_x >> 1;
     mouse_state.y = mouse_y >> 1;
     mouse_write_xram();
-}
-
-void mouse_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    sst_put_u16(c, mouse_xram);
-    sst_put_u8(c, mouse_state.buttons);
-    sst_put_u8(c, mouse_state.x);
-    sst_put_u8(c, mouse_state.y);
-    sst_put_u8(c, mouse_state.wheel);
-    sst_put_u8(c, mouse_state.pan);
-    sst_put_u16(c, mouse_x);
-    sst_put_u16(c, mouse_y);
-    sst_put_i32(c, mouse_acc_x);
-    sst_put_i32(c, mouse_acc_y);
-}
-
-bool mouse_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    uint16_t at = sst_get_u16(c);
-    uint8_t b = sst_get_u8(c), x = sst_get_u8(c), y = sst_get_u8(c);
-    uint8_t w = sst_get_u8(c), p = sst_get_u8(c);
-    uint16_t mx = sst_get_u16(c), my = sst_get_u16(c);
-    int32_t ax = sst_get_i32(c), ay = sst_get_i32(c);
-    if (!sst_ok(c))
-        return false;
-    mouse_xram = at;
-    mouse_state.buttons = b;
-    mouse_state.x = x;
-    mouse_state.y = y;
-    mouse_state.wheel = w;
-    mouse_state.pan = p;
-    mouse_x = mx;
-    mouse_y = my;
-    mouse_acc_x = ax;
-    mouse_acc_y = ay;
-    mouse_write_xram();
-    return true;
 }
 
 void mouse_host_wheel(int dwheel, int dpan)

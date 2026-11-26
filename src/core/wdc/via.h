@@ -32,18 +32,9 @@ void via_reg_poke(uint16_t addr, uint8_t data);
 /* A write as the 6502 makes it, without the cycle a bus tick would add. */
 void via_reg_write(uint16_t addr, uint8_t data);
 
-/* Every field of the vendored model, because the delay pipelines inside the
- * timers and the interrupt logic cannot be re-derived from the registers: a
- * timer one cycle from underflowing looks like any other. */
-#define VIA_SST_SIZE 50
-void via_sst_save(sst_cursor_t *c, unsigned flags);
-bool via_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t via_sst;
 
 #define VIA_DRIVER DRIVER(                                  \
-    SST(.id = "VIA_",                                       \
-        .version = 1,                                       \
-        .size = VIA_SST_SIZE,                               \
-        .save = via_sst_save,                               \
-        .load = via_sst_load))
+    SST("VIA_", via))
 
 #endif /* _CORE_WDC_VIA_H_ */

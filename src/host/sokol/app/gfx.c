@@ -10,6 +10,7 @@
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
 #include "host/sokol/app/entry.h"
+#include "host/sokol/app/run.h"
 #include "core/vga/vga_emu.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
@@ -24,15 +25,33 @@
 
 static struct
 {
-    double scale;
     int frame_w, frame_h; /* last seen frame shape */
     bool fixed_aspect;
     sfb_framebuffer sfb;
     gfx_filter_t filter;
     float bg_r, bg_g, bg_b;
-    uint32_t *fb; /* the caller's framebuffer, which vga renders into */
+    /* The machine's frame on screen, whose shape everything here goes by,
+     * the pointer's mapping too: what is shown, which can be a frame behind
+     * the machine. */
+    const run_frame_t *shown;
     bool ever_uploaded;
+#ifdef EMU_WITH_DEBUGGER
+    /* A window size the debugger's menu asked for, for gfx_canvas_changed,
+     * which runs where the window may be resized; 0 for none. */
+    int resize_w, resize_h;
+#endif
 } gfx;
+
+void gfx_set_frame(const run_frame_t *frame)
+{
+    gfx.shown = frame;
+}
+
+static void canvas_size(int *w, int *h)
+{
+    *w = gfx.shown->canvas_w;
+    *h = gfx.shown->canvas_h;
+}
 
 void gfx_set_bgcolor(uint8_t r, uint8_t g, uint8_t b)
 {
@@ -51,9 +70,12 @@ void gfx_set_fixed_aspect(bool fixed) { gfx.fixed_aspect = fixed; }
 static void frame_size(int *w, int *h)
 {
     if (gfx.fixed_aspect)
-        vga_console_size(w, h);
+    {
+        *w = gfx.shown->console_w;
+        *h = gfx.shown->console_h;
+    }
     else
-        vga_canvas_size(w, h);
+        canvas_size(w, h);
 }
 
 /* The largest integer scale at which the canvas still fits the window, taking
@@ -129,8 +151,8 @@ void gfx_set_scale(double scale)
      * above 96 (X11, where sokol ignores high_dpi). top_reserved_px is already
      * framebuffer pixels. */
     int h = (int)(scaled_canvas_height(scale) * sapp_dpi_scale() + 0.5f);
-    int w = aspect_width(h, fw, fh);
-    host_window_resize(w, h + top_reserved_px());
+    gfx.resize_w = aspect_width(h, fw, fh);
+    gfx.resize_h = h + top_reserved_px();
 }
 
 double gfx_get_scale(void)
@@ -198,7 +220,7 @@ static slbx_viewport aspect_fit(int x, int y, int w, int h, int aw, int ah)
 static slbx_viewport canvas_viewport(void)
 {
     int cw, ch, fw, fh;
-    vga_canvas_size(&cw, &ch);
+    canvas_size(&cw, &ch);
     frame_size(&fw, &fh);
     int rx, ry, rw, rh;
     canvas_region(&rx, &ry, &rw, &rh);
@@ -208,18 +230,15 @@ static slbx_viewport canvas_viewport(void)
     return vp;
 }
 
-float gfx_canvas_scale(void)
+float gfx_canvas_width(void)
 {
-    int cw, ch;
-    vga_canvas_size(&cw, &ch);
-    slbx_viewport vp = canvas_viewport();
-    return (float)vp.width / cw;
+    return (float)canvas_viewport().width;
 }
 
 bool gfx_canvas_from_fb(float px, float py, int *cx, int *cy)
 {
     int cw, ch;
-    vga_canvas_size(&cw, &ch);
+    canvas_size(&cw, &ch);
     slbx_viewport vp = canvas_viewport();
     if (vp.width < 1 || vp.height < 1)
     {
@@ -250,7 +269,7 @@ void gfx_setup(void)
         .logger.func = app_log,
     });
     int cw, ch;
-    vga_canvas_size(&cw, &ch);
+    canvas_size(&cw, &ch);
     gfx.sfb = sfb_make_framebuffer(&(sfb_framebuffer_desc){
         .width = cw,
         .height = ch,
@@ -262,6 +281,13 @@ void gfx_setup(void)
 
 void gfx_canvas_changed(void)
 {
+#ifdef EMU_WITH_DEBUGGER
+    if (gfx.resize_w)
+    {
+        host_window_resize(gfx.resize_w, gfx.resize_h);
+        gfx.resize_w = gfx.resize_h = 0;
+    }
+#endif
     int fw, fh;
     frame_size(&fw, &fh);
     /* A new size at the same aspect, such as 320x240 after 640x480, needs
@@ -297,7 +323,7 @@ static slbx_viewport canvas_vp;
 void gfx_upload(bool new_frame)
 {
     int cw, ch;
-    vga_canvas_size(&cw, &ch);
+    canvas_size(&cw, &ch);
 
     /* The window tracks the frame aspect. RP6502 pixels are square, so the
      * canvas aspect is the display aspect, and a canvas the shape of the frame
@@ -326,7 +352,7 @@ void gfx_upload(bool new_frame)
     if (new_frame || recreated)
     {
         sfb_update(gfx.sfb, &(sfb_update_desc){
-            .pixels = {.ptr = gfx.fb, .size = (size_t)cw * ch * sizeof(uint32_t)},
+            .pixels = {.ptr = gfx.shown->pixels, .size = (size_t)cw * ch * sizeof(uint32_t)},
         });
         gfx.ever_uploaded = true;
     }
@@ -372,14 +398,11 @@ void gfx_shutdown(void)
  * aspect gives, so a 4:3 frame opens 640x480 and a 16:9 frame opens wider.
  * A window manager may restore a previous size instead, which is fine: the init
  * callback sets the aspect lock and the blit letterboxes either way. */
-void gfx_prepare(uint32_t *fb, double scale, bool have_scale, int *out_w, int *out_h)
+void gfx_prepare(double scale, bool have_scale, int *out_w, int *out_h)
 {
-    (void)have_scale;
-    gfx.fb = fb;
-    gfx.scale = scale;
     int fw, fh;
     frame_size(&fw, &fh);
-    int canvas_h = scaled_canvas_height(gfx.scale);
+    int canvas_h = scaled_canvas_height(scale);
     int win_w = aspect_width(canvas_h, fw, fh);
     int win_h = canvas_h;
 #ifdef EMU_WITH_DEBUGGER

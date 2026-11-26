@@ -97,7 +97,7 @@ const char *api_pop_path_end(api_errno *err);
 
 static inline bool api_pop_n(void *data, size_t n)
 {
-    if (XSTACK_SIZE - xstack_ptr < n)
+    if ((size_t)(XSTACK_SIZE - xstack_ptr) < n)
         return false;
     memcpy(data, &xstack[xstack_ptr], n);
     xstack_ptr += n;
@@ -197,22 +197,13 @@ static inline bool api_return_errno(api_errno errnum)
     return api_return_axsreg(-1);
 }
 
-/* The two bytes are the op the 6502 is parked on and the errno numbering the
- * running program selected. The op is enough because a load re-dispatches the
- * same call, and how far that call had got is saved by the driver that
- * implements it. */
-#define API_SST_SIZE 2
-void api_sst_save(sst_cursor_t *c, unsigned flags);
-bool api_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t api_sst;
 
 #define API_DRIVER DRIVER(                                  \
     TASK_FATFS(api_task)                                    \
     RUN(api_run)                                            \
     STOP(api_stop)                                          \
-    SST(.id = "API_",                                       \
-        .version = 1,                                       \
-        .size = API_SST_SIZE,                               \
-        .save = api_sst_save,                               \
-        .load = api_sst_load))
+    RESET(api_stop)                                         \
+    SST("API_", api))
 
 #endif /* _CORE_API_API_H_ */

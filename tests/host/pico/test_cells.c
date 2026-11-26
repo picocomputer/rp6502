@@ -4,48 +4,106 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The RIA's console terminal, which has no cells: which rows it says may
- * have something on them, for the clear line a program's end leaves. */
+/* The RIA's console terminal, which keeps its text in text cells: which
+ * rows have something on them, for the clear line a program's end leaves. */
 
 #include "core/aud/bel.h"
 #include "core/com/com.h"
-#include "core/com/manifold.h"
-#include "core/term/cells.h"
+#include "core/term/grid.h"
+#include "core/term/vterm.h"
+#include "core/term/vterm_mouse.h"
 #include "ria/sys/vga.h"
 #include "utest.h"
 #include <string.h>
 
-/* The console with no VGA: the 80-column terminal. */
-bool vga_connected(void) { return false; }
-uint32_t vga_frames(void) { return 0; }
-void vga_canvas_size(int *w, int *h) { *w = 640, *h = 480; }
-void manifold_set_term_out(int (*out)(const char *buf, int len, bool force)) { (void)out; }
+/* The RIA's machine.h, which a host build cannot include. */
+_Static_assert(TERM_MAX_HEIGHT == 32 && TERM_ALT_SCREEN == 1 && TERM_CELL_TEXT == 1,
+               "the RIA's terminal");
+
+/* The console with no VGA, the 80-column terminal, unless a test connects
+ * one (ria/sys/vga.c). Its canvas is the console, so the 80 shows either
+ * way. */
+static bool connected;
+bool vga_connected(void) { return connected; }
+unsigned long vga_frame_count(void) { return 0; }
 void com_reply(const char *s, size_t n) { (void)s, (void)n; }
-bool com_get_bel(void) { return false; }
-void bel_add(const bel_sound_t *sound) { (void)sound; }
-const bel_sound_t bel_teletype;
+/* The console's mouse is not in this test: what a program asks of it does
+ * nothing. */
+void vterm_mouse_track(int func, int col, int row, int first, int last)
+{
+    (void)func, (void)col, (void)row, (void)first, (void)last;
+}
+void vterm_mouse_locate(void) {}
+void vterm_mouse_filter(void) {}
+void draw_reset(void) {}
+
+/* The jobs the terminal started, which ria/sys/vga.c holds the VGA's
+ * console for. */
+static unsigned jobs;
+void draw_job_started(void) { jobs++; }
+
+/* The bell's voice is the PSG's ninth, and register 6 is its gate
+ * (core/aud/bel.c); the bell sounds while the gate is up. Its deadlines
+ * never fall due, as the clock stands still. */
+static uint8_t gate;
+void aud_bel_put(unsigned i, uint8_t val)
+{
+    if (i == 6)
+        gate = val;
+}
+uint64_t host_clock_us(void) { return 1; }
 
 static void say(const char *s)
 {
     while (*s)
-        term_write(&cells_term, (uint8_t)*s++);
+        term_write(&vterm, (uint8_t)*s++);
 }
 
 /* The rows in use, as a string of a character a row: # in use, . clear. */
 static const char *rows(int count)
 {
     static char out[40];
-    term_grid_t *g = term_shown(&cells_term);
+    term_grid_t *g = vterm_get_shown(&vterm);
     for (int y = 0; y < count; y++)
-        out[y] = cells_row_used(&cells_term, g, (uint8_t)y) ? '#' : '.';
+        out[y] = screen_row_used(g->shown, (uint8_t)y) ? '#' : '.';
     out[count] = 0;
     return out;
 }
 
+static cell_t cells[VTERM_CELLS];
+
 static void fresh(void)
 {
-    cells_init();
-    cells_RIS();
+    connected = false;
+    vterm_init(cells);
+    vterm_RIS();
+}
+
+/* With a VGA, a line feed under DECSCLM holds the next one while the rows
+ * move (here they never land, as the frames stand still), and RIS ends the
+ * scroll and the hold, as it does on the VGA. */
+UTEST(cells, ris_ends_a_smooth_scroll_and_its_hold)
+{
+    fresh();
+    connected = true;
+    say("\33[?4h\33[99;1H\n");
+    ASSERT_TRUE(term_holds(&vterm, '\n'));
+    say("\33c");
+    ASSERT_FALSE(term_holds(&vterm, '\n'));
+    connected = false;
+}
+
+/* A scroll of the grid ends its smooth scroll, and the hold with it, as on
+ * the VGA, which draws the rows where they are. */
+UTEST(cells, a_scroll_ends_a_smooth_scroll_and_its_hold)
+{
+    fresh();
+    connected = true;
+    say("\33[?4h\33[99;1H\n");
+    ASSERT_TRUE(term_holds(&vterm, '\n'));
+    say("\33[S");
+    ASSERT_FALSE(term_holds(&vterm, '\n'));
+    connected = false;
 }
 
 UTEST(cells, a_row_written_is_in_use)
@@ -70,12 +128,12 @@ UTEST(cells, an_erase_of_a_whole_row_clears_it)
     /* EL 2 on row 1, and ED 0 from the start of row 2. */
     say("\33[1;1H\33[2K\33[3;1H\33[J");
     ASSERT_STREQ(rows(5), ".#...");
-    /* Part of a row erased leaves it in use, which is all that is known. */
+    /* A row erased in two parts is clear. */
     say("\33[2;2H\33[K\33[2;1H\33[1K");
-    ASSERT_STREQ(rows(5), ".#...");
+    ASSERT_STREQ(rows(5), ".....");
     /* An erase to a color puts the color on the row. */
     say("\33[4;1H\33[44m\33[2K\33[0m");
-    ASSERT_STREQ(rows(5), ".#.#.");
+    ASSERT_STREQ(rows(5), "...#.");
     say("\33[2J");
     ASSERT_STREQ(rows(5), ".....");
 }
@@ -94,14 +152,32 @@ UTEST(cells, the_rows_move_with_a_scroll)
     ASSERT_STREQ(rows(7), "....#..");
     /* A line feed on the bottom row moves everything up. */
     fresh();
-    const int bottom = term_shown(&cells_term)->height - 1;
+    const int bottom = vterm_get_shown(&vterm)->height - 1;
     say("top\33[99;1Hbottom");
-    ASSERT_TRUE(cells_row_used(&cells_term, term_shown(&cells_term), 0));
-    ASSERT_TRUE(cells_row_used(&cells_term, term_shown(&cells_term), (uint8_t)bottom));
+    ASSERT_TRUE(screen_row_used(vterm_get_shown(&vterm)->shown, 0));
+    ASSERT_TRUE(screen_row_used(vterm_get_shown(&vterm)->shown, (uint8_t)bottom));
     say("\n");
-    ASSERT_FALSE(cells_row_used(&cells_term, term_shown(&cells_term), 0));
-    ASSERT_TRUE(cells_row_used(&cells_term, term_shown(&cells_term), (uint8_t)(bottom - 1)));
-    ASSERT_FALSE(cells_row_used(&cells_term, term_shown(&cells_term), (uint8_t)bottom));
+    ASSERT_FALSE(screen_row_used(vterm_get_shown(&vterm)->shown, 0));
+    ASSERT_TRUE(screen_row_used(vterm_get_shown(&vterm)->shown, (uint8_t)(bottom - 1)));
+    ASSERT_FALSE(screen_row_used(vterm_get_shown(&vterm)->shown, (uint8_t)bottom));
+}
+
+/* Work on more than one row is a job at each size, which the RIA holds
+ * the VGA's console for. Work on one row, and a line feed that turns the
+ * ring at full width, are done at once and hold nothing. */
+UTEST(cells, work_on_more_than_one_row_is_a_job)
+{
+    fresh();
+    say("one\r\ntwo\r\nthree");
+    jobs = 0;
+    say("\33[2K\33[3;2H\33[P\33[99;1H\n");
+    ASSERT_EQ(0u, jobs);
+    say("\33[2J");
+    ASSERT_EQ(2u, jobs);
+    say("\33[1;1;9;9;1$r");
+    ASSERT_EQ(4u, jobs);
+    say("\33[3;9r\33[3;1H\33[2L\33[r");
+    ASSERT_EQ(6u, jobs);
 }
 
 UTEST(cells, each_screen_has_its_own_rows)
@@ -112,6 +188,29 @@ UTEST(cells, each_screen_has_its_own_rows)
     ASSERT_STREQ(rows(4), "..#.");
     say("\33[?47l");
     ASSERT_STREQ(rows(4), "#...");
+}
+
+/* The bell is the VGA terminal's: with no VGA, the terminal the user sees
+ * is another, which rings its own. */
+UTEST(cells, a_bell_rings_only_with_a_vga)
+{
+    fresh();
+    bel_reset();
+    bel_init();
+    say("\a");
+    ASSERT_FALSE(gate);
+    connected = true;
+    say("\a");
+    ASSERT_TRUE(gate);
+    /* And none rings with the bell turned off. */
+    bel_init();
+    bel_set_term(false);
+    say("\a");
+    ASSERT_FALSE(gate);
+    bel_reset();
+    say("\a");
+    ASSERT_TRUE(gate);
+    bel_init();
 }
 
 UTEST_MAIN();

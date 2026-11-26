@@ -25,6 +25,9 @@
 #endif
 
 void oem_init(void);
+/* After a failed load, puts the configured code page back in all three
+ * places it is kept: the page in force, the filesystem's and the font's. */
+void oem_reset(void);
 /* Puts back the configured code page if a program changed it. */
 void oem_restore_code_page(void);
 
@@ -51,18 +54,6 @@ unsigned char oem_from_codepoint(uint32_t cp);
 
 // One UTF-8 sequence -> one OEM byte; advances *p; returns 0 at the NUL
 unsigned char oem_from_utf8_next(const char **p);
-
-/* A run of UTF-8 becomes OEM bytes. A character the code page cannot represent
- * becomes '?' rather than the 0x7F the decoder returns, because the line
- * editor in core/com/rln.c reads 0x7F as a backspace. Every control byte,
- * CR and LF included, passes through.
- *
- * The conversion stops on a full dst, and on a sequence the buffer does not
- * hold whole unless end is true, which means no more input is coming. *taken
- * is what was read, so the rest can be carried to the next call, and the
- * return is the count written. */
-size_t oem_from_utf8_run(const char *utf8, size_t len, bool end,
-                         char *dst, size_t dstsz, size_t *taken);
 
 // One OEM byte -> UTF-8 in dst (at most 3 bytes, no NUL); returns the count
 int oem_to_utf8_char(unsigned char b, char *dst);
@@ -100,19 +91,12 @@ int oem_vsnprintf(char *dst, size_t dst_size, const char *utf8_fmt, va_list va);
 #define OEM_CONFIG_CODE_PAGE CONFIG_INT(S, oem, code_page, uint16_t, 0, \
     oem_check_code_page, oem_apply_code_page, STR_CP, oem_code_page_response, \
     STR_HELP_SET_CP, NULL)
-/* Only the code page in force is saved. The glyphs follow from that one
- * number, so the load asks for the page again and puts them back. */
-#define OEM_SST_SIZE 2
-void oem_sst_save(sst_cursor_t *c, unsigned flags);
-bool oem_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t oem_sst;
 
 #define OEM_DRIVER DRIVER(                                  \
     INIT(oem_init)                                          \
+    RESET(oem_reset)                                        \
     OEM_CONFIG_CODE_PAGE                                    \
-    SST(.id = "OEM_",                                       \
-        .version = 1,                                       \
-        .size = OEM_SST_SIZE,                               \
-        .save = oem_sst_save,                               \
-        .load = oem_sst_load))
+    SST("OEM_", oem))
 
 #endif /* _CORE_STR_OEM_H_ */

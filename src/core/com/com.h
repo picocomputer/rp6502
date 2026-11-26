@@ -6,7 +6,7 @@
 
 /* The console, as the rest of the machine sees it: the sources it reads, the
  * byte staged in the 6502's receive register, its terminal's answers, its
- * output, the bell, and starting a clean line. */
+ * output, and starting a clean line. */
 
 #ifndef _CORE_COM_COM_H_
 #define _CORE_COM_COM_H_
@@ -118,40 +118,38 @@ bool com_get_reply_quiet(void);
 void com_set_reply_quiet(bool quiet);
 void com_set_reply_default(bool quiet);
 void com_run(void);
+void com_reset(void);
 
 __printflike(1, 2) int com_printf(const char *fmt, ...);
 
 /* com_printf for a UTF-8 format, its output converted to the code page. */
 __printflike(1, 2) int com_printf_utf8(const char *utf8_fmt, ...);
 
-/* Whether a BEL the console sends rings the bell. */
-bool com_get_bel(void);
-void com_set_bel(bool value);
-
 /* Flushes, then CR LF unless the console's terminal has its cursor in
  * column 1. */
 void com_clean_line(void);
 
 /* The end of a session: the soft reset and the default cursor shape, then a
- * clean line. */
+ * clean line, the code page restored and the bell on. It waits for what
+ * the program wrote to go out at the line's pace, then goes out at once.
+ * com_end_now ends it at once, and the firmware's prints, a clean line
+ * and a program starting end it first. com_ending is true while it waits. */
 void com_end_reset(void);
+void com_end_now(void);
+extern bool com_end_pending;
+static inline bool com_ending(void) { return com_end_pending; }
+void com_task(void);
+void com_start(void);
 
-/* The picker's held source (1) and its deadline (8), the bell (1), the
- * staged byte's source (1), and the held answer's length (2), how much of it
- * has been read (2), its buffer (256) and the quiet flag (1). */
-#define COM_SST_SIZE 272
-void com_sst_save(sst_cursor_t *c, unsigned flags);
-bool com_sst_load(sst_cursor_t *c, unsigned flags);
+extern const sst_table_t com_sst;
 
 #define COM_DRIVER DRIVER(       \
     INIT(com_rx_clear)           \
-    RUN(com_run)                 \
+    TASK_PUMPED(com_task)        \
+    RUN(com_start)               \
     STOP(com_run)                \
     BREAK(com_rx_clear)          \
-    SST(.id = "COM_",            \
-        .version = 8,            \
-        .size = COM_SST_SIZE,    \
-        .save = com_sst_save,    \
-        .load = com_sst_load))
+    RESET(com_reset)             \
+    SST("COM_", com))
 
 #endif /* _CORE_COM_COM_H_ */

@@ -75,14 +75,13 @@ typedef struct
     expr_tok_t tok;
     const char *text; /* the token, for numbers and names */
     size_t len;
+    expr_form_t form; /* for a name, with text between its parentheses */
     uint64_t whole;
     bool big; /* the whole number is past UINT64_MAX */
     bool is_float;
     bool skip; /* read the expression without working anything out */
     expr_status_t refused; /* set by the first float or / in the text */
     expr_lookup_t lookup;
-    const char **name;
-    size_t *name_len;
 } expr_t;
 
 static int expr_digit(char c, int base)
@@ -180,6 +179,38 @@ static const char *expr_number(const char *s, const char *end, uint64_t *whole,
     return s;
 }
 
+/* address(), define(), sizeof() and countof() take the text up to the ),
+ * without the spaces around it, so a path's / and . are not operators.
+ * With a name from e->text to *s, a ( after one of the four makes e->text
+ * and e->len that text, and moves *s past the ). False for a missing ) or
+ * no text. */
+static bool expr_form(expr_t *e, const char **s)
+{
+    static const char *const forms[] = {"address", "define", "sizeof", "countof"};
+    const char *t = *s;
+    while (t < e->end && (*t == ' ' || *t == '\t'))
+        t++;
+    if (t == e->end || *t != '(')
+        return true;
+    size_t len = (size_t)(*s - e->text);
+    for (size_t i = 0; i < sizeof forms / sizeof *forms; i++)
+        if (strlen(forms[i]) == len && !memcmp(e->text, forms[i], len))
+            e->form = (expr_form_t)(EXPR_ADDRESS + i);
+    if (e->form == EXPR_NAME)
+        return true;
+    const char *close = memchr(t, ')', (size_t)(e->end - t));
+    if (!close)
+        return false;
+    *s = close + 1;
+    for (t++; t < close && (*t == ' ' || *t == '\t'); t++)
+        ;
+    while (close > t && (close[-1] == ' ' || close[-1] == '\t'))
+        close--;
+    e->text = t;
+    e->len = (size_t)(close - t);
+    return e->len > 0;
+}
+
 static void expr_next(expr_t *e)
 {
     const char *s = e->s;
@@ -187,6 +218,7 @@ static void expr_next(expr_t *e)
         s++;
     e->text = s;
     e->tok = EXPR_T_BAD;
+    e->form = EXPR_NAME;
     if (s == e->end)
         e->tok = EXPR_T_END;
     else if (expr_digit(*s, 10) >= 0 || *s == '$' ||
@@ -203,7 +235,6 @@ static void expr_next(expr_t *e)
         while (s < e->end && expr_name_char(*s) && *s != '.')
             s++;
         size_t len = (size_t)(s - e->text);
-        e->tok = EXPR_T_NAME;
         if (len == 2 && !memcmp(e->text, "or", 2))
             e->tok = EXPR_T_OR;
         else if (len == 3 && !memcmp(e->text, "and", 3))
@@ -211,8 +242,13 @@ static void expr_next(expr_t *e)
         else if (len == 3 && !memcmp(e->text, "not", 3))
             e->tok = EXPR_T_NOT;
         else
+        {
             while (s < e->end && expr_name_char(*s))
                 s++;
+            if (!expr_form(e, &s))
+                return;
+            e->tok = EXPR_T_NAME;
+        }
     }
     else
     {
@@ -229,7 +265,8 @@ static void expr_next(expr_t *e)
         if (e->tok == EXPR_T_BAD)
             return;
     }
-    e->len = (size_t)(s - e->text);
+    if (e->form == EXPR_NAME)
+        e->len = (size_t)(s - e->text);
     e->s = s;
     /* Floats are not allowed, and / always makes a float. */
     if (!e->refused && ((e->tok == EXPR_T_NUM && e->is_float) ||
@@ -398,11 +435,8 @@ static expr_status_t expr_atom(expr_t *e, int64_t *v)
         }
         break;
     case EXPR_T_NAME:
-        if (!e->skip && (st = e->lookup(e->text, e->len, v)) != EXPR_OK)
-        {
-            *e->name = e->text;
-            *e->name_len = e->len;
-        }
+        if (!e->skip)
+            st = e->lookup(e->form, e->text, e->len, v);
         break;
     case EXPR_T_OPEN:
         expr_next(e);
@@ -544,13 +578,11 @@ static expr_status_t expr_or(expr_t *e, int64_t *v)
 }
 
 expr_status_t expr_eval(const char *text, size_t len, expr_lookup_t lookup,
-                        int64_t *out, const char **name, size_t *name_len)
+                        int64_t *out)
 {
     expr_t e = {
         .end = text + len,
         .lookup = lookup,
-        .name = name,
-        .name_len = name_len,
     };
     /* The first pass only checks syntax, so a syntax error is reported before
      * any other error, and a float or a / is reported next. */

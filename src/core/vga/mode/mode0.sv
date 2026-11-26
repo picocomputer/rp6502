@@ -5,9 +5,14 @@
  *
  * The terminal's memories and scanout registers, the fabric's copy of
  * what core/vga/mode/mode0.h defines: mode0_cells, mode0_colors,
- * mode0_palette, and mode0_regs's row, cursor, cursor color and screen
- * words. The linker places each behind its window, so cells.c's ordinary
- * stores land here unchanged, and this draws what mode0.c draws.
+ * mode0_palette and mode0_regs. The linker places each behind its
+ * window, so the ordinary stores of core/term/screen.c and draw.c land
+ * here unchanged, and this draws what mode0.c draws.
+ *
+ * mode0_palette is the console's palette, two entries a word. The
+ * default colors are in a register, and a faint color is its own at half
+ * brightness, made in wiring, so the software renderer's tables of the
+ * faint ones have no copy here.
  *
  * There is one terminal, so this is one engine of its own beside the
  * fill engine, with its own line buffer. It has a line to finish in and
@@ -70,8 +75,7 @@ module mode0 (
      * The cells are mode0_cells, a word each, and the colors are
      * mode0_colors as the firmware has them: a run of halfwords, three a
      * cell, so a cell's colors start on a word or in the middle of one.
-     * The palette is mode0_palette, two entries a word. The depths are
-     * this firmware's, MODE0_CELLS of 7440.
+     * The depths are this firmware's, MODE0_CELLS of 7440.
      *
      * Flat rather than banked: hand-banking gives the blocks back more
      * exactly and pays for it with an adder and a mux on the scanout's
@@ -94,36 +98,43 @@ module mode0 (
     (* ramstyle = "no_rw_check" *)
     logic [7:0] col3[11160] /*verilator public_flat_rw*/;
 
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] pal0[258] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] pal1[258] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] pal2[258] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] pal3[258] /*verilator public_flat_rw*/;
+    /* mode0_palette: written whole words at a time by draw.c, which
+     * copies the console's palette to it, and never read back, so it is
+     * one simple dual-port block. */
+    (* ramstyle = "M10K, no_rw_check" *)
+    logic [31:0] pal[128] /*verilator public_flat_rw*/;
 
     logic [12:0] cell_idx;
     logic [13:0] col_idx;
-    logic [8:0] pal_idx;
+    logic [6:0] pal_idx;
     always_comb begin
         cell_idx = b_addr[14:2];
         col_idx = b_addr[15:2];
-        pal_idx = b_addr[10:2];
+        pal_idx = b_addr[8:2];
     end
 
-    /* row {size[17:16], cell[12:0]};
-     * cursor {enabled[25], lit[24], style[23:16], y[15:8], x[7:0]};
-     * screen {reverse[2], blink[1:0]};
-     * smooth {on[17], up[16], bot[15:8], top[7:0]};
-     * smooth_frame, a frame count; smooth_ghost, a row word. */
+    /* The words, by their place in mode0_regs:
+     *   0-31 row {to[31:25], from[24:18], size[17:16], cell[12:0]};
+     *   32 cursor {unfocused[26], enabled[25], lit[24], style[23:16],
+     *      y[15:8], x[7:0]};
+     *   33 cursor_color; 34 highlight and 35 highlight_text
+     *      {counts[16], pixel[15:0]};
+     *   36 defaults {background[31:16], foreground[15:0]};
+     *   37 screen {reverse[2], blink[1:0]};
+     *   38 smooth {on[17], up[16], bot[15:8], top[7:0]};
+     *   39 smooth_frame, a frame count; 40 smooth_ghost, a row word;
+     *   41 publish.
+     * Word 63, past them, is the frame counter. A row word is kept as
+     * {to, from, size, cell}, 29 bits. */
     logic [31:0] cursor_shadow /*verilator public_flat_rd*/;
     logic [15:0] cursor_color_shadow /*verilator public_flat_rd*/;
+    logic [16:0] hl_shadow, ht_shadow;
+    logic [31:0] defaults_shadow;
     logic [2:0] screen_shadow /*verilator public_flat_rw*/;
     logic sm_on_s, sm_up_s;
     logic [4:0] sm_top_s, sm_bot_s;
     logic [31:0] sm_frame_s;
-    logic [14:0] sm_ghost_s;
+    logic [28:0] sm_ghost_s;
     logic [31:0] frame_count /*verilator public_flat_rd*/;
 
     /* The scanout reads stand alone and unreset: a block RAM's output
@@ -131,7 +142,7 @@ module mode0 (
      * pipeline's reset would keep a memory out of block RAM entirely. */
     logic [12:0] cell_ra;
     logic [13:0] col_ra;
-    logic [9:0] pal_ra;
+    logic [7:0] pal_ra;
     logic [31:0] cell_rq, col_rq, pal_rq;
     logic pal_half;
     always_ff @(posedge clk)
@@ -141,18 +152,17 @@ module mode0 (
         col_rq <= {col3[col_ra], col2[col_ra],
                    col1[col_ra], col0[col_ra]};
     always_ff @(posedge clk) begin
-        pal_rq <= {pal3[pal_ra[9:1]], pal2[pal_ra[9:1]],
-                   pal1[pal_ra[9:1]], pal0[pal_ra[9:1]]};
+        pal_rq <= pal[pal_ra[7:1]];
         pal_half <= pal_ra[0];
     end
 
-    logic [31:0] cells_q, cols_q, pals_q, regs_q;
+    logic [31:0] cells_q, cols_q, regs_q;
     logic [1:0] sel_q;
     always_comb begin
         case (sel_q)
             2'd0: mode0_b_rdata = cells_q;
             2'd2: mode0_b_rdata = cols_q;
-            2'd3: mode0_b_rdata = pals_q;
+            2'd3: mode0_b_rdata = 32'h0;
             default: mode0_b_rdata = regs_q;
         endcase
     end
@@ -184,35 +194,41 @@ module mode0 (
             if (b_we && b_wstrb[3]) col3[col_idx] <= b_wdata[31:24];
         end
     end
-    always_ff @(posedge clk) begin
-        if (pal_stb) begin
-            pals_q <= {pal3[pal_idx], pal2[pal_idx],
-                       pal1[pal_idx], pal0[pal_idx]};
-            if (b_we && b_wstrb[0]) pal0[pal_idx] <= b_wdata[7:0];
-            if (b_we && b_wstrb[1]) pal1[pal_idx] <= b_wdata[15:8];
-            if (b_we && b_wstrb[2]) pal2[pal_idx] <= b_wdata[23:16];
-            if (b_we && b_wstrb[3]) pal3[pal_idx] <= b_wdata[31:24];
-        end
-    end
-    /* Of the registers the firmware reads back only the frame counter,
-     * which it can also write, so a savestate puts back the count it was
-     * taken at. */
+    always_ff @(posedge clk)
+        if (pal_stb && b_we)
+            pal[pal_idx] <= b_wdata;
+    /* A write to any of the words a frame copies opens a publish, and the
+     * publish word, written last, closes it. */
+    logic pub_open /*verilator public_flat_rd*/;
+    /* A frame started while the publish was open, so that frame kept the
+     * last frame's words. The publish word reads back 0 then, and 1 once
+     * the publish was taken whole, as a machine's memory reads back the 1
+     * written. The publish's first write clears it. */
+    logic pub_missed;
+    /* Of the registers the firmware reads back the publish word, whether
+     * the last publish was taken whole, and the frame counter, which it
+     * can also write, so a savestate puts back the count it was taken
+     * at. */
     always_ff @(posedge clk) begin
         if (b_stb) begin
             sel_q <= b_sel;
-            regs_q <= frame_count;
+            case (b_addr[7:2])
+                6'd41: regs_q <= {31'b0, !pub_missed};
+                6'd63: regs_q <= frame_count;
+                default: regs_q <= 32'h0;
+            endcase
         end
     end
 
     logic use_40;  // the 40-column terminal, on a 320-wide canvas
     logic reg_w;
     always_comb reg_w = b_stb && b_we && b_sel == 2'd1;
-    /* A write to any of the words a frame copies opens a publish, and the
-     * publish word, written last, closes it. */
-    logic pub_open /*verilator public_flat_rd*/;
     initial begin
         cursor_shadow = 32'h0;
         cursor_color_shadow = 16'h0;
+        hl_shadow = '0;
+        ht_shadow = '0;
+        defaults_shadow = 32'h0;
         screen_shadow = 3'h0;
         sm_on_s = 1'b0;
         sm_up_s = 1'b0;
@@ -222,6 +238,7 @@ module mode0 (
         sm_ghost_s = '0;
         frame_count = 32'h0;
         pub_open = 1'b0;
+        pub_missed = 1'b0;
     end
     always_ff @(posedge clk) begin
         if (frame_start)
@@ -230,23 +247,30 @@ module mode0 (
             case (b_addr[7:2])
                 6'd32: cursor_shadow <= b_wdata;
                 6'd33: cursor_color_shadow <= b_wdata[15:0];
-                6'd34: screen_shadow <= b_wdata[2:0];
-                6'd35: begin
+                6'd34: hl_shadow <= b_wdata[16:0];
+                6'd35: ht_shadow <= b_wdata[16:0];
+                6'd36: defaults_shadow <= b_wdata;
+                6'd37: screen_shadow <= b_wdata[2:0];
+                6'd38: begin
                     sm_top_s <= b_wdata[4:0];
                     sm_bot_s <= b_wdata[12:8];
                     sm_up_s <= b_wdata[16];
                     sm_on_s <= b_wdata[17];
                 end
-                6'd36: sm_frame_s <= b_wdata;
-                6'd37: sm_ghost_s <= {b_wdata[17:16], b_wdata[12:0]};
-                6'd40: frame_count <= b_wdata;
+                6'd39: sm_frame_s <= b_wdata;
+                6'd40: sm_ghost_s <= {b_wdata[31:18], b_wdata[17:16], b_wdata[12:0]};
+                6'd63: frame_count <= b_wdata;
                 default: ;
             endcase
-            if (b_addr[7:2] == 6'd38)
+            if (b_addr[7:2] == 6'd41)
                 pub_open <= 1'b0;
-            else if (b_addr[7:2] < 6'd38)
+            else if (b_addr[7:2] < 6'd41)
                 pub_open <= 1'b1;
+            if (b_addr[7:2] < 6'd41 && !pub_open)
+                pub_missed <= 1'b0;
         end
+        if (frame_start && pub_open)
+            pub_missed <= 1'b1;
     end
 
     /* Latched as the frame starts, on the line row 0 is drawn on, with
@@ -261,15 +285,15 @@ module mode0 (
      * The write is registered first, keeping the bus's half-period
      * address path off the MLAB's port. */
     (* ramstyle = "MLAB, no_rw_check" *)
-    logic [14:0] row_mem[64] /*verilator public_flat_rd*/;
+    logic [28:0] row_mem[64] /*verilator public_flat_rd*/;
     logic [31:0] row_front /*verilator public_flat_rd*/;
     logic [31:0] row_pend /*verilator public_flat_rd*/;
     logic row_w;
     logic [4:0] row_wi;
-    logic [14:0] row_wd;
+    logic [28:0] row_wd;
     initial begin
         for (int i = 0; i < 64; i++)
-            row_mem[i] = 15'd0;
+            row_mem[i] = 29'd0;
         row_front = '0;
         row_pend = '0;
         row_w = 1'b0;
@@ -282,7 +306,7 @@ module mode0 (
     always_ff @(posedge clk) begin
         row_w <= reg_w && !b_addr[7];
         row_wi <= b_addr[6:2];
-        row_wd <= {b_wdata[17:16], b_wdata[12:0]};
+        row_wd <= {b_wdata[31:18], b_wdata[17:16], b_wdata[12:0]};
         /* A row written lands a clock after its write opened a publish,
          * so the latch never meets one landing. */
         if (frame_render) begin
@@ -292,17 +316,23 @@ module mode0 (
             row_pend[row_wi] <= 1'b1;
     end
     logic ghost_r;  // the line is in the row moving out
-    logic [14:0] row_word;
+    logic [28:0] row_word;
     always_comb row_word = ghost_r ? sm_ghost_q
         : row_mem[{logical_row, row_front[logical_row]}];
 
     logic [31:0] cursor_q;
     logic [15:0] cursor_color_q;
+    logic [16:0] hl_q, ht_q;
+    logic [15:0] dfg, dbg;  // the default foreground and background
     logic [1:0] blink_q;
     logic reverse_q;
     initial begin
         cursor_q = 32'h0;
         cursor_color_q = 16'h0;
+        hl_q = '0;
+        ht_q = '0;
+        dfg = 16'h0;
+        dbg = 16'h0;
         blink_q = 2'h0;
         reverse_q = 1'b0;
     end
@@ -310,6 +340,10 @@ module mode0 (
         if (frame_render) begin
             cursor_q <= cursor_shadow;
             cursor_color_q <= cursor_color_shadow;
+            hl_q <= hl_shadow;
+            ht_q <= ht_shadow;
+            dfg <= defaults_shadow[15:0];
+            dbg <= defaults_shadow[31:16];
             blink_q <= screen_shadow[1:0];
             reverse_q <= screen_shadow[2];
         end
@@ -324,7 +358,7 @@ module mode0 (
     logic sm_on_q, sm_up_q;
     logic [4:0] sm_top_q, sm_bot_q;
     logic [31:0] sm_frame_q;
-    logic [14:0] sm_ghost_q;
+    logic [28:0] sm_ghost_q;
     logic sm_calc;
     logic sm_act;        // a scroll is part way across this frame
     logic [4:0] sm_off;  // scanlines its rows are drawn on from
@@ -391,15 +425,20 @@ module mode0 (
     logic wide;
     logic strike_row, over_row;
     logic [1:0] ul_row;  // 1 to 3 on the underlines' rows
-    logic cur_hit;  // cursor overlay lands on this line
+    logic [6:0] sel_from, sel_to;  // the selection's columns of the row
+
+    /* The cursor, when this line draws it: its column, its DECSCUSR style
+     * and whether the focus is lost. */
+    logic cur_hit;
     logic [6:0] cur_cx;
-    logic [2:0] cur_style;
+    logic [7:0] cur_style;
+    logic cur_unf;
 
     logic [9:0] px;    // write pointer into the line
     logic run /*verilator public_flat_rd*/;
     logic remap;       // the row's first clock, which places it
     logic setup;       // the clock that reads its row word
-    logic pre;         // the first cell's fetch, before any pixel
+    logic pre;         // before the first pixel: the cursor, then the first cell
 
     /* 320-wide canvases run the 40-column terminal: 8x8 cells, so one
      * fewer row bit everywhere.
@@ -407,9 +446,10 @@ module mode0 (
      * Every line size but the normal one is double width: half the row's
      * cells, each pixel twice across. The top and bottom halves of a
      * double-height line draw each glyph row of their half twice, and the
-     * attribute lines follow the glyph row, while the cursor's underline
-     * follows the scanline. The underlines are on the glyph's last three
-     * rows, the strike on its middle row and the overline on its first. */
+     * attribute lines follow the glyph row, while the cursor follows the
+     * scanline. The underlines are on the glyph's last three rows, the
+     * strike on its middle row and the overline on its first. */
+    logic [3:0] last_row;  // the row's last scanline
     always_comb use_40 = cw == 10'd320;
     always_comb wide = size_r != 2'd0;  /* TERM_LINE_NORMAL */
     always_comb begin
@@ -423,6 +463,7 @@ module mode0 (
             endcase
             strike_row = glyph_row == 4'd4;
             ul_row = glyph_row >= 4'd5 ? 2'(glyph_row - 4'd4) : 2'd0;
+            last_row = 4'd7;
         end else begin
             scanrow = term_line[3:0];
             logical_row = term_line[8:4];
@@ -433,6 +474,7 @@ module mode0 (
             endcase
             strike_row = glyph_row == 4'd8;
             ul_row = glyph_row >= 4'd13 ? 2'(glyph_row - 4'd12) : 2'd0;
+            last_row = 4'd15;
         end
         over_row = glyph_row == 4'd0;
     end
@@ -455,80 +497,164 @@ module mode0 (
         endcase
     endfunction
 
+    /* The colors, as core/vga/mode/mode0.h has them. A color with the
+     * pixel format's opaque bit is a pixel. Any other names an entry in
+     * bits 15:6: bit 15 a default color, the foreground or the background
+     * by bit 6, else an entry of the palette in bits 13:6; and bit 14
+     * faint, which is the pixel with each channel halved, its opaque bit
+     * kept (mode0_faint). */
+    /* verilator lint_off UNUSEDSIGNAL */  // each channel's low bit
+    function automatic logic [15:0] faint(input logic [15:0] p);
+        faint = {1'b0, p[15:12], 1'b0, p[10:7], p[5], 1'b0, p[4:1]};
+    endfunction
+    /* verilator lint_on UNUSEDSIGNAL */
+    function automatic logic [15:0] color_px(input logic [15:0] c,
+                                             input logic [15:0] entry,
+                                             input logic [15:0] fg,
+                                             input logic [15:0] bg);
+        logic [15:0] base;
+        base = c[15] ? (c[6] ? bg : fg) : entry;
+        color_px = c[5] ? c : c[14] ? faint(base) : base;
+    endfunction
+    /* mode0_bold: entries 0 to 7, faint or not, 8 above, and the default
+     * foreground, faint or not, as entry 15. */
+    function automatic logic [15:0] bold(input logic [15:0] c);
+        if (c[5])
+            bold = c;
+        else if (!c[15] && c[13:9] == 5'd0)
+            bold = c | 16'h0200;
+        else if (c[15] && c[13:6] == 8'd0)
+            bold = {1'b0, c[14], 8'd15, 6'd0};
+        else
+            bold = c;
+    endfunction
+    /* mode0_same: two pixels show the same color, opaque or not. */
+    function automatic logic same(input logic [15:0] a, input logic [15:0] b);
+        same = ((a ^ b) & 16'hFFDF) == 16'h0;
+    endfunction
+    /* mode0_distance: the sum of how far apart the channels are, which
+     * leaves out the opaque bit. */
+    /* verilator lint_off UNUSEDSIGNAL */
+    function automatic logic [6:0] distance(input logic [15:0] a,
+                                            input logic [15:0] b);
+        logic [4:0] r, g, u;
+        r = a[4:0] > b[4:0] ? a[4:0] - b[4:0] : b[4:0] - a[4:0];
+        g = a[10:6] > b[10:6] ? a[10:6] - b[10:6] : b[10:6] - a[10:6];
+        u = a[15:11] > b[15:11] ? a[15:11] - b[15:11] : b[15:11] - a[15:11];
+        distance = 7'(r) + 7'(g) + 7'(u);
+    endfunction
+    /* verilator lint_on UNUSEDSIGNAL */
+
     /* The fetch of one cell, a clock a step:
      *   0  the cell's word and its colors' first word are being read
      *   1  the cell's word and the first color word land
      *   2  the second color word lands; the font is asked for the glyph
-     *   3  the foreground's palette entry is being read
-     *   4  the foreground lands; the background's entry is being read
-     *   5  the background lands; the underline's entry is being read
-     *   6  the underline color lands
+     *   3  the ink is made bold; the background's palette entry is read
+     *   4  the background lands; the ink's entry is read
+     *   5  the ink lands; the underline's entry is read
+     *   6  the underline color lands; the colors are swapped by DECSCNM
+     *      and held against the selection's
      *   7  the cell is ready, and waits for the one before it to end
      * The font store is shared with mode 1 and answers on the clock asked
-     * or the next, so the glyph's row is in by step 5. */
+     * or the next, so the glyph's row is in by step 5.
+     *
+     * A line that draws the cursor first runs these steps on the cursor's
+     * cell alone, which works out the colors the cursor is drawn in over
+     * four more clocks, then starts the row. */
     logic [2:0] fs;
     logic [14:0] hw;   // the cell's colors, a halfword address
     logic [15:0] glyph_r, attr_r;
     logic [31:0] cw0;
     logic [15:0] c_fg, c_bg, c_ul;  // as the cell has them
+    logic [15:0] c_ink;             // the ink made bold
     logic [15:0] r_fg, r_bg, r_ul;  // as pixels
+    logic [15:0] f1, b1;            // swapped by DECSCNM
+    logic use_bg, use_fg, sel_r;
+    logic [6:0] col_f;  // the column of the cell being fetched
     logic f_sent, f_gnt_d;
     logic [7:0] font_r;
 
+    /* The cursor pass: the cell's addresses, then the cursor cell's
+     * fetch, then the four clocks of the cursor's colors. */
+    localparam logic [2:0] CP_NONE = 3'd0, CP_PREP = 3'd1, CP_PASS = 3'd2,
+                           CP_C1 = 3'd3, CP_C2 = 3'd4, CP_C3 = 3'd5,
+                           CP_C4 = 3'd6;
+    logic [2:0] cph;
+    logic [12:0] row_cell;  // the row's first cell
+    logic [14:0] row_hw;    // and its colors
+    logic [15:0] cp_ink, cp_paper;  // the cursor cell as it shows
+    logic cp_rev;   // the cell shown reversed, xterm's ReverseOrHilite
+    logic cp_same;  // its ink is its paper
+    logic [6:0] cp_dbg, cp_dfg;  // its paper's distances from the defaults
+    logic [15:0] cur_fg;    // the ink, apart from the paper
+    logic [15:0] cur_edge;  // an underline's, a bar's and a box's color
+    logic [15:0] cur_fill0, cur_fill;  // a block's
+
     always_comb begin
-        mode0_f_req = run && !setup && fs >= 3'd2 && fs != 3'd7 && !f_sent;
+        mode0_f_req = run && !setup && cph == CP_NONE
+            && fs >= 3'd2 && fs != 3'd7 && !f_sent;
         mode0_f_addr = use_40
             ? {2'b10, glyph_r[11], glyph_row[2:0], glyph_r[7:0]}
             : {1'b0, glyph_r[12], glyph_row, glyph_r[7:0]};
     end
 
-    /* A color with the pixel format's opaque bit is a pixel. Any other
-     * is an entry of the palette, in the bits above it. */
     logic [15:0] c_look, pal_px;
     always_comb begin
         case (fs)
-            3'd3: c_look = c_fg;
-            3'd4: c_look = c_bg;
+            3'd3: c_look = c_bg;
+            3'd4: c_look = c_ink;
             default: c_look = c_ul;
         endcase
-        pal_ra = c_look[15:6];
+        pal_ra = c_look[13:6];
         pal_px = pal_half ? pal_rq[31:16] : pal_rq[15:0];
     end
-    function automatic logic [15:0] pixel_of(input logic [15:0] color,
-                                             input logic [15:0] entry);
-        pixel_of = color[5] ? color : entry;
-    endfunction
 
-    /* These steps run in the C renderer's order: under DECSCNM every
-     * cell's colors swap, and a blinking cell's glyph is drawn in the
-     * background color while its blink phase bit is set. Every pixel is
-     * set on a row where a strike or an overline is drawn. An underline in
-     * the foreground's color is more pixels of the glyph, and one in a
-     * color of its own is drawn over the glyph. Under the block cursor the
-     * glyph and its lines are drawn in the cell's background color on the
-     * cursor color, and the underline cursor is the cursor color all the
-     * way across. */
-    logic cur_here, cur_block, cur_under;
+    /* xterm's ShowCursor: on the cursor's pass, a blank with an ink of its
+     * own on the default background shows the default ink, faint where a
+     * palette ink is. */
+    logic blank_ink;
+    always_comb blank_ink = cph == CP_PASS && glyph_r[7:0] == 8'h20
+        && !(!c_fg[5] && c_fg[15]) && (!c_bg[5] && c_bg[15]);
+
+    /* The colors a cell shows, as mode0.c's mode0_cell_pixels: the
+     * selection's colors where they count and are neither of the cell's,
+     * then a cell taken by the selection or reversed, but not both, shown
+     * as xterm's ReverseOrHilite, and one taken and reversed with the
+     * selection's colors on its own; then a cell concealed or blinking
+     * off shows its paper for its ink. */
+    logic hidden;
+    logic [15:0] cell_ink, cell_paper;
+    always_comb begin
+        hidden = attr_r[11] || (attr_r[1:0] & blink_q) != 2'd0;
+        if (sel_r != attr_r[12]) begin
+            cell_ink = use_fg ? ht_q[15:0] : use_bg ? f1 : b1;
+            cell_paper = use_bg ? (use_fg ? b1 : hl_q[15:0]) : f1;
+        end else if (sel_r) begin
+            cell_ink = use_bg ? hl_q[15:0] : f1;
+            cell_paper = use_fg ? ht_q[15:0] : use_bg ? f1 : b1;
+        end else begin
+            cell_ink = f1;
+            cell_paper = b1;
+        end
+        if (hidden)
+            cell_ink = cell_paper;
+    end
+
+    /* The cell being resolved is cursor's, and the cursor is a block,
+     * which fills it: its glyph and lines, unless concealed or blinking
+     * off, in its paper on the fill. */
+    logic cur_cell, cur_block;
     logic [7:0] ul_bits, glyph_bits;
-    logic [15:0] cell_fg, cell_bg;
     logic [7:0] bits_res, ulb_res;
     logic [15:0] fg_res, bg_res;
     always_comb begin
-        /* The cell being resolved is one ahead of the one px is in. */
-        cur_here = cur_hit && (wide ? 7'((px + 10'd1) >> 4)
-                                    : 7'((px + 10'd1) >> 3)) == cur_cx;
-        cur_block = cur_here && (cur_style == 3'd0 || cur_style == 3'd1
-                                 || cur_style == 3'd2);
-        cur_under = cur_here && (cur_style == 3'd3 || cur_style == 3'd4)
-            && (use_40 ? scanrow == 4'd7
-                       : scanrow == 4'd14 || scanrow == 4'd15);
-        cell_fg = reverse_q ? r_bg : r_fg;
-        cell_bg = reverse_q ? r_fg : r_bg;
+        cur_cell = cur_hit && col_f == cur_cx;
+        cur_block = cur_cell && cur_style < 8'd3 && !cur_unf;
         ul_bits = underline(use_40, ul_row, attr_r[4:2]);
         glyph_bits = (attr_r[5] && strike_row) || (attr_r[6] && over_row)
             ? 8'hFF : font_r;
-        fg_res = (attr_r[1:0] & blink_q) != 2'd0 ? cell_bg : cell_fg;
-        bg_res = cell_bg;
+        fg_res = cell_ink;
+        bg_res = cell_paper;
         if (attr_r[8]) begin  /* MODE0_ATTR_UL_COLOR */
             bits_res = glyph_bits;
             ulb_res = ul_bits;
@@ -537,16 +663,10 @@ module mode0 (
             ulb_res = 8'h00;
         end
         if (cur_block) begin
-            bits_res = glyph_bits | ul_bits;
+            bits_res = hidden ? 8'h00 : glyph_bits | ul_bits;
             ulb_res = 8'h00;
-            fg_res = cell_bg;
-            bg_res = cursor_color_q;
-        end
-        if (cur_under) begin
-            bits_res = 8'hFF;
-            ulb_res = 8'h00;
-            fg_res = cursor_color_q;
-            bg_res = cursor_color_q;
+            fg_res = cp_paper;
+            bg_res = cur_fill;
         end
     end
 
@@ -564,14 +684,26 @@ module mode0 (
     always_comb cols_row = row_word[14:13] != 2'd0
         ? (use_40 ? 8'd20 : 8'd40) : (use_40 ? 8'd40 : 8'd80);
 
+    /* The cursor is drawn on this line: its row, on, and lit, or steady
+     * (DECSCUSR's 2, 4 and 6), or with the focus lost, which no cursor
+     * blinks. A row of the ghost has none. */
+    logic cur_line;
+    always_comb cur_line = !ghost_r && cursor_q[25]
+        && (cursor_q[24] || cursor_q[26] || cursor_q[23:16] == 8'd2
+            || cursor_q[23:16] == 8'd4 || cursor_q[23:16] == 8'd6)
+        && cursor_q[15:8] == {3'd0, logical_row};
+
     /* The cell being written out. */
     logic [7:0] shreg, shul;
     logic [15:0] fg_r, bg_r, ul_r;
+    logic out_cur;  // it is the cursor's
     logic take;  // the fetched cell becomes the one written out
-    always_comb take = pre ? fs == 3'd7 : phase == phase_last;
+    always_comb take = cph == CP_NONE && (pre ? fs == 3'd7 : phase == phase_last);
 
     logic [14:0] hw_next;
     always_comb hw_next = hw + 15'd3;
+    logic [14:0] cx3;  // the cursor's column, in halfwords of colors
+    always_comb cx3 = {7'd0, cur_cx, 1'b0} + {8'd0, cur_cx};
 
     /* A row in a scroll part way across draws the rows where they were,
      * moved on by the scanlines the scroll has gone, and the row going
@@ -597,9 +729,12 @@ module mode0 (
         pre = 1'b0;
         term_line = '0;
         size_r = '0;
+        sel_from = '0;
+        sel_to = '0;
         cur_hit = 1'b0;
         cur_cx = '0;
         cur_style = '0;
+        cur_unf = 1'b0;
         px = '0;
         fs = '0;
         hw = '0;
@@ -611,15 +746,36 @@ module mode0 (
         c_fg = '0;
         c_bg = '0;
         c_ul = '0;
+        c_ink = '0;
         r_fg = '0;
         r_bg = '0;
         r_ul = '0;
+        f1 = '0;
+        b1 = '0;
+        use_bg = 1'b0;
+        use_fg = 1'b0;
+        sel_r = 1'b0;
+        col_f = '0;
         f_sent = 1'b0;
         f_gnt_d = 1'b0;
         font_r = '0;
+        cph = CP_NONE;
+        row_cell = '0;
+        row_hw = '0;
+        cp_ink = '0;
+        cp_paper = '0;
+        cp_rev = 1'b0;
+        cp_same = 1'b0;
+        cp_dbg = '0;
+        cp_dfg = '0;
+        cur_fg = '0;
+        cur_edge = '0;
+        cur_fill0 = '0;
+        cur_fill = '0;
         fg_r = '0;
         bg_r = '0;
         ul_r = '0;
+        out_cur = 1'b0;
         shreg = '0;
         shul = '0;
     end
@@ -635,6 +791,7 @@ module mode0 (
             remap <= 1'b1;
             setup <= 1'b1;
             pre <= 1'b1;
+            cph <= CP_NONE;
             px <= '0;
             ghost_r <= 1'b0;
             term_line <= t[8:0] - term_cfg[8:0];
@@ -646,22 +803,65 @@ module mode0 (
             remap <= 1'b0;
         end else if (run && setup) begin
             size_r <= row_word[14:13];
-            cur_hit <= !ghost_r && cursor_q[25]  /* enabled */
-                && (cursor_q[24]     /* lit, or steady style */
-                    || cursor_q[18:16] == 3'd2
-                    || cursor_q[18:16] == 3'd4
-                    || cursor_q[18:16] == 3'd6)
-                && cursor_q[15:8] == {3'd0, logical_row};
+            sel_from <= row_word[21:15];
+            sel_to <= row_word[28:22];
+            cur_hit <= cur_line;
             cur_cx <= cursor_q[7:0] >= cols_row
                 ? 7'(cols_row - 8'd1) : cursor_q[6:0];
-            cur_style <= cursor_q[18:16];
+            cur_style <= cursor_q[23:16];
+            cur_unf <= cursor_q[26];
             cell_ra <= row_word[12:0];
+            row_cell <= row_word[12:0];
             hw <= {1'b0, row_word[12:0], 1'b0} + {2'b00, row_word[12:0]};
+            row_hw <= {1'b0, row_word[12:0], 1'b0} + {2'b00, row_word[12:0]};
             col_ra <= 14'(({1'b0, row_word[12:0], 1'b0}
                            + {2'b00, row_word[12:0]}) >> 1);
+            col_f <= '0;
             fs <= '0;
             f_sent <= 1'b0;
             setup <= 1'b0;
+            cph <= cur_line ? CP_PREP : CP_NONE;
+        end else if (run && cph == CP_PREP) begin
+            /* The cursor's cell, which a column past the row's never is. */
+            cell_ra <= row_cell + {6'd0, cur_cx};
+            hw <= row_hw + cx3;
+            col_ra <= 14'((row_hw + cx3) >> 1);
+            col_f <= cur_cx;
+            fs <= '0;
+            cph <= CP_PASS;
+        end else if (run && cph == CP_C1) begin
+            cp_same <= same(cp_ink, cp_paper);
+            cp_dbg <= distance(cp_paper, dbg);
+            cp_dfg <= distance(cp_paper, dfg);
+            cph <= CP_C2;
+        end else if (run && cph == CP_C2) begin
+            /* An ink that is the paper is whichever default is further
+             * from it. */
+            cur_fg <= !cp_same ? cp_ink : cp_dbg < cp_dfg ? dfg : dbg;
+            cph <= CP_C3;
+        end else if (run && cph == CP_C3) begin
+            /* xterm's outline: the cursor's color, or the ink where that is
+             * the paper. A block's fill: the cell's ink for a cursor of the
+             * cell's default ink, the default ink for one of its default
+             * paper, else the cursor's color. */
+            cur_edge <= same(cursor_color_q, cp_paper) ? cur_fg : cursor_color_q;
+            if (same(cursor_color_q, cp_rev ? dbg : dfg))
+                cur_fill0 <= cur_fg;
+            else if (same(cursor_color_q, cp_rev ? dfg : dbg))
+                cur_fill0 <= cp_rev ? dbg : dfg;
+            else
+                cur_fill0 <= cursor_color_q;
+            cph <= CP_C4;
+        end else if (run && cph == CP_C4) begin
+            /* No block hides its glyph. Then the row, from its first cell. */
+            cur_fill <= same(cur_fill0, cp_paper) ? cur_fg : cur_fill0;
+            cell_ra <= row_cell;
+            hw <= row_hw;
+            col_ra <= 14'(row_hw >> 1);
+            col_f <= '0;
+            fs <= '0;
+            f_sent <= 1'b0;
+            cph <= CP_NONE;
         end else if (run) begin
             if (fs != 3'd7)
                 fs <= fs + 3'd1;
@@ -685,48 +885,82 @@ module mode0 (
                         c_ul <= col_rq[15:0];
                     end
                 end
-                3'd4: r_fg <= pixel_of(c_fg, pal_px);
-                3'd5: r_bg <= pixel_of(c_bg, pal_px);
-                3'd6: r_ul <= pixel_of(c_ul, pal_px);
+                3'd3: begin
+                    if (blank_ink)
+                        c_ink <= attr_r[10]  /* MODE0_ATTR_BOLD */
+                            ? {1'b0, !c_fg[5] && c_fg[14], 8'd15, 6'd0}
+                            : {1'b1, !c_fg[5] && c_fg[14], 14'd0};
+                    else
+                        c_ink <= attr_r[10] ? bold(c_fg) : c_fg;
+                end
+                3'd4: r_bg <= color_px(c_bg, pal_px, dfg, dbg);
+                3'd5: r_fg <= color_px(c_ink, pal_px, dfg, dbg);
+                3'd6: begin
+                    r_ul <= color_px(c_ul, pal_px, dfg, dbg);
+                    f1 <= reverse_q ? r_bg : r_fg;
+                    b1 <= reverse_q ? r_fg : r_bg;
+                    use_bg <= hl_q[16]
+                        && !same(hl_q[15:0], r_fg) && !same(hl_q[15:0], r_bg);
+                    use_fg <= ht_q[16]
+                        && !same(ht_q[15:0], r_fg) && !same(ht_q[15:0], r_bg);
+                    sel_r <= col_f >= sel_from && col_f < sel_to;
+                end
                 default: ;
             endcase
-            if (!pre) begin
-                if (!wide || px[0]) begin
-                    shreg <= {shreg[6:0], 1'b0};
-                    shul <= {shul[6:0], 1'b0};
+            if (cph == CP_PASS) begin
+                if (fs == 3'd7) begin
+                    cp_ink <= cell_ink;
+                    cp_paper <= cell_paper;
+                    cp_rev <= (reverse_q != sel_r) != attr_r[12];
+                    cph <= CP_C1;
                 end
-                px <= px + 10'd1;
-            end
-            if (take) begin
+            end else begin
+                if (!pre) begin
+                    if (!wide || px[0]) begin
+                        shreg <= {shreg[6:0], 1'b0};
+                        shul <= {shul[6:0], 1'b0};
+                    end
+                    px <= px + 10'd1;
+                end
+                if (take) begin
 `ifdef VERILATOR
-                /* The font store answered every other fetch in time. */
-                if (!f_sent || f_gnt_d)
-                    $fatal(1, "mode0 glyph late");
+                    /* The font store answered every other fetch in time. */
+                    if (!f_sent || f_gnt_d)
+                        $fatal(1, "mode0 glyph late");
 `endif
-                fg_r <= fg_res;
-                bg_r <= bg_res;
-                ul_r <= r_ul;
-                shreg <= bits_res;
-                shul <= ulb_res;
-                cell_ra <= cell_ra + 13'd1;
-                hw <= hw_next;
-                col_ra <= hw_next[14:1];
-                fs <= '0;
-                f_sent <= 1'b0;
-                pre <= 1'b0;
-                if (!pre && px == (use_40 ? 10'd319 : 10'd639))
-                    run <= 1'b0;
+                    fg_r <= fg_res;
+                    bg_r <= bg_res;
+                    ul_r <= r_ul;
+                    out_cur <= cur_cell;
+                    shreg <= bits_res;
+                    shul <= ulb_res;
+                    cell_ra <= cell_ra + 13'd1;
+                    hw <= hw_next;
+                    col_ra <= hw_next[14:1];
+                    col_f <= col_f + 7'd1;
+                    fs <= '0;
+                    f_sent <= 1'b0;
+                    pre <= 1'b0;
+                    if (!pre && px == (use_40 ? 10'd319 : 10'd639))
+                        run <= 1'b0;
+                end
             end
         end
     end
 
-    /* The bar cursor patches the cell being written out, which is one
-     * behind the cell being resolved. */
-    logic cur_bar_out;
-    always_comb cur_bar_out = cur_hit
-        && (wide ? px[9:4] == cur_cx[5:0] && cur_cx[6] == 1'b0
-                 : px[9:3] == cur_cx)
-        && (cur_style == 3'd5 || cur_style == 3'd6);
+    /* The cursor over the cell being written out, as it shows, in its
+     * edge color, as mode0.c's mode0_draw_cursor: a bar, the cell's first
+     * two pixels and four on a row of double width; an underline, the
+     * row's last two scanlines; and with the focus lost, a block's box, a
+     * pixel's outline of the cell. */
+    logic cur_px;
+    always_comb cur_px = out_cur && (
+        (cur_style >= 8'd5 && phase < (wide ? 4'd4 : 4'd2))
+        || ((cur_style == 8'd3 || cur_style == 8'd4)
+            && scanrow >= last_row - 4'd1)
+        || (cur_style < 8'd3 && cur_unf
+            && (scanrow == 4'd0 || scanrow == last_row
+                || phase == 4'd0 || phase == phase_last)));
 
     /* Its own unreset block: a port inside the pipeline's reset keeps
      * the whole buffer out of memory. The write is the pipeline's last
@@ -734,9 +968,8 @@ module mode0 (
     always_ff @(posedge clk)
         if (!line_start && !term_go && run && !setup && !pre)
             linebuf[{wr_bank, px}] <=
-                (cur_bar_out && phase < (use_40 ? 4'd1 : 4'd2))
-                    ? cursor_color_q
-                    : shul[7] ? ul_r : (shreg[7] ? fg_r : bg_r);
+                cur_px ? cur_edge
+                       : shul[7] ? ul_r : (shreg[7] ? fg_r : bg_r);
 
     /* The bank toggle lands on h==0's first tick, so only the pixel-0
      * read at the end of h==799 still sees the line under its write-side
@@ -764,9 +997,10 @@ module mode0 (
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_mode0;
     always_comb unused_mode0 = ^{b_addr[1:0], term_cfg[15:9],
-                                    cursor_q[31:26], cursor_q[23:19], t[9],
+                                    cursor_q[31:27], t[9],
                                     glyph_r[15:13], glyph_r[10:8],
-                                    attr_r[15:9], attr_r[7], c_look[5:0]};
+                                    attr_r[15:13], attr_r[9], attr_r[7],
+                                    c_look[15:14], c_look[5:0]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

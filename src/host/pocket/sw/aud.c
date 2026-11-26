@@ -12,6 +12,51 @@ static uint32_t aud_pcm_ctrl;
  * empties the FIFO: 0 to 3. */
 static uint8_t aud_pcm_stage;
 
+/* aud_pcm_ctrl is AUD_PCM_CTRL's three bits, and aud_pcm_stage a place in a
+ * word. */
+static bool aud_pcm_check(sst_cursor_t *c)
+{
+    if (aud_pcm_ctrl > 7)
+        return sst_refuse(c, "PCM control out of range");
+    if (aud_pcm_stage > 3)
+        return sst_refuse(c, "PCM byte place out of range");
+    return true;
+}
+
+/* The engines' state, AUD_SST_WORDS words that AUD_OWN gives to AUD_SST
+ * while the machine is held. */
+static void aud_engines_put(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint8_t *p = sst_room(c, AUD_SST_WORDS * 4);
+    if (!p)
+        return;
+    AUD_OWN = 1;
+    for (uint32_t w = 0; w < AUD_SST_WORDS; w++, p += 4)
+        sst_be32_write(p, AUD_SST(w));
+    AUD_OWN = 0;
+}
+
+static bool aud_engines_get(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    const uint8_t *p = sst_view(c, AUD_SST_WORDS * 4);
+    if (!p)
+        return sst_refuse(c, "the engines' state is short");
+    AUD_OWN = 1;
+    for (uint32_t w = 0; w < AUD_SST_WORDS; w++, p += 4)
+        AUD_SST(w) = sst_be32_read(p);
+    AUD_OWN = 0;
+    return true;
+}
+
+#define AUD_FABRIC_SST(X)                                               \
+    X(U32, aud_pcm_ctrl)                                                \
+    X(U8, aud_pcm_stage)                                                \
+    X(VALIDATE, aud_pcm_check)                                          \
+    X(FN, aud_engines_put, aud_engines_get, AUD_SST_WORDS * 4, 2)
+SST_TABLE(aud_fabric, AUD_FABRIC_SST)
+
 /* The PSG, the OPL, the bell voice and PCM have no reset input, so they
  * keep sounding through a machine reset until their registers are written.
  * Writing the OPL's pointer register, 0xFFFF included, silences the OPL,
@@ -23,6 +68,25 @@ void aud_init(void)
     aud_stop();
     AUD_PCM_CTRL = 0;
     bel_init();
+}
+
+/* A failed savestate load leaves the engines sounding from any registers
+ * and the bell's deadlines on any clock, with the machine held. The bell is
+ * silenced first, and the PSG's pointer write is not waited on, because a
+ * held PSG whose sample counter was loaded at zero starts no clearing pass
+ * until the hold ends; the pass zeroes only the eight voices, so the bell's
+ * writes ahead of it are kept. PCM:'s buffer is emptied, because the held
+ * buffer never drains, and std_sst_reset, which runs next, waits for it
+ * to play before it closes a PCM: descriptor. PCM: is closed, because
+ * aud_pcm_open refuses while aud_pcm_ctrl is set, which no closed
+ * descriptor would ever clear. */
+void aud_reset(void)
+{
+    bel_init();
+    AUD_PSG_XADDR = 0xFFFF;
+    aud_opl_map(0xFFFF);
+    aud_end();
+    aud_pcm_close();
 }
 
 void aud_task(void)
@@ -73,9 +137,12 @@ bool aud_pcm_open(const pcm_fmt_t *fmt)
     return true;
 }
 
+/* The fabric empties its FIFO at the close, a partial frame and bytes
+ * stored and not committed with it, and starts it again at a word. */
 void aud_pcm_close(void)
 {
     aud_pcm_ctrl = 0;
+    aud_pcm_stage = 0;
     AUD_PCM_CTRL = 0;
 }
 
@@ -117,46 +184,14 @@ uint32_t aud_opl_overruns(void) { return AUD_OPL_OVERRUNS; }
 
 uint32_t aud_pcm_underruns(void) { return AUD_PCM_UNDERRUNS; }
 
-/* The hold that a savestate is made under parks the engines, so nothing
- * stamped waits to be applied. */
-void aud_sst_settle(void)
+/* The fabric is held for a savestate, and the hold parks the engines, so
+ * nothing stamped waits to be applied and there is no render to hold off. */
+void aud_sst_hold(bool load)
 {
+    (void)load;
 }
 
-void aud_sst_save(sst_cursor_t *c, unsigned flags)
+void aud_sst_free(bool loaded)
 {
-    sst_put_u32(c, aud_pcm_ctrl);
-    sst_put_u8(c, aud_pcm_stage);
-    bel_sst_save(c, flags);
-    uint8_t *p = sst_room(c, AUD_SST_WORDS * 4);
-    if (!p)
-        return;
-    AUD_OWN = 1;
-    for (uint32_t w = 0; w < AUD_SST_WORDS; w++, p += 4)
-        sst_be32_write(p, AUD_SST(w));
-    AUD_OWN = 0;
-}
-
-bool aud_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    uint32_t ctrl = sst_get_u32(c);
-    uint8_t stage = sst_get_u8(c);
-    if (!sst_ok(c))
-        return false;
-    if (ctrl > 7)
-        return sst_refuse(c, "PCM control out of range");
-    if (stage > 3)
-        return sst_refuse(c, "PCM byte place out of range");
-    if (!bel_sst_load(c, flags))
-        return sst_refuse(c, "the bell refused its state");
-    const uint8_t *p = sst_view(c, AUD_SST_WORDS * 4);
-    if (!p)
-        return sst_refuse(c, "the engines' state is short");
-    aud_pcm_ctrl = ctrl;
-    aud_pcm_stage = stage;
-    AUD_OWN = 1;
-    for (uint32_t w = 0; w < AUD_SST_WORDS; w++, p += 4)
-        AUD_SST(w) = sst_be32_read(p);
-    AUD_OWN = 0;
-    return true;
+    (void)loaded;
 }

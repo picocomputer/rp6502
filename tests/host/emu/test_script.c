@@ -9,6 +9,7 @@
 #include "core/hid/usage.h"
 #include "core/rom/rom.h"
 #include "emu_boot.h"
+#include "host/host.h"
 #include <stdio.h>
 
 /* This loop matches the one in main.c, which runs one frame after each
@@ -88,6 +89,20 @@ UTEST(script, replies_cost_no_frames)
 {
     ASSERT_EQ(frames_for("reply\nreply off\n"), 0ul);
     ASSERT_EQ(frames_for("reply\nrun 4\n"), 4ul);
+}
+
+/* With no window the clipboard is one the emulator keeps, which a script
+ * sets and checks whole, at no cost in frames. */
+UTEST(script, the_clipboard_reads_back)
+{
+    ASSERT_EQ(frames_for("clip set \"one\\ttwo\"\n"
+                         "expect clip \"one\\ttwo\"\n"
+                         "expect-not clip \"one\"\n"),
+              0ul);
+    ASSERT_EQ(script_exit_code(), 0);
+    ASSERT_STREQ(host_clipboard_get(), "one\ttwo");
+    ASSERT_EQ(frames_for("expect clip \"two\"\n"), 0ul);
+    ASSERT_NE(script_exit_code(), 0);
 }
 
 UTEST_MAIN_EMU();

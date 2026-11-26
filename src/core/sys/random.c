@@ -43,6 +43,35 @@ void sys_random_fill(void *dst, size_t len, uint32_t *state)
 static uint32_t sys_random_state;
 static bool sys_random_seeded;
 
+/* The state is seeded before it is written so that a blob never carries a
+ * stream that has not started. A machine loading one would otherwise come up
+ * with a state of zero and marked as seeded, while the machine that saved it
+ * still draws host_seed() at its first lrand. Seeded rather than drawn from,
+ * because a draw would advance the stream and make two saves of one unchanged
+ * machine differ. */
+static void random_state_put(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sys_random_seed();
+    sst_put_u32(c, sys_random_state);
+}
+
+static bool random_state_get(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint32_t state = sst_get_u32(c);
+    if (!sst_ok(c))
+        return false;
+    sys_random_set(state);
+    return true;
+}
+
+#define RANDOM_SST(X)                                       \
+    X(FN, random_state_put, random_state_get, 4, 1)         \
+    X(IN_FN, sys_random_state)                              \
+    X(IN_FN, sys_random_seeded)
+SST_TABLE(random, RANDOM_SST)
+
 void HOST_IN_RAM_FUNC sys_random_seed(void)
 {
     if (!sys_random_seeded)
@@ -64,28 +93,4 @@ void sys_random_set(uint32_t seed)
 {
     sys_random_state = seed;
     sys_random_seeded = true;
-}
-
-/* The state is seeded before it is written so that a blob never carries a
- * stream that has not started. A machine loading one would otherwise come up
- * with a state of zero and marked as seeded, while the machine that saved it
- * still draws host_seed() at its first lrand. Seeded rather than drawn from,
- * because a draw would advance the stream and make two saves of one unchanged
- * machine differ. */
-void random_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    sys_random_seed();
-    sst_put_u32(c, sys_random_state);
-}
-
-bool random_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    uint32_t state = sst_get_u32(c);
-    if (!sst_ok(c))
-        return false;
-    sys_random_state = state;
-    sys_random_seeded = true;
-    return true;
 }

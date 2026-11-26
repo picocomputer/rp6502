@@ -1,4 +1,6 @@
-# The RP6502-VGA
+# The RP6502-VGA. It includes headers the generators make, so it waits for
+# rp6502_gen_c, which the RIA's directory adds: the C files it compiles are
+# known as generated only in the directory that adds their commands.
 
 set(VGA_SRC ${RP6502_ROOT}/src/host/pico/vga)
 
@@ -10,8 +12,9 @@ target_compile_definitions(rp6502-vga PRIVATE ${RP6502_PROJECT_DEFINITIONS}
 rp6502_log_definitions(rp6502-vga PRIVATE)
 pico_add_extra_outputs(rp6502-vga)
 pico_set_program_name(rp6502-vga "RP6502-VGA")
+add_dependencies(rp6502-vga rp6502_gen_c)
 pico_set_binary_type(rp6502-vga copy_to_ram)
-rp6502_pico_rtt(rp6502-vga)
+rp6502_pico_rtt_stdio(rp6502-vga)
 # The VGA's own linker files come first, so its memory_ram.incl takes the
 # place of the shared one; see ld/. The fonts and palettes the renderers read,
 # and the console's cells, go in its VIDEO region, where ld/ places them by
@@ -21,6 +24,7 @@ rp6502_pico_memory(rp6502-vga)
 rp6502_linker_named(rp6502-vga
     ${RP6502_ROOT}/src/core/term/font.c
     ${RP6502_ROOT}/src/core/term/color.c
+    ${RP6502_ROOT}/src/core/term/vterm.c
     ${RP6502_ROOT}/src/core/vga/mode/mode0.c)
 
 set_target_properties(rp6502-vga PROPERTIES
@@ -36,6 +40,7 @@ target_compile_options(rp6502-vga PRIVATE
 )
 
 target_include_directories(rp6502-vga PRIVATE
+    ${RP6502_GEN}
     ${RP6502_ROOT}/src/host/pico
     ${VGA_SRC}
     ${RP6502_ROOT}/src
@@ -59,8 +64,11 @@ target_sources(rp6502-vga PRIVATE
     ${RP6502_ROOT}/src/core/vga/mode/mode3.c
     ${RP6502_ROOT}/src/core/vga/mode/mode4.c
     ${RP6502_ROOT}/src/core/vga/mode/mode5.c
+    ${RP6502_ROOT}/src/core/vga/mode/mode6.c
     ${VGA_SRC}/scanvideo/scanvideo.c
     ${RP6502_ROOT}/src/core/sys/version.c
+    ${VGA_SRC}/aud/bel.c
+    ${VGA_SRC}/com/com.c
     ${VGA_SRC}/com/manifold.c
     ${VGA_SRC}/sys/flash.c
     ${VGA_SRC}/sys/led.c
@@ -69,11 +77,15 @@ target_sources(rp6502-vga PRIVATE
     ${VGA_SRC}/sys/pix.c
     ${VGA_SRC}/sys/ria.c
     ${VGA_SRC}/sys/vga.c
+    ${VGA_SRC}/term/vterm_mouse.c
     ${RP6502_ROOT}/src/core/term/color.c
     ${RP6502_ROOT}/src/core/term/font.c
     ${RP6502_ROOT}/src/core/term/term.c
     ${RP6502_ROOT}/src/core/term/grid.c
-    ${RP6502_ROOT}/src/core/term/cells.c
+    ${RP6502_ROOT}/src/core/term/screen.c
+    ${RP6502_ROOT}/src/core/term/cell_mode0.c
+    ${RP6502_ROOT}/src/core/term/vterm.c
+    ${RP6502_ROOT}/src/core/term/draw.c
     ${VGA_SRC}/usb/cdc.c
     ${VGA_SRC}/usb/descriptors.c
     ${VGA_SRC}/usb/usb.c

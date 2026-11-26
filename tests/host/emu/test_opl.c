@@ -75,7 +75,7 @@ static const char *none_forced(const opl_script_t *pushes)
         {
             for (; i < pushes->count && pushes->w[i].n == now; i++)
                 opl_push(pushes->w[i].reg, pushes->w[i].val);
-            if (cut && !(save() && load(OPL_SST_SIZE)))
+            if (cut && !(save() && load(opl_sst.size)))
             {
                 snprintf(why, sizeof why, "sample %u: the load refused a saved state", (unsigned)now);
                 return why;
@@ -571,33 +571,60 @@ UTEST(opl, model_flood)
 
 /* ---------------- savestate ---------------- */
 
-static uint8_t blob[OPL_SST_SIZE + 16];
+/* The most a state may hold here; opl_sst.size is a sum the table makes at
+ * run time, so sst_layout checks it fits. */
+#define SST_MAX 1024
+static uint8_t blob[SST_MAX + 16];
 
 static bool save(void)
 {
-    sst_cursor_t c = {blob, blob + sizeof blob, false};
-    opl_sst_save(&c, 0);
-    return sst_ok(&c) && c.at == blob + OPL_SST_SIZE;
+    sst_cursor_t c = {blob, blob + sizeof blob, false, NULL};
+    opl_sst.save(&c, 0);
+    return sst_ok(&c) && c.at == blob + opl_sst.size;
 }
 
 static bool load(size_t len)
 {
-    sst_cursor_t c = {blob, blob + len, false};
-    return opl_sst_load(&c, 0) && sst_ok(&c) && c.at == blob + OPL_SST_SIZE;
+    sst_cursor_t c = {blob, blob + len, false, NULL};
+    return opl_sst.load(&c, 0) && sst_ok(&c) && c.at == blob + opl_sst.size;
 }
 
-/* Where fields sit in a state, in opl_sst_save's order: the pointer at 0;
- * per slot P at 0, level 4, state 6 and WS 11; per channel the feedback
- * history at 0 and the carrier and modulator views at 4 and 7, each its A0,
- * B0 and C0 bytes. */
-#define SST_SLOT(i, at) (2 + 12 * (i) + (at))
-#define SST_CH(i, at) (2 + 18 * 12 + 10 * (i) + (at))
-#define SST_GLOB (2 + 18 * 12 + 9 * 10)
+/* Where fields sit in a state, in OPL_SST's row order, big-endian: the
+ * pointer (U16); per slot (14 bytes) P (U32) at 0, level (I32) at 4, state
+ * at 8, then R20, R40, R60, R80 and WS at 9 to 13; per channel the feedback
+ * history (U32); the carrier views, then the modulator views (6 bytes), each
+ * F-number (U16) at 0, block 2, KON 3, CON 4 and FB 5; the globals; the
+ * queue's wr and rd (U32) and its OPL_QUEUE_SIZE entries (U16) as they lie;
+ * the credit (U8) and the drop count (U32). */
+#define SST_SLOT(i, at) (2 + 14 * (i) + (at))
+#define SST_HIST(i) (2 + 18 * 14 + 4 * (i))
+#define SST_CV(i, at) (2 + 18 * 14 + 9 * 4 + 6 * (i) + (at))
+#define SST_MV(i, at) (2 + 18 * 14 + 9 * 4 + 9 * 6 + 6 * (i) + (at))
+#define SST_GLOB (2 + 18 * 14 + 9 * 4 + 2 * 9 * 6)
+#define SST_LAG (SST_GLOB + 3)
 #define SST_T (SST_GLOB + 12)
 #define SST_SUB (SST_GLOB + 17)
-#define SST_QUEUE (OPL_SST_SIZE - (2 + 2 * OPL_QUEUE_SIZE + 1 + 4))
-#define SST_CREDIT (OPL_SST_SIZE - 5)
-#define SST_DROPS (OPL_SST_SIZE - 4)
+#define SST_N (SST_GLOB + 20)
+#define SST_WR (SST_GLOB + 33)
+#define SST_RD (SST_WR + 4)
+#define SST_BUF (SST_RD + 4)
+#define SST_CREDIT (SST_BUF + 2 * OPL_QUEUE_SIZE)
+#define SST_DROPS (SST_CREDIT + 1)
+#define SST_END (SST_DROPS + 4)
+
+static uint32_t get_be(const uint8_t *p, unsigned len)
+{
+    uint32_t v = 0;
+    for (unsigned k = 0; k < len; k++)
+        v = v << 8 | p[k];
+    return v;
+}
+
+/* Where the queue's entry i lies in blob. */
+static size_t sst_entry(uint32_t i)
+{
+    return SST_BUF + 2 * ((get_be(blob + SST_RD, 4) + i) % OPL_QUEUE_SIZE);
+}
 
 /* The engine's credit, from a saved state. */
 static uint32_t engine_credit(void)
@@ -618,8 +645,8 @@ static void begin(const uint8_t *start)
     opl_reset();
     if (start)
     {
-        memcpy(blob, start, OPL_SST_SIZE);
-        load(OPL_SST_SIZE);
+        memcpy(blob, start, opl_sst.size);
+        load(opl_sst.size);
     }
 }
 
@@ -645,9 +672,9 @@ static const char *round_trip(const opl_script_t *pushes, const uint8_t *start, 
                 const uint32_t q = RING_LEN(&opl_queue.ring);
                 *part += q > 1 && q < OPL_QUEUE_SIZE;
                 *full += q == OPL_QUEUE_SIZE;
-                const char *fail = save() ? NULL : "the save did not fill OPL_SST_SIZE";
+                const char *fail = save() ? NULL : "the save did not fill opl_sst.size";
                 opl_reset();
-                if (!fail && !load(OPL_SST_SIZE))
+                if (!fail && !load(opl_sst.size))
                     fail = "the load refused a saved state";
                 if (fail)
                 {
@@ -669,6 +696,55 @@ static const char *round_trip(const opl_script_t *pushes, const uint8_t *start, 
     free(out[0]);
     free(out[1]);
     return r;
+}
+
+/* The offsets above, read from a state whose fields are known: the save
+ * fills opl_sst.size, which fits SST_MAX and ends where the offsets do. */
+UTEST(opl, sst_layout)
+{
+    ASSERT_LE(opl_sst.size, (uint32_t)SST_MAX);
+    ASSERT_EQ(opl_sst.size, (uint32_t)SST_END);
+    opl_map(0x1234);
+    static const uint8_t w[][2] = {
+        {0x01, 0x20}, {0x08, 0x40}, {0xBD, 0xC0}, /* WSE, NTS, AM and VIB depth */
+        {0xA5, 0x55}, {0xB5, 0x2E}, {0xC5, 0x0B}, /* ch 5: F 0x255, block 3, KON; FB 5, CON */
+        {0x51, 0x3F}, {0xF1, 0x02},               /* slot 13: TL 63, WS 2 */
+    };
+    for (size_t k = 0; k < sizeof w / sizeof *w; k++)
+        opl_push(w[k][0], w[k][1]);
+    for (int n = 0; n < 200; n++)
+        opl_sample();
+    ASSERT_EQ(RING_LEN(&opl_queue.ring), 0u);
+    for (uint32_t k = 0; k < OPL_QUEUE_SIZE + 5; k++)
+        opl_push(0x60, (uint8_t)k);
+    uint32_t credit;
+    bool late;
+    opl_pace_get(&credit, &late);
+    ASSERT_TRUE(save());
+
+    ASSERT_EQ(get_be(blob, 2), 0x1234u);
+    ASSERT_EQ(get_be(blob + SST_SLOT(0, 4), 4), 0x1FFu);
+    ASSERT_EQ(blob[SST_SLOT(0, 8)], 3); /* release */
+    ASSERT_EQ(blob[SST_SLOT(13, 10)], 0x3F);
+    ASSERT_EQ(blob[SST_SLOT(13, 13)], 2);
+    for (int v = 0; v < 2; v++)
+    {
+        const size_t at = v ? SST_MV(5, 0) : SST_CV(5, 0);
+        ASSERT_EQ(get_be(blob + at, 2), 0x255u);
+        ASSERT_EQ(blob[at + 2], 3);
+        ASSERT_EQ(blob[at + 3], 1);
+        ASSERT_EQ(blob[at + 4], 1);
+        ASSERT_EQ(blob[at + 5], 5);
+    }
+    ASSERT_EQ(blob[SST_GLOB], 0x20);
+    ASSERT_EQ(blob[SST_GLOB + 1], 1);
+    ASSERT_EQ(blob[SST_GLOB + 2], 0xC0);
+    ASSERT_EQ(get_be(blob + SST_WR, 4) - get_be(blob + SST_RD, 4), (uint32_t)OPL_QUEUE_SIZE);
+    for (uint32_t k = 0; k < OPL_QUEUE_SIZE; k++)
+        ASSERT_EQ(get_be(blob + sst_entry(k), 2), 0x60u | k << 8);
+    ASSERT_EQ((uint32_t)blob[SST_CREDIT], credit);
+    ASSERT_EQ(get_be(blob + SST_DROPS, 4), 5u);
+    opl_map(0xFFFF);
 }
 
 UTEST(opl, sst_round_trip_bursts)
@@ -696,7 +772,7 @@ UTEST(opl, sst_round_trip_flood)
 /* Across the envelope timer's wrap, whose carry lives for one sample. */
 UTEST(opl, sst_round_trip_eg_wrap)
 {
-    static uint8_t start[OPL_SST_SIZE];
+    static uint8_t start[SST_MAX];
     opl_script_t s = {0}, tail = {0};
     opl_script_bursts(&s, 7, 6000, 0);
     s.samples = 2000;
@@ -755,23 +831,39 @@ static const char *is_reset(void)
     return r;
 }
 
-/* NULL when the load refuses blob and leaves the engine reset, else what. */
+/* What the machine does to the OPL2 after a refused load: the load writes
+ * rows straight into the engine and stops at the first bad one, and
+ * sys_reset follows, whose RESET runs aud_init, which resets the engine with
+ * opl_map(0xFFFF). aud_init itself is in mix.c, which this test does not
+ * build, so this is its OPL2 line. */
+static void reset_after_refusal(void)
+{
+    opl_map(0xFFFF);
+}
+
+/* NULL when the load refuses blob and the reset that follows a refusal
+ * leaves the engine as a reset one, else what. */
 static const char *refuses(const char *what)
 {
     opl_reset();
-    return load(OPL_SST_SIZE) ? what : is_reset();
+    if (load(opl_sst.size))
+        return what;
+    reset_after_refusal();
+    return is_reset();
 }
 
 /* Each field the load checks, out of its range alone. */
 UTEST(opl, sst_refuses_out_of_range)
 {
-    static uint8_t good[OPL_SST_SIZE];
+    static uint8_t good[SST_MAX];
     save_busy();
     memcpy(good, blob, sizeof good);
-    ASSERT_GT((blob[SST_QUEUE] << 8) | blob[SST_QUEUE + 1], 0);
-    ASSERT_TRUE(load(OPL_SST_SIZE));
+    const uint32_t queued = get_be(blob + SST_WR, 4) - get_be(blob + SST_RD, 4);
+    ASSERT_GT(queued, 0u);
+    ASSERT_TRUE(load(opl_sst.size));
+    const size_t first = sst_entry(0);
 
-    static const struct
+    const struct
     {
         size_t at;
         uint8_t len;
@@ -781,18 +873,23 @@ UTEST(opl, sst_refuses_out_of_range)
     } bad[] = {
         {0, 2, false, 0xFF01, "a block past the end of XRAM"},
         {SST_SLOT(3, 0), 4, true, 1, "a phase with bits below its 19"},
-        {SST_SLOT(3, 4), 2, false, 0x200, "a 10-bit level"},
-        {SST_SLOT(3, 6), 1, false, 4, "a fifth envelope state"},
-        {SST_SLOT(3, 11), 1, false, 4, "a fifth waveform"},
-        {SST_CH(2, 0), 4, false, 4085, "an operator output past 13 bits"},
-        {SST_CH(2, 0), 4, false, 0xF00A0000, "an operator output below 13 bits"},
-        {SST_CH(2, 5), 1, true, 0x40, "a B0 byte with bit 6"},
-        {SST_CH(2, 6), 1, true, 0x10, "a C0 byte with bit 4"},
-        {SST_CH(2, 9), 1, true, 0x10, "a modulator C0 byte with bit 4"},
-        {SST_CH(7, 7), 1, true, 1, "a channel 6-8 modulator view off its carrier's"},
-        {SST_CH(7, 9), 1, true, 2, "a channel 6-8 modulator FB off its carrier's"},
+        {SST_SLOT(3, 4), 4, false, 0x200, "a 10-bit level"},
+        {SST_SLOT(3, 4), 4, false, 0xFFFFFFFF, "a negative level"},
+        {SST_SLOT(3, 8), 1, false, 4, "a fifth envelope state"},
+        {SST_SLOT(3, 13), 1, false, 4, "a fifth waveform"},
+        {SST_HIST(2), 4, false, 4085, "an operator output past 13 bits"},
+        {SST_HIST(2), 4, false, 0xF00A0000, "an operator output below 13 bits"},
+        {SST_CV(2, 0), 2, false, 0x400, "an 11-bit F-number"},
+        {SST_CV(2, 2), 1, false, 8, "a ninth block"},
+        {SST_CV(2, 3), 1, false, 2, "a KON past 1"},
+        {SST_CV(2, 4), 1, false, 2, "a CON past 1"},
+        {SST_CV(2, 5), 1, false, 8, "an FB past 7"},
+        {SST_MV(2, 4), 1, false, 2, "a modulator CON past 1"},
+        {SST_MV(2, 5), 1, false, 8, "a modulator FB past 7"},
+        {SST_MV(7, 1), 1, true, 1, "a channel 6-8 modulator view off its carrier's"},
+        {SST_MV(7, 5), 1, true, 1, "a channel 6-8 modulator FB off its carrier's"},
         {SST_GLOB + 1, 1, false, 2, "NTS"},
-        {SST_GLOB + 3, 1, false, 0x40, "a lag on channel 6"},
+        {SST_LAG, 1, false, 0x40, "a lag on channel 6"},
         {SST_GLOB + 4, 1, false, 8, "a vibrato position"},
         {SST_GLOB + 5, 2, false, 1024, "an LFO count"},
         {SST_GLOB + 7, 2, false, 512, "a tremolo count"},
@@ -804,14 +901,14 @@ UTEST(opl, sst_refuses_out_of_range)
         {SST_SUB, 1, false, 2, "a timer parity"},
         {SST_GLOB + 18, 1, false, 14, "a timer shift"},
         {SST_GLOB + 19, 1, false, 4, "timer low bits"},
-        {SST_GLOB + 20, 4, false, 0, "a stuck noise register"},
-        {SST_GLOB + 20, 4, false, 0x800000, "a 24-bit noise register"},
+        {SST_N, 4, false, 0, "a stuck noise register"},
+        {SST_N, 4, false, 0x800000, "a 24-bit noise register"},
         {SST_GLOB + 24, 1, false, 1, "a cymbal bit other than 3 and 5"},
         {SST_GLOB + 25, 4, false, 8169, "a held carrier past 2 x 13 bits"},
         {SST_GLOB + 29, 4, false, (uint32_t)-8171, "held carriers below 2 x 13 bits"},
-        {SST_QUEUE + 2, 2, false, 0x2000, "a write to offset 00"},
-        {SST_QUEUE + 2, 2, false, 0x2016, "a write to offset 16"},
-        {SST_QUEUE + 2, 2, false, 0x2002, "a write to timer 1"},
+        {first, 2, false, 0x2000, "a write to offset 00"},
+        {first, 2, false, 0x2016, "a write to offset 16"},
+        {first, 2, false, 0x2002, "a write to timer 1"},
         {SST_CREDIT, 1, false, 25, "a credit that is not a multiple of 24"},
         {SST_CREDIT, 1, false, 48, "a credit below 72"},
         {SST_CREDIT, 1, false, 216, "a credit past 192"},
@@ -822,28 +919,31 @@ UTEST(opl, sst_refuses_out_of_range)
         memcpy(blob, good, sizeof good);
         uint32_t v = bad[k].val;
         if (bad[k].flip)
-            for (unsigned j = 0; j < bad[k].len; j++)
-                v ^= (uint32_t)blob[bad[k].at + j] << 8 * (bad[k].len - 1 - j);
+            v ^= get_be(blob + bad[k].at, bad[k].len);
         put_be(blob + bad[k].at, bad[k].len, v);
         ASSERT_OK(refuses(bad[k].what));
     }
 
     /* A channel 3-5 modulator lags its carrier only in FB. */
     memcpy(blob, good, sizeof good);
-    blob[SST_GLOB + 3] = 0x10;
-    blob[SST_CH(4, 7)] ^= 1;
+    blob[SST_LAG] = 0x10;
+    blob[SST_MV(4, 1)] ^= 1;
     ASSERT_OK(refuses("a channel 3-5 modulator F-number off its carrier's"));
 
     memcpy(blob, good, sizeof good);
-    put_be(blob + SST_QUEUE, 2, 0);
+    memcpy(blob + SST_RD, blob + SST_WR, 4);
     blob[SST_CREDIT] = 120;
     ASSERT_OK(refuses("a credit past 96 with nothing waiting"));
 
     memcpy(blob, good, sizeof good);
     for (size_t k = 0; k < OPL_QUEUE_SIZE; k++)
-        put_be(blob + SST_QUEUE + 2 + 2 * k, 2, 0x2040);
-    put_be(blob + SST_QUEUE, 2, OPL_QUEUE_SIZE + 1);
+        put_be(blob + SST_BUF + 2 * k, 2, 0x2040);
+    put_be(blob + SST_WR, 4, get_be(blob + SST_RD, 4) + OPL_QUEUE_SIZE + 1);
     ASSERT_OK(refuses("more writes than the queue holds"));
+
+    memcpy(blob, good, sizeof good);
+    put_be(blob + SST_RD, 4, get_be(blob + SST_WR, 4) + 1);
+    ASSERT_OK(refuses("a read counter past the write counter"));
 
     /* A block may start anywhere it ends inside XRAM. */
     for (unsigned at = 0x4001; at <= 0xFF00; at += 0xBEFF)
@@ -851,13 +951,14 @@ UTEST(opl, sst_refuses_out_of_range)
         memcpy(blob, good, sizeof good);
         put_be(blob, 2, at);
         opl_reset();
-        EXPECT_TRUE_MSG(load(OPL_SST_SIZE), "a block that fits refused");
+        EXPECT_TRUE_MSG(load(opl_sst.size), "a block that fits refused");
         ASSERT_EQ(opl_xaddr_get(), (uint16_t)at);
     }
 
     memcpy(blob, good, sizeof good);
     opl_reset();
-    EXPECT_FALSE_MSG(load(OPL_SST_SIZE - 1), "a short state loaded");
+    EXPECT_FALSE_MSG(load(opl_sst.size - 1), "a short state loaded");
+    reset_after_refusal();
     ASSERT_OK(is_reset());
 }
 
@@ -865,11 +966,11 @@ UTEST(opl, sst_refuses_out_of_range)
  * it and saves a state that loads again. */
 UTEST(opl, sst_any_byte)
 {
-    static uint8_t good[OPL_SST_SIZE];
+    static uint8_t good[SST_MAX];
     static const uint8_t vals[] = {0x00, 0x01, 0x7F, 0x80, 0xFF};
     save_busy();
     memcpy(good, blob, sizeof good);
-    for (size_t at = 0; at < OPL_SST_SIZE; at++)
+    for (size_t at = 0; at < opl_sst.size; at++)
         for (size_t v = 0; v < sizeof vals; v++)
         {
             memcpy(blob, good, sizeof good);
@@ -877,13 +978,13 @@ UTEST(opl, sst_any_byte)
                 continue;
             blob[at] = vals[v];
             opl_reset();
-            if (!load(OPL_SST_SIZE))
+            if (!load(opl_sst.size))
                 continue;
             for (int n = 0; n < 48; n++)
                 opl_sample();
             ASSERT_TRUE(save());
             opl_reset();
-            ASSERT_TRUE_MSG(load(OPL_SST_SIZE), "a state the engine saved did not load");
+            ASSERT_TRUE_MSG(load(opl_sst.size), "a state the engine saved did not load");
         }
 }
 

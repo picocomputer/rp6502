@@ -18,6 +18,37 @@
 static uint16_t oem_code_page_run;
 static uint16_t oem_auto_cp;
 
+/* Only the code page in force is saved. The glyphs follow from that one
+ * number, so the load asks for the page again and puts them back. */
+static void oem_page_put(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u16(c, oem_code_page_run);
+}
+
+static bool oem_page_get(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    uint16_t cp = sst_get_u16(c);
+    if (!sst_ok(c))
+        return false;
+    /* Zero is a valid saved value, because a machine whose resolved page the
+     * tables do not carry runs with no page at all. */
+    if (cp != 0 && !unicode_has_page(cp))
+        return sst_refuse(c, "unknown code page");
+    oem_code_page_run = cp;
+    oem_fs_code_page(cp);
+    /* The VGA's glyphs are FONT_DRIVER's chunk: a program can set the VGA's
+     * page apart from this one, through xreg 1 $0F. */
+    return true;
+}
+
+#define OEM_SST(X)                                          \
+    X(FN, oem_page_put, oem_page_get, 2, 1)                 \
+    X(IN_FN, oem_code_page_run)                             \
+    X(SKIP, oem_auto_cp, "the locale's page, which the host announces")
+SST_TABLE(oem, OEM_SST)
+
 static uint16_t oem_resolve(void)
 {
     return oem_get_code_page() ? oem_get_code_page() : oem_auto_cp;
@@ -35,35 +66,24 @@ static void oem_request_code_page(uint16_t cp)
         vga_set_code_page(oem_code_page_run);
 }
 
-void oem_sst_save(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    sst_put_u16(c, oem_code_page_run);
-}
-
-bool oem_sst_load(sst_cursor_t *c, unsigned flags)
-{
-    (void)flags;
-    uint16_t cp = sst_get_u16(c);
-    /* Zero is a valid saved value, because a machine whose resolved page the
-     * tables do not carry runs with no page at all. */
-    if (!sst_ok(c) || (cp != 0 && !unicode_has_page(cp)))
-        return false;
-    oem_code_page_run = cp;
-    oem_fs_code_page(cp);
-    /* vga_load_code_page rather than vga_set_code_page, because choosing a
-     * page resets the terminal and the savestate has already put the
-     * terminal's cells back by the time this runs. */
-    vga_load_code_page(cp);
-    return true;
-}
-
 void HOST_IN_FLASH_FUNC oem_init(void)
 {
     oem_apply_code_page(oem_get_code_page(), true);
     /* oem_request_code_page calls vga_set_code_page only when the number
      * changes, so the display is given a page here even when it did not. */
     vga_set_code_page(oem_code_page_run);
+}
+
+/* oem_request_code_page compares against oem_code_page_run, which a failed
+ * load leaves at any value, so this sets all three copies outright. The
+ * glyphs go in without the terminal reset, because the terminal's own RESET
+ * puts it back. */
+void oem_reset(void)
+{
+    uint16_t cp = oem_resolve();
+    oem_code_page_run = unicode_has_page(cp) ? cp : 0;
+    oem_fs_code_page(oem_code_page_run);
+    vga_load_code_page(oem_code_page_run);
 }
 
 uint16_t oem_get_code_page_restore(void)
@@ -135,50 +155,6 @@ unsigned char oem_from_codepoint(uint32_t cp)
 unsigned char oem_from_utf8_next(const char **p)
 {
     return unicode_from_utf8_next(p, oem_code_page_run);
-}
-
-static size_t oem_utf8_len(unsigned char lead)
-{
-    if ((lead & 0xe0) == 0xc0)
-        return 2;
-    if ((lead & 0xf0) == 0xe0)
-        return 3;
-    if ((lead & 0xf8) == 0xf0)
-        return 4;
-    return 1;
-}
-
-size_t oem_from_utf8_run(const char *utf8, size_t len, bool end,
-                         char *dst, size_t dstsz, size_t *taken)
-{
-    size_t in = 0, out = 0;
-    while (in < len && out < dstsz)
-    {
-        unsigned char c = (unsigned char)utf8[in];
-        if (c < 0x80)
-        {
-            dst[out++] = (char)c;
-            in++;
-            continue;
-        }
-        size_t n = oem_utf8_len(c);
-        if (n > len - in)
-        {
-            if (!end)
-                break; /* the rest of the sequence has not arrived */
-            n = len - in;
-        }
-        char seq[5];
-        memcpy(seq, utf8 + in, n);
-        seq[n] = 0;
-        const char *p = seq;
-        unsigned char b = oem_from_utf8_next(&p);
-        dst[out++] = (char)(b && b != 0x7F ? b : '?');
-        in += n;
-    }
-    if (taken)
-        *taken = in;
-    return out;
 }
 
 int oem_to_utf8_char(unsigned char b, char *dst)

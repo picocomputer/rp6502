@@ -6,6 +6,7 @@
  */
 
 #include "core/sys/config.h"
+#include "core/com/manifold.h"
 #include "core/str/oem.h"
 #include "core/sys/sys.h"
 #include "core/str/str.h"
@@ -14,6 +15,7 @@
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
+#include "host/sokol/app/run.h"
 #include "osal/os.h"
 #include "osal/console.h"
 #include "core/aud/mix.h"
@@ -52,6 +54,9 @@ static void apply_options(const cli_options *o)
     if (o->mute)
         aud_set_enabled(false);
     app_set_unpaced(o->unpaced);
+    /* Run flat out, the machine keeps no pace, its console's line least of
+     * all. */
+    manifold_set_paced(!o->unpaced);
 }
 
 #ifdef EMU_WITH_DEBUGGER
@@ -67,7 +72,9 @@ static int run_dap(const cli_options *o)
 
     if (o->rom_args)
         dap_set_default_args(o->n_rom_args, o->rom_args);
-    dap_start(); /* entry_run pumps it each frame */
+    /* The machine's lock first, which the adapter's handlers take. */
+    run_setup();
+    dap_start(); /* the window's machine pumps it each step (run.c) */
     /* The window never closes itself on halt, because the client ends the
      * session and the final screen has to stay up until it disconnects. */
     return entry_run(g_fb, o->scale, o->have_scale, false);
@@ -154,6 +161,11 @@ int main(int argc, char **argv)
         return 0;
     }
 
+    if (o.list_options)
+    {
+        cli_list_options(stdout);
+        return 0;
+    }
     if (o.version)
     {
         printf("%s\n", version_string());
@@ -346,7 +358,9 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (!o.headless)
+    /* A script, a screenshot and a CRC draw into this frame. A window points
+     * vga at its frames itself (run.h), and a headless run draws none. */
+    if (o.script || o.screenshot || o.crc)
         vga_set_framebuffer(g_fb);
 
     apply_options(&o);

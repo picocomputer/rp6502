@@ -23,11 +23,20 @@ typedef enum
     VGA_CANVAS_COUNT,
 } vga_canvas_t;
 
+/* The frames the VGA has shown since it started. A Pico RIA counts the
+ * VGA's from its VSYNCs. */
 unsigned long vga_frame_count(void);
 
 /* False where no display is attached. Always true where the display cannot be
  * unplugged. */
 bool vga_connected(void);
+
+/* The VGA is still at work on what the console sent it, so it may not show
+ * yet: a Pico RIA awaits the VGA's answer to a message, has a code page
+ * still to go, or holds its console for a job (core/term/screen.h) that the
+ * VGA does over passes of its main loop. False with no VGA connected, and
+ * on a machine that draws its own console, whose jobs run at once. */
+bool vga_console_busy(void);
 
 vga_canvas_t vga_get_canvas(void);
 
@@ -40,9 +49,16 @@ int16_t vga_canvas_y_scale(void);
  * VGA is plugged into. A machine that draws its own console holds it in
  * canvas.c, where it is 640x480 unless the host sets another size before the
  * machine starts, and a savestate load sets the size the savestate carries. A
- * new size takes effect at the next vga_canvas_select or vga_canvas_load. */
+ * new size takes effect at the next vga_canvas_select or savestate load. */
 void vga_console_size(int *w, int *h);
 void vga_set_console_size(int w, int h);
+
+/* A console size a machine that draws its own console can have: 640 wide
+ * and 480, 400 or 360 high, which are the sizes every host gives. */
+static inline bool vga_console_size_ok(int w, int h)
+{
+    return w == 640 && (h == 480 || h == 400 || h == 360);
+}
 
 /* The shape of the picture the canvas is shown in, which is what a
  * touchscreen laid over the display covers. Every canvas fills the picture's
@@ -54,6 +70,12 @@ void vga_display_size(int *w, int *h);
 bool vga_canvas_is_console(void);
 
 void vga_set_code_page(uint16_t cp);
+
+/* The pointer the system draws over the canvas for the tablet: its shape,
+ * or 0 for none, with its hot spot at x,y in canvas pixels (mode 6). A
+ * machine that draws its own canvas draws it at once; a Pico RIA sends it
+ * to the VGA, once a frame at most. */
+void vga_set_pointer(uint8_t shape, int16_t x, int16_t y);
 
 void vga_load_code_page(uint16_t cp);
 
@@ -67,9 +89,6 @@ void vga_canvas_reset(void);
 void vga_console_reset(void);
 
 void vga_canvas_publish(vga_canvas_t canvas);
-
-bool vga_canvas_load(uint16_t canvas);
-vga_canvas_t vga_canvas_code(void);
 
 bool vga_mode_prog(uint16_t mode, uint16_t *xregs);
 
@@ -161,6 +180,16 @@ typedef struct
     };
 } vga_fill_cache_t;
 
+/* Whether the cache was built for key, every line: nine words compared in
+ * line, where memcmp would be a call to a library loop. */
+static inline bool vga_fill_cache_hit(const vga_fill_cache_t *cache, const uint32_t key[9])
+{
+    uint32_t d = 0;
+    for (int i = 0; i < 9; i++)
+        d |= cache->key[i] ^ key[i];
+    return !d;
+}
+
 /* Forgets a row of text, so the next line builds its pairs again. */
 static inline void vga_fill_cache_forget_row(vga_fill_cache_t *cache)
 {
@@ -190,5 +219,9 @@ bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin, int16_t scanline_
 bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
                      uint16_t config_ptr, uint16_t length,
                      uint8_t mode, uint16_t options);
+
+/* The program's pointers, mode 6's array of sprites at config_ptr, or
+ * $FFFF for the system's (core/vga/mode/mode6.h). */
+bool vga_prog_pointer(uint16_t config_ptr);
 
 #endif /* _CORE_VGA_VGA_H_ */

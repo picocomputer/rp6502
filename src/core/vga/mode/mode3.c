@@ -10,9 +10,9 @@
 #include "core/sys/xram.h"
 #include "core/term/color.h"
 #include <string.h>
+#include "core/sys/hot.h"
 
-#pragma GCC push_options
-#pragma GCC optimize("O3")
+HOT_BEGIN
 
 typedef struct
 {
@@ -124,7 +124,7 @@ mode3_fill_cols(mode3_config_t *config, int16_t win_w, uint16_t **rgb, int16_t *
 static inline __attribute__((always_inline)) void
 mode3_emit(uint16_t *rgb, const uint8_t *row_data, int16_t col, int16_t n, int16_t width_px,
            const uint16_t *palette, const uint16_t *pal, const uint32_t *tbl,
-           vga_fill_cache_t *cache, int16_t bpp, bool reverse)
+           const uint32_t *pairs, int16_t bpp, bool reverse)
 {
     if (bpp == 16)
         memcpy(rgb, (const uint16_t *)row_data + col, sizeof(uint16_t) * n);
@@ -138,7 +138,7 @@ mode3_emit(uint16_t *rgb, const uint8_t *row_data, int16_t col, int16_t n, int16
             *rgb++ = palette[reverse ? *data++ >> 4 : *data++ & 0xF];
             n--;
         }
-        mode_run_4bpp_pairs(rgb, data, n, mode_4bpp_pairs(cache, palette, reverse));
+        mode_run_4bpp_pairs(rgb, data, n, pairs);
     }
     else
     {
@@ -297,6 +297,9 @@ mode3_render(uint16_t options, int16_t scanline_id, int16_t width, uint16_t *rgb
         else
             mode_quad_set(tbl, pal);
     }
+    /* A wrapped bitmap's line is many runs, which share the line's pairs. */
+    const uint32_t *pairs =
+        bpp == 4 && !hdouble ? mode_4bpp_pairs(cache, palette, reverse) : NULL;
     int16_t col = -config->x_pos_px;
     const int16_t width_px = config->width_px;
     while (width)
@@ -308,7 +311,7 @@ mode3_render(uint16_t options, int16_t scanline_id, int16_t width, uint16_t *rgb
             mode3_emit_doubled(rgb, row_data, (unsigned)col, (unsigned)fill_cols,
                                bpp <= 2 ? pal : palette, tbl, bpp, reverse);
         else
-            mode3_emit(rgb, row_data, col, fill_cols, width_px, palette, pal, tbl, cache, bpp,
+            mode3_emit(rgb, row_data, col, fill_cols, width_px, palette, pal, tbl, pairs, bpp,
                        reverse);
         rgb += fill_cols;
         col += fill_cols;
@@ -388,6 +391,11 @@ vga_fill_fn_t mode3_fill_fn(uint16_t attributes)
 }
 #endif
 
+bool mode3_config_ok(uint16_t config_ptr)
+{
+    return vga_xram_ok(config_ptr, sizeof(mode3_config_t));
+}
+
 bool mode3_prog(uint16_t *xregs)
 {
     const uint16_t attributes = xregs[2];
@@ -396,8 +404,7 @@ bool mode3_prog(uint16_t *xregs)
     const int16_t scanline_begin = xregs[5];
     const int16_t scanline_end = xregs[6];
 
-    if (config_ptr & 1 ||
-        config_ptr > 0x10000 - sizeof(mode3_config_t))
+    if (!mode3_config_ok(config_ptr))
         return false;
 
     if (!mode3_fill_valid(attributes))
@@ -406,4 +413,4 @@ bool mode3_prog(uint16_t *xregs)
     return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, 3, attributes);
 }
 
-#pragma GCC pop_options
+HOT_END

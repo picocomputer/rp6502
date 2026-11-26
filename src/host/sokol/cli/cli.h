@@ -41,6 +41,7 @@ typedef struct
     bool dap;
     bool credits;
     bool version;
+    bool list_options;
     const char *ini;
     uint32_t memseed;
     bool have_memseed;
@@ -61,5 +62,10 @@ int cli_parse_args(int argc, char **argv, cli_options *o);
 /* Print the options to out. The script verbs are script_usage()'s, because
  * cli.c is also linked without script.c; --help prints both. */
 void cli_usage(FILE *out, const char *argv0);
+
+/* Print each long option to out, one a line, as --name, with = after the
+ * name of one that takes a value. tools/rp6502.py reads it to tell the
+ * emulator's options from the options of a test. */
+void cli_list_options(FILE *out);
 
 #endif /* _HOST_SOKOL_CLI_CLI_H_ */

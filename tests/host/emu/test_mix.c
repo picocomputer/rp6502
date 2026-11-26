@@ -306,8 +306,9 @@ static mix_stream_t mix_stream(double drift, int minutes, double settle)
 /* No write lands after its sample: a render short of headroom moves the gap
  * on first. With the device on time the gap wanders less than two
  * milliseconds once settled, and the least headroom of each half second
- * stays between a millisecond below none and two above, so writes wait no
- * longer than that past what they have to.
+ * stays at or above none, the render never short, and no more than five
+ * milliseconds past the two the loop keeps, as the frames and the requests
+ * beat, so writes wait no longer than that past what they have to.
  *
  * A device a quarter of a percent off is twenty times what a crystal is
  * off by, and the loop, which is slow so that the pitch holds still, takes
@@ -317,10 +318,10 @@ static mix_stream_t mix_stream(double drift, int minutes, double settle)
 static void mix_steady(int *utest_result, double drift)
 {
     const mix_stream_t s = mix_stream(drift, 10, drift ? 240 : 20);
-    ASSERT_GE(s.lo, -(double)AUD_NATIVE_RATE / 1000);
+    ASSERT_GE(s.lo, drift > 0 ? -(double)AUD_NATIVE_RATE / 1000 : 0);
     if (drift <= 0)
         ASSERT_LT(s.spread, (int64_t)AUD_NATIVE_RATE / 500);
-    ASSERT_LE(s.hi, (double)AUD_NATIVE_RATE / 500);
+    ASSERT_LE(s.hi, (double)AUD_NATIVE_RATE * 7 / 1000);
 }
 
 UTEST(mix, a_device_a_quarter_percent_fast_streams_on_time)
@@ -361,6 +362,8 @@ typedef struct
     double skipped_ms; // sound the machine's thread or a render made and threw away
     double jumped_ms;  // machine time the render passed over without making it
     double late_ms;    // the longest a write waited to sound, in machine time
+    double held_ms;    // machine time the render waited for, holding the sound
+    int holds;         // and how many times it did
     uint32_t dropped;  // OPL2 writes the render's queue had no room for
     uint32_t overran;  // and those the machine's count of it had none for
     double bend;       // the most the pitch moved from one half second to the next
@@ -370,7 +373,8 @@ typedef struct
 /* What the queue takes at each sample: how far the render's samples are past
  * the machine's for it, which is aud_off, and how long ago the machine made
  * the write. */
-static int64_t mix_off, mix_jumped, mix_late;
+static int64_t mix_off, mix_jumped, mix_late, mix_held;
+static int mix_holds;
 static bool mix_off_seen;
 static void mix_host_probe(int16_t *l, int16_t *r)
 {
@@ -383,6 +387,8 @@ static void mix_host_probe(int16_t *l, int16_t *r)
         const int64_t late = (int64_t)(bus_now(AUD_NATIVE_RATE) - mix_stamp[v]);
         if (mix_off_seen && off < mix_off)
             mix_jumped += mix_off - off;
+        if (mix_off_seen && off > mix_off)
+            mix_held += off - mix_off, mix_holds++;
         mix_off = off, mix_off_seen = true;
         if (late > mix_late)
             mix_late = late;
@@ -415,7 +421,7 @@ static void mix_busy_probe(int16_t *l, int16_t *r)
 static mix_hosted_t mix_hosted(const mix_host_t *o)
 {
     static float out[4096 * 2];
-    mix_hosted_t s = {0, 0, 0, 0, 0, 0, 0};
+    mix_hosted_t s = {0};
     sys_stop();
     sys_commit();
     vga_set_scanout(false);
@@ -457,7 +463,8 @@ static mix_hosted_t mix_hosted(const mix_host_t *o)
         if (!counting && at >= from && t >= from)
         {
             counting = true;
-            mix_jumped = mix_late = skipped = 0;
+            mix_jumped = mix_late = mix_held = skipped = 0;
+            mix_holds = 0;
             (void)opl_take_drops();
             (void)aud_opl_overruns();
         }
@@ -491,7 +498,9 @@ static mix_hosted_t mix_hosted(const mix_host_t *o)
             }
             continue;
         }
-        pace_add(&pace, entered < 0 ? VGA_FRAME_NS : (uint64_t)((t - entered) * 1e9), true);
+        const uint64_t dt = entered < 0 ? VGA_FRAME_NS : (uint64_t)((t - entered) * 1e9);
+        pace_credit(&pace, dt);
+        pace_add(&pace, dt, true);
         aud_set_speed(pace_speed(&pace));
         entered = t;
         while (pace_due(&pace))
@@ -517,6 +526,8 @@ static mix_hosted_t mix_hosted(const mix_host_t *o)
     s.skipped_ms = (double)skipped * 1000 / AUD_NATIVE_RATE;
     s.jumped_ms = (double)mix_jumped * 1000 / AUD_NATIVE_RATE;
     s.late_ms = (double)mix_late * 1000 / AUD_NATIVE_RATE;
+    s.held_ms = (double)mix_held * 1000 / AUD_NATIVE_RATE;
+    s.holds = mix_holds;
     cpu_dbg_cycle_cb = NULL;
     dbg_set_active(false);
     sys_stop();
@@ -526,10 +537,11 @@ static mix_hosted_t mix_hosted(const mix_host_t *o)
     aud_set_streaming(false);
     vga_set_scanout(true);
     printf("buf %d, %.2f Hz, %.1f ms late, stall %.0f ms%s, deaf %.0f ms, busy %d: skipped %.1f ms, "
-           "jumped %.1f ms, late %.1f ms, writes dropped %u, overran %u, pitch off %.3f%% bent %.3f%%\n",
+           "jumped %.1f ms, held %.2f ms in %d, late %.1f ms, writes dropped %u, overran %u, "
+           "pitch off %.3f%% bent %.3f%%\n",
            o->buf, 1 / o->display, o->jitter * 1000, o->stall * 1000, o->both ? " of both" : "",
-           o->deaf * 1000, o->busy, s.skipped_ms, s.jumped_ms, s.late_ms, (unsigned)s.dropped,
-           (unsigned)s.overran, s.off_pitch * 100, s.bend * 100);
+           o->deaf * 1000, o->busy, s.skipped_ms, s.jumped_ms, s.held_ms, s.holds, s.late_ms,
+           (unsigned)s.dropped, (unsigned)s.overran, s.off_pitch * 100, s.bend * 100);
     return s;
 }
 
@@ -553,6 +565,12 @@ static void mix_host_costs(int *utest_result, mix_host_t o, double skipped_ms, d
         ASSERT_LE(s.jumped_ms, jumped_ms);
         ASSERT_LE(s.late_ms, late_ms);
         ASSERT_EQ(s.overran, s.dropped);
+        /* Where nothing stops for long, the render is never short by more
+         * than a few samples now and then: no hold that is heard. It was
+         * short a few samples several times a second, for minutes, when the
+         * loop steered to no headroom at all. */
+        if (o.stall < 0.05 && !o.deaf)
+            ASSERT_LE(s.held_ms, 6);
         /* The pitch moves less than a twentieth of a percent, under a cent,
          * from one half second to the next, twice that where frames come as
          * much as 10 ms late, and is not looked at where the render had to
@@ -645,6 +663,17 @@ UTEST(mix, callbacks_10_ms_uneven_keep_every_sample)
     /* Callbacks this uneven also leave the display's rate known only to a
      * tenth of a percent, which the render holds more to cover. */
     mix_host_costs(utest_result, (mix_host_t){.display = 1.0 / 60, .jitter = 0.010}, 0, 40, 84);
+}
+
+/* A machine slow for its first frames, as a program is that loads as it
+ * starts: the render runs short over them, and the sound is that much
+ * further behind once the machine catches up. The loop bends that back
+ * over the next half minute and is not wound up by it, so it never then
+ * steers the render short, as it once did for a minute and more. */
+UTEST(mix, a_machine_slow_to_start_bends_back_the_wait)
+{
+    mix_host_costs(utest_result, (mix_host_t){.display = 1.0 / 60, .stall_at = 1, .stall = 0.04},
+                   0, 0, 51);
 }
 
 /* A host that stops the machine and not the device: the sound runs on over

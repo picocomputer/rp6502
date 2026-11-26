@@ -7,19 +7,16 @@
 #ifndef _TB_SCREEN_H_
 #define _TB_SCREEN_H_
 
-/* The console as mode 0 draws it, read from what cells.c publishes
+/* The console as mode 0 draws it, read from what draw.c publishes
  * (core/vga/mode/mode0.h), so a test sees what a renderer sees. The grid's
  * width and height are the terminal's own, from the grid showing. */
 
-#include "core/term/cells.h"
+#include "core/term/draw.h"
+#include "core/term/grid.h"
+#include "core/term/vterm.h"
 #include "core/vga/mode/mode0.h"
 #include <stdbool.h>
 #include <stdint.h>
-
-/* The cells_task calls that finish what cells.c does a row a tick: the lazy
- * erases of all four screens, and a recolor pass with the one a change
- * during it starts after it, of every row of mode0_cells. */
-#define TB_SCREEN_SETTLE (8 * TERM_MAX_HEIGHT + 1)
 
 typedef struct
 {
@@ -34,7 +31,7 @@ typedef struct
 
 static inline void tb_screen(tb_screen_t *v)
 {
-    const term_grid_t *g = cells_shown(&cells_term);
+    const term_grid_t *g = vterm_get_shown(&vterm);
     const uint32_t cursor = mode0_regs.cursor;
     const uint32_t screen = mode0_regs.screen;
     v->width = g->width;

@@ -1,0 +1,97 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * What runs the machine for a window: the pace, the frames, and the finished
+ * frames handed to the window.
+ *
+ * On the desktop the machine runs on a thread of its own, so nothing that
+ * holds up the window holds up the machine and its sound: a present the
+ * compositor keeps for a tenth of a second, a window being moved, a screen's
+ * scale changing. The window tells the machine when each display callback
+ * comes (run_display) and shows the newest frame the machine finished
+ * (run_frame). The web player has one thread, and its callbacks run the
+ * machine in run_display.
+ *
+ * One lock is the machine's. The machine's thread holds it while it runs a
+ * frame, and the window holds it whenever it reaches into the machine: its
+ * events, its frame callback up to the upload, the debugger's windows. It is
+ * a lock the holder may take again, because a window's own calls into the OS
+ * can deliver an event to it on the spot. Nothing holding it waits on the
+ * window, and the window never holds it while it waits on the machine or on
+ * the display.
+ */
+
+#ifndef _HOST_SOKOL_APP_RUN_H_
+#define _HOST_SOKOL_APP_RUN_H_
+
+#include <stdbool.h>
+#include <stdint.h>
+
+/* Makes the lock, before anything may take it: the debug adapter starts
+ * before the window opens. run_prepare calls it too. */
+void run_setup(void);
+
+/* Before the window opens. fb is the caller's frame, large enough for the
+ * largest canvas, which is the first of the frames the machine draws into.
+ * exit_on_halt runs one more frame after the program exits, to be the last
+ * picture, and then asks the window to close. */
+void run_prepare(uint32_t *fb, bool exit_on_halt);
+
+/* --phi2 0: frames back to back, as fast as the host runs them. */
+void run_set_unpaced(bool on);
+
+/* From the window's init, once everything the machine reaches is up, and
+ * from its cleanup, before anything the machine reaches goes down. run_stop
+ * keeps the lock to the end of the process, so the teardown runs alone. */
+void run_start(void);
+void run_stop(void);
+
+/* The machine's lock, for the window and the debug adapter. */
+void run_lock(void);
+void run_unlock(void);
+
+/* Wakes the machine's thread to look at what it has been given: a debug
+ * adapter request, say. */
+void run_wake(void);
+
+/* A display callback at now, dt after the one before, whose present waited
+ * for the display or not. It owes the machine the time to now and the frames
+ * it makes due. On the desktop it then waits, without the lock and for no
+ * longer than room, for the machine to run them, so the frame the callback
+ * presents is the one due at it, as it was when the callback ran the frames
+ * itself. A present that does not wait gives the callback no frame of its
+ * own, and it waits for the next new one. */
+void run_display(uint64_t now, uint64_t dt, bool paced, uint64_t room);
+
+/* The display's period as the machine measures it. */
+int64_t run_period(void);
+
+/* A frame the machine finished, and the shape it was drawn in. */
+typedef struct run_frame_t
+{
+    const uint32_t *pixels; /* canvas_w by canvas_h */
+    int canvas_w, canvas_h;
+    int console_w, console_h;
+    bool last; /* exit_on_halt's last picture */
+} run_frame_t;
+
+/* The newest finished frame, which stays the window's until the next call.
+ * fresh is whether it is one this call has not given before. Under the
+ * lock, from the window. */
+const run_frame_t *run_frame(bool *fresh);
+
+/* Whether the machine wants the window closed: the program exited under
+ * exit_on_halt, and the frame run_frame gave is its last picture, or
+ * EMU_BENCH_MS ran out. */
+bool run_quit_asked(void);
+
+/* Whether the machine's frames follow the display's, which the window's
+ * guess at whether its present waits goes by. */
+bool run_follows(void);
+
+/* The host time spent running frames, for the debugger's pace window. */
+uint64_t run_machine_ns(void);
+
+#endif /* _HOST_SOKOL_APP_RUN_H_ */

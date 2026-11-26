@@ -7,6 +7,7 @@
 #include "fab.h"
 #include "tim.h"
 
+#include "core/ria/regs.h"
 #include "host/host.h"
 
 #define FAB_REGS_RUN(at, n) {at, n},
@@ -68,11 +69,14 @@ static void fab_get_win(const uint8_t *p, volatile uint8_t *win)
     }
 }
 
-void fab_sst_save(sst_cursor_t *c, unsigned flags)
+/* The size of what fab_machine_put writes: the jam words, the regs words,
+ * the scanline table, then 64 KB of RAM and 64 KB of XRAM. */
+#define FAB_MACHINE_SIZE \
+    (4 * (FAB_JAM_WORDS + FAB_REGS_WORDS + FAB_XPROG_WORDS) + 2 * 0x10000)
+
+static void fab_machine_put(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    sst_put_u64(c, host_clock_us());
-    sst_put_u32(c, VID_FRAME);
     for (int k = 0; k < FAB_JAM_WORDS; k++)
     {
         ST_SEL = fab_pick(k);
@@ -100,19 +104,22 @@ static inline uint32_t fab_u32(const uint8_t **p)
 
 /* Everything the 6502 runs on goes back before the 6502 itself: the
  * memories, then the RIA, then RESB and the jam, which loads the 6502, the
- * VIA, the PHI2 count and the open bus on one clock. RESB is written as it
- * was saved, and not through resb_release, which would clear the
- * interrupt word put back above. */
-bool fab_sst_load(sst_cursor_t *c, unsigned flags)
+ * VIA, the PHI2 count and the open bus on one clock. So the regs words are
+ * read out of the blob's order. RESB is written as it was saved, and not
+ * through resb_release, which would clear the interrupt word put back
+ * above. */
+static bool fab_machine_get(sst_cursor_t *c, unsigned flags)
 {
     (void)flags;
-    const uint8_t *p = sst_view(c, FAB_SST_SIZE);
+    const uint8_t *p = sst_view(c, FAB_MACHINE_SIZE);
     if (!p)
         return sst_refuse(c, "the fabric's state is short");
-    uint64_t mtime = (uint64_t)fab_u32(&p) << 32;
-    mtime |= fab_u32(&p);
-    tim_clock_set(mtime);
-    VID_FRAME = fab_u32(&p);
+    /* The xstack pointer is the last regs word, and api_pop and api_push
+     * index the xstack by XSTACK_SIZE less it, so one above XSTACK_SIZE
+     * would reach past the xstack. */
+    if ((sst_be32_read(p + 4 * (FAB_JAM_WORDS + FAB_REGS_WORDS - 1))
+         & 0x3FFu) > XSTACK_SIZE)
+        return sst_refuse(c, "the xstack pointer is out of range");
     uint32_t jam[FAB_JAM_WORDS];
     for (int k = 0; k < FAB_JAM_WORDS; k++)
         jam[k] = fab_u32(&p);
@@ -137,4 +144,50 @@ bool fab_sst_load(sst_cursor_t *c, unsigned flags)
         JAM_DATA(k) = jam[k];
     JAM = 1;
     return true;
+}
+
+/* mtime as it was before the load moved it, for fab_reset. */
+static uint64_t fab_clock_was;
+
+static void fab_clock_put(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    sst_put_u64(c, host_clock_us());
+}
+
+static bool fab_clock_get(sst_cursor_t *c, unsigned flags)
+{
+    (void)flags;
+    fab_clock_was = host_clock_us();
+    uint64_t mtime = sst_get_u64(c);
+    if (!sst_ok(c))
+        return false;
+    tim_clock_set(mtime);
+    return true;
+}
+
+/* mtime is a hand-written part, not rows of MTIME_LO and MTIME_HI, because
+ * it is read as one value, which a carry between its halves would tear, and
+ * because its load first keeps the clock it replaces, for fab_reset. */
+#define FAB_SST(X)                                                      \
+    X(FN, fab_clock_put, fab_clock_get, 8, 1)                          \
+    X(U32, VID_FRAME)                                                   \
+    X(FN, fab_machine_put, fab_machine_get, FAB_MACHINE_SIZE, 1)       \
+    X(SKIP, fab_clock_was, "mtime before a load, for fab_reset")
+SST_TABLE(fab, FAB_SST)
+
+/* A failed load leaves the RIA's registers as the blob had them, with the
+ * 6502 in reset. The byte waiting in RX is taken back, so the next program
+ * does not read a key typed at another machine, and the xstack is emptied,
+ * with the zero above its top that api_pop_str's strlen ends on. The rest
+ * is harmless: resb_release clears the interrupt word, the console queue
+ * only plays out, and VID's reset clears the scanline table. mtime goes back
+ * to what it was before the load, because the rows the load did not reach
+ * keep deadlines on that clock. */
+void fab_reset(void)
+{
+    tim_clock_set(fab_clock_was);
+    (void)RX_RECLAIM;
+    xstack_ptr = XSTACK_SIZE;
+    xstack[XSTACK_SIZE] = 0;
 }

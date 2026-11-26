@@ -51,29 +51,43 @@ const char *proc_launcher(void)
     return proc_launcher_path ? proc_launcher_path : "";
 }
 
-void proc_chain_sst_save(sst_cursor_t *c)
+static void proc_paths_put(sst_cursor_t *c, unsigned flags)
 {
-    sst_put_i16(c, proc_exit_code);
+    (void)flags;
     sst_put_str(c, proc_running(), PROC_PATH_SLOT);
     sst_put_str(c, proc_launcher(), PROC_PATH_SLOT);
-    sst_put(c, arg_data(), arg_bytes());
 }
 
 /* The paths are put back here rather than through proc_run, because
  * proc_run takes argv[0] from the argument buffer. */
-bool proc_chain_sst_load(sst_cursor_t *c)
+static bool proc_paths_get(sst_cursor_t *c, unsigned flags)
 {
-    int16_t code = sst_get_i16(c);
+    (void)flags;
     const char *running = sst_view_str(c, PROC_PATH_SLOT);
     const char *launcher = sst_view_str(c, PROC_PATH_SLOT);
-    const uint8_t *argv = sst_view(c, arg_bytes());
     if (!sst_ok(c))
         return false;
-    proc_exit_code = code;
     set_path(&proc_running_path, running);
     set_path(&proc_launcher_path, launcher);
-    arg_set_data(argv);
     return true;
+}
+
+/* The paths are heap copies, so each is carried as a string. */
+#define PROC_CHAIN_SST(X)                                                 \
+    X(I16, proc_exit_code)                                                \
+    X(FN, proc_paths_put, proc_paths_get, 2 * PROC_PATH_SLOT, 1)          \
+    X(IN_FN, proc_running_path)                                           \
+    X(IN_FN, proc_launcher_path)
+SST_TABLE(proc_chain, PROC_CHAIN_SST)
+
+/* The paths are heap copies that only set_path writes, so a failed load
+ * leaves them whole, and they are dropped. Only the zero pair of argv is
+ * cleared, because nothing reads past it. */
+void proc_chain_reset(void)
+{
+    set_path(&proc_running_path, NULL);
+    proc_cancel_launcher();
+    arg_clear();
 }
 
 void proc_set_launcher(bool is_launcher)
@@ -176,10 +190,6 @@ void proc_chain_end(void)
     sys_end();
     com_rx_clear();
     com_end_reset();
-    /* Output reaches the VGA before a code page change clears it. */
-    manifold_flush();
-    oem_restore_code_page();
-    com_set_bel(true);
 }
 
 void proc_exec_failed(void)
