@@ -37,6 +37,11 @@ typedef enum
 
 void vga_set_display(vga_display_t display);
 void vga_xreg_canvas(uint16_t *xregs);
+
+/* A CANVAS or DISPLAY chose a view that vga_task has yet to switch to, which
+ * may set the system clock. */
+bool vga_switching(void);
+
 #define VGA_DRIVER DRIVER(INIT(vga_init) TASK_PUMPED(vga_task))
 
 #endif /* _VGA_SYS_VGA_H_ */

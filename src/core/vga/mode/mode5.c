@@ -9,9 +9,9 @@
 #include "core/sys/xram.h"
 #include "core/vga/vga.h"
 #include "core/term/color.h"
+#include "core/sys/hot.h"
 
-#pragma GCC push_options
-#pragma GCC optimize("O3")
+HOT_BEGIN
 
 #define MODE5_CUSTOM 0x38
 #define MODE5_HFLIP 0x10
@@ -27,20 +27,6 @@ typedef struct
     uint16_t palette_ptr;
 } mode5_sprite_t;
 
-typedef struct
-{
-    int16_t x_pos_px;
-    int16_t y_pos_px;
-    uint16_t xram_sprite_ptr;
-    uint16_t palette_ptr;
-    uint8_t width_height;
-    uint8_t options;
-} mode5_csprite_t;
-
-_Static_assert(sizeof(mode5_csprite_t) == 10, "a custom descriptor is ten bytes");
-_Static_assert(offsetof(mode5_csprite_t, width_height) == 8 &&
-                   offsetof(mode5_csprite_t, options) == 9,
-               "the size and options bytes follow the palette pointer");
 
 static inline const uint16_t *
 mode5_get_palette(uint16_t palette_ptr, int16_t bpp)
@@ -274,7 +260,7 @@ mode5_render(int16_t scanline, int16_t width, uint16_t *rgb,
             uint16_t *dst = rgb + sp.x_pos_px;
             const uint8_t *src = (const uint8_t *)&xram[sp.xram_sprite_ptr + tex_y * bytes_per_row];
             const uint16_t *palette = mode5_get_palette(sp.palette_ptr, bpp);
-#pragma GCC unroll 8
+            HOT_UNROLL(8)
             for (int g = 0; g < sprite_size / 8; g++)
                 mode5_group(dst + 8 * g, src + g * bpp, palette, false, false, bpp);
             continue;
@@ -306,33 +292,26 @@ mode5_render(int16_t scanline, int16_t width, uint16_t *rgb,
     }
 }
 
-/* One custom sprite on the line, from the fields already read: its row of
- * the texture, tex_y, and its size and options bytes. bpp, the flip and the
- * doubling across are constants, so each combination is its own copy. */
+/* One custom sprite's line tex_y, counted down the sprite as drawn, with
+ * its left edge at x and its image and palette already found. bpp, the
+ * flip and the doubling across are constants, so each combination is its
+ * own copy. */
 static inline __attribute__((always_inline)) void
-mode5_custom_sprite(const mode5_csprite_t *s, int tex_y, int width_height, int options,
-                    int16_t width, uint16_t *rgb, int bpp, bool hflip, bool hdouble)
+mode5_custom_body(int x, int tex_y, int width_height, int options,
+                  const uint8_t *image, const uint16_t *palette,
+                  int16_t width, uint16_t *rgb, int bpp, bool hflip, bool hdouble)
 {
-    const mode5_csprite_t sp = {
-        .x_pos_px = s->x_pos_px,
-        .xram_sprite_ptr = s->xram_sprite_ptr,
-        .palette_ptr = s->palette_ptr,
-    };
     const int nw = width_height & 15;
     const int w = (nw + 1) * 4;
     const int h = ((width_height >> 4) + 1) * 4;
-    const int x = sp.x_pos_px;
     const int footprint = w << hdouble;
     if (x + footprint <= 0 || x >= width)
         return;
     const int bytes_per_row = (w * bpp + 7) / 8;
-    if (sp.xram_sprite_ptr > 0x10000 - (unsigned)(h * bytes_per_row))
-        return;
     int row = tex_y >> (options >> 7);
     if (options & MODE5_VFLIP)
         row = h - 1 - row;
-    const uint8_t *src = (const uint8_t *)&xram[sp.xram_sprite_ptr + row * bytes_per_row];
-    const uint16_t *palette = mode5_get_palette(sp.palette_ptr, bpp);
+    const uint8_t *src = image + row * bytes_per_row;
 
     /* Wholly on the line, the usual case, the blit is inlined here. */
     if (x >= 0 && x <= width - footprint)
@@ -356,6 +335,39 @@ mode5_custom_sprite(const mode5_csprite_t *s, int tex_y, int width_height, int o
                bpp, hflip, hdouble);
 }
 
+uint32_t mode5_custom_bytes(uint8_t width_height, uint8_t options)
+{
+    const unsigned w = ((width_height & 15) + 1) * 4u;
+    const unsigned h = ((width_height >> 4) + 1) * 4u;
+    return h * ((w * (1u << (options & 3)) + 7) / 8);
+}
+
+#ifndef RP6502_VGA_FABRIC
+const uint16_t *mode5_palette(uint16_t palette_ptr, uint8_t options)
+{
+    return mode5_get_palette(palette_ptr, 1 << (options & 3));
+}
+
+void __attribute__((noinline))
+mode5_custom_line(int x, int tex_y, uint8_t width_height, uint8_t options,
+                  const uint8_t *image, const uint16_t *palette,
+                  int16_t width, uint16_t *rgb)
+{
+    switch (options & (MODE5_HDOUBLE | MODE5_HFLIP | 3))
+    {
+#define MODE5_CUSTOM_CASE(log, hf, hd)                                            \
+    case (hd ? MODE5_HDOUBLE : 0) | (hf ? MODE5_HFLIP : 0) | log:                 \
+        mode5_custom_body(x, tex_y, width_height, options, image, palette, width, \
+                          rgb, 1 << log, hf, hd);                                 \
+        break;
+        MODE5_CUSTOM_CASE(0, 0, 0) MODE5_CUSTOM_CASE(0, 0, 1) MODE5_CUSTOM_CASE(0, 1, 0) MODE5_CUSTOM_CASE(0, 1, 1)
+        MODE5_CUSTOM_CASE(1, 0, 0) MODE5_CUSTOM_CASE(1, 0, 1) MODE5_CUSTOM_CASE(1, 1, 0) MODE5_CUSTOM_CASE(1, 1, 1)
+        MODE5_CUSTOM_CASE(2, 0, 0) MODE5_CUSTOM_CASE(2, 0, 1) MODE5_CUSTOM_CASE(2, 1, 0) MODE5_CUSTOM_CASE(2, 1, 1)
+        MODE5_CUSTOM_CASE(3, 0, 0) MODE5_CUSTOM_CASE(3, 0, 1) MODE5_CUSTOM_CASE(3, 1, 0) MODE5_CUSTOM_CASE(3, 1, 1)
+#undef MODE5_CUSTOM_CASE
+    }
+}
+
 static void
 mode5_render_custom(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
 {
@@ -368,25 +380,21 @@ mode5_render_custom(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t con
          * the checks. Most sprites miss the line, so the three fields that
          * place it down the canvas are read and tested first. */
         const int tex_y = scanline - s->y_pos_px;
-        const int width_height = s->width_height;
-        const int options = s->options;
+        const uint8_t width_height = s->width_height;
+        const uint8_t options = s->options;
         const int h = ((width_height >> 4) + 1) * 4;
         if ((unsigned)tex_y >= (unsigned)(h << (options >> 7)))
             continue;
-        switch (options & (MODE5_HDOUBLE | MODE5_HFLIP | 3))
-        {
-#define MODE5_CUSTOM_CASE(log, hf, hd)                                               \
-    case (hd ? MODE5_HDOUBLE : 0) | (hf ? MODE5_HFLIP : 0) | log:                    \
-        mode5_custom_sprite(s, tex_y, width_height, options, width, rgb, 1 << log, hf, hd); \
-        break;
-            MODE5_CUSTOM_CASE(0, 0, 0) MODE5_CUSTOM_CASE(0, 0, 1) MODE5_CUSTOM_CASE(0, 1, 0) MODE5_CUSTOM_CASE(0, 1, 1)
-            MODE5_CUSTOM_CASE(1, 0, 0) MODE5_CUSTOM_CASE(1, 0, 1) MODE5_CUSTOM_CASE(1, 1, 0) MODE5_CUSTOM_CASE(1, 1, 1)
-            MODE5_CUSTOM_CASE(2, 0, 0) MODE5_CUSTOM_CASE(2, 0, 1) MODE5_CUSTOM_CASE(2, 1, 0) MODE5_CUSTOM_CASE(2, 1, 1)
-            MODE5_CUSTOM_CASE(3, 0, 0) MODE5_CUSTOM_CASE(3, 0, 1) MODE5_CUSTOM_CASE(3, 1, 0) MODE5_CUSTOM_CASE(3, 1, 1)
-#undef MODE5_CUSTOM_CASE
-        }
+        const int16_t x = s->x_pos_px;
+        const uint16_t image = s->xram_sprite_ptr;
+        const uint16_t palette = s->palette_ptr;
+        if (image > 0x10000 - mode5_custom_bytes(width_height, options))
+            continue;
+        mode5_custom_line(x, tex_y, width_height, options, (const uint8_t *)&xram[image],
+                          mode5_palette(palette, options), width, rgb);
     }
 }
+#endif
 
 /* Every attribute this mode defines and the renderer it names is written here
  * once: a fixed row as (attribute, size, bpp), the custom row as (attribute).
@@ -537,4 +545,4 @@ bool mode5_prog(uint16_t *xregs)
     return vga_prog_sprite(plane, scanline_begin, scanline_end, config_ptr, length, 5, attributes);
 }
 
-#pragma GCC pop_options
+HOT_END

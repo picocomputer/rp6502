@@ -30,17 +30,41 @@
  * walk, with the keys typed after each screen. With VTGOLDEN naming an
  * approved screens.txt, the run fails when a screen differs, is new, or is
  * gone, and only those screens are saved as text and PNG for a person to look
- * at; without it, every screen is. */
+ * at; without it, every screen is.
+ *
+ * With VTXTERM set, to an xterm's path or to 1 for the one on the PATH, a
+ * real xterm is given the same bytes, and every screen
+ * recorded is held against xterm's (xmirror.h). The differences are in
+ * OUTDIR/xterm.txt and OUTDIR/xterm/, and VTXKNOWN names those approved.
+ *
+ * In the mouse's menus (11.8.5) the walk takes the choices in an order of its
+ * own: every test of the mouse's events in every form of report, with focus
+ * events on, then the DEC locator's. A test there gets the mouse as well as
+ * keys: the pointer moves over the console's cells, its buttons go down and
+ * up and its wheel turns, through the tablet as a host's pointer does, and
+ * the focus goes and comes back. A choice taken more than once names its
+ * screens with the time it was taken, as 11.8.5_3.2-01. The selection is in
+ * a screen's digest while one shows.
+ *
+ * With VTCMD set, the program run is that shell command instead, with TERM
+ * xterm-256color, and the walk is VTKEYS: a screen is recorded each time
+ * the program has been quiet a moment, then the next step of VTKEYS is
+ * typed, steps between |, words as a test's answer takes them. */
 
 #include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/hid/hostkey.h"
 #include "core/hid/keyboard.h"
+#include "core/hid/tablet.h"
 #include "core/hid/usage.h"
 #include "core/hid/vtkey.h"
 #include "core/sys/sys.h"
-#include "core/term/cells.h"
+#include "core/sys/timer.h"
+#include "core/term/draw.h"
+#include "core/term/vterm.h"
+#include "core/term/vterm_mouse.h"
 #include "tb_screen.h"
+#include "xmirror.h"
 #include "core/vga/vga.h"
 #include "core/vga/vga_emu.h"
 #include "host/host.h"
@@ -64,15 +88,18 @@
 #include <unistd.h>
 
 #define VT_POLL_MS 2      /* how often the walk looks for vttest waiting */
-#define VT_STUCK_MS 7000  /* quiet and not reading this long, and it waits anyway:
-                           * longer than its longest pause, the 5 s after a RIS */
+#define VT_STUCK_MS 7000  /* without vtsleep.c, quiet and not reading this long,
+                           * and it waits anyway: longer than its longest pause,
+                           * the 5 s after a RIS */
 #define VT_STEP_LIMIT 4000 /* screens before giving up on a walk gone wrong */
 #define VT_TEST_LIMIT 60   /* screens one test may take before it is left */
 #define VT_TIME_LIMIT 480  /* seconds for the whole walk, under ctest's 600 */
 
 static int vt_master = -1;
 
-/* What vttest has read in all, from /proc: the bytes its reads returned. */
+/* What vttest has read in all, from /proc: the bytes its reads returned.
+ * On the walk it reads only its terminal, and its pauses read nothing
+ * (vtsleep.c), so this is what it has taken of what it was sent. */
 static pid_t vt_pid;
 static uint64_t vt_read_count(void)
 {
@@ -92,26 +119,33 @@ static uint64_t vt_read_count(void)
 /* What was written to vttest and it has yet to read: vt_owed bytes, counted
  * from where its reads stood at vt_owed_from. A write to a pseudoterminal
  * reaches the other side later, from a worker of the kernel's, and until it
- * does vttest still sleeps in its read with nothing to read, which is how it
- * looks when it waits for a key. So it is not waiting until it has read
- * what it was sent. */
+ * does vttest can neither read it nor see it there: it still sleeps in its
+ * read with nothing to read, which is how it looks when it waits for a key,
+ * and FIONREAD says nothing is waiting. So what it has yet to read is
+ * counted here, from what it has read. */
 static uint64_t vt_owed, vt_owed_from;
+
+static uint64_t vt_unread(void)
+{
+    if (!vt_owed)
+        return 0;
+    const uint64_t took = vt_read_count() - vt_owed_from;
+    if (took < vt_owed)
+        return vt_owed - took;
+    vt_owed = 0;
+    return 0;
+}
 
 static bool vt_taken(void)
 {
-    if (vt_owed && vt_read_count() - vt_owed_from >= vt_owed)
-        vt_owed = 0;
-    return !vt_owed;
+    return !vt_unread();
 }
 
 static void vt_reply(const char *s, size_t n)
 {
-    if (!vt_taken() || n)
-    {
-        if (!vt_owed)
-            vt_owed_from = vt_read_count();
-        vt_owed += n;
-    }
+    if (n && !vt_unread())
+        vt_owed_from = vt_read_count();
+    vt_owed += n;
     while (n)
     {
         ssize_t w = write(vt_master, s, n);
@@ -147,6 +181,9 @@ static size_t vt_utf8(uint32_t cp, char *out)
 
 static uint32_t vt_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 static int vt_rows, vt_cols;
+static bool vt_mirror; /* xterm is given what the terminal is */
+static FILE *vt_stream; /* and OUTDIR/stream.bin has all of it */
+static long vt_streamed;
 
 /* The DEC special graphics, 0x5F to 0x7E, as Unicode. */
 static const uint32_t vt_dec[32] = {
@@ -154,6 +191,24 @@ static const uint32_t vt_dec[32] = {
     0x00B1, 0x2424, 0x240B, 0x2518, 0x2510, 0x250C, 0x2514, 0x253C,
     0x23BA, 0x23BB, 0x2500, 0x23BC, 0x23BD, 0x251C, 0x2524, 0x2534,
     0x252C, 0x2502, 0x2A7D, 0x2A7E, 0x03C0, 0x2260, 0x00A3, 0x00B7,
+};
+
+/* DEC Technical, 0x21 to 0x7E, as Unicode, as xterm has it. The pieces of
+ * the big sigma have no Unicode and are xterm's private ones; the codes
+ * DEC left undefined are spaces. */
+static const uint32_t vt_tech[0x5E] = {
+    0x23B7, 0x250C, 0x2500, 0x2320, 0x2321, 0x2502, 0x23A1, 0x23A3,
+    0x23A4, 0x23A6, 0x23A7, 0x23A9, 0x23AB, 0x23AD, 0x23A8, 0x23AC,
+    0xE000, 0xE001, 0xE002, 0xE003, 0xE004, 0xE005, 0xE006, ' ',
+    ' ', ' ', ' ', 0x2264, 0x2260, 0x2265, 0x222B, 0x2234,
+    0x221D, 0x221E, 0x00F7, 0x0394, 0x2207, 0x03A6, 0x0393, 0x223C,
+    0x2243, 0x0398, 0x00D7, 0x039B, 0x21D4, 0x21D2, 0x2261, 0x03A0,
+    0x03A8, ' ', 0x03A3, ' ', ' ', 0x221A, 0x03A9, 0x039E,
+    0x03A5, 0x2282, 0x2283, 0x2229, 0x222A, 0x2227, 0x2228, 0x00AC,
+    0x03B1, 0x03B2, 0x03C7, 0x03B4, 0x03B5, 0x03C6, 0x03B3, 0x03B7,
+    0x03B9, 0x03B8, 0x03BA, 0x03BB, ' ', 0x03BD, 0x2202, 0x03C0,
+    0x03C8, 0x03C1, 0x03C3, 0x03C4, ' ', 0x0192, 0x03C9, 0x03BE,
+    0x03C5, 0x03B6, 0x2190, 0x2191, 0x2192, 0x2193,
 };
 
 /* The CP437 glyphs of the C0 codes, which term.c draws for the controls it
@@ -165,10 +220,42 @@ static const uint32_t vt_cp437_low[32] = {
     0x2191, 0x2193, 0x2192, 0x2190, 0x221F, 0x2194, 0x25B2, 0x25BC,
 };
 
+/* The CP437 glyphs of 0x80 to 0xFF, the code page the console starts in. */
+static const uint32_t vt_cp437_high[128] = {
+    0x00C7, 0x00FC, 0x00E9, 0x00E2, 0x00E4, 0x00E0, 0x00E5, 0x00E7,
+    0x00EA, 0x00EB, 0x00E8, 0x00EF, 0x00EE, 0x00EC, 0x00C4, 0x00C5,
+    0x00C9, 0x00E6, 0x00C6, 0x00F4, 0x00F6, 0x00F2, 0x00FB, 0x00F9,
+    0x00FF, 0x00D6, 0x00DC, 0x00A2, 0x00A3, 0x00A5, 0x20A7, 0x0192,
+    0x00E1, 0x00ED, 0x00F3, 0x00FA, 0x00F1, 0x00D1, 0x00AA, 0x00BA,
+    0x00BF, 0x2310, 0x00AC, 0x00BD, 0x00BC, 0x00A1, 0x00AB, 0x00BB,
+    0x2591, 0x2592, 0x2593, 0x2502, 0x2524, 0x2561, 0x2562, 0x2556,
+    0x2555, 0x2563, 0x2551, 0x2557, 0x255D, 0x255C, 0x255B, 0x2510,
+    0x2514, 0x2534, 0x252C, 0x251C, 0x2500, 0x253C, 0x255E, 0x255F,
+    0x255A, 0x2554, 0x2569, 0x2566, 0x2560, 0x2550, 0x256C, 0x2567,
+    0x2568, 0x2564, 0x2565, 0x2559, 0x2558, 0x2552, 0x2553, 0x256B,
+    0x256A, 0x2518, 0x250C, 0x2588, 0x2584, 0x258C, 0x2590, 0x2580,
+    0x03B1, 0x00DF, 0x0393, 0x03C0, 0x03A3, 0x03C3, 0x00B5, 0x03C4,
+    0x03A6, 0x0398, 0x03A9, 0x03B4, 0x221E, 0x03C6, 0x03B5, 0x2229,
+    0x2261, 0x00B1, 0x2265, 0x2264, 0x2320, 0x2321, 0x00F7, 0x2248,
+    0x00B0, 0x2219, 0x00B7, 0x221A, 0x207F, 0x00B2, 0x25A0, 0x00A0,
+};
+
+/* What the console's mouse types goes to vttest as it would from the
+ * console: its reports, and the DEC locator's answers. */
+static void vt_mouse_sends(void)
+{
+    vterm_mouse_task();
+    char buf[64];
+    size_t n;
+    while ((n = com_read(COM_SOURCE_KEYBOARD, buf, sizeof buf)) > 0)
+        vt_reply(buf, n);
+}
+
 /* The bytes go to the terminal as a program's would: a byte held for a smooth
  * scroll waits in the console's output while frames run, as many as the
  * scroll takes. All of them are in before the answers are read, because
- * vttest may be waiting for one. */
+ * vttest may be waiting for one. The mouse's answers, which it types with
+ * the keys, go too. */
 static void vt_term_write(const char *buf, size_t n)
 {
     for (size_t i = 0; i < n; i++)
@@ -177,18 +264,26 @@ static void vt_term_write(const char *buf, size_t n)
             vga_run_frame();
         manifold_write_to(COM_TERM_SCREEN, buf + i, 1);
     }
+    if (vt_mirror)
+    {
+        xm_write(buf, n);
+        fwrite(buf, 1, n, vt_stream);
+        vt_streamed += n;
+    }
     while (!manifold_drained())
         vga_run_frame();
     char reply[256];
     size_t r;
     while ((r = com_read(COM_SOURCE_UART, reply, sizeof reply)) > 0)
         vt_reply(reply, r);
+    vt_mouse_sends();
 }
 
 static void vt_term_init(void)
 {
+    /* No framebuffer: the screens are judged by their cells, and the frames
+     * the walk runs go by without drawing. vt_save draws the one it keeps. */
     sys_init();
-    vga_set_framebuffer(vt_fb);
     for (int i = 0; i < 120; i++)
         vga_run_frame();
     /* The monitor's banner goes, and the run starts on a blank screen. */
@@ -199,22 +294,32 @@ static void vt_term_init(void)
     vt_cols = v.width;
 }
 
+/* What a glyph shows, as Unicode. */
+static uint32_t vt_unicode(uint16_t glyph)
+{
+    uint32_t cp = mode0_glyph_code(glyph);
+    if (mode0_glyph_is_tech(glyph))
+        return vt_tech[cp - 0x21];
+    if (mode0_glyph_is_dec(glyph) && cp >= 0x5F && cp <= 0x7E)
+        return vt_dec[cp - 0x5F];
+    if (glyph >= 0x100)
+        return cp; /* an italic */
+    if (cp < 0x20)
+        return vt_cp437_low[cp]; /* a control drawn as its glyph */
+    if (cp == 0x7F)
+        return 0x2302; /* DEL drawn: the house */
+    if (cp > 0x7F)
+        return vt_cp437_high[cp - 0x80];
+    return cp;
+}
+
 static void vt_row(int y, char *out, size_t size)
 {
     const mode0_cell_t *row = tb_screen_row((uint8_t)y);
     size_t o = 0, last = 0;
     for (int x = 0; x < vt_cols && o + 8 < size; x++)
     {
-        const mode0_cell_t *c = &row[x];
-        uint32_t cp = mode0_glyph_code(c->glyph);
-        if (mode0_glyph_is_dec(c->glyph) && cp >= 0x5F && cp <= 0x7E)
-            cp = vt_dec[cp - 0x5F];
-        else if (cp < 0x20)
-            cp = vt_cp437_low[cp]; /* a control drawn as its glyph */
-        else if (cp == 0x7F)
-            cp = 0x2302; /* DEL drawn: the house */
-        else if (cp > 0x7F)
-            cp = '?';
+        uint32_t cp = vt_unicode(row[x].glyph);
         o += vt_utf8(cp, out + o);
         if (cp != ' ')
             last = o;
@@ -222,11 +327,10 @@ static void vt_row(int y, char *out, size_t size)
     out[last] = 0;
 }
 
-/* Finishes the lazy erases, and shows blinking text in its lit phase. */
+/* Publishes the screen, and shows blinking text in its lit phase. */
 static void vt_settle(void)
 {
-    for (int i = 0; i < TB_SCREEN_SETTLE; i++)
-        cells_task();
+    draw_task();
     vga_run_frame();
     tb_screen_t v;
     for (int i = 0; i < 120; i++)
@@ -238,10 +342,11 @@ static void vt_settle(void)
     }
 }
 
-/* A CRC-32 of the cells: glyphs, attributes and the colors they show. A
- * cell's color is a pixel or an entry of mode 0's palette; the pixel it is
- * drawn as is what goes in, so the golden screens hold whichever a cell
- * has. */
+/* A CRC-32 of the cells: glyphs, attributes and the colors they show, with
+ * their bold, conceal and reverse drawn (mode0_cell_shows), and the
+ * underline's color the ink's but for one of its own. A cell's color is a
+ * pixel or an entry of mode 0's palette; the pixel it is drawn as is what
+ * goes in, so the golden screens hold whichever a cell has. */
 /* A cell's attributes as the byte golden.txt's digests were made from:
  * the blinks in bits 0 and 1, an underline that is not double in bit 2 and
  * a double one in bit 3, then the strike, the overline, DEC graphics and
@@ -266,6 +371,10 @@ static uint32_t vt_cells(void)
         const mode0_colors_t *colors = tb_screen_row_colors((uint8_t)y);
         for (int x = 0; x < vt_cols; x++)
         {
+            uint16_t fg, bg;
+            mode0_cell_shows(&row[x], &colors[x], &fg, &bg);
+            const uint16_t ul =
+                (row[x].attributes & MODE0_ATTR_UL_COLOR) ? colors[x].ul_color : fg;
             /* The eight bytes golden.txt's digests were made from. */
             const struct
             {
@@ -275,16 +384,43 @@ static uint32_t vt_cells(void)
                 uint16_t bg_color;
                 uint16_t ul_color;
             } shown = {mode0_glyph_code(row[x].glyph), vt_attributes(&row[x]),
-                       mode0_color(colors[x].fg_color), mode0_color(colors[x].bg_color),
-                       mode0_color(colors[x].ul_color)};
+                       mode0_color(fg), mode0_color(bg), mode0_color(ul)};
             crc = host_crc32(crc, &shown, sizeof shown);
         }
     }
     return crc;
 }
 
+/* Where the selection starts and ends on the screen showing, rows and
+ * columns from 0: false when none shows there. */
+static bool vt_selection(uint8_t at[4])
+{
+    const screen_selection_t *sel = &vterm_selection;
+    const term_grid_t *g = vterm_get_shown(&vterm);
+    if (!sel->shows || sel->screen != g->shown)
+        return false;
+    bool start = false, end = false;
+    for (uint8_t y = 0; y < g->height; y++)
+    {
+        const uint8_t m = screen_mem(g->shown, y);
+        if (m == sel->start_row)
+        {
+            at[0] = y;
+            at[1] = sel->start_col;
+            start = true;
+        }
+        if (m == sel->end_row)
+        {
+            at[2] = y;
+            at[3] = sel->end_col;
+            end = true;
+        }
+    }
+    return start && end;
+}
+
 /* A CRC-32 of what the screen shows: the cells, each line's size, and the
- * reverse screen. */
+ * reverse screen; and the selection, while one shows. */
 static uint32_t vt_digest(void)
 {
     uint32_t crc = vt_cells();
@@ -296,7 +432,11 @@ static uint32_t vt_digest(void)
     tb_screen_t v;
     tb_screen(&v);
     uint8_t reverse = v.reverse;
-    return host_crc32(crc, &reverse, 1);
+    crc = host_crc32(crc, &reverse, 1);
+    uint8_t at[4];
+    if (vt_selection(at))
+        crc = host_crc32(crc, at, sizeof at);
+    return crc;
 }
 
 static bool vt_blank(void)
@@ -400,6 +540,279 @@ static bool vt_approved(const char *name, const char *line)
     return false;
 }
 
+/* ------------------------------------------------------------------------
+ * xterm, given the same bytes, when VTXTERM is set: each screen recorded is
+ * held against xterm's, cell by cell, as the colors and attributes a cell
+ * shows rather than how either keeps them. A screen that differs is named in
+ * OUTDIR/xterm.txt with a digest of its differences, and OUTDIR/xterm/NAME.txt
+ * shows both. VTXKNOWN names the differences approved, in the same form: a
+ * difference not there, or not the same, fails the run, as does one there
+ * that no longer happens. */
+
+static FILE *vt_xterm;
+static int vt_xdiffer;
+
+#define VT_KNOWN_MAX 1024
+static vt_golden_t vt_known[VT_KNOWN_MAX];
+static int vt_known_count;
+
+static void vt_load_known(const char *path)
+{
+    FILE *f = fopen(path, "r");
+    if (!f)
+    {
+        fprintf(stderr, "vtrun: cannot read %s\n", path);
+        exit(2);
+    }
+    char line[160];
+    while (fgets(line, sizeof line, f) && vt_known_count < VT_KNOWN_MAX)
+    {
+        line[strcspn(line, "\n")] = 0;
+        if (line[0] && line[0] != '#')
+            snprintf(vt_known[vt_known_count++].line, sizeof vt_known[0].line, "%s", line);
+    }
+    fclose(f);
+}
+
+/* Whether name with this digest is an approved difference. Its line is the
+ * name, the digest, and why. */
+static bool vt_known_difference(const char *name, uint32_t digest)
+{
+    char want[48];
+    snprintf(want, sizeof want, "%s %08X", name, digest);
+    size_t n = strlen(want);
+    for (int i = 0; i < vt_known_count; i++)
+        if (!strncmp(vt_known[i].line, want, n) &&
+            (vt_known[i].line[n] == ' ' || !vt_known[i].line[n]))
+        {
+            vt_known[i].seen = true;
+            return true;
+        }
+    return false;
+}
+
+/* The console's screen as xm_screen_t has a screen. */
+static void vt_ours(xm_screen_t *o)
+{
+    tb_screen_t v;
+    tb_screen(&v);
+    static const uint8_t esc_hash[4] = {5, 6, 3, 4}; /* by TERM_LINE_ */
+    o->rows = vt_rows;
+    o->cols = vt_cols;
+    o->cursor_x = v.cursor_x;
+    o->cursor_y = v.cursor_y;
+    o->reverse = v.reverse;
+    for (int y = 0; y < vt_rows; y++)
+    {
+        const mode0_cell_t *row = tb_screen_row((uint8_t)y);
+        const mode0_colors_t *colors = tb_screen_row_colors((uint8_t)y);
+        o->line[y] = esc_hash[tb_screen_row_size((uint8_t)y) & 3];
+        for (int x = 0; x < vt_cols; x++)
+        {
+            xm_cell_t *c = &o->cell[y][x];
+            const uint16_t a = row[x].attributes;
+            const unsigned ul = (a & TERM_ATTR_UL_MASK) >> TERM_ATTR_UL_SHIFT;
+            c->cp = vt_unicode(row[x].glyph);
+            c->attr = (uint8_t)(((a & TERM_ATTR_ANY_BLINK) ? XM_ATTR_BLINK : 0) |
+                                (ul ? XM_ATTR_UL : 0) | (ul == TERM_UL_DOUBLE ? XM_ATTR_DUL : 0) |
+                                ((a & TERM_ATTR_STRIKE) ? XM_ATTR_STRIKE : 0) |
+                                ((a & TERM_ATTR_OVERLINE) ? XM_ATTR_OVERLINE : 0) |
+                                ((row[x].glyph >= 0x100 && !mode0_glyph_is_dec(row[x].glyph))
+                                     ? XM_ATTR_ITALIC
+                                     : 0));
+            uint16_t both[2];
+            mode0_cell_shows(&row[x], &colors[x], &both[0], &both[1]);
+            uint32_t out[2];
+            for (int k = 0; k < 2; k++)
+            {
+                const uint16_t col = both[k];
+                if (col & SCANVIDEO_ALPHA_MASK)
+                    out[k] = XM_RGB5(SCANVIDEO_R5_FROM_PIXEL(col), SCANVIDEO_G5_FROM_PIXEL(col),
+                                     SCANVIDEO_B5_FROM_PIXEL(col));
+                else
+                {
+                    const unsigned code = col >> MODE0_ENTRY_SHIFT;
+                    const unsigned e = (code & MODE0_CODE_DEFAULT)
+                                           ? MODE0_DEFAULT_FG + (code & 1)
+                                           : code & 0xFF;
+                    out[k] = (code & MODE0_CODE_FAINT) ? e | XM_FAINT : e;
+                }
+            }
+            c->fg = out[0];
+            c->bg = out[1];
+            c->known = true;
+        }
+    }
+}
+
+static void vt_color_name(uint32_t c, char *out, size_t size)
+{
+    const char *faint = (c & XM_FAINT) && !(c & XM_RGB) ? " faint" : "";
+    if (c & XM_RGB)
+        snprintf(out, size, "#%02X%02X%02X", (c >> 10 & 31) << 3, (c >> 5 & 31) << 3,
+                 (c & 31) << 3);
+    else if ((c & ~XM_FAINT) == XM_DEFAULT_FG)
+        snprintf(out, size, "fg%s", faint);
+    else if ((c & ~XM_FAINT) == XM_DEFAULT_BG)
+        snprintf(out, size, "bg%s", faint);
+    else
+        snprintf(out, size, "%u%s", c & ~XM_FAINT, faint);
+}
+
+static void vt_cell_name(const xm_cell_t *c, bool look, char *out, size_t size)
+{
+    char glyph[8] = {0}, fg[24], bg[24];
+    vt_utf8(c->cp, glyph);
+    if (!look)
+    {
+        snprintf(out, size, "'%s'", glyph);
+        return;
+    }
+    vt_color_name(c->fg, fg, sizeof fg);
+    vt_color_name(c->bg, bg, sizeof bg);
+    snprintf(out, size, "'%s' %s/%s%s%s%s%s%s%s", glyph, fg, bg,
+             c->attr & XM_ATTR_UL ? (c->attr & XM_ATTR_DUL ? " dul" : " ul") : "",
+             c->attr & XM_ATTR_BLINK ? " blink" : "", c->attr & XM_ATTR_STRIKE ? " strike" : "",
+             c->attr & XM_ATTR_ITALIC ? " italic" : "",
+             c->attr & XM_ATTR_OVERLINE ? " overline" : "", "");
+}
+
+/* A row as text, of the cells a line of its size shows. */
+static void vt_xrow(const xm_screen_t *s, int y, char *out, size_t size)
+{
+    int cols = s->line[y] == 5 || !s->line[y] ? s->cols : s->cols / 2;
+    size_t o = 0;
+    for (int x = 0; x < cols && o + 8 < size; x++)
+        o += vt_utf8(s->cell[y][x].cp, out + o);
+    while (o && out[o - 1] == ' ')
+        o--;
+    out[o] = 0;
+}
+
+static void vt_compare(const char *name)
+{
+    static xm_screen_t theirs, ours;
+    if (!xm_snap(&theirs))
+    {
+        fprintf(stderr, "vtrun: no screen from xterm at %s\n", name);
+        exit(2);
+    }
+    vt_ours(&ours);
+    int text = 0, look = 0, lines = 0;
+    uint32_t digest = 0;
+    char detail[64][160];
+    int details = 0;
+    for (int y = 0; y < ours.rows; y++)
+    {
+        if (theirs.line[y] && ours.line[y] != theirs.line[y])
+        {
+            lines++;
+            const uint8_t pair[3] = {(uint8_t)y, ours.line[y], theirs.line[y]};
+            digest = host_crc32(digest, pair, sizeof pair);
+        }
+        /* A wide line shows half its cells. */
+        const int cols = ours.line[y] == 5 && theirs.line[y] != 6 && theirs.line[y] != 3 &&
+                                 theirs.line[y] != 4
+                             ? ours.cols
+                             : ours.cols / 2;
+        for (int x = 0; x < cols; x++)
+        {
+            const xm_cell_t *a = &ours.cell[y][x], *b = &theirs.cell[y][x];
+            const bool t = a->cp != b->cp;
+            /* Past the end of a line xterm printed, only its text is known.
+             * A blank's ink shows only in a line through it. */
+            const bool ink = a->cp != ' ' || ((a->attr | b->attr) & (XM_ATTR_UL | XM_ATTR_STRIKE |
+                                                                      XM_ATTR_OVERLINE));
+            const bool l = b->known && ((ink && a->fg != b->fg) || a->bg != b->bg ||
+                                        a->attr != b->attr);
+            if (!t && !l)
+                continue;
+            text += t;
+            look += !t;
+            const struct
+            {
+                uint8_t y, x;
+                uint32_t cp_a, cp_b, fg_a, fg_b, bg_a, bg_b;
+                uint8_t attr_a, attr_b;
+            } d = {(uint8_t)y, (uint8_t)x, a->cp, b->cp, a->fg, b->known ? b->fg : 0,
+                   a->bg, b->known ? b->bg : 0, a->attr, b->known ? b->attr : 0};
+            digest = host_crc32(digest, &d, sizeof d);
+            if (details < 64)
+            {
+                char an[64], bn[64];
+                vt_cell_name(a, l, an, sizeof an);
+                vt_cell_name(b, l, bn, sizeof bn);
+                snprintf(detail[details++], sizeof detail[0], "  %2d,%-2d ours %s, xterm %s", y,
+                         x, an, bn);
+            }
+        }
+    }
+    const bool cursor = ours.cursor_x != theirs.cursor_x || ours.cursor_y != theirs.cursor_y;
+    const bool reverse = ours.reverse != theirs.reverse;
+    if (cursor)
+    {
+        const int c[4] = {ours.cursor_x, ours.cursor_y, theirs.cursor_x, theirs.cursor_y};
+        digest = host_crc32(digest, c, sizeof c);
+    }
+    if (reverse)
+        digest = host_crc32(digest, &ours.reverse, 1);
+    if (!text && !look && !lines && !cursor && !reverse)
+        return;
+
+    char summary[256];
+    int sl = snprintf(summary, sizeof summary, "%s %08X", name, digest);
+    if (text)
+        sl += snprintf(summary + sl, sizeof summary - sl, " text %d", text);
+    if (look)
+        sl += snprintf(summary + sl, sizeof summary - sl, " look %d", look);
+    if (lines)
+        sl += snprintf(summary + sl, sizeof summary - sl, " lines %d", lines);
+    if (cursor)
+        sl += snprintf(summary + sl, sizeof summary - sl, " cursor %d,%d xterm %d,%d",
+                       ours.cursor_x, ours.cursor_y, theirs.cursor_x, theirs.cursor_y);
+    if (reverse)
+        snprintf(summary + sl, sizeof summary - sl, " reverse %s", ours.reverse ? "ours" : "xterm");
+    fprintf(vt_xterm, "%s\n", summary);
+    fflush(vt_xterm);
+    if (vt_known_difference(name, digest))
+        return;
+    vt_xdiffer++;
+    fprintf(stderr, "vtrun: differs from xterm: %s\n", summary);
+
+    char path[512];
+    snprintf(path, sizeof path, "%s/xterm", vt_outdir);
+    mkdir(path, 0777);
+    snprintf(path, sizeof path, "%s/xterm/%s.txt", vt_outdir, name);
+    FILE *f = fopen(path, "w");
+    if (!f)
+        return;
+    fprintf(f, "%s\nafter the first %ld bytes of stream.bin\n\n", summary, vt_streamed);
+    char a[1024], b[1024];
+    for (int y = 0; y < ours.rows; y++)
+    {
+        vt_xrow(&ours, y, a, sizeof a);
+        vt_xrow(&theirs, y, b, sizeof b);
+        fprintf(f, "%c%2d ours  |%s\n", strcmp(a, b) ? '*' : ' ', y, a);
+        if (strcmp(a, b))
+            fprintf(f, "    xterm |%s\n", b);
+    }
+    if (lines)
+    {
+        fprintf(f, "\nline sizes (ESC # n), ours/xterm:");
+        for (int y = 0; y < ours.rows; y++)
+            if (theirs.line[y] && ours.line[y] != theirs.line[y])
+                fprintf(f, " row %d %d/%d", y, ours.line[y], theirs.line[y]);
+        fprintf(f, "\n");
+    }
+    if (details)
+    {
+        fprintf(f, "\ncells (row,col)%s:\n", details == 64 ? ", the first 64" : "");
+        for (int i = 0; i < details; i++)
+            fprintf(f, "%s\n", detail[i]);
+    }
+    fclose(f);
+}
+
 static void vt_save(const char *name)
 {
     char path[512];
@@ -418,6 +831,7 @@ static void vt_save(const char *name)
     int w, h;
     vga_canvas_size(&w, &h);
     snprintf(path, sizeof path, "%s/%s.png", vt_outdir, name);
+    vga_draw(vt_fb);
     png_write(path, w, h, vt_fb);
 }
 
@@ -441,6 +855,8 @@ static void vt_shot(const char *name)
         vt_differ++;
     if (!vt_have_golden || !ok)
         vt_save(name);
+    if (vt_mirror)
+        vt_compare(name);
 }
 
 static char vt_echo[256]; /* the bytes of the keys last typed */
@@ -507,13 +923,16 @@ static void vt_feed(const char *buf, size_t n)
 /* ------------------------------------------------------------------------
  * The walk */
 
+#define VT_CHOICES 32 /* the most choices a menu has */
+
 typedef struct
 {
     char key[160];
     char id[24]; /* the title's number, "main", or m03 for the fourth menu met */
-    int next;    /* the next choice to take, from 1 */
+    int next;    /* the next choice to take, from 1, or of its script (vt_scripts) */
     int visits;
     uint32_t last; /* the cells of its last recording */
+    uint8_t taken[VT_CHOICES]; /* the times each choice was taken */
 } vt_menu_t;
 
 #define VT_MENUS 256
@@ -528,14 +947,42 @@ static const char *const vt_skip[] = {
     "Swedish national layout", /* the walk types on a US keyboard, choice 0 */
     "User-Defined Keys",      /* function keys */
     "Tektronix 4014",         /* a graphics terminal xterm can switch to */
-    /* Past what the console aims for: the VT102 and the xterm features a
+    /* Past what the console aims for: the VT420 and the xterm features a
      * program reaches for. */
-    "VT320 features",
-    "VT420 features",
     "VT520 features",
+    /* DECRQCRA, which the console leaves out: a checksum of the screen is a
+     * way to read it back, which a host must not have. vttest waits for an
+     * answer that never comes. */
+    "Checksum of Rectangular Area",
     /* Keeps the alternate-screen tests of 11.8.7 in color. */
     "Do not color after switching",
 };
+
+/* The menus whose choices the walk takes in an order of its own, as their
+ * number has them, until 0. The mouse's: focus events on, then the five
+ * tests of the mouse's events in each of the five forms of report, each
+ * form after the last, and the DEC locator's in the first, then the normal
+ * form and no focus events back. vttest marks the locator's cells as
+ * pixels while the pixel form is chosen, and answers highlight tracking's
+ * press in pixels with the pixel as the cell, then marks the cells of its
+ * report as pixels over its own prompt, so the locator goes in the normal
+ * form and highlight tracking is left out in pixels. */
+static const struct
+{
+    const char *id;
+    const int *choices;
+} vt_scripts[] = {
+    {"11.8.5", (const int[]){2, 3, 4, 5, 6, 7, 8, 1, 3, 4, 5, 6, 7, 1, 3, 4, 5, 6, 7, 1, 3, 4, 5,
+                              6, 7, 1, 3, 4, 6, 7, 1, 2, 0}},
+};
+
+static const int *vt_script(const char *id)
+{
+    for (size_t i = 0; i < sizeof vt_scripts / sizeof vt_scripts[0]; i++)
+        if (!strcmp(vt_scripts[i].id, id))
+            return vt_scripts[i].choices;
+    return NULL;
+}
 
 /* What to type where a test asks for more than Return, found by a prompt on
  * the screen; the first row that matches wins. A step is the keys typed at
@@ -543,7 +990,14 @@ static const char *const vt_skip[] = {
  * they are typed. A test that reads one key at a time and gives each a line gets
  * one key a step. Only the screen before the last step is recorded, which
  * shows what the steps before it did, and the last step is typed again at
- * every wait after it. */
+ * every wait after it. A step that begins with + has the screen before it
+ * recorded too, for what a step before it showed only until the next.
+ *
+ * The mouse is in steps too, as words: @C,R moves the pointer over column C
+ * of row R of the console, from 1; press-left, release-left and the same of
+ * middle and right are its buttons; wheel-up and wheel-down turn its wheel
+ * a notch; focus-out and focus-in are the window losing and gaining the
+ * focus. */
 typedef struct
 {
     const char *prompt;
@@ -570,6 +1024,12 @@ static const char *const vt_keypad_keys[] = {
     "f1", "f2", "f3", "f4", "kp7", "kp8", "kp9", "kp-", "kp4", "kp5", "kp6",
     "kp,", "kp1", "kp2", "kp3", "kp0", "kp.", "kpenter", "tab", NULL};
 
+/* The keys of a PC keyboard that a VT220's function and editing keys are. */
+static const char *const vt_function_keys[] = {
+    "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12",
+    "insert", "delete", "home", "end", "pageup", "pagedown",
+    "up", "down", "left", "right", "tab", NULL};
+
 static const char *const vt_control_keys[] = {
     "ctrl-space ctrl-a ctrl-b ctrl-c ctrl-d ctrl-e ctrl-f ctrl-g ctrl-h ctrl-i "
     "ctrl-j ctrl-k ctrl-l ctrl-m ctrl-n ctrl-o ctrl-p ctrl-q ctrl-r ctrl-s "
@@ -581,7 +1041,41 @@ static const char *const vt_control_keys[] = {
     "ctrl-6 ctrl-/",
     "backspace", NULL};
 
+/* The tests of the mouse's menus, by their titles, which those with more
+ * words come before. Each marks where the reports put the pointer. */
 static const vt_answer_t vt_answers[] = {
+    {"X10 Mouse Compatibility", 0,
+     VT_STEPS("@10,8 press-left release-left", "@20,9 press-middle release-middle",
+              "@30,10 press-right release-right", "q")},
+    /* The press is told; moved with it held, the release is a * where it
+     * came up; the wheel is button 4 and 5; and the focus goes and comes
+     * back, which the reports show as they came. */
+    {"Normal Mouse Tracking", 0,
+     VT_STEPS("@10,8 press-left", "@14,8 release-left", "@20,10 press-right release-right",
+              "wheel-up", "wheel-down", "focus-out", "focus-in", "q")},
+    /* vttest answers a press with the rows 10 to 20, and the drag shows the
+     * highlight, which its release tells and ends: where it ends, when it
+     * ends at the pointer from where vttest said; all of it, after a drag
+     * back; and a drag past row 19 held to it. */
+    {"Mouse Highlight Tracking", 0,
+     VT_STEPS("@10,12 press-left", "@30,14", "+release-left", "@40,15 press-left", "@20,13",
+              "+release-left", "@10,12 press-left", "@20,25", "+release-left", "q")},
+    {"Mouse Any-Event Tracking", 0,
+     VT_STEPS("@10,8", "@12,8", "press-left", "@16,9", "release-left", "q")},
+    {"Mouse Button-Event Tracking", 0,
+     VT_STEPS("@10,8", "press-left", "@16,9", "release-left", "q")},
+    /* The locator's: one-shot tells the press and no more; repeated each
+     * press and release; the rectangle, from the pointer where the walk
+     * left it, as the locator leaves it; unfiltered, a cell's rectangle
+     * each time, as it leaves each. q asks for the position. */
+    {"One-Shot (pixels)", 0, VT_STEPS("@10,8 press-left", "release-left", "q")},
+    {"Repeated (pixels)", 0,
+     VT_STEPS("@10,8 press-left", "release-left", "@20,12 press-right release-right", "q")},
+    {"Filter Rectangle (unfiltered)", 0, VT_STEPS("@41,15", "@45,16", "q")},
+    {"One-Shot", 0, VT_STEPS("@10,8 press-left", "release-left", "q")},
+    {"Repeated", 0,
+     VT_STEPS("@10,8 press-left", "release-left", "@20,12 press-right release-right", "q")},
+    {"Filter Rectangle", 0, VT_STEPS("@40,25", "q")},
     {"Press 'q' to quit", 0, VT_STEPS("q")},
     {"Please enter the", 0, VT_STEPS("vttest return")}, /* a window title, a font name */
     /* A key held down: with auto repeat off the repeats are not typed. */
@@ -598,41 +1092,49 @@ static const vt_answer_t vt_answers[] = {
     {"<VT52 Numeric mode>", KEYBOARD_LED_NUMLOCK, vt_keypad_keys},
     {"<VT52 Application mode>", 0, vt_keypad_keys},
     {"Push each CTRL-key TWICE", 0, vt_control_keys},
+    {"Press each function key. Finish with TAB.", 0, vt_function_keys},
+    /* A key a wait, the same one twice to end */
+    {"When you are done, press any key twice to quit.", KEYBOARD_LED_NUMLOCK,
+     VT_STEPS("kp1", "kp1")},
+    {"Press any keys, repeat to quit.", 0, VT_STEPS("a", "a")},
+    {"Press the backspace key", 0, VT_STEPS("backspace")},
 };
 
 static const vt_answer_t *vt_answer; /* the row the walk is in */
 static int vt_step;                  /* and the next step of it */
 
 static int vt_slave = -1;
+static int vt_stuck_ms = VT_STUCK_MS; /* 0 when vttest's pauses tell (vtsleep.c) */
+static time_t vt_start;
 
-/* Whether vttest sleeps: its state in /proc is S, a process waiting for
- * something. One that is running, or waiting only for a processor, is R. */
-static bool vt_asleep(void)
+/* The pipe vtsleep.c's pauses tell vtrun on, when it is preloaded. */
+static int vt_pause_tell = -1;
+
+/* Whether everything sent to vttest is there for it to read: what it has yet
+ * to read is in its terminal's input, which FIONREAD counts. The count of
+ * what it has read is taken first, so what it reads meanwhile only makes
+ * this later to say yes. */
+static bool vt_delivered(void)
 {
-    char path[64], line[512];
-    snprintf(path, sizeof path, "/proc/%d/stat", (int)vt_pid);
-    FILE *f = fopen(path, "r");
-    if (!f)
-        return false;
-    bool got = fgets(line, sizeof line, f);
-    fclose(f);
-    /* The state follows the name, which is in parentheses and may hold any
-     * character, so it is found from the last of them. */
-    const char *end = got ? strrchr(line, ')') : NULL;
-    return end && end[1] == ' ' && end[2] == 'S';
+    const uint64_t unread = vt_unread();
+    int queued = 0;
+    return !unread || (!ioctl(vt_slave, FIONREAD, &queued) && (uint64_t)queued >= unread);
 }
 
-/* Whether vttest waits for a key: it is blocked reading its terminal, and
- * nothing is there for it to read. Linux shows the call a process is in, and
- * vttest reads keys, and the terminal's replies, with read on fd 0.
+/* Whether vttest waits for a key: it sleeps reading its terminal, having
+ * read everything it was sent. Linux shows the call a process sleeps in,
+ * and only while it sleeps; vttest reads keys, and the terminal's replies,
+ * with read on fd 0.
  *
- * Being in the call is not enough. vttest reads a sequence a byte at a time,
- * and for a moment after a read has taken the last byte it is still in that
- * call with nothing left to read, about to go on with what it read. On a busy
- * machine that moment is long, and a key typed in it lands in the sequence
- * before it. A read that waits is asleep, and one that took a byte is not. */
+ * What it has read is looked at first. vttest reads a sequence a byte at a
+ * time, then often pauses, which is a sleep too. Seen in that order, a read
+ * it sleeps in comes after it took the last byte, so nothing is coming to
+ * it and it is waiting; seen the other way round, the read could be the one
+ * that took it, and vttest now in the pause that follows. */
 static bool vt_reading(void)
 {
+    if (!vt_taken())
+        return false;
     char path[64], line[256];
     snprintf(path, sizeof path, "/proc/%d/syscall", (int)vt_pid);
     FILE *f = fopen(path, "r");
@@ -642,26 +1144,31 @@ static bool vt_reading(void)
     unsigned long fd = 1;
     bool ok = fgets(line, sizeof line, f) && sscanf(line, "%ld 0x%lx", &nr, &fd) == 2;
     fclose(f);
-    int queued = 1;
-    return ok && nr == SYS_read && fd == 0 && vt_asleep() && vt_taken() &&
-           !ioctl(vt_slave, FIONREAD, &queued) && !queued;
+    return ok && nr == SYS_read && fd == 0;
 }
 
 /* Reads what vttest writes until it waits for a key, answering as the
  * terminal does. False once it is gone. vttest flushes its output before it
- * reads, so all of a screen is in when it waits, and a reply the terminal
- * gave is in its input until it reads it. Its pauses are sleeps, not reads,
- * so no key lands in one. */
+ * reads or pauses. What it wrote reaches this side of the pseudoterminal
+ * from the kernel's worker too, and a poll of this side waits for that
+ * worker, so a poll that finds nothing has all vttest wrote before it.
+ *
+ * A pause ends with what vttest wrote before it read and answered, and
+ * with all this side has sent it there for it to read: vttest reads what is
+ * there after a pause, and only that. Nothing here waits on the clock for
+ * vttest, which is as slow as the machine is busy. */
 static bool vt_drain(void)
 {
     int quiet = 0;
+    pid_t paused = 0; /* the process in a pause, until it ends */
     for (;;)
     {
-        struct pollfd p = {.fd = vt_master, .events = POLLIN};
-        int k = poll(&p, 1, VT_POLL_MS);
+        struct pollfd p[2] = {{.fd = vt_master, .events = POLLIN},
+                              {.fd = paused ? -1 : vt_pause_tell, .events = POLLIN}};
+        int k = poll(p, 2, VT_POLL_MS);
         if (k < 0 && errno == EINTR)
             continue;
-        if (k > 0)
+        if (p[0].revents & (POLLIN | POLLHUP))
         {
             char buf[4096];
             ssize_t n = read(vt_master, buf, sizeof buf);
@@ -669,6 +1176,31 @@ static bool vt_drain(void)
                 return false;
             vt_feed(buf, (size_t)n);
             quiet = 0;
+            continue;
+        }
+        if (p[1].revents & (POLLIN | POLLHUP))
+        {
+            /* The next poll of this side, which finds nothing, has all that
+             * was written before the pause. */
+            if (read(vt_pause_tell, &paused, sizeof paused) != sizeof paused)
+                return false;
+            quiet = 0;
+            continue;
+        }
+        /* vtrun holds the terminal open, so vttest's end does not hang it
+         * up: it is looked for, left unreaped for the end of the walk. */
+        siginfo_t end = {0};
+        if (!waitid(P_PID, (id_t)vt_pid, &end, WEXITED | WNOHANG | WNOWAIT) && end.si_pid)
+            return false;
+        if (time(NULL) - vt_start > VT_TIME_LIMIT)
+            return true;
+        if (paused)
+        {
+            if (vt_delivered())
+            {
+                kill(paused, SIGUSR1);
+                paused = 0;
+            }
             continue;
         }
         if (vt_reading())
@@ -682,14 +1214,18 @@ static bool vt_drain(void)
                 continue;
             return true;
         }
+        /* Another program than vttest, whose sleeps do not tell, waits
+         * anyway once it has been quiet a while. vttest with vtsleep.c is
+         * only ever reading, pausing or at work, so it is waited for, to the
+         * walk's limit. */
         quiet += VT_POLL_MS;
-        if (quiet >= VT_STUCK_MS)
+        if (vt_stuck_ms && quiet >= vt_stuck_ms)
             return true;
     }
 }
 
-/* Waits for vttest to want a key, with the lazy erases finished so the cells
- * are what the screen shows. */
+/* Waits for vttest to want a key, with the screen published and blinking
+ * text lit. */
 static bool vt_wait(void)
 {
     if (!vt_drain())
@@ -828,6 +1364,20 @@ static const struct
     {"f2", HID_KEY_F2},
     {"f3", HID_KEY_F3},
     {"f4", HID_KEY_F4},
+    {"f5", HID_KEY_F5},
+    {"f6", HID_KEY_F6},
+    {"f7", HID_KEY_F7},
+    {"f8", HID_KEY_F8},
+    {"f9", HID_KEY_F9},
+    {"f10", HID_KEY_F10},
+    {"f11", HID_KEY_F11},
+    {"f12", HID_KEY_F12},
+    {"insert", HID_KEY_INSERT},
+    {"delete", HID_KEY_DELETE},
+    {"home", HID_KEY_HOME},
+    {"end", HID_KEY_END},
+    {"pageup", HID_KEY_PAGE_UP},
+    {"pagedown", HID_KEY_PAGE_DOWN},
     {"kp-", HID_KEY_KEYPAD_SUBTRACT},
     {"kp,", HID_KEY_KEYPAD_COMMA},
     {"kp.", HID_KEY_KEYPAD_DECIMAL},
@@ -835,15 +1385,16 @@ static const struct
 };
 
 /* The key last pressed, which is the one that repeats. */
-static uint8_t vt_held_usage, vt_held_flags;
+static uint8_t vt_held_usage, vt_held_modifier;
 
-/* Presses a key of a US keyboard, and what it sends goes to vttest as it
- * would from the console. */
-static void vt_press(uint8_t usage, uint8_t flags)
+/* Presses a key of a US keyboard, or repeats the held one, and what it sends
+ * goes to vttest as it would from the console. modifier is a HID modifier
+ * byte. */
+static void vt_press(uint8_t usage, uint8_t modifier, bool repeat)
 {
     vt_held_usage = usage;
-    vt_held_flags = flags;
-    hostkey_press(usage, flags, true);
+    vt_held_modifier = modifier;
+    hostkey_press(usage, modifier, repeat, true);
     char buf[64];
     size_t n;
     while ((n = com_read(COM_SOURCE_KEYBOARD, buf, sizeof buf)) > 0)
@@ -856,9 +1407,90 @@ static void vt_press(uint8_t usage, uint8_t flags)
     }
 }
 
+/* The mouse: the cell the pointer is over, from 1, and the buttons held.
+ * The walk leaves it in the middle of the console when it chooses a test of
+ * the mouse's menus, where no mode of the mouse is set. */
+static int vt_mouse_col = 40, vt_mouse_row = 15;
+static uint8_t vt_mouse_buttons;
+
+/* When a press is a click of its own again, on the machine's clock: a
+ * press within VTERM_MOUSE_CLICK_MS of the last release goes on from it
+ * (vterm_mouse.h). */
+static timer_mach_t vt_mouse_click_by;
+
+static void vt_mouse_point(void)
+{
+    tablet_host_pointer((vt_mouse_col - 1) * 8 + 3, (vt_mouse_row - 1) * 16 + 7,
+                        vt_mouse_buttons, true);
+    vt_mouse_sends();
+}
+
+/* A word of the mouse's (vt_answer_t), done: false for a word that is not. */
+static bool vt_mouse(const char *word, size_t len)
+{
+    static const struct
+    {
+        const char *name;
+        uint8_t button;
+    } buttons[] = {{"left", TABLET_FLAG_LEFT}, {"middle", TABLET_FLAG_MIDDLE},
+                   {"right", TABLET_FLAG_RIGHT}};
+    char w[32];
+    if (len >= sizeof w)
+        return false;
+    memcpy(w, word, len);
+    w[len] = 0;
+    int col, row;
+    char end;
+    if (sscanf(w, "@%d,%d%c", &col, &row, &end) == 2)
+    {
+        vt_mouse_col = col;
+        vt_mouse_row = row;
+        vt_mouse_point();
+        return true;
+    }
+    for (size_t i = 0; i < sizeof buttons / sizeof buttons[0]; i++)
+    {
+        const bool press = !strncmp(w, "press-", 6) && !strcmp(w + 6, buttons[i].name);
+        const bool release = !strncmp(w, "release-", 8) && !strcmp(w + 8, buttons[i].name);
+        if (press || release)
+        {
+            /* Every press of the walk is a click of its own. The machine's
+             * clock runs as the frames the walk runs for vttest's output,
+             * and how many that takes depends on how the output came in,
+             * so the walk lets the time of a double click go by itself. */
+            if (press)
+            {
+                while (!timer_mach_passed(vt_mouse_click_by))
+                    vga_run_frame();
+                vt_mouse_buttons |= buttons[i].button;
+            }
+            else
+                vt_mouse_buttons &= (uint8_t)~buttons[i].button;
+            vt_mouse_point();
+            if (release)
+                vt_mouse_click_by = timer_mach_in_ms(VTERM_MOUSE_CLICK_MS);
+            return true;
+        }
+    }
+    if (!strcmp(w, "wheel-up") || !strcmp(w, "wheel-down"))
+    {
+        tablet_host_wheel(w[6] == 'u' ? 1 : -1, 0);
+        vt_mouse_sends();
+        return true;
+    }
+    if (!strcmp(w, "focus-out") || !strcmp(w, "focus-in"))
+    {
+        vterm_focus(w[6] == 'i');
+        vt_mouse_sends();
+        return true;
+    }
+    return false;
+}
+
 /* Types keys, a list of words: a key's name, "again" for the last key
- * repeating while it is held, or text, a character a key. ctrl- in front of
- * a name or a character holds Ctrl. locks are the keyboard's locks. */
+ * repeating while it is held, a word of the mouse's, or text, a character
+ * a key. ctrl- in front of a name or a character holds Ctrl. locks are the
+ * keyboard's locks. */
 static void vt_type(const char *keys, uint8_t locks)
 {
     keyboard_set_locks(locks);
@@ -868,23 +1500,25 @@ static void vt_type(const char *keys, uint8_t locks)
         const char *word = keys;
         keys += len;
         keys += *keys == ' ';
+        if (vt_mouse(word, len))
+            continue;
         if (len == 5 && !memcmp(word, "again", 5))
         {
             if (vtkey_repeats())
-                vt_press(vt_held_usage, vt_held_flags);
+                vt_press(vt_held_usage, vt_held_modifier, true);
             continue;
         }
         uint8_t held = 0;
         if (len > 5 && !memcmp(word, "ctrl-", 5))
         {
-            held |= VTKEY_CTRL;
+            held |= KEYBOARD_MODIFIER_LEFTCTRL;
             word += 5;
             len -= 5;
         }
         if (len == 3 && !memcmp(word, "kp", 2) && word[2] >= '0' && word[2] <= '9')
         {
             vt_press(word[2] == '0' ? HID_KEY_KEYPAD_0 : (uint8_t)(HID_KEY_KEYPAD_1 + word[2] - '1'),
-                     held);
+                     held, false);
             continue;
         }
         size_t i = 0;
@@ -893,7 +1527,7 @@ static void vt_type(const char *keys, uint8_t locks)
             i++;
         if (i < sizeof vt_named / sizeof vt_named[0])
         {
-            vt_press(vt_named[i].usage, held);
+            vt_press(vt_named[i].usage, held, false);
             continue;
         }
         for (i = 0; i < len; i++)
@@ -905,7 +1539,7 @@ static void vt_type(const char *keys, uint8_t locks)
                 fprintf(stderr, "vtrun: no key types '%c'\n", word[i]);
                 exit(2);
             }
-            vt_press(usage, shift ? held | VTKEY_SHIFT : held);
+            vt_press(usage, shift ? held | KEYBOARD_MODIFIER_LEFTSHIFT : held, false);
         }
     }
 }
@@ -949,7 +1583,27 @@ int main(int argc, char **argv)
     vt_screens = vt_open("screens.txt");
 
     vt_term_init();
+    if (getenv("VTXTERM"))
+    {
+        /* VTXTERM names the xterm, or is 1 for the one on the PATH. */
+        const char *xterm = getenv("VTXTERM");
+        if (!xm_start(strcmp(xterm, "1") ? xterm : "xterm", vt_rows, vt_cols, vt_outdir))
+            return 2;
+        vt_xterm = vt_open("xterm.txt");
+        vt_stream = vt_open("stream.bin");
+        vt_mirror = true;
+        vt_term_write("\33c", 2);
+        if (getenv("VTXKNOWN"))
+            vt_load_known(getenv("VTXKNOWN"));
+    }
     struct winsize ws = {.ws_row = (unsigned short)vt_rows, .ws_col = (unsigned short)vt_cols};
+    int tell[2] = {-1, -1};
+    const char *preload = getenv("VTSLEEP");
+    if (preload && pipe(tell))
+    {
+        perror("vtrun: pipe");
+        return 2;
+    }
     pid_t pid = forkpty(&vt_master, NULL, NULL, &ws);
     if (pid < 0)
     {
@@ -967,13 +1621,33 @@ int main(int argc, char **argv)
         args[n++] = geometry;
         args[n] = NULL;
         setenv("TERM", "vt102", 1);
+        if (preload)
+        {
+            char fd[16];
+            snprintf(fd, sizeof fd, "%d", tell[1]);
+            setenv("VTSLEEP_FD", fd, 1);
+            setenv("LD_PRELOAD", preload, 1);
+            close(tell[0]);
+        }
         const char *vttest = getenv("VTTEST");
+        if (getenv("VTCMD"))
+        {
+            setenv("TERM", "xterm-256color", 1);
+            execl("/bin/sh", "sh", "-c", getenv("VTCMD"), (char *)NULL);
+            _exit(127);
+        }
         args[0] = (char *)(vttest ? vttest : "vttest");
         execvp(args[0], args);
         _exit(127);
     }
 
     vt_pid = pid;
+    if (preload)
+    {
+        close(tell[1]);
+        vt_pause_tell = tell[0];
+        vt_stuck_ms = 0;
+    }
     vt_slave = open(ptsname(vt_master), O_RDWR | O_NOCTTY);
     if (vt_slave < 0)
     {
@@ -982,10 +1656,31 @@ int main(int argc, char **argv)
     }
     int steps = 0;
     int status = 0;
-    time_t start = time(NULL);
+    vt_start = time(NULL);
+    if (getenv("VTCMD"))
+    {
+        /* Another program than vttest, which may never block in a read:
+         * a screen is recorded when it has been quiet a while, and the
+         * next step of VTKEYS, steps between |, is typed. */
+        vt_stuck_ms = 400;
+        const char *keys = getenv("VTKEYS");
+        while (vt_wait())
+        {
+            char name[32], step[512];
+            snprintf(name, sizeof name, "cmd-%02d", ++steps);
+            vt_shot(name);
+            if (!keys || !*keys)
+                break;
+            size_t len = strcspn(keys, "|");
+            snprintf(step, sizeof step, "%.*s", (int)len, keys);
+            keys += len + (keys[len] == '|');
+            vt_send(name, step, 0, step);
+        }
+        goto done;
+    }
     while (steps++ < VT_STEP_LIMIT && vt_wait())
     {
-        if (time(NULL) - start > VT_TIME_LIMIT)
+        if (time(NULL) - vt_start > VT_TIME_LIMIT)
         {
             vt_log("time limit, at %s\n", vt_path);
             status = 1;
@@ -1016,14 +1711,34 @@ int main(int argc, char **argv)
             else
                 snprintf(name, sizeof name, "%s-menu", m->id);
             vt_last = now;
-            while (m->next <= highest && vt_skipped(m->next))
-                m->next++;
-            int choice = m->next <= highest ? m->next++ : 0;
+            const int *script = vt_script(m->id);
+            int choice;
+            if (script)
+                choice = script[m->next - 1] ? script[m->next++ - 1] : 0;
+            else
+            {
+                while (m->next <= highest && vt_skipped(m->next))
+                    m->next++;
+                choice = m->next <= highest ? m->next++ : 0;
+            }
+            /* The mouse's tests start with the pointer in the middle of the
+             * console and its buttons up. */
+            if (!strncmp(m->id, "11.8.5", 6))
+            {
+                vt_mouse_col = 40;
+                vt_mouse_row = 15;
+                vt_mouse_buttons = 0;
+                vt_mouse_point();
+            }
             char keys[24], what[64];
             snprintf(keys, sizeof keys, "%d return", choice);
             snprintf(what, sizeof what, "choice %d", choice);
             vt_send(name, keys, 0, what);
-            snprintf(vt_path, sizeof vt_path, "%s_%d", m->id, choice);
+            const unsigned taken = choice < VT_CHOICES ? ++m->taken[choice] : 1;
+            if (taken > 1)
+                snprintf(vt_path, sizeof vt_path, "%s_%d.%u", m->id, choice, taken);
+            else
+                snprintf(vt_path, sizeof vt_path, "%s_%d", m->id, choice);
             vt_seq = 0;
             vt_left = m;
             vt_answer = NULL;
@@ -1068,7 +1783,9 @@ int main(int argc, char **argv)
                 if (!last)
                     vt_step++;
             }
-            if (last)
+            const bool shot = last || keys[0] == '+';
+            keys += keys[0] == '+';
+            if (shot)
             {
                 snprintf(name, sizeof name, "%s-%02u", vt_path, ++vt_seq);
                 vt_shot(name);
@@ -1083,6 +1800,7 @@ int main(int argc, char **argv)
         vt_log("step limit\n");
         status = 1;
     }
+done:
     kill(pid, SIGKILL);
     close(vt_slave);
     close(vt_master);
@@ -1095,6 +1813,24 @@ int main(int argc, char **argv)
             fprintf(stderr, "vtrun: %s is gone\n", vt_golden[i].line);
             vt_differ++;
         }
+    if (vt_mirror)
+    {
+        xm_stop();
+        fclose(vt_xterm);
+        fclose(vt_stream);
+        for (int i = 0; i < vt_known_count; i++)
+            if (!vt_known[i].seen)
+            {
+                fprintf(stderr, "vtrun: no longer differs from xterm: %s\n", vt_known[i].line);
+                vt_xdiffer++;
+            }
+        if (vt_xdiffer)
+        {
+            fprintf(stderr, "vtrun: %d differences from xterm are not in %s; see %s/xterm\n",
+                    vt_xdiffer, getenv("VTXKNOWN") ? getenv("VTXKNOWN") : "VTXKNOWN", vt_outdir);
+            status = 1;
+        }
+    }
     if (vt_differ)
     {
         fprintf(stderr, "vtrun: %d screens differ from %s; they are saved in %s\n",

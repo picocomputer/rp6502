@@ -30,6 +30,29 @@ extern "C"
      * says no. */
     bool host_minimized(void);
 
+    /* Whether the screen is in a window that gains and loses focus, which
+     * the console tells a program that asks (?1004). A machine with a
+     * display of its own has no focus to lose. */
+    bool host_focusable(void);
+
+    /* The host's clipboard, in UTF-8. get gives its text as it is now, or
+     * NULL for a host that has no clipboard, or whose clipboard cannot be
+     * asked for: a web page's, which hands its text over in a paste event
+     * (paste_host.h). A host that has been asked and gives the text later,
+     * as a desktop window does at its next frame, gives
+     * HOST_CLIPBOARD_LATER, and is asked again. The machine copies the text
+     * before it returns to the host, so the host may write over it or free
+     * it afterwards. set puts text there, perhaps later, as a desktop window
+     * does at its next frame, and is false for a host whose clipboard the
+     * machine cannot set. */
+#define HOST_CLIPBOARD_LATER ((const char *)1)
+    const char *host_clipboard_get(void);
+    bool host_clipboard_set(const char *utf8);
+
+    /* Whether the user is at a Mac, where Cmd-C and Cmd-V copy and paste
+     * (core/hid/key.h). */
+    bool host_mac_keys(void);
+
 #ifdef __cplusplus
 }
 #endif

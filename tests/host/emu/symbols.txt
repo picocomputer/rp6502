@@ -37,6 +37,17 @@ peek xram:SPOT 1 0 1 2 0 0 1 1
 poke xram:SPOT 0x_FF (1_000 % 256) ($FF_FF & 255) 0b1010 0o17 0X1F 0B11 00
 peek xram:SPOT $FF $E8 $FF 10 15 $1F 3 0
 
+# address(), define(), sizeof() and countof() each read one kind of value.
+# The text in the parentheses is a name, or a source file's path, a / and
+# the name. A path picks the file's own line, and a name with no line of
+# its own in the file is the one of the whole program.
+poke xram:SPOT sizeof(table) countof(table) sizeof(src/sound.c/hit) countof(src/sound.c/hit) sizeof(src/game.c/hit) define(src/shop.c/LEVELS) define(src/upgrades.c/LEVELS) sizeof(events)
+peek xram:SPOT 14 7 8 8 1 3 5 1
+poke xram:SPOT (address(table) == $1500) (define(both) == $10) (address(both) == $1600) sizeof(gone) countof( gone ) (sizeof (src/main.c/table) == 14) (define(src/any.c/XRAM_PSG) == XRAM_PSG) (address(src/x.c/stdout) == stdout)
+peek xram:SPOT 1 1 1 6 3 1 1 1
+poke xram:define(SPOT)+1 (sizeof(stdout) + countof(both))
+peek xram:$1001 4
+
 # A stopped machine runs nothing, so its RAM is safe to poke.
 sys stop
 poke SPOT ((1 + 2) * 3)
@@ -53,4 +64,12 @@ poke xram:SPOT $77
 peek xram:$2000 $77
 poke xram:base $33
 peek xram:$1005 $33
+wait "Would you like instructions?"
+
+# old.sym is from older tools, with a name and a value on each line. Its
+# names work by themselves.
+sys stop
+load ":old.rp6502"
+poke xram:SPOT $66 (NEG + 21)
+peek xram:$3000 $66 1
 wait "Would you like instructions?"

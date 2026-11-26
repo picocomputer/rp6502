@@ -7,7 +7,7 @@
 #include "core/hid/vtkey.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
-#include "core/term/cells.h"
+#include "core/term/vterm.h"
 #include "machine.h"
 
 /* Keypad 1 to Keypad Decimal, in usage order: what they navigate to. Keypad 5
@@ -45,7 +45,8 @@ HOST_IN_RAM static const struct
     {0, 2}, {'[', 'H'}, {0, 5}, {0, 3}, {'[', 'F'},
     {0, 6}, {'[', 'C'}, {'[', 'D'}, {'[', 'B'}, {'[', 'A'}};
 
-/* Enter to Tab, in usage order. Ctrl makes Backspace a BS. */
+/* Enter to Tab, in usage order. Backspace's is DEL, or BS with DECBKM set,
+ * and Ctrl makes it the other. */
 static const char HOST_IN_RAM vtkey_c0_keys[] = {'\r', '\33', 0x7F, '\t'};
 
 // Writes a number below 256 in decimal and returns where it ended.
@@ -74,8 +75,7 @@ static bool HOST_IN_RAM_FUNC vtkey_is_keypad(uint8_t usage)
            usage == HID_KEY_KEYPAD_EQUAL || usage == HID_KEY_KEYPAD_COMMA;
 }
 
-/* What Ctrl makes of a character, as xterm makes it. */
-static char HOST_IN_RAM_FUNC vtkey_ctrl(char ch)
+char HOST_IN_RAM_FUNC vtkey_ctrl(char ch)
 {
     unsigned char c = (unsigned char)ch;
     if ((c >= '@' && c < 0x7F) || c == ' ')
@@ -99,7 +99,7 @@ static int HOST_IN_RAM_FUNC vtkey_other(char *out, unsigned code, unsigned mods)
     char *p = out;
     *p++ = '\33';
     *p++ = '[';
-    if (cells_term.format_other_keys)
+    if (vterm.format_other_keys)
     {
         p = vtkey_number(p, code);
         *p++ = ';';
@@ -163,7 +163,7 @@ int HOST_IN_RAM_FUNC vtkey_char(char out[VTKEY_MAX], uint8_t usage, char ch, uin
         return 0;
     if (!vtkey_is_keypad(usage))
     {
-        const unsigned level = cells_term.vt52 ? 0 : cells_term.modify_other_keys;
+        const unsigned level = vterm.vt52 ? 0 : vterm.modify_other_keys;
         unsigned mods = flags & VTKEY_MODIFIERS;
         if (level && vtkey_other_char(level, (unsigned char)ch, &mods))
         {
@@ -183,7 +183,7 @@ int HOST_IN_RAM_FUNC vtkey_char(char out[VTKEY_MAX], uint8_t usage, char ch, uin
 
 int HOST_IN_RAM_FUNC vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t flags)
 {
-    const term_t *t = &cells_term;
+    const term_t *t = &vterm;
     char *p = out;
     const bool keypad = vtkey_is_keypad(usage);
     if (keypad)
@@ -231,15 +231,16 @@ int HOST_IN_RAM_FUNC vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t fl
         /* modifyOtherKeys, for the keys that send a control byte. At level
          * 1, Enter and Tab with Shift or Ctrl, but Shift-Tab stays ESC [ Z.
          * At level 2, all four with any modifier; Ctrl on Backspace is what
-         * makes it BS, so it is not one. At level 3, always. A keypad's
+         * swaps BS and DEL, so it is not one. At level 3, always. A keypad's
          * Enter is not one of these keys. */
         const unsigned level = keypad || t->vt52 ? 0 : t->modify_other_keys;
         unsigned mods = flags & VTKEY_MODIFIERS;
         unsigned code = (unsigned char)vtkey_c0_keys[usage - HID_KEY_ENTER];
         bool other = level == 3;
-        if (usage == HID_KEY_BACKSPACE && (mods & VTKEY_CTRL))
+        if (usage == HID_KEY_BACKSPACE)
         {
-            code = '\b';
+            const bool ctrl = (mods & VTKEY_CTRL) != 0;
+            code = t->backarrow_bs != ctrl ? '\b' : 0x7F;
             mods &= ~(unsigned)VTKEY_CTRL;
         }
         if (level == 2)
@@ -263,10 +264,7 @@ int HOST_IN_RAM_FUNC vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t fl
         }
         if (flags & VTKEY_ALT)
             *p++ = '\33';
-        if (usage == HID_KEY_BACKSPACE && (flags & VTKEY_CTRL))
-            *p++ = '\b';
-        else
-            *p++ = vtkey_c0_keys[usage - HID_KEY_ENTER];
+        *p++ = (char)code;
         if (usage == HID_KEY_ENTER && t->newline_mode)
             *p++ = '\n';
         return (int)(p - out);
@@ -325,5 +323,13 @@ int HOST_IN_RAM_FUNC vtkey_encode(char out[VTKEY_MAX], uint8_t usage, uint8_t fl
 
 bool HOST_IN_RAM_FUNC vtkey_repeats(void)
 {
-    return cells_term.autorepeat;
+    return vterm.autorepeat;
+}
+
+uint8_t vtkey_modifiers(uint8_t modifier)
+{
+    return (uint8_t)(
+        ((modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT)) ? VTKEY_SHIFT : 0) |
+        ((modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT)) ? VTKEY_ALT : 0) |
+        ((modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL)) ? VTKEY_CTRL : 0));
 }

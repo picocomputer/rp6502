@@ -11,7 +11,7 @@
 #include "core/str/unicode.h"
 #include "core/sys/debug_log.h"
 #include "core/sys/sst.h"
-#include "core/term/font.h"
+#include "core/term/vterm.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -229,7 +229,7 @@ bool fs_getfile(uint32_t slot, char *out, size_t cap)
         return false;
     utf8[FS_NAME_MAX - 1] = 0;
 
-    uint16_t page = font_get_code_page();
+    uint16_t page = vterm_get_code_page();
     const char *p = utf8;
     size_t o = 0;
     for (;;)
@@ -257,7 +257,7 @@ static uint32_t fs_try_open_start(uint32_t who, uint32_t slot,
                                    uint32_t size)
 {
     uint8_t pad[FS_NAME_MAX];
-    uint16_t page = font_get_code_page();
+    uint16_t page = vterm_get_code_page();
     size_t n = 0;
     for (const unsigned char *s = (const unsigned char *)card; *s; s++)
     {

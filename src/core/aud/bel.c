@@ -12,6 +12,7 @@
 #include "core/aud/mix.h"
 #include "core/aud/bel.h"
 #include "core/sys/ring.h"
+#include "core/vga/vga.h"
 #include "host/host.h"
 #include "machine.h"
 
@@ -64,6 +65,7 @@ const bel_sound_t HOST_IN_FLASH bel_nfc_success_2 = {
 /* The oldest sound is the one sounding. */
 static RING(bel_sound_t, BEL_QUEUE_SIZE) bel_queue;
 static uint64_t bel_restrike_at, bel_release_at, bel_end_at;
+static bool bel_term_on = true;
 
 /* A deadline of 0 is none. The queue goes as it lies, its counters and all
  * eight slots. */
@@ -82,6 +84,7 @@ static bool bel_sst_valid(sst_cursor_t *c)
     X(U32, bel_queue.idx.wr)                                    \
     X(U32, bel_queue.idx.rd)                                    \
     X(STRUCTS, bel_queue.buf, BEL_SOUND_ROWS)                   \
+    X(BOOL, bel_term_on)                                        \
     X(VALIDATE, bel_sst_valid)                                  \
     X(U64, bel_restrike_at)                                     \
     X(U64, bel_release_at)                                      \
@@ -142,6 +145,27 @@ void bel_add(const bel_sound_t *sound)
 {
     if (RING_PUT(&bel_queue, *sound) && RING_LEN(&bel_queue) == 1)
         bel_strike();
+}
+
+void bel_term(void)
+{
+    if (bel_term_on && vga_connected())
+        bel_add(&bel_teletype);
+}
+
+bool bel_get_term(void)
+{
+    return bel_term_on;
+}
+
+void bel_set_term(bool on)
+{
+    bel_term_on = on;
+}
+
+void bel_reset(void)
+{
+    bel_term_on = true;
 }
 
 void HOST_IN_RAM_FUNC bel_task(void)

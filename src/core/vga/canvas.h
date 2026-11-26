@@ -14,7 +14,7 @@
 
 extern const sst_table_t canvas_sst;
 
-/* CANVAS_DRIVER follows CELLS_DRIVER in the driver list, because its load
+/* CANVAS_DRIVER follows DRAW_DRIVER in the driver list, because its load
  * publishes the cells for the canvas it puts back. */
 void canvas_reset(void);
 

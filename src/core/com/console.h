@@ -35,18 +35,21 @@ bool console_waiting(void);
 void console_eof(void);
 
 /* Everything written to the console has reached its terminals, the RIA's
- * copy included, and no smooth scroll is still moving: what a sync of the
- * console waits for, on CON: and TTY: alike. */
+ * copy included, the VGA is no longer at work on it (vga_console_busy), and
+ * no smooth scroll is still moving: what a sync of the console waits for,
+ * on CON: and TTY: alike. */
 bool console_rendered(void);
 
 /* True once the running program has read CON:. It stays true until the
  * program stops. */
 bool console_asked(void);
 
-/* The reader rln calls back with a line. rln writes down whether a read was
- * outstanding as a token rather than as a pointer, so this is the reader its
- * load installs when the token says one was. */
+/* The reader rln calls back with a line, and the kill buffer of its
+ * reads. rln writes down whether a read was outstanding as a token rather
+ * than as a pointer, so these are the reader and the kill buffer its load
+ * installs when the token says one was. */
 rln_read_callback_t console_rln_reader(void);
+rln_kill_t *console_rln_kill(void);
 
 /* STDIO
  */

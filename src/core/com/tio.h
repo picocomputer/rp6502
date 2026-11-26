@@ -38,7 +38,9 @@
  * themselves. ESC and a byte of 0x80 and up end it with nothing, and so do
  * any other control and DEL past the lone ESC; the byte is then framed again
  * as the start of the next item: TIO_AGAIN. The mouse report's three bytes
- * take DEL and 0x80 and up. Outside a sequence CAN and SUB are keys. */
+ * take DEL and 0x80 and up. With utf8, as the mouse's reports come in the
+ * UTF-8 form (?1005), each of the three is one byte or two, from a lead
+ * byte of 0xC0 to 0xDF. Outside a sequence CAN and SUB are keys. */
 typedef enum
 {
     TIO_OPEN,
@@ -49,19 +51,22 @@ typedef enum
 
 /* Steps the framing state *frame by one byte. The state starts at 0 and is 0
  * again after TIO_END, TIO_DROP or TIO_AGAIN. After TIO_AGAIN the bytes before
- * this one are dropped and this one is stepped again, from 0. */
-tio_step_t tio_frame(uint8_t *frame, uint8_t ch);
+ * this one are dropped and this one is stepped again, from 0. tio frames the
+ * keyboard's items with utf8 while the console's terminal has the UTF-8
+ * form, since the console's mouse types its reports there, and every other
+ * source's without. */
+tio_step_t tio_frame(uint8_t *frame, uint8_t ch, bool utf8);
 
 /* A lone ESC is the Escape key once its source has been quiet this long, and
  * any other unfinished sequence is dropped. */
 #define TIO_ESC_MS 100
 
-/* A CSI item's first two parameters, how many parameters it has, its private
+/* A CSI item's first three parameters, how many parameters it has, its private
  * marker ('<' '=' '>' '?', or 0), its last intermediate byte (or 0), and its
  * final byte. Subparameters, after ':', are skipped. */
 typedef struct
 {
-    uint16_t param[2];
+    uint16_t param[3];
     uint8_t count;
     uint8_t priv;
     uint8_t inter;
@@ -70,7 +75,8 @@ typedef struct
 
 /* Reads a CSI item, ESC '[', a private marker only as the first parameter
  * byte, parameters, intermediates and a final byte, or one of the three
- * longer forms tio_frame takes. False for any other item. */
+ * longer forms tio_frame takes, the mouse report's in either framing. False
+ * for any other item. */
 bool tio_csi_parse(const char *item, size_t len, tio_csi_t *csi);
 
 /* The next whole item, from the first source that has one, keyboard first.

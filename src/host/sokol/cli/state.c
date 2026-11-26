@@ -7,7 +7,6 @@
 #include "host/sokol/cli/state.h"
 
 #include "core/hid/keyboard.h"
-#include "core/hid/paste.h"
 #include "core/sys/sst.h"
 #include "osal/fs.h"
 #include "osal/os.h"
@@ -88,10 +87,6 @@ bool state_load_file(const char *path, const char **why)
         return false;
     }
 
-    /* A paste is a queue of keys the outgoing machine was going to receive
-     * and the incoming one never asked for. Cancelling it on every load is
-     * what lets it carry no savestate chunk. */
-    paste_cancel();
     fs_std_settle();
     const char *bad = sst_load(buf, (size_t)len, 0);
     free(buf);

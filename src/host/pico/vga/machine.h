@@ -23,5 +23,20 @@
  * rows. */
 #define TERM_MAX_HEIGHT 32
 
+/* Core 0 renders a scanline each pass of the main loop and may be away
+ * about 200 us before a line is late. A row of a job is 5 to 12 us, so 11
+ * a pass are at most about 130 us, and a whole screen of 32 or 33 rows takes
+ * three passes. Measured with termload (tests/hil), a whole-screen job at
+ * both sizes is done inside the RIA's hold (ria/sys/vga.c). */
+#define TERM_JOB_ROWS 11
+
+/* The mouse is the RIA's: the console's terminal here only follows it, so
+ * its store keeps no marks (core/term/screen.h). */
+#define TERM_MARKS 0
+
+/* Mode 0 reads its words as it draws each scanline, with no time to spare
+ * under two 8-bit bitmaps, so they change once a frame at most
+ * (core/term/draw.h). */
+#define DRAW_PUBLISH_PER_FRAME 1
 
 #endif /* _HOST_MACHINE_H_ */

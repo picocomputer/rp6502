@@ -55,18 +55,6 @@ unsigned char oem_from_codepoint(uint32_t cp);
 // One UTF-8 sequence -> one OEM byte; advances *p; returns 0 at the NUL
 unsigned char oem_from_utf8_next(const char **p);
 
-/* A run of UTF-8 becomes OEM bytes. A character the code page cannot represent
- * becomes '?' rather than the 0x7F the decoder returns, because the line
- * editor in core/com/rln.c reads 0x7F as a backspace. Every control byte,
- * CR and LF included, passes through.
- *
- * The conversion stops on a full dst, and on a sequence the buffer does not
- * hold whole unless end is true, which means no more input is coming. *taken
- * is what was read, so the rest can be carried to the next call, and the
- * return is the count written. */
-size_t oem_from_utf8_run(const char *utf8, size_t len, bool end,
-                         char *dst, size_t dstsz, size_t *taken);
-
 // One OEM byte -> UTF-8 in dst (at most 3 bytes, no NUL); returns the count
 int oem_to_utf8_char(unsigned char b, char *dst);
 

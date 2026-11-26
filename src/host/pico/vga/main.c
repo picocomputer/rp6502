@@ -12,6 +12,7 @@
 #include "core/vga/mode/mode3.h"
 #include "core/vga/mode/mode4.h"
 #include "core/vga/mode/mode5.h"
+#include "core/term/vterm.h"
 #include <pico/stdlib.h>
 #include <string.h>
 
@@ -39,7 +40,7 @@ static void init(void)
     DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #include "core/sys/driver_walk_end.h"
     /* Core 1 renders scanlines with vga_render_scanline, so it must not start
-     * before ria_init, cells_init, font_init and vga_init have run. Until then,
+     * before ria_init, draw_init, font_init and vga_init have run. Until then,
      * ria_lock is null, the fill caches are not zeroed, scanvideo is not set
      * up, the terminal's screen pointer is null and the glyph tables are
      * uninitialized RAM. */
@@ -73,6 +74,11 @@ void main_post_reclock(void)
 bool main_prog(uint16_t *xregs)
 {
     return vga_mode_prog(xregs[1], xregs);
+}
+
+bool main_busy(void)
+{
+    return term_job_pending(&vterm) || vga_switching();
 }
 
 int main(void)

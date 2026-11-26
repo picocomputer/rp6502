@@ -1,2 +1,2 @@
-LATER 0x0042
-SPOT 0x2000
+LATER define 0x0042 - - -
+SPOT define 0x2000 - - -

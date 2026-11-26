@@ -267,8 +267,8 @@ UTEST(hold, the_other_registers_read_back)
     /* VID_FRAME. */
     p.li(A0, 0x50010000u);
     p.li(T0, 0x12345);
-    p.sw(T0, 0xA0, A0);
-    p.lw(T1, 0xA0, A0);
+    p.sw(T0, 0xFC, A0);
+    p.lw(T1, 0xFC, A0);
     keep(T1);
     /* VID_XPROG(5, 1, 0..3). */
     static const uint32_t xprog[] = {0xDEADBEEFu, 0x0000ABCDu, 0x8007FFFFu,

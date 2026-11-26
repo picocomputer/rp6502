@@ -22,6 +22,9 @@
  * section is NOLOAD, so they keep their values through a reboot; see
  * pico/ld/section_extra_post_scratch.incl. */
 #define HOST_REGISTER_RAM(name) __attribute__((section(".scratch_x_noload." #name))) name
+/* A zeroed static in a .bss section of its own, which the linker, sorting
+ * .bss by alignment, can place where a large alignment costs no padding. */
+#define HOST_BSS_OWN(name) __attribute__((section(".bss." #name))) name
 
 #define HID_MAX_SLOTS 16
 /* A program that ends returns the machine to its monitor. */
@@ -31,9 +34,15 @@
 #define COM_LIBC_STDOUT 1
 /* The size of the UART's input ring. */
 #define MANIFOLD_RING_SIZE 32
+/* The size of the typed queue: a mouse report (core/hid/vtmouse.h) goes
+ * in whole beside the keys typed. */
+#define TYPED_QUEUE_SIZE 32
 
 /* The console's terminal follows the VGA's, which is this tall. */
 #define TERM_MAX_HEIGHT 32
+
+/* It keeps the console's text, and draws nothing: text cells. */
+#define TERM_CELL_TEXT 1
 
 
 #endif /* _HOST_MACHINE_H_ */

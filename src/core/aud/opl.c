@@ -17,6 +17,7 @@
 #include "core/aud/mix.h"
 #include "core/aud/opl.h"
 #include "machine.h"
+#include "core/sys/hot.h"
 #include <string.h>
 
 /* A test that compiles this file defines this to see each write as it is
@@ -25,8 +26,7 @@
 #define OPL_TRACE(reg, val)
 #endif
 
-#pragma GCC push_options
-#pragma GCC optimize("O3")
+HOT_BEGIN
 
 #if defined(_MSC_VER)
 #include <intrin.h>
@@ -922,7 +922,7 @@ int16_t HOST_IN_RAM_FUNC opl_sample(void)
     return (int16_t)(int32_t)((uint32_t)(s >> sh) << sh);
 }
 
-#pragma GCC pop_options
+HOT_END
 
 /* ---------------- reset ---------------- */
 

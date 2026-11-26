@@ -74,8 +74,14 @@ static const uint8_t *rec(int player)
 
 static void run_frames(int frames)
 {
+    /* As the window does each frame: the mapping the machine's last frames
+     * left noted, the OS asked, and the machine told. */
     for (int i = 0; i < frames; i++)
-        gamepad_input_task();
+    {
+        gamepad_input_watch();
+        gamepad_input_poll();
+        gamepad_input_report();
+    }
 }
 
 UTEST(gamepad_input, nothing_opens_until_a_program_asks)

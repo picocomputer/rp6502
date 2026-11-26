@@ -140,9 +140,13 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
      * then the byte, so neither is the character the frontend composed, and
      * several frontends send no character at all. Those are guessed. */
     bool composed = !ctrl && !alt && character >= 32 && character != 127;
-    uint8_t flags = (uint8_t)((shift ? VTKEY_SHIFT : 0) | (alt ? VTKEY_ALT : 0) |
-                              (ctrl ? VTKEY_CTRL : 0));
-    if (hostkey_press(hid, flags, !composed) == HOSTKEY_NONE && composed)
+    /* The frontend says which modifiers are held but not which side, so the
+     * left one stands for both. Meta is the GUI key. */
+    uint8_t modifier = (uint8_t)(
+        (shift ? KEYBOARD_MODIFIER_LEFTSHIFT : 0) | (alt ? KEYBOARD_MODIFIER_LEFTALT : 0) |
+        (ctrl ? KEYBOARD_MODIFIER_LEFTCTRL : 0) |
+        ((key_modifiers & RETROKMOD_META) ? KEYBOARD_MODIFIER_LEFTGUI : 0));
+    if (hostkey_press(hid, modifier, repeat, !composed) == HOSTKEY_NONE && composed)
         hostkey_char(character);
 }
 
@@ -348,8 +352,14 @@ static int lightgun_port(void)
     return -1;
 }
 
-/* Neither device is read until a program has mapped it into XRAM, so a ROM
- * that wants neither is never a reason to watch where anyone is pointing.
+/* Neither device is read until a program has mapped it into XRAM, or the
+ * console's terminal claims the tablet while mode 0 shows (tablet_wanted),
+ * so a ROM that wants neither with no mode 0 placed is never a reason to
+ * watch where anyone is pointing. Nothing captures here, so a program that
+ * maps only the mouse gets it as well as the terminal getting the tablet.
+ * The tablet is told on every poll whether it has the pointer
+ * (tablet_host_give), so a button held as it stops being wanted is let go
+ * there.
  *
  * Touch and the mouse take turns at the tablet. The mouse drives it while
  * nothing is being touched; a touch takes it away and keeps it until the
@@ -363,8 +373,9 @@ static int lightgun_port(void)
  * honouring that would turn a click into a finger going down. */
 static void poll_pointer(retro_input_state_t state)
 {
-    bool tablet = tablet_is_mapped();
+    bool tablet = tablet_wanted();
     bool mouse = mouse_is_mapped();
+    tablet_host_give(tablet);
     if (!tablet && !mouse)
         return;
 

@@ -8,7 +8,7 @@
 #define _HOST_PICO_RTT_H_
 
 /* The console over a debug probe, as SEGGER RTT channel 0, in a firmware
- * built with RP6502_RTT_DEBUG. A debugger on the SWD port finds a small
+ * built with RP6502_RTT_STDIO. A debugger on the SWD port finds a small
  * structure in RAM and reads and writes two rings through it while the chip
  * runs, so the bench reaches the console with no UART, USB or network.
  * Nothing here knows whether a debugger is there.
@@ -17,17 +17,19 @@
  * is sent, and what it types arrives as the UART's.
  *
  * The output ring holds 22 ms of a console at 115200 baud, so a debugger
- * has to read it more often than that. tests/hil/pico/rig.py does. OpenOCD's
- * own RTT reads every 100 ms unless it is told otherwise, and loses most of
- * a busy console.
+ * has to read it more often than that. RttDevice in src/core/build.py does.
+ * OpenOCD's own RTT reads every 100 ms unless it is told otherwise, and
+ * loses most of a busy console.
  *
  * Everything is called from the main loop of core 0. Without
- * RP6502_RTT_DEBUG none of it is built and the calls are nothing. */
+ * RP6502_RTT_STDIO none of it is built and the calls are nothing. The
+ * keyboards, mice and gamepads of a debug probe are rtt_hid.h's, which
+ * needs nothing here. */
 
 #include <stdbool.h>
 #include <stddef.h>
 
-#if RP6502_RTT_DEBUG
+#if RP6502_RTT_STDIO
 
 /* Bytes for the debugger. Never waits: what does not fit is dropped and
  * counted. */

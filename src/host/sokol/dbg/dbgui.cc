@@ -16,6 +16,7 @@
  */
 
 #include "imgui.h"
+#include <string>
 #include "imgui_internal.h" /* chips ui_*.h reach a few internal ImGui APIs */
 
 extern "C"
@@ -32,10 +33,12 @@ extern "C"
 #include "core/api/proc.h"
 #include "core/vga/vga_emu.h"
 #include "core/wdc/via.h"
+#include "host/host.h"
 #include "host/sokol/dbg/dbgui.h"        /* the C-callable entry points this TU defines */
 #include "host/sokol/dbg/dbgui_layout.h" /* ImGui-owned layout persistence (file side) */
 #include "host/sokol/app/app.h"
-#include "host/sokol/app/gfx.h"      /* window-scale presets, app_machine_ns */
+#include "host/sokol/app/gfx.h"      /* window-scale presets */
+#include "host/sokol/app/run.h"      /* run_machine_ns */
 #include "osal/os.h"
 #include "core/rom/rom.h"        /* rom_read_asset (ROM Help viewer) */
 }
@@ -73,6 +76,8 @@ extern "C"
 #include <cmath>   /* fabsf (font-scale snap) */
 
 static ui_dbg_t g_dbg;
+/* The desktop's clipboard as it was at the last paste into a debugger field. */
+static std::string g_clipboard_in;
 static ui_w65c02_t g_cpuwin;
 static ui_m6522_t g_viawin;
 static ui_memedit_t g_memedit;
@@ -617,12 +622,12 @@ static void dbgui_pace(float *fps, float *ms)
     {
         win_start_ns = now;
         win_frames = vga_frame_count();
-        win_machine_ns = app_machine_ns();
+        win_machine_ns = run_machine_ns();
     }
     else if (now - win_start_ns >= 500000000ull)
     {
         const unsigned long frames = vga_frame_count() - win_frames;
-        const uint64_t machine_ns = app_machine_ns() - win_machine_ns;
+        const uint64_t machine_ns = run_machine_ns() - win_machine_ns;
         last_fps = (float)((double)frames * 1e9 / (double)(now - win_start_ns));
         last_ms = frames ? (float)((double)machine_ns / 1e6 / (double)frames) : 0.0f;
         win_start_ns = now;
@@ -775,6 +780,16 @@ void dbgui_init(float display_scale)
                                          * cursor writer; a second per-frame setter
                                          * double-applies and flickers on X11/WSLg */
     simgui_setup(&sd);
+    /* The debugger's windows are built under the machine's lock, which no call
+     * to the desktop's clipboard may be made under: the OS may keep one
+     * waiting on another program. A copy goes where the machine's do, to be
+     * handed over after the lock (app.c), so the two keep their order, and a
+     * paste reads the text dbgui_clipboard_read took before the lock. */
+    ImGuiPlatformIO &pio = ImGui::GetPlatformIO();
+    pio.Platform_SetClipboardTextFn = [](ImGuiContext *, const char *text) { host_clipboard_set(text); };
+    pio.Platform_GetClipboardTextFn = [](ImGuiContext *) -> const char * {
+        return g_clipboard_in.c_str();
+    };
     /* Snapshot the unscaled style so dbgui_apply_ui_scale can re-derive scaled metrics
      * from a pristine base (before the layout load below, which may set the scale). */
     g_style_base = ImGui::GetStyle();
@@ -934,7 +949,7 @@ void dbgui_init(float display_scale)
     dbgui_layout_load();
     g_inited = true;
 
-    /* Drive ui_dbg's view from main.c's tick loop (heatmap/history/PC). */
+    /* Drive ui_dbg's view from the bus's cycle loop, core/wdc/bus.c (heatmap/history/PC). */
     cpu_dbg_cycle_cb = dbgui_tick;
 }
 
@@ -1078,7 +1093,7 @@ void dbgui_draw(void)
             ui_dbg_continue(&g_dbg, false);
     }
 
-    /* ui_dbg_tick (driven from main.c every cycle) maintains the PC highlight while
+    /* ui_dbg_tick (driven from core/wdc/bus.c every cycle) maintains the PC highlight while
      * the CPU runs. When stopped, pin it to dbg.c's authoritative stop PC (also
      * covers dbg_note_stop, which is not produced by a tick) and scroll to it on
      * entry to the stop; while running, ui_dbg's own draw keeps the PC in view. */
@@ -1239,14 +1254,20 @@ void dbgui_render(void) { simgui_draw(); }
  * fetch, IRQ/NMI on a rising pin edge). A trap files a break request that dbg.c
  * honors at the next W65C02_SYNC, so dbg.c stays the one stop authority; an
  * op-level trap lands on the very instruction that tripped it because this runs
- * before main.c's dbg_at_instruction on the same cycle. We never set ui_dbg's
+ * before bus.c's dbg_at_instruction on the same cycle. We never set ui_dbg's
  * step_mode, so it never self-steps. */
 void dbgui_tick(uint64_t pins)
 {
     if (!g_inited)
         return;
     ui_dbg_tick(&g_dbg, pins);
-    if (g_dbg.dbg.last_trap_id >= UI_DBG_BP_BASE_TRAPID)
+    /* Only ui_dbg's own kinds of breakpoint stop here: memory, IRQ and NMI.
+     * The EXEC ones in its list are dbg.c's, mirrored for the gutter, and dbg.c
+     * stops on them itself, past a DAP client's condition, hit count or
+     * logpoint, which a stop requested here would skip. */
+    const int i = g_dbg.dbg.last_trap_id - UI_DBG_BP_BASE_TRAPID;
+    if (i >= 0 && i < g_dbg.dbg.num_breakpoints &&
+        g_dbg.dbg.breakpoints[i].type != UI_DBG_BREAKTYPE_EXEC)
         dbg_request_break();
 }
 
@@ -1268,6 +1289,19 @@ float dbgui_menu_height(void) { return g_inited ? g_menu_h : 0.0f; }
  * with --scale on a 2x display.
  * dbgui_menu_height takes over once the bar is drawn. */
 float dbgui_menu_bar_estimate(void) { return 19.0f; }
+
+void dbgui_clipboard_read(const void *evp)
+{
+    const sapp_event *e = (const sapp_event *)evp;
+    /* ImGui's paste keys: Ctrl+V, Cmd+V and Shift+Insert. */
+    const bool paste = e->type == SAPP_EVENTTYPE_CLIPBOARD_PASTED ||
+                       (e->type == SAPP_EVENTTYPE_KEY_DOWN &&
+                        ((e->key_code == SAPP_KEYCODE_V &&
+                          (e->modifiers & (SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SUPER))) ||
+                         (e->key_code == SAPP_KEYCODE_INSERT && (e->modifiers & SAPP_MODIFIER_SHIFT))));
+    if (paste && ImGui::GetCurrentContext() && ImGui::GetIO().WantTextInput)
+        g_clipboard_in = sapp_get_clipboard_string();
+}
 
 bool dbgui_handle_event(const void *evp)
 {
