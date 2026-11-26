@@ -2142,7 +2142,7 @@ static void rln_mouse_apply(bool up)
 
 bool HOST_IN_RAM_FUNC rln_reading(void)
 {
-    return rln_callback;
+    return rln_callback != NULL;
 }
 
 bool rln_idle(void)
