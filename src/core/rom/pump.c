@@ -75,6 +75,21 @@ enum
 /* Shebang and record header lines fit in this many bytes. */
 #define PUMP_PEEK 64
 
+/* The got bytes read into line[] cut to their first line, NUL-terminated with
+ * any CR/LF stripped. Returns its length, and in *used the bytes it took with
+ * its newline: all got when they hold none. */
+static size_t pump_cut(char *line, uint32_t got, uint32_t *used)
+{
+    size_t i = 0;
+    while (i < got && line[i] != '\n')
+        i++;
+    *used = i < got ? (uint32_t)i + 1 : got;
+    if (i && line[i - 1] == '\r')
+        i--;
+    line[i] = 0;
+    return i;
+}
+
 /* One text line from p->pos into line[], NUL-terminated with any CR/LF
  * stripped. Returns its length, PUMP_EOF at the end of the file, or PUMP_FAIL
  * with *err set when the seek or read fails. PUMP_PEEK bytes are read, and up
@@ -99,15 +114,10 @@ static long pump_gets(rom_pump_t *p, char *line, size_t cap, uint32_t *past,
     }
     if (got == 0)
         return PUMP_EOF;
-    size_t i = 0;
-    while (i < got && line[i] != '\n')
-        i++;
-    uint32_t used = i < got ? (uint32_t)i + 1 : got;
+    uint32_t used;
+    const size_t i = pump_cut(line, got, &used);
     p->pos += used;
     *past = got - used;
-    if (i && line[i - 1] == '\r')
-        i--;
-    line[i] = 0;
     return (long)i;
 }
 
@@ -123,7 +133,7 @@ bool rom_pump_open(rom_pump_t *p, const char *path, api_errno *err)
 
 /* Any shebang naming rp6502 heads a ROM, so a file made executable with
  * "#!/usr/bin/env rp6502-emu" loads as readily as one headed "#!RP6502". */
-static bool shebang_ok(const char *line)
+static bool pump_shebang(const char *line)
 {
     if (line[0] != '#' || line[1] != '!')
         return false;
@@ -133,6 +143,38 @@ static bool shebang_ok(const char *line)
     return false;
 }
 
+/* The line after the shebang, n long or PUMP_EOF: an optional
+ * "#>$chunks_len $crc" line, which bounds the program records. False for one
+ * that does not parse. */
+static bool pump_bounds(const char *line, long n, bool *bounded, uint32_t *chunks_len)
+{
+    *bounded = n >= 2 && line[0] == '#' && line[1] == '>';
+    if (!*bounded)
+        return true;
+    const char *scan = line + 2;
+    uint32_t image_crc;
+    return str_parse_uint32(&scan, chunks_len) && str_parse_uint32(&scan, &image_crc);
+}
+
+/* The head of a file read the way the pump reads it, each line up to
+ * ROM_RECORD_MAX - 1 bytes, into a line of its own. */
+bool rom_head_ok(const char *head, size_t n)
+{
+    char line[ROM_RECORD_MAX];
+    uint32_t used, got = n < ROM_RECORD_MAX - 1 ? (uint32_t)n : ROM_RECORD_MAX - 1;
+    memcpy(line, head, got);
+    pump_cut(line, got, &used);
+    if (!got || !pump_shebang(line))
+        return false;
+    head += used, n -= used;
+    got = n < ROM_RECORD_MAX - 1 ? (uint32_t)n : ROM_RECORD_MAX - 1;
+    memcpy(line, head, got);
+    const long len = got ? (long)pump_cut(line, got, &used) : PUMP_EOF;
+    bool bounded;
+    uint32_t chunks_len;
+    return pump_bounds(line, len, &bounded, &chunks_len);
+}
+
 bool rom_pump_open_fd(rom_pump_t *p, int fd, api_errno *err)
 {
     memset(p, 0, sizeof *p);
@@ -140,7 +182,7 @@ bool rom_pump_open_fd(rom_pump_t *p, int fd, api_errno *err)
     char *line = (char *)buf1k;
     uint32_t past;
     long n = pump_gets(p, line, ROM_RECORD_MAX, &past, err);
-    if (n < 0 || !shebang_ok(line))
+    if (n < 0 || !pump_shebang(line))
         goto fail;
     /* An optional "#>$chunks_len $crc" line bounds the program records, and the
      * named assets follow them. The asset directory is taken to start at that
@@ -151,13 +193,12 @@ bool rom_pump_open_fd(rom_pump_t *p, int fd, api_errno *err)
     n = pump_gets(p, line, ROM_RECORD_MAX, &past, err);
     if (n == PUMP_FAIL)
         goto fail;
-    if (n >= 2 && line[0] == '#' && line[1] == '>')
+    bool bounded;
+    uint32_t chunks_len;
+    if (!pump_bounds(line, n, &bounded, &chunks_len))
+        goto fail;
+    if (bounded)
     {
-        const char *scan = line + 2;
-        uint32_t chunks_len, image_crc;
-        if (!str_parse_uint32(&scan, &chunks_len) ||
-            !str_parse_uint32(&scan, &image_crc))
-            goto fail;
         p->prog_end = p->pos + chunks_len;
         p->assets_start = after_shebang;
     }

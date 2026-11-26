@@ -10,6 +10,7 @@
 #include "machine.h"
 #include "core/str/str.h"
 #include "osal/fs.h"
+#include "core/sys/hot.h"
 #include <assert.h>
 #include <ctype.h>
 #include <stdio.h> /* SEEK_SET */
@@ -116,8 +117,7 @@ uint64_t pcm_takes(uint64_t *phase, uint64_t step, uint64_t n)
 }
 
 /* The player is in the Pico's audio interrupt, every sample. */
-#pragma GCC push_options
-#pragma GCC optimize("O3")
+HOT_BEGIN
 
 /* The sample i bytes after the oldest. */
 static int32_t HOST_IN_RAM_FUNC pcm_decode(pcm_t *s, uint32_t i)
@@ -278,7 +278,7 @@ void HOST_IN_RAM_FUNC pcm_sample(pcm_t *s, int32_t *left, int32_t *right)
     s->phase += s->step;
 }
 
-#pragma GCC pop_options
+HOT_END
 
 bool HOST_IN_RAM_FUNC pcm_std_handles(const char *path)
 {

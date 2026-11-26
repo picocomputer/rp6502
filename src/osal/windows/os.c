@@ -44,17 +44,14 @@ uint32_t os_random(void)
  * 2^53, which is about 104 days of uptime. The counter is split into whole
  * seconds and a remainder so the multiply cannot overflow: a plain
  * t * 1000000000 passes 2^64 after about half an hour on the 10 MHz counter
- * Windows usually reports. The frequency is fixed after boot, so it is read
- * once. */
-static LARGE_INTEGER win_qpc_hz;
-
+ * Windows usually reports. The frequency is fixed after boot and costs a read
+ * of memory the kernel shares, so every call asks for it, from any thread. */
 uint64_t os_mono_ns(void)
 {
-    if (!win_qpc_hz.QuadPart)
-        QueryPerformanceFrequency(&win_qpc_hz);
-    LARGE_INTEGER c;
+    LARGE_INTEGER f, c;
+    QueryPerformanceFrequency(&f);
     QueryPerformanceCounter(&c);
-    const uint64_t hz = (uint64_t)win_qpc_hz.QuadPart;
+    const uint64_t hz = (uint64_t)f.QuadPart;
     const uint64_t t = (uint64_t)c.QuadPart;
     return (t / hz) * 1000000000ull + (t % hz) * 1000000000ull / hz;
 }
@@ -62,9 +59,10 @@ uint64_t os_mono_ns(void)
 /* A high-resolution waitable timer wakes on time, where Sleep rounds up to the
  * scheduler's tick. Windows before 1803 refuses the flag and falls back to
  * Sleep, so a wake there can be a tick late; the caller measures when it woke
- * and carries the difference forward. */
-static HANDLE win_timer;
-static bool win_no_timer;
+ * and carries the difference forward. A timer is armed for one wait at a
+ * time, so each thread that sleeps has its own. */
+static _Thread_local HANDLE win_timer;
+static _Thread_local bool win_no_timer;
 
 void os_sleep_ns(uint64_t ns)
 {

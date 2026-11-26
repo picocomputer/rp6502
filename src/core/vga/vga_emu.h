@@ -39,6 +39,11 @@ uint64_t vga_beam_lines(void);
  * steps the mix up to where it got. False when it was held. */
 bool vga_run_frame(void);
 
+/* Called between the machine's steps inside vga_run_frame, where the machine
+ * is whole, as it is between frames: a host that runs the machine on a thread
+ * of its own lets others at it there. NULL, the default, calls nothing. */
+void vga_set_pause(void (*pause)(void));
+
 /* No canvas is larger than 640x480, and a framebuffer must hold that. */
 #define VGA_MAX_WIDTH 640
 #define VGA_MAX_HEIGHT 480

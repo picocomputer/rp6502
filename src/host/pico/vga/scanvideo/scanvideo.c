@@ -7,9 +7,9 @@
 
 #include <string.h>
 #include "pico.h"
+#include "core/sys/hot.h"
 
-#pragma GCC push_options
-#pragma GCC optimize("O3")
+HOT_BEGIN
 
 #include "pico/sync.h"
 #include "hardware/clocks.h"
@@ -855,4 +855,4 @@ void scanvideo_set_mode(const scanvideo_view_t *mode)
     }
 }
 
-#pragma GCC pop_options
+HOT_END

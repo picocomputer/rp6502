@@ -9,6 +9,7 @@
 #include "core/vga/vga.h"
 #include "core/term/font.h"
 #include "core/term/vterm.h"
+#include "core/sys/hot.h"
 
 /* On a word, so the console can write and move cells a word at a time. */
 mode0_cell_t mode0_cells[MODE0_CELLS] __attribute__((aligned(4)));
@@ -100,8 +101,7 @@ __attribute__((noinline)) uint16_t mode0_color_rest(unsigned code)
     return mode0_faint_defaults[code & 1];
 }
 
-#pragma GCC push_options
-#pragma GCC optimize("O3")
+HOT_BEGIN
 
 _Static_assert(VGA_FILL_ROW_CELLS >= 80, "a pair table for every cell of a row");
 _Static_assert(MODE0_GLYPH_OTHER(8) == FONT_OTHER(8) && MODE0_GLYPH_OTHER(16) == FONT_OTHER(16),
@@ -540,7 +540,7 @@ mode0_render(uint16_t options, int16_t scanline_id, int16_t width, uint16_t *rgb
     else
         return mode0_render_term(scanline_id, (int16_t)config_ptr, rgb, 16, 80, font16, cache);
 }
-#pragma GCC pop_options
+HOT_END
 
 vga_fill_fn_t mode0_fill_fn(uint16_t options)
 {

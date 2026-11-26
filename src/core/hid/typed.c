@@ -39,7 +39,8 @@ static void HOST_IN_RAM_FUNC typed_paste_end(void)
 /* What is at the front becomes bytes, or stays for the line editor. An
  * entry taken back goes. A paste starts: its text is its source's as it is
  * now, bracketed as the console is set now, and a source with no text
- * starts nothing. An entry of the line editor's waits there while a line
+ * starts nothing. A paste whose host has yet to give its text waits at the
+ * front, and so does everything behind it. An entry of the line editor's waits there while a line
  * is being read, and goes when none is. */
 static void HOST_IN_RAM_FUNC typed_front(void)
 {
@@ -49,10 +50,15 @@ static void HOST_IN_RAM_FUNC typed_front(void)
         const typed_entry_t e = *RING_AT(&typed_queue, 0);
         if (TYPED_KIND(e) == TYPED_BYTE || (TYPED_KIND(e) > TYPED_PASTE && rln_reading()))
             return;
-        RING_SKIP(&typed_queue, 1);
         if (TYPED_KIND(e) != TYPED_PASTE)
+        {
+            RING_SKIP(&typed_queue, 1);
             continue;
+        }
         const uint8_t source = clip_paste_source(e & TYPED_PASTE_SOURCE);
+        if (source == CLIP_LATER)
+            return;
+        RING_SKIP(&typed_queue, 1);
         if (!clip_size(source))
             continue;
         typed_paste_from = (uint8_t)(source + 1);

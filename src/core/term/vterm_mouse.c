@@ -460,7 +460,7 @@ static vterm_mouse_pos_t vterm_mouse_at(const vterm_mouse_view_t *v, int x, int 
 
 static vterm_mouse_cell_t vterm_mouse_cell(const vterm_mouse_view_t *v, vterm_mouse_pos_t p)
 {
-    return (vterm_mouse_cell_t){screen_mem(v->s, (uint8_t)p.y), (uint8_t)p.x};
+    return (vterm_mouse_cell_t){screen_mem(v->s, (uint8_t)p.y), (uint8_t)p.x, 0};
 }
 
 /* Where a point is on the screen now: its row of memory's row of the

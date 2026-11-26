@@ -13,6 +13,7 @@
 #include "core/hid/mouse.h"
 #include "core/term/vterm_mouse.h"
 #include "host/host.h"
+#include "host/web/audio.h"
 #include "sokol/sokol_app.h"
 #include <emscripten.h>
 #include <emscripten/html5.h>
@@ -23,15 +24,14 @@
 #define LIVE_MS 250.0
 
 static int32_t away, pointer;
-static double callback_ms, run_ms;
+static double callback_ms;
 static bool inited;
 
 /* A cross-origin frame cannot read the page around it, but an
  * IntersectionObserver with no root measures the canvas against the top-level
- * viewport from inside any frame. The audio callback keeps firing after
- * animation frames stop, so it pulls only while the machine is running, and
- * each start or stop is ramped over one buffer because a step clicks. */
-EM_JS(void, js_away_setup, (int32_t *away, const double *run_ms, double live_ms), {
+ * viewport from inside any frame. While the page is away the machine does not
+ * run and no sound is made, which the sound's queue rides out (audio.c). */
+EM_JS(void, js_away_setup, (int32_t *away), {
     const signal = Module.rp6502.signal;
     if (signal.aborted)
         return;
@@ -45,38 +45,6 @@ EM_JS(void, js_away_setup, (int32_t *away, const double *run_ms, double live_ms)
     io.observe(Module.canvas);
     signal.addEventListener('abort', () => io.disconnect());
     update();
-
-    const node = Module._saudio_node;
-    if (!node)
-        return;
-    const pull = node.onaudioprocess;
-    const last = [0, 0];
-    let held = false;
-    node.onaudioprocess = (e) => {
-        // saudio_shutdown frees the buffer a pull writes, and an event
-        // queued before the shutdown can still arrive after it.
-        if (Module._saudio_node !== node)
-            return;
-        const out = e.outputBuffer;
-        const live = !HEAP32[away >> 2] && performance.now() - HEAPF64[run_ms >> 3] < live_ms;
-        if (live)
-            pull(e);
-        for (let c = 0; c < out.numberOfChannels; c++) {
-            const d = out.getChannelData(c);
-            const n = d.length;
-            if (!live) {
-                for (let i = 0; i < n; i++)
-                    d[i] = last[c] * (n - 1 - i) / n;
-                last[c] = 0;
-            } else {
-                if (held)
-                    for (let i = 0; i < n; i++)
-                        d[i] *= i / n;
-                last[c] = d[n - 1];
-            }
-        }
-        held = !live;
-    };
 });
 
 /* pointer is 1 while the program maps the mouse, 2 while the tablet has
@@ -208,6 +176,7 @@ static void entry_init(void)
     if (js_destroyed())
         return;
     app_init();
+    web_audio_setup();
     inited = true;
 }
 
@@ -226,11 +195,11 @@ static void entry_frame(void)
     callback_ms = now;
     if (away || gap >= LIVE_MS)
         return;
-    run_ms = now;
     /* The player's own focus, which the page keeps for each player on it,
      * is told to a program that asks (?1004) as it changes. */
     vterm_focus(js_focused());
     app_frame();
+    web_audio_frame();
     const int32_t used = (mouse_is_mapped() ? 1 : 0) | (input_pointer_to_tablet() ? 2 : 0) |
                          (input_wheel_to_tablet() ? 4 : 0);
     if (used != pointer)
@@ -249,7 +218,7 @@ void host_window_set_aspect(int w, int h, bool refit)
 
 void host_window_init(void)
 {
-    js_away_setup(&away, &run_ms, LIVE_MS);
+    js_away_setup(&away);
     js_pointer_setup(&pointer);
 }
 bool host_window_menu_active(void) { return false; }

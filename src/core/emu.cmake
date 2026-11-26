@@ -106,32 +106,12 @@ add_library(emu_core STATIC
 )
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    set_source_files_properties(
-        ${RP6502_SRC}/core/vga/mode/mode1.c
-        ${RP6502_SRC}/core/vga/mode/mode2.c
-        ${RP6502_SRC}/core/vga/mode/mode3.c
-        ${RP6502_SRC}/core/vga/mode/mode4.c
-        ${RP6502_SRC}/core/vga/mode/mode5.c
-        PROPERTIES COMPILE_OPTIONS "-Wno-pointer-to-int-cast"
-    )
     # sram (core/wdc/sram.c) is a 64 KB tentative definition; -fno-common keeps it in
     # .bss (the modern GCC/Clang default) so macOS ld doesn't warn about reducing its
     # oversized __common alignment.
     target_compile_options(emu_core PRIVATE -fno-common)
     target_compile_options(emu_core PUBLIC
         $<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>)
-    if(CMAKE_C_COMPILER_ID MATCHES "Clang")
-        target_compile_options(emu_core PRIVATE -Wno-c23-extensions)
-    endif()
-elseif(MSVC)
-    set_source_files_properties(
-        ${RP6502_SRC}/core/vga/mode/mode1.c
-        ${RP6502_SRC}/core/vga/mode/mode2.c
-        ${RP6502_SRC}/core/vga/mode/mode3.c
-        ${RP6502_SRC}/core/vga/mode/mode4.c
-        ${RP6502_SRC}/core/vga/mode/mode5.c
-        PROPERTIES COMPILE_OPTIONS "/wd4311;/wd4312"
-    )
 endif()
 
 add_dependencies(emu_core rp6502_gen_c)

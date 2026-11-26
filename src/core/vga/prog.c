@@ -12,9 +12,9 @@
 #include "core/vga/mode/mode4.h"
 #include "core/vga/mode/mode5.h"
 #include <stddef.h>
+#include "core/sys/hot.h"
 
-#pragma GCC push_options
-#pragma GCC optimize("O3")
+HOT_BEGIN
 
 static vga_prog_t vga_prog[VGA_PROG_MAX];
 
@@ -255,4 +255,4 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
     return true;
 }
 
-#pragma GCC pop_options
+HOT_END

@@ -5,10 +5,10 @@
  */
 
 #include "osal/dir.h"
-#include "osal/fs.h"
 #include "osal/os.h"
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
+#include "host/sokol/app/run.h"
 #include "host/sokol/app/pace.h"
 #include "host/host.h"
 #include "sokol/sokol_app.h"
@@ -18,7 +18,6 @@
 #include "sokol/util/sokol_letterbox.h"
 #include "sokol/util/sokol_debugtext.h"
 #include "sokol/util/sokol_gl.h"
-#include "sokol/sokol_audio.h"
 #ifdef EMU_WITH_DEBUGGER
 #include "host/sokol/dbg/dbgui.h"
 #include "core/dap/dap.h"
@@ -44,6 +43,7 @@
 #include "core/term/vterm_mouse.h"
 #include "core/vga/vga_emu.h"
 #include <math.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,10 +53,10 @@
 static struct
 {
     bool exit_on_halt;
-    bool unpaced; /* --phi2 0 */
     int title_variant;
 } app;
 
+/* Read in app_cleanup, after the machine's thread is gone. */
 static bool app_quit_asked;
 static bool app_broke;
 
@@ -71,62 +71,83 @@ void app_set_break(bool (*asked)(void), void (*leave)(void))
 
 void app_set_unpaced(bool on)
 {
-    app.unpaced = on;
+    run_set_unpaced(on);
 }
 
-/* The pace's debt is the wall time owed to the machine, repaid in whole
- * frames (pace.h), and cleared outright under app.unpaced and on a debugger
- * hold. */
-static uint64_t entered_ns, returned_ns, machine_ns;
-static pace_t pace;
-static bool paced, ran_frame, held;
+/* The window closes at the end of this callback. */
+static void app_quit(void)
+{
+    if (!app_quit_asked)
+    {
+        app_quit_asked = true;
+        sapp_request_quit();
+    }
+}
+
+#ifndef __EMSCRIPTEN__
+/* Whether the window is up, which makes the clipboard the desktop's. */
+static bool app_has_window;
+static void app_clipboard_serve(void);
+#endif
+
+/* Whether the last present waited for the display, and when the callbacks came
+ * and went, for the display ticks the machine is paced by (run.h). */
+static uint64_t entered_ns, returned_ns;
+static bool paced, shown_new;
+/* How long the window's own work after its wait for the machine took last
+ * time, which the wait leaves room for before the display wants the next
+ * present. */
+static uint64_t work_ns;
+#define WORK_MARGIN_NS 1000000
+/* Callbacks whose present does not wait, and every how many of them one goes
+ * at once: a half second's. */
+static unsigned unpaced_presents;
+#define UNPACED_PROBE 30
 /* A present that waits for the display holds the thread for milliseconds and
  * one that waits for nothing returns in microseconds, so two milliseconds
  * between the stamp taken before the upload and the next callback tells the
  * two apart. */
 #define PRESENT_WAIT_NS 2000000
 
-uint64_t app_machine_ns(void) { return machine_ns; }
-
-static void update_title(void)
+/* The title says what the window is doing with the pointer, and whether the
+ * program has stopped. Which one is read from the machine, under its lock,
+ * and set once the lock is let go. */
+static int title_variant(void)
 {
-    int v;
-    const char *t;
     if (proc_exited())
-    {
-        v = 1;
-        t = "Picocomputer 6502 (stopped)";
-    }
-    else if (mouse_is_mapped() && input_mouse_locked())
-    {
-        v = 3;
-        t = "Picocomputer 6502  -  Esc releases mouse";
-    }
-    else if (mouse_is_mapped() && !input_pointer_to_tablet())
-    {
-        v = 2;
-        t = "Picocomputer 6502  -  click to capture mouse";
-    }
-    else
-    {
-        v = 0;
-        t = "Picocomputer 6502";
-    }
+        return 1;
+    if (mouse_is_mapped() && input_mouse_locked())
+        return 3;
+    if (mouse_is_mapped() && !input_pointer_to_tablet())
+        return 2;
+    return 0;
+}
+
+static void update_title(int v)
+{
+    static const char *const titles[] = {
+        "Picocomputer 6502",
+        "Picocomputer 6502 (stopped)",
+        "Picocomputer 6502  -  click to capture mouse",
+        "Picocomputer 6502  -  Esc releases mouse",
+    };
     if (v != app.title_variant)
     {
         app.title_variant = v;
-        sapp_set_window_title(t);
+        sapp_set_window_title(titles[v]);
     }
 }
 
-/* Called on the audio device's own thread on WASAPI, PulseAudio, CoreAudio and
- * AAudio, and on the browser's main thread on WebAudio. It makes what it
- * plays on the spot, from what the frames have stamped. */
-static void stream_cb(float *buffer, int num_frames, int num_channels)
+#ifndef __EMSCRIPTEN__
+/* Called on the sound device's own thread (entry.h). It makes what it plays
+ * on the spot, from what the frames have stamped, at the device's rate. The
+ * web player has its own sound (host/web/audio.c). */
+static void app_sound(float *dst, int frames, uint32_t rate)
 {
-    (void)num_channels;
-    aud_render(buffer, num_frames);
+    aud_set_sink_rate(rate);
+    aud_render(dst, frames);
 }
+#endif
 
 void app_init(void)
 {
@@ -138,64 +159,26 @@ void app_init(void)
         .environment = sglue_environment(),
         .logger.func = app_log,
     });
+#ifndef __EMSCRIPTEN__
     if (aud_enabled())
     {
-        /* Most devices run at 48000 Hz, so asking for it keeps the resampler's
-         * ratio near one. WebAudio writes back the rate it actually got and
-         * the machine resamples from its own rate to that; WASAPI, PulseAudio
-         * and CoreAudio keep the 48000 asked for and the OS resamples.
-         *
-         * buffer_frames is what the callback is asked for at a time, and
-         * the sound plays that far behind the machine. What the device
-         * holds beyond that is each backend's own. The sizes are the least
-         * that measured clean:
-         *
-         * WASAPI in shared mode takes 480 frames every 10 ms from a buffer of
-         * its own choosing, about 22 ms for any size asked for up to that. So
-         * 480 is one callback for each period it takes; 512 would skip every
-         * sixteenth and leave the mix a beat to cover.
-         *
-         * PulseAudio is asked to hold buffer_frames in all, and holds three
-         * quarters of it in the stream, 8 ms at 512. That ran minutes
-         * without running dry on a host with little else to do, where 256
-         * did not, and ran dry a few times a minute beside a compiler.
-         *
-         * CoreAudio's queue is two buffers of buffer_frames, a callback for
-         * each. 512 is 94 callbacks a second with 10.7 ms in hand; fewer
-         * frames would be more calls into the OS for nothing.
-         *
-         * On the web, ScriptProcessorNode runs on the main thread with the
-         * machine and the drawing, and its size must be a power of two. In
-         * Chrome 1024 frames, 21.3 ms, still went silent for a 128th of a
-         * second once in a while, and 512 twice as often.
-         *
-         * Sokol wants buffer_frames a multiple of its packets, which only
-         * its push model uses, so they are a frame each. */
-#if defined(__EMSCRIPTEN__)
-        const int buffer_frames = 1024;
-#elif defined(_WIN32)
-        const int buffer_frames = 480;
-#else
-        const int buffer_frames = 512;
-#endif
         aud_set_streaming(true);
-        saudio_setup(&(saudio_desc){
-            .sample_rate = 48000,
-            .num_channels = 2,
-            .buffer_frames = buffer_frames,
-            .packet_frames = 1,
-            .stream_cb = stream_cb,
-            .logger.func = app_log,
-        });
-        aud_set_sink_rate((uint32_t)saudio_sample_rate());
+        host_audio_open(app_sound);
     }
+#endif
     gfx_setup();
     host_window_init();
+    input_read_locks();
     input_locks();
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
         dbgui_init(sapp_dpi_scale());
 #endif
+#ifndef __EMSCRIPTEN__
+    app_has_window = true;
+#endif
+    /* Last, once all the machine reaches is up. */
+    run_start();
 }
 
 void app_frame(void)
@@ -204,115 +187,73 @@ void app_frame(void)
     /* Once the display has been seen to pace the callbacks it keeps that
      * standing while frames are still coming, because a callback whose own work
      * fills the display period leaves the present nothing left to wait for;
-     * and while the pace follows the display, whose callbacks at 240 Hz are
+     * and while the machine follows the display, whose callbacks at 240 Hz are
      * so close that one late leaves the next present little to wait for. A
      * display that stops pacing is seen by the pace first. */
-    paced = !returned_ns || now - returned_ns >= PRESENT_WAIT_NS || (paced && (ran_frame || pace.follows));
+    paced = !returned_ns || now - returned_ns >= PRESENT_WAIT_NS || (paced && (shown_new || run_follows()));
     const uint64_t dt = entered_ns ? now - entered_ns : VGA_FRAME_NS;
-    pace_add(&pace, dt, paced);
-    aud_set_speed(pace_speed(&pace));
     entered_ns = now;
-#ifdef EMU_WITH_DEBUGGER
-    if (dbg_is_active())
-    {
-        dap_pump();
-        if (dap_quit_requested())
-        {
-            app_quit_asked = true;
-            sapp_request_quit();
-        }
-    }
+
+    /* What the frames due at this callback read is handed over first, so they
+     * see it at the age the events before the callback have: the lock keys
+     * and the gamepads. The OS is asked without the machine's lock, which
+     * only the handing over takes. */
+#ifndef __EMSCRIPTEN__
+    app_clipboard_serve();
 #endif
+#ifdef RP6502_PAD_HOST
+    gamepad_input_poll();
+#endif
+    input_read_locks();
+    run_lock();
     input_locks();
 #ifdef RP6502_PAD_HOST
-    /* Sokol has delivered this frame's key and pointer events before the frame
-     * callback, so polling the gamepads here gives them the same age as every
-     * other input. */
-    gamepad_input_task();
+    gamepad_input_report();
 #endif
+    run_unlock();
 
-    /* Nothing limits the callback rate when the present does not wait, and
-     * nothing runs at all while a debugger holds the machine, so sleep out the
-     * rest of the frame period rather than spinning. */
-    if (!app.unpaced && (!paced || held) && pace.debt_ns < (int64_t)VGA_FRAME_NS)
+    /* The machine runs the frames due, and the window waits for them as long
+     * as it can and still make the display's next present. A present that
+     * does not wait keeps no time, so the window keeps a frame's. */
+    uint64_t room;
+    if (paced)
     {
-        os_sleep_ns((uint64_t)((int64_t)VGA_FRAME_NS - pace.debt_ns));
-        const uint64_t woke = os_mono_ns();
-        pace_slept(&pace, woke - entered_ns);
-        entered_ns = woke;
+        const int64_t period = run_period();
+        const int64_t left = period - (int64_t)work_ns - WORK_MARGIN_NS;
+        room = (uint64_t)(left > period / 4 ? left : period / 4);
     }
-    ran_frame = held = false;
-    const uint64_t t0 = os_mono_ns();
-    if (app.unpaced)
-    {
-        do
-        {
-            if (!vga_run_frame())
-            {
-                held = true;
-                break;
-            }
-            ran_frame = true;
-        } while (os_mono_ns() - t0 < VGA_FRAME_NS);
-        pace.debt_ns = 0;
-    }
+    else if (++unpaced_presents % UNPACED_PROBE == 0)
+        /* A present made at the machine's rate never waits on a display
+         * faster than it, so a display that does pace would never be seen
+         * to: now and then one goes straight after the last, to find out. */
+        room = 0;
     else
-        while (pace_due(&pace))
-        {
-            /* A debugger hold clears the debt, so the machine does not run a
-             * burst of catch-up frames when it resumes. */
-            if (!vga_run_frame())
-            {
-                pace.debt_ns = 0;
-                held = true;
-                break;
-            }
-            pace_ran(&pace);
-            ran_frame = true;
-        }
-    machine_ns += os_mono_ns() - t0;
+    {
+        /* The window shows each new frame as the machine finishes it, but
+         * no sooner than half a frame after the last callback, which bounds
+         * it under --phi2 0. It does not wait on its own clock, which would
+         * line its present up with the display's and leave the present
+         * nothing to wait for. */
+#ifndef __EMSCRIPTEN__
+        const uint64_t soonest = now - dt + VGA_FRAME_NS / 2;
+        if (soonest > now)
+            os_sleep_ns(soonest - now);
+#endif
+        room = VGA_FRAME_NS;
+    }
+    run_display(now, dt, paced, room);
+    const uint64_t waited = os_mono_ns();
 
+    run_lock();
+    gfx_set_frame(run_frame(&shown_new));
+#ifdef RP6502_PAD_HOST
+    gamepad_input_watch();
+#endif
     input_pointer_task();
-    update_title();
-    /* The desktop drop-a-ROM prompt holds the CPU with no program loaded, so
-     * the halt it shows is not a program exiting and must not close the
-     * window. The frame that saw the exit drew the lines above the beam
-     * before the program's last writes, so one more frame is drawn after it
-     * to be the last picture presented. */
-    if (proc_exited() && app.exit_on_halt && !host_window_menu_active())
-    {
-        vga_run_frame();
-        ran_frame = true;
-        app_quit_asked = true;
-        sapp_request_quit();
-    }
-    /* A console break is latched by the host's break handler and answered here,
-     * because the machine has to be taken down by the loop that runs it, and
-     * because this runs even while a debugger is holding the machine. */
-    if (app_break_asked && app_break_asked() && !app_broke)
-    {
-        app_quit_asked = app_broke = true;
-        sapp_request_quit();
-    }
-
-    static uint64_t bench_limit_ns = UINT64_MAX, bench_start_ns;
-    if (bench_limit_ns == UINT64_MAX)
-    {
-        const char *e = getenv("EMU_BENCH_MS");
-        bench_limit_ns = e ? (uint64_t)(atof(e) * 1000000.0) : 0;
-        bench_start_ns = now;
-    }
-    if (bench_limit_ns && now - bench_start_ns >= bench_limit_ns)
-    {
-        const double secs = (double)(now - bench_start_ns) / 1e9;
-        fprintf(stderr, "EMU_BENCH: %lu VGA frames in %.3fs = %.1f Hz\n",
-                vga_frame_count(), secs, (double)vga_frame_count() / secs);
-        app_quit_asked = true;
-        sapp_request_quit();
-    }
-
-    gfx_canvas_changed();
-
+    const int title = title_variant();
+    /* The machine's last picture under exit_on_halt is the frame just taken,
+     * so it is presented before the window closes. */
+    const bool quit = run_quit_asked();
 #ifdef EMU_WITH_DEBUGGER
     /* The debugger windows are built before the upload below, because
      * dbgui_canvas_rect reports the dockspace central node only after a
@@ -327,15 +268,36 @@ void app_frame(void)
         dbgui_draw();
     }
 #endif
-
     /* After dbgui_draw, because ImGui knows which item the pointer is over only
      * once the windows for this frame are built. */
-    input_update_cursor();
+    input_cursor_task();
+    run_unlock();
+
+    input_apply();
+    update_title(title);
+    if (quit)
+        app_quit();
+#ifdef EMU_WITH_DEBUGGER
+    if (dbg_is_active() && dap_quit_requested())
+        app_quit();
+#endif
+    /* A console break is latched by the host's break handler and answered here,
+     * because the machine has to be taken down by the loop that shows it, and
+     * because this runs even while a debugger is holding the machine. */
+    if (app_break_asked && app_break_asked() && !app_broke)
+    {
+        app_broke = true;
+        app_quit();
+    }
+    gfx_canvas_changed();
 
     /* The stamp is taken before the upload because on Mesa DRI3 the wait for
-     * the display happens on the next GL write rather than in the swap. */
+     * the display happens on the next GL write rather than in the swap. Nothing
+     * from here on reaches the machine, so a present the compositor holds up
+     * holds up only the window. */
     returned_ns = os_mono_ns();
-    gfx_upload(ran_frame);
+    work_ns = returned_ns - waited;
+    gfx_upload(shown_new);
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
         dbgui_flush();
@@ -388,31 +350,28 @@ bool app_boot_rom(const char *path)
     if (dap_is_active())
         return false;
 #endif
+    /* The file is checked before proc_boot stops the machine, so an accidental
+     * drop leaves the running program running; the loader would refuse the file
+     * too, but only after stopping that program. Its first line is read from
+     * the host's file, with nothing the running program may be using: the
+     * file system's one transfer, which a program streaming its assets keeps
+     * busy, and the buffers its calls read into. */
+    char head[ROM_HEAD];
+    FILE *f = os_fopen(path, "rb");
+    const size_t n = f ? fread(head, 1, sizeof head, f) : 0;
+    const bool read = f && !ferror(f);
+    if (f)
+        fclose(f);
+    if (!read || !rom_head_ok(head, n))
+    {
+        com_printf(read ? "not a .rp6502 file (bad magic)\n" : "cannot read dropped file\n");
+        return false;
+    }
     char *rom = app_rom_path(path);
     if (!rom)
     {
         com_printf("cannot read dropped file\n");
         return false;
-    }
-    /* The file is checked before proc_boot stops the machine, so an accidental
-     * drop leaves the running program running; the loader would refuse the file
-     * too, but only after stopping that program. The check uses an ordinary
-     * descriptor, because there is one ROM descriptor and the running program
-     * has it open for its assets. A file on the null drive opens only as a ROM
-     * image, on that one descriptor, so it goes to the loader unchecked. */
-    if (rom[0] != ':')
-    {
-        rom_pump_t pump;
-        api_errno err;
-        int fd = fs_std_open(rom, FS_RD, &err);
-        if (fd < 0 || !rom_pump_open_fd(&pump, fd, &err))
-        {
-            com_printf(err == API_ENOEXEC ? "not a .rp6502 file (bad magic)\n"
-                                          : "cannot read dropped file\n");
-            free(rom);
-            return false;
-        }
-        rom_pump_close(&pump);
     }
     bool ok = proc_boot(rom, 0, NULL, 0);
     /* The install from the previous drop is removed once proc_boot has
@@ -436,12 +395,13 @@ bool app_boot_rom(const char *path)
 
 /* Sokol says when the window is minimized and when it is back. The web
  * player's page has neither, and its machine stops while the page is
- * hidden, so there it is never minimized. */
-static bool app_minimized;
+ * hidden, so there it is never minimized. The terminal asks from the
+ * machine's thread. */
+static _Atomic bool app_minimized;
 
 bool host_minimized(void)
 {
-    return app_minimized;
+    return atomic_load(&app_minimized);
 }
 
 /* The desktop's window and the web player both gain and lose focus. */
@@ -451,23 +411,6 @@ bool host_focusable(void)
 }
 
 #ifndef __EMSCRIPTEN__
-/* The clipboard is the desktop's while the window runs. sokol hands back the
- * text it last had when the desktop's is too big for its buffer, so then
- * there is none. With no window, a script or a headless run, the clipboard
- * is one the emulator keeps for itself, empty until something is put in it,
- * which asking for never writes over. The web player's are in its entry.c. */
-static bool app_clipboard_too_big;
-static char *app_clipboard;
-
-const char *host_clipboard_get(void)
-{
-    if (!sapp_isvalid())
-        return app_clipboard ? app_clipboard : "";
-    app_clipboard_too_big = false;
-    const char *text = sapp_get_clipboard_string();
-    return app_clipboard_too_big ? "" : text;
-}
-
 bool host_mac_keys(void)
 {
 #if defined(__APPLE__)
@@ -477,29 +420,105 @@ bool host_mac_keys(void)
 #endif
 }
 
+/* The clipboard is the desktop's while the window is up. Only the window's
+ * thread may reach it, never under the machine's lock, because the OS may
+ * keep a clipboard call waiting on another program; and the machine copies
+ * to it and pastes from it on its own thread. So a copy waits in
+ * app_clipboard_out, newest wins, for the window to hand it over. A paste
+ * asks for the text as its turn comes: the machine raises
+ * app_clipboard_asked and the paste waits (HOST_CLIPBOARD_LATER) until the
+ * window, at its next event or frame, hands over the copies still waiting
+ * and then the desktop's text in app_clipboard_in. A text not taken within a
+ * moment is no longer the clipboard as it is, and is asked for again.
+ *
+ * With no window, a script or a headless run, the clipboard is one the
+ * emulator keeps for itself, empty until something is put in it, which
+ * asking for never writes over. The web player's are in its entry.c. */
+#define APP_CLIPBOARD_FRESH_NS 100000000ull
+static char *_Atomic app_clipboard_out;
+static _Atomic bool app_clipboard_asked;
+static char *_Atomic app_clipboard_in;
+static _Atomic uint64_t app_clipboard_in_at;
+static char *app_clipboard_given; /* the machine's, until it asks again */
+static bool app_clipboard_too_big;
+static char *app_clipboard;
+
+/* A copy of utf8, or NULL when there is no memory for it. */
+static char *app_clipboard_copy(const char *utf8)
+{
+    const size_t n = strlen(utf8) + 1;
+    char *copy = malloc(n);
+    if (copy)
+        memcpy(copy, utf8, n);
+    return copy;
+}
+
+const char *host_clipboard_get(void)
+{
+    if (!app_has_window)
+        return app_clipboard ? app_clipboard : "";
+    char *in = atomic_exchange(&app_clipboard_in, NULL);
+    if (in && os_mono_ns() - atomic_load(&app_clipboard_in_at) < APP_CLIPBOARD_FRESH_NS)
+    {
+        free(app_clipboard_given);
+        app_clipboard_given = in;
+        return in;
+    }
+    free(in);
+    atomic_store(&app_clipboard_asked, true);
+    return HOST_CLIPBOARD_LATER;
+}
+
 bool host_clipboard_set(const char *utf8)
 {
-    if (sapp_isvalid())
-    {
-        sapp_set_clipboard_string(utf8);
-        return true;
-    }
-    const size_t n = strlen(utf8) + 1;
-    free(app_clipboard);
-    app_clipboard = malloc(n);
-    if (!app_clipboard)
+    char *copy = app_clipboard_copy(utf8);
+    if (!copy)
         return false;
-    memcpy(app_clipboard, utf8, n);
+    if (app_has_window)
+        free(atomic_exchange(&app_clipboard_out, copy));
+    else
+    {
+        free(app_clipboard);
+        app_clipboard = copy;
+    }
     return true;
+}
+
+static void app_clipboard_flush(void)
+{
+    char *out = atomic_exchange(&app_clipboard_out, NULL);
+    if (!out)
+        return;
+    sapp_set_clipboard_string(out);
+    free(out);
+}
+
+/* What the machine asked of the clipboard, answered without the lock: the
+ * copies first, so a cut and then a paste paste what was cut. sokol hands
+ * back the text it last had when the desktop's is too big for its buffer,
+ * so then there is none. */
+static void app_clipboard_serve(void)
+{
+    app_clipboard_flush();
+    if (!atomic_exchange(&app_clipboard_asked, false))
+        return;
+    app_clipboard_too_big = false;
+    const char *text = sapp_get_clipboard_string();
+    char *copy = app_clipboard_copy(app_clipboard_too_big ? "" : text);
+    atomic_store(&app_clipboard_in_at, os_mono_ns());
+    free(atomic_exchange(&app_clipboard_in, copy));
 }
 #endif
 
-void app_input(const struct sapp_event *e)
+/* Every event can reach into the machine, so each is taken under its lock.
+ * An event the OS delivers inside a call the window makes under the lock
+ * takes it again (run.h). */
+static void app_event(const struct sapp_event *e)
 {
     if (e->type == SAPP_EVENTTYPE_ICONIFIED)
-        app_minimized = true;
+        atomic_store(&app_minimized, true);
     else if (e->type == SAPP_EVENTTYPE_RESTORED)
-        app_minimized = false;
+        atomic_store(&app_minimized, false);
 #ifndef __EMSCRIPTEN__
     /* The desktop window's focus. In the browser sokol's focus is the
      * browser window's, which several players on a page share, so the web
@@ -514,27 +533,34 @@ void app_input(const struct sapp_event *e)
         host_window_files_dropped();
         return;
     }
-    /* The docs link's rectangle is set by prompt_draw, so it means something
-     * only while that prompt is the overlay on screen. */
-    if (host_window_menu_active())
-    {
-        if (e->type == SAPP_EVENTTYPE_MOUSE_MOVE)
-            sapp_set_mouse_cursor(prompt_url_hit(e->mouse_x, e->mouse_y)
-                                      ? SAPP_MOUSECURSOR_POINTING_HAND
-                                      : SAPP_MOUSECURSOR_DEFAULT);
-        else if (e->type == SAPP_EVENTTYPE_MOUSE_UP &&
-                 e->mouse_button == SAPP_MOUSEBUTTON_LEFT &&
-                 prompt_url_hit(e->mouse_x, e->mouse_y))
-        {
-            prompt_url_open();
-            return;
-        }
-    }
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active() && dbgui_handle_event(e))
         return;
 #endif
     input_event(e);
+}
+
+void app_input(const struct sapp_event *e)
+{
+    /* What the event needs of the OS is asked for first, without the lock: the
+     * clipboard the machine asked for, the drop-a-ROM card's link, a paste
+     * into a debugger field, and the lock keys a key goes down with. What it
+     * asks of the OS in return, the pointer's capture, is done after. */
+#ifndef __EMSCRIPTEN__
+    app_clipboard_serve();
+    if (prompt_event(e))
+        return;
+#endif
+#ifdef EMU_WITH_DEBUGGER
+    if (dbg_is_active())
+        dbgui_clipboard_read(e);
+#endif
+    if (e->type == SAPP_EVENTTYPE_KEY_DOWN)
+        input_read_locks();
+    run_lock();
+    app_event(e);
+    run_unlock();
+    input_apply();
 }
 
 int app_exit_code(void)
@@ -548,10 +574,16 @@ int app_exit_code(void)
 
 void app_cleanup(void)
 {
-    /* proc_shutdown runs before saudio, gfx and sg shut down, so every
-     * driver's stop hook still has the host under it. Reaching here without
-     * app_quit_asked means the close button stopped a machine that was still
-     * running, which is a break. */
+    /* The machine stops first, so nothing below runs beside it. proc_shutdown
+     * runs before the sound, gfx and sg shut down, so every driver's stop hook
+     * still has the host under it. Reaching here without app_quit_asked means
+     * the close button stopped a machine that was still running, which is a
+     * break. */
+    run_stop();
+#ifndef __EMSCRIPTEN__
+    app_clipboard_serve();
+    app_has_window = false;
+#endif
     if (!app_quit_asked)
         app_broke = true;
     proc_shutdown();
@@ -565,8 +597,10 @@ void app_cleanup(void)
 #ifdef RP6502_PAD_HOST
     gamepad_input_stop();
 #endif
+#ifndef __EMSCRIPTEN__
     if (aud_enabled())
-        saudio_shutdown();
+        host_audio_close();
+#endif
 #ifdef EMU_WITH_DEBUGGER
     dap_stop();
     if (dbg_is_active())
@@ -576,8 +610,8 @@ void app_cleanup(void)
     sg_shutdown();
 }
 
-void app_prepare(uint32_t *fb, double scale, bool have_scale,
-                         bool exit_on_halt, int *out_w, int *out_h)
+void app_prepare(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt,
+                 int *out_w, int *out_h)
 {
     /* Written as !(scale >= 0.1) so that a NaN also lands on the floor. */
     if (!(scale >= 0.1))
@@ -585,9 +619,39 @@ void app_prepare(uint32_t *fb, double scale, bool have_scale,
     if (scale > 64.0)
         scale = 64.0;
     app.exit_on_halt = exit_on_halt;
-    vga_set_framebuffer(fb);
-    gfx_prepare(fb, scale, have_scale, out_w, out_h);
+    run_prepare(fb, exit_on_halt);
+    bool fresh;
+    gfx_set_frame(run_frame(&fresh));
+    gfx_prepare(scale, have_scale, out_w, out_h);
 }
+
+#ifndef __EMSCRIPTEN__
+/* Every desktop's window. high_dpi asks for a backbuffer at the display's own
+ * resolution, where without it the compositor stretches one at the logical
+ * size and smears the canvas; X11 has no such scaling, and sokol ignores it
+ * there. The web player's is in its entry.c. */
+int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)
+{
+    int win_w, win_h;
+    app_prepare(fb, scale, have_scale, exit_on_halt, &win_w, &win_h);
+    sapp_run(&(sapp_desc){
+        .init_cb = app_init,
+        .frame_cb = app_frame,
+        .event_cb = app_input,
+        .cleanup_cb = app_cleanup,
+        .width = win_w,
+        .height = win_h,
+        .high_dpi = true,
+        .swap_interval = 1,
+        .window_title = "Picocomputer 6502",
+        .enable_dragndrop = true,
+        .enable_clipboard = true,
+        .clipboard_size = 65536,
+        .logger.func = app_log,
+    });
+    return app_exit_code();
+}
+#endif
 
 void app_log(const char *tag, uint32_t log_level, uint32_t log_item_id,
              const char *message_or_null, uint32_t line_nr,

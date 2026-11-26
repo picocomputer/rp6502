@@ -38,10 +38,14 @@ extern "C"
     /* The host's clipboard, in UTF-8. get gives its text as it is now, or
      * NULL for a host that has no clipboard, or whose clipboard cannot be
      * asked for: a web page's, which hands its text over in a paste event
-     * (paste_host.h). The machine copies the text before it returns to the
-     * host, so the host may write over it or free it afterwards. set puts
-     * text there, and is false for a host whose clipboard the machine
-     * cannot set. */
+     * (paste_host.h). A host that has been asked and gives the text later,
+     * as a desktop window does at its next frame, gives
+     * HOST_CLIPBOARD_LATER, and is asked again. The machine copies the text
+     * before it returns to the host, so the host may write over it or free
+     * it afterwards. set puts text there, perhaps later, as a desktop window
+     * does at its next frame, and is false for a host whose clipboard the
+     * machine cannot set. */
+#define HOST_CLIPBOARD_LATER ((const char *)1)
     const char *host_clipboard_get(void);
     bool host_clipboard_set(const char *utf8);
 

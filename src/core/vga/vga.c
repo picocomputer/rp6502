@@ -33,6 +33,7 @@ static bool vsynced;
 static bool vga_needs_reset;
 static bool vga_scanout = true;
 static uint32_t *g_framebuffer;
+static void (*vga_pause)(void);
 
 /* The emulators render one line at a time, so one set of caches serves. A
  * row of text is forgotten before every line, which builds its pairs again:
@@ -46,6 +47,7 @@ static vga_fill_cache_t vga_fill_cache[SCANVIDEO_PLANE_COUNT];
     X(BOOL, vga_needs_reset)                                           \
     X(SKIP, vga_scanout, "whether this host wants pixels at all")      \
     X(SKIP, g_framebuffer, "the host's; no row touches the pixels")    \
+    X(SKIP, vga_pause, "the host's")                                   \
     X(SKIP, vga_fill_cache, "keyed, and a row of text is built again " \
                             "on every line")
 SST_TABLE(vga, VGA_SST)
@@ -167,9 +169,17 @@ bool vga_run_frame(void)
         }
         sys_task();
         sys_commit();
+        aud_progress();
+        if (vga_pause)
+            vga_pause();
     }
     aud_step();
     return whole;
+}
+
+void vga_set_pause(void (*pause)(void))
+{
+    vga_pause = pause;
 }
 
 void vga_task(void)

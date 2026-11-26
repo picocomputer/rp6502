@@ -9,9 +9,9 @@
 #include "core/sys/xram.h"
 #include "core/vga/vga.h"
 #include "core/term/color.h"
+#include "core/sys/hot.h"
 
-#pragma GCC push_options
-#pragma GCC optimize("O3")
+HOT_BEGIN
 
 #define MODE5_CUSTOM 0x38
 #define MODE5_HFLIP 0x10
@@ -260,7 +260,7 @@ mode5_render(int16_t scanline, int16_t width, uint16_t *rgb,
             uint16_t *dst = rgb + sp.x_pos_px;
             const uint8_t *src = (const uint8_t *)&xram[sp.xram_sprite_ptr + tex_y * bytes_per_row];
             const uint16_t *palette = mode5_get_palette(sp.palette_ptr, bpp);
-#pragma GCC unroll 8
+            HOT_UNROLL(8)
             for (int g = 0; g < sprite_size / 8; g++)
                 mode5_group(dst + 8 * g, src + g * bpp, palette, false, false, bpp);
             continue;
@@ -545,4 +545,4 @@ bool mode5_prog(uint16_t *xregs)
     return vga_prog_sprite(plane, scanline_begin, scanline_end, config_ptr, length, 5, attributes);
 }
 
-#pragma GCC pop_options
+HOT_END
