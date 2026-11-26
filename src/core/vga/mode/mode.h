@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include "core/vga/prog.h"
+#include "core/sys/hot.h"
 
 /* GCC folds the index scaling into the load, ldr rN,[rBase,rIdx,lsl #2], only
  * while the table base is a register it holds. Left an sp-relative local it
@@ -95,7 +96,7 @@ static inline __attribute__((always_inline)) void
 mode_quad_set(uint32_t *quad, const uint16_t *pal)
 {
     const uint32_t c[4] = {pal[0], pal[1], pal[2], pal[3]};
-#pragma GCC unroll 16
+    HOT_UNROLL(16)
     for (int i = 0; i < 16; i++)
         quad[i] = c[i >> 2] | (c[i & 3] << 16);
 }
@@ -104,7 +105,7 @@ static inline __attribute__((always_inline)) void
 mode_quad_set_reverse(uint32_t *quad, const uint16_t *pal)
 {
     const uint32_t c[4] = {pal[0], pal[1], pal[2], pal[3]};
-#pragma GCC unroll 16
+    HOT_UNROLL(16)
     for (int i = 0; i < 16; i++)
         quad[i] = c[i & 3] | (c[i >> 2] << 16);
 }
@@ -215,7 +216,7 @@ mode_4bpp_pairs(vga_fill_cache_t *c, const uint16_t *pal, bool reverse)
     {
         const uint32_t h = reverse ? (uint32_t)now[i] << 16 : now[i];
         uint32_t *t = c->pairs_4bpp + i * 16;
-#pragma GCC unroll 16
+        HOT_UNROLL(16)
         for (int j = 0; j < 16; j++)
             t[j] = h | (reverse ? now[j] : (uint32_t)now[j] << 16);
     }
@@ -327,7 +328,7 @@ mode_nibble_set(uint32_t *tbl, uint16_t bg, uint16_t fg)
 {
     const uint32_t p[4] = {mode_pack2(bg, bg), mode_pack2(bg, fg),
                            mode_pack2(fg, bg), mode_pack2(fg, fg)};
-#pragma GCC unroll 16
+    HOT_UNROLL(16)
     for (int i = 0; i < 16; i++)
     {
         tbl[i * 2 + 0] = p[i >> 2];
@@ -341,7 +342,7 @@ mode_nibble_set_reverse(uint32_t *tbl, uint16_t bg, uint16_t fg)
 {
     const uint32_t p[4] = {mode_pack2(bg, bg), mode_pack2(fg, bg),
                            mode_pack2(bg, fg), mode_pack2(fg, fg)};
-#pragma GCC unroll 16
+    HOT_UNROLL(16)
     for (int i = 0; i < 16; i++)
     {
         tbl[i * 2 + 0] = p[i & 3];

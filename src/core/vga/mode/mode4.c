@@ -9,6 +9,7 @@
 #include "core/vga/mode/mode.h"
 #include "core/sys/xram.h"
 #include "core/vga/vga.h"
+#include "core/sys/hot.h"
 #include <assert.h>
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -21,8 +22,7 @@
 #include <hardware/interp.h>
 #endif
 
-#pragma GCC push_options
-#pragma GCC optimize("O3")
+HOT_BEGIN
 
 typedef struct
 {
@@ -215,7 +215,7 @@ static inline void sprite_blit16_alpha(uint16_t *dst, const uint16_t *src, unsig
 static inline __attribute__((always_inline)) void
 sprite_row16_alpha(uint16_t *dst, const uint16_t *src, unsigned n)
 {
-#pragma GCC unroll 8
+    HOT_UNROLL(8)
     for (unsigned i = 0; i < n; i += 8)
         sprite_group16_alpha(dst + i, src + i);
 }
@@ -585,4 +585,4 @@ bool mode4_prog(uint16_t *xregs)
     return vga_prog_sprite(plane, scanline_begin, scanline_end, config_ptr, length, 4, attributes);
 }
 
-#pragma GCC pop_options
+HOT_END

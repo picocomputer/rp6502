@@ -55,8 +55,5 @@ function(rp6502_msvc_dialect target)
     # /Zc:preprocessor because core/sys/debug_log.h pastes a macro that expands
     # to two arguments, which the traditional preprocessor keeps as one.
     target_compile_options(${target} PUBLIC /utf-8 /experimental:c11atomics /FIcompat.h /Zc:preprocessor)
-    # Idioms in the shared sources that GCC and Clang accept: #pragma GCC is
-    # C4068, and returning a void expression from a void function is C4098.
-    target_compile_options(${target} PRIVATE /wd4068 /wd4098)
     target_compile_definitions(${target} PUBLIC _CRT_SECURE_NO_WARNINGS)
 endfunction()

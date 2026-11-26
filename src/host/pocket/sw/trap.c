@@ -16,7 +16,7 @@
 
 #include <stdint.h>
 
-#define TRAP_CONSOLE (*(volatile uint32_t *)0xF0000000u)
+#define TRAP_CONSOLE (*(volatile uint32_t *)(uintptr_t)0xF0000000u)
 
 static void trap_hex(uint32_t v)
 {

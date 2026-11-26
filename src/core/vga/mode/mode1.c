@@ -11,9 +11,9 @@
 #include "core/term/color.h"
 #include "core/term/font.h"
 #include <string.h>
+#include "core/sys/hot.h"
 
-#pragma GCC push_options
-#pragma GCC optimize("O3")
+HOT_BEGIN
 
 typedef struct
 {
@@ -424,4 +424,4 @@ bool mode1_prog(uint16_t *xregs)
     return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, 1, attributes);
 }
 
-#pragma GCC pop_options
+HOT_END

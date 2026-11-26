@@ -2083,7 +2083,10 @@ static void term_csi_final(term_t *t, uint8_t ch)
     {
     case 0:
         if (!inter)
-            return term_csi_dispatch(t, ch);
+        {
+            term_csi_dispatch(t, ch);
+            return;
+        }
         if (inter == ' ' && ch == 'q')
             term_out_DECSCUSR(t);
         else if (inter == ' ' && (ch == '@' || ch == 'A'))

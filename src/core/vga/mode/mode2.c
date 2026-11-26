@@ -11,9 +11,9 @@
 #include "core/vga/pixel_format.h"
 #include "core/term/color.h"
 #include <string.h>
+#include "core/sys/hot.h"
 
-#pragma GCC push_options
-#pragma GCC optimize("O3")
+HOT_BEGIN
 
 typedef struct
 {
@@ -272,7 +272,7 @@ mode2_emit_tiles(uint16_t *rgb, const uint8_t *map, unsigned count,
         mode_word_t *w = (mode_word_t *)rgb;
         unsigned k = 0;
         if (hdouble)
-#pragma GCC unroll 64
+            HOT_UNROLL(64)
             for (; k < row_bytes; k++)
             {
                 const uint32_t b = src[k];
@@ -307,7 +307,7 @@ mode2_emit_tiles(uint16_t *rgb, const uint8_t *map, unsigned count,
             }
         else if (bpp == 8)
         {
-#pragma GCC unroll 16
+            HOT_UNROLL(16)
             for (; k + 4 <= row_bytes; k += 4, w += 2)
             {
                 const uint32_t q = mode_load32(src + k);
@@ -324,7 +324,7 @@ mode2_emit_tiles(uint16_t *rgb, const uint8_t *map, unsigned count,
         }
         else if (bpp == 4)
         {
-#pragma GCC unroll 8
+            HOT_UNROLL(8)
             for (; k + 4 <= row_bytes; k += 4, w += 4)
             {
                 const uint32_t q = mode_load32(src + k);
@@ -339,7 +339,7 @@ mode2_emit_tiles(uint16_t *rgb, const uint8_t *map, unsigned count,
                 *w = tbl[src[k]];
         }
         else if (bpp == 2)
-#pragma GCC unroll 16
+            HOT_UNROLL(16)
             for (; k < row_bytes; k++, w += 2)
             {
                 const uint32_t b = src[k];
@@ -348,7 +348,7 @@ mode2_emit_tiles(uint16_t *rgb, const uint8_t *map, unsigned count,
                 w[1] = c;
             }
         else
-#pragma GCC unroll 8
+            HOT_UNROLL(8)
             for (; k < row_bytes; k++, w += 4)
             {
                 const uint32_t b = src[k];
@@ -614,4 +614,4 @@ bool mode2_prog(uint16_t *xregs)
     return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, 2, options);
 }
 
-#pragma GCC pop_options
+HOT_END

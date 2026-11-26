@@ -607,7 +607,7 @@ static void rln_emit_move(char way, unsigned n)
         return;
     if (!vterm.vt52)
     {
-        char seq[12];
+        char seq[16];
         snprintf(seq, sizeof seq, "\33[%u%c", n, way);
         rln_out_s(seq);
     }
@@ -1568,7 +1568,10 @@ static void rln_line_insert(char ch)
     }
     // A character replaces the selection, whatever the mode.
     if (rln_edit_from < rln_edit_to)
-        return rln_replace(rln_edit_from, rln_edit_to, &ch, 1);
+    {
+        rln_replace(rln_edit_from, rln_edit_to, &ch, 1);
+        return;
+    }
     if (rln_overwrite && rln_bufpos < rln_buflen)
     {
         // Overwrite replaces one char in place; nothing past the cursor
@@ -1662,20 +1665,27 @@ static void rln_dispatch_Fe(uint8_t ch)
      * mode the keyboard sends a VT52's keys, and ESC A to D, H and F are
      * its arrows, Home and End. */
     if (vterm.vt52)
-    {
-        if (ch == 'A')
-            return rln_history_step(1);
-        if (ch == 'B')
-            return rln_history_step(-1);
-        if (ch == 'C')
-            return rln_step(1);
-        if (ch == 'D')
-            return rln_step(-1);
-        if (ch == 'F')
-            return rln_line_end();
-        if (ch == 'H')
-            return rln_line_home();
-    }
+        switch (ch)
+        {
+        case 'A':
+            rln_history_step(1);
+            return;
+        case 'B':
+            rln_history_step(-1);
+            return;
+        case 'C':
+            rln_step(1);
+            return;
+        case 'D':
+            rln_step(-1);
+            return;
+        case 'F':
+            rln_line_end();
+            return;
+        case 'H':
+            rln_line_home();
+            return;
+        }
     const bool arg = ch == 2 || ch == 4 || ch == 6 || ch == (vterm.backarrow_bs ? 127 : '\b');
     if (ch == 'b' || ch == 'B' || ch == 2)
         rln_line_word(-1, arg);

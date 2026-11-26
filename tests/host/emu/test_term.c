@@ -4463,7 +4463,7 @@ UTEST(select, a_job_reaching_it_drops_it)
         sel_rows();
         sel(2, 5, 4, 10);
         feed(cases[i].seq);
-        EXPECT_EQ(sel_shows(), cases[i].keeps);
+        EXPECT_EQ((int)sel_shows(), (int)cases[i].keeps);
         if (sel_shows() != cases[i].keeps)
             printf("case %u: %s\n", (unsigned)i, cases[i].seq + 1);
     }

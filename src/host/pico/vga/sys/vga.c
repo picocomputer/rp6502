@@ -15,9 +15,9 @@
 #include <pico/multicore.h>
 #include <hardware/clocks.h>
 #include <string.h>
+#include "core/sys/hot.h"
 
-#pragma GCC push_options
-#pragma GCC optimize("O3")
+HOT_BEGIN
 
 /* A render and a switch of the view keep out of each other's way with two
  * flags and no lock. A render sets its core's vga_rendering and then reads
@@ -466,7 +466,7 @@ bool vga_switching(void)
     return vga_view_switching;
 }
 
-#pragma GCC pop_options
+HOT_END
 
 void vga_start_render_core(void)
 {
