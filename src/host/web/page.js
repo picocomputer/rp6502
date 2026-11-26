@@ -8,10 +8,6 @@
  * in the scope of the instance.
  */
 
-// `new AudioContext` in saudio_js_init resolves to this binding before the
-// global one, so each instance uses the context created below.
-var AudioContext;
-
 (function () {
     const player = Module.rp6502;
     const {root, settings} = player;
@@ -228,26 +224,13 @@ var AudioContext;
         audio = new globalThis.AudioContext({sampleRate: 48000, latencyHint: 'interactive'});
         audio.suspend();
         resume = audio.resume.bind(audio);
-        // sokol_audio calls resume() on a click or a key anywhere in the
-        // document and on every statechange.
-        audio.resume = () => Promise.resolve();
-        // fail() and destroy() close the context before the sokol cleanup
-        // does, and a second close() rejects.
+        // The player's sound plays through it (audio.c).
+        player.audio = audio;
+        // fail() and destroy() close the context, and a second close()
+        // rejects.
         const close = audio.close.bind(audio);
         let closing = null;
         audio.close = () => closing ??= close().catch(() => {});
-        AudioContext = function () {
-            // saudio_js_init adds four document listeners right after this
-            // returns and stores no reference to them, so the signal removes
-            // them on destroy() and the instance can be freed.
-            const own = Object.getOwnPropertyDescriptor(document, 'addEventListener');
-            const add = document.addEventListener;
-            document.addEventListener = (type, fn, opts) => add.call(document, type, fn,
-                {...(typeof opts === 'object' ? opts : {capture: !!opts}), signal});
-            queueMicrotask(() => own ? Object.defineProperty(document, 'addEventListener', own)
-                                     : delete document.addEventListener);
-            return audio;
-        };
     }
     const silent = () => audio && (!claimed || ['suspended', 'interrupted'].includes(audio.state));
 

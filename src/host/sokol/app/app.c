@@ -140,14 +140,16 @@ static void update_title(int v)
     }
 }
 
-/* Called on the audio device's own thread on WASAPI, PulseAudio, CoreAudio and
- * AAudio, and on the browser's main thread on WebAudio. It makes what it
- * plays on the spot, from what the frames have stamped. */
+#ifndef __EMSCRIPTEN__
+/* Called on the audio device's own thread on WASAPI, PulseAudio and
+ * CoreAudio. It makes what it plays on the spot, from what the frames have
+ * stamped. The web player has its own sound (host/web/audio.c). */
 static void stream_cb(float *buffer, int num_frames, int num_channels)
 {
     (void)num_channels;
     aud_render(buffer, num_frames);
 }
+#endif
 
 void app_init(void)
 {
@@ -159,12 +161,12 @@ void app_init(void)
         .environment = sglue_environment(),
         .logger.func = app_log,
     });
+#ifndef __EMSCRIPTEN__
     if (aud_enabled())
     {
         /* Most devices run at 48000 Hz, so asking for it keeps the resampler's
-         * ratio near one. WebAudio writes back the rate it actually got and
-         * the machine resamples from its own rate to that; WASAPI, PulseAudio
-         * and CoreAudio keep the 48000 asked for and the OS resamples.
+         * ratio near one. WASAPI, PulseAudio and CoreAudio keep the 48000
+         * asked for and the OS resamples.
          *
          * buffer_frames is what the callback is asked for at a time, and
          * the sound plays that far behind the machine. What the device
@@ -185,16 +187,9 @@ void app_init(void)
          * each. 512 is 94 callbacks a second with 10.7 ms in hand; fewer
          * frames would be more calls into the OS for nothing.
          *
-         * On the web, ScriptProcessorNode runs on the main thread with the
-         * machine and the drawing, and its size must be a power of two. In
-         * Chrome 1024 frames, 21.3 ms, still went silent for a 128th of a
-         * second once in a while, and 512 twice as often.
-         *
          * Sokol wants buffer_frames a multiple of its packets, which only
          * its push model uses, so they are a frame each. */
-#if defined(__EMSCRIPTEN__)
-        const int buffer_frames = 1024;
-#elif defined(_WIN32)
+#if defined(_WIN32)
         const int buffer_frames = 480;
 #else
         const int buffer_frames = 512;
@@ -210,6 +205,7 @@ void app_init(void)
         });
         aud_set_sink_rate((uint32_t)saudio_sample_rate());
     }
+#endif
     gfx_setup();
     host_window_init();
     input_read_locks();
@@ -644,8 +640,10 @@ void app_cleanup(void)
 #ifdef RP6502_PAD_HOST
     gamepad_input_stop();
 #endif
+#ifndef __EMSCRIPTEN__
     if (aud_enabled())
         saudio_shutdown();
+#endif
 #ifdef EMU_WITH_DEBUGGER
     dap_stop();
     if (dbg_is_active())

@@ -532,6 +532,15 @@ static uint64_t aud_ratio(void)
     return rsmp_step(AUD_NATIVE_RATE, atomic_load(&aud_sink_rate));
 }
 
+/* A sink that takes once a frame and keeps a queue of its own stretches the
+ * sound by this, in parts of 1e9, to keep the queue where it wants it. */
+static _Atomic int32_t aud_stretch;
+
+void aud_set_stretch(double stretch)
+{
+    atomic_store(&aud_stretch, (int32_t)(stretch * 1e9));
+}
+
 /* A ring still full holds a sink that stopped asking, or a machine run
  * faster than its sink, and the render is brought along until it has
  * room. */
@@ -701,10 +710,15 @@ void aud_step(void)
     }
     else if (!atomic_load(&aud_streaming))
     {
+        /* A sink that takes once a frame may take after more than one, as a
+         * web page's callback does when it runs two; past AUD_STALL it has
+         * stopped taking. */
+        (void)was;
         if (held)
             return;
         aud_lock();
-        aud_skip(was);
+        if ((int64_t)(now - aud_made) > AUD_STALL)
+            aud_skip(now - AUD_STALL);
         aud_unlock();
     }
     else if (!atomic_flag_test_and_set_explicit(&aud_busy, memory_order_acquire))
@@ -916,7 +930,11 @@ static void aud_reverse(float *dst, int from, int to)
 static int aud_take(float *dst, int samples)
 {
     const uint64_t to = bus_now(AUD_NATIVE_RATE);
-    const uint64_t step = aud_ratio();
+    /* The machine's speed and the sink's stretch, both a fraction of a
+     * percent, with no trim: the sink keeps its own queue. */
+    uint64_t step = aud_ratio();
+    const double by = (atomic_load(&aud_speed) + atomic_load(&aud_stretch)) / 1e9;
+    step += (uint64_t)(int64_t)((double)step * by);
     int total = 0;
     while (aud_made < to)
     {
@@ -1151,6 +1169,7 @@ static bool aud_sst_loaded(sst_cursor_t *c)
     X(SKIP, aud_sink_rate, "what the host's device answered")   \
     X(SKIP, aud_streaming, "which sink the host has")           \
     X(SKIP, aud_speed, "set by the host each frame")            \
+    X(SKIP, aud_stretch, "set by the host each frame")          \
     X(SKIP, aud_last_l, "the level the sink last took")         \
     X(SKIP, aud_last_r, "the level the sink last took")         \
     X(SKIP, aud_viz, "a display of what was rendered")          \

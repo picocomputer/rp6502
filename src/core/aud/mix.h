@@ -71,9 +71,9 @@ uint16_t aud_pcm_level(void);
 void aud_pcm_clear(void);
 
 /* A software machine's present, at the end of each frame: the stamps before
- * it are all in. A sink on the machine's thread that did not take the frame
- * before has it dropped, unless a debugger holds the machine, and a muted
- * mix is stepped up to here. */
+ * it are all in. A sink on the machine's thread more than eight frames
+ * behind has stopped taking, and what is older is dropped, unless a
+ * debugger holds the machine, and a muted mix is stepped up to here. */
 void aud_step(void);
 
 /* A software machine's present between the steps of a frame, where the
@@ -124,15 +124,22 @@ void aud_set_sink_rate(uint32_t rate);
  * machine's thread. */
 void aud_set_streaming(bool on);
 
-/* How fast the machine runs against the wall clock, for a streaming sink:
- * 1 on the wall clock, and the display's frames a second over the machine's
- * where the host takes its frames from a display. The resampler's step
- * follows it, which leaves the trim only what the crystals differ by. */
+/* How fast the machine runs against the wall clock: 1 on the wall clock, and
+ * the display's frames a second over the machine's where the host takes its
+ * frames from a display. The resampler's step follows it, which leaves a
+ * streaming sink's trim only what the crystals differ by. */
 void aud_set_speed(double speed);
 
+/* A sink that takes once a frame and keeps a queue of its own, as a web
+ * page's worklet does: how much it stretches the sound, a fraction of a
+ * percent either way, to keep that queue where it wants it. 0 by default,
+ * as a frontend that keeps the queue itself leaves it. */
+void aud_set_stretch(double stretch);
+
 /* Fills the sink's buffer with this many frames at the sink's rate, made on
- * the spot. A streaming sink gets them all. A sink that pulls once a frame
- * gets the samples up to the machine's present and the count is returned,
+ * the spot. A streaming sink gets them all. A sink that pulls once a frame,
+ * or after a few, gets the samples up to the machine's present and the
+ * count is returned,
  * the newest kept if there are more; the rest repeat the level as it stands,
  * since dropping to silence would click. Muted, it is silence; held by a
  * debugger, the level repeats. Both return 0 then. */

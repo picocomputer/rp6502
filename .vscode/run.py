@@ -56,9 +56,25 @@ def web(rom):
     if "'adventure.rp6502'" not in html:
         sys.exit("run.py: the bundle's index.html no longer names adventure.rp6502")
     html = html.replace("'adventure.rp6502'", repr(rom.name))
+    html = html.replace("'Colossal Cave Adventure'", repr(rom.stem))
+    # The player tells a page that asks how its sound's queue stands, once a
+    # second, which is posted here and printed (host/web/audio.c).
+    stats = ("<script>globalThis.rp6502_audio_stats = (s) => "
+             "fetch('/stats', {method: 'POST', body: JSON.stringify(s)});</script>\n")
+    html = html.replace("<script", stats + "<script", 1)
     (run / "index.html").write_text(html, encoding="utf-8")
 
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(run))
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def do_POST(self):
+            body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            print(f"sound: {body.decode(errors='replace')}", flush=True)
+            self.send_response(204)
+            self.end_headers()
+
+        def log_message(self, format, *args):
+            pass
+
+    handler = functools.partial(Handler, directory=str(run))
     with http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler) as server:
         url = f"http://127.0.0.1:{server.server_address[1]}/"
         print(f"serving {rom.name} at {url}", flush=True)
