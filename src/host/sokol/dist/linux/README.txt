@@ -9,8 +9,8 @@ Install
 -------
 
 Put rp6502-emu wherever you like. It is built on Ubuntu 22.04 and
-needs glibc 2.35 or later plus the GL, X11, and ALSA runtime
-libraries your desktop already has.
+needs glibc 2.35 or later plus the EGL, GLES, X11, and PulseAudio
+runtime libraries your desktop already has.
 
 The tarball preserves the execute bit. If something along the way
 stripped it:

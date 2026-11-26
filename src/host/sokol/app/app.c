@@ -14,7 +14,6 @@
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_glue.h"
-#include "sokol/util/sokol_framebuffer.h"
 #include "sokol/util/sokol_letterbox.h"
 #include "sokol/util/sokol_debugtext.h"
 #include "sokol/util/sokol_gl.h"
@@ -648,6 +647,13 @@ int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)
         .enable_clipboard = true,
         .clipboard_size = 65536,
         .logger.func = app_log,
+#ifdef SOKOL_GLES3
+        /* GLES 3.0 is all the drawing here needs. On Linux sokol would ask
+         * for 3.1, so asking for less lets older GPUs open the window too,
+         * and a driver still gives its newest compatible context. The web's
+         * WebGL2 is 3.0 either way. */
+        .gl = {.major_version = 3, .minor_version = 0},
+#endif
     });
     return app_exit_code();
 }

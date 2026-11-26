@@ -31,9 +31,9 @@ The Pi Pico VS Code Extension may need this additional software:
 $ sudo apt install python3 git tar build-essential gdb-multiarch pkg-config libftdi1-dev libhidapi-hidraw0
 ```
 
-For the emulator, install the GL/X11/PulseAudio dev headers:
+For the emulator, install the EGL/GLES/X11/PulseAudio dev headers:
 ```
-$ sudo apt install libgl-dev libx11-dev libxi-dev libxcursor-dev libpulse-dev
+$ sudo apt install libegl-dev libgles-dev libx11-dev libxi-dev libxcursor-dev libpulse-dev
 ```
 
 For the FPGA core, install Verilator and the RISC-V toolchain the soft CPU's

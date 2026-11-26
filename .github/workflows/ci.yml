@@ -271,7 +271,7 @@ jobs:
         uses: ./.github/actions/apt-install
         with:
           packages: >-
-            build-essential cmake ninja-build libgl-dev libx11-dev
+            build-essential cmake ninja-build libegl-dev libgles-dev libx11-dev
             libxi-dev libxcursor-dev libpulse-dev
 
       - name: Configure & build emulator (Release)

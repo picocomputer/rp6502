@@ -3,8 +3,12 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * sokol_framebuffer.h does the upload and the prescaled blit, and
- * sokol_letterbox.h fits the viewport.
+ * The machine's frame is a texture, uploaded once for each new frame and
+ * drawn in the window's own pass by one shader that scales it, and
+ * sokol_letterbox.h fits the viewport. There is no offscreen pass: in WebGL a
+ * pass into a texture asks the GPU process whether the target is complete, and
+ * the page waits for the answer, which comes late whenever that process is
+ * busy presenting.
  */
 
 #include "host/sokol/app/gfx.h"
@@ -15,7 +19,6 @@
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_glue.h"
-#include "sokol/util/sokol_framebuffer.h"
 #include "sokol/util/sokol_letterbox.h"
 #ifdef EMU_WITH_DEBUGGER
 #include "host/sokol/dbg/dbgui.h"
@@ -27,7 +30,15 @@ static struct
 {
     int frame_w, frame_h; /* last seen frame shape */
     bool fixed_aspect;
-    sfb_framebuffer sfb;
+    /* The frame's texture, the staging buffer each upload goes through, and
+     * the size they were made at. */
+    sg_image img;
+    sg_view view;
+    sg_buffer staging;
+    int img_w, img_h;
+    sg_sampler nearest, linear;
+    sg_shader shd;
+    sg_pipeline pip;
     gfx_filter_t filter;
     float bg_r, bg_g, bg_b;
     /* The machine's frame on screen, whose shape everything here goes by,
@@ -76,25 +87,6 @@ static void frame_size(int *w, int *h)
     }
     else
         canvas_size(w, h);
-}
-
-/* The largest integer scale at which the canvas still fits the window, taking
- * the smaller axis so pixels stay square; sfb's final linear pass absorbs the
- * fractional remainder. The cap bounds video memory, because sfb has none of
- * its own and a maximized window on a small canvas would otherwise ask for an
- * enormous render target: 640*6 by 480*6 in RGBA8 is a 42 MB ceiling. The floor
- * of 1 keeps a window smaller than the canvas off a zero-size target. */
-#define WINDOW_PRESCALE_MAX 6
-
-static int sharp_prescale(int cw, int ch, int aw, int ah)
-{
-    int fx = aw / cw, fy = ah / ch;
-    int f = fx < fy ? fx : fy;
-    if (f < 1)
-        f = 1;
-    if (f > WINDOW_PRESCALE_MAX)
-        f = WINDOW_PRESCALE_MAX;
-    return f;
 }
 
 /* When the debugger's menu bar and dockspace are up, panels dock beside the
@@ -263,17 +255,190 @@ bool gfx_canvas_from_fb(float px, float py, int *cx, int *cy)
 }
 
 
+/* The shader draws one triangle that covers the viewport, and fs_params is
+ * the canvas size in pixels and the scale, the window pixels one canvas pixel
+ * covers along each axis. Sharp gives the real scale, which keeps each canvas
+ * pixel a solid block and blends only across the one window pixel where two
+ * meet, so pixel widths stay even at any scale. Linear and nearest give a
+ * scale of 1, which samples where the pixel lands, with the linear or the
+ * nearest sampler. Below a scale of 1 sharp is linear too. */
+typedef struct
+{
+    float size[2];
+    float scale[2];
+} gfx_fs_params_t;
+
+#if defined(SOKOL_GLES3)
+static const char gfx_vs_src[] =
+    "#version 300 es\n"
+    "out vec2 uv;\n"
+    "void main()\n"
+    "{\n"
+    "    float x = float((gl_VertexID & 1) << 1);\n"
+    "    float y = float(gl_VertexID & 2);\n"
+    "    gl_Position = vec4(x * 2.0 - 1.0, y * 2.0 - 1.0, 0.5, 1.0);\n"
+    "    uv = vec2(x, 1.0 - y);\n"
+    "}\n";
+static const char gfx_fs_src[] =
+    "#version 300 es\n"
+    "precision highp float;\n"
+    "uniform vec4 fs_params[1];\n"
+    "uniform highp sampler2D tex_smp;\n"
+    "in vec2 uv;\n"
+    "layout(location = 0) out vec4 frag_color;\n"
+    "void main()\n"
+    "{\n"
+    "    vec2 size = fs_params[0].xy, scale = fs_params[0].zw;\n"
+    "    vec2 texel = uv * size;\n"
+    "    vec2 d = fract(texel) - 0.5;\n"
+    "    vec2 edge = 0.5 - 0.5 / scale;\n"
+    "    vec2 at = floor(texel) + 0.5 + (d - clamp(d, -edge, edge)) * scale;\n"
+    "    frag_color = vec4(texture(tex_smp, at / size).rgb, 1.0);\n"
+    "}\n";
+#elif defined(SOKOL_D3D11)
+static const char gfx_vs_src[] =
+    "struct vs_out { float2 uv : TEXCOORD0; float4 pos : SV_Position; };\n"
+    "vs_out vs_main(uint vid : SV_VertexID)\n"
+    "{\n"
+    "    vs_out o;\n"
+    "    float x = (vid & 1) ? 2.0 : 0.0;\n"
+    "    float y = (vid & 2) ? 2.0 : 0.0;\n"
+    "    o.pos = float4(x * 2.0 - 1.0, y * 2.0 - 1.0, 0.5, 1.0);\n"
+    "    o.uv = float2(x, 1.0 - y);\n"
+    "    return o;\n"
+    "}\n";
+static const char gfx_fs_src[] =
+    "cbuffer fs_params : register(b0) { float4 params; };\n"
+    "Texture2D<float4> tex : register(t0);\n"
+    "SamplerState smp : register(s0);\n"
+    "float4 fs_main(float2 uv : TEXCOORD0) : SV_Target0\n"
+    "{\n"
+    "    float2 size = params.xy, scale = params.zw;\n"
+    "    float2 texel = uv * size;\n"
+    "    float2 d = frac(texel) - 0.5;\n"
+    "    float2 edge = 0.5 - 0.5 / scale;\n"
+    "    float2 at = floor(texel) + 0.5 + (d - clamp(d, -edge, edge)) * scale;\n"
+    "    return float4(tex.Sample(smp, at / size).rgb, 1.0);\n"
+    "}\n";
+#elif defined(SOKOL_METAL)
+static const char gfx_vs_src[] =
+    "#include <metal_stdlib>\n"
+    "using namespace metal;\n"
+    "struct vs_out { float4 pos [[position]]; float2 uv [[user(locn0)]]; };\n"
+    "vertex vs_out vs_main(uint vid [[vertex_id]])\n"
+    "{\n"
+    "    vs_out o;\n"
+    "    float x = (vid & 1) ? 2.0 : 0.0;\n"
+    "    float y = (vid & 2) ? 2.0 : 0.0;\n"
+    "    o.pos = float4(x * 2.0 - 1.0, y * 2.0 - 1.0, 0.5, 1.0);\n"
+    "    o.uv = float2(x, 1.0 - y);\n"
+    "    return o;\n"
+    "}\n";
+static const char gfx_fs_src[] =
+    "#include <metal_stdlib>\n"
+    "using namespace metal;\n"
+    "struct fs_in { float2 uv [[user(locn0)]]; };\n"
+    "struct fs_params { float4 params; };\n"
+    "fragment float4 fs_main(fs_in in [[stage_in]], constant fs_params& p [[buffer(0)]],\n"
+    "                        texture2d<float> tex [[texture(0)]], sampler smp [[sampler(0)]])\n"
+    "{\n"
+    "    float2 size = p.params.xy, scale = p.params.zw;\n"
+    "    float2 texel = in.uv * size;\n"
+    "    float2 d = fract(texel) - 0.5;\n"
+    "    float2 edge = 0.5 - 0.5 / scale;\n"
+    "    float2 at = floor(texel) + 0.5 + (d - clamp(d, -edge, edge)) * scale;\n"
+    "    return float4(tex.sample(smp, at / size).rgb, 1.0);\n"
+    "}\n";
+#else
+#error "gfx.c has shaders for SOKOL_GLES3, SOKOL_D3D11 and SOKOL_METAL"
+#endif
+
+static sg_shader gfx_make_shader(void)
+{
+    return sg_make_shader(&(sg_shader_desc){
+        .vertex_func = {.source = gfx_vs_src, .entry = "vs_main"},
+        .fragment_func = {.source = gfx_fs_src, .entry = "fs_main"},
+        .uniform_blocks[0] = {
+            .stage = SG_SHADERSTAGE_FRAGMENT,
+            .layout = SG_UNIFORMLAYOUT_STD140,
+            .size = sizeof(gfx_fs_params_t),
+            .hlsl_register_b_n = 0,
+            .msl_buffer_n = 0,
+            .glsl_uniforms[0] = {
+                .type = SG_UNIFORMTYPE_FLOAT4,
+                .array_count = 1,
+                .glsl_name = "fs_params",
+            },
+        },
+        .views[0].texture = {
+            .stage = SG_SHADERSTAGE_FRAGMENT,
+            .image_type = SG_IMAGETYPE_2D,
+            .sample_type = SG_IMAGESAMPLETYPE_FLOAT,
+            .hlsl_register_t_n = 0,
+            .msl_texture_n = 0,
+        },
+        .samplers[0] = {
+            .stage = SG_SHADERSTAGE_FRAGMENT,
+            .sampler_type = SG_SAMPLERTYPE_FILTERING,
+            .hlsl_register_s_n = 0,
+            .msl_sampler_n = 0,
+        },
+        .texture_sampler_pairs[0] = {
+            .stage = SG_SHADERSTAGE_FRAGMENT,
+            .view_slot = 0,
+            .sampler_slot = 0,
+            .glsl_name = "tex_smp",
+        },
+        .label = "gfx-shader",
+    });
+}
+
+static sg_sampler gfx_make_sampler(sg_filter filter)
+{
+    return sg_make_sampler(&(sg_sampler_desc){
+        .min_filter = filter,
+        .mag_filter = filter,
+        .wrap_u = SG_WRAP_CLAMP_TO_EDGE,
+        .wrap_v = SG_WRAP_CLAMP_TO_EDGE,
+    });
+}
+
+static void gfx_destroy_image(void)
+{
+    sg_destroy_view(gfx.view);
+    sg_destroy_image(gfx.img);
+    sg_destroy_buffer(gfx.staging);
+}
+
+/* The texture and its staging buffer at the canvas size. A copy into a
+ * texture is the upload sokol_gfx offers for one kept across frames, which a
+ * duplicate present re-draws. */
+static void gfx_make_image(int w, int h)
+{
+    gfx.staging = sg_make_buffer(&(sg_buffer_desc){
+        .usage = {.staging_buffer = true, .write_transient = true, .copy_src = true},
+        .size = (size_t)w * h * sizeof(uint32_t),
+    });
+    gfx.img = sg_make_image(&(sg_image_desc){
+        .usage.copy_dst = true,
+        .width = w,
+        .height = h,
+        .pixel_format = SG_PIXELFORMAT_RGBA8,
+    });
+    gfx.view = sg_make_view(&(sg_view_desc){.texture.image = gfx.img});
+    gfx.img_w = w;
+    gfx.img_h = h;
+}
+
 void gfx_setup(void)
 {
-    sfb_setup(&(sfb_desc){
-        .logger.func = app_log,
-    });
+    gfx.shd = gfx_make_shader();
+    gfx.pip = sg_make_pipeline(&(sg_pipeline_desc){.shader = gfx.shd});
+    gfx.nearest = gfx_make_sampler(SG_FILTER_NEAREST);
+    gfx.linear = gfx_make_sampler(SG_FILTER_LINEAR);
     int cw, ch;
     canvas_size(&cw, &ch);
-    gfx.sfb = sfb_make_framebuffer(&(sfb_framebuffer_desc){
-        .width = cw,
-        .height = ch,
-    });
+    gfx_make_image(cw, ch);
     frame_size(&gfx.frame_w, &gfx.frame_h);
     if (!overlay_active())
         host_window_set_aspect(gfx.frame_w, gfx.frame_h, false);
@@ -332,27 +497,25 @@ void gfx_upload(bool new_frame)
      * the shape of a fixed frame, the difference becomes letterbox or pillarbox
      * against the clear color and nothing stretches. */
     canvas_vp = canvas_viewport();
-    int f = gfx.filter == GFX_FILTER_SHARP
-                ? sharp_prescale(cw, ch, canvas_vp.width, canvas_vp.height)
-                : 1;
-    /* sfb_resize recreates its images only when the canvas or the prescale
-     * factor changed. The cliprect has to be given explicitly because
-     * sfb_resize stores the raw desc value, so a zeroed rectangle on a resize
-     * that recreates would make a 0 by 0 image. */
-    bool recreated = sfb_resize(gfx.sfb, &(sfb_resize_desc){
-        .width = cw,
-        .height = ch,
-        .prescale = f,
-        .cliprect = {0, 0, cw, ch},
-    });
+    bool recreated = cw != gfx.img_w || ch != gfx.img_h;
+    if (recreated)
+    {
+        gfx_destroy_image();
+        gfx_make_image(cw, ch);
+    }
 
     /* A duplicate present, which is what a display faster than 60 Hz asks for,
-     * re-blits sfb's existing texture instead of uploading again. A resize that
-     * recreated the images has to fill them whatever the machine did. */
+     * re-draws the texture it has instead of uploading again. A texture made
+     * for a new canvas size has to be filled whatever the machine did. */
     if (new_frame || recreated)
     {
-        sfb_update(gfx.sfb, &(sfb_update_desc){
-            .pixels = {.ptr = gfx.shown->pixels, .size = (size_t)cw * ch * sizeof(uint32_t)},
+        sg_write_buffer_transient(&(sg_write_buffer_desc){
+            .src.data = {.ptr = gfx.shown->pixels, .size = (size_t)cw * ch * sizeof(uint32_t)},
+            .dst.buffer = gfx.staging,
+        });
+        sg_copy_buffer_to_image(&(sg_copy_buffer_to_image_desc){
+            .src.buffer = gfx.staging,
+            .dst.image = gfx.img,
         });
         gfx.ever_uploaded = true;
     }
@@ -369,7 +532,7 @@ void gfx_begin_pass(void)
 
 void gfx_blit(void)
 {
-    /* sfb's texture holds nothing until the first upload, so skipping the blit
+    /* The texture holds nothing until the first upload, so skipping the blit
      * leaves the pass showing only the clear color. A platform overlay suppresses
      * the canvas the same way, and its own text then draws with the pass's
      * full-window viewport still in effect. */
@@ -377,10 +540,24 @@ void gfx_blit(void)
         host_window_menu_active())
         return;
     sg_apply_viewport(canvas_vp.x, canvas_vp.y, canvas_vp.width, canvas_vp.height, true);
-    if (gfx.filter == GFX_FILTER_NEAREST)
-        sfb_render_ex(gfx.sfb, &(sfb_render_desc){.use_nearest_filter = true});
-    else
-        sfb_render(gfx.sfb);
+    sg_apply_pipeline(gfx.pip);
+    sg_apply_bindings(&(sg_bindings){
+        .views[0] = gfx.view,
+        .samplers[0] = gfx.filter == GFX_FILTER_NEAREST ? gfx.nearest : gfx.linear,
+    });
+    gfx_fs_params_t params = {
+        .size = {(float)gfx.img_w, (float)gfx.img_h},
+        .scale = {1.0f, 1.0f},
+    };
+    if (gfx.filter == GFX_FILTER_SHARP)
+    {
+        const float sx = (float)canvas_vp.width / gfx.img_w;
+        const float sy = (float)canvas_vp.height / gfx.img_h;
+        params.scale[0] = sx > 1.0f ? sx : 1.0f;
+        params.scale[1] = sy > 1.0f ? sy : 1.0f;
+    }
+    sg_apply_uniforms(0, &SG_RANGE(params));
+    sg_draw(0, 3, 1);
 }
 
 void gfx_end_pass(void)
@@ -391,7 +568,11 @@ void gfx_end_pass(void)
 
 void gfx_shutdown(void)
 {
-    sfb_shutdown();
+    gfx_destroy_image();
+    sg_destroy_pipeline(gfx.pip);
+    sg_destroy_shader(gfx.shd);
+    sg_destroy_sampler(gfx.nearest);
+    sg_destroy_sampler(gfx.linear);
 }
 
 /* The window opens at the height --scale asks for and the width its frame
