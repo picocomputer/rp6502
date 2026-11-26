@@ -148,7 +148,8 @@ static void aud_pm_step(uint64_t to)
     aud_pm.at = to;
 }
 
-/* The native sample the machine had reached at the end of its last frame. */
+/* The native sample the machine had reached at the end of its last frame,
+ * or, for a streaming sink, at its last step. */
 static _Atomic uint64_t aud_now;
 
 /* Whether a debugger held the machine at the end of its last frame. The
@@ -213,8 +214,10 @@ static _Atomic bool aud_streaming;
  * is left for the trim is the two crystals, the host's and the device's,
  * hundredths of a percent, and whatever the host's figure is off by.
  *
- * It takes the least headroom of each half second and steers by the least
- * of the last sixteen seconds of those. Frames do not come evenly from a
+ * It takes the least headroom of each half second and steers the least of
+ * the last sixteen seconds of those to AUD_MARGIN, two milliseconds. A loop
+ * that steered to none had the render short by the scheduler's lateness, a
+ * few samples held, several times a second, which a PCM: sound makes heard. Frames do not come evenly from a
  * display the machine does not follow: at 800x600's 60.32 Hz each comes a
  * little earlier than the one before for three seconds, and then one comes a
  * whole frame late. The least of sixteen seconds is the bottom of that,
@@ -229,13 +232,24 @@ static _Atomic bool aud_streaming;
  * 0.5%, and the step moves no more than AUD_BEND in a half second. It is
  * that slow so that the pitch does not move: a loop ten times as fast bent
  * a steady tone by a third of a percent from one half second to the next,
- * which is heard. The loop is at its 0.5% with a least of AUD_JUMP, 50 ms,
- * and a least that far past one of the sink's requests, sixteen seconds
- * running, is past what it can remove and is given back by moving aud_off
- * back. That waits for
- * the OPL2's queue to be empty and goes only up to the next stamped change,
- * so the queue never sees two writes closer than the machine made them and
+ * which is heard. Its integral takes in no more than AUD_I_CAP of the
+ * error, five milliseconds: an error larger is an offset, which the
+ * proportional part removes, and not a crystal's drift, and taken in whole
+ * it wound the integral up to overshoot by an eighth of it and hold the
+ * render short for a minute after. So is what the render was short by
+ * while the machine was only slow, its first frames, say, whose catch-up
+ * leaves the sound that much further behind: aud_owed keeps it, never more
+ * than is still there past the margin, and the integral leaves it out while
+ * the proportional part bends it back.
+ *
+ * A least past one of the sink's requests by AUD_JUMP, 50 ms, sixteen
+ * seconds running, where the loop is at its 0.5%, is past what it can
+ * remove, and is given back by moving aud_off back. That waits for the
+ * OPL2's queue to be empty and goes only up to the next stamped change, so
+ * the queue never sees two writes closer than the machine made them and
  * keeps or drops each as the Pico would. */
+#define AUD_MARGIN ((int64_t)AUD_NATIVE_RATE / 500)
+#define AUD_I_CAP ((int64_t)AUD_NATIVE_RATE / 200)
 #define AUD_TRIM_W 0.05
 #define AUD_TRIM_MAX 0.005
 #define AUD_JUMP ((int64_t)(AUD_TRIM_MAX * AUD_NATIVE_RATE) * 10)
@@ -243,7 +257,7 @@ static _Atomic bool aud_streaming;
 #define AUD_LOWS 32
 static _Atomic int32_t aud_speed; // the machine's, off the wall clock's, in parts of 1e9
 static bool aud_anchored;
-static int64_t aud_low, aud_short, aud_lows[AUD_LOWS];
+static int64_t aud_low, aud_short, aud_owed, aud_lows[AUD_LOWS];
 static uint32_t aud_window;
 static double aud_trim_i, aud_trim, aud_hint;
 
@@ -705,6 +719,14 @@ void aud_step(void)
     }
 }
 
+/* Only a streaming sink is told: one on the machine's thread takes what the
+ * frame made at aud_step, from where the frame before left aud_now. */
+void aud_progress(void)
+{
+    if (atomic_load_explicit(&aud_streaming, memory_order_relaxed))
+        atomic_store_explicit(&aud_now, bus_now(AUD_NATIVE_RATE), memory_order_release);
+}
+
 uint64_t aud_samples(void) { return aud_made; }
 
 /* The end of a window of the streaming trim. need is the sink's request. */
@@ -721,9 +743,20 @@ static void aud_settle(uint32_t rate, int64_t need)
     for (int i = 0; i < AUD_LOWS; i++)
         if (aud_lows[i] < low)
             low = aud_lows[i];
-    if (aud_lows[AUD_LOWS - 1] != INT64_MAX && low > need + AUD_JUMP && !RING_LEN(&opl_queue.ring))
+    int filled = 0;
+    while (filled < AUD_LOWS && aud_lows[filled] != INT64_MAX)
+        filled++;
+    /* What is owed is at most what is still there past the margin: the rest
+     * the loop has already taken up. */
+    if (filled >= AUD_LOWS / 4)
     {
-        int64_t by = low;
+        const int64_t over = low > AUD_MARGIN ? low - AUD_MARGIN : 0;
+        if (aud_owed > over)
+            aud_owed = over;
+    }
+    int64_t by = filled == AUD_LOWS && low > need + AUD_JUMP ? low : 0;
+    if (by > 0 && !RING_LEN(&opl_queue.ring))
+    {
         if (RING_LEN(&aud_ev))
         {
             /* The queue's credit is back to idle two samples after it
@@ -736,16 +769,21 @@ static void aud_settle(uint32_t rate, int64_t need)
         if (by > 0)
         {
             aud_off -= by;
+            aud_owed = by < aud_owed ? aud_owed - by : 0;
             for (int i = 0; i < AUD_LOWS; i++)
                 if (aud_lows[i] != INT64_MAX)
                     aud_lows[i] -= by;
             low -= by;
         }
     }
-    const int64_t on = shortfall ? -shortfall : low;
+    const int64_t on = (shortfall ? -shortfall : low) - AUD_MARGIN;
     const double e = (double)(on > AUD_JUMP ? AUD_JUMP : on < -AUD_JUMP ? -AUD_JUMP : on);
     const double r = AUD_NATIVE_RATE;
-    aud_trim_i += AUD_TRIM_W * AUD_TRIM_W / r * e * dt;
+    /* What is owed is an offset, and is not the integral's. */
+    const double cap = (double)AUD_I_CAP;
+    const double eo = shortfall ? e : e - (double)aud_owed;
+    const double ei = eo > cap ? cap : eo < -cap ? -cap : eo;
+    aud_trim_i += AUD_TRIM_W * AUD_TRIM_W / r * ei * dt;
     if (aud_trim_i > AUD_TRIM_MAX)
         aud_trim_i = AUD_TRIM_MAX;
     if (aud_trim_i < -AUD_TRIM_MAX)
@@ -799,6 +837,7 @@ static int aud_stream(float *dst, int samples)
         else
             aud_off -= h;
         aud_anchored = true;
+        aud_owed = 0;
         aud_forget();
         aud_seen = now;
         aud_dry = 0;
@@ -819,6 +858,7 @@ static int aud_stream(float *dst, int samples)
             if (h < 0)
             {
                 aud_short -= h;
+                aud_owed -= h;
                 for (int i = 0; i < AUD_LOWS; i++)
                     if (aud_lows[i] != INT64_MAX)
                         aud_lows[i] -= h;
@@ -1121,6 +1161,7 @@ static bool aud_sst_loaded(sst_cursor_t *c)
     X(SKIP, aud_anchored, "the streaming sink's trim")          \
     X(SKIP, aud_low, "the streaming sink's trim")               \
     X(SKIP, aud_short, "the streaming sink's trim")             \
+    X(SKIP, aud_owed, "the streaming sink's trim")              \
     X(SKIP, aud_lows, "the streaming sink's trim")              \
     X(SKIP, aud_window, "the streaming sink's trim")            \
     X(SKIP, aud_trim_i, "the streaming sink's trim")            \

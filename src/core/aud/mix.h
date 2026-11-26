@@ -76,6 +76,12 @@ void aud_pcm_clear(void);
  * mix is stepped up to here. */
 void aud_step(void);
 
+/* A software machine's present between the steps of a frame, where the
+ * stamps before it are all in too. A streaming sink may play up to it, so
+ * the frame's sound is there as the machine makes it rather than all at
+ * once at the frame's end. */
+void aud_progress(void);
+
 /* Native samples the mix has made; while one is being made, its index. */
 uint64_t aud_samples(void);
 

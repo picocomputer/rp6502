@@ -101,6 +101,10 @@ static bool paced, shown_new;
  * present. */
 static uint64_t work_ns;
 #define WORK_MARGIN_NS 1000000
+/* Callbacks whose present does not wait, and every how many of them one goes
+ * at once: a half second's. */
+static unsigned unpaced_presents;
+#define UNPACED_PROBE 30
 /* A present that waits for the display holds the thread for milliseconds and
  * one that waits for nothing returns in microseconds, so two milliseconds
  * between the stamp taken before the upload and the next callback tells the
@@ -262,14 +266,18 @@ void app_frame(void)
         const int64_t left = period - (int64_t)work_ns - WORK_MARGIN_NS;
         room = (uint64_t)(left > period / 4 ? left : period / 4);
     }
+    else if (++unpaced_presents % UNPACED_PROBE == 0)
+        /* A present made at the machine's rate never waits on a display
+         * faster than it, so a display that does pace would never be seen
+         * to: now and then one goes straight after the last, to find out. */
+        room = 0;
     else
     {
         /* The window shows each new frame as the machine finishes it, but
          * no sooner than half a frame after the last callback, which bounds
          * it under --phi2 0. It does not wait on its own clock, which would
          * line its present up with the display's and leave the present
-         * nothing to wait for, so a display that paces would never be seen
-         * to. */
+         * nothing to wait for. */
 #ifndef __EMSCRIPTEN__
         const uint64_t soonest = now - dt + VGA_FRAME_NS / 2;
         if (soonest > now)

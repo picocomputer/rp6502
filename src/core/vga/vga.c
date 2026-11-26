@@ -169,6 +169,7 @@ bool vga_run_frame(void)
         }
         sys_task();
         sys_commit();
+        aud_progress();
         if (vga_pause)
             vga_pause();
     }
