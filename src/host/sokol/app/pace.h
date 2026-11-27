@@ -164,11 +164,15 @@ static inline void pace_add(pace_t *p, uint64_t dt_ns, bool paced)
     else if (apart > 4 * PACE_QUICK_NS || apart < -4 * PACE_QUICK_NS)
         p->quick = false;
     p->follows = paced && p->near && p->quick;
-    if (p->follows)
+    if (p->follows && n == 1)
     {
         /* The display's frames are the machine's: what the debt is off a
          * whole number of callbacks by is the callback's lateness and the
-         * display's rate, and is forgotten. */
+         * display's rate, and is forgotten. Only a callback a period after
+         * the last says so. One that came periods late was held up, as a
+         * browser holds a page's frames while its window is dragged, and
+         * the time it was held is the machine's: forgotten, it would leave
+         * the sound short. */
         const int64_t step = PACE_FRAME_NS / each;
         const int64_t off = p->debt_ns - pace_round(p->debt_ns, step) * step;
         p->debt_ns -= off > PACE_LATE_NS ? PACE_LATE_NS : off < -PACE_LATE_NS ? -PACE_LATE_NS : off;

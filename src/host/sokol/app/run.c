@@ -266,6 +266,14 @@ static void run_tick(const evq_tick_t *in)
     /* A callback from before the worker's clock began is at its start. */
     const int64_t worker_at = (int64_t)at.at + run_web_skew;
     at.at = worker_at > 0 ? (uint64_t)worker_at : 0;
+    /* The page's callbacks reach the worker as messages, and the browser
+     * holds them back while it is busy -- its window being dragged, say -- and
+     * lets them go in a bunch. Only a callback one steady period after the
+     * last is the display pacing the page; any other is not followed, and the
+     * machine runs on the wall clock until they are steady again. */
+    const int64_t period = run.pace.period_ns;
+    if (period && ((int64_t)at.dt > period + period / 5 || (int64_t)at.dt < period - period / 5))
+        at.paced = false;
 #endif
     const evq_tick_t *t = &at;
     run_owe_to(t->at);
@@ -336,9 +344,16 @@ static uint64_t run_frames(uint64_t now, bool ticked)
         run.pace.debt_ns = 0;
         return run_one() ? 0 : PACE_FRAME_NS;
     }
-    if (!ticked && now >= run_due_at())
+    /* The wall clock is the floor: past the time the next frame was due, by
+     * a display callback or not, the time to now is owed. A callback that
+     * came late, as the web player's page's do while the browser holds its
+     * frames, owes the machine only up to its own time, and the machine would
+     * otherwise fall behind and its sound run dry. One that never came is a
+     * display held up or stopped. */
+    if (now >= run_due_at())
     {
-        run_display_stopped(now);
+        if (!ticked)
+            run_display_stopped(now);
         run_owe_to(now);
     }
     run_due();

@@ -87,7 +87,15 @@
                 timer = setTimeout(wake, ms);
             },
         };
-        const wake = () => player.running && !quitting && !failed && Module._link_wake();
+        const wake = () => {
+            if (!player.running || quitting || failed)
+                return;
+            const now = performance.now();
+            if (sound.woke)
+                sound.wakeGap = Math.max(sound.wakeGap, now - sound.woke);
+            sound.woke = now;
+            Module._link_wake();
+        };
 
         // The sound's player is on the page's audio thread, and its port comes
         // from the page. It says after each quantum how much it holds, which
@@ -101,6 +109,9 @@
             low: -1,
             least: -1,
             dry: 0,
+            // The longest wait between two chunks, and between two wakes,
+            // since the last stats, in ms.
+            at: 0, gap: 0, woke: 0, wakeGap: 0,
             push(data, frames) {
                 if (!this.port)
                     return;
@@ -109,18 +120,24 @@
                     d = new Float32Array(Math.max(data.length, 8192));
                 d.set(data);
                 this.port.postMessage({d, n: frames}, [d.buffer]);
+                const now = performance.now();
+                if (this.at)
+                    this.gap = Math.max(this.gap, now - this.at);
+                this.at = now;
             },
         };
         // A page that wants to watch the queue, as the developer's run page
         // does (.vscode/run.py), is told once a second: its least, how many
-        // times it ran dry, its rate and the floor it is kept at.
+        // times it ran dry, its rate, the floor it is kept at, and the longest
+        // waits between two chunks of sound and between two wakes.
         if (settings.stats)
             setInterval(() => {
                 if (!sound.running)
                     return;
                 post({stats: {least: sound.least, dry: sound.dry, rate: sound.rate,
-                              floor: Module._web_audio_floor?.()}});
+                              floor: Module._web_audio_floor?.(), gap: sound.gap, wakeGap: sound.wakeGap}});
                 sound.least = -1;
+                sound.gap = sound.wakeGap = 0;
             }, 1000);
         function connect(port) {
             sound.port = port;
