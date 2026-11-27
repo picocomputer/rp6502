@@ -57,21 +57,9 @@ def web(rom):
         sys.exit("run.py: the bundle's index.html no longer names adventure.rp6502")
     html = html.replace("'adventure.rp6502'", repr(rom.name))
     html = html.replace("'Colossal Cave Adventure'", repr(rom.stem))
-    # The player tells a page that asks how its sound's queue stands, once a
-    # second while its sound runs (least, dry, rate, floor), which is posted
-    # here and printed (host/web/page.js).
-    stats = ("<script>globalThis.rp6502_audio_stats = (s) => "
-             "fetch('/stats', {method: 'POST', body: JSON.stringify(s)});</script>\n")
-    html = html.replace("<script", stats + "<script", 1)
     (run / "index.html").write_text(html, encoding="utf-8")
 
     class Handler(http.server.SimpleHTTPRequestHandler):
-        def do_POST(self):
-            body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-            print(f"sound: {body.decode(errors='replace')}", flush=True)
-            self.send_response(204)
-            self.end_headers()
-
         def log_message(self, format, *args):
             pass
 

@@ -90,10 +90,6 @@
         const wake = () => {
             if (!player.running || quitting || failed)
                 return;
-            const now = performance.now();
-            if (sound.woke)
-                sound.wakeGap = Math.max(sound.wakeGap, now - sound.woke);
-            sound.woke = now;
             Module._link_wake();
         };
 
@@ -107,11 +103,6 @@
             running: false,
             port: null,
             low: -1,
-            least: -1,
-            dry: 0,
-            // The longest wait between two chunks, and between two wakes,
-            // since the last stats, in ms.
-            at: 0, gap: 0, woke: 0, wakeGap: 0,
             push(data, frames) {
                 if (!this.port)
                     return;
@@ -120,38 +111,17 @@
                     d = new Float32Array(Math.max(data.length, 8192));
                 d.set(data);
                 this.port.postMessage({d, n: frames}, [d.buffer]);
-                const now = performance.now();
-                if (this.at)
-                    this.gap = Math.max(this.gap, now - this.at);
-                this.at = now;
             },
         };
-        // A page that wants to watch the queue, as the developer's run page
-        // does (.vscode/run.py), is told once a second: its least, how many
-        // times it ran dry, its rate, the floor it is kept at, and the longest
-        // waits between two chunks of sound and between two wakes.
-        if (settings.stats)
-            setInterval(() => {
-                if (!sound.running)
-                    return;
-                post({stats: {least: sound.least, dry: sound.dry, rate: sound.rate,
-                              floor: Module._web_audio_floor?.(), gap: sound.gap, wakeGap: sound.wakeGap}});
-                sound.least = -1;
-                sound.gap = sound.wakeGap = 0;
-            }, 1000);
         function connect(port) {
             sound.port = port;
             port.onmessage = (e) => {
                 const q = e.data;
                 if (typeof q !== 'number') {
-                    if (q.d)
-                        pool.push(q.d);
-                    else
-                        sound.dry = q.dry;
+                    pool.push(q.d);
                     return;
                 }
                 sound.low = sound.low < 0 ? q : Math.min(sound.low, q);
-                sound.least = sound.least < 0 ? q : Math.min(sound.least, q);
                 wake();
             };
         }
@@ -756,7 +726,6 @@
                     this.playing = false;
                     this.rising = false;
                     this.last = [0, 0];
-                    this.dry = 0;
                     this.port.onmessage = (e) => {
                         this.feed = e.data;
                         this.feed.onmessage = (m) => {
@@ -806,8 +775,6 @@
                         }
                     }
                     if (i < n) {
-                        if (this.playing)
-                            this.feed?.postMessage({dry: ++this.dry});
                         const m = n - i;
                         for (let k = 0; k < m; k++) {
                             const g = (m - 1 - k) / m;
@@ -857,8 +824,6 @@
                 deliver(m.events);
             else if (m.fail)
                 fail(m.fail);
-            else if (m.stats)
-                globalThis.rp6502_audio_stats(m.stats);
             else if (m.waiting !== undefined) {
                 if (m.waiting)
                     show('This game is running in another player or window.');
@@ -882,8 +847,7 @@
             };
             worker.postMessage({init: {
                 settings: {args, files, db: settings.db || '', held: autoplay === 'off' || autoplay === 'auto',
-                           rate: audio?.audioWorklet ? audio.sampleRate : 0,
-                           stats: typeof globalThis.rp6502_audio_stats === 'function'},
+                           rate: audio?.audioWorklet ? audio.sampleRate : 0},
                 origin: performance.timeOrigin,
             }, module: player.module});
             started.then(() => worker.postMessage({go: true}));
