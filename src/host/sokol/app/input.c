@@ -128,6 +128,26 @@ static uint8_t input_modifier(const sapp_event *e)
                      ((e->modifiers & SAPP_MODIFIER_SUPER) ? KEYBOARD_MODIFIER_LEFTGUI : 0));
 }
 
+/* Whether sokol could not give the clipboard's text, too big for its
+ * buffer, since the last read: it hands back the text it last had then, so
+ * there is none. */
+static bool input_too_big;
+
+void input_clipboard_too_big(void)
+{
+    input_too_big = true;
+}
+
+#if !defined(__EMSCRIPTEN__)
+/* The desktop's clipboard as it is now, pasted in a paste key's place. */
+static void input_paste_clipboard(void)
+{
+    input_too_big = false;
+    const char *text = sapp_get_clipboard_string();
+    evq_text_to_machine(EVQ_PASTE, input_too_big ? "" : text);
+}
+#endif
+
 bool input_paste_key(const sapp_event *e)
 {
     return e->type == SAPP_EVENTTYPE_KEY_DOWN && !e->key_repeat &&
@@ -250,14 +270,19 @@ static void input_key(const sapp_event *e)
         .meta = true,
         .acts = true,
     };
-#if defined(__EMSCRIPTEN__)
-    /* A page reads the clipboard only in the paste event that a paste key
-     * makes, so a paste key is left to the browser (entry.c), and the paste
-     * event that follows pastes. */
+    /* A paste key pastes what is on the clipboard as it goes down, which
+     * is what the user meant, so the machine never pastes for it: the key
+     * goes only into the keyboard's bitmap, and its text follows in its
+     * place (event_paste). A page reads its clipboard only in the paste
+     * event the key makes, so there the key is left to the browser
+     * (entry.c), and that event follows (CLIPBOARD_PASTED below). */
     if (key_clip(k.usage, k.modifier) == KEY_CLIP_PASTE)
         k.acts = false;
-#endif
     evq_to_machine(EVQ_KEY, &k, sizeof k);
+#if !defined(__EMSCRIPTEN__)
+    if (input_paste_key(e))
+        input_paste_clipboard();
+#endif
 }
 
 /* One mouse count is one pixel on a 640-wide canvas and half a pixel on a
@@ -536,10 +561,9 @@ void input_event(const sapp_event *e)
          * typed 0x16, makes none (input_key_withheld). */
         evq_text_to_machine(EVQ_PASTE, sapp_get_clipboard_string());
 #endif
-        /* On the desktop the paste keys are chords (core/hid/key.h) that
-         * paste the desktop's clipboard themselves, asking for it as the
-         * paste's turn comes, so the paste sokol makes of Ctrl+V or Cmd+V
-         * is no paste. */
+        /* On the desktop a paste key reads the clipboard itself as it
+         * goes down (input_paste_clipboard), so the paste sokol makes of
+         * Ctrl+V or Cmd+V is no paste. */
         break;
     default:
         break;
@@ -599,6 +623,7 @@ void input_reset(void)
     input_cursor_shown = pointer_on_canvas = true;
     had_tablet = false;
     host_mouse_buttons = 0;
+    input_too_big = false;
     input_was_captured = false;
     input_spent = 0;
     input_wheel_rest = input_pan_rest = 0;

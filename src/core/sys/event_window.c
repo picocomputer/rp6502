@@ -13,6 +13,7 @@
 #include "core/hid/mouse.h"
 #include "core/hid/paste_host.h"
 #include "core/sys/proc.h"
+#include "core/term/vterm.h"
 #include "core/term/vterm_mouse.h"
 #include "core/hid/tablet.h"
 #include "core/vga/mode/mode6.h"
@@ -35,6 +36,16 @@ uint8_t event_cursor(void)
 void event_focus(bool focused)
 {
     vterm_focus(focused);
+}
+
+void event_focusable(void)
+{
+    vterm_set_focusable();
+}
+
+void event_minimized(bool minimized)
+{
+    vterm_minimize(minimized);
 }
 
 event_status_t event_status(void)

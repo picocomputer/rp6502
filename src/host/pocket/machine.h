@@ -20,6 +20,9 @@
 /* A program that ends returns the machine to its monitor. */
 #define RP6502_HAS_MONITOR 0
 #define TERM_MAX_HEIGHT 30
+/* The host has no clipboard of its own, so it keeps the clipboard's code
+ * page bytes for the machine, which builds core/hid/clip_codepage.c. */
+#define CLIP_CODEPAGE 1
 /* Terminal replies are the only bytes pushed into the UART ring on
  * this machine. core/com/manifold.c queues at most 32 bytes of them, so a
  * ring of 32 takes a full one. */

@@ -43,6 +43,8 @@ target_include_directories(emu_core PUBLIC ${RP6502_SRC}/host/sokol)
 include(${RP6502_SRC}/osal/posix/posix.cmake)
 rp6502_osal_posix(emu_core TRANSPORT sync)
 target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c)
+# The web page's clipboard is its own (app/clip.c).
+target_sources(emu_core PRIVATE ${RP6502_SRC}/core/hid/clip_utf8.c)
 # console.c is named here rather than by posix.cmake because it installs
 # process-wide signal handlers, which a machine that is a guest in someone
 # else's process must not do.

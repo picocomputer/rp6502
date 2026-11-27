@@ -172,6 +172,8 @@ void app_init(void)
         dbgui_init(sapp_dpi_scale());
 #endif
     machine_set_window(true);
+    /* The desktop's window and the web player both gain and lose focus. */
+    evq_to_machine(EVQ_FOCUSABLE, NULL, 0);
     if (host_window_menu_active())
         app_flag(EVQ_MENU, true);
     /* Last, once all the machine reaches is up. */
@@ -298,11 +300,6 @@ void app_frame(void)
     gfx_end_pass();
 }
 
-/* The desktop's window and the web player both gain and lose focus. */
-bool host_focusable(void)
-{
-    return true;
-}
 
 #ifndef __EMSCRIPTEN__
 bool host_mac_keys(void)
@@ -320,13 +317,7 @@ bool host_mac_keys(void)
  * clipboard is the desktop's while the window is up, and only the window's
  * thread may reach it, at a moment the machine is never waiting on, because
  * the OS may keep a clipboard call waiting on another program. A copy is put
- * there as it comes, before a paste's ask that follows it, so a cut and then
- * a paste paste what was cut. sokol hands back the text it last had when the
- * desktop's is too big for its buffer, so then there is none. */
-#ifndef __EMSCRIPTEN__
-static bool app_clipboard_too_big;
-#endif
-
+ * there as it comes; a paste reads it as its key goes down (input.c). */
 static void app_serve(void)
 {
     evq_msg_t m;
@@ -340,13 +331,6 @@ static void app_serve(void)
         case EVQ_COPY:
             sapp_set_clipboard_string(m.body);
             break;
-        case EVQ_ASK:
-        {
-            app_clipboard_too_big = false;
-            const char *text = sapp_get_clipboard_string();
-            evq_text_to_machine(EVQ_CLIPBOARD, app_clipboard_too_big ? "" : text);
-            break;
-        }
         case EVQ_BOOTED:
             prompt_booted();
             break;
@@ -529,7 +513,7 @@ void app_log(const char *tag, uint32_t log_level, uint32_t log_item_id,
     (void)user_data;
 #ifndef __EMSCRIPTEN__
     if (log_item_id == SAPP_LOGITEM_CLIPBOARD_STRING_TOO_BIG && !strcmp(tag, "sapp"))
-        app_clipboard_too_big = true;
+        input_clipboard_too_big();
 #endif
     const char *message = message_or_null ? message_or_null : "";
     const char *filename = filename_or_null ? filename_or_null : "";

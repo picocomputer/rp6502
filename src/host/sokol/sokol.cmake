@@ -23,7 +23,7 @@ set(RP6502_EMU_WINDOW
     ${CMAKE_CURRENT_LIST_DIR}/app/run.c
     ${CMAKE_CURRENT_LIST_DIR}/app/evq.c
     ${CMAKE_CURRENT_LIST_DIR}/app/evq_machine.c
-    ${CMAKE_CURRENT_LIST_DIR}/app/host.c
+    ${CMAKE_CURRENT_LIST_DIR}/app/clip.c
     ${CMAKE_CURRENT_LIST_DIR}/app/gfx.c)
 
 set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/app/sokol.c

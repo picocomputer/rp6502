@@ -466,16 +466,7 @@ const char *host_save_dir(void)
     return save_dir;
 }
 
-/* A frontend does not say what its window is doing. */
-bool host_minimized(void)
-{
-    return false;
-}
 
-bool host_focusable(void)
-{
-    return false;
-}
 
 /* A core built for macOS runs on a Mac. */
 bool host_mac_keys(void)
@@ -487,17 +478,7 @@ bool host_mac_keys(void)
 #endif
 }
 
-/* libretro gives a core no clipboard, so the machine keeps its own. */
-const char *host_clipboard_get(void)
-{
-    return NULL;
-}
 
-bool host_clipboard_set(const char *utf8)
-{
-    (void)utf8;
-    return false;
-}
 
 /* The first load cold-boots the machine; every load after it refills RAM, so
  * no data from the last program remains in memory. The content path is

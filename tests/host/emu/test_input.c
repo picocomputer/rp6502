@@ -46,7 +46,8 @@ static bool shown;
 void sapp_lock_mouse(bool lock) { captured = lock; }
 bool sapp_mouse_locked(void) { return captured; }
 sapp_desc sapp_query_desc(void) { return (sapp_desc){0}; }
-const char *sapp_get_clipboard_string(void) { return ""; }
+/* The desktop's clipboard is the bench's (tb_seed.h). */
+const char *sapp_get_clipboard_string(void) { return tb_clipboard_text(); }
 void sapp_cancel_quit(void) {}
 void sapp_set_mouse_cursor(sapp_mouse_cursor cursor) { shown_cursor = cursor; }
 void sapp_show_mouse(bool show) { shown = show; }
@@ -308,19 +309,19 @@ static void sokol_pasted(void)
 UTEST(input, ctrl_v_types_syn)
 {
     start(0);
-    ASSERT_TRUE(host_clipboard_set("text"));
+    host_clipboard_set("text");
     key(SAPP_KEYCODE_V, SAPP_MODIFIER_CTRL, 0);
     sokol_pasted();
     ASSERT_STREQ(pasted(), "\x16");
 }
 
-/* The paste keys paste the clipboard, asked for as the paste's turn
- * comes; on a Mac, Cmd+V's paste from sokol after it pastes nothing more. */
+/* The paste keys paste the clipboard, read as the key goes down; on a Mac,
+ * Cmd+V's paste from sokol after it pastes nothing more. */
 UTEST(input, the_paste_keys_paste_the_clipboard)
 {
     start(0);
     tb_mac_keys = true;
-    ASSERT_TRUE(host_clipboard_set("text"));
+    host_clipboard_set("text");
     key(SAPP_KEYCODE_V, SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT, 0);
     ASSERT_STREQ(pasted(), "text");
     key(SAPP_KEYCODE_INSERT, SAPP_MODIFIER_SHIFT, 0);
@@ -342,7 +343,7 @@ UTEST(input, the_paste_keys_paste_the_clipboard)
 UTEST(input, a_held_paste_key_pastes_once)
 {
     start(0);
-    ASSERT_TRUE(host_clipboard_set("text"));
+    host_clipboard_set("text");
     sapp_event e = {.type = SAPP_EVENTTYPE_KEY_DOWN, .key_code = SAPP_KEYCODE_INSERT,
                     .modifiers = SAPP_MODIFIER_SHIFT};
     event(&e);
@@ -515,15 +516,15 @@ UTEST(input, the_copy_keys_set_the_clipboard)
 {
     line_start("copied");
     key(SAPP_KEYCODE_HOME, SAPP_MODIFIER_SHIFT, 0);
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     key(SAPP_KEYCODE_C, SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT, 0);
     line_loop();
     ASSERT_STREQ(host_clipboard_get(), "copied");
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     key(SAPP_KEYCODE_INSERT, SAPP_MODIFIER_CTRL, 0);
     line_loop();
     ASSERT_STREQ(host_clipboard_get(), "copied");
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     tb_mac_keys = true;
     key(SAPP_KEYCODE_C, SAPP_MODIFIER_SUPER, 'c');
     tb_mac_keys = false;
@@ -539,7 +540,7 @@ UTEST(input, a_copy_key_with_no_line_read_is_dropped)
 {
     sys_init();
     start(0);
-    ASSERT_TRUE(host_clipboard_set("kept"));
+    host_clipboard_set("kept");
     key(SAPP_KEYCODE_C, SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT, 0);
     key(SAPP_KEYCODE_A, 0, 'a');
     ASSERT_STREQ(pasted(), "a");
@@ -641,6 +642,9 @@ UTEST(input, the_focus_is_told_while_a_program_asks)
 {
     sys_init();
     start(0);
+    /* As the window says when it starts (app_init). */
+    evq_to_machine(EVQ_FOCUSABLE, NULL, 0);
+    pump();
     vterm_focus(false);
     vterm_mouse_task();
     vterm_focus(true);

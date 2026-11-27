@@ -50,6 +50,11 @@ include(${RP6502_SRC}/core/emu.cmake)
 # This machine's own directory, because core/sys/sys.c includes drivers.h by
 # bare name and emu.cmake puts no machine directory on the path.
 target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
+# libretro gives a core no clipboard, so the machine keeps it as code page
+# bytes in the host's buffer (clip.c), which every program of this machine
+# links, its tests included.
+target_sources(emu_core PRIVATE ${RP6502_SRC}/core/hid/clip_codepage.c
+    ${CMAKE_CURRENT_LIST_DIR}/clip.c)
 
 rp6502_submodule(vendor/libretro-common SENTINEL include/libretro.h
     SPARSE include WANTS "the libretro API header")

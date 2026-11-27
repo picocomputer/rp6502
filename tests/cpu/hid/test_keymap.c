@@ -12,6 +12,7 @@
 #include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/com/rln.h"
+#include "core/hid/clip.h"
 #include "core/hid/hid.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
@@ -24,6 +25,31 @@
 #include "host/host.h"
 #include "emu_boot.h"
 #include <string.h>
+
+/* The clipboard as this machine has it: the host's own, in UTF-8, or the
+ * bytes the host keeps for the machine (core/hid/clip.h). The tests' text
+ * is ASCII on one line, the same in both. */
+static void clipboard_set(const char *text)
+{
+#if CLIP_CODEPAGE
+    host_clipboard_len = (uint16_t)strlen(text);
+    memcpy(host_clipboard_bytes, text, host_clipboard_len);
+#else
+    host_clipboard_set(text);
+#endif
+}
+
+static const char *clipboard(void)
+{
+#if CLIP_CODEPAGE
+    static char text[CLIP_SIZE + 1];
+    memcpy(text, host_clipboard_bytes, host_clipboard_len);
+    text[host_clipboard_len] = 0;
+    return text;
+#else
+    return host_clipboard_get();
+#endif
+}
 
 #define SLOT 3
 #define LCTRL KEYBOARD_MODIFIER_LEFTCTRL
@@ -541,16 +567,16 @@ UTEST(keymap, the_copy_chords_copy_the_lines_selection)
 {
     line_start("copied");
     tap(LSHIFT, HID_KEY_HOME);
-    ASSERT_TRUE(host_clipboard_set(""));
+    clipboard_set("");
     tap(LCTRL | LSHIFT, HID_KEY_C);
     line_loop();
-    ASSERT_STREQ(host_clipboard_get(), "copied");
-    ASSERT_TRUE(host_clipboard_set(""));
+    ASSERT_STREQ(clipboard(), "copied");
+    clipboard_set("");
     tap(LCTRL, HID_KEY_INSERT);
     line_loop();
-    ASSERT_STREQ(host_clipboard_get(), "copied");
+    ASSERT_STREQ(clipboard(), "copied");
     ASSERT_STREQ(line_end(), "copied");
-    ASSERT_TRUE(host_clipboard_set(""));
+    clipboard_set("");
 }
 
 /* A paste key types the host's clipboard, and not its own character or
@@ -558,12 +584,12 @@ UTEST(keymap, the_copy_chords_copy_the_lines_selection)
 UTEST(keymap, the_paste_chords_type_the_clipboard)
 {
     start("US");
-    ASSERT_TRUE(host_clipboard_set("hi"));
+    clipboard_set("hi");
     tap(LCTRL | LSHIFT, HID_KEY_V);
     ASSERT_STREQ(typed(), "hi");
     tap(LSHIFT, HID_KEY_INSERT);
     ASSERT_STREQ(typed(), "hi");
-    ASSERT_TRUE(host_clipboard_set(""));
+    clipboard_set("");
 }
 
 /* With no line being read, a cut key types what the key types: the
@@ -584,13 +610,13 @@ UTEST(keymap, the_cut_chords_cut_the_lines_selection)
     tap(LSHIFT, HID_KEY_ARROW_LEFT);
     tap(LCTRL | LSHIFT, HID_KEY_X);
     line_loop();
-    ASSERT_STREQ(host_clipboard_get(), "f");
+    ASSERT_STREQ(clipboard(), "f");
     tap(LSHIFT, HID_KEY_ARROW_LEFT);
     tap(LSHIFT, HID_KEY_DELETE);
     line_loop();
-    ASSERT_STREQ(host_clipboard_get(), "e");
+    ASSERT_STREQ(clipboard(), "e");
     ASSERT_STREQ(line_end(), "abcd");
-    ASSERT_TRUE(host_clipboard_set(""));
+    clipboard_set("");
 }
 
 /* A cut key types any dead key waiting before its own mark. */

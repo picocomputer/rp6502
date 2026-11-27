@@ -29,8 +29,12 @@ void input_event(const struct sapp_event *e);
 void input_set_status(const evq_status_t *s);
 const evq_status_t *input_status(void);
 
+/* sokol said the clipboard is too big for its buffer (app_log). */
+void input_clipboard_too_big(void);
+
 /* Whether the event is a paste key going down (core/hid/key.h), not its
- * repeat. A web page reads its clipboard only from the paste event the key
+ * repeat. The desktop reads its clipboard then and pastes it in the key's
+ * place. A web page reads its clipboard only from the paste event the key
  * makes, so the web player leaves the key to the browser, and pastes at
  * that event. */
 bool input_paste_key(const struct sapp_event *e);

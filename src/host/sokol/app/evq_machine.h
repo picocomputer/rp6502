@@ -25,23 +25,14 @@ void machine_take(const evq_msg_t *m);
 
 /* What the window needs of the machine, told whenever it changes, with
  * whether the machine's frames follow the display and the display's period
- * as the machine measures it (event_status, which also gives the pointer to
- * the tablet or takes it). */
+ * as the machine measures it (event_status). */
 void machine_status(bool follows, int64_t period_ns);
 
 /* Whether the drop-a-ROM card is up, as the window last said. */
 bool machine_menu_up(void);
 
-/* What the window last said of itself, for the host's answers (host.c):
- * whether it is up, whether it is minimized, and its answer to the last
- * EVQ_ASK, taken once, with when it came. */
+/* Whether a window is up, for the host's answers (clip.c). */
 bool machine_has_window(void);
-bool machine_minimized(void);
-char *machine_clipboard_take(uint64_t *at);
-
-/* Asks the window for the host's clipboard (EVQ_ASK), unless an ask is
- * already out and not yet answered. */
-void machine_clipboard_ask(void);
 
 /* Boot a .rp6502, true on success. The path is the host path from the OS,
  * converted for the boot by machine_rom_path. A file that is no ROM leaves

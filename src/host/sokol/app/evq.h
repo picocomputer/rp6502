@@ -48,19 +48,18 @@ typedef enum
     EVQ_WHEEL,    /* event_wheel_t, the tablet's */
     EVQ_MOUSE,    /* event_mouse_t */
     EVQ_FOCUS,    /* uint8_t */
+    EVQ_FOCUSABLE,/* none: sent once, as the window starts */
     EVQ_PASTE,    /* UTF-8, NUL-terminated: a paste the browser handed over */
     EVQ_GAMEPADS, /* event_gamepads_t */
     /* ---- to the machine: what only a window has ---- */
     EVQ_MINIMIZED,/* uint8_t */
     EVQ_MENU,     /* uint8_t: the drop-a-ROM card is up */
-    EVQ_CLIPBOARD,/* UTF-8, NUL-terminated: the host's clipboard, as asked */
     EVQ_BOOT,     /* a host path, UTF-8, NUL-terminated: a dropped ROM */
     EVQ_TICK,     /* evq_tick_t: a display callback */
     EVQ_CLOSE,    /* none: the window was asked to close */
     /* ---- to the window ---- */
     EVQ_STATUS,   /* evq_status_t */
     EVQ_COPY,     /* UTF-8, NUL-terminated: for the host's clipboard */
-    EVQ_ASK,      /* none: the machine wants the host's clipboard */
     EVQ_BOOTED,   /* none: the dropped ROM booted */
     EVQ_QUIT,     /* uint8_t: close the window, 1 when it was asked to */
 } evq_kind_t;

@@ -25,7 +25,6 @@ static struct
 {
     bool window;
     bool menu;
-    bool minimized;
     evq_status_t told;
     bool told_once;
 } machine;
@@ -40,47 +39,9 @@ bool machine_menu_up(void)
     return machine.menu;
 }
 
-bool machine_minimized(void)
-{
-    return machine.minimized;
-}
-
 bool machine_has_window(void)
 {
     return machine.window;
-}
-
-/* ---------------- the clipboard ---------------- */
-
-/* The window's last answer to EVQ_ASK, and when it came, until taken; and
- * whether an ask is out, so a paste that polls while it waits asks once. */
-static char *machine_clipboard_in;
-static uint64_t machine_clipboard_in_at;
-static bool machine_clipboard_asked;
-
-void machine_clipboard_ask(void)
-{
-    if (!machine_clipboard_asked)
-        machine_clipboard_asked = evq_to_window(EVQ_ASK, NULL, 0);
-}
-
-static void machine_clipboard_answer(const char *utf8)
-{
-    machine_clipboard_asked = false;
-    free(machine_clipboard_in);
-    const size_t n = strlen(utf8) + 1;
-    machine_clipboard_in = malloc(n);
-    if (machine_clipboard_in)
-        memcpy(machine_clipboard_in, utf8, n);
-    machine_clipboard_in_at = os_mono_ns();
-}
-
-char *machine_clipboard_take(uint64_t *at)
-{
-    char *in = machine_clipboard_in;
-    machine_clipboard_in = NULL;
-    *at = machine_clipboard_in_at;
-    return in;
 }
 
 /* ---------------- a dropped ROM ---------------- */
@@ -180,11 +141,11 @@ void machine_take(const evq_msg_t *m)
     case EVQ_WHEEL: event_wheel(m->body); break;
     case EVQ_MOUSE: event_mouse(m->body); break;
     case EVQ_FOCUS: event_focus(b[0] != 0); break;
+    case EVQ_FOCUSABLE: event_focusable(); break;
     case EVQ_PASTE: event_paste(m->body); break;
     case EVQ_GAMEPADS: event_gamepads(m->body); break;
-    case EVQ_MINIMIZED: machine.minimized = b[0] != 0; break;
+    case EVQ_MINIMIZED: event_minimized(b[0] != 0); break;
     case EVQ_MENU: machine.menu = b[0] != 0; break;
-    case EVQ_CLIPBOARD: machine_clipboard_answer(m->body); break;
     case EVQ_BOOT:
         /* A boot takes the card down on the spot, so the frames run before
          * the window hears of it are no program's last. */
@@ -228,9 +189,6 @@ void machine_status(bool follows, int64_t period_ns)
 
 void machine_reset(void)
 {
-    free(machine_clipboard_in);
-    machine_clipboard_in = NULL;
-    machine_clipboard_asked = false;
     memset(&machine, 0, sizeof machine);
     event_reset();
 }

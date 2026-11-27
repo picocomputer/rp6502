@@ -123,6 +123,10 @@ void event_tablet(const event_tablet_t *e);
 void event_wheel(const event_wheel_t *e);
 void event_mouse(const event_mouse_t *e);
 void event_focus(bool focused);
+/* The host's window can lose the focus, said once as it starts, and the
+ * window minimized or back (event_window.c). */
+void event_focusable(void);
+void event_minimized(bool minimized);
 /* A paste the host's system handed over (event_window.c). */
 void event_paste(const char *utf8);
 void event_gamepads(const event_gamepads_t *e);

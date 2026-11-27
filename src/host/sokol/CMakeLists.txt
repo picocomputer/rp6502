@@ -43,6 +43,8 @@ else()
 endif()
 
 target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
+# The desktop's clipboard is its own (app/clip.c).
+target_sources(emu_core PRIVATE ${RP6502_SRC}/core/hid/clip_utf8.c)
 
 include(${RP6502_SRC}/host/sokol/sokol.cmake)
 

@@ -109,9 +109,9 @@ bool vterm_mouse_acts(void);
 bool vterm_mouse_copy(void);
 
 /* The host's window gained the focus (true) or lost it. A host that can
- * lose it (host_focusable) says so on every change, or every frame; the
- * task tells a program that asked (?1004) of a change, in order with the
- * keys. */
+ * lose it (vterm_set_focusable) says so on every change, or every frame;
+ * the task tells a program that asked (?1004) of a change, in order with
+ * the keys. */
 void vterm_focus(bool focused);
 
 /* Whether the host's window has the focus, as the host last said: always

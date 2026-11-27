@@ -1538,10 +1538,8 @@ static bool script_command(const char *line)
             if (!script_end(p))
                 return false;
             /* A script runs with no window, where the clipboard is one
-             * the emulator keeps (app.c). */
+             * the emulator keeps (app/clip.c). */
             const char *got = host_clipboard_get();
-            if (!got)
-                return script_error("this host has no clipboard");
             script_printable(shown, sizeof shown, text, strlen(text));
             if (want && strcmp(got, text))
             {
@@ -1650,8 +1648,7 @@ static bool script_command(const char *line)
             return script_error("clip set wants a quoted string");
         if (!script_end(p))
             return false;
-        if (!host_clipboard_set(text))
-            return script_error("this host has no clipboard");
+        host_clipboard_set(text);
         return true;
     }
 

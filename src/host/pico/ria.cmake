@@ -231,6 +231,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/main.c
     ${RP6502_ROOT}/src/host/pico/flash_roots.c
     ${RP6502_ROOT}/src/host/pico/host.c
+    ${RP6502_ROOT}/src/host/pico/clip.c
     ${RP6502_ROOT}/src/core/sys/sys.c
     ${RP6502_ROOT}/src/core/sys/version.c
     ${RP6502_ROOT}/src/core/api/api.c
@@ -280,7 +281,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/hid/layout.c
     ${RP6502_ROOT}/src/core/hid/keymap.c
     ${RP6502_ROOT}/src/core/hid/typed.c
-    ${RP6502_ROOT}/src/core/hid/clip_byte.c
+    ${RP6502_ROOT}/src/core/hid/clip_codepage.c
     ${RP6502_ROOT}/src/core/hid/vtkey.c
     ${RP6502_ROOT}/src/core/hid/vtmouse.c
     ${RP6502_GEN}/layout_db.c
