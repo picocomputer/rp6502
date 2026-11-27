@@ -376,19 +376,18 @@ jobs:
   # libretro-windows: the same core with MSVC, and the same suite — the bench
   # opens the .dll the way a frontend does, so what passes is the artifact.
   # dumpbin is the dev shell's nm, which is why the export check enters the
-  # shell a second time. arm64 builds on an arm64 runner, so its suite runs
-  # on the processor it is for.
+  # shell a second time. No arm64 core: the libretro buildbot has no Windows
+  # arm64 template, so RetroArch could never offer one, and the targets here
+  # are the buildbot's (libretro_targets_gate.py).
   # ---------------------------------------------------------------------------
   libretro-windows:
     name: libretro-${{ matrix.target }}
     needs: [version]
     strategy:
-      fail-fast: false
       matrix:
         include:
-          - { target: windows-x86_64, runner: windows-2025, arch: x64 }
-          - { target: windows-arm64, runner: windows-11-arm, arch: arm64 }
-    runs-on: ${{ matrix.runner }}
+          - { target: windows-x86_64 }
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7
 
@@ -399,7 +398,7 @@ jobs:
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vsPath = & $vswhere -latest -property installationPath
           Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
-          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=${{ matrix.arch }} -host_arch=${{ matrix.arch }} -no_logo'
+          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -no_logo'
           cd src/host/libretro
           cmake --preset release -DRP6502_STRICT_SUBMODULES=ON `
             "-DRP6502_VERSION=${{ needs.version.outputs.fwver }}" `
@@ -422,7 +421,7 @@ jobs:
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vsPath = & $vswhere -latest -property installationPath
           Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
-          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=${{ matrix.arch }} -host_arch=${{ matrix.arch }} -no_logo'
+          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -no_logo'
           $names = (dumpbin /exports build\libretro\release\rp6502_libretro.dll) |
             Select-String '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]{8}\s+(\S+)' |
             ForEach-Object { $_.Matches[0].Groups[1].Value }
@@ -544,7 +543,7 @@ jobs:
           set -euxo pipefail
           # Every staging job contributed, or the bundle is short a machine
           # and nobody would notice until a player did.
-          for d in linux-x86_64 linux-aarch64 windows-x86_64 windows-arm64 \
+          for d in linux-x86_64 linux-aarch64 windows-x86_64 \
                    macos-arm64 macos-x86_64 ios-arm64 tvos-arm64 \
                    android-arm64 android-armeabi-v7a android-x86_64; do
             [ -d "stage/$d" ] || { echo "missing platform: $d" >&2; exit 1; }
