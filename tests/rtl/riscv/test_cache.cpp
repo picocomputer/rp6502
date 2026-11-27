@@ -9,8 +9,9 @@
  *
  * Three things judge the cache. ref is what the CPU must read back. mem is
  * the line memory, which must equal ref wherever the cache holds no dirty
- * line. policy is the placement the cache is specified to make, a tag for
- * every way and a pointer for every set, and it says for every access
+ * line. policy is the placement the cache is specified to make, a tag and
+ * an age for every way, the least recently used way replaced first, and it
+ * says for every access
  * whether it waits, and how many lines are read and written.
  *
  * The model is built with --x-initial unique, so the memories start with
@@ -86,13 +87,13 @@ struct bench
         uint32_t tag;
     };
     std::vector<entry> pol;
-    std::vector<unsigned> ptr;
+    std::vector<unsigned> age; /* 0 for the way used last */
     long want_hits = 0, want_misses = 0, want_reads = 0, want_writes = 0;
     long base_hits = 0, base_misses = 0;
 
     explicit bench(uint64_t seed)
         : ref(MEM_WORDS), mem(MEM_WORDS), rng(seed * 0x9E3779B97F4A7C15ull + 1),
-          pol(CACHE_SETS * CACHE_WAYS), ptr(CACHE_SETS)
+          pol(CACHE_SETS * CACHE_WAYS), age(CACHE_SETS * CACHE_WAYS)
     {
         Verilated::randSeed((int)(seed & 0x7fffffff) + 1);
         Verilated::randReset(2);
@@ -106,6 +107,7 @@ struct bench
         d->dph = 0;
         d->line_done = 0;
         d->eval();
+        forget();
     }
     ~bench()
     {
@@ -236,10 +238,11 @@ struct bench
                 miss = false;
                 break;
             }
+        unsigned *a = &age[set * CACHE_WAYS];
         if (miss)
         {
-            w = ptr[set];
-            ptr[set] = (w + 1) % CACHE_WAYS;
+            for (w = 0; a[w] != CACHE_WAYS - 1; w++)
+                ;
             if (e[w].valid && e[w].dirty)
                 want_writes++;
             want_reads++;
@@ -250,6 +253,10 @@ struct bench
             want_hits++;
         if (o.write)
             e[w].dirty = true;
+        for (unsigned k = 0; k < CACHE_WAYS; k++)
+            if (a[k] < a[w])
+                a[k]++;
+        a[w] = 0;
         return miss;
     }
 
@@ -257,8 +264,9 @@ struct bench
     {
         for (auto &e : pol)
             e = {false, false, 0};
-        for (auto &p : ptr)
-            p = 0;
+        /* Way 0 is the oldest, and fills first. */
+        for (unsigned i = 0; i < age.size(); i++)
+            age[i] = CACHE_WAYS - 1 - i % CACHE_WAYS;
     }
 
     void rebase()

@@ -56,8 +56,9 @@ the Pocket loads from `firmware.bin` and nothing writes afterwards: a
 store to it is dropped. The RAM block is 64 KB of data, heap and stack.
 The startup code copies the data's first values from the ROM block and
 clears the rest. In front of both is one 8 KB cache in block memory,
-in `cache.sv`: four ways of 128 sets, with lines of 16 bytes. A hit
-answers in one clock, as block memory would. A miss holds the soft CPU
+in `cache.sv`: eight ways of 64 sets, with lines of 16 bytes, the least
+recently used way replaced first. A hit answers in one clock, as block
+memory would. A miss holds the soft CPU
 while the SDRAM controller reads the line, eight words back to back,
 after writing out the line it replaces if the soft CPU stored to that
 one. The rest of the block memory is XRAM, the video and the audio.
@@ -75,6 +76,16 @@ clocks.
 
 Every smaller shape waits several points more, and two ways cannot hold
 the idle main loop. 8 KB 2-way would use the same 9 blocks.
+
+That table was measured with a pointer that went round each set's ways.
+Four ways replaced that way held the API loop in a good state and a bad
+one, and a savestate could move it from one to the other: the loop
+waited 14.7% of its clocks before a save and 20.7% after, so the
+program's clock ran 5% slower after a sleep. Least recently used at four
+ways waited 20.1% and 20.7%, steady but slow, because some sets need more
+than four ways. Eight ways, least recently used, wait 11.3% and 12.1%,
+the 0.8 points the refill after the save. It costs about 300 ALMs and one
+block more than four ways, and still meets timing.
 
 **The rest of the SDRAM**, the ROM image, the savestate window, the
 file windows and the Get File scratch, the soft CPU reads and writes
