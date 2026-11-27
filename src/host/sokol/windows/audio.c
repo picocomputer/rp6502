@@ -8,12 +8,15 @@
  * every other program's.
  *
  * The engine takes a period, 10 ms, at a time, from a buffer of about two
- * and a fifth of them, and wakes the device's thread after each. The thread
- * keeps a period and 2 ms in that buffer: the engine wants no more, and
- * filling all of it, as sokol_audio once did, kept 17 ms there on average where
- * this keeps 7. A shorter period, which IAudioClient3 asks for, is offered
- * by few drivers, none of them the NVIDIA HDMI or the USB Audio 2.0 class
- * driver this was measured on, so nothing here counts on one.
+ * and a fifth of them, and wakes the device's thread at the end of each
+ * pass. The thread keeps one period in that buffer: the engine wants no
+ * more, and filling all of it, as sokol_audio once did, kept 17 ms there on
+ * average where this keeps 5. The thread has until the engine's next pass,
+ * nearly a period, to wake and write; a margin past the period would not
+ * give it more, only make a miss shorter, and was 2 ms of latency always.
+ * A shorter period, which IAudioClient3 asks for, is offered by few
+ * drivers, none of them the NVIDIA HDMI or the USB Audio 2.0 class driver
+ * this was measured on, so nothing here counts on one.
  *
  * The thread is registered with MMCSS as Pro Audio, so Windows runs it ahead
  * of ordinary threads, and writes in the engine's own format, 32-bit float
@@ -50,9 +53,6 @@ static const GUID audio_SUBTYPE_IEEE_FLOAT = {0x00000003, 0x0000, 0x0010, {0x80,
 /* The most frames the engine is asked to take at once, which its buffer
  * never comes near. */
 #define AUDIO_MOST 4096
-
-/* The margin kept past a period, for the thread waking late: 2 ms. */
-#define AUDIO_MARGIN_HZ 500
 
 static struct
 {
@@ -127,7 +127,7 @@ typedef struct
     IAudioRenderClient *render;
     HANDLE event;
     UINT32 frames;  /* the engine's buffer */
-    UINT32 keep;    /* what is kept in it: a period, and a margin */
+    UINT32 keep;    /* what is kept in it: a period */
     WORD channels;
 } audio_device_t;
 
@@ -173,8 +173,7 @@ static bool audio_open(IMMDeviceEnumerator *e, audio_device_t *d)
                                        AUDCLNT_STREAMFLAGS_EVENTCALLBACK, 0, 0, mix, NULL)) ||
         FAILED(IAudioClient_GetDevicePeriod(d->client, &def, &least)))
         goto fail;
-    const UINT32 period = (UINT32)((uint64_t)def * mix->nSamplesPerSec / 10000000);
-    d->keep = period + mix->nSamplesPerSec / AUDIO_MARGIN_HZ;
+    d->keep = (UINT32)((uint64_t)def * mix->nSamplesPerSec / 10000000);
     d->channels = mix->nChannels;
     audio.rate = mix->nSamplesPerSec;
     CoTaskMemFree(mix);
@@ -201,8 +200,8 @@ fail:
 
 /* The engine's buffer, filled to what is kept: stereo made and spread over
  * its channels, the rest silent. The engine takes a period at a time and
- * wakes the thread after each, so a period and a margin in hand is enough,
- * and the rest of its buffer would be latency for nothing. False when the
+ * wakes the thread after each, so a period in hand is enough, and the rest
+ * of its buffer would be latency for nothing. False when the
  * device has gone. */
 static bool audio_fill(audio_device_t *d)
 {
