@@ -56,12 +56,17 @@ if(NOT WIN32 AND NOT APPLE)
     find_library(GLES3_LIBRARY GLESv2)
     find_path(PULSE_INCLUDE_DIR pulse/pulseaudio.h)
     find_library(PULSE_LIBRARY pulse)
+    # Only PipeWire's headers: linux/pipewire.c loads libpipewire at run time,
+    # so the emulator still starts where there is none.
+    find_path(PIPEWIRE_INCLUDE_DIR pipewire/pipewire.h PATH_SUFFIXES pipewire-0.3)
+    find_path(SPA_INCLUDE_DIR spa/support/plugin.h PATH_SUFFIXES spa-0.2)
     if(NOT EGL_INCLUDE_DIR OR NOT EGL_LIBRARY OR NOT GLES3_INCLUDE_DIR OR NOT GLES3_LIBRARY OR
        NOT X11_FOUND OR NOT X11_Xi_FOUND OR NOT X11_Xcursor_FOUND OR
-       NOT PULSE_INCLUDE_DIR OR NOT PULSE_LIBRARY)
+       NOT PULSE_INCLUDE_DIR OR NOT PULSE_LIBRARY OR
+       NOT PIPEWIRE_INCLUDE_DIR OR NOT SPA_INCLUDE_DIR)
         message(FATAL_ERROR
             "rp6502-emu needs the desktop dev stack. On Debian/Ubuntu:\n"
-            "  sudo apt-get install libegl-dev libgles-dev libx11-dev libxi-dev libxcursor-dev libpulse-dev")
+            "  sudo apt-get install libegl-dev libgles-dev libx11-dev libxi-dev libxcursor-dev libpulse-dev libpipewire-0.3-dev")
     endif()
     find_package(Threads REQUIRED)
     # emu_core holds osal/posix/thread.c.
@@ -120,12 +125,14 @@ elseif(APPLE)
         "-framework GameController")
 else()
     target_compile_definitions(rp6502-emu PRIVATE SOKOL_GLES3)
+    target_sources(rp6502-emu PRIVATE ${RP6502_SOKOL_OS}/pipewire.c)
     target_link_libraries(rp6502-emu PRIVATE
         ${EGL_LIBRARY} ${GLES3_LIBRARY} X11::X11 X11::Xi X11::Xcursor
         ${PULSE_LIBRARY}
         ${CMAKE_DL_LIBS} Threads::Threads)
     target_include_directories(rp6502-emu PRIVATE
-        ${EGL_INCLUDE_DIR} ${GLES3_INCLUDE_DIR} ${PULSE_INCLUDE_DIR})
+        ${EGL_INCLUDE_DIR} ${GLES3_INCLUDE_DIR} ${PULSE_INCLUDE_DIR}
+        ${PIPEWIRE_INCLUDE_DIR} ${SPA_INCLUDE_DIR})
 endif()
 
 rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/sys/version.c emu_core)

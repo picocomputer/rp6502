@@ -272,7 +272,7 @@ jobs:
         with:
           packages: >-
             build-essential cmake ninja-build libegl-dev libgles-dev libx11-dev
-            libxi-dev libxcursor-dev libpulse-dev
+            libxi-dev libxcursor-dev libpulse-dev libpipewire-0.3-dev
 
       - name: Configure & build emulator (Release)
         run: |
