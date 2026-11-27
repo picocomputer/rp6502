@@ -64,6 +64,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/hid/hostkey.c
         ${RP6502_SRC}/core/sys/event.c
         ${RP6502_SRC}/core/sys/event_pointer.c
+        ${RP6502_SRC}/core/sys/event_pads.c
         ${RP6502_SRC}/core/hid/keyboard.c
         ${RP6502_SRC}/core/hid/key.c
         ${RP6502_SRC}/core/hid/layout.c

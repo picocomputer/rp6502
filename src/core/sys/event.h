@@ -141,6 +141,15 @@ void event_focus(bool focused);
 void event_paste(const char *utf8);
 void event_gamepads(const event_gamepads_t *e);
 
+/* One controller's state, for a host that hears from each on its own, as the
+ * Pico's USB drivers do: one the machine has not seen is plugged in as the
+ * first player with none. And one controller gone, and the player a
+ * controller is, or -1. event_gamepads is these for every controller a host
+ * read. */
+void event_gamepad(const gamepad_host_t *pad);
+void event_gamepad_gone(uint64_t id);
+int event_gamepad_player(uint64_t id);
+
 /* Whether a chord acted on the key still down, which a host's close that
  * the same key asked for (Alt-F4 on Windows) is no close. */
 bool event_chord_held(void);

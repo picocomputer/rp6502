@@ -274,6 +274,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/hid/hostkey.c
     ${RP6502_ROOT}/src/core/sys/event.c
     ${RP6502_ROOT}/src/core/sys/event_pointer.c
+    ${RP6502_ROOT}/src/core/sys/event_pads.c
     ${RP6502_ROOT}/src/core/hid/keyboard.c
     ${RP6502_ROOT}/src/core/hid/key.c
     ${RP6502_ROOT}/src/core/hid/layout.c

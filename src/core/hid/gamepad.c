@@ -6,6 +6,7 @@
 
 #include "core/hid/hid.h"
 #include "core/hid/gamepad.h"
+#include "core/sys/event.h"
 #include "core/sys/debug_log.h"
 #include "core/sys/xram.h"
 #include "machine.h"
@@ -42,7 +43,12 @@ static uint16_t gamepad_xram;
  * rest of the report alone. */
 static gamepad_xram_t gamepad_reports[GAMEPAD_MAX_PLAYERS];
 
+/* The controllers plugged in, each at a seat of its own, which is its id to
+ * the controllers' events (core/sys/event.h) less one; the events give each
+ * its player. And what each last said, which a press of an Xbox One's home
+ * button, outside its reports, says again. */
 static gamepad_connection_t gamepad_connections[GAMEPAD_MAX_PLAYERS];
+static gamepad_host_t gamepad_last[GAMEPAD_MAX_PLAYERS];
 
 /* An address that would put the reports past the end of XRAM would have the
  * next publish write past it. */
@@ -66,7 +72,8 @@ static bool gamepad_xram_check(sst_cursor_t *c)
     X(U16, gamepad_xram)                                    \
     X(STRUCTS, gamepad_reports, GAMEPAD_REPORT_ROWS)        \
     X(VALIDATE, gamepad_xram_check)                         \
-    X(SKIP, gamepad_connections)
+    X(SKIP, gamepad_connections)                            \
+    X(SKIP, gamepad_last)
 SST_TABLE(gamepad, GAMEPAD_SST)
 
 static inline void gamepad_swap_buttons(gamepad_connection_t *conn, int b0, int b1)
@@ -379,48 +386,51 @@ static uint8_t HOST_IN_RAM_FUNC gamepad_encode_stick(int8_t x, int8_t y)
     return result;
 }
 
-static void HOST_IN_RAM_FUNC gamepad_parse_report(int player, uint8_t const *data, uint16_t report_len, gamepad_xram_t *report)
+/* A report of a controller at a seat, in the units of the controllers'
+ * events: the block's own encoding of the sticks and of the triggers'
+ * buttons is gamepad_host_report's, as it is for every host. */
+static void HOST_IN_RAM_FUNC gamepad_parse(int seat, uint8_t const *data, uint16_t report_len)
 {
-    memset(report, 0, sizeof(gamepad_xram_t));
-
-    gamepad_connection_t *conn = &gamepad_connections[player];
-    if (conn->valid)
-        report->dpad |= conn->features;
-
-    // gamepad_reset_xram asks for a report of features alone by passing no data.
+    const gamepad_connection_t *conn = &gamepad_connections[seat];
+    gamepad_host_t *pad = &gamepad_last[seat];
+    memset(pad, 0, sizeof *pad);
+    pad->id = (uint64_t)seat + 1;
+    pad->type = (uint8_t)((conn->features & GAMEPAD_FEAT_TYPE_MASK) >> 4);
+    pad->sticks = conn->features & GAMEPAD_FEAT_STICKS;
+    // A controller just plugged in has said nothing yet.
     if (report_len == 0)
         return;
 
     if (conn->x_size > 0)
     {
         uint32_t raw_x = hid_extract_bits(data, report_len, conn->x_offset, conn->x_size);
-        report->lx = hid_scale_analog_signed(raw_x, conn->x_size, conn->x_min, conn->x_max);
+        pad->lx = hid_scale_analog_signed(raw_x, conn->x_size, conn->x_min, conn->x_max);
     }
     if (conn->y_size > 0)
     {
         uint32_t raw_y = hid_extract_bits(data, report_len, conn->y_offset, conn->y_size);
-        report->ly = hid_scale_analog_signed(raw_y, conn->y_size, conn->y_min, conn->y_max);
+        pad->ly = hid_scale_analog_signed(raw_y, conn->y_size, conn->y_min, conn->y_max);
     }
     if (conn->z_size > 0)
     {
         uint32_t raw_z = hid_extract_bits(data, report_len, conn->z_offset, conn->z_size);
-        report->rx = hid_scale_analog_signed(raw_z, conn->z_size, conn->z_min, conn->z_max);
+        pad->rx = hid_scale_analog_signed(raw_z, conn->z_size, conn->z_min, conn->z_max);
     }
     if (conn->rz_size > 0)
     {
         uint32_t raw_rz = hid_extract_bits(data, report_len, conn->rz_offset, conn->rz_size);
-        report->ry = hid_scale_analog_signed(raw_rz, conn->rz_size, conn->rz_min, conn->rz_max);
+        pad->ry = hid_scale_analog_signed(raw_rz, conn->rz_size, conn->rz_min, conn->rz_max);
     }
 
     if (conn->rx_size > 0)
     {
         uint32_t raw_rx = hid_extract_bits(data, report_len, conn->rx_offset, conn->rx_size);
-        report->lt = hid_scale_analog(raw_rx, conn->rx_size, conn->rx_min, conn->rx_max);
+        pad->lt = hid_scale_analog(raw_rx, conn->rx_size, conn->rx_min, conn->rx_max);
     }
     if (conn->ry_size > 0)
     {
         uint32_t raw_ry = hid_extract_bits(data, report_len, conn->ry_offset, conn->ry_size);
-        report->rt = hid_scale_analog(raw_ry, conn->ry_size, conn->ry_min, conn->ry_max);
+        pad->rt = hid_scale_analog(raw_ry, conn->ry_size, conn->ry_min, conn->ry_max);
     }
 
     uint32_t buttons = 0;
@@ -431,8 +441,8 @@ static void HOST_IN_RAM_FUNC gamepad_parse_report(int player, uint8_t const *dat
         if (hid_extract_bits(data, report_len, conn->button_offsets[i], 1))
             buttons |= (1UL << i);
     }
-    report->button0 = buttons & 0xFF;
-    report->button1 = (buttons & 0xFF00) >> 8;
+    pad->button0 = buttons & 0xFF;
+    pad->button1 = (buttons & 0xFF00) >> 8;
 
     if (conn->hat_size == 4 && conn->hat_max - conn->hat_min == 7)
     {
@@ -441,33 +451,16 @@ static void HOST_IN_RAM_FUNC gamepad_parse_report(int player, uint8_t const *dat
         uint32_t raw_hat = hid_extract_bits(data, report_len, conn->hat_offset, conn->hat_size);
         unsigned index = raw_hat - conn->hat_min;
         if (index < 8)
-            report->dpad |= hat_to_gamepad[index];
+            pad->dpad = hat_to_gamepad[index];
     }
     else
     {
         // An Xbox-style pad declares four discrete dpad buttons, 16 to 19.
-        report->dpad |= (buttons & 0xF0000) >> 16;
+        pad->dpad = (buttons & 0xF0000) >> 16;
     }
 
-    uint8_t stick_l = gamepad_encode_stick(report->lx, report->ly);
-    uint8_t stick_r = gamepad_encode_stick(report->rx, report->ry);
-    report->sticks = stick_l | (stick_r << 4);
-
-    /* The analog triggers and the L2 and R2 buttons imply each other: a
-     * digital press with no analog reading is reported at full scale, and an
-     * analog reading past the deadzone asserts the button. */
-    if ((buttons & (1 << 8)) && (report->lt == 0))
-        report->lt = 255;
-    if ((buttons & (1 << 9)) && (report->rt == 0))
-        report->rt = 255;
-
     if (conn->home_pressed)
-        report->button1 |= (1 << (GAMEPAD_HOME_BUTTON - 8));
-
-    if (report->lt > GAMEPAD_DEADZONE)
-        report->button1 |= (1 << 0);
-    if (report->rt > GAMEPAD_DEADZONE)
-        report->button1 |= (1 << 1);
+        pad->button1 |= (1 << (GAMEPAD_HOME_BUTTON - 8));
 }
 
 void HOST_IN_FLASH_FUNC gamepad_init(void)
@@ -488,11 +481,23 @@ static void HOST_IN_RAM_FUNC gamepad_publish(int player)
            &gamepad_reports[player], sizeof(gamepad_xram_t));
 }
 
-/* A report of nothing but the connection's feature bits, published when the
- * block moves, at mount, and at unplug. */
+/* The seat of the controller the events made a player, or -1. */
+static int HOST_IN_RAM_FUNC gamepad_seat_of_player(int player)
+{
+    for (int seat = 0; seat < GAMEPAD_MAX_PLAYERS; seat++)
+        if (gamepad_connections[seat].valid && event_gamepad_player((uint64_t)seat + 1) == player)
+            return seat;
+    return -1;
+}
+
+/* A report of nothing but a plugged controller's feature bits, published when
+ * the block moves, as a program's mapping blanks it until the next report. */
 static void gamepad_reset_xram(int player)
 {
-    gamepad_parse_report(player, 0, 0, &gamepad_reports[player]);
+    memset(&gamepad_reports[player], 0, sizeof gamepad_reports[player]);
+    const int seat = gamepad_seat_of_player(player);
+    if (seat >= 0)
+        gamepad_reports[player].dpad = gamepad_connections[seat].features;
     gamepad_publish(player);
 }
 
@@ -515,35 +520,29 @@ bool gamepad_mount(int slot, const gamepad_connection_t *desc,
     if (!desc->valid && !gamepad_is_sony(vendor_id, product_id))
         return false;
 
-    gamepad_connection_t *conn = NULL;
-    int player;
-    for (int i = 0; i < GAMEPAD_MAX_PLAYERS; i++)
-    {
+    int seat = -1;
+    for (int i = 0; i < GAMEPAD_MAX_PLAYERS && seat < 0; i++)
         if (!gamepad_connections[i].valid)
-        {
-            conn = &gamepad_connections[i];
-            player = i;
-            break;
-        }
-    }
-    if (!conn)
+            seat = i;
+    if (seat < 0)
     {
         RP6502_LOG(hid, ERROR, "no available gamepad slots, max players reached");
         return false;
     }
-    RP6502_LOG(hid, INFO, "mounting gamepad player %d", player);
 
+    gamepad_connection_t *conn = &gamepad_connections[seat];
     gamepad_distill(conn, desc, vendor_id, product_id, button_type);
-    if (conn->valid)
-    {
-        conn->slot = slot;
-        gamepad_reset_xram(player);
-        return true;
-    }
-    return false;
+    if (!conn->valid)
+        return false;
+    conn->slot = slot;
+    /* Plugged in, it is a player at once, with nothing pressed. */
+    gamepad_parse(seat, NULL, 0);
+    event_gamepad(&gamepad_last[seat]);
+    RP6502_LOG(hid, INFO, "mounted gamepad player %d", event_gamepad_player((uint64_t)seat + 1));
+    return true;
 }
 
-int HOST_IN_RAM_FUNC gamepad_get_player_num(int slot)
+static int HOST_IN_RAM_FUNC gamepad_seat(int slot)
 {
     for (int i = 0; i < GAMEPAD_MAX_PLAYERS; i++)
         if (gamepad_connections[i].slot == slot && gamepad_connections[i].valid)
@@ -551,23 +550,28 @@ int HOST_IN_RAM_FUNC gamepad_get_player_num(int slot)
     return -1;
 }
 
+int HOST_IN_RAM_FUNC gamepad_get_player_num(int slot)
+{
+    const int seat = gamepad_seat(slot);
+    return seat < 0 ? -1 : event_gamepad_player((uint64_t)seat + 1);
+}
+
 bool gamepad_umount(int slot)
 {
-    int player = gamepad_get_player_num(slot);
-    if (player < 0)
+    const int seat = gamepad_seat(slot);
+    if (seat < 0)
         return false;
-    gamepad_connection_t *conn = &gamepad_connections[player];
-    conn->valid = false;
-    gamepad_reset_xram(player);
+    gamepad_connections[seat].valid = false;
+    event_gamepad_gone((uint64_t)seat + 1);
     return true;
 }
 
 void HOST_IN_RAM_FUNC gamepad_report(int slot, uint8_t const *data, uint16_t len)
 {
-    int player = gamepad_get_player_num(slot);
-    if (player < 0)
+    const int seat = gamepad_seat(slot);
+    if (seat < 0)
         return;
-    gamepad_connection_t *conn = &gamepad_connections[player];
+    gamepad_connection_t *conn = &gamepad_connections[seat];
 
     const uint8_t *report_data = data;
     uint16_t report_data_len = len;
@@ -579,24 +583,22 @@ void HOST_IN_RAM_FUNC gamepad_report(int slot, uint8_t const *data, uint16_t len
         report_data_len = len - 1;
     }
 
-    gamepad_parse_report(player, report_data, report_data_len, &gamepad_reports[player]);
-    gamepad_publish(player);
+    gamepad_parse(seat, report_data, report_data_len);
+    event_gamepad(&gamepad_last[seat]);
 }
 
 void HOST_IN_RAM_FUNC gamepad_home_button(int slot, bool pressed)
 {
-    int player = gamepad_get_player_num(slot);
-    if (player < 0)
+    const int seat = gamepad_seat(slot);
+    if (seat < 0)
         return;
-    gamepad_connection_t *conn = &gamepad_connections[player];
-
-    conn->home_pressed = pressed;
-
+    gamepad_connections[seat].home_pressed = pressed;
+    const uint8_t home = 1 << (GAMEPAD_HOME_BUTTON - 8);
     if (pressed)
-        gamepad_reports[player].button1 |= (1 << (GAMEPAD_HOME_BUTTON - 8));
+        gamepad_last[seat].button1 |= home;
     else
-        gamepad_reports[player].button1 &= ~(1 << (GAMEPAD_HOME_BUTTON - 8));
-    gamepad_publish(player);
+        gamepad_last[seat].button1 &= (uint8_t)~home;
+    event_gamepad(&gamepad_last[seat]);
 }
 
 _Static_assert(GAMEPAD_LED_REPORT_MAX >= 47, "GAMEPAD_LED_REPORT_MAX too small for DS5");
@@ -604,11 +606,12 @@ _Static_assert(GAMEPAD_LED_REPORT_MAX >= 31, "GAMEPAD_LED_REPORT_MAX too small f
 bool gamepad_build_led_report(int slot, uint8_t buf[GAMEPAD_LED_REPORT_MAX],
                               uint8_t *report_id, uint16_t *report_len)
 {
-    int player = gamepad_get_player_num(slot);
+    const int seat = gamepad_seat(slot);
+    const int player = gamepad_get_player_num(slot);
     if (player < 0)
         return false;
 
-    gamepad_connection_t *conn = &gamepad_connections[player];
+    gamepad_connection_t *conn = &gamepad_connections[seat];
 
     // Player indicator colors: Blue, Red, Green, Pink
     static const uint8_t player_colors[][3] = {
@@ -701,7 +704,7 @@ void gamepad_button_apply(gamepad_button_t button, bool down,
         *target &= (uint8_t)~mask;
 }
 
-void gamepad_connect(int player, bool connected, uint8_t type, bool sticks)
+void HOST_IN_RAM_FUNC gamepad_connect(int player, bool connected, uint8_t type, bool sticks)
 {
     if (player < 0 || player >= GAMEPAD_PLAYERS)
         return;
@@ -725,7 +728,7 @@ void gamepad_hid_set(int player, gamepad_button_t button, bool down)
     gamepad_publish(player);
 }
 
-void gamepad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t button1,
+void HOST_IN_RAM_FUNC gamepad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t button1,
                          int lx, int ly, int rx, int ry, int lt, int rt)
 {
     if (player < 0 || player >= GAMEPAD_PLAYERS)
