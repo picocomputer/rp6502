@@ -57,15 +57,16 @@ void host_window_init(void);
 
 /* True while a platform overlay is up, such as a desktop's drop-a-ROM prompt.
  * The canvas is not drawn while it is, and a halted program is not treated as
- * a program exiting. The machine asks from its own thread. */
+ * a program exiting, which the machine learns from SEAM_MENU and keeps its
+ * own mirror of (machine_menu_up). */
 bool host_window_menu_active(void);
 
 /* Draw that overlay into the current swapchain pass. */
 void host_window_menu_draw(void);
 
-/* A file was dropped on the window. Desktop platforms pass the path to
- * app_boot_rom; the web does not enable drag and drop, so nothing calls this
- * there. */
+/* A file was dropped on the window. Desktop platforms send its path to the
+ * machine (SEAM_BOOT), which boots it; the web does not enable drag and
+ * drop, so nothing calls this there. */
 void host_window_files_dropped(void);
 
 /* Open a URL in the user's default browser, for the docs link under the
@@ -84,6 +85,9 @@ uint8_t host_locks(void);
  * The result lasts for the whole run. */
 char **entry_argv_utf8(int *argc);
 
+/* Writes the browser's clipboard, on the web. */
+void entry_clipboard_write(const char *utf8);
+
 /* True while the pointer lock is on Module.canvas. On the web,
  * sapp_mouse_locked() is true while the lock is on any canvas in the page. */
 bool entry_canvas_locked(void);
@@ -93,7 +97,8 @@ bool entry_canvas_locked(void);
  * is given each time, since it changes when the default device does. Opened
  * from the init callback and closed from cleanup. False when there is no
  * sound to be had. Each desktop's driver is its audio.c: WASAPI on Windows,
- * PulseAudio on Linux, the default output AudioUnit on macOS. */
+ * PipeWire's own API on Linux where the Pulse server is PipeWire and
+ * PulseAudio otherwise, the default output AudioUnit on macOS. */
 bool host_audio_open(void (*render)(float *dst, int frames, uint32_t rate));
 void host_audio_close(void);
 

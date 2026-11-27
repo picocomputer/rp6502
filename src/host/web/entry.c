@@ -9,9 +9,8 @@
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/prompt.h"
 #include "host/sokol/app/input.h"
+#include "host/sokol/app/seam.h"
 #include "core/hid/usage.h"
-#include "core/hid/mouse.h"
-#include "core/term/vterm_mouse.h"
 #include "host/host.h"
 #include "host/web/audio.h"
 #include "sokol/sokol_app.h"
@@ -26,6 +25,7 @@
 static int32_t away, pointer;
 static double callback_ms;
 static bool inited;
+static int focused = -1;
 
 /* A cross-origin frame cannot read the page around it, but an
  * IntersectionObserver with no root measures the canvas against the top-level
@@ -197,11 +197,18 @@ static void entry_frame(void)
         return;
     /* The player's own focus, which the page keeps for each player on it,
      * is told to a program that asks (?1004) as it changes. */
-    vterm_focus(js_focused());
+    const int focus = js_focused();
+    if (focus != focused)
+    {
+        focused = focus;
+        const uint8_t b = (uint8_t)focus;
+        seam_to_machine(SEAM_FOCUS, &b, 1);
+    }
     app_frame();
     web_audio_frame();
-    const int32_t used = (mouse_is_mapped() ? 1 : 0) | (input_pointer_to_tablet() ? 2 : 0) |
-                         (input_wheel_to_tablet() ? 4 : 0);
+    const uint8_t told = input_status()->flags;
+    const int32_t used = ((told & SEAM_MOUSE_MAPPED) ? 1 : 0) | ((told & SEAM_TO_TABLET) ? 2 : 0) |
+                         ((told & SEAM_WHEEL_TO_TABLET) ? 4 : 0);
     if (used != pointer)
     {
         pointer = used;
@@ -228,29 +235,14 @@ void host_window_open_url(const char *url) { (void)url; }
 bool entry_wait_for_rom(void) { return false; }
 
 /* The clipboard is the browser's. A page cannot ask for it: the browser
- * hands its text over only in a paste event, where input.c pastes it. So
- * there is none to give here. A copy writes it. */
-const char *host_clipboard_get(void)
-{
-    return NULL;
-}
-
+ * hands its text over only in a paste event, which input.c sends on. A copy
+ * the machine made is written here (app.c). */
 EM_JS_DEPS(entry_clipboard, "$UTF8ToString");
-EM_JS(int, js_clipboard_write, (const char *utf8), {
-    if (!navigator.clipboard)
-        return 0;
-    navigator.clipboard.writeText(UTF8ToString(utf8)).catch(() => {});
-    return 1;
+EM_JS(void, js_clipboard_write, (const char *utf8), {
+    navigator.clipboard?.writeText(UTF8ToString(utf8)).catch(() => {});
 });
 
-/* A page served without a secure context, as over plain http, has no
- * clipboard to write: then this is false, and the copy goes to the
- * machine's buffer (clip.h), though a paste key still pastes the browser's
- * clipboard. */
-bool host_clipboard_set(const char *utf8)
-{
-    return js_clipboard_write(utf8) != 0;
-}
+void entry_clipboard_write(const char *utf8) { js_clipboard_write(utf8); }
 
 /* The browser's platform: a Mac, or an iPhone or iPad with a keyboard. */
 EM_JS(int, js_mac_keys, (void), {

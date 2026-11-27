@@ -7,10 +7,11 @@
 #include "host/sokol/app/run.h"
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/pace.h"
+#include "host/sokol/app/seam_machine.h"
+#include "host/sokol/app/seam.h"
 #include "core/aud/mix.h"
 #include "core/dap/dbg.h"
 #include "core/sys/proc.h"
-#include "core/sys/ring.h"
 #include "core/sys/sys.h"
 #include "core/vga/vga.h"
 #include "core/vga/vga_emu.h"
@@ -38,6 +39,8 @@ static struct
     bool tick_paced;    /* whether its present waited for the display */
     bool held;          /* a debugger held the last frame */
     bool done;          /* the last picture is out; no more frames */
+    bool ticked;        /* a display callback came since the last step */
+    uint32_t tick_last; /* the newest display callback taken */
     uint64_t bench_ns, bench_from;
 } run;
 
@@ -83,20 +86,8 @@ const run_frame_t *run_frame(bool *fresh)
 
 /* ---------------- the lock and the thread ---------------- */
 
-static _Atomic bool run_quit;
-static _Atomic bool run_following;
 static _Atomic uint64_t run_machine;
-static _Atomic int64_t run_period_ns = PACE_FRAME_NS;
 
-/* A display callback, as the window hands it over. */
-typedef struct
-{
-    uint64_t at, dt;
-    uint32_t n;
-    bool paced;
-} run_tick_t;
-
-static RING(run_tick_t, 16) run_ticks;
 static uint32_t run_ticks_sent;        /* the window's */
 static _Atomic uint32_t run_ticks_run; /* the newest tick the machine has run */
 
@@ -111,6 +102,8 @@ static _Atomic bool run_stopping;
  * it straight back, so it lets them have it first. */
 static _Atomic int run_waiting;
 #endif
+
+static void run_take(void);
 
 void run_lock(void)
 {
@@ -139,11 +132,15 @@ void run_wake(void)
 #endif
 }
 
-/* The machine's thread lets those waiting for the lock have it, between its
- * steps and between frames. Each waiter takes it and lets it go quickly, so
- * the machine waits on them only that long. */
+/* Between its steps and between frames the machine takes what the window
+ * sent, so an event lands no later than it did when the window reached in
+ * itself, and lets a debugger waiting for the lock have it. Each waiter
+ * takes it and lets it go quickly, so the machine waits on them only that
+ * long. */
 static void run_pause(void)
 {
+    if (seam_machine_waiting())
+        run_take();
 #if RUN_THREAD
     if (!atomic_load_explicit(&run_waiting, memory_order_relaxed))
         return;
@@ -175,23 +172,24 @@ static void run_bench(void)
     fprintf(stderr, "EMU_BENCH: %lu VGA frames in %.3fs = %.1f Hz\n",
             vga_frame_count(), secs, (double)vga_frame_count() / secs);
     run.bench_ns = 0;
-    atomic_store(&run_quit, true);
+    const uint8_t closed = 0;
+    seam_to_window(SEAM_QUIT, &closed, 1);
 }
 
 /* One frame, false when a debugger holds the machine. The frame that saw the
  * program exit drew the lines above the beam before the program's last
  * writes, so under exit_on_halt one more frame is drawn after it to be the
  * last picture, and the machine runs no more. The drop-a-ROM prompt holds the
- * CPU with no program loaded, and that halt is no program exiting. All of it
- * is under the lock, so a drop cannot land between the halt and the prompt's
- * flag. */
+ * CPU with no program loaded, and that halt is no program exiting. A drop is
+ * a message the machine takes on this thread, so it cannot land between the
+ * halt and machine_menu_up. */
 static bool run_one(void)
 {
     const uint64_t t0 = os_mono_ns();
     const bool whole = vga_run_frame();
     if (whole)
     {
-        const bool last = run.exit_on_halt && proc_exited() && !host_window_menu_active();
+        const bool last = run.exit_on_halt && proc_exited() && !machine_menu_up();
         if (last)
             vga_run_frame();
         run_publish(last);
@@ -221,16 +219,28 @@ static void run_due(void)
 
 /* A display callback, at its own time: the time to it is owed and the display
  * is measured, as when the callback did it itself. */
-static void run_tick(const run_tick_t *t)
+static void run_tick(const seam_tick_t *t)
 {
     run_owe_to(t->at);
     pace_add(&run.pace, t->dt, t->paced);
     run.tick_at = t->at;
     run.tick_paced = t->paced;
+    run.ticked = true;
+    run.tick_last = t->n;
     aud_set_speed(pace_speed(&run.pace));
-    atomic_store(&run_following, run.pace.follows);
-    if (run.pace.period_ns)
-        atomic_store(&run_period_ns, run.pace.period_ns);
+}
+
+/* What the window sent, in order: its events and its display callbacks. */
+static void run_take(void)
+{
+    seam_msg_t m;
+    while (seam_machine_take(&m))
+    {
+        if (m.kind == SEAM_TICK)
+            run_tick(m.body);
+        else
+            machine_take(&m);
+    }
 }
 
 /* When the next frame comes due: at the first display callback that owes
@@ -261,8 +271,8 @@ static void run_display_stopped(uint64_t now)
     if (!run.tick_paced || now - run.tick_at < 2 * (uint64_t)period)
         return;
     run.tick_paced = false;
+    run.pace.follows = false;
     aud_set_speed(1);
-    atomic_store(&run_following, false);
 }
 
 /* Whatever is due now, and how long until there is more. A frame a debugger
@@ -291,27 +301,23 @@ static uint64_t run_frames(uint64_t now, bool ticked)
     return at > now ? at - now : 0;
 }
 
-/* The display callbacks handed over are taken in order, the frames they and
- * the wall clock make due are run, and only then are the callbacks marked
- * run, so a window waiting for one finds its frame. */
+/* What the window sent is taken in order, the frames its display callbacks
+ * and the wall clock make due are run, and only then are the callbacks marked
+ * run, so a window waiting for one finds its frame. Last the window is told
+ * what changed. */
 static uint64_t run_step(uint64_t now)
 {
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
         dap_pump();
 #endif
-    run_tick_t t;
-    bool ticked = false;
-    uint32_t last = 0;
-    while (RING_GET(&run_ticks, &t))
-    {
-        run_tick(&t);
-        last = t.n;
-        ticked = true;
-    }
+    run.ticked = false;
+    run_take();
+    const bool ticked = run.ticked;
     const uint64_t wait = run_frames(now, ticked);
-    if (ticked)
-        atomic_store(&run_ticks_run, last);
+    if (run.ticked)
+        atomic_store(&run_ticks_run, run.tick_last);
+    machine_status(run.pace.follows, run.pace.period_ns ? run.pace.period_ns : PACE_FRAME_NS);
     return wait;
 }
 
@@ -341,14 +347,13 @@ static void run_main(void *arg)
 void run_display(uint64_t now, uint64_t dt, bool paced, uint64_t room)
 {
     const uint32_t n = ++run_ticks_sent;
-    const run_tick_t t = {.at = now, .dt = dt, .n = n, .paced = paced};
+    const seam_tick_t t = {.at = now, .dt = dt, .n = n, .paced = paced};
+    /* A queue the machine has not emptied drops this one: the next owes the
+     * time it missed. */
+    seam_to_machine(SEAM_TICK, &t, sizeof t);
 #if RUN_THREAD
     if (run_thread)
     {
-        /* A ring the machine has not emptied in sixteen callbacks drops this
-         * one: the next owes the time it missed. */
-        RING_PUT(&run_ticks, t);
-        os_wake_signal(run_machine_wake);
         for (uint64_t at = now; at - now < room; at = os_mono_ns())
         {
             if (paced ? (int32_t)(atomic_load(&run_ticks_run) - n) >= 0
@@ -363,7 +368,6 @@ void run_display(uint64_t now, uint64_t dt, bool paced, uint64_t room)
     /* One thread: the callback runs the frames due at it, and under --phi2 0
      * as many as a frame's time holds. The lock is taken all the same, for
      * the debug adapter's thread. */
-    RING_PUT(&run_ticks, t);
     run_lock();
     do
         run_step(os_mono_ns());
@@ -376,17 +380,7 @@ void run_display(uint64_t now, uint64_t dt, bool paced, uint64_t room)
 
 bool run_quit_asked(void)
 {
-    return atomic_load(&run_quit) || run_slot[run_front].last;
-}
-
-bool run_follows(void)
-{
-    return atomic_load(&run_following);
-}
-
-int64_t run_period(void)
-{
-    return atomic_load(&run_period_ns);
+    return run_slot[run_front].last;
 }
 
 uint64_t run_machine_ns(void)
@@ -407,6 +401,7 @@ void run_setup(void)
     run_mutex = os_lock_new();
     run_machine_wake = os_wake_new();
     run_window_wake = os_wake_new();
+    seam_set_wake(run_wake);
 #endif
 #ifdef EMU_WITH_DEBUGGER
     dap_set_host(run_lock, run_unlock, run_wake);

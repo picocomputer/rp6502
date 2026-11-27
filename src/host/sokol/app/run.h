@@ -11,16 +11,18 @@
  * compositor keeps for a tenth of a second, a window being moved, a screen's
  * scale changing. The window tells the machine when each display callback
  * comes (run_display) and shows the newest frame the machine finished
- * (run_frame). The web player has one thread, and its callbacks run the
- * machine in run_display.
+ * (run_frame). Everything else between them is a message (seam.h), which the
+ * machine takes between its steps and its frames. The web player has one
+ * thread, and its callbacks run the machine in run_display.
  *
- * One lock is the machine's. The machine's thread holds it while it runs a
- * frame, and the window holds it whenever it reaches into the machine: its
- * events, its frame callback up to the upload, the debugger's windows. It is
- * a lock the holder may take again, because a window's own calls into the OS
- * can deliver an event to it on the spot. Nothing holding it waits on the
- * window, and the window never holds it while it waits on the machine or on
- * the display.
+ * One lock is the machine's, for a debugger alone: its windows and its
+ * adapter read and change the machine as it stands. The machine's thread
+ * holds it while it runs, and lets a debugger waiting for it have it
+ * between its steps and frames; with no debugger up nothing else takes it.
+ * It is a lock the holder may take again, because a window's own calls into
+ * the OS can deliver an event to it on the spot. Nothing holding it waits on
+ * the window, and the window never holds it while it waits on the machine or
+ * on the display.
  */
 
 #ifndef _HOST_SOKOL_APP_RUN_H_
@@ -48,7 +50,7 @@ void run_set_unpaced(bool on);
 void run_start(void);
 void run_stop(void);
 
-/* The machine's lock, for the window and the debug adapter. */
+/* The machine's lock, for the debugger's windows and its adapter. */
 void run_lock(void);
 void run_unlock(void);
 
@@ -65,9 +67,6 @@ void run_wake(void);
  * own, and it waits for the next new one. */
 void run_display(uint64_t now, uint64_t dt, bool paced, uint64_t room);
 
-/* The display's period as the machine measures it. */
-int64_t run_period(void);
-
 /* A frame the machine finished, and the shape it was drawn in. */
 typedef struct run_frame_t
 {
@@ -78,18 +77,13 @@ typedef struct run_frame_t
 } run_frame_t;
 
 /* The newest finished frame, which stays the window's until the next call.
- * fresh is whether it is one this call has not given before. Under the
- * lock, from the window. */
+ * fresh is whether it is one this call has not given before. From the
+ * window. */
 const run_frame_t *run_frame(bool *fresh);
 
-/* Whether the machine wants the window closed: the program exited under
- * exit_on_halt, and the frame run_frame gave is its last picture, or
- * EMU_BENCH_MS ran out. */
+/* Whether the frame run_frame gave is the last picture of a program that
+ * exited under exit_on_halt, after which the window closes. */
 bool run_quit_asked(void);
-
-/* Whether the machine's frames follow the display's, which the window's
- * guess at whether its present waits goes by. */
-bool run_follows(void);
 
 /* The host time spent running frames, for the debugger's pace window. */
 uint64_t run_machine_ns(void);

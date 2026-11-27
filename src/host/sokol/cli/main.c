@@ -16,6 +16,7 @@
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
 #include "host/sokol/app/run.h"
+#include "host/sokol/app/seam_machine.h"
 #include "osal/os.h"
 #include "osal/console.h"
 #include "core/aud/mix.h"
@@ -308,7 +309,7 @@ int main(int argc, char **argv)
 
     char *rom = NULL; /* owned; NULL means none was named */
     if (o.rom)
-        rom = app_rom_path(o.rom);
+        rom = machine_rom_path(o.rom);
     else if (o.n_installs > 0)
         rom = strdup(first_install);
     if ((o.rom || o.n_installs > 0) && !rom)

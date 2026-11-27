@@ -13,13 +13,13 @@
 #include "host/sokol/app/app.h"
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/icon.h"
+#include "host/sokol/app/seam.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/util/sokol_debugtext.h"
 #include "sokol/util/sokol_gl.h"
 #include "core/sys/version.h"
 #include <math.h>
-#include <stdatomic.h>
 #include <string.h>
 
 static void prompt_round_rect(float x, float y, float w, float h, float rad,
@@ -317,25 +317,26 @@ static bool prompt_url_hit(float x, float y)
            y >= prompt_url.y && y < prompt_url.y + prompt_url.h;
 }
 
-/* Whether the window waits for a ROM. The machine reads it from its own
- * thread, at a program's exit, which is no exit while the card is up. */
-static _Atomic bool prompt_waiting;
+/* Whether the window waits for a ROM. The machine is told as the window
+ * opens (SEAM_MENU), because a program's exit is no exit while the card is
+ * up, and takes it down itself when a dropped ROM boots. */
+static bool prompt_waiting;
 static bool prompt_ready;
 
 bool entry_wait_for_rom(void)
 {
-    atomic_store(&prompt_waiting, true);
+    prompt_waiting = true;
     return true;
 }
 
 bool host_window_menu_active(void)
 {
-    return atomic_load(&prompt_waiting);
+    return prompt_waiting;
 }
 
 void host_window_menu_draw(void)
 {
-    if (!atomic_load(&prompt_waiting))
+    if (!prompt_waiting)
         return;
     if (!prompt_ready)
     {
@@ -345,17 +346,22 @@ void host_window_menu_draw(void)
     prompt_draw("Drop a .rp6502", "ROM file here");
 }
 
+/* The machine boots the dropped file, and says when it has (SEAM_BOOTED). */
 void host_window_files_dropped(void)
 {
-    if (app_boot_rom(sapp_get_dropped_file_path(0)))
-        atomic_store(&prompt_waiting, false);
+    seam_text_to_machine(SEAM_BOOT, sapp_get_dropped_file_path(0));
+}
+
+void prompt_booted(void)
+{
+    prompt_waiting = false;
 }
 
 bool prompt_event(const sapp_event *e)
 {
     /* The docs link's rectangle is set by prompt_draw, so it means something
      * only while the card is on screen. */
-    if (!atomic_load(&prompt_waiting))
+    if (!prompt_waiting)
         return false;
     if (e->type == SAPP_EVENTTYPE_MOUSE_MOVE)
         sapp_set_mouse_cursor(prompt_url_hit(e->mouse_x, e->mouse_y)

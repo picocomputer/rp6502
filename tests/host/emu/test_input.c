@@ -5,6 +5,8 @@
  */
 
 #include "host/sokol/app/input.h"
+#include "host/sokol/app/seam_machine.h"
+#include "host/sokol/app/seam.h"
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/gfx.h"
 #include "core/com/com.h"
@@ -69,28 +71,62 @@ bool gfx_canvas_from_fb(float fx, float fy, int *cx, int *cy)
     return true;
 }
 
-/* An event as the window hands it over (app.c): the locks a key goes down
- * with read first, and what the event asks of the OS done after. */
-static void event(const sapp_event *e)
+/* What crossed the seam, both ways, as the two threads would take it: the
+ * machine takes what the window sent and says what changed, and the window
+ * takes that. */
+static void pump(void)
 {
-    if (e->type == SAPP_EVENTTYPE_KEY_DOWN)
-        input_read_locks();
-    input_event(e);
-    input_apply();
+    seam_msg_t m;
+    while (seam_machine_take(&m))
+        machine_take(&m);
+    machine_status(false, 0);
+    while (seam_window_take(&m))
+        if (m.kind == SEAM_STATUS)
+            input_set_status(m.body);
 }
 
-/* The window's locks, as a frame reads and hands them over. */
+/* An event as the window hands it over (app.c), and what it asks of the OS
+ * done after. */
+static void event(const sapp_event *e)
+{
+    pump();
+    input_event(e);
+    input_apply();
+    pump();
+}
+
+/* The window's locks, as a frame reads and sends them. */
 static void frame_locks(void)
 {
-    input_read_locks();
     input_locks();
+    pump();
 }
 
 /* The cursor, as a frame chooses and sets it. */
 static void frame_cursor(void)
 {
+    pump();
     input_cursor_task();
     input_apply();
+}
+
+/* The capture a frame lets go, as the machine last said. */
+static void frame_pointer(void)
+{
+    pump();
+    input_pointer_task();
+}
+
+static bool to_tablet(void)
+{
+    pump();
+    return input_pointer_to_tablet();
+}
+
+static bool wheel_to_tablet(void)
+{
+    pump();
+    return input_wheel_to_tablet();
 }
 
 /* A key going down and up, with the character the system sends for it
@@ -532,13 +568,16 @@ UTEST(input, unmapped_over_the_console_the_pointer_feeds_the_tablet)
     ASSERT_EQ(shown_cursor, SAPP_MOUSECURSOR_ARROW);
     /* The terminal does nothing with the wheel, so a page keeps it, and
      * nothing of it reaches the tablet. */
-    ASSERT_TRUE(input_pointer_to_tablet());
-    ASSERT_FALSE(input_wheel_to_tablet());
+    ASSERT_TRUE(to_tablet());
+    ASSERT_FALSE(wheel_to_tablet());
     sapp_event w = {.type = SAPP_EVENTTYPE_MOUSE_SCROLL, .scroll_y = 1.0f};
     event(&w);
     ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 0u);
 
     ASSERT_TRUE(vga_canvas_select(vga_canvas_320_240));
+    /* The tablet stops having the pointer and lets it go, once. */
+    frame_pointer();
+    vterm_mouse_task();
     pointer_to(50, 50);
     ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 0u);
     frame_cursor();
@@ -633,7 +672,7 @@ UTEST(input, small_scrolls_add_up)
     manifold_write_to(COM_TERM_SCREEN, "\33[?1000h", 8);
     pointer_to(100, 100);
     vterm_mouse_task();
-    ASSERT_TRUE(input_wheel_to_tablet());
+    ASSERT_TRUE(wheel_to_tablet());
     sapp_event w = {.type = SAPP_EVENTTYPE_MOUSE_SCROLL, .scroll_y = 0.4f};
     event(&w);
     vterm_mouse_task();
@@ -661,10 +700,10 @@ UTEST(input, a_program_that_maps_only_the_mouse_captures_it)
     sys_init();
     captured = false;
     pointer_to(100, 100);
-    input_pointer_task();
+    frame_pointer();
     input_apply();
     vterm_mouse_task();
-    ASSERT_TRUE(input_pointer_to_tablet());
+    ASSERT_TRUE(to_tablet());
 
     /* A press held over the console as the mouse is mapped is let go on the
      * tablet, so the terminal is not left in a drag. */
@@ -674,8 +713,8 @@ UTEST(input, a_program_that_maps_only_the_mouse_captures_it)
     vterm_mouse_task();
     ASSERT_TRUE(vterm_mouse_acts());
     ASSERT_TRUE(mouse_xreg(0xFE00));
-    ASSERT_FALSE(input_pointer_to_tablet());
-    input_pointer_task();
+    ASSERT_FALSE(to_tablet());
+    frame_pointer();
     input_apply();
     ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 1u);
     ASSERT_EQ(RING_AT(&vterm_mouse_queue, 0)->flags, 0);
@@ -683,7 +722,7 @@ UTEST(input, a_program_that_maps_only_the_mouse_captures_it)
     /* It is an edge: once let go, the tablet is left to whatever else puts
      * a contact there, as a script does. */
     tablet_host_pointer(100, 100, TABLET_FLAG_LEFT, true);
-    input_pointer_task();
+    frame_pointer();
     input_apply();
     ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 1u);
     ASSERT_EQ(RING_AT(&vterm_mouse_queue, 0)->flags, TABLET_FLAG_HOVER | TABLET_FLAG_LEFT);
@@ -703,16 +742,16 @@ UTEST(input, a_program_that_maps_only_the_mouse_captures_it)
     event(&e);
     ASSERT_TRUE(captured);
     ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 0u);
-    input_pointer_task();
+    frame_pointer();
     input_apply();
     ASSERT_TRUE(captured);
 
     /* Mapping the tablet as well lets the capture go and feeds the tablet,
      * the wheel included. */
     ASSERT_TRUE(tablet_xreg(0xFF00));
-    ASSERT_TRUE(input_pointer_to_tablet());
-    ASSERT_TRUE(input_wheel_to_tablet());
-    input_pointer_task();
+    ASSERT_TRUE(to_tablet());
+    ASSERT_TRUE(wheel_to_tablet());
+    frame_pointer();
     input_apply();
     ASSERT_FALSE(captured);
     pointer_to(130, 100);
@@ -721,7 +760,7 @@ UTEST(input, a_program_that_maps_only_the_mouse_captures_it)
     ASSERT_TRUE(tablet_xreg(0xFFFF));
     ASSERT_TRUE(mouse_xreg(0xFFFF));
     tablet_host_clear();
-    input_pointer_task();
+    frame_pointer();
     input_apply();
     vterm_mouse_task();
 }
