@@ -283,6 +283,11 @@ int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)
         .cleanup_cb = entry_cleanup,
         .width = win_w,
         .height = win_h,
+        /* The canvas's bitmap at the display's own pixels, as a desktop's
+         * window has it (app.c). Without it the browser draws the canvas
+         * at the page's pixels and stretches the picture on a scaled
+         * display, smearing it over the scaling the filter already did. */
+        .high_dpi = true,
         .swap_interval = 1,
         .enable_clipboard = true,
         .clipboard_size = 65536,

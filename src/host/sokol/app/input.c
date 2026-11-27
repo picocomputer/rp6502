@@ -537,10 +537,11 @@ void input_event(const sapp_event *e)
         if (input_mouse_locked())
         {
             float onscreen_w = gfx_canvas_width();
-#if defined(__APPLE__)
-            /* AppKit reports a captured pointer's motion in points, and a point
-             * is dpi_scale framebuffer pixels under high_dpi, so the canvas is
-             * measured in points too. */
+#if defined(__APPLE__) || defined(__EMSCRIPTEN__)
+            /* AppKit reports a captured pointer's motion in points, and a
+             * browser in the page's pixels, and either is dpi_scale
+             * framebuffer pixels under high_dpi, so the canvas is measured
+             * in them too. */
             onscreen_w /= sapp_dpi_scale();
 #endif
             int32_t dx, dy;
