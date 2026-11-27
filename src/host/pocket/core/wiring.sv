@@ -1060,8 +1060,8 @@ module wiring
         amp_r = AMP_W'(eng_r) * AMP_W'($signed({1'b0, gain_eng_r}))
             + AMP_W'(bel_r) * AMP_W'($signed({1'b0, gain_bel_r}))
             + AMP_W'(16384);
-        out_l = amp_l[AMP_W-1:15];
-        out_r = amp_r[AMP_W-1:15];
+        out_l = (AMP_W-15)'(amp_l >>> 15);
+        out_r = (AMP_W-15)'(amp_r >>> 15);
         wiring_aud_l = out_l < AMP_MIN ? -16'sd32768
             : out_l > AMP_MAX ? 16'sd32767 : 16'(out_l);
         wiring_aud_r = out_r < AMP_MIN ? -16'sd32768

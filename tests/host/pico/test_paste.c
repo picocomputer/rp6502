@@ -46,6 +46,7 @@ void vterm_mouse_filter(void) {}
 void draw_reset(void) {}
 void draw_job_started(void) {}
 void aud_bel_put(unsigned i, uint8_t val) { (void)i, (void)val; }
+void vol_key(uint8_t keycode) { (void)keycode; }
 uint64_t host_clock_us(void) { return 1; }
 
 static unsigned sigints;
