@@ -3,11 +3,12 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The firmware turns HID keycodes into characters through its own layout
- * tables, because a Pico has nobody to ask. A desktop OS has done that work
- * before the keystroke arrives, so this file takes the host's answer and
- * leaves the keycodes to core/hid/keyboard.c, which keeps the bitmap a
- * program polls.
+ * Every machine types a key press here (hostkey_type). The caller gives the
+ * key's character: on the Pico from the keyboard's layout tables
+ * (core/hid/keymap.c, which puts its dead-key composer where the bytes go,
+ * hostkey_set_typer); on a desktop from the OS's text, or a guessed US key
+ * for a chord the OS gives no text for (hostkey_guess). The keycodes go to
+ * core/hid/keyboard.c, which keeps the bitmap a program polls.
  */
 
 #include "core/hid/hostkey.h"

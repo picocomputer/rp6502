@@ -20,12 +20,14 @@ static struct
     uint8_t wheel;
     uint8_t pan;
 } mouse_state;
-/* Raw device counts. The block carries these shifted down by one, so it
- * advances one unit for every two counts the mouse reports. */
+/* The block's position doubled; the block carries these shifted down by
+ * one. All motion, a USB mouse's or a host's, comes through mouse_host_move
+ * in whole block units, so these move in steps of two. */
 static uint16_t mouse_x;
 static uint16_t mouse_y;
 
-/* The fraction of a count a host's motion leaves over, in Q16.16. */
+/* The fraction of a block unit that motion leaves over, in Q16.16 (a USB
+ * mouse's count is MOUSE_ONE / 2). */
 static int32_t mouse_acc_x, mouse_acc_y;
 
 static uint16_t mouse_xram;
@@ -187,8 +189,8 @@ bool mouse_is_mapped(void)
     return mouse_xram != 0xFFFF;
 }
 
-/* A host count is already in the block's units, and the counters behind the
- * block run at twice that, so host motion is doubled on the way in. */
+/* Motion in Q16.16 block units, a host's or a USB report's (half a unit per
+ * count). Whole units reach the counters doubled. */
 void HOST_IN_RAM_FUNC mouse_host_move(int32_t dx, int32_t dy)
 {
     mouse_acc_x += dx;

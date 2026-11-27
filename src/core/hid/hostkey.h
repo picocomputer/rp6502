@@ -18,7 +18,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* What hostkey_press did with a key. */
+/* What hostkey_type, or hostkey_press, did with a key. */
 typedef enum
 {
     HOSTKEY_NONE,  /* the key sends nothing */
