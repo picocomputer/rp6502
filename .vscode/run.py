@@ -58,7 +58,8 @@ def web(rom):
     html = html.replace("'adventure.rp6502'", repr(rom.name))
     html = html.replace("'Colossal Cave Adventure'", repr(rom.stem))
     # The player tells a page that asks how its sound's queue stands, once a
-    # second, which is posted here and printed (host/web/audio.c).
+    # second while its sound runs (least, dry, rate, floor), which is posted
+    # here and printed (host/web/page.js).
     stats = ("<script>globalThis.rp6502_audio_stats = (s) => "
              "fetch('/stats', {method: 'POST', body: JSON.stringify(s)});</script>\n")
     html = html.replace("<script", stats + "<script", 1)

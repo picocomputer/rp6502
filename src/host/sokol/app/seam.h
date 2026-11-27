@@ -10,7 +10,7 @@
  * The window is what the host gives the emulator to show and hear it by: the
  * desktop's window on its own thread, the web player's page. The machine is
  * the 6502 and everything around it: on the desktop its own thread, on the web
- * the page's thread today and a worker to come. Neither side calls into the
+ * a worker. Neither side calls into the
  * other. The window tells the machine what the user did (keys, pointer,
  * gamepads, a pasted text, a dropped ROM) and when the display called back;
  * the machine tells the window what it needs to know to take the next event
@@ -22,8 +22,10 @@
  * queue has one writer and one reader at a time: the debugger's windows,
  * which run on the window's thread holding the machine's lock, may write
  * what the machine would, since the machine is held while they do. On the desktop a queue is a ring in
- * memory, and a message to the machine wakes its thread. Where both sides run
- * on one thread the same rings serve, taken in turn.
+ * memory, and a message to the machine wakes its thread. On the web the
+ * halves share no memory: a message goes to the other half in a batch the
+ * page or the worker posts, and lands in that half's queue there
+ * (host/web/link.h).
  */
 
 #ifndef _HOST_SOKOL_APP_SEAM_H_
@@ -173,6 +175,12 @@ bool seam_machine_waiting(void);
 /* A NUL-terminated text as a message's body. */
 bool seam_text_to_machine(seam_kind_t kind, const char *utf8);
 bool seam_text_to_window(seam_kind_t kind, const char *utf8);
+
+#ifdef __EMSCRIPTEN__
+/* A message the other half of the web player posted, into this half's queue
+ * (host/web/link.h). */
+void seam_deliver(seam_kind_t kind, const void *body, size_t len);
+#endif
 
 /* What wakes the machine's thread, NULL where it has none. */
 void seam_set_wake(void (*wake)(void));

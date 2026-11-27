@@ -17,6 +17,9 @@
 #include "host/sokol/app/app.h"
 #include "host/sokol/app/run.h"
 #include "host/sokol/app/seam_machine.h"
+#ifdef __EMSCRIPTEN__
+#include "host/web/link.h"
+#endif
 #include "osal/os.h"
 #include "osal/console.h"
 #include "core/aud/mix.h"
@@ -46,12 +49,18 @@
 
 static uint32_t g_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 
-static void apply_options(const cli_options *o)
+/* What the window shows the machine by. */
+static void apply_window_options(const cli_options *o)
 {
     if (o->have_bg)
         gfx_set_bgcolor((uint8_t)o->bg_r, (uint8_t)o->bg_g, (uint8_t)o->bg_b);
     gfx_set_filter(o->scale_filter);
     gfx_set_fixed_aspect(o->fixed_aspect);
+}
+
+static void apply_options(const cli_options *o)
+{
+    apply_window_options(o);
     if (o->mute)
         aud_set_enabled(false);
     app_set_unpaced(o->unpaced);
@@ -177,6 +186,20 @@ int main(int argc, char **argv)
         printf("%s%s\n%s", EMU_CREDITS_TITLE, version_string(), EMU_CREDITS);
         return 0;
     }
+
+#ifdef __EMSCRIPTEN__
+    /* The web player's page is its window, and the machine is the worker's,
+     * which runs the rest of this (host/web/link.h). */
+    if (!link_machine())
+    {
+        apply_window_options(&o);
+        /* The frame the page first shapes its box by, before the machine's
+         * first: the console the machine will start on. */
+        if (o.fixed_aspect)
+            vga_set_console_size(o.console_w, o.console_h);
+        return entry_run(g_fb, o.scale, o.have_scale, !o.debug);
+    }
+#endif
 
 #ifdef EMU_WITH_DEBUGGER
     if (o.ini)
@@ -464,5 +487,9 @@ int main(int argc, char **argv)
         return 0;
     }
 
+#ifdef __EMSCRIPTEN__
+    return link_run(g_fb, !o.debug);
+#else
     return entry_run(g_fb, o.scale, o.have_scale, !o.debug);
+#endif
 }

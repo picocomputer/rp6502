@@ -23,6 +23,7 @@
 #include "osal/thread.h"
 #define RUN_THREAD 1
 #else
+#include "host/web/link.h"
 #define RUN_THREAD 0
 #endif
 #include <stdatomic.h>
@@ -54,7 +55,9 @@ static struct
  * each frame, so a frame needs nothing of the one drawn into it before. A
  * frame a debugger stopped part way is never traded, and nothing is traded
  * after the last picture. Without a thread the window takes each frame on the
- * thread that drew it, and one frame serves: the caller's. */
+ * thread that drew it, and one frame serves: the caller's. On the web the
+ * machine is in a worker and the window on the page, each with a frame of its
+ * own, and a finished frame goes to the page as a copy (host/web/link.h). */
 
 #define RUN_PIXELS (VGA_MAX_WIDTH * VGA_MAX_HEIGHT)
 #define RUN_FRESH 4 /* on the frame between: the machine has traded since the window */
@@ -72,10 +75,40 @@ static void run_publish(bool last)
     vga_canvas_size(&f->canvas_w, &f->canvas_h);
     vga_console_size(&f->console_w, &f->console_h);
     f->last = last;
+#if RUN_THREAD
     run_back = atomic_exchange(&run_ready, run_back | RUN_FRESH) & 3;
     vga_set_framebuffer((uint32_t *)run_slot[run_back].pixels);
+#else
+    link_post_frame(f);
+#endif
 }
 
+#if !RUN_THREAD
+static bool run_web_fresh;
+
+uint32_t *run_web_frame_pixels(void)
+{
+    return (uint32_t *)run_slot[0].pixels;
+}
+
+void run_web_frame_done(int w, int h, int cw, int ch, bool last)
+{
+    run_frame_t *f = &run_slot[0];
+    f->canvas_w = w;
+    f->canvas_h = h;
+    f->console_w = cw;
+    f->console_h = ch;
+    f->last = last;
+    run_web_fresh = true;
+}
+
+const run_frame_t *run_frame(bool *fresh)
+{
+    *fresh = run_web_fresh;
+    run_web_fresh = false;
+    return &run_slot[0];
+}
+#else
 const run_frame_t *run_frame(bool *fresh)
 {
     *fresh = (atomic_load(&run_ready) & RUN_FRESH) != 0;
@@ -83,6 +116,7 @@ const run_frame_t *run_frame(bool *fresh)
         run_front = atomic_exchange(&run_ready, run_front) & 3;
     return &run_slot[run_front];
 }
+#endif
 
 /* ---------------- the lock and the thread ---------------- */
 
@@ -104,6 +138,12 @@ static _Atomic int run_waiting;
 #endif
 
 static void run_take(void);
+
+#if !RUN_THREAD
+/* The worker's clock starts at another moment than the page's, which stamps
+ * the display callbacks. */
+static int64_t run_web_skew;
+#endif
 
 void run_lock(void)
 {
@@ -219,8 +259,15 @@ static void run_due(void)
 
 /* A display callback, at its own time: the time to it is owed and the display
  * is measured, as when the callback did it itself. */
-static void run_tick(const seam_tick_t *t)
+static void run_tick(const seam_tick_t *in)
 {
+    seam_tick_t at = *in;
+#if !RUN_THREAD
+    /* A callback from before the worker's clock began is at its start. */
+    const int64_t worker_at = (int64_t)at.at + run_web_skew;
+    at.at = worker_at > 0 ? (uint64_t)worker_at : 0;
+#endif
+    const seam_tick_t *t = &at;
     run_owe_to(t->at);
     pace_add(&run.pace, t->dt, t->paced);
     run.tick_at = t->at;
@@ -344,8 +391,23 @@ static void run_main(void *arg)
 }
 #endif
 
+#if !RUN_THREAD
+/* The page sends no display callbacks before the worker's machine is up:
+ * they would only pile up in its queue, and owe it nothing. */
+static bool run_web_running;
+
+void run_web_up(void)
+{
+    run_web_running = true;
+}
+#endif
+
 void run_display(uint64_t now, uint64_t dt, bool paced, uint64_t room)
 {
+#if !RUN_THREAD
+    if (!run_web_running)
+        return;
+#endif
     const uint32_t n = ++run_ticks_sent;
     const seam_tick_t t = {.at = now, .dt = dt, .n = n, .paced = paced};
     /* A queue the machine has not emptied drops this one: the next owes the
@@ -363,9 +425,7 @@ void run_display(uint64_t now, uint64_t dt, bool paced, uint64_t room)
         }
         return;
     }
-#endif
-    (void)room;
-    /* One thread: the callback runs the frames due at it, and under --phi2 0
+    /* No thread: the callback runs the frames due at it, and under --phi2 0
      * as many as a frame's time holds. The lock is taken all the same, for
      * the debug adapter's thread. */
     run_lock();
@@ -376,7 +436,28 @@ void run_display(uint64_t now, uint64_t dt, bool paced, uint64_t room)
 #ifdef EMU_WITH_DEBUGGER
     dap_send();
 #endif
+#endif
+    /* On the web the machine is the worker's (host/web/link.h), and the page
+     * never waits for it. */
+    (void)room;
 }
+
+#if !RUN_THREAD
+void run_web_clock(int64_t page_minus_worker_ns)
+{
+    run_web_skew = page_minus_worker_ns;
+}
+
+uint64_t run_web_step(void)
+{
+    const uint64_t now = os_mono_ns();
+    uint64_t wait;
+    do
+        wait = run_step(os_mono_ns());
+    while (run.unpaced && !run.held && !run.done && os_mono_ns() - now < VGA_FRAME_NS);
+    return wait;
+}
+#endif
 
 bool run_quit_asked(void)
 {

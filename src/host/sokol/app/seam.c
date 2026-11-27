@@ -5,6 +5,9 @@
  */
 
 #include "host/sokol/app/seam.h"
+#ifdef __EMSCRIPTEN__
+#include "host/web/link.h"
+#endif
 #include <stdatomic.h>
 #include <string.h>
 
@@ -90,6 +93,10 @@ static bool seam_take(seam_queue_t *q, seam_msg_t *m)
 
 bool seam_to_machine(seam_kind_t kind, const void *body, size_t len)
 {
+#ifdef __EMSCRIPTEN__
+    /* The page's window sends to the worker's machine. */
+    return link_post(kind, body, len);
+#endif
     const bool put = seam_put(&seam_in, kind, body, len);
     if (put && seam_wake)
         seam_wake();
@@ -109,8 +116,19 @@ bool seam_machine_waiting(void)
 
 bool seam_to_window(seam_kind_t kind, const void *body, size_t len)
 {
+#ifdef __EMSCRIPTEN__
+    /* The worker's machine sends to the page's window. */
+    return link_post(kind, body, len);
+#endif
     return seam_put(&seam_out, kind, body, len);
 }
+
+#ifdef __EMSCRIPTEN__
+void seam_deliver(seam_kind_t kind, const void *body, size_t len)
+{
+    seam_put(link_machine() ? &seam_in : &seam_out, kind, body, len);
+}
+#endif
 
 bool seam_window_take(seam_msg_t *m)
 {

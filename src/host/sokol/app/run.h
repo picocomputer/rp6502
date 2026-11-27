@@ -12,8 +12,8 @@
  * scale changing. The window tells the machine when each display callback
  * comes (run_display) and shows the newest frame the machine finished
  * (run_frame). Everything else between them is a message (seam.h), which the
- * machine takes between its steps and its frames. The web player has one
- * thread, and its callbacks run the machine in run_display.
+ * machine takes between its steps and its frames. The web player's machine
+ * runs in a worker and its window on the page (host/web/link.h).
  *
  * One lock is the machine's, for a debugger alone: its windows and its
  * adapter read and change the machine as it stands. The machine's thread
@@ -84,6 +84,18 @@ const run_frame_t *run_frame(bool *fresh);
 /* Whether the frame run_frame gave is the last picture of a program that
  * exited under exit_on_halt, after which the window closes. */
 bool run_quit_asked(void);
+
+#ifdef __EMSCRIPTEN__
+/* The web player's halves (host/web/link.h). The page's frame, which a frame
+ * from the worker is copied into, and its shape once it is; the worker's
+ * machine run for what is due now, giving how long until more is due; and
+ * how far the page's clock is ahead of the worker's. */
+uint32_t *run_web_frame_pixels(void);
+void run_web_frame_done(int w, int h, int cw, int ch, bool last);
+uint64_t run_web_step(void);
+void run_web_clock(int64_t page_minus_worker_ns);
+void run_web_up(void);
+#endif
 
 /* The host time spent running frames, for the debugger's pace window. */
 uint64_t run_machine_ns(void);

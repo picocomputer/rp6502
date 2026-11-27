@@ -10,42 +10,19 @@
 #include "host/sokol/app/prompt.h"
 #include "host/sokol/app/input.h"
 #include "host/sokol/app/seam.h"
+#include "core/hid/gamepad.h"
 #include "core/hid/usage.h"
 #include "host/host.h"
-#include "host/web/audio.h"
 #include "sokol/sokol_app.h"
 #include <emscripten.h>
 #include <emscripten/html5.h>
 #include <stdint.h>
 
-/* Firefox and Safari slow animation frames for a hidden or offscreen page
- * rather than stopping them. */
-#define LIVE_MS 250.0
-
-static int32_t away, pointer;
-static double callback_ms;
+/* The page is the player's window; its machine is the worker's (link.h),
+ * which runs on its own clock whether or not the page is shown. */
+static int32_t pointer;
 static bool inited;
 static int focused = -1;
-
-/* A cross-origin frame cannot read the page around it, but an
- * IntersectionObserver with no root measures the canvas against the top-level
- * viewport from inside any frame. While the page is away the machine does not
- * run and no sound is made, which the sound's queue rides out (audio.c). */
-EM_JS(void, js_away_setup, (int32_t *away), {
-    const signal = Module.rp6502.signal;
-    if (signal.aborted)
-        return;
-    let inView = true;
-    const update = () => { HEAP32[away >> 2] = document.hidden || !inView; };
-    document.addEventListener('visibilitychange', update, {signal});
-    const io = new IntersectionObserver((entries) => {
-        inView = entries[entries.length - 1].isIntersecting;
-        update();
-    });
-    io.observe(Module.canvas);
-    signal.addEventListener('abort', () => io.disconnect());
-    update();
-});
 
 /* pointer is 1 while the program maps the mouse, 2 while the tablet has
  * the pointer (input_pointer_to_tablet): a program maps it, or the console's
@@ -176,7 +153,6 @@ static void entry_init(void)
     if (js_destroyed())
         return;
     app_init();
-    web_audio_setup();
     inited = true;
 }
 
@@ -190,11 +166,6 @@ static void entry_frame(void)
 {
     if (!inited || js_destroyed())
         return;
-    const double now = emscripten_performance_now();
-    const double gap = now - callback_ms;
-    callback_ms = now;
-    if (away || gap >= LIVE_MS)
-        return;
     /* The player's own focus, which the page keeps for each player on it,
      * is told to a program that asks (?1004) as it changes. */
     const int focus = js_focused();
@@ -205,7 +176,6 @@ static void entry_frame(void)
         seam_to_machine(SEAM_FOCUS, &b, 1);
     }
     app_frame();
-    web_audio_frame();
     const uint8_t told = input_status()->flags;
     const int32_t used = ((told & SEAM_MOUSE_MAPPED) ? 1 : 0) | ((told & SEAM_TO_TABLET) ? 2 : 0) |
                          ((told & SEAM_WHEEL_TO_TABLET) ? 4 : 0);
@@ -225,7 +195,6 @@ void host_window_set_aspect(int w, int h, bool refit)
 
 void host_window_init(void)
 {
-    js_away_setup(&away);
     js_pointer_setup(&pointer);
 }
 bool host_window_menu_active(void) { return false; }
@@ -243,6 +212,49 @@ EM_JS(void, js_clipboard_write, (const char *utf8), {
 });
 
 void entry_clipboard_write(const char *utf8) { js_clipboard_write(utf8); }
+
+/* The page's controllers (gamepad.c), as page.js reads them from the
+ * Gamepad API: none while the player does not have the keys. Each is a row of
+ * twelve numbers, its id first. */
+EM_JS(int, js_gamepads, (int32_t *rows, int max), {
+    return Module.rp6502.gamepads(HEAP32, rows >> 2, max);
+});
+
+bool host_gamepad_open(void)
+{
+    return true;
+}
+
+void host_gamepad_close(void)
+{
+}
+
+int host_gamepad_poll(gamepad_host_t *gamepads, int max)
+{
+    int32_t rows[GAMEPAD_PLAYERS][12];
+    if (max > GAMEPAD_PLAYERS)
+        max = GAMEPAD_PLAYERS;
+    const int n = js_gamepads(&rows[0][0], max);
+    for (int i = 0; i < n; i++)
+    {
+        const int32_t *r = rows[i];
+        gamepads[i] = (gamepad_host_t){
+            .id = (uint64_t)r[0],
+            .dpad = (uint8_t)r[1],
+            .button0 = (uint8_t)r[2],
+            .button1 = (uint8_t)r[3],
+            .lx = (int8_t)r[4],
+            .ly = (int8_t)r[5],
+            .rx = (int8_t)r[6],
+            .ry = (int8_t)r[7],
+            .lt = (uint8_t)r[8],
+            .rt = (uint8_t)r[9],
+            .type = (uint8_t)r[10],
+            .sticks = r[11] != 0,
+        };
+    }
+    return n;
+}
 
 /* The browser's platform: a Mac, or an iPhone or iPad with a keyboard. */
 EM_JS(int, js_mac_keys, (void), {

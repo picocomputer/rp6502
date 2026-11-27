@@ -12,9 +12,9 @@
  * entry_argv_utf8, and only the web entry_canvas_locked.
  * Only the desktop builds implement host_window_resize, because the debugger's
  * Window Scale menu, which asks for it (gfx_canvas_changed carries it out), is
- * built only for the desktop emulator.
- * The same goes for the three host_gamepad_ functions at the bottom and
- * app/gamepad.c, which calls them.
+ * built only for the desktop emulator. Every platform implements the three
+ * host_gamepad_ functions at the bottom, the web from the page's Gamepad API,
+ * and app/gamepad.c calls them.
  */
 
 #ifndef _HOST_SOKOL_APP_ENTRY_H_

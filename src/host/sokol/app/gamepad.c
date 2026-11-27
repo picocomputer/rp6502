@@ -14,8 +14,7 @@
 /* Frames between attempts to open the host's controllers. The counter is
  * reloaded on the frame that attempts an open and decremented on each of the
  * next fifteen, so attempts are sixteen frames apart, about 267 ms at 60 Hz.
- * That is close to the 250 ms interval the web shell watches its own mapping
- * on. A program that has mapped the block with nothing plugged in should not
+ * A program that has mapped the block with nothing plugged in should not
  * have the emulator scanning the host's devices every frame. */
 #define GAMEPAD_INPUT_RETRY 15
 

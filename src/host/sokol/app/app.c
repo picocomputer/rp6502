@@ -443,7 +443,10 @@ void app_cleanup(void)
     machine_set_window(false);
     if (!app_quit_asked || app_closed)
         app_broke = true;
+#ifndef __EMSCRIPTEN__
+    /* The web player's machine is the worker's, which stops on its own. */
     proc_shutdown();
+#endif
     /* app_break_leave does not return, so buffered output is flushed before
      * it. */
     if (app_broke && app_break_leave && app_break_asked && app_break_asked())
