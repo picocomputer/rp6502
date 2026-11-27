@@ -26,11 +26,15 @@
 #include <spa/param/audio/format-utils.h>
 
 #define PIPEWIRE_RATE 48000
-/* The quantum asked of the graph: 256 frames at 48 kHz, 5.3 ms. The graph
- * runs at the smallest any of its nodes asks for, within its own bounds, so
- * this is the most this stream adds, and less is better. 128 is the next
- * step, once it is measured on real hardware. */
-#define PIPEWIRE_LATENCY "256/48000"
+/* The quantum asked of the graph: 480 frames at 48 kHz, 10 ms, the period
+ * the other desktops run at. The graph runs at the smallest any of its nodes
+ * asks for, within its own bounds, so this is the most this stream adds.
+ *
+ * NOT YET TUNED: waiting on someone with a real Linux machine or a Pi to
+ * measure it. 256/48000 (5.3 ms) ran clean against a private PipeWire with a
+ * null sink, which says nothing about real hardware under load. Lower it
+ * only once underruns have been counted on real hardware. */
+#define PIPEWIRE_LATENCY "480/48000"
 #define PIPEWIRE_STRIDE (2 * sizeof(float))
 
 #define PIPEWIRE_FUNCTIONS(X) \
