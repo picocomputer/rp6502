@@ -606,8 +606,7 @@ unless something fails, and this is among the failures it reports:
 From this directory, `cmake --preset release` then
 `cmake --build --preset release` assembles the card tree into
 `build/pocket/package`. Zip the contents of `build/pocket/package` with
-its directories at the archive root. The `pocket-bitstream` target stops
-one step earlier, at `build/pocket/bitstream/core.bin`.
+its directories at the archive root.
 
 That tree needs Quartus, `gcc-riscv64-unknown-elf` and
 `picolibc-riscv64-unknown-elf`, and it needs neither Verilator nor the
