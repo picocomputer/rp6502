@@ -33,11 +33,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* The queue's least and its most, in the context's frames at 48 kHz: 5.3 ms,
+/* The queue's least and its most, in the context's frames at 48 kHz: 8 ms,
  * which covers a frame's sound coming a little late, and 100 ms. A browser
  * plays a device's period at a time, 10 ms on Windows, and the least is
- * measured after that, so the floor needs no room for it. */
-#define WEB_AUDIO_FLOOR 256
+ * measured after that, so the floor needs no room for it. Measured on the
+ * bench with Bad Apple, 5.3 ms ran dry about twice a song in Firefox. */
+#define WEB_AUDIO_FLOOR 384
 #define WEB_AUDIO_MOST 4800
 
 /* The most the stretch is, and how far off the floor, in frames, takes it. */
