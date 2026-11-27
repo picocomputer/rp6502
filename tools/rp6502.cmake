@@ -1318,6 +1318,7 @@ endfunction()
 #
 # A Windows on Arm machine prefers the arm64 build, and takes the x64 one,
 # which Windows runs by emulation, from a release that has no arm64 build.
+# Releases before the arm64 build named the x64 one windows.zip.
 # Windows is asked for the machine's processor in the registry, because a
 # CMake built for x64 sees AMD64 everywhere else on that machine. WSL on
 # such a machine is aarch64 Linux, and runs the Windows build by interop.
@@ -1331,9 +1332,9 @@ function(_rp6502_host)
         cmake_host_system_information(RESULT arch QUERY WINDOWS_REGISTRY
             "HKLM/SYSTEM/CurrentControlSet/Control/Session Manager/Environment"
             VALUE PROCESSOR_ARCHITECTURE)
-        set(suffix "windows.zip")
+        set(suffix "windows-x64.zip;windows.zip")
         if(arch STREQUAL "ARM64")
-            set(suffix "windows-arm64.zip;windows.zip")
+            set(suffix "windows-arm64.zip;windows-x64.zip;windows.zip")
         endif()
         set(member "rp6502-emu.exe")
         set(exe "rp6502-emu.exe")
@@ -1348,9 +1349,9 @@ function(_rp6502_host)
             # WSL runs the Windows build through interop, which finds a
             # Windows program by its contents and not by .exe.
             if(release MATCHES "[Mm]icrosoft")
-                set(suffix "windows.zip")
+                set(suffix "windows-x64.zip;windows.zip")
                 if(machine STREQUAL "aarch64")
-                    set(suffix "windows-arm64.zip;windows.zip")
+                    set(suffix "windows-arm64.zip;windows-x64.zip;windows.zip")
                 endif()
                 set(member "rp6502-emu.exe")
             else()

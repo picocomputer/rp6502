@@ -10,7 +10,7 @@ Install
 
 Put rp6502-emu.exe wherever you like; it needs no installer and
 writes no settings outside its own configuration file. It requires a
-GPU with Direct3D 11. The windows download is for x64 PCs, and the
+GPU with Direct3D 11. The windows-x64 download is for x64 PCs, and the
 windows-arm64 download for Windows on Arm.
 
 

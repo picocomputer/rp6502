@@ -717,9 +717,7 @@ jobs:
   # ---------------------------------------------------------------------------
   # windows: build the D3D11 emu with MSVC + Ninja, run the CTest suite,
   # ship rp6502-emu.exe, for x64 and for Windows on Arm. arm64 builds on an
-  # arm64 runner, so its suite runs on the processor it is for. The x64 zip
-  # keeps the name windows.zip, which every copy of tools/rp6502.cmake
-  # already in a project asks for.
+  # arm64 runner, so its suite runs on the processor it is for.
   # ---------------------------------------------------------------------------
   windows:
     name: windows-${{ matrix.arch }}
@@ -728,7 +726,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { arch: x64, runner: windows-2025, zip: windows }
+          - { arch: x64, runner: windows-2025, zip: windows-x64 }
           - { arch: arm64, runner: windows-11-arm, zip: windows-arm64 }
     runs-on: ${{ matrix.runner }}
     env:
@@ -980,7 +978,7 @@ jobs:
           # checking it here is what makes a missing one a failed release rather
           # than a quiet gap in it.
           assets=()
-          for w in pico.zip windows.zip windows-arm64.zip macos.zip \
+          for w in pico.zip windows-x64.zip windows-arm64.zip macos.zip \
                    linux-x86_64.tar.gz linux-aarch64.tar.gz \
                    libretro.zip \
                    pocket.zip web.zip; do
@@ -1009,7 +1007,7 @@ jobs:
           name: ${{ steps.title.outputs.name }}
           files: |
             dist/rp6502-${{ needs.version.outputs.version }}-pico.zip
-            dist/rp6502-${{ needs.version.outputs.version }}-windows.zip
+            dist/rp6502-${{ needs.version.outputs.version }}-windows-x64.zip
             dist/rp6502-${{ needs.version.outputs.version }}-windows-arm64.zip
             dist/rp6502-${{ needs.version.outputs.version }}-macos.zip
             dist/rp6502-${{ needs.version.outputs.version }}-linux-x86_64.tar.gz
