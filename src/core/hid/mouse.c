@@ -67,6 +67,16 @@ static mouse_connection_t *HOST_IN_RAM_FUNC mouse_get_connection_by_slot(int slo
     return NULL;
 }
 
+/* Every mouse's buttons together. */
+static uint8_t HOST_IN_RAM_FUNC mouse_merged(void)
+{
+    uint8_t merged = 0;
+    for (int i = 0; i < MOUSE_MAX_MICE; ++i)
+        if (mouse_connections[i].valid)
+            merged |= mouse_connections[i].buttons;
+    return merged;
+}
+
 void HOST_IN_FLASH_FUNC mouse_init(void)
 {
     mouse_stop();
@@ -101,8 +111,12 @@ bool mouse_mount(int slot, const mouse_connection_t *desc)
             continue;
         mouse_connections[i] = *desc;
         mouse_connections[i].slot = slot;
+        mouse_connections[i].buttons = 0;
         RP6502_LOG(hid, INFO, "mouse mount slot=%d, report_id=%d, x=%d/%d rel=%d", slot,
                    desc->report_id, desc->x_offset, desc->x_size, desc->x_relative);
+        /* A mouse is there from the moment it is plugged in, before it
+         * moves, so the tablet's pointer hovers at once. */
+        event_mouse(&(event_mouse_t){.buttons = mouse_merged()});
         return true;
     }
     return false;
@@ -115,13 +129,12 @@ bool mouse_umount(int slot)
         return false;
     RP6502_LOG(hid, INFO, "mouse umount slot=%d, valid=%d, report_id=%d", slot, conn->valid, conn->report_id);
     conn->valid = false;
-    uint8_t merged = 0;
+    /* A button held at unplug is let go at once, and the mice still plugged
+     * in keep theirs. The last one gone, there is no mouse. */
+    bool any = false;
     for (int i = 0; i < MOUSE_MAX_MICE; ++i)
-        if (mouse_connections[i].valid)
-            merged |= mouse_connections[i].buttons;
-    mouse_state.buttons = merged;
-    if (mouse_xram != 0xFFFF)
-        memcpy((uint8_t *)&xram[mouse_xram], &mouse_state, sizeof(mouse_state));
+        any |= mouse_connections[i].valid;
+    event_mouse(&(event_mouse_t){.buttons = mouse_merged(), .gone = !any});
     return true;
 }
 
@@ -154,24 +167,16 @@ void HOST_IN_RAM_FUNC mouse_report(int slot, uint8_t const *data, size_t size)
         }
     }
     conn->buttons = buttons;
-    uint8_t merged = 0;
-    for (int i = 0; i < MOUSE_MAX_MICE; ++i)
-        if (mouse_connections[i].valid)
-            merged |= mouse_connections[i].buttons;
 
-    /* What every mouse together did, raised as the events a host raises
-     * (core/sys/event.h), which drive the block. A report's count is half
-     * the block's, so a USB mouse moves as far as a host's for the same
-     * motion on screen. */
+    /* What every mouse together did, raised as the event a host raises
+     * (core/sys/event.h), which drives the block and the tablet. A report's
+     * count is half the block's, so a USB mouse moves as far as a host's for
+     * the same motion on screen. */
     const int32_t dx = hid_extract_signed(report_data, report_data_len,
                                           conn->x_offset, conn->x_size);
     const int32_t dy = conn->y_size > 0 ? hid_extract_signed(report_data, report_data_len,
                                                               conn->y_offset, conn->y_size)
                                         : 0;
-    if (dx || dy)
-        event_mouse(&(event_mouse_t){.dx = dx * (MOUSE_ONE / 2), .dy = dy * (MOUSE_ONE / 2),
-                                     .moved = true});
-    event_mouse(&(event_mouse_t){.buttons = merged});
     const int16_t wheel = conn->wheel_size > 0
                               ? (int16_t)hid_extract_signed(report_data, report_data_len,
                                                             conn->wheel_offset, conn->wheel_size)
@@ -180,8 +185,8 @@ void HOST_IN_RAM_FUNC mouse_report(int slot, uint8_t const *data, size_t size)
                             ? (int16_t)hid_extract_signed(report_data, report_data_len,
                                                           conn->pan_offset, conn->pan_size)
                             : 0;
-    if (wheel || pan)
-        event_wheel(&(event_wheel_t){.wheel = wheel, .pan = pan});
+    event_mouse(&(event_mouse_t){.dx = dx * (MOUSE_ONE / 2), .dy = dy * (MOUSE_ONE / 2),
+                                 .wheel = wheel, .pan = pan, .buttons = mouse_merged()});
 }
 
 bool mouse_is_mapped(void)

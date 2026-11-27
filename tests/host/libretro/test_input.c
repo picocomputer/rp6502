@@ -286,14 +286,15 @@ UTEST(input, a_program_that_wants_only_the_tablet_is_never_told)
     fe.unload_game();
 }
 
-UTEST(input, a_program_that_wants_the_mouse_is_told)
+/* Game Focus would give a mouse program no mouse, which this core does not
+ * feed (src/host/libretro/input.c), so it is not told to turn it on. */
+UTEST(input, a_program_that_wants_the_mouse_is_not_told)
 {
     fe_close();
     fe_open();
     ASSERT_TRUE(fe_load(MOUSE_ROM));
     fe_run(120);
-    ASSERT_EQ(fe.message_count, 1);
-    ASSERT_TRUE(strstr(fe.message, "Game Focus") != NULL);
+    ASSERT_EQ(fe.message_count, 0);
     fe.unload_game();
 }
 

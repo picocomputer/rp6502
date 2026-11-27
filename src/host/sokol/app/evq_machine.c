@@ -176,8 +176,7 @@ void machine_take(const evq_msg_t *m)
     case EVQ_KEY: event_key(m->body); break;
     case EVQ_CHAR: event_char(m->body); break;
     case EVQ_LOCKS: event_locks(b[0]); break;
-    case EVQ_POINTER: event_pointer(m->body); break;
-    case EVQ_TOUCH: event_touch(m->body); break;
+    case EVQ_TABLET: event_tablet(m->body); break;
     case EVQ_WHEEL: event_wheel(m->body); break;
     case EVQ_MOUSE: event_mouse(m->body); break;
     case EVQ_FOCUS: event_focus(b[0] != 0); break;

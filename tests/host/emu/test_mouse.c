@@ -404,11 +404,11 @@ UTEST(mouse, a_touch_selects)
 {
     start();
     show(TEXT);
-    tablet_point_t pt = {6 * 8, 7};
-    tablet_host_touch(&pt, 1);
+    tablet_contact_t pt = {6 * 8, 7, TABLET_FLAG_LEFT};
+    tablet_host_contacts(&pt, 1, false);
     vterm_mouse_task();
     pt.x = 11 * 8;
-    tablet_host_touch(&pt, 1);
+    tablet_host_contacts(&pt, 1, false);
     vterm_mouse_task();
     tablet_host_clear();
     vterm_mouse_task();

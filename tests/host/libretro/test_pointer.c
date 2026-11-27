@@ -92,22 +92,23 @@ UTEST(pointer, letting_go_ends_the_contact)
     fe.unload_game();
 }
 
-UTEST(pointer, a_relative_pointer_reaches_the_mouse)
+/* libretro has no captured mouse yet (src/host/libretro/input.c): the
+ * frontend's mouse moves the tablet, and a program's mouse block is not
+ * fed. */
+UTEST(pointer, a_mouse_program_gets_no_mouse_yet)
 {
     memset(fe.mouse, 0, sizeof fe.mouse);
     ASSERT_TRUE(fe_load(MOUSE_ROM));
     fe_run(60);
     block_copy(settled, MOUSE_XREG, MOUSE_BYTES);
 
-    fe_run(20);
-    ASSERT_FALSE(block_differs(settled, MOUSE_XREG, MOUSE_BYTES));
-
     fe.mouse[RETRO_DEVICE_ID_MOUSE_X] = 80;
     fe.mouse[RETRO_DEVICE_ID_MOUSE_Y] = 60;
+    fe.mouse[RETRO_DEVICE_ID_MOUSE_LEFT] = 1;
     fe_run(2);
     memset(fe.mouse, 0, sizeof fe.mouse);
     fe_run(20);
-    ASSERT_TRUE(block_differs(settled, MOUSE_XREG, MOUSE_BYTES));
+    ASSERT_FALSE(block_differs(settled, MOUSE_XREG, MOUSE_BYTES));
     fe.unload_game();
 }
 
@@ -118,11 +119,11 @@ static void finger_at(int i, float fx, float fy, bool pressed)
     fe.pointer[i][RETRO_DEVICE_ID_POINTER_PRESSED] = pressed ? 1 : 0;
 }
 
-/* The core reads no pointer input until a program maps the mouse or tablet
- * block into XRAM, so until then mouse motion is ignored and the block holds
- * whatever XRAM was filled with at load. rom_loaded runs 60 frames so that
- * the program has mapped its block before a case moves the mouse or reads
- * the block. */
+/* The core feeds the tablet from the frontend's pointer on every poll, but a
+ * block in XRAM holds whatever XRAM was filled with at load until the
+ * program maps it. rom_loaded runs 60 frames so that the program has mapped
+ * its block before a case moves the pointer or reads the block. The mouse
+ * block is never fed on libretro. */
 static bool rom_loaded(const char *rom)
 {
     if (!fe_load(rom))
@@ -210,33 +211,6 @@ UTEST(pointer, a_pointer_off_the_image_is_no_contact)
     fe.unload_game();
 }
 
-UTEST(pointer, off_the_image_the_mouse_moves_but_presses_nothing)
-{
-    memset(fe.pointer, 0, sizeof fe.pointer);
-    memset(fe.mouse, 0, sizeof fe.mouse);
-    ASSERT_TRUE(rom_loaded(MOUSE_ROM));
-    block_copy(settled, MOUSE_XREG, MOUSE_BYTES);
-
-    fe.pointer[0][RETRO_DEVICE_ID_POINTER_IS_OFFSCREEN] = 1;
-    fe.mouse[RETRO_DEVICE_ID_MOUSE_LEFT] = 1;
-    fe_run(5);
-    ASSERT_EQ(xram_at(MOUSE_XREG)[0], 0x00);
-
-    fe.mouse[RETRO_DEVICE_ID_MOUSE_X] = 80;
-    fe.mouse[RETRO_DEVICE_ID_MOUSE_Y] = 60;
-    fe_run(2);
-    fe.mouse[RETRO_DEVICE_ID_MOUSE_X] = 0;
-    fe.mouse[RETRO_DEVICE_ID_MOUSE_Y] = 0;
-    fe_run(20);
-    ASSERT_TRUE(block_differs(settled, MOUSE_XREG, MOUSE_BYTES));
-
-    fe.pointer[0][RETRO_DEVICE_ID_POINTER_IS_OFFSCREEN] = 0;
-    fe_run(5);
-    ASSERT_EQ(xram_at(MOUSE_XREG)[0], 0x01);
-    memset(fe.mouse, 0, sizeof fe.mouse);
-    fe.unload_game();
-}
-
 UTEST(pointer, two_fingers_are_two_contacts)
 {
     fe_close();
@@ -256,28 +230,27 @@ UTEST(pointer, two_fingers_are_two_contacts)
     fe.unload_game();
 }
 
-#define MOUSE_BUTTONS 0
-
-/* The two side buttons are BACKWARD and FORWARD in the mouse block, bits 3
- * and 4. */
+/* The two side buttons are the tablet's BTN4 and BTN5. */
 UTEST(pointer, the_side_buttons_reach_the_machine)
 {
     memset(fe.pointer, 0, sizeof fe.pointer);
     memset(fe.mouse, 0, sizeof fe.mouse);
-    ASSERT_TRUE(rom_loaded(MOUSE_ROM));
+    ASSERT_TRUE(rom_loaded(TABLET_ROM));
+    a_mouse_has_moved();
+    finger_at(0, 0.50f, 0.50f, false);
 
     fe.mouse[RETRO_DEVICE_ID_MOUSE_BUTTON_4] = 1;
     fe_run(5);
-    ASSERT_EQ(xram_at(MOUSE_XREG)[MOUSE_BUTTONS], 0x08);
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x88);
 
     fe.mouse[RETRO_DEVICE_ID_MOUSE_BUTTON_4] = 0;
     fe.mouse[RETRO_DEVICE_ID_MOUSE_BUTTON_5] = 1;
     fe_run(5);
-    ASSERT_EQ(xram_at(MOUSE_XREG)[MOUSE_BUTTONS], 0x10);
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x90);
 
     memset(fe.mouse, 0, sizeof fe.mouse);
     fe_run(5);
-    ASSERT_EQ(xram_at(MOUSE_XREG)[MOUSE_BUTTONS], 0x00);
+    ASSERT_EQ(xram_at(TABLET_CONTACT0)[0], 0x80);
     fe.unload_game();
 }
 
@@ -442,10 +415,9 @@ UTEST(pointer, edges_in_consecutive_frames_are_each_delivered)
     fe.unload_game();
 }
 
-/* A canvas with no mode 0 takes the pointer off the tablet, and a button
- * held as it went is let go there, so the console's mouse is not left
- * pressed. */
-UTEST(pointer, a_pointer_taken_off_the_tablet_lets_go)
+/* A canvas with no mode 0 leaves the tablet its pointer, as every canvas
+ * does, so a button held as it came is let go as the button is. */
+UTEST(pointer, a_button_held_off_the_console_is_let_go_as_it_is)
 {
     fe_close();
     fe_open();
@@ -467,7 +439,11 @@ UTEST(pointer, a_pointer_taken_off_the_tablet_lets_go)
     fe_run(5);
     ASSERT_EQ(fe.frame_w, 320u);
     ASSERT_TRUE(console_mouse(&flags, &took));
-    ASSERT_EQ(flags, 0x00);
+    ASSERT_EQ(flags, 0x81);
+    fe.mouse[RETRO_DEVICE_ID_MOUSE_LEFT] = 0;
+    fe_run(2);
+    ASSERT_TRUE(console_mouse(&flags, &took));
+    ASSERT_EQ(flags, 0x80);
     memset(fe.mouse, 0, sizeof fe.mouse);
     fe.unload_game();
 }

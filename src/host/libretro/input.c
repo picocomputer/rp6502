@@ -10,7 +10,6 @@
 #include "core/hid/hostkey.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
-#include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/vga/vga_emu.h"
@@ -172,9 +171,6 @@ static retro_environment_t input_environ;
 
 void input_init(retro_environment_t environ_cb)
 {
-    /* libretro has no capture: the frontend's one pointer drives the tablet
-     * and the mouse together (poll_pointer). */
-    event_set_shared(true);
     input_environ = environ_cb;
     have_bitmasks = environ_cb(RETRO_ENVIRONMENT_GET_INPUT_BITMASKS, NULL);
 }
@@ -334,7 +330,7 @@ static void poll_lightgun(retro_input_state_t state, unsigned port, int w, int h
     if (gx == -0x8000 || gy == -0x8000 ||
         state(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_IS_OFFSCREEN))
     {
-        event_pointer(&(event_pointer_t){.left = true});
+        event_tablet(&(event_tablet_t){0});
         return;
     }
     uint8_t buttons = 0;
@@ -344,8 +340,9 @@ static void poll_lightgun(retro_input_state_t state, unsigned port, int w, int h
         buttons |= TABLET_FLAG_RIGHT;
     if (state(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_AUX_B))
         buttons |= TABLET_FLAG_MIDDLE;
-    event_pointer(&(event_pointer_t){.x = canvas_coord(gx, w), .y = canvas_coord(gy, h),
-                                     .buttons = buttons, .inside = true});
+    event_tablet(&(event_tablet_t){
+        .n = 1,
+        .at = {{canvas_coord(gx, w), canvas_coord(gy, h), (uint8_t)(buttons | TABLET_FLAG_HOVER)}}});
 }
 
 /* A gun is an absolute pointer with its own buttons, so it drives the tablet
@@ -358,17 +355,14 @@ static int lightgun_port(void)
     return -1;
 }
 
-/* Neither device is read until a program has mapped it into XRAM, or the
- * console's terminal claims the tablet while mode 0 shows (tablet_wanted),
- * so a ROM that wants neither with no mode 0 placed is never a reason to
- * watch where anyone is pointing. Nothing captures here, so a program that
- * maps only the mouse gets it as well as the terminal getting the tablet.
- * The tablet is told on every poll whether it has the pointer
- * (tablet_host_give), so a button held as it stops being wanted is let go
- * there.
+/* The frontend's pointer is this host's tablet, and libretro has no mouse
+ * for it yet: a core cannot tell whether the frontend has grabbed the mouse
+ * (Game Focus), and gets the same relative motion whether it has or not, so
+ * nothing here is the captured mouse that a program's mouse block wants.
+ * The tablet is fed on every poll, wanted or not, as it is on every host.
  *
- * Touch and the mouse take turns at the tablet. The mouse drives it while
- * nothing is being touched; a touch takes it away and keeps it until the
+ * Touch and the frontend's mouse take turns at the tablet. The mouse drives it
+ * while nothing is being touched; a touch takes it away and keeps it until the
  * touches end and the mouse moves again, so a finger never fights a cursor
  * parked somewhere else. mouse_owns_pointer says which of them holds it, and
  * it starts false so an untouched screen with no mouse yet reports no contact
@@ -379,14 +373,6 @@ static int lightgun_port(void)
  * honouring that would turn a click into a finger going down. */
 static void poll_pointer(retro_input_state_t state)
 {
-    /* The status gives the tablet the pointer while it is wanted, this host
-     * sharing it (event_set_shared). */
-    event_status();
-    bool tablet = tablet_wanted();
-    bool mouse = mouse_is_mapped();
-    if (!tablet && !mouse)
-        return;
-
     int dx = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X);
     int dy = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_Y);
     uint8_t buttons = 0;
@@ -406,54 +392,41 @@ static void poll_pointer(retro_input_state_t state)
      * answers 0, which reads as on-screen. */
     bool offscreen = state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_IS_OFFSCREEN);
 
-    if (tablet)
+    int w, h;
+    vga_canvas_size(&w, &h);
+    int gun = lightgun_port();
+    if (gun >= 0)
+        poll_lightgun(state, (unsigned)gun, w, h);
+    else
     {
-        int w, h;
-        vga_canvas_size(&w, &h);
-        int gun = lightgun_port();
-        if (gun >= 0)
-            poll_lightgun(state, (unsigned)gun, w, h);
+        event_tablet_t t = {0};
+        if (!buttons)
+            for (int i = 0; i < EVENT_CONTACTS; i++)
+            {
+                if (!state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_PRESSED))
+                    break;
+                t.at[i].x = canvas_coord(state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_X), w);
+                t.at[i].y = canvas_coord(state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_Y), h);
+                t.at[i].flags = TABLET_FLAG_LEFT; /* tip down, no hover */
+                t.n++;
+            }
+        if (t.n)
+            mouse_owns_pointer = false;
         else
         {
-            event_touch_t touch = {0};
-            if (!buttons)
-                for (int i = 0; i < EVENT_TOUCHES; i++)
-                {
-                    if (!state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_PRESSED))
-                        break;
-                    touch.at[i].x = canvas_coord(state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_X), w);
-                    touch.at[i].y = canvas_coord(state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_Y), h);
-                    touch.n++;
-                }
-            if (touch.n)
+            if (dx || dy)
+                mouse_owns_pointer = true;
+            if (mouse_owns_pointer && !offscreen)
             {
-                mouse_owns_pointer = false;
-                event_touch(&touch);
-            }
-            else
-            {
-                if (dx || dy)
-                    mouse_owns_pointer = true;
-                if (mouse_owns_pointer && !offscreen)
-                {
-                    int x = canvas_coord(state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_X), w);
-                    int y = canvas_coord(state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_Y), h);
-                    /* libretro gives a core no way to ask the frontend to
-                     * draw a cursor, so the program draws its own. */
-                    event_pointer(&(event_pointer_t){.x = (int16_t)x, .y = (int16_t)y,
-                                                     .buttons = buttons, .inside = true});
-                }
-                else
-                    event_pointer(&(event_pointer_t){.left = true});
+                t.n = 1;
+                t.at[0].x = canvas_coord(state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_X), w);
+                t.at[0].y = canvas_coord(state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_Y), h);
+                t.at[0].flags = (uint8_t)(buttons | TABLET_FLAG_HOVER);
             }
         }
-    }
-
-    if (mouse)
-    {
-        if (dx || dy)
-            event_mouse(&(event_mouse_t){.dx = dx * MOUSE_ONE, .dy = dy * MOUSE_ONE, .moved = true});
-        event_mouse(&(event_mouse_t){.buttons = offscreen ? 0 : buttons});
+        /* libretro gives a core no way to ask the frontend to draw a cursor,
+         * so the system draws it (host_cursor false). */
+        event_tablet(&t);
     }
 
     /* The wheel is read every frame because a frontend clears the tick when
@@ -462,9 +435,8 @@ static void poll_pointer(retro_input_state_t state)
                  state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_WHEELDOWN);
     int dpan = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_HORIZ_WHEELUP) -
                state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_HORIZ_WHEELDOWN);
-    /* The tablet's wheel feeds a mapped mouse as well (event_wheel). */
-    if ((dwheel || dpan) && !offscreen && (tablet || mouse))
-        event_wheel(&(event_wheel_t){.wheel = (int16_t)dwheel, .pan = (int16_t)dpan, .tablet = tablet});
+    if ((dwheel || dpan) && !offscreen)
+        event_wheel(&(event_wheel_t){.wheel = (int16_t)dwheel, .pan = (int16_t)dpan});
 }
 
 void input_poll(retro_input_state_t state)

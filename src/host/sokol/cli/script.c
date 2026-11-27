@@ -1192,6 +1192,9 @@ static bool script_cmd_gamepad(char *p)
     return true;
 }
 
+/* The script's mouse buttons, which every report of its mouse carries. */
+static uint8_t script_mouse_buttons;
+
 static bool script_cmd_mouse(char *p)
 {
     char *verb = script_word(&p);
@@ -1203,7 +1206,7 @@ static bool script_cmd_mouse(char *p)
         if (!script_end(p))
             return false;
         event_mouse(&(event_mouse_t){.dx = (int32_t)dx * MOUSE_ONE, .dy = (int32_t)dy * MOUSE_ONE,
-                                     .moved = true});
+                                     .buttons = script_mouse_buttons});
         return true;
     }
     if (verb && !strcasecmp(verb, "wheel"))
@@ -1215,7 +1218,8 @@ static bool script_cmd_mouse(char *p)
             return script_error("mouse wheel wants a pan count");
         if (!script_end(p))
             return false;
-        event_wheel(&(event_wheel_t){.wheel = (int16_t)wheel, .pan = (int16_t)pan});
+        event_mouse(&(event_mouse_t){.wheel = (int16_t)wheel, .pan = (int16_t)pan,
+                                     .buttons = script_mouse_buttons});
         return true;
     }
     if (verb && !strcasecmp(verb, "buttons"))
@@ -1225,7 +1229,8 @@ static bool script_cmd_mouse(char *p)
             return script_error("mouse buttons wants a bitmap 0..255");
         if (!script_end(p))
             return false;
-        event_mouse(&(event_mouse_t){.buttons = (uint8_t)mask});
+        script_mouse_buttons = (uint8_t)mask;
+        event_mouse(&(event_mouse_t){.buttons = script_mouse_buttons});
         return true;
     }
     return script_error("mouse wants move, wheel or buttons");
@@ -1243,18 +1248,20 @@ static bool script_cmd_tablet(char *p)
             return script_error("tablet at wants a button bitmap 0..255");
         if (!script_end(p))
             return false;
-        event_pointer(&(event_pointer_t){.x = (int16_t)x, .y = (int16_t)y, .buttons = (uint8_t)buttons,
-                                         .inside = true, .host_cursor = true});
+        event_tablet(&(event_tablet_t){
+            .n = 1,
+            .host_cursor = true,
+            .at = {{(int16_t)x, (int16_t)y, (uint8_t)(buttons | TABLET_FLAG_HOVER)}}});
         return true;
     }
     if (verb && !strcasecmp(verb, "touch"))
     {
-        event_touch_t touch = {0};
+        event_tablet_t touch = {0};
         int count = 0;
         char *word;
         while ((word = script_word(&p)) != NULL)
         {
-            if (count == EVENT_TOUCHES)
+            if (count == EVENT_CONTACTS)
                 return script_error("tablet touch takes at most %d contacts", TABLET_MAX_CONTACTS);
             char *comma = script_outside(word, ",");
             if (!*comma)
@@ -1266,10 +1273,11 @@ static bool script_cmd_tablet(char *p)
                 return script_error("tablet touch wants x,y pairs");
             touch.at[count].x = (int16_t)x;
             touch.at[count].y = (int16_t)y;
+            touch.at[count].flags = TABLET_FLAG_LEFT; /* tip down, no hover */
             count++;
         }
         touch.n = (uint8_t)count;
-        event_touch(&touch);
+        event_tablet(&touch);
         return true;
     }
     if (verb && !strcasecmp(verb, "wheel"))
@@ -1281,14 +1289,14 @@ static bool script_cmd_tablet(char *p)
             return script_error("tablet wheel wants a pan count");
         if (!script_end(p))
             return false;
-        event_wheel(&(event_wheel_t){.wheel = (int16_t)wheel, .pan = (int16_t)pan, .tablet = true});
+        event_wheel(&(event_wheel_t){.wheel = (int16_t)wheel, .pan = (int16_t)pan});
         return true;
     }
     if (verb && !strcasecmp(verb, "clear"))
     {
         if (!script_end(p))
             return false;
-        event_pointer(&(event_pointer_t){.left = true});
+        event_tablet(&(event_tablet_t){0});
         return true;
     }
     return script_error("tablet wants at, touch, wheel or clear");
@@ -2248,9 +2256,7 @@ void script_usage(FILE *out)
 bool script_load(const char *path, const char *rom)
 {
     char why[SCRIPT_LINE_MAX];
-    /* A script's pointer is never captured: its tablet and its mouse are
-     * driven apart (event_set_shared). */
-    event_set_shared(true);
+    script_mouse_buttons = 0;
     script_names_clear(&script_vars);
     if (!script_symbols(rom, why, sizeof why))
     {

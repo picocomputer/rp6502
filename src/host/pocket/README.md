@@ -288,7 +288,7 @@ register, and `set_tz_minutes` in `mmio.h` combines the three into
 minutes east of UTC.
 
 **`input.json` lists no controllers.** The core passes every controller
-slot to the firmware as a HID report, buttons and axes, so there is no
+slot to the firmware as its registers, buttons and axes, so there is no
 fixed button mapping to list.
 
 **A hot reload goes through the first slot, whichever slot the request
@@ -301,28 +301,33 @@ access all complete. When this `0x008F` arrives while the core is
 running, the new size is posted to the firmware, which stops the
 program and loads the new image.
 
-## The dock, as HID
+## The dock
 
 The core receives three registers, key, joy and trig, for each of APF's
 four controller slots. The top nibble of a slot's key word gives the
 device in it: none, the Pocket's own buttons, a docked controller with
 or without analog sticks, the docked keyboard, or the docked mouse.
 
-The firmware has no input drivers of its own for the dock. `apf.c`
-mounts each slot with connection structs written by hand, which is the
-form `src/core/hid/parse.c` produces from a HID report descriptor, and
-passes the registers to the HID drivers as the report those structs
-describe. `src/host/pico/ria/usb/xin.c` does the same for XInput, which
-has no report descriptor. The drivers in `src/core/hid` then provide the
-layouts, dead keys, key repeat and terminal escape sequences. The mouse
-is mounted as a tablet as well as a mouse, and the d-pad is reported as
-a d-pad rather than as the left stick.
+The firmware has no input drivers of its own for the dock. The docked
+keyboard and mouse are mounted with connection structs written by hand,
+which is the form `src/core/hid/parse.c` produces from a HID report
+descriptor, and `apf.c` passes their registers to the HID drivers as the
+report those structs describe. `src/host/pico/ria/usb/xin.c` does the same
+for XInput, which has no report descriptor. The drivers in `src/core/hid`
+then provide the layouts, dead keys, key repeat and terminal escape
+sequences. The mouse is a mouse only, and moves the tablet's pointer as
+every mouse does (`src/core/sys/event.h`).
 
-The connection structs in `apf.c` hold the whole mapping, so a wrong one
-still builds and boots, and the fault appears only when a controller is
-used. `tests/host/pocket/test_apf.c` feeds register values through
-`apf.c` into the real HID drivers and checks the XRAM records they
-produce.
+A controller is no HID device. Each APF slot is its player, as each port
+is on libretro: `apf.c` makes the slot's registers into a
+`gamepad_host_t` and raises `event_gamepads` for all four slots as they
+change. The d-pad is reported as a d-pad rather than as the left stick.
+
+The connection structs and the controllers' bit table in `apf.c` hold the
+whole mapping, so a wrong one still builds and boots, and the fault
+appears only when a device is used. `tests/host/pocket/test_apf.c` feeds
+register values through `apf.c` into the real drivers and checks the
+XRAM records they produce.
 
 There is no monitor, so `sys_break` in `main.c` returns false and
 Ctrl-Alt-Del is passed to the program as an ordinary keystroke. Alt-F4

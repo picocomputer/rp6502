@@ -44,9 +44,8 @@ typedef enum
     EVQ_KEY = 1,  /* event_key_t */
     EVQ_CHAR,     /* event_char_t */
     EVQ_LOCKS,    /* uint8_t, KEYBOARD_LED_ */
-    EVQ_POINTER,  /* event_pointer_t */
-    EVQ_TOUCH,    /* event_touch_t */
-    EVQ_WHEEL,    /* event_wheel_t */
+    EVQ_TABLET,   /* event_tablet_t */
+    EVQ_WHEEL,    /* event_wheel_t, the tablet's */
     EVQ_MOUSE,    /* event_mouse_t */
     EVQ_FOCUS,    /* uint8_t */
     EVQ_PASTE,    /* UTF-8, NUL-terminated: a paste the browser handed over */

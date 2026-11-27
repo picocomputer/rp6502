@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * apf.c is included rather than linked because apf_build, apf_changed,
- * apf_mount, apf_umount and apf_report are static. Its MMIO macros are
+ * apf_mount, apf_umount, apf_report, apf_pad and apf_pads_tell are static. Its MMIO macros are
  * never dereferenced here, since nothing in this file calls apf_task.
  */
 
@@ -15,6 +15,7 @@
 #include "core/hid/usage.h"
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
+#include "core/sys/event.h"
 #include "core/hid/tablet.h"
 #include "core/sys/xram.h"
 #include "core/sys/config.h"
@@ -51,6 +52,11 @@ static const uint8_t *gamepad_rec(int player)
 static uint8_t feed(int slot, uint8_t type, uint32_t key, uint32_t joy,
                     uint16_t trig, bool first)
 {
+    /* A controller is told as apf_task tells it, its port its player. */
+    apf_pad(slot, type, key, joy, trig, &apf_pads.pad[slot]);
+    apf_pads_tell();
+    if (apf_pads.pad[slot].id)
+        return 1;
     uint8_t report[APF_REPORT_MAX];
     uint8_t len = apf_build(type, key, joy, trig, first, report);
     if (len && (type == APF_TYPE_MOUSE || apf_changed(slot, report, len)))
@@ -63,6 +69,8 @@ static void reset_all(void)
     for (int slot = 0; slot < MMIO_CONT_SLOTS; slot++)
         apf_umount(slot);
     apf_refresh();
+    memset(&apf_pads, 0, sizeof apf_pads);
+    event_pads_reset();
     keyboard_init();
     keymap_init();
     mouse_init();
@@ -158,13 +166,13 @@ UTEST(apf, a_gamepad_without_analog_is_centered)
     reset_all();
     apf_mount(1, APF_TYPE_PAD);
     feed(1, APF_TYPE_PAD, 0x20000000u | (1u << 2), 0xDEADBEEFu, 0xFFFF, false);
-    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_DPAD] & 0x0F, 0x4); /* left */
-    ASSERT_EQ((int8_t)gamepad_rec(0)[GAMEPAD_LX], 0);
-    ASSERT_EQ((int8_t)gamepad_rec(0)[GAMEPAD_LY], 0);
-    ASSERT_EQ((int8_t)gamepad_rec(0)[GAMEPAD_RX], 0);
-    ASSERT_EQ((int8_t)gamepad_rec(0)[GAMEPAD_RY], 0);
-    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_LT], 0);
-    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_RT], 0);
+    ASSERT_EQ(gamepad_rec(1)[GAMEPAD_DPAD] & 0x0F, 0x4); /* left */
+    ASSERT_EQ((int8_t)gamepad_rec(1)[GAMEPAD_LX], 0);
+    ASSERT_EQ((int8_t)gamepad_rec(1)[GAMEPAD_LY], 0);
+    ASSERT_EQ((int8_t)gamepad_rec(1)[GAMEPAD_RX], 0);
+    ASSERT_EQ((int8_t)gamepad_rec(1)[GAMEPAD_RY], 0);
+    ASSERT_EQ(gamepad_rec(1)[GAMEPAD_LT], 0);
+    ASSERT_EQ(gamepad_rec(1)[GAMEPAD_RT], 0);
 }
 
 UTEST(apf, the_status_bits_follow_the_descriptor)
@@ -204,6 +212,24 @@ UTEST(apf, four_gamepads_are_four_players)
         ASSERT_EQ(gamepad_rec(player)[GAMEPAD_DPAD] & 0x80, 0x80);
         ASSERT_EQ(gamepad_rec(player)[GAMEPAD_BUTTON0], want[player]);
     }
+}
+
+/* A port is its player, whatever is in the ports before it. */
+UTEST(apf, a_port_is_its_player)
+{
+    reset_all();
+    apf_mount(0, APF_TYPE_KEYBOARD);
+    feed(0, APF_TYPE_KEYBOARD, 0x40000000u, 0, 0, false);
+    apf_mount(2, APF_TYPE_PAD);
+    feed(2, APF_TYPE_PAD, 0x20000000u | (1u << 4), 0, 0, false);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_DPAD] & 0x80, 0);
+    ASSERT_EQ(gamepad_rec(1)[GAMEPAD_DPAD] & 0x80, 0);
+    ASSERT_EQ(gamepad_rec(2)[GAMEPAD_DPAD] & 0x80, 0x80);
+    ASSERT_EQ(gamepad_rec(2)[GAMEPAD_BUTTON0], 1u << 0);
+    /* Taken out, the port is no player. */
+    apf_umount(2);
+    feed(2, APF_TYPE_NONE, 0, 0, 0, false);
+    ASSERT_EQ(gamepad_rec(2)[GAMEPAD_DPAD] & 0x80, 0);
 }
 
 UTEST(apf, a_keyboard_sets_the_bitmap)

@@ -116,7 +116,7 @@ static int title_variant(void)
         return 1;
     if ((flags & EVENT_MOUSE_MAPPED) && input_mouse_locked())
         return 3;
-    if ((flags & EVENT_MOUSE_MAPPED) && !(flags & EVENT_TO_TABLET))
+    if (flags & EVENT_MOUSE_MAPPED)
         return 2;
     return 0;
 }

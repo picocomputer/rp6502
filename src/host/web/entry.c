@@ -24,10 +24,11 @@ static int32_t pointer;
 static bool inited;
 static int focused = -1;
 
-/* pointer is 1 while the program maps the mouse, 2 while the tablet has
+/* pointer is 1 while the program maps the mouse, 2 while the tablet wants
  * the pointer (input_pointer_to_tablet): a program maps it, or the console's
- * terminal claims it with no mouse mapped, and 4 while the tablet also uses
- * the wheel (input_wheel_to_tablet). An event that nothing uses is not
+ * terminal claims it, whatever the mouse is doing, and 4 while the tablet
+ * also wants the wheel (input_wheel_to_tablet). The tablet is sent the
+ * pointer either way. An event that nothing uses is not
  * cancelled, so the page scrolls, zooms and shows its context menu. The wheel
  * is cancelled for a mouse program only while the pointer is locked.
  * sokol_app has no callback for contextmenu or for buttons above 3, so those

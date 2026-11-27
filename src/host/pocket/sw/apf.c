@@ -12,7 +12,7 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
-#include "core/hid/tablet.h"
+#include "core/sys/event.h"
 #include "core/hid/usage.h"
 
 #include <stdint.h>
@@ -25,27 +25,12 @@
 #define APF_TYPE_KEYBOARD 4
 #define APF_TYPE_MOUSE 5
 
-static const gamepad_connection_t apf_gamepad_desc = {
-    .valid = true,
-    .x_absolute = true,
-    .button_offsets = {
-        4, 5, HID_ABSENT, 6, 7, HID_ABSENT, 8, 9,
-        10, 11, 14, 15, HID_ABSENT, 12, 13, HID_ABSENT,
-        0, 1, 2, 3}};
-
-static const gamepad_connection_t apf_gamepad_ana_desc = {
-    .valid = true,
-    .x_absolute = true,
-    .x_offset = 2 * 8, .x_size = 8, .x_max = 255,
-    .y_offset = 3 * 8, .y_size = 8, .y_max = 255,
-    .z_offset = 4 * 8, .z_size = 8, .z_max = 255,
-    .rz_offset = 5 * 8, .rz_size = 8, .rz_max = 255,
-    .rx_offset = 6 * 8, .rx_size = 8, .rx_max = 255,
-    .ry_offset = 7 * 8, .ry_size = 8, .ry_max = 255,
-    .button_offsets = {
-        4, 5, HID_ABSENT, 6, 7, HID_ABSENT, 8, 9,
-        10, 11, 14, 15, HID_ABSENT, 12, 13, HID_ABSENT,
-        0, 1, 2, 3}};
+/* Which bit of a controller's key register each button is, in the order of
+ * the buttons' bitmap (gamepad_host_t), 0xFF for one it has none of. The
+ * d-pad is its four low bits, up, down, left and right. */
+static const uint8_t apf_button_bits[16] = {
+    4, 5, 0xFF, 6, 7, 0xFF, 8, 9,
+    10, 11, 14, 15, 0xFF, 12, 13, 0xFF};
 
 static const keyboard_connection_t apf_keyboard_desc = {
     .valid = true,
@@ -59,17 +44,6 @@ static const mouse_connection_t apf_mouse_desc = {
     .x_relative = true,
     .x_offset = 2 * 8, .x_size = 16,
     .y_offset = 4 * 8, .y_size = 16};
-
-static const tablet_connection_t apf_mouse_tablet_desc = {
-    .valid = true,
-    .button_offsets = {0, 1, 2, 3, 4},
-    .x_relative = true,
-    .x_offset = 2 * 8, .x_size = 16, .x_min = -32768, .x_max = 32767,
-    .y_offset = 4 * 8, .y_size = 16, .y_min = -32768, .y_max = 32767,
-    .wheel_offset = HID_ABSENT,
-    .pan_offset = HID_ABSENT,
-    .tip_offset = HID_ABSENT,
-    .inrange_offset = HID_ABSENT};
 
 /* The keyboard's modifier field and the mouse's movement fields are little
  * endian, and each is packed into its register with its first byte in the
@@ -92,42 +66,39 @@ static struct
     bool mouse_have_seen;
 } apf_slots[MMIO_CONT_SLOTS];
 
-#define APF_SST(X) \
-    X(SKIP, apf_slots, "the host's controllers, which it reports again")
+/* The controllers as they are, each port its player, and as they were last
+ * told, which apf_refresh forgets so that they are told again. */
+static event_gamepads_t apf_pads, apf_pads_told;
+static bool apf_pads_stale;
+
+#define APF_SST(X)                                                              \
+    X(SKIP, apf_slots, "the host's controllers, which it reports again")       \
+    X(SKIP, apf_pads, "the host's controllers, which it reports again")        \
+    X(SKIP, apf_pads_told, "the host's controllers, which it reports again")   \
+    X(SKIP, apf_pads_stale, "set by apf_refresh, after a load")
 SST_TABLE(apf, APF_SST)
 
+/* A keyboard and a mouse go to their USB drivers, as a USB one would. A
+ * controller is no USB device: its port is its player (apf_pad). */
 static void apf_mount(int slot, uint8_t type)
 {
-    const gamepad_connection_t *gamepad = NULL;
-    uint8_t button_type = GAMEPAD_TYPE_UNKNOWN;
     switch (type)
     {
-    case APF_TYPE_POCKET:
-        button_type = GAMEPAD_TYPE_EASTERN;
-        gamepad = &apf_gamepad_desc;
-        break;
-    case APF_TYPE_PAD:
-        gamepad = &apf_gamepad_desc;
-        break;
-    case APF_TYPE_PAD_ANA:
-        gamepad = &apf_gamepad_ana_desc;
-        break;
     case APF_TYPE_KEYBOARD:
         apf_slots[slot].slot = (int8_t)hid_mount(&apf_keyboard_desc, NULL, NULL, NULL, 0, 0, 0);
         return;
     case APF_TYPE_MOUSE:
-        apf_slots[slot].slot = (int8_t)hid_mount(NULL, &apf_mouse_desc,
-                                                 &apf_mouse_tablet_desc, NULL, 0, 0, 0);
+        apf_slots[slot].slot = (int8_t)hid_mount(NULL, &apf_mouse_desc, NULL, NULL, 0, 0, 0);
         return;
     default:
         return;
     }
-    apf_slots[slot].slot = (int8_t)hid_mount(NULL, NULL, NULL, gamepad, 0, 0, button_type);
 }
 
 static void apf_umount(int slot)
 {
-    hid_umount(apf_slots[slot].slot);
+    if (apf_slots[slot].slot >= 0)
+        hid_umount(apf_slots[slot].slot);
     apf_slots[slot].slot = -1;
 }
 
@@ -151,21 +122,6 @@ static uint8_t apf_build(uint8_t type, uint32_t key, uint32_t joy,
 {
     switch (type)
     {
-    case APF_TYPE_POCKET:
-    case APF_TYPE_PAD:
-        report[0] = (uint8_t)key;
-        report[1] = (uint8_t)(key >> 8);
-        return 2;
-    case APF_TYPE_PAD_ANA:
-        report[0] = (uint8_t)key;
-        report[1] = (uint8_t)(key >> 8);
-        report[2] = (uint8_t)joy;
-        report[3] = (uint8_t)(joy >> 8);
-        report[4] = (uint8_t)(joy >> 16);
-        report[5] = (uint8_t)(joy >> 24);
-        report[6] = (uint8_t)trig;
-        report[7] = (uint8_t)(trig >> 8);
-        return 8;
     case APF_TYPE_KEYBOARD:
         report[0] = (uint8_t)(key >> 8);
         report[1] = 0;
@@ -192,6 +148,46 @@ static uint8_t apf_build(uint8_t type, uint32_t key, uint32_t joy,
     return 0;
 }
 
+/* The controller at a port, or no controller (an id of 0). */
+static void apf_pad(int slot, uint8_t type, uint32_t key, uint32_t joy, uint16_t trig,
+                    gamepad_host_t *pad)
+{
+    memset(pad, 0, sizeof *pad);
+    if (type != APF_TYPE_POCKET && type != APF_TYPE_PAD && type != APF_TYPE_PAD_ANA)
+        return;
+    pad->id = (uint64_t)slot + 1;
+    pad->type = type == APF_TYPE_POCKET ? GAMEPAD_TYPE_EASTERN : GAMEPAD_TYPE_UNKNOWN;
+    uint16_t buttons = 0;
+    for (int i = 0; i < 16; i++)
+        if (apf_button_bits[i] != 0xFF && (key >> apf_button_bits[i] & 1))
+            buttons |= (uint16_t)(1u << i);
+    pad->button0 = (uint8_t)buttons;
+    pad->button1 = (uint8_t)(buttons >> 8);
+    pad->dpad = (uint8_t)(key & 0x0F);
+    if (type != APF_TYPE_PAD_ANA)
+        return;
+    pad->sticks = true;
+    pad->lx = hid_scale_analog_signed(joy & 0xFF, 8, 0, 255);
+    pad->ly = hid_scale_analog_signed(joy >> 8 & 0xFF, 8, 0, 255);
+    pad->rx = hid_scale_analog_signed(joy >> 16 & 0xFF, 8, 0, 255);
+    pad->ry = hid_scale_analog_signed(joy >> 24, 8, 0, 255);
+    pad->lt = hid_scale_analog(trig & 0xFF, 8, 0, 255);
+    pad->rt = hid_scale_analog(trig >> 8, 8, 0, 255);
+}
+
+/* The controllers are told together, as libretro's are, and only as they
+ * change. */
+static void apf_pads_tell(void)
+{
+    apf_pads.n = MMIO_CONT_SLOTS;
+    apf_pads.opened = apf_pads.fixed = true;
+    if (!apf_pads_stale && !memcmp(&apf_pads_told, &apf_pads, sizeof apf_pads))
+        return;
+    memcpy(&apf_pads_told, &apf_pads, sizeof apf_pads);
+    apf_pads_stale = false;
+    event_gamepads(&apf_pads);
+}
+
 static void apf_slot_task(int slot)
 {
     uint32_t key = MMIO_CONT_KEY(slot);
@@ -205,6 +201,11 @@ static void apf_slot_task(int slot)
         apf_slots[slot].type = type;
         apf_mount(slot, type);
     }
+
+    apf_pad(slot, type, key, MMIO_CONT_JOY(slot), (uint16_t)MMIO_CONT_TRIG(slot),
+            &apf_pads.pad[slot]);
+    if (apf_pads.pad[slot].id)
+        return;
 
     bool first = false;
     if (type == APF_TYPE_MOUSE)
@@ -233,6 +234,7 @@ void apf_refresh(void)
         apf_slots[slot].len = 0;
         apf_slots[slot].mouse_have_seen = false;
     }
+    apf_pads_stale = true;
 }
 
 void apf_init(void)
@@ -242,10 +244,13 @@ void apf_init(void)
         memset(&apf_slots[slot], 0, sizeof(apf_slots[slot]));
         apf_slots[slot].slot = -1;
     }
+    memset(&apf_pads, 0, sizeof apf_pads);
+    apf_pads_stale = true;
 }
 
 void apf_task(void)
 {
     for (int slot = 0; slot < MMIO_CONT_SLOTS; slot++)
         apf_slot_task(slot);
+    apf_pads_tell();
 }

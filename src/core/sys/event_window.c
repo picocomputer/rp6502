@@ -39,8 +39,7 @@ void event_focus(bool focused)
 
 event_status_t event_status(void)
 {
-    const bool to_tablet = event_has_pointer();
-    tablet_host_give(to_tablet);
+    const bool to_tablet = tablet_wanted();
     const bool pads = gamepad_is_mapped();
     event_pads_watch(pads);
     return (event_status_t){
@@ -56,5 +55,4 @@ void event_reset(void)
 {
     event_key_reset();
     event_pads_reset();
-    event_set_shared(false);
 }

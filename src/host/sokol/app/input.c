@@ -25,7 +25,7 @@
 #include <stdint.h>
 #include <string.h>
 
-_Static_assert(EVENT_TOUCHES == SAPP_MAX_TOUCHPOINTS, "a touch message holds every contact");
+_Static_assert(EVENT_CONTACTS == SAPP_MAX_TOUCHPOINTS, "a touch message holds every contact");
 
 /* What the machine last told the window. Until it has, nothing is mapped and
  * nothing is the tablet's. */
@@ -155,6 +155,12 @@ static bool input_cursor_shown = true;
 static int input_sent_locks = -1;
 /* The captured mouse's buttons as the host has them. */
 static uint8_t host_mouse_buttons;
+/* Whether the pointer was captured as the window last looked. */
+static bool input_was_captured;
+/* The button whose click asked for the capture (TABLET_FLAG_), which is
+ * spent on it: the system takes a while to capture, and until it has, the
+ * pointer is still the tablet's, with that button held. */
+static uint8_t input_spent;
 /* Whether the host pointer is over the drawn canvas. The tablet's cursor
  * applies only there, and the system cursor shows in the letterbox. True so
  * that a freshly mapped tablet shows its cursor before the pointer has moved
@@ -272,10 +278,41 @@ static void input_mouse_counts(const sapp_event *e, float onscreen_w, int32_t *d
     *dy = (int32_t)lrintf(e->mouse_dy * gain * (float)MOUSE_ONE);
 }
 
-static void input_mouse_send(int32_t dx, int32_t dy, bool moved)
+static void input_mouse_send(int32_t dx, int32_t dy, int wheel, int pan)
 {
-    const event_mouse_t m = {.dx = dx, .dy = dy, .buttons = host_mouse_buttons, .moved = moved};
+    const event_mouse_t m = {.dx = dx, .dy = dy, .wheel = (int16_t)wheel, .pan = (int16_t)pan,
+                             .buttons = host_mouse_buttons};
     evq_to_machine(EVQ_MOUSE, &m, sizeof m);
+}
+
+static void input_tablet_clear(void)
+{
+    const event_tablet_t t = {0};
+    evq_to_machine(EVQ_TABLET, &t, sizeof t);
+}
+
+/* The host's mouse is the pointer captured, and only while it is: as the
+ * capture comes it is there, hovering the tablet's pointer where the tablet
+ * had it, and as it goes, however it went (Esc, the system, the page), it
+ * is gone, and the pointer is the tablet's again from its next event. */
+static void input_watch_capture(void)
+{
+    const bool captured = input_mouse_locked();
+    if (captured == input_was_captured)
+        return;
+    input_was_captured = captured;
+    host_mouse_buttons = 0;
+    input_spent = 0;
+    if (captured)
+    {
+        input_tablet_clear();
+        input_mouse_send(0, 0, 0, 0);
+    }
+    else
+    {
+        const event_mouse_t m = {.gone = true};
+        evq_to_machine(EVQ_MOUSE, &m, sizeof m);
+    }
 }
 
 static void set_host_mouse_button(int btn, bool down)
@@ -286,7 +323,7 @@ static void set_host_mouse_button(int btn, bool down)
         host_mouse_buttons |= (uint8_t)(1u << btn);
     else
         host_mouse_buttons &= (uint8_t)~(1u << btn);
-    input_mouse_send(0, 0, false);
+    input_mouse_send(0, 0, 0, 0);
 }
 
 static uint8_t host_mouse_button_bit(sapp_mousebutton mb)
@@ -332,21 +369,21 @@ static int input_notches(float *rest, float delta)
     return (int)whole;
 }
 
-static void input_wheel_send(const sapp_event *e, bool tablet)
+/* sokol's scroll_x, like GLFW's, is positive to the left, and pan, like HID
+ * AC Pan, is positive to the right. */
+static int input_wheel_notches(const sapp_event *e)
 {
-    /* sokol's scroll_x, like GLFW's, is positive to the left, and pan, like
-     * HID AC Pan, is positive to the right. */
-    const event_wheel_t w = {
-        .wheel = (int16_t)input_notches(&input_wheel_rest, e->scroll_y),
-        .pan = (int16_t)input_notches(&input_pan_rest, -e->scroll_x),
-        .tablet = tablet,
-    };
-    evq_to_machine(EVQ_WHEEL, &w, sizeof w);
+    return input_notches(&input_wheel_rest, e->scroll_y);
 }
 
-/* A host pointer or touch event while the tablet has the pointer, which is an
- * absolute canvas position and never captures. True when the event was
- * the tablet's. */
+static int input_pan_notches(const sapp_event *e)
+{
+    return input_notches(&input_pan_rest, -e->scroll_x);
+}
+
+/* A host pointer or touch event while the pointer is not captured, which is
+ * the host's tablet: an absolute canvas position, and the wheel. True when
+ * the event was the tablet's. */
 static bool input_tablet(const sapp_event *e)
 {
     int cx, cy;
@@ -356,36 +393,36 @@ static bool input_tablet(const sapp_event *e)
     case SAPP_EVENTTYPE_MOUSE_UP:
     case SAPP_EVENTTYPE_MOUSE_MOVE:
     {
+        /* Off the canvas, in the letterbox, the pointer is on no part of
+         * the tablet. */
         const bool inside = gfx_canvas_from_fb(e->mouse_x, e->mouse_y, &cx, &cy);
         pointer_on_canvas = inside;
-        event_pointer_t p = {
-            .x = (int16_t)cx,
-            .y = (int16_t)cy,
-            .buttons = pointer_buttons(e),
-            .inside = inside,
-            .moved = e->type == SAPP_EVENTTYPE_MOUSE_MOVE,
-            .host_cursor = true,
-        };
-        if (p.moved)
-            input_mouse_counts(e, gfx_canvas_width(), &p.dx, &p.dy);
-        evq_to_machine(EVQ_POINTER, &p, sizeof p);
+        event_tablet_t t = {.host_cursor = true};
+        if (e->type == SAPP_EVENTTYPE_MOUSE_UP)
+            input_spent &= (uint8_t)~host_mouse_button_bit(e->mouse_button);
+        if (inside)
+        {
+            const uint8_t buttons = pointer_buttons(e) & (uint8_t)~input_spent;
+            t.n = 1;
+            t.at[0] = (tablet_contact_t){(int16_t)cx, (int16_t)cy,
+                                         (uint8_t)(buttons | TABLET_FLAG_HOVER)};
+        }
+        evq_to_machine(EVQ_TABLET, &t, sizeof t);
         return true;
     }
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
-        /* A wheel the tablet does not use is not the tablet's. It falls to
-         * the mouse, which takes it only while captured, so it is either used
-         * here or left whole to the page, as the web build cancels it. */
-        if (!input_wheel_to_tablet())
-            return false;
-        input_wheel_send(e, true);
-        return true;
-    case SAPP_EVENTTYPE_MOUSE_LEAVE:
     {
-        pointer_on_canvas = false;
-        const event_pointer_t p = {.left = true};
-        evq_to_machine(EVQ_POINTER, &p, sizeof p);
+        /* The web build leaves a wheel the tablet does not want to the page
+         * (entry.c), which scrolls with it as well. */
+        const event_wheel_t w = {.wheel = (int16_t)input_wheel_notches(e),
+                                 .pan = (int16_t)input_pan_notches(e)};
+        evq_to_machine(EVQ_WHEEL, &w, sizeof w);
         return true;
     }
+    case SAPP_EVENTTYPE_MOUSE_LEAVE:
+        pointer_on_canvas = false;
+        input_tablet_clear();
+        return true;
     case SAPP_EVENTTYPE_TOUCHES_BEGAN:
     case SAPP_EVENTTYPE_TOUCHES_MOVED:
     case SAPP_EVENTTYPE_TOUCHES_ENDED:
@@ -393,18 +430,18 @@ static bool input_tablet(const sapp_event *e)
     {
         const bool ending = e->type == SAPP_EVENTTYPE_TOUCHES_ENDED ||
                             e->type == SAPP_EVENTTYPE_TOUCHES_CANCELLED;
-        event_touch_t t = {0};
-        for (int i = 0; i < e->num_touches && t.n < EVENT_TOUCHES; ++i)
+        event_tablet_t t = {0};
+        for (int i = 0; i < e->num_touches && t.n < EVENT_CONTACTS; ++i)
         {
             if (ending && e->touches[i].changed)
                 continue; /* the finger this event lifts is no longer a contact */
             if (!gfx_canvas_from_fb(e->touches[i].pos_x, e->touches[i].pos_y, &cx, &cy))
                 continue;
-            t.at[t.n].x = (int16_t)cx;
-            t.at[t.n].y = (int16_t)cy;
+            /* A finger is tip down and does not hover. */
+            t.at[t.n] = (tablet_contact_t){(int16_t)cx, (int16_t)cy, TABLET_FLAG_LEFT};
             t.n++;
         }
-        evq_to_machine(EVQ_TOUCH, &t, sizeof t);
+        evq_to_machine(EVQ_TABLET, &t, sizeof t);
         return true;
     }
     default:
@@ -423,16 +460,28 @@ bool input_mouse_locked(void)
 
 void input_pointer_task(void)
 {
-    /* The absolute tablet never captures the pointer, and a program that has
-     * unmapped the mouse no longer wants it. */
-    if (input_mouse_locked() && (!input_mouse_mapped() || input_pointer_to_tablet()))
+    /* A program that has unmapped the mouse no longer wants it captured. */
+    input_watch_capture();
+    if (input_mouse_locked() && !input_mouse_mapped())
         input_capture = 0;
 }
 
 void input_event(const sapp_event *e)
 {
-    if (input_pointer_to_tablet() && input_tablet(e))
-        return;
+    input_watch_capture();
+    if (!input_mouse_locked())
+    {
+        /* The first click captures the pointer, and only once a program has
+         * mapped the mouse. That click is spent on the capture. */
+        if (e->type == SAPP_EVENTTYPE_MOUSE_DOWN && input_mouse_mapped())
+        {
+            input_capture = 1;
+            input_spent |= host_mouse_button_bit(e->mouse_button);
+            return;
+        }
+        if (input_tablet(e))
+            return;
+    }
 
     switch (e->type)
     {
@@ -452,14 +501,7 @@ void input_event(const sapp_event *e)
         input_key(e);
         break;
     case SAPP_EVENTTYPE_MOUSE_DOWN:
-        if (!input_mouse_locked())
-        {
-            /* The first click captures the pointer, and only once a program has
-             * mapped the mouse. That click is spent on the capture. */
-            if (input_mouse_mapped())
-                input_capture = 1;
-        }
-        else
+        if (input_mouse_locked())
             set_host_mouse_button(e->mouse_button, true);
         break;
     case SAPP_EVENTTYPE_MOUSE_UP:
@@ -478,12 +520,12 @@ void input_event(const sapp_event *e)
 #endif
             int32_t dx, dy;
             input_mouse_counts(e, onscreen_w, &dx, &dy);
-            input_mouse_send(dx, dy, true);
+            input_mouse_send(dx, dy, 0, 0);
         }
         break;
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
         if (input_mouse_locked())
-            input_wheel_send(e, false);
+            input_mouse_send(0, 0, input_wheel_notches(e), input_pan_notches(e));
         break;
     case SAPP_EVENTTYPE_CLIPBOARD_PASTED:
 #if defined(__EMSCRIPTEN__)
@@ -557,5 +599,7 @@ void input_reset(void)
     input_cursor_shown = pointer_on_canvas = true;
     had_tablet = false;
     host_mouse_buttons = 0;
+    input_was_captured = false;
+    input_spent = 0;
     input_wheel_rest = input_pan_rest = 0;
 }

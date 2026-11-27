@@ -6,7 +6,9 @@
  * The window's side of the input: each host event made into the messages
  * the machine takes (evq.h), in its own units, with everything about the
  * window already worked out: where on the canvas, how far in mouse counts,
- * whether the pointer is captured. What the window must decide on the spot
+ * whether the pointer is captured. Uncaptured, the pointer is the host's
+ * tablet (event_tablet_t); captured, it is the host's mouse
+ * (event_mouse_t). What the window must decide on the spot
  * it decides from what the machine last told it (EVQ_STATUS): whether a
  * click captures the pointer, whether the tablet has the pointer and the
  * wheel, which cursor shows.
@@ -55,13 +57,12 @@ void input_apply(void);
 /* sapp_mouse_locked(), limited on the web to the lock on Module.canvas. */
 bool input_mouse_locked(void);
 
-/* Whether the tablet has the pointer, and the wheel too, as the machine last
- * said. A program that maps the mouse and not the tablet is not on the
- * tablet, even while the console's terminal claims it: the pointer is the
- * mouse's, its first click only captures, and the terminal has no pointer
- * here. A program that maps both is fed from the tablet's one pointer,
- * uncaptured. A wheel that nothing uses is neither fed nor cancelled: it is
- * left to the page around the player, which scrolls with it. */
+/* Whether the tablet wants the pointer, and the wheel too, as the machine
+ * last said, which says what cursor shows over the canvas and what the web
+ * page cancels. The tablet is sent the pointer whether or not it wants it,
+ * while the pointer is not captured; captured, it is the mouse. A wheel that
+ * nothing wants is not cancelled: it is left to the page around the player,
+ * which scrolls with it. */
 bool input_pointer_to_tablet(void);
 bool input_wheel_to_tablet(void);
 
