@@ -13,7 +13,7 @@
 #include "host/sokol/app/app.h"
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/icon.h"
-#include "host/sokol/app/seam.h"
+#include "host/sokol/app/evq.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/util/sokol_debugtext.h"
@@ -318,7 +318,7 @@ static bool prompt_url_hit(float x, float y)
 }
 
 /* Whether the window waits for a ROM. The machine is told as the window
- * opens (SEAM_MENU), because a program's exit is no exit while the card is
+ * opens (EVQ_MENU), because a program's exit is no exit while the card is
  * up, and takes it down itself when a dropped ROM boots. */
 static bool prompt_waiting;
 static bool prompt_ready;
@@ -346,10 +346,10 @@ void host_window_menu_draw(void)
     prompt_draw("Drop a .rp6502", "ROM file here");
 }
 
-/* The machine boots the dropped file, and says when it has (SEAM_BOOTED). */
+/* The machine boots the dropped file, and says when it has (EVQ_BOOTED). */
 void host_window_files_dropped(void)
 {
-    seam_text_to_machine(SEAM_BOOT, sapp_get_dropped_file_path(0));
+    evq_text_to_machine(EVQ_BOOT, sapp_get_dropped_file_path(0));
 }
 
 void prompt_booted(void)

@@ -7,8 +7,8 @@
 #include "host/sokol/app/run.h"
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/pace.h"
-#include "host/sokol/app/seam_machine.h"
-#include "host/sokol/app/seam.h"
+#include "host/sokol/app/evq_machine.h"
+#include "host/sokol/app/evq.h"
 #include "core/aud/mix.h"
 #include "core/dap/dbg.h"
 #include "core/sys/proc.h"
@@ -179,7 +179,7 @@ void run_wake(void)
  * long. */
 static void run_pause(void)
 {
-    if (seam_machine_waiting())
+    if (evq_machine_waiting())
         run_take();
 #if RUN_THREAD
     if (!atomic_load_explicit(&run_waiting, memory_order_relaxed))
@@ -213,7 +213,7 @@ static void run_bench(void)
             vga_frame_count(), secs, (double)vga_frame_count() / secs);
     run.bench_ns = 0;
     const uint8_t closed = 0;
-    seam_to_window(SEAM_QUIT, &closed, 1);
+    evq_to_window(EVQ_QUIT, &closed, 1);
 }
 
 /* One frame, false when a debugger holds the machine. The frame that saw the
@@ -259,15 +259,15 @@ static void run_due(void)
 
 /* A display callback, at its own time: the time to it is owed and the display
  * is measured, as when the callback did it itself. */
-static void run_tick(const seam_tick_t *in)
+static void run_tick(const evq_tick_t *in)
 {
-    seam_tick_t at = *in;
+    evq_tick_t at = *in;
 #if !RUN_THREAD
     /* A callback from before the worker's clock began is at its start. */
     const int64_t worker_at = (int64_t)at.at + run_web_skew;
     at.at = worker_at > 0 ? (uint64_t)worker_at : 0;
 #endif
-    const seam_tick_t *t = &at;
+    const evq_tick_t *t = &at;
     run_owe_to(t->at);
     pace_add(&run.pace, t->dt, t->paced);
     run.tick_at = t->at;
@@ -280,10 +280,10 @@ static void run_tick(const seam_tick_t *in)
 /* What the window sent, in order: its events and its display callbacks. */
 static void run_take(void)
 {
-    seam_msg_t m;
-    while (seam_machine_take(&m))
+    evq_msg_t m;
+    while (evq_machine_take(&m))
     {
-        if (m.kind == SEAM_TICK)
+        if (m.kind == EVQ_TICK)
             run_tick(m.body);
         else
             machine_take(&m);
@@ -409,10 +409,10 @@ void run_display(uint64_t now, uint64_t dt, bool paced, uint64_t room)
         return;
 #endif
     const uint32_t n = ++run_ticks_sent;
-    const seam_tick_t t = {.at = now, .dt = dt, .n = n, .paced = paced};
+    const evq_tick_t t = {.at = now, .dt = dt, .n = n, .paced = paced};
     /* A queue the machine has not emptied drops this one: the next owes the
      * time it missed. */
-    seam_to_machine(SEAM_TICK, &t, sizeof t);
+    evq_to_machine(EVQ_TICK, &t, sizeof t);
 #if RUN_THREAD
     if (run_thread)
     {
@@ -482,7 +482,7 @@ void run_setup(void)
     run_mutex = os_lock_new();
     run_machine_wake = os_wake_new();
     run_window_wake = os_wake_new();
-    seam_set_wake(run_wake);
+    evq_set_wake(run_wake);
 #endif
 #ifdef EMU_WITH_DEBUGGER
     dap_set_host(run_lock, run_unlock, run_wake);

@@ -6,7 +6,7 @@
 
 #include "input.h"
 
-#include "core/hid/vtkey.h"
+#include "core/hid/event.h"
 #include "core/hid/hostkey.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
@@ -107,10 +107,11 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
     /* The frontend has no repeat flag. A repeat is a press of a key that is
      * already down. */
     bool repeat = hid && keyboard_key_down(hid);
-    if (hid)
-        keyboard_set_key(hid, down);
     if (!down)
+    {
+        event_key(&(event_key_t){.usage = hid});
         return;
+    }
 
     bool ctrl = (key_modifiers & RETROKMOD_CTRL) != 0;
     bool shift = symbol_shift || (key_modifiers & RETROKMOD_SHIFT) != 0;
@@ -120,34 +121,35 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
      * toggled here. Toggling would have to start from a guess and would then
      * drift whenever a lock key is pressed while the core does not have
      * focus. A frontend that sends none leaves all three off. */
-    keyboard_set_locks(
-        (uint8_t)(((key_modifiers & RETROKMOD_NUMLOCK) ? KEYBOARD_LED_NUMLOCK : 0) |
-                  ((key_modifiers & RETROKMOD_CAPSLOCK) ? KEYBOARD_LED_CAPSLOCK : 0) |
-                  ((key_modifiers & RETROKMOD_SCROLLOCK) ? KEYBOARD_LED_SCROLLLOCK : 0)));
-    switch (keycode)
-    {
-    case RETROK_NUMLOCK:
-    case RETROK_CAPSLOCK:
-    case RETROK_SCROLLOCK: return;
-    default: break;
-    }
-    /* The terminal says whether a repeat is typed (DECARM). */
-    if (repeat && !vtkey_repeats())
-        return;
-
+    event_locks((uint8_t)(((key_modifiers & RETROKMOD_NUMLOCK) ? KEYBOARD_LED_NUMLOCK : 0) |
+                          ((key_modifiers & RETROKMOD_CAPSLOCK) ? KEYBOARD_LED_CAPSLOCK : 0) |
+                          ((key_modifiers & RETROKMOD_SCROLLOCK) ? KEYBOARD_LED_SCROLLLOCK : 0)));
+    /* A lock key goes only into the keyboard's bitmap. */
+    const bool lock = keycode == RETROK_NUMLOCK || keycode == RETROK_CAPSLOCK ||
+                      keycode == RETROK_SCROLLOCK;
     /* The frontend has already applied the keyboard layout, so its character
      * is better than a guess. Ctrl+<key> is a C0 byte and Alt+<key> is ESC
      * then the byte, so neither is the character the frontend composed, and
-     * several frontends send no character at all. Those are guessed. */
+     * several frontends send no character at all. Those are guessed. A key
+     * that types on its own, as Enter does, keeps the character from being
+     * typed again (core/hid/event.h). */
     bool composed = !ctrl && !alt && character >= 32 && character != 127;
     /* The frontend says which modifiers are held but not which side, so the
      * left one stands for both. Meta is the GUI key. */
-    uint8_t modifier = (uint8_t)(
-        (shift ? KEYBOARD_MODIFIER_LEFTSHIFT : 0) | (alt ? KEYBOARD_MODIFIER_LEFTALT : 0) |
-        (ctrl ? KEYBOARD_MODIFIER_LEFTCTRL : 0) |
-        ((key_modifiers & RETROKMOD_META) ? KEYBOARD_MODIFIER_LEFTGUI : 0));
-    if (hostkey_press(hid, modifier, repeat, !composed) == HOSTKEY_NONE && composed)
-        hostkey_char(character);
+    const event_key_t key = {
+        .usage = hid,
+        .modifier = (uint8_t)(
+            (shift ? KEYBOARD_MODIFIER_LEFTSHIFT : 0) | (alt ? KEYBOARD_MODIFIER_LEFTALT : 0) |
+            (ctrl ? KEYBOARD_MODIFIER_LEFTCTRL : 0) |
+            ((key_modifiers & RETROKMOD_META) ? KEYBOARD_MODIFIER_LEFTGUI : 0)),
+        .down = true,
+        .repeat = repeat,
+        .guess = !composed,
+        .acts = !lock,
+    };
+    event_key(&key);
+    if (composed && !lock)
+        event_char(&(event_char_t){.codepoint = character, .repeat = repeat});
 }
 
 /* Every port starts as a joypad, because a frontend is not required to call
@@ -444,8 +446,8 @@ static void poll_pointer(retro_input_state_t state)
     if (mouse)
     {
         if (dx || dy)
-            mouse_host_move(dx * MOUSE_ONE, dy * MOUSE_ONE);
-        mouse_host_buttons(offscreen ? 0 : buttons);
+            event_mouse(&(event_mouse_t){.dx = dx * MOUSE_ONE, .dy = dy * MOUSE_ONE, .moved = true});
+        event_mouse(&(event_mouse_t){.buttons = offscreen ? 0 : buttons});
     }
 
     /* The wheel is read every frame because a frontend clears the tick when
@@ -454,13 +456,9 @@ static void poll_pointer(retro_input_state_t state)
                  state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_WHEELDOWN);
     int dpan = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_HORIZ_WHEELUP) -
                state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_HORIZ_WHEELDOWN);
-    if ((dwheel || dpan) && !offscreen)
-    {
-        if (tablet)
-            tablet_host_wheel(dwheel, dpan);
-        if (mouse)
-            mouse_host_wheel(dwheel, dpan);
-    }
+    /* The tablet's wheel feeds a mapped mouse as well (event_wheel). */
+    if ((dwheel || dpan) && !offscreen && (tablet || mouse))
+        event_wheel(&(event_wheel_t){.wheel = (int16_t)dwheel, .pan = (int16_t)dpan, .tablet = tablet});
 }
 
 void input_poll(retro_input_state_t state)

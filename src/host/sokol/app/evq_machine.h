@@ -3,15 +3,15 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The machine's side of the seam (seam.h): what each message from the window
- * does to the machine, and what the machine tells the window back. All of it
- * runs on the machine's thread.
+ * The machine's end of the event queue (evq.h): each message from the window
+ * handed to the machine, its user's events to core/hid/event.h, and what the
+ * machine tells the window back. All of it runs on the machine's thread.
  */
 
-#ifndef _HOST_SOKOL_APP_SEAM_MACHINE_H_
-#define _HOST_SOKOL_APP_SEAM_MACHINE_H_
+#ifndef _HOST_SOKOL_APP_EVQ_MACHINE_H_
+#define _HOST_SOKOL_APP_EVQ_MACHINE_H_
 
-#include "host/sokol/app/seam.h"
+#include "host/sokol/app/evq.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -21,11 +21,12 @@
 void machine_set_window(bool on);
 
 /* One message from the window, any but a display tick (run.c). */
-void machine_take(const seam_msg_t *m);
+void machine_take(const evq_msg_t *m);
 
 /* What the window needs of the machine, told whenever it changes, with
  * whether the machine's frames follow the display and the display's period
- * as the machine measures it. Also gives the pointer to the tablet or not. */
+ * as the machine measures it (event_status, which also gives the pointer to
+ * the tablet or takes it). */
 void machine_status(bool follows, int64_t period_ns);
 
 /* Whether the drop-a-ROM card is up, as the window last said. */
@@ -33,12 +34,12 @@ bool machine_menu_up(void);
 
 /* What the window last said of itself, for the host's answers (host.c):
  * whether it is up, whether it is minimized, and its answer to the last
- * SEAM_ASK, taken once, with when it came. */
+ * EVQ_ASK, taken once, with when it came. */
 bool machine_has_window(void);
 bool machine_minimized(void);
 char *machine_clipboard_take(uint64_t *at);
 
-/* Asks the window for the host's clipboard (SEAM_ASK), unless an ask is
+/* Asks the window for the host's clipboard (EVQ_ASK), unless an ask is
  * already out and not yet answered. */
 void machine_clipboard_ask(void);
 
@@ -59,4 +60,4 @@ char *machine_rom_path(const char *host);
 /* Back to the start, for tests. */
 void machine_reset(void);
 
-#endif /* _HOST_SOKOL_APP_SEAM_MACHINE_H_ */
+#endif /* _HOST_SOKOL_APP_EVQ_MACHINE_H_ */

@@ -22,6 +22,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "core/hid/event.h"
 
 /* Open a sokol window and run the machine until it closes. sys_init has already
  * been called; a ROM has not necessarily been booted, because the window opens
@@ -57,7 +58,7 @@ void host_window_init(void);
 
 /* True while a platform overlay is up, such as a desktop's drop-a-ROM prompt.
  * The canvas is not drawn while it is, and a halted program is not treated as
- * a program exiting, which the machine learns from SEAM_MENU and keeps its
+ * a program exiting, which the machine learns from EVQ_MENU and keeps its
  * own mirror of (machine_menu_up). */
 bool host_window_menu_active(void);
 
@@ -65,7 +66,7 @@ bool host_window_menu_active(void);
 void host_window_menu_draw(void);
 
 /* A file was dropped on the window. Desktop platforms send its path to the
- * machine (SEAM_BOOT), which boots it; the web does not enable drag and
+ * machine (EVQ_BOOT), which boots it; the web does not enable drag and
  * drop, so nothing calls this there. */
 void host_window_files_dropped(void);
 
@@ -102,19 +103,6 @@ bool entry_canvas_locked(void);
 bool host_audio_open(void (*render)(float *dst, int frames, uint32_t rate));
 void host_audio_close(void);
 
-/* One host controller, in the units gamepad_host_report takes. Each backend
- * does the scaling, because the range of each axis comes from the platform's
- * controller API. A backend sets type only when it has identified the
- * face-button labels, and sets sticks only when it found both. */
-typedef struct
-{
-    uint64_t id; /* stable while plugged, so a player keeps its number */
-    uint8_t dpad, button0, button1;
-    int8_t lx, ly, rx, ry;
-    uint8_t lt, rt;
-    uint8_t type; /* GAMEPAD_TYPE_ */
-    bool sticks;
-} gamepad_host_t;
 
 /* Start reading controllers. Called on the first frame a program has the
  * gamepad block mapped and not before, because the emulator must not open an

@@ -14,16 +14,16 @@
 #include "utest.h"
 
 #include "host/sokol/app/input.h"
-#include "host/sokol/app/seam_machine.h"
-#include "host/sokol/app/seam.h"
+#include "host/sokol/app/evq_machine.h"
+#include "host/sokol/app/evq.h"
 #include <string.h>
 
 #define AT_PAD 0xFF00
 
 /* What the machine last told the window, which gamepad.c polls by. */
-static seam_status_t told;
+static evq_status_t told;
 
-const seam_status_t *input_status(void)
+const evq_status_t *input_status(void)
 {
     return &told;
 }
@@ -60,7 +60,7 @@ int host_gamepad_poll(gamepad_host_t *gamepads, int max)
 static void fake_reset(void)
 {
     gamepad_input_stop();
-    seam_reset();
+    evq_reset();
     machine_reset();
     memset(&told, 0, sizeof told);
     fake_open_result = true;
@@ -86,17 +86,17 @@ static const uint8_t *rec(int player)
     return (uint8_t *)&xram[AT_PAD + player * 10];
 }
 
-/* What crossed the seam, both ways: the machine takes what the window sent
+/* What crossed the event queue, both ways: the machine takes what the window sent
  * and says what changed, and the window takes that. */
 static void pump(void)
 {
-    seam_msg_t m;
-    while (seam_machine_take(&m))
+    evq_msg_t m;
+    while (evq_machine_take(&m))
         machine_take(&m);
     machine_status(false, 0);
-    while (seam_window_take(&m))
-        if (m.kind == SEAM_STATUS)
-            told = *(const seam_status_t *)m.body;
+    while (evq_window_take(&m))
+        if (m.kind == EVQ_STATUS)
+            told = *(const evq_status_t *)m.body;
 }
 
 static void run_frames(int frames)

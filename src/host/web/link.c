@@ -6,7 +6,7 @@
 
 #include "host/web/link.h"
 #include "host/web/audio.h"
-#include "host/sokol/app/seam_machine.h"
+#include "host/sokol/app/evq_machine.h"
 #include "osal/os.h"
 #include <emscripten.h>
 #include <stdlib.h>
@@ -30,9 +30,9 @@ EM_JS(void, js_link_post, (int kind, const void *body, int len), {
     Module.rp6502.link.post(kind, HEAPU8.subarray(body, body + len));
 });
 
-bool link_post(seam_kind_t kind, const void *body, size_t len)
+bool link_post(evq_kind_t kind, const void *body, size_t len)
 {
-    if (len > SEAM_MOST)
+    if (len > EVQ_MOST)
         return false;
     js_link_post((int)kind, body, (int)len);
     return true;
@@ -40,7 +40,7 @@ bool link_post(seam_kind_t kind, const void *body, size_t len)
 
 /* ---------------- what the other half posted ---------------- */
 
-/* A batch is the records seam.c keeps: a kind and a length, each 32 bits,
+/* A batch is the records evq.c keeps: a kind and a length, each 32 bits,
  * and the body padded to eight. The script copies one here and delivers it. */
 static uint8_t *link_in;
 static size_t link_in_size;
@@ -62,7 +62,7 @@ EMSCRIPTEN_KEEPALIVE void link_deliver(size_t n)
     {
         uint32_t head[2];
         memcpy(head, link_in + at, sizeof head);
-        seam_deliver((seam_kind_t)head[0], link_in + at + 8, head[1]);
+        evq_deliver((evq_kind_t)head[0], link_in + at + 8, head[1]);
         at += 8 + ((head[1] + 7) & ~7u);
     }
 }

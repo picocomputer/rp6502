@@ -11,7 +11,7 @@
  * compositor keeps for a tenth of a second, a window being moved, a screen's
  * scale changing. The window tells the machine when each display callback
  * comes (run_display) and shows the newest frame the machine finished
- * (run_frame). Everything else between them is a message (seam.h), which the
+ * (run_frame). Everything else between them is a message (evq.h), which the
  * machine takes between its steps and its frames. The web player's machine
  * runs in a worker and its window on the page (host/web/link.h).
  *

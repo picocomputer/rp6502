@@ -13,9 +13,9 @@
 (function () {
     const player = Module.rp6502;
 
-    // ---------------- the seam's batches, both halves ----------------
+    // ---------------- the event queue's batches, both halves ----------------
 
-    // Each message the seam sends is a record in a batch, laid out as seam.c
+    // Each message the event queue sends is a record in a batch, laid out as evq.c
     // lays out its queue: kind and length as 32-bit words, then the body,
     // padded to eight. The batch is posted once the script that added to it
     // is done, and the other half puts its records in its own queue.
@@ -27,7 +27,7 @@
                 return;
             const out = buf.slice(0, used).buffer;
             used = 0;
-            send({seam: out}, [out]);
+            send({events: out}, [out]);
         };
         return (kind, body) => {
             const need = 8 + ((body.length + 7) & ~7);
@@ -152,8 +152,8 @@
             }
             else if (!ready)
                 early.push(e);
-            else if (m.seam) {
-                deliver(m.seam);
+            else if (m.events) {
+                deliver(m.events);
                 wake();
             } else if (m.port)
                 connect(m.port);
@@ -836,8 +836,8 @@
                 const at = Module._link_frame_at();
                 HEAPU8.set(new Uint8Array(m.frame, 0, m.w * m.h * 4), at);
                 Module._link_frame_done(m.w, m.h, m.cw, m.ch, m.last ? 1 : 0);
-            } else if (m.seam)
-                deliver(m.seam);
+            } else if (m.events)
+                deliver(m.events);
             else if (m.fail)
                 fail(m.fail);
             else if (m.stats)

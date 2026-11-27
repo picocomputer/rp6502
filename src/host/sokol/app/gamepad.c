@@ -9,7 +9,7 @@
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/gamepad.h"
 #include "host/sokol/app/input.h"
-#include "host/sokol/app/seam.h"
+#include "host/sokol/app/evq.h"
 
 /* Frames between attempts to open the host's controllers. The counter is
  * reloaded on the frame that attempts an open and decremented on each of the
@@ -33,12 +33,12 @@ void gamepad_input_stop(void)
 
 void gamepad_input_poll(void)
 {
-    if (!(input_status()->flags & SEAM_PADS_MAPPED))
+    if (!(input_status()->event.flags & EVENT_PADS_MAPPED))
     {
         gamepad_input_stop();
         return;
     }
-    seam_gamepads_t g = {0};
+    event_gamepads_t g = {0};
     if (!gamepad_input_opened && gamepad_input_retry > 0)
         gamepad_input_retry--;
     else if (!gamepad_input_opened)
@@ -51,5 +51,5 @@ void gamepad_input_poll(void)
         g.opened = true;
         g.n = (uint8_t)host_gamepad_poll(g.pad, GAMEPAD_PLAYERS);
     }
-    seam_to_machine(SEAM_GAMEPADS, &g, sizeof g);
+    evq_to_machine(EVQ_GAMEPADS, &g, sizeof g);
 }

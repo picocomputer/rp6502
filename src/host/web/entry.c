@@ -9,7 +9,7 @@
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/prompt.h"
 #include "host/sokol/app/input.h"
-#include "host/sokol/app/seam.h"
+#include "host/sokol/app/evq.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/usage.h"
 #include "host/host.h"
@@ -173,12 +173,12 @@ static void entry_frame(void)
     {
         focused = focus;
         const uint8_t b = (uint8_t)focus;
-        seam_to_machine(SEAM_FOCUS, &b, 1);
+        evq_to_machine(EVQ_FOCUS, &b, 1);
     }
     app_frame();
-    const uint8_t told = input_status()->flags;
-    const int32_t used = ((told & SEAM_MOUSE_MAPPED) ? 1 : 0) | ((told & SEAM_TO_TABLET) ? 2 : 0) |
-                         ((told & SEAM_WHEEL_TO_TABLET) ? 4 : 0);
+    const uint8_t told = input_status()->event.flags;
+    const int32_t used = ((told & EVENT_MOUSE_MAPPED) ? 1 : 0) | ((told & EVENT_TO_TABLET) ? 2 : 0) |
+                         ((told & EVENT_WHEEL_TO_TABLET) ? 4 : 0);
     if (used != pointer)
     {
         pointer = used;

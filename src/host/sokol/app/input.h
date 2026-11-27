@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The window's side of the input: each host event made into the messages
- * the machine takes (seam.h), in its own units, with everything about the
+ * the machine takes (evq.h), in its own units, with everything about the
  * window already worked out: where on the canvas, how far in mouse counts,
  * whether the pointer is captured. What the window must decide on the spot
- * it decides from what the machine last told it (SEAM_STATUS): whether a
+ * it decides from what the machine last told it (EVQ_STATUS): whether a
  * click captures the pointer, whether the tablet has the pointer and the
  * wheel, which cursor shows.
  */
@@ -15,7 +15,7 @@
 #ifndef _HOST_SOKOL_APP_INPUT_H_
 #define _HOST_SOKOL_APP_INPUT_H_
 
-#include "host/sokol/app/seam.h"
+#include "host/sokol/app/evq.h"
 #include <stdbool.h>
 
 struct sapp_event;
@@ -24,8 +24,8 @@ struct sapp_event;
 void input_event(const struct sapp_event *e);
 
 /* What the machine last told the window. */
-void input_set_status(const seam_status_t *s);
-const seam_status_t *input_status(void);
+void input_set_status(const evq_status_t *s);
+const evq_status_t *input_status(void);
 
 /* Whether the event is a paste key going down (core/hid/key.h), not its
  * repeat. A web page reads its clipboard only from the paste event the key

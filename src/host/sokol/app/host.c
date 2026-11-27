@@ -4,13 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The host's answers to the machine (host/host.h) that depend on the window,
- * given from what the window last told the machine (seam_machine.h), on the
+ * given from what the window last told the machine (evq_machine.h), on the
  * machine's thread. A test bench gives its own.
  */
 
 #include "host/host.h"
-#include "host/sokol/app/seam_machine.h"
-#include "host/sokol/app/seam.h"
+#include "host/sokol/app/evq_machine.h"
+#include "host/sokol/app/evq.h"
 #include "osal/os.h"
 #include <stdlib.h>
 #include <string.h>
@@ -28,7 +28,7 @@ bool host_minimized(void)
  * (HOST_CLIPBOARD_LATER) until the window's answer has come. An answer not
  * used within a moment is no longer the clipboard as it is, and is asked for
  * again. A web page's clipboard cannot be asked for at all: its text comes
- * only in a paste event (SEAM_PASTE).
+ * only in a paste event (EVQ_PASTE).
  *
  * With no window, a script or a headless run, the clipboard is one the
  * emulator keeps for itself, empty until something is put in it. */
@@ -60,7 +60,7 @@ const char *host_clipboard_get(void)
 bool host_clipboard_set(const char *utf8)
 {
     if (machine_has_window())
-        return seam_text_to_window(SEAM_COPY, utf8);
+        return evq_text_to_window(EVQ_COPY, utf8);
     const size_t n = strlen(utf8) + 1;
     char *copy = malloc(n);
     if (!copy)

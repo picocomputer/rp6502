@@ -16,7 +16,7 @@
 #include "host/sokol/app/gfx.h"
 #include "host/sokol/app/app.h"
 #include "host/sokol/app/run.h"
-#include "host/sokol/app/seam_machine.h"
+#include "host/sokol/app/evq_machine.h"
 #ifdef __EMSCRIPTEN__
 #include "host/web/link.h"
 #endif

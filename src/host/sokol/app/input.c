@@ -24,18 +24,18 @@
 #include <stdint.h>
 #include <string.h>
 
-_Static_assert(SEAM_TOUCHES == SAPP_MAX_TOUCHPOINTS, "a touch message holds every contact");
+_Static_assert(EVENT_TOUCHES == SAPP_MAX_TOUCHPOINTS, "a touch message holds every contact");
 
 /* What the machine last told the window. Until it has, nothing is mapped and
  * nothing is the tablet's. */
-static seam_status_t input_told;
+static evq_status_t input_told;
 
-void input_set_status(const seam_status_t *s)
+void input_set_status(const evq_status_t *s)
 {
     input_told = *s;
 }
 
-const seam_status_t *input_status(void)
+const evq_status_t *input_status(void)
 {
     return &input_told;
 }
@@ -166,7 +166,7 @@ void input_locks(void)
     if (locks == input_sent_locks)
         return;
     input_sent_locks = locks;
-    seam_to_machine(SEAM_LOCKS, &locks, 1);
+    evq_to_machine(EVQ_LOCKS, &locks, 1);
 }
 
 void input_apply(void)
@@ -190,17 +190,17 @@ static void input_set_cursor(sapp_mouse_cursor cursor, bool shown)
 
 bool input_pointer_to_tablet(void)
 {
-    return input_told.flags & SEAM_TO_TABLET;
+    return input_told.event.flags & EVENT_TO_TABLET;
 }
 
 bool input_wheel_to_tablet(void)
 {
-    return input_told.flags & SEAM_WHEEL_TO_TABLET;
+    return input_told.event.flags & EVENT_WHEEL_TO_TABLET;
 }
 
 static bool input_mouse_mapped(void)
 {
-    return input_told.flags & SEAM_MOUSE_MAPPED;
+    return input_told.event.flags & EVENT_MOUSE_MAPPED;
 }
 
 static void input_key(const sapp_event *e)
@@ -220,14 +220,14 @@ static void input_key(const sapp_event *e)
              (ALTGR_IS_CTRL_ALT &&
               (e->modifiers & SAPP_MODIFIER_CTRL) && (e->modifiers & SAPP_MODIFIER_ALT))))
         {
-            const seam_char_t c = {.codepoint = e->char_code, .repeat = e->key_repeat};
-            seam_to_machine(SEAM_CHAR, &c, sizeof c);
+            const event_char_t c = {.codepoint = e->char_code, .repeat = e->key_repeat};
+            evq_to_machine(EVQ_CHAR, &c, sizeof c);
         }
         return;
     }
     const bool ctrl = (e->modifiers & SAPP_MODIFIER_CTRL) != 0;
     const bool alt = (e->modifiers & SAPP_MODIFIER_ALT) != 0;
-    seam_key_t k = {
+    event_key_t k = {
         .usage = sokol_to_hid(e->key_code),
         .modifier = input_modifier(e),
         .down = e->type == SAPP_EVENTTYPE_KEY_DOWN,
@@ -247,7 +247,7 @@ static void input_key(const sapp_event *e)
     if (key_clip(k.usage, k.modifier) == KEY_CLIP_PASTE)
         k.acts = false;
 #endif
-    seam_to_machine(SEAM_KEY, &k, sizeof k);
+    evq_to_machine(EVQ_KEY, &k, sizeof k);
 }
 
 /* One mouse count is one pixel on a 640-wide canvas and half a pixel on a
@@ -270,8 +270,8 @@ static void input_mouse_counts(const sapp_event *e, float onscreen_w, int32_t *d
 
 static void input_mouse_send(int32_t dx, int32_t dy, bool moved)
 {
-    const seam_mouse_t m = {.dx = dx, .dy = dy, .buttons = host_mouse_buttons, .moved = moved};
-    seam_to_machine(SEAM_MOUSE, &m, sizeof m);
+    const event_mouse_t m = {.dx = dx, .dy = dy, .buttons = host_mouse_buttons, .moved = moved};
+    evq_to_machine(EVQ_MOUSE, &m, sizeof m);
 }
 
 static void set_host_mouse_button(int btn, bool down)
@@ -332,12 +332,12 @@ static void input_wheel_send(const sapp_event *e, bool tablet)
 {
     /* sokol's scroll_x, like GLFW's, is positive to the left, and pan, like
      * HID AC Pan, is positive to the right. */
-    const seam_wheel_t w = {
+    const event_wheel_t w = {
         .wheel = (int16_t)input_notches(&input_wheel_rest, e->scroll_y),
         .pan = (int16_t)input_notches(&input_pan_rest, -e->scroll_x),
         .tablet = tablet,
     };
-    seam_to_machine(SEAM_WHEEL, &w, sizeof w);
+    evq_to_machine(EVQ_WHEEL, &w, sizeof w);
 }
 
 /* A host pointer or touch event while the tablet has the pointer, which is an
@@ -354,7 +354,7 @@ static bool input_tablet(const sapp_event *e)
     {
         const bool inside = gfx_canvas_from_fb(e->mouse_x, e->mouse_y, &cx, &cy);
         pointer_on_canvas = inside;
-        seam_pointer_t p = {
+        event_pointer_t p = {
             .x = (int16_t)cx,
             .y = (int16_t)cy,
             .buttons = pointer_buttons(e),
@@ -363,7 +363,7 @@ static bool input_tablet(const sapp_event *e)
         };
         if (p.moved)
             input_mouse_counts(e, gfx_canvas_width(), &p.dx, &p.dy);
-        seam_to_machine(SEAM_POINTER, &p, sizeof p);
+        evq_to_machine(EVQ_POINTER, &p, sizeof p);
         return true;
     }
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
@@ -377,8 +377,8 @@ static bool input_tablet(const sapp_event *e)
     case SAPP_EVENTTYPE_MOUSE_LEAVE:
     {
         pointer_on_canvas = false;
-        const seam_pointer_t p = {.left = true};
-        seam_to_machine(SEAM_POINTER, &p, sizeof p);
+        const event_pointer_t p = {.left = true};
+        evq_to_machine(EVQ_POINTER, &p, sizeof p);
         return true;
     }
     case SAPP_EVENTTYPE_TOUCHES_BEGAN:
@@ -388,8 +388,8 @@ static bool input_tablet(const sapp_event *e)
     {
         const bool ending = e->type == SAPP_EVENTTYPE_TOUCHES_ENDED ||
                             e->type == SAPP_EVENTTYPE_TOUCHES_CANCELLED;
-        seam_touch_t t = {0};
-        for (int i = 0; i < e->num_touches && t.n < SEAM_TOUCHES; ++i)
+        event_touch_t t = {0};
+        for (int i = 0; i < e->num_touches && t.n < EVENT_TOUCHES; ++i)
         {
             if (ending && e->touches[i].changed)
                 continue; /* the finger this event lifts is no longer a contact */
@@ -399,7 +399,7 @@ static bool input_tablet(const sapp_event *e)
             t.at[t.n].y = (int16_t)cy;
             t.n++;
         }
-        seam_to_machine(SEAM_TOUCH, &t, sizeof t);
+        evq_to_machine(EVQ_TOUCH, &t, sizeof t);
         return true;
     }
     default:
@@ -487,7 +487,7 @@ void input_event(const sapp_event *e)
          * clipboard's text over only here, so it is sent now and pasted
          * in its place among the keys (paste_host.h). Plain Ctrl+V, which
          * typed 0x16, makes none (input_key_withheld). */
-        seam_text_to_machine(SEAM_PASTE, sapp_get_clipboard_string());
+        evq_text_to_machine(EVQ_PASTE, sapp_get_clipboard_string());
 #endif
         /* On the desktop the paste keys are chords (core/hid/key.h) that
          * paste the desktop's clipboard themselves, asking for it as the
@@ -533,10 +533,10 @@ void input_cursor_task(void)
     if (input_pointer_to_tablet() && pointer_on_canvas)
     {
         had_tablet = true;
-        if (input_told.cursor == TABLET_CURSOR_OFF)
+        if (input_told.event.cursor == TABLET_CURSOR_OFF)
             input_set_cursor(SAPP_MOUSECURSOR_DEFAULT, false);
         else
-            input_set_cursor(tablet_cursor_to_sokol(input_told.cursor), true);
+            input_set_cursor(tablet_cursor_to_sokol(input_told.event.cursor), true);
     }
     else if (had_tablet)
     {

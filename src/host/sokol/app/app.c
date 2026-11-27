@@ -25,8 +25,8 @@
 #include "host/sokol/app/prompt.h"
 #include "host/sokol/app/icon.h"
 #include "host/sokol/app/input.h"
-#include "host/sokol/app/seam_machine.h"
-#include "host/sokol/app/seam.h"
+#include "host/sokol/app/evq_machine.h"
+#include "host/sokol/app/evq.h"
 #ifdef RP6502_PAD_HOST
 #include "host/sokol/app/gamepad.h"
 #endif
@@ -82,10 +82,10 @@ static void app_quit(void)
 
 static void app_serve(void);
 
-static void app_flag(seam_kind_t kind, bool on)
+static void app_flag(evq_kind_t kind, bool on)
 {
     const uint8_t b = on;
-    seam_to_machine(kind, &b, 1);
+    evq_to_machine(kind, &b, 1);
 }
 
 /* Whether the last present waited for the display, and when the callbacks came
@@ -111,12 +111,12 @@ static unsigned unpaced_presents;
  * program has stopped, as the machine last told it. */
 static int title_variant(void)
 {
-    const uint8_t flags = input_status()->flags;
-    if (flags & SEAM_EXITED)
+    const uint8_t flags = input_status()->event.flags;
+    if (flags & EVENT_EXITED)
         return 1;
-    if ((flags & SEAM_MOUSE_MAPPED) && input_mouse_locked())
+    if ((flags & EVENT_MOUSE_MAPPED) && input_mouse_locked())
         return 3;
-    if ((flags & SEAM_MOUSE_MAPPED) && !(flags & SEAM_TO_TABLET))
+    if ((flags & EVENT_MOUSE_MAPPED) && !(flags & EVENT_TO_TABLET))
         return 2;
     return 0;
 }
@@ -173,7 +173,7 @@ void app_init(void)
 #endif
     machine_set_window(true);
     if (host_window_menu_active())
-        app_flag(SEAM_MENU, true);
+        app_flag(EVQ_MENU, true);
     /* Last, once all the machine reaches is up. */
     run_start();
 }
@@ -187,7 +187,7 @@ void app_frame(void)
      * and while the machine follows the display, whose callbacks at 240 Hz are
      * so close that one late leaves the next present little to wait for. A
      * display that stops pacing is seen by the pace first. */
-    paced = !returned_ns || now - returned_ns >= PRESENT_WAIT_NS || (paced && (shown_new || (input_status()->flags & SEAM_FOLLOWS)));
+    paced = !returned_ns || now - returned_ns >= PRESENT_WAIT_NS || (paced && (shown_new || input_status()->follows));
     const uint64_t dt = entered_ns ? now - entered_ns : VGA_FRAME_NS;
     entered_ns = now;
 
@@ -329,33 +329,33 @@ static bool app_clipboard_too_big;
 
 static void app_serve(void)
 {
-    seam_msg_t m;
-    while (seam_window_take(&m))
+    evq_msg_t m;
+    while (evq_window_take(&m))
         switch (m.kind)
         {
-        case SEAM_STATUS:
+        case EVQ_STATUS:
             input_set_status(m.body);
             break;
 #ifndef __EMSCRIPTEN__
-        case SEAM_COPY:
+        case EVQ_COPY:
             sapp_set_clipboard_string(m.body);
             break;
-        case SEAM_ASK:
+        case EVQ_ASK:
         {
             app_clipboard_too_big = false;
             const char *text = sapp_get_clipboard_string();
-            seam_text_to_machine(SEAM_CLIPBOARD, app_clipboard_too_big ? "" : text);
+            evq_text_to_machine(EVQ_CLIPBOARD, app_clipboard_too_big ? "" : text);
             break;
         }
-        case SEAM_BOOTED:
+        case EVQ_BOOTED:
             prompt_booted();
             break;
 #else
-        case SEAM_COPY:
+        case EVQ_COPY:
             entry_clipboard_write(m.body);
             break;
 #endif
-        case SEAM_QUIT:
+        case EVQ_QUIT:
             app_closed = app_closed || *(const uint8_t *)m.body;
             app_quit();
             break;
@@ -381,7 +381,7 @@ void app_input(const struct sapp_event *e)
     {
     case SAPP_EVENTTYPE_ICONIFIED:
     case SAPP_EVENTTYPE_RESTORED:
-        app_flag(SEAM_MINIMIZED, e->type == SAPP_EVENTTYPE_ICONIFIED);
+        app_flag(EVQ_MINIMIZED, e->type == SAPP_EVENTTYPE_ICONIFIED);
         break;
 #ifndef __EMSCRIPTEN__
     /* The desktop window's focus. In the browser sokol's focus is the
@@ -389,7 +389,7 @@ void app_input(const struct sapp_event *e)
      * player's comes from its page instead (entry.c). */
     case SAPP_EVENTTYPE_FOCUSED:
     case SAPP_EVENTTYPE_UNFOCUSED:
-        app_flag(SEAM_FOCUS, e->type == SAPP_EVENTTYPE_FOCUSED);
+        app_flag(EVQ_FOCUS, e->type == SAPP_EVENTTYPE_FOCUSED);
         break;
 #endif
     case SAPP_EVENTTYPE_FILES_DROPPED:
@@ -402,7 +402,7 @@ void app_input(const struct sapp_event *e)
         if (!app_quit_asked)
         {
             sapp_cancel_quit();
-            seam_to_machine(SEAM_CLOSE, NULL, 0);
+            evq_to_machine(EVQ_CLOSE, NULL, 0);
         }
         return;
     default:
@@ -479,7 +479,7 @@ void app_prepare(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt,
     if (scale > 64.0)
         scale = 64.0;
     app.exit_on_halt = exit_on_halt;
-    seam_reset();
+    evq_reset();
     input_reset();
     run_prepare(fb, exit_on_halt);
     bool fresh;

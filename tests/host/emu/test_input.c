@@ -5,8 +5,8 @@
  */
 
 #include "host/sokol/app/input.h"
-#include "host/sokol/app/seam_machine.h"
-#include "host/sokol/app/seam.h"
+#include "host/sokol/app/evq_machine.h"
+#include "host/sokol/app/evq.h"
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/gfx.h"
 #include "core/com/com.h"
@@ -71,17 +71,17 @@ bool gfx_canvas_from_fb(float fx, float fy, int *cx, int *cy)
     return true;
 }
 
-/* What crossed the seam, both ways, as the two threads would take it: the
+/* What crossed the event queue, both ways, as the two threads would take it: the
  * machine takes what the window sent and says what changed, and the window
  * takes that. */
 static void pump(void)
 {
-    seam_msg_t m;
-    while (seam_machine_take(&m))
+    evq_msg_t m;
+    while (evq_machine_take(&m))
         machine_take(&m);
     machine_status(false, 0);
-    while (seam_window_take(&m))
-        if (m.kind == SEAM_STATUS)
+    while (evq_window_take(&m))
+        if (m.kind == EVQ_STATUS)
             input_set_status(m.body);
 }
 
