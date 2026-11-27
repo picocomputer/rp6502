@@ -22,7 +22,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "core/hid/event.h"
+#include "core/sys/event.h"
 
 /* Open a sokol window and run the machine until it closes. sys_init has already
  * been called; a ROM has not necessarily been booted, because the window opens

@@ -14,6 +14,7 @@ rp6502_gen_c()
 
 add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/hid_null.c
+    ${RP6502_SRC}/core/sys/event.c
     ${RP6502_SRC}/core/sys/proc.c
     ${RP6502_SRC}/core/tim/clk.c
     ${RP6502_SRC}/core/tim/os.c
@@ -32,7 +33,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/vtkey.c
     ${RP6502_SRC}/core/hid/vtmouse.c
     ${RP6502_SRC}/core/hid/hostkey.c
-    ${RP6502_SRC}/core/hid/event.c
     ${RP6502_SRC}/core/hid/paste_host.c
     ${RP6502_SRC}/core/hid/clip_text.c
     ${RP6502_SRC}/core/hid/typed.c

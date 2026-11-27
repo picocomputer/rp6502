@@ -360,6 +360,7 @@ static bool input_tablet(const sapp_event *e)
             .buttons = pointer_buttons(e),
             .inside = inside,
             .moved = e->type == SAPP_EVENTTYPE_MOUSE_MOVE,
+            .host_cursor = true,
         };
         if (p.moved)
             input_mouse_counts(e, gfx_canvas_width(), &p.dx, &p.dy);

@@ -6,7 +6,7 @@
 
 #include "host/sokol/app/evq_machine.h"
 #include "core/com/com.h"
-#include "core/hid/event.h"
+#include "core/sys/event.h"
 #include "core/rom/rom.h"
 #include "core/str/oem.h"
 #include "core/sys/proc.h"

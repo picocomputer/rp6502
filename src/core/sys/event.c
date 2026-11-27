@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/hid/event.h"
+#include "core/sys/event.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/hostkey.h"
 #include "core/hid/keyboard.h"
@@ -26,6 +26,7 @@ static struct
     /* A chord acted, until its key comes up. */
     bool chord_held;
     bool pads_mapped;
+    bool shared;
     /* Which host controller each player is, 0 for none. Keyed on the
      * backend's id rather than its position, so unplugging one controller
      * does not renumber the remaining players' slots. */
@@ -75,16 +76,31 @@ void event_char(const event_char_t *c)
 
 /* ---------------- the pointer ---------------- */
 
+void event_set_shared(bool shared)
+{
+    event.shared = shared;
+}
+
+/* Whether the tablet has the host's pointer. */
+static bool event_to_tablet(void)
+{
+    if (event.shared)
+        return tablet_wanted();
+    return tablet_is_mapped() || (tablet_wanted() && !mouse_is_mapped());
+}
+
 /* Because nothing is captured while the tablet has the pointer, a mouse the
- * program mapped is fed from it as well: the one physical pointer drives
- * both blocks, as it would on hardware. */
+ * program mapped is fed from it as well, where the host captures: the one
+ * physical pointer drives both blocks, as it would on hardware. */
 void event_pointer(const event_pointer_t *p)
 {
+    if (!event_to_tablet())
+        return;
     if (p->left || !p->inside)
         tablet_host_clear();
     else
-        tablet_host_pointer(p->x, p->y, p->buttons, true);
-    if (p->left || !mouse_is_mapped())
+        tablet_host_pointer(p->x, p->y, p->buttons, p->host_cursor);
+    if (event.shared || p->left || !mouse_is_mapped())
         return;
     mouse_host_buttons(p->buttons);
     if (p->moved)
@@ -150,6 +166,27 @@ static void event_unplug(void)
 
 void event_gamepads(const event_gamepads_t *g)
 {
+    if (g->fixed)
+    {
+        /* Each port is its player, and an empty one is no player. */
+        for (int player = 0; player < GAMEPAD_PLAYERS; player++)
+        {
+            const gamepad_host_t *pad = &g->pad[player];
+            const uint64_t id = g->opened ? pad->id : 0;
+            const bool had = event.player[player] != 0;
+            event.player[player] = id;
+            if (!id)
+            {
+                if (had)
+                    gamepad_connect(player, false, GAMEPAD_TYPE_UNKNOWN, false);
+                continue;
+            }
+            gamepad_connect(player, true, pad->type, pad->sticks);
+            gamepad_host_report(player, pad->dpad, pad->button0, pad->button1,
+                                pad->lx, pad->ly, pad->rx, pad->ry, pad->lt, pad->rt);
+        }
+        return;
+    }
     if (!g->opened || !gamepad_is_mapped())
     {
         event_unplug();
@@ -200,7 +237,7 @@ void event_gamepads(const event_gamepads_t *g)
 event_status_t event_status(void)
 {
     const bool mouse = mouse_is_mapped();
-    const bool to_tablet = tablet_is_mapped() || (tablet_wanted() && !mouse);
+    const bool to_tablet = event_to_tablet();
     tablet_host_give(to_tablet);
     const bool pads = gamepad_is_mapped();
     if (event.pads_mapped && !pads)
@@ -219,6 +256,14 @@ event_status_t event_status(void)
                            (pads ? EVENT_PADS_MAPPED : 0)),
         .cursor = cursor,
     };
+}
+
+/* A state load brought back the players the saved machine had, so every
+ * player is told again, or unplugged, by the host's next controllers. */
+void event_state_loaded(void)
+{
+    for (int player = 0; player < GAMEPAD_PLAYERS; player++)
+        event.player[player] = UINT64_MAX;
 }
 
 void event_reset(void)

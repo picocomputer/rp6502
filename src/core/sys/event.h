@@ -18,10 +18,11 @@
  * whether the tablet has the pointer and the wheel, which cursor shows.
  */
 
-#ifndef _CORE_HID_EVENT_H_
-#define _CORE_HID_EVENT_H_
+#ifndef _CORE_SYS_EVENT_H_
+#define _CORE_SYS_EVENT_H_
 
 #include "core/hid/gamepad.h"
+#include "core/hid/tablet.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -44,19 +45,23 @@ typedef struct
     bool repeat;
 } event_char_t;
 
-/* The host's pointer while the tablet has it: where it is on the canvas, its
- * buttons (TABLET_FLAG_), and the motion a mapped mouse is fed, in its counts.
- * A pointer off the canvas, or gone from the window, clears the tablet. */
+/* The host's pointer, uncaptured: where it is on the canvas, its buttons
+ * (TABLET_FLAG_), and its motion in mouse counts. It is the tablet's while
+ * the tablet has the pointer, and off the canvas, or gone from the window, it
+ * clears the tablet. A host that captures the pointer for the mouse feeds a
+ * mapped mouse from it while it is uncaptured; one that never captures gives
+ * the mouse events of its own (event_set_shared). host_cursor says the host
+ * draws a cursor of its own over the canvas. */
 typedef struct
 {
     int16_t x, y;
     int32_t dx, dy;
     uint8_t buttons;
-    bool inside, moved, left;
+    bool inside, moved, left, host_cursor;
 } event_pointer_t;
 
 /* The contacts on the canvas. */
-#define EVENT_TOUCHES 8
+#define EVENT_TOUCHES TABLET_MAX_CONTACTS
 typedef struct
 {
     uint8_t n;
@@ -95,13 +100,23 @@ typedef struct
 } gamepad_host_t;
 
 /* The host's controllers as it last read them. Not opened, the host has none
- * to read and every player is unplugged. */
+ * to read and every player is unplugged. A host whose controllers come and go
+ * gives each its player as it first comes, by its id; a host with fixed ports
+ * (fixed) has the player at each pad's place, an id of 0 being no pad. */
 typedef struct
 {
     uint8_t n;
-    bool opened;
+    bool opened, fixed;
     gamepad_host_t pad[GAMEPAD_PLAYERS];
 } event_gamepads_t;
+
+/* A host that never captures the pointer, as libretro and a script are not,
+ * shares it: the tablet has it whenever it is wanted (tablet_wanted), and a
+ * mapped mouse has events of its own. One that captures it, as a desktop's
+ * window and a web page do, gives it to the tablet only while the program
+ * has no mouse mapped or the tablet mapped too, and a click otherwise
+ * captures it for the mouse. */
+void event_set_shared(bool shared);
 
 void event_key(const event_key_t *e);
 void event_char(const event_char_t *e);
@@ -135,7 +150,11 @@ typedef struct
  * controllers once no program has them mapped. */
 event_status_t event_status(void);
 
+/* After a state load, which brings back the players the saved machine had:
+ * the host's next controllers tell each player again, or unplug it. */
+void event_state_loaded(void);
+
 /* Back to the start, for tests. */
 void event_reset(void);
 
-#endif /* _CORE_HID_EVENT_H_ */
+#endif /* _CORE_SYS_EVENT_H_ */

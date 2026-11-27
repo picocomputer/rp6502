@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The machine's end of the event queue (evq.h): each message from the window
- * handed to the machine, its user's events to core/hid/event.h, and what the
+ * handed to the machine, its user's events to core/sys/event.h, and what the
  * machine tells the window back. All of it runs on the machine's thread.
  */
 

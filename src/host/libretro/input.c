@@ -6,7 +6,7 @@
 
 #include "input.h"
 
-#include "core/hid/event.h"
+#include "core/sys/event.h"
 #include "core/hid/hostkey.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
@@ -132,7 +132,7 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
      * then the byte, so neither is the character the frontend composed, and
      * several frontends send no character at all. Those are guessed. A key
      * that types on its own, as Enter does, keeps the character from being
-     * typed again (core/hid/event.h). */
+     * typed again (core/sys/event.h). */
     bool composed = !ctrl && !alt && character >= 32 && character != 127;
     /* The frontend says which modifiers are held but not which side, so the
      * left one stands for both. Meta is the GUI key. */
@@ -157,7 +157,6 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
 static unsigned port_device[GAMEPAD_PLAYERS] = {
     RETRO_DEVICE_JOYPAD, RETRO_DEVICE_JOYPAD,
     RETRO_DEVICE_JOYPAD, RETRO_DEVICE_JOYPAD};
-static bool port_live[GAMEPAD_PLAYERS];
 static bool have_bitmasks;
 static bool mouse_owns_pointer;
 
@@ -171,6 +170,9 @@ static retro_environment_t input_environ;
 
 void input_init(retro_environment_t environ_cb)
 {
+    /* libretro has no capture: the frontend's one pointer drives the tablet
+     * and the mouse together (poll_pointer). */
+    event_set_shared(true);
     input_environ = environ_cb;
     have_bitmasks = environ_cb(RETRO_ENVIRONMENT_GET_INPUT_BITMASKS, NULL);
 }
@@ -189,18 +191,14 @@ static void refresh_max_users(void)
 
 void input_state_restored(void)
 {
-    for (int p = 0; p < GAMEPAD_PLAYERS; p++)
-        port_live[p] = true;
+    event_state_loaded();
     keyboard_release_all();
 }
 
 void input_reset(void)
 {
     for (int p = 0; p < GAMEPAD_PLAYERS; p++)
-    {
         port_device[p] = RETRO_DEVICE_JOYPAD;
-        port_live[p] = false;
-    }
     have_bitmasks = false;
     max_users = GAMEPAD_PLAYERS;
     mouse_owns_pointer = false;
@@ -211,12 +209,8 @@ void input_set_port_device(unsigned port, unsigned device)
 {
     if (port >= GAMEPAD_PLAYERS)
         return;
+    /* The next poll unplugs a port with no device. */
     port_device[port] = device;
-    if (device == RETRO_DEVICE_NONE && port_live[port])
-    {
-        gamepad_connect((int)port, false, GAMEPAD_TYPE_UNKNOWN, false);
-        port_live[port] = false;
-    }
 }
 
 /* A face or shoulder button, taking the analog reading where the frontend has
@@ -234,19 +228,14 @@ static uint16_t button_value(retro_input_state_t state, unsigned port, unsigned 
     return down ? 0x7FFF : 0;
 }
 
+/* Each port is its player (event_gamepads, fixed). */
 static void poll_gamepads(retro_input_state_t state)
 {
+    event_gamepads_t pads = {.n = GAMEPAD_PLAYERS, .opened = true, .fixed = true};
     for (int p = 0; p < GAMEPAD_PLAYERS; p++)
     {
         if (port_device[p] == RETRO_DEVICE_NONE || p >= max_users)
-        {
-            if (port_live[p])
-            {
-                gamepad_connect(p, false, GAMEPAD_TYPE_UNKNOWN, false);
-                port_live[p] = false;
-            }
             continue;
-        }
 
         uint8_t dpad = 0, b0 = 0, b1 = 0;
         static const struct
@@ -305,10 +294,22 @@ static void poll_gamepads(retro_input_state_t state)
          * RETRO_DEVICE_ANALOG would remove them for most players, because a
          * frontend reports a plain joypad for an analog controller unless the
          * player changes that setting. */
-        gamepad_connect(p, true, GAMEPAD_TYPE_UNKNOWN, true);
-        port_live[p] = true;
-        gamepad_host_report(p, dpad, b0, b1, lx, ly, rx, ry, lt >> 7, rt >> 7);
+        pads.pad[p] = (gamepad_host_t){
+            .id = (uint64_t)p + 1,
+            .dpad = dpad,
+            .button0 = b0,
+            .button1 = b1,
+            .lx = (int8_t)lx,
+            .ly = (int8_t)ly,
+            .rx = (int8_t)rx,
+            .ry = (int8_t)ry,
+            .lt = (uint8_t)(lt >> 7),
+            .rt = (uint8_t)(rt >> 7),
+            .type = GAMEPAD_TYPE_UNKNOWN,
+            .sticks = true,
+        };
     }
+    event_gamepads(&pads);
 }
 
 /* A frontend reports pointer positions over [-0x7FFF, 0x7FFF], spanning the
@@ -331,7 +332,7 @@ static void poll_lightgun(retro_input_state_t state, unsigned port, int w, int h
     if (gx == -0x8000 || gy == -0x8000 ||
         state(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_IS_OFFSCREEN))
     {
-        tablet_host_clear();
+        event_pointer(&(event_pointer_t){.left = true});
         return;
     }
     uint8_t buttons = 0;
@@ -341,7 +342,8 @@ static void poll_lightgun(retro_input_state_t state, unsigned port, int w, int h
         buttons |= TABLET_FLAG_RIGHT;
     if (state(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_AUX_B))
         buttons |= TABLET_FLAG_MIDDLE;
-    tablet_host_pointer(canvas_coord(gx, w), canvas_coord(gy, h), buttons, false);
+    event_pointer(&(event_pointer_t){.x = canvas_coord(gx, w), .y = canvas_coord(gy, h),
+                                     .buttons = buttons, .inside = true});
 }
 
 /* A gun is an absolute pointer with its own buttons, so it drives the tablet
@@ -375,9 +377,11 @@ static int lightgun_port(void)
  * honouring that would turn a click into a finger going down. */
 static void poll_pointer(retro_input_state_t state)
 {
+    /* The status gives the tablet the pointer while it is wanted, this host
+     * sharing it (event_set_shared). */
+    event_status();
     bool tablet = tablet_wanted();
     bool mouse = mouse_is_mapped();
-    tablet_host_give(tablet);
     if (!tablet && !mouse)
         return;
 
@@ -409,21 +413,20 @@ static void poll_pointer(retro_input_state_t state)
             poll_lightgun(state, (unsigned)gun, w, h);
         else
         {
-            tablet_point_t pts[TABLET_MAX_CONTACTS];
-            int n = 0;
+            event_touch_t touch = {0};
             if (!buttons)
-                for (int i = 0; i < TABLET_MAX_CONTACTS; i++)
+                for (int i = 0; i < EVENT_TOUCHES; i++)
                 {
                     if (!state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_PRESSED))
                         break;
-                    pts[n].x = canvas_coord(state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_X), w);
-                    pts[n].y = canvas_coord(state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_Y), h);
-                    n++;
+                    touch.at[i].x = canvas_coord(state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_X), w);
+                    touch.at[i].y = canvas_coord(state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_Y), h);
+                    touch.n++;
                 }
-            if (n)
+            if (touch.n)
             {
                 mouse_owns_pointer = false;
-                tablet_host_touch(pts, n);
+                event_touch(&touch);
             }
             else
             {
@@ -435,10 +438,11 @@ static void poll_pointer(retro_input_state_t state)
                     int y = canvas_coord(state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_Y), h);
                     /* libretro gives a core no way to ask the frontend to
                      * draw a cursor, so the program draws its own. */
-                    tablet_host_pointer(x, y, buttons, false);
+                    event_pointer(&(event_pointer_t){.x = (int16_t)x, .y = (int16_t)y,
+                                                     .buttons = buttons, .inside = true});
                 }
                 else
-                    tablet_host_clear();
+                    event_pointer(&(event_pointer_t){.left = true});
             }
         }
     }

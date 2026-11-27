@@ -11,7 +11,7 @@
  * desktop's window on its own thread, the web player's page. The machine is
  * the 6502 and everything around it: on the desktop its own thread, on the
  * web a worker. Neither side calls into the other. The window sends the
- * machine its user's events (core/hid/event.h), and what only a window has:
+ * machine its user's events (core/sys/event.h), and what only a window has:
  * when the display called back, a dropped ROM, its close. The machine tells
  * the window what it needs to take the next event on the spot (whether a
  * click captures the pointer, which cursor, whether a touch is the
@@ -30,7 +30,7 @@
 #ifndef _HOST_SOKOL_APP_EVQ_H_
 #define _HOST_SOKOL_APP_EVQ_H_
 
-#include "core/hid/event.h"
+#include "core/sys/event.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -40,7 +40,7 @@
 
 typedef enum
 {
-    /* ---- to the machine: its user's events (core/hid/event.h) ---- */
+    /* ---- to the machine: its user's events (core/sys/event.h) ---- */
     EVQ_KEY = 1,  /* event_key_t */
     EVQ_CHAR,     /* event_char_t */
     EVQ_LOCKS,    /* uint8_t, KEYBOARD_LED_ */
