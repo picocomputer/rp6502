@@ -91,6 +91,7 @@ rp6502_add_test(ria_paste
     SOURCES test_paste.c
         ${RP6502_SRC}/core/hid/clip_byte.c
         ${RP6502_SRC}/core/hid/typed.c ${RP6502_SRC}/core/hid/keymap.c
+        ${RP6502_SRC}/core/hid/hostkey.c ${RP6502_SRC}/core/sys/event.c
         ${RP6502_SRC}/core/hid/key.c ${RP6502_SRC}/core/hid/vtkey.c
         ${RP6502_SRC}/core/sys/ring.c
         ${RP6502_SRC}/core/term/term.c ${RP6502_SRC}/core/term/grid.c

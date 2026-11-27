@@ -12,6 +12,7 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/hid/key.h"
+#include "core/hid/hostkey.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #ifdef EMU_WITH_DEBUGGER
@@ -227,17 +228,20 @@ static void input_key(const sapp_event *e)
     }
     const bool ctrl = (e->modifiers & SAPP_MODIFIER_CTRL) != 0;
     const bool alt = (e->modifiers & SAPP_MODIFIER_ALT) != 0;
+    /* The system gives no text for a Ctrl or Alt chord, so its character is
+     * guessed, a US keyboard's. Any other key's text arrives as a CHAR. Plain
+     * Ctrl+V is the program's, and types 0x16 as Ctrl+C types 0x03: the paste
+     * keys are others (core/hid/key.h). Ctrl+Alt is excluded only where it
+     * means AltGr, whose composed character arrives as a CHAR. */
+    const bool guess = (ctrl && !alt) || (alt && !(ALTGR_IS_CTRL_ALT && ctrl));
+    const uint8_t usage = sokol_to_hid(e->key_code), modifier = input_modifier(e);
     event_key_t k = {
-        .usage = sokol_to_hid(e->key_code),
-        .modifier = input_modifier(e),
+        .usage = usage,
+        .modifier = modifier,
+        .ch = guess ? hostkey_guess(usage, modifier, input_sent_locks > 0 && (input_sent_locks & KEYBOARD_LED_CAPSLOCK)) : 0,
         .down = e->type == SAPP_EVENTTYPE_KEY_DOWN,
         .repeat = e->key_repeat,
-        /* The system gives no text for a Ctrl or Alt chord, so its character
-         * is guessed. Any other key's text arrives as a CHAR. Plain Ctrl+V is
-         * the program's, and types 0x16 as Ctrl+C types 0x03: the paste keys
-         * are others (core/hid/key.h). Ctrl+Alt is excluded only where it
-         * means AltGr, whose composed character arrives as a CHAR. */
-        .guess = (ctrl && !alt) || (alt && !(ALTGR_IS_CTRL_ALT && ctrl)),
+        .meta = true,
         .acts = true,
     };
 #if defined(__EMSCRIPTEN__)

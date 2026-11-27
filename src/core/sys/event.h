@@ -11,7 +11,12 @@
  * keyboard and the terminal, the tablet, the mouse, the gamepad block. Every
  * host raises the same events. One that runs the machine on another thread,
  * as the desktop and the web do, queues them (host/sokol/app/evq.h); one that
- * runs it on its own, as libretro does, raises them directly.
+ * runs it on its own, as libretro does, raises them directly, and so do the
+ * Pico's own USB drivers once they have parsed a device's report. Each
+ * device's events are a file of their own, so a machine links only what it
+ * raises: event.c the keyboard's, event_pointer.c the tablet's and the
+ * mouse's, event_pads.c the controllers', and event_window.c what only a
+ * host with a window raises and needs.
  *
  * Back the other way, event_status says what a host needs of the machine to
  * take its next event on the spot: whether a click captures the pointer,
@@ -26,14 +31,20 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* A key going down or up. usage and modifier are USB HID's. guess says the
- * host gave no character for a Ctrl or Alt chord, so it is guessed. acts is
- * false for a key that only goes into the keyboard's bitmap: on the web a
- * paste key, which the browser turns into a paste. */
+/* A key going down or up. usage and modifier are USB HID's. ch is the
+ * character the host's layout gives the key, which it types where the
+ * terminal has the key as a character; 0 for a host whose system types it
+ * after as event_char, or has none. meta says Alt goes with that character as
+ * Meta, ESC before it, where otherwise Alt is taken to have chosen it, as
+ * AltGr does (core/hid/hostkey.h). acts is false for a key that only goes
+ * into the keyboard's bitmap: on the web a paste key, which the browser turns
+ * into a paste. own_bitmap is a host whose keyboard driver keeps the bitmap
+ * itself, merging keyboards, as the Pico's does (core/hid/keyboard.h). */
 typedef struct
 {
     uint8_t usage, modifier;
-    bool down, repeat, guess, acts;
+    char ch;
+    bool down, repeat, meta, acts, own_bitmap;
 } event_key_t;
 
 /* A character the host typed, printable and not part of a chord. A key that
@@ -126,7 +137,8 @@ void event_touch(const event_touch_t *e);
 void event_wheel(const event_wheel_t *e);
 void event_mouse(const event_mouse_t *e);
 void event_focus(bool focused);
-void event_paste(const char *utf8); /* a paste the host handed over */
+/* A paste the host's system handed over (event_window.c). */
+void event_paste(const char *utf8);
 void event_gamepads(const event_gamepads_t *e);
 
 /* Whether a chord acted on the key still down, which a host's close that
@@ -142,19 +154,32 @@ bool event_chord_held(void);
 typedef struct
 {
     uint8_t flags;
-    uint8_t cursor; /* TABLET_CURSOR_, OFF while the program draws its own */
+    uint8_t cursor; /* event_cursor, for a host with a window */
 } event_status_t;
 
-/* The status as the machine stands, once a frame or so. It also gives the
- * tablet the pointer or takes it (tablet_host_give), and unplugs the
- * controllers once no program has them mapped. */
+/* The status as the machine stands, once a frame or so, with no cursor. It
+ * also gives the tablet the pointer or takes it (tablet_host_give), and
+ * unplugs the controllers once no program has them mapped. */
 event_status_t event_status(void);
+
+/* The cursor a window shows over the canvas: TABLET_CURSOR_, OFF while the
+ * program draws its own (event_window.c). */
+uint8_t event_cursor(void);
 
 /* After a state load, which brings back the players the saved machine had:
  * the host's next controllers tell each player again, or unplug it. */
 void event_state_loaded(void);
 
-/* Back to the start, for tests. */
+/* The pieces event_status is made of: whether the host's pointer is the
+ * tablet's now (event_pointer.c), and whether a program has the controllers
+ * mapped, which unplugs every player as it stops (event_pads.c). */
+bool event_has_pointer(void);
+void event_pads_watch(bool mapped);
+
+/* Back to the start, for tests: all of it (event_window.c), or the keys'
+ * and the controllers' own. */
 void event_reset(void);
+void event_key_reset(void);
+void event_pads_reset(void);
 
 #endif /* _CORE_SYS_EVENT_H_ */

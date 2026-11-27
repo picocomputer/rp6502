@@ -18,6 +18,8 @@
 #include "core/hid/typed.h"
 #include "core/str/oem.h"
 #include "core/str/unicode.h"
+#include "core/sys/sst.h"
+#include "machine.h"
 #include <stdbool.h>
 
 /* A US keyboard's characters, A to slash in usage order, plain and with
@@ -51,25 +53,45 @@ uint8_t hostkey_us_key(char ch, bool *shift)
     return 0;
 }
 
-hostkey_result_t hostkey_press(uint8_t usage, uint8_t modifier, bool repeat, bool guess)
+/* Where typed bytes go: the typed queue, unless the machine's own keyboard
+ * driver composes them first (keymap.c, its dead keys). */
+static const hostkey_typer_t hostkey_queue = {typed_push, typed_cut};
+static const hostkey_typer_t *hostkey_typer = &hostkey_queue;
+
+#define HOSTKEY_SST(X)                                              \
+    X(SKIP, hostkey_queue, "constant")                              \
+    X(SKIP, hostkey_typer, "which driver types, set as it starts")
+SST_TABLE(hostkey, HOSTKEY_SST)
+
+void hostkey_set_typer(const hostkey_typer_t *typer)
+{
+    hostkey_typer = typer ? typer : &hostkey_queue;
+}
+
+char hostkey_guess(uint8_t usage, uint8_t modifier, bool capslock)
+{
+    /* Caps Lock swaps the case of a letter, and Shift swaps it back. */
+    bool shift = modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
+    if (usage <= HID_KEY_Z && capslock)
+        shift = !shift;
+    return hostkey_us(usage, shift);
+}
+
+hostkey_result_t HOST_IN_RAM_FUNC hostkey_type(uint8_t usage, uint8_t modifier, bool repeat,
+                                               char ch, bool meta)
 {
     const key_chord_t chord = key_chord(usage, modifier, repeat);
     if (chord == KEY_CHORD_ACTED)
         return HOSTKEY_CHORD;
-    const uint8_t flags = vtkey_modifiers(modifier);
+    uint8_t flags = vtkey_modifiers(modifier);
     char out[VTKEY_MAX];
     int n = vtkey_encode(out, usage, flags);
     if (n == VTKEY_CHAR)
     {
-        char ch = 0;
-        if (guess)
-        {
-            /* Caps Lock swaps the case of a letter, and Shift swaps it back. */
-            bool shift = flags & VTKEY_SHIFT;
-            if (usage <= HID_KEY_Z && (keyboard_get_locks() & KEYBOARD_LED_CAPSLOCK))
-                shift = !shift;
-            ch = hostkey_us(usage, shift);
-        }
+        /* Alt with the key's character is Meta, ESC before it, only where
+         * the caller says so; otherwise Alt chose the character. */
+        if (!meta)
+            flags &= (uint8_t)~VTKEY_ALT;
         n = vtkey_char(out, usage, ch, flags);
     }
     if (chord == KEY_CHORD_CUT)
@@ -77,13 +99,21 @@ hostkey_result_t hostkey_press(uint8_t usage, uint8_t modifier, bool repeat, boo
         /* A Mac's Cmd is no modifier a terminal encodes, so its cut key
          * types nothing, whatever the key alone would. */
         const bool cmd = modifier & (KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_RIGHTGUI);
-        typed_cut(out, cmd ? 0 : (size_t)n);
+        hostkey_typer->cut(out, cmd ? 0 : (size_t)n);
         return HOSTKEY_CHORD;
     }
     if (!n)
         return HOSTKEY_NONE;
-    typed_push(out, (size_t)n);
+    hostkey_typer->type(out, (size_t)n);
     return HOSTKEY_TYPED;
+}
+
+hostkey_result_t hostkey_press(uint8_t usage, uint8_t modifier, bool repeat, bool guess)
+{
+    const char ch = guess ? hostkey_guess(usage, modifier,
+                                          keyboard_get_locks() & KEYBOARD_LED_CAPSLOCK)
+                          : 0;
+    return hostkey_type(usage, modifier, repeat, ch, true);
 }
 
 void hostkey_char(uint32_t codepoint)

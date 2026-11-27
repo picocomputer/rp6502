@@ -213,7 +213,8 @@ void machine_take(const evq_msg_t *m)
 
 void machine_status(bool follows, int64_t period_ns)
 {
-    const evq_status_t s = {.event = event_status(), .follows = follows, .period_ns = period_ns};
+    evq_status_t s = {.event = event_status(), .follows = follows, .period_ns = period_ns};
+    s.event.cursor = event_cursor();
     if (machine.told_once && s.event.flags == machine.told.event.flags &&
         s.event.cursor == machine.told.event.cursor && s.follows == machine.told.follows &&
         s.period_ns == machine.told.period_ns)

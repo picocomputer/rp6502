@@ -136,15 +136,17 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
     bool composed = !ctrl && !alt && character >= 32 && character != 127;
     /* The frontend says which modifiers are held but not which side, so the
      * left one stands for both. Meta is the GUI key. */
+    const uint8_t modifier = (uint8_t)(
+        (shift ? KEYBOARD_MODIFIER_LEFTSHIFT : 0) | (alt ? KEYBOARD_MODIFIER_LEFTALT : 0) |
+        (ctrl ? KEYBOARD_MODIFIER_LEFTCTRL : 0) |
+        ((key_modifiers & RETROKMOD_META) ? KEYBOARD_MODIFIER_LEFTGUI : 0));
     const event_key_t key = {
         .usage = hid,
-        .modifier = (uint8_t)(
-            (shift ? KEYBOARD_MODIFIER_LEFTSHIFT : 0) | (alt ? KEYBOARD_MODIFIER_LEFTALT : 0) |
-            (ctrl ? KEYBOARD_MODIFIER_LEFTCTRL : 0) |
-            ((key_modifiers & RETROKMOD_META) ? KEYBOARD_MODIFIER_LEFTGUI : 0)),
+        .modifier = modifier,
+        .ch = composed ? 0 : hostkey_guess(hid, modifier, keyboard_get_locks() & KEYBOARD_LED_CAPSLOCK),
         .down = true,
         .repeat = repeat,
-        .guess = !composed,
+        .meta = true,
         .acts = !lock,
     };
     event_key(&key);

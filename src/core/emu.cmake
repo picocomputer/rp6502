@@ -15,6 +15,9 @@ rp6502_gen_c()
 add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/hid_null.c
     ${RP6502_SRC}/core/sys/event.c
+    ${RP6502_SRC}/core/sys/event_window.c
+    ${RP6502_SRC}/core/sys/event_pointer.c
+    ${RP6502_SRC}/core/sys/event_pads.c
     ${RP6502_SRC}/core/sys/proc.c
     ${RP6502_SRC}/core/tim/clk.c
     ${RP6502_SRC}/core/tim/os.c
