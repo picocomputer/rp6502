@@ -9,8 +9,8 @@
  * ROM is the ROM block, which the host loads from firmware.bin and
  * nothing writes. RAM is the RAM block. firmware.bin is everything
  * placed in ROM: the code, the constants and the first values of .data,
- * which crt0.S copies to RAM. stage_map_gate.py checks both regions
- * against mmio.h.
+ * which crt0.S copies to RAM. The Pocket's stage_map_gate.py checks both
+ * regions against mmio.h.
  *
  * VIDCELLS, VIDCOLORS and VIDPALETTE are the memories of mode0.sv and
  * VIDREGS its registers. core/vga/mode/mode0.c's cells, colors, palette

@@ -12,8 +12,8 @@
 #include <map>
 #include <vector>
 
-/* stage_map_gate.py checks these against the firmware's mmio.h and the
- * Pocket core's data.json. */
+/* stage_map_gate.py checks these against the firmware's mmio.h and
+ * bridge.h and the Pocket core's data.json. */
 #define TB_STAGE_ROM_BASE 0x00000000u
 /* The soft CPU's memory. Its ROM block is first, where the host loads
  * the firmware, and its RAM block follows. */

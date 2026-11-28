@@ -10,14 +10,13 @@
  * produces a torn value.
  *
  * Wall time is the RTC reading plus UPTIME since boot, so it follows real
- * time through a save's hold and a load. The RTC reading comes from
- * command 0x0090, which the host sends once at core boot with the local
- * time in seconds since 1970 and which sets RTC_VALID. The command has no
- * time zone field, so the UTC offset from the interact menu converts that
- * local reading to the UTC the API returns.
+ * time through a save's hold and a load. The host gives the RTC reading
+ * as local time, in seconds since 1970, and the UTC offset its settings
+ * hold converts that to the UTC the API returns (fpga_host.h).
  */
 
 #include "core/sys/div64.h"
+#include "fpga_host.h"
 #include "mmio.h"
 
 #include "tim.h"
@@ -75,8 +74,8 @@ static void tim_apply_tz(void)
 
 void tim_init(void)
 {
-    tim_local_boot = RTC_VALID ? (int64_t)RTC_EPOCH : TIM_DEFAULT_EPOCH;
-    tim_tz_min = set_tz_minutes();
+    tim_local_boot = fpga_rtc_valid() ? (int64_t)fpga_rtc_epoch() : TIM_DEFAULT_EPOCH;
+    tim_tz_min = fpga_tz_minutes();
     tim_base_sec = tim_local_boot - (int64_t)tim_tz_min * 60;
     tim_base_us = tim_uptime_us();
     tim_apply_tz();
@@ -108,7 +107,7 @@ bool tim_set_time(const tim_spec_t *ts)
     return false;
 }
 
-/* The Pocket's zone is one offset, the year round. */
+/* The zone is one offset, the year round. */
 void tim_zone(int64_t utc, tim_zone_t *zone)
 {
     (void)utc;
@@ -117,9 +116,9 @@ void tim_zone(int64_t utc, tim_zone_t *zone)
     zone->name = tim_zone_name;
 }
 
-/* The words of the C locale. The Pocket has no setting for its language,
- * and the strings of core/str would bring every one of them, in every
- * language, into its firmware. */
+/* The words of the C locale. The firmware has no setting for its
+ * language, and the strings of core/str would bring every one of them,
+ * in every language, into its firmware. */
 const char *tim_word(tim_word_t word)
 {
     return tim_c_word(word);
@@ -140,7 +139,7 @@ uint64_t os_mono_ns(void)
 
 uint32_t os_random(void)
 {
-    return RTC_VALID ? (uint32_t)RTC_EPOCH : 0;
+    return fpga_rtc_valid() ? fpga_rtc_epoch() : 0;
 }
 
 
@@ -155,7 +154,7 @@ bool host_mac_keys(void)
 static uint32_t seed;
 static bool seed_taken;
 
-#define TIM_POCKET_SST(X)                                               \
+#define TIM_FPGA_SST(X)                                                 \
     X(SKIP, tim_tz_min, "wall time, which is this session's")           \
     X(SKIP, tim_local_boot)                                             \
     X(SKIP, tim_base_sec)                                               \
@@ -163,7 +162,7 @@ static bool seed_taken;
     X(SKIP, tim_zone_name)                                              \
     X(SKIP, seed, "taken once from the RTC for this session")           \
     X(SKIP, seed_taken)
-SST_TABLE(tim_pocket, TIM_POCKET_SST)
+SST_TABLE(tim_fpga, TIM_FPGA_SST)
 
 uint32_t host_seed(void)
 {

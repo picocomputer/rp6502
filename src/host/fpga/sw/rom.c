@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "fs.h"
+#include "osal/fs.h"
 #include "mmio.h"
 #include "rom.h"
 #include "core/rom/rom.h"

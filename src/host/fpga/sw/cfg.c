@@ -7,7 +7,7 @@
 #include "cfg.h"
 #include "core/sys/sst.h"
 #include "tim.h"
-#include "mmio.h"
+#include "fpga_host.h"
 
 #include "core/hid/keyboard.h"
 #include "core/sys/config.h"
@@ -31,14 +31,14 @@ static void cfg_apply_layout(int32_t kb)
 
 void cfg_task(void)
 {
-    int32_t tz = set_tz_minutes();
+    int32_t tz = fpga_tz_minutes();
     if (tz != cfg_tz)
     {
         cfg_tz = tz;
         tim_set_tz_minutes(tz);
     }
 
-    int32_t kb = (int32_t)SET_KB;
+    int32_t kb = fpga_kb_layout();
     if (kb != cfg_kb)
     {
         cfg_kb = kb;

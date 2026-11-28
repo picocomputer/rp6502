@@ -4,8 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _HOST_POCKET_SW_MMIO_H_
-#define _HOST_POCKET_SW_MMIO_H_
+/* The machine's map, as the soft CPU sees it: what every FPGA host's
+ * bitstream decodes alike. A host's own registers and its staging layout
+ * are in its sw/bridge.h. */
+
+#ifndef _HOST_FPGA_SW_MMIO_H_
+#define _HOST_FPGA_SW_MMIO_H_
 
 #include <stdint.h>
 
@@ -31,136 +35,29 @@
  * on through a hold, when mtime stands still. */
 #define UPTIME_LO (*(volatile const uint32_t *)(uintptr_t)0xF0000020u)
 #define UPTIME_HI (*(volatile const uint32_t *)(uintptr_t)0xF0000024u)
-#define MMIO_HIDKEY (*(volatile uint32_t *)(uintptr_t)0xF000001Cu)
-#define MMIO_UPD_ID (*(volatile uint32_t *)(uintptr_t)0xF0000044u)
-#define MMIO_UPD_LEN (*(volatile uint32_t *)(uintptr_t)0xF0000048u)
 #define MMIO_UPD_N (*(volatile uint32_t *)(uintptr_t)0xF000004Cu)
-#define MMIO_CONT_KEY(s) (*(volatile uint32_t *)(uintptr_t)(0xF0000050u + (s) * 12u))
-#define MMIO_CONT_JOY(s) (*(volatile uint32_t *)(uintptr_t)(0xF0000054u + (s) * 12u))
-#define MMIO_CONT_TRIG(s) (*(volatile uint32_t *)(uintptr_t)(0xF0000058u + (s) * 12u))
-#define MMIO_CONT_SLOTS 4
 
 #define SRAM ((volatile uint8_t *)(uintptr_t)0x10000000u)
 #define XRAM_WIN ((volatile uint8_t *)(uintptr_t)0x30000000u)
-/* The SDRAM at its bridge addresses, past the cache. It reads and
- * writes as memory does, a byte, a half or a word. The hardware keeps
- * the last 16-byte line it fetched, so a word read costs what a byte
- * read does, and a write drops that line. The cache holds only the
- * memory this firmware runs in, so everything else in the SDRAM is
- * reached here. */
+/* The staging store, the host's memory (the Pocket's SDRAM) at its
+ * bridge addresses, past the cache. It reads and writes as memory does,
+ * a byte, a half or a word. The hardware keeps the last 16-byte line it
+ * fetched, so a word read costs what a byte read does, and a write drops
+ * that line. The cache holds only the memory this firmware runs in, so
+ * everything else in the store is reached here. */
 #define STAGE ((volatile const uint8_t *)(uintptr_t)0x60000000u)
 
-/* These addresses must agree with the slots in data.json.
- * stage_map_gate.py checks every one of them against it and against the
- * hardware. ROM_MAX is the ROM slot's size_maximum. Everything else is
- * packed above it in this order. The soft CPU's memory is at MEM_BRIDGE
- * and the soft CPU sees it at address 0: the first MEM_ROM_MAX bytes are
- * the ROM block, which the host loads as firmware.bin, and the
- * MEM_RAM_MAX bytes at MEM_RAM are the RAM block. MEM_MAX is the cache's
- * window, a power of two, and the soft CPU's alone: the two blocks can grow
- * in it. The eight file windows follow it, then the Get File scratch.
- * The savestate window is last, SST_BLOB_MAX bytes at SST_BLOB_BRIDGE
- * that run to the end of the SDRAM, where the host reads a save and
- * writes a load, both at the window's start. SST_BLOB is the window in the staging store, where the
- * firmware writes a save and reads a load. */
-#define ROM_IMG ((volatile const uint8_t *)(uintptr_t)0x60000000u)
-#define ROM_BRIDGE 0x00000000u
-#define ROM_MAX 0x03E00000u
-#define MEM_BRIDGE 0x03E00000u
+/* The soft CPU's memory, which it sees at address 0 and the host keeps
+ * in its staging store: the first MEM_ROM_MAX bytes are the ROM block,
+ * which the host loads as firmware.bin, and the MEM_RAM_MAX bytes at
+ * MEM_RAM are the RAM block. MEM_MAX is the cache's window, a power of
+ * two, and the soft CPU's alone: the two blocks can grow in it. The
+ * Pocket's stage_map_gate.py checks these against link.ld and the
+ * hardware. */
 #define MEM_MAX 0x00080000u
 #define MEM_ROM_MAX 0x00040000u
 #define MEM_RAM 0x00040000u
 #define MEM_RAM_MAX 0x00010000u
-#define SLOT_WIN_SIZE 0x8000u
-#define SLOT_WIN_BASE ((volatile const uint8_t *)(uintptr_t)0x63E80000u)
-#define SLOT_WIN(d) (SLOT_WIN_BASE + (uint32_t)(d) * SLOT_WIN_SIZE)
-#define SLOT_WIN_BRIDGE(d) (0x03E80000u + (uint32_t)(d) * SLOT_WIN_SIZE)
-#define FILE_XFER_MAX SLOT_WIN_SIZE
-#define GETFILE_WIN ((volatile const uint8_t *)(uintptr_t)0x63EC0000u)
-#define GETFILE_BRIDGE 0x03EC0000u
-#define GETFILE_MAX 0x1000u
-#define SST_BLOB_BRIDGE 0x03EC1000u
-#define SST_BLOB ((uint8_t *)0x63EC1000u)
-#define SST_BLOB_MAX 0x0013F000u
-
-/* FILE_WIN is the write port of a dual-port RAM in pocket_file.sv. The
- * RAM's read port is on the bridge, so the firmware cannot read FILE_WIN
- * back, and the write port has no byte enables, so each write stores a
- * whole word. FILE_WIN_BASE is the bridge address of the same RAM and
- * must match WINDOW_BASE in pocket_file.sv.
- *
- * A write to FILE_CTL starts the command that the other registers
- * describe. */
-#define FILE_ID (*(volatile uint32_t *)(uintptr_t)0x80000000u)
-#define FILE_OFFSET (*(volatile uint32_t *)(uintptr_t)0x80000004u)
-#define FILE_LENGTH (*(volatile uint32_t *)(uintptr_t)0x80000008u)
-#define FILE_BRIDGE (*(volatile uint32_t *)(uintptr_t)0x8000000Cu)
-#define FILE_CTL (*(volatile uint32_t *)(uintptr_t)0x80000010u)
-#define FILE_RESULT (*(volatile uint32_t *)(uintptr_t)0x80000014u)
-#define FILE_WIN ((volatile uint32_t *)(uintptr_t)0x80001000u)
-
-/* The host's savestate commands. SST_SAVE_REQ reads set from the host's
- * save request until the firmware writes SST_SAVE_OK or SST_SAVE_ERR,
- * which the host is then answered with. The host reads POCKET_SST_BYTES
- * of the window once it has its ok. SST_LOAD_REQ reads set from the
- * host's load request until the firmware writes SST_LOAD_OK or
- * SST_LOAD_ERR. A load the host asked for while it held the core in
- * reset was answered ok at once, and its request is here when the
- * firmware boots. SST_BLOB_SEEN is set by a host write into the window
- * or by a load request, either of which can come first, and clears when
- * the load is answered: while it is set a load is on its way.
- * SST_WQ_EMPTY is set while no host write waits to reach the SDRAM, so
- * a blob the host wrote is all in the window. */
-#define SST_CTL (*(volatile uint32_t *)(uintptr_t)0x80020000u)
-#define SST_SAVE_REQ 0x01u
-#define SST_LOAD_REQ 0x02u
-#define SST_BLOB_SEEN 0x04u
-#define SST_WQ_EMPTY 0x08u
-#define SST_SAVE_OK 1u
-#define SST_SAVE_ERR 2u
-#define SST_LOAD_OK 3u
-#define SST_LOAD_ERR 4u
-/* The UTC offset comes from three interact menu entries because a menu
- * list holds at most sixteen options and the offset spans twenty-seven
- * whole hours. SET_KB is a position in def/keyboard.def plus one, so zero
- * means that the host has not written a layout to it. */
-#define SET_KB (*(volatile uint32_t *)(uintptr_t)0x80010000u)
-#define SET_TZ_HOUR (*(volatile uint32_t *)(uintptr_t)0x80010008u)
-#define RTC_EPOCH (*(volatile uint32_t *)(uintptr_t)0x8001000Cu)
-#define RTC_VALID (*(volatile uint32_t *)(uintptr_t)0x80010010u)
-#define SET_TZ_MIN (*(volatile uint32_t *)(uintptr_t)0x80010014u)
-#define SET_TZ_WEST (*(volatile uint32_t *)(uintptr_t)0x80010018u)
-/* 1 from the host's request to write the ROM slot until the new image's
- * size is in MMIO_SLOT. The bitstream holds the 6502 in reset meanwhile. */
-#define ROM_COMING (*(volatile const uint32_t *)(uintptr_t)0x8001001Cu)
-
-static inline int32_t set_tz_minutes(void)
-{
-    int32_t m = (int32_t)((SET_TZ_HOUR & 0xFFu) * 60u + (SET_TZ_MIN & 0xFFu));
-    return (SET_TZ_WEST & 1u) ? -m : m;
-}
-#define FILE_WIN_BASE 0x20000000u
-#define FILE_WIN_SIZE 512u
-
-#define FILE_OP_READ 1u
-#define FILE_OP_WRITE 2u
-#define FILE_OP_OPEN 3u
-#define FILE_OP_DT 4u
-#define FILE_OP_GETFILE 5u
-/* core_bridge_cmd ends a data slot command with result 7 when the host
- * has not finished it within about 0.9 s, half of pocket_file's deadline,
- * so FILE_ST_TIMEOUT after a write to FILE_CTL means that core_bridge_cmd
- * itself has stopped. FILE_ST_TIMEOUT also reads set from the time the FPGA
- * is configured until the first write to FILE_CTL. */
-
-#define FILE_ST_BUSY 0x01u
-#define FILE_ST_ERR 0x0Eu
-#define FILE_ST_TIMEOUT 0x10u
-/* A slot operation can complete while the write FIFO in
- * pocket_bridge.sv still holds writes for the staging store, so a read of
- * the new data waits for this bit to clear. */
-#define FILE_ST_DRAIN 0x20u
-#define FILE_ST_WROTE 0x40u
 
 /* mode0.sv's registers from 0x50010000 are core/vga/mode/mode0.h's
  * mode0_regs, which link.ld places there, and above them the frame count. */
@@ -297,4 +194,4 @@ static inline int32_t set_tz_minutes(void)
 #define AUD_SST(w) (((volatile uint32_t *)(uintptr_t)0x90002000u)[w])
 #define AUD_SST_WORDS 2048
 
-#endif /* _HOST_POCKET_SW_MMIO_H_ */
+#endif /* _HOST_FPGA_SW_MMIO_H_ */

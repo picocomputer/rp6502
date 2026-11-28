@@ -33,7 +33,7 @@ find_package(verilator CONFIG REQUIRED
 # machine.cmake comes before rtl.cmake.
 include(${RP6502_SRC}/host/pocket/machine.cmake)
 include(${RP6502_SRC}/core/rtl.cmake)
-set(RP6502_SW_LOG ${CMAKE_CURRENT_LIST_DIR}/pocket/log.c)
+set(RP6502_SW_LOG ${RP6502_ROOT}/tests/bench/sw_log.c)
 include(${RP6502_SRC}/host/pocket/sw.cmake)
 
 if(WIN32)

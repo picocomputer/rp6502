@@ -7,8 +7,8 @@
 #
 # MACHINE_VERSION covers what every FPGA host's firmware shares with the
 # bitstream: src/core/sys/wiring.sv's decode, src/core/riscv/soc.sv's 0xF
-# map, src/core/riscv/mem_pkg.sv, and the machine's registers in the
-# firmware's mmio.h and its link.ld. Raise it when any of those changes
+# map, src/core/riscv/mem_pkg.sv, src/host/fpga/sw/mmio.h and
+# src/host/fpga/sw/link.ld. Raise it when any of those changes
 # in a way the firmware sees. Every host's version changes with it.
 
 MACHINE_VERSION = 1

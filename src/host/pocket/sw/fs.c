@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mmio.h"
+#include "bridge.h"
 #include "fs.h"
 
 #include "core/str/path.h"

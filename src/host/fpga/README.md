@@ -12,11 +12,46 @@ what every FPGA host needs and no board decides:
 - `quartus/sta_paths.tcl`: writes the worst paths of every corner beside
   the fit's reports.
 - `quartus.cmake`: finds the Quartus tools.
+- `sw/`: the soft CPU's firmware, all but the host's own units. `mmio.h`
+  is the machine's map as the soft CPU sees it, and `link.ld` places the
+  image.
+- `sw.cmake`: `rp6502_fpga_sw()`, which builds the firmware from `sw/`,
+  core and the units a host names.
 
 A part moves here when it talks only to the machine, to the soft CPU or
 to a seam every FPGA host provides, or when it is a generic Quartus or
 build tool. A part that talks to a board resource moves when a second
 host needs it.
+
+## The host seam
+
+A host's `sw.cmake` calls `rp6502_fpga_sw()` with its folder as `DIR`,
+its own units as `SOURCES` and its generated headers as `DEPENDS`. The
+host's units come first in the link, ahead of the shared ones: the order
+steers LTO's inlining, and this one makes the smaller image. `DIR` is the
+first `-I`, so three headers are found there by bare name:
+
+- `machine.h` and `drivers.h`, as on every host;
+- `fpga_host.h`, what the shared firmware asks of the host's registers.
+
+`crt0.S` takes one thing from `fpga_host.h`: `FPGA_REG_VERSION`, the
+register layout version it carries. For C the header gives four
+`static inline` functions, so the seam costs nothing:
+
+| function | gives |
+| --- | --- |
+| `bool fpga_rtc_valid(void)` | whether the host has given a time |
+| `uint32_t fpga_rtc_epoch(void)` | that time: local, in seconds since 1970 |
+| `int32_t fpga_tz_minutes(void)` | the UTC offset in minutes, east positive |
+| `int32_t fpga_kb_layout(void)` | a position in `def/keyboard.def` plus one, 0 for none yet |
+
+`sw/time.c` makes the wall time from the first three, and `sw/cfg.c`
+follows the zone and the layout as the host's settings change. A host
+that leaves one out fails to compile. The host's own units implement
+the rest of what core asks of a host that `sw/` does not: its
+filesystem, its process glue, its input driver's `hid_set_leds`,
+`hid_boot_enumerating` and `hid_remapped`, and `main`.
+`src/host/pocket` is the example.
 
 ## The clocks
 
@@ -44,7 +79,7 @@ a bitstream and its firmware share. It has three fields, which
 | bits | field | written in |
 | --- | --- | --- |
 | 31-24 | the host's id, the initial of its name | `gen/version.py` here |
-| 23-12 | `MACHINE_VERSION`: wiring's decode, soc's 0xF map, `mem_pkg.sv`, and the machine's part of the firmware's `mmio.h` and `link.ld` | `gen/version.py` here |
+| 23-12 | `MACHINE_VERSION`: wiring's decode, soc's 0xF map, `mem_pkg.sv`, `sw/mmio.h` and `sw/link.ld` | `gen/version.py` here |
 | 11-0 | the host's own: its host window, its bridge registers and its staging layout | the host's `gen/version.py` |
 
 The host's `gen/version.py` composes the value and makes a package for

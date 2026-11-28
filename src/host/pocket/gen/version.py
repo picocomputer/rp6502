@@ -11,11 +11,11 @@
 # bitstream and the firmware share. It is composed: the machine's half,
 # MACHINE_VERSION in src/host/fpga/gen/version.py, covers wiring, soc and
 # what every FPGA host shares, and HOST_VERSION here covers the Pocket's
-# own: pocket_core's host window at 0x80000000 and the bridge and
-# staging layouts in sw/mmio.h. Raise HOST_VERSION when one of those
-# moves, changes meaning or is added and the firmware uses it. The
-# bitstream shows the value in a register, and the firmware compares it
-# with its own before it uses any other register.
+# own: pocket_core's host window at 0x80000000, the bridge registers and
+# staging layout in sw/bridge.h, and fpga_host.h. Raise HOST_VERSION when
+# one of those moves, changes meaning or is added and the firmware uses
+# it. The bitstream shows the value in a register, and the firmware
+# compares it with its own before it uses any other register.
 #
 # SST_BYTES is the savestate size the bitstream gives the host. The host
 # reads that many bytes of the blob window for a save. The firmware's

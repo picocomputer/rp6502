@@ -33,7 +33,8 @@
 #include "sleep.h"
 #include "apf.h"
 #include "fs.h"
-#include "mmio.h"
+#include "bridge.h"
+#include "host/fpga/sw/mmio.h"
 
 #include "core/api/std.h"
 #include "core/sys/debug_log.h"

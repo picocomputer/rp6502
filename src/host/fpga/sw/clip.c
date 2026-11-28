@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The clipboard. The Pocket has none of its own, so this keeps the bytes
+/* The clipboard. An FPGA host has none of its own, so this keeps the bytes
  * the machine copies, for it to paste and to save, a sleep included
  * (core/hid/clip_codepage.c). */
 

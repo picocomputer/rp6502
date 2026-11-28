@@ -6,7 +6,7 @@
 
 #include "fs.h"
 #include "proc.h"
-#include "rom.h"
+#include "host/fpga/sw/rom.h"
 
 #include "core/api/api.h"
 #include "core/api/arg.h"

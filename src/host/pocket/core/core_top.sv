@@ -262,7 +262,7 @@ end
     // nothing in front (measured on a Pocket). The Memories file on the
     // card has a header and a thumbnail around it, which do not come to
     // the core. stage_map_gate.py checks the address and the load size
-    // against mmio.h, and that the size fits in the window.
+    // against sw/bridge.h, and that the size fits in the window.
     wire            savestate_supported = 1'b1;
     wire    [31:0]  savestate_addr = 32'h03EC_1000;
     wire    [31:0]  savestate_size = pocket_version_pkg::SST_BYTES;

@@ -8,8 +8,8 @@ import json
 import re
 from pathlib import Path
 
-# This is STAGE in mmio.h, the soft CPU's address for bridge address 0 of
-# the staging store.
+# This is STAGE in host/fpga/sw/mmio.h, the soft CPU's address for bridge
+# address 0 of the staging store.
 STAGE_BASE = 0x60000000
 
 FILE_SLOT_FIRST = 1
@@ -51,7 +51,8 @@ def slots(path: Path) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True)
-    ap.add_argument("--mmio", required=True)
+    ap.add_argument("--mmio", action="append", required=True,
+                    help="a firmware header of defines; give each one")
     ap.add_argument("--bench")
     ap.add_argument("--mem", help="package holding the soft CPU's memory")
     ap.add_argument("--sst")
@@ -63,9 +64,13 @@ def main() -> int:
     a = ap.parse_args()
 
     ds = slots(Path(a.data))
-    mm = defines(Path(a.mmio))
-
     bad = []
+    mm = {}
+    for path in a.mmio:
+        for name, value in defines(Path(path)).items():
+            if name in mm:
+                bad.append(f"{name} is defined in more than one --mmio header")
+            mm[name] = value
 
     def want(what, got, expect):
         if got != expect:

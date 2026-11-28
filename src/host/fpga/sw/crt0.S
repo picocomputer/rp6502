@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "pocket_version.h"
+#include "fpga_host.h"
 
     /* The reset vector is a jump of four bytes, and the word after it is
      * the register layout version this firmware was built for. */
@@ -17,7 +17,7 @@ _start:
     .option pop
     .global ver_own
 ver_own:
-    .word POCKET_REG_VERSION
+    .word FPGA_REG_VERSION
 0:
     la sp, __stack_top
     /* Nothing else comes before this: it returns only under a bitstream

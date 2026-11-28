@@ -11,7 +11,7 @@
 
 #include "host/pocket/sw/proc.h"
 #include "host/pocket/sw/fs.h"
-#include "host/pocket/sw/rom.h"
+#include "host/fpga/sw/rom.h"
 #include "core/api/api.h"
 #include "core/api/arg.h"
 #include "core/com/com.h"

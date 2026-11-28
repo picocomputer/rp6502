@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _HOST_POCKET_SW_VGA_H_
-#define _HOST_POCKET_SW_VGA_H_
+#ifndef _HOST_FPGA_SW_VGA_H_
+#define _HOST_FPGA_SW_VGA_H_
 
 #include "core/sys/sst.h"
 #include "core/vga/vga.h"
@@ -20,4 +20,4 @@ extern const sst_table_t vga_fabric_sst;
 #define VGA_FABRIC_DRIVER DRIVER(                              \
     SST("VGA_", vga_fabric))
 
-#endif /* _HOST_POCKET_SW_VGA_H_ */
+#endif /* _HOST_FPGA_SW_VGA_H_ */

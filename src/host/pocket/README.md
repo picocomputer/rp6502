@@ -159,20 +159,20 @@ wake's load was still unanswered while the firmware ran, so that 0x00A4
 came after Reset Exit.
 
 The savestate is core's, made by `core/sys/sst.c` as on the emulators.
-The firmware builds it, and its driver list carries
-the rows. Two rows are this machine's own: `FAB_`, in `sw/fab.c`, holds
-what only the bitstream keeps, and `AUD_`, in `sw/aud.c`, holds the
-audio engines. The blob is about 230 KB. The size the host is given is
-`SST_BYTES` in `gen/version.py`. A blob that outgrows it is refused by
-`sst_save`, so the sleep tests fail in CI before it can ship. A load writes the blob at the start of
-the window.
+The firmware builds it, and its driver list carries the rows. Two rows
+are the FPGA machine's own: `FAB_`, in `src/host/fpga/sw/fab.c`, holds
+what only the bitstream keeps, and `AUD_`, in `src/host/fpga/sw/aud.c`,
+holds the audio engines. The blob is about 230 KB. The size the host is
+given is `SST_BYTES` in `gen/version.py`. A blob that outgrows it is
+refused by `sst_save`, so the sleep tests fail in CI before it can ship.
+A load writes the blob at the start of the window.
 
 **A bitstream runs only the firmware built for it.** The register
 layout version and the check that stops a firmware of another version
 are described in `src/host/fpga/README.md`. The Pocket's id is 0x50,
 `P`, and its own field is `HOST_VERSION` in `gen/version.py`, which
-covers `pocket_core`'s host window at 0x80000000 and the bridge and
-staging layouts in `sw/mmio.h`.
+covers `pocket_core`'s host window at 0x80000000, the bridge registers
+and staging layout in `sw/bridge.h`, and `fpga_host.h`.
 
 A blob from a firmware whose rows differ is refused by core's manifest,
 a sum over every row's id, version and size.
@@ -286,8 +286,9 @@ time with no time zone, so the offset has to be set by hand, and it
 cannot be one entry. A list holds at most sixteen options and the
 offset spans twenty-seven whole hours, so it is a side (east or west),
 an hour (0 to 14) and a quarter hour. Each entry writes a separate
-register, and `set_tz_minutes` in `mmio.h` combines the three into
-minutes east of UTC.
+register, and `set_tz_minutes` in `sw/bridge.h` combines the three into
+minutes east of UTC, which the shared firmware reads through
+`fpga_host.h`.
 
 **`input.json` lists no controllers.** The core passes every controller
 slot to the firmware as its registers, buttons and axes, so there is no

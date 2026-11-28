@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "host/pocket/sw/log.h"
-#include "host/pocket/sw/mmio.h"
+#include "host/fpga/sw/log.h"
+#include "host/fpga/sw/mmio.h"
 #include "core/com/manifold.h"
 #include "core/sys/debug_log.h"
 

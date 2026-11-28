@@ -131,7 +131,7 @@ endif()
 
 # Every static and global of the firmware's units is in a row of its unit's
 # savestate table, and every table that saves state is in the Pocket's
-# driver list. src/host/pocket/sw.cmake writes sw_units.json.
+# driver list. src/host/fpga/sw.cmake writes sw_units.json.
 if(RP6502_SOFT_CPU)
     add_test(NAME sst_inventory_pocket
         COMMAND ${RP6502_PYTHON} ${RP6502_ROOT}/tests/sst_inventory.py
@@ -154,14 +154,15 @@ add_test(NAME stage_map
     COMMAND ${RP6502_PYTHON}
         ${RP6502_SRC}/host/pocket/gen/stage_map_gate.py
         --data ${POCKET_CORE_JSON}/data.json
-        --mmio ${RP6502_SRC}/host/pocket/sw/mmio.h
+        --mmio ${RP6502_SRC}/host/fpga/sw/mmio.h
+        --mmio ${RP6502_SRC}/host/pocket/sw/bridge.h
         --bench ${RP6502_ROOT}/tests/bench/tb_stage.h
         --mem ${RP6502_SRC}/core/riscv/mem_pkg.sv
         --sst ${RP6502_POCKET_CORE}/pocket_sst.sv
         --top ${RP6502_SRC}/host/pocket/core/core_top.sv
         --core ${RP6502_POCKET_CORE}/pocket_core.sv
         --bridge ${RP6502_POCKET_CORE}/pocket_bridge.sv
-        --link ${RP6502_SRC}/host/pocket/sw/link.ld
+        --link ${RP6502_SRC}/host/fpga/sw/link.ld
         --version ${RP6502_SRC}/host/pocket/gen/version.py)
 set_tests_properties(stage_map PROPERTIES LABELS "gate;host.pocket")
 

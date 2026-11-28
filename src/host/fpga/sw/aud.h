@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _HOST_POCKET_SW_AUD_H_
-#define _HOST_POCKET_SW_AUD_H_
+#ifndef _HOST_FPGA_SW_AUD_H_
+#define _HOST_FPGA_SW_AUD_H_
 
 #include "core/aud/bel.h"
 #include "core/aud/mix.h"
@@ -31,4 +31,4 @@ void aud_reset(void);
     RESET(aud_reset)                                                 \
     SST("AUD_", aud_fabric))
 
-#endif /* _HOST_POCKET_SW_AUD_H_ */
+#endif /* _HOST_FPGA_SW_AUD_H_ */

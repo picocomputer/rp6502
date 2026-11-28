@@ -93,8 +93,11 @@ settings.
 | `src/host/pocket` | the Analogue Pocket card package | `build/pocket` |
 | `tests/rtl` | the verilated machine and its suite | `build/rtl` |
 
-Adding MiSTer is a directory beside `src/host/pocket` and one more line in that
-list; nothing else changes.
+`src/host/fpga` is not a root of its own. It holds what every FPGA host
+shares: the soft CPU's firmware, the Quartus gates and tools, and the
+host seam each one provides (`src/host/fpga/README.md`). Adding MiSTer is a
+directory beside `src/host/pocket` that builds on it, and one more line in
+that list; nothing else changes.
 
 To build firmware, select Folder:rp6502. Select either the Debug or Release
 variant, and `-DPICO_BOARD=pico2` for a RIA without the radio (the Pico

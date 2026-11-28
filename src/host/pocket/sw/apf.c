@@ -6,7 +6,7 @@
 
 #include "apf.h"
 #include "core/sys/sst.h"
-#include "mmio.h"
+#include "bridge.h"
 
 #include "core/hid/hid.h"
 #include "core/hid/keyboard.h"

@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _HOST_POCKET_SW_FAB_H_
-#define _HOST_POCKET_SW_FAB_H_
+#ifndef _HOST_FPGA_SW_FAB_H_
+#define _HOST_FPGA_SW_FAB_H_
 
 #include "core/sys/sst.h"
 #include "core/vga/pixel_format.h"
@@ -39,4 +39,4 @@ void fab_reset(void);
     RESET(fab_reset)                                           \
     SST("FAB_", fab))
 
-#endif /* _HOST_POCKET_SW_FAB_H_ */
+#endif /* _HOST_FPGA_SW_FAB_H_ */

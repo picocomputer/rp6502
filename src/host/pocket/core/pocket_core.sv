@@ -92,8 +92,8 @@ module pocket_core
      * only SDRAM its cache holds. The file windows and the Get File scratch follow them, and
      * the savestate window, SST_WINDOW bytes at SST_BASE, is last and runs
      * to the end of the SDRAM. The soft CPU reaches all three through the
-     * staging store. stage_map_gate.py checks these against data.json and
-     * mmio.h. */
+     * staging store. stage_map_gate.py checks these against data.json,
+     * src/host/fpga/sw/mmio.h and sw/bridge.h. */
     localparam logic [31:0] MEM_BASE = 32'h03E0_0000;
     localparam logic [31:0] MEM_BYTES = 32'h0005_0000;
     localparam logic [31:0] SST_BASE = 32'h03EC_1000;
