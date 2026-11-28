@@ -178,8 +178,8 @@ if(RP6502_HAVE_APF_RTL)
         --rtl-dir ${RP6502_VENDOR}/openfpga/src/fpga)
     add_test(NAME sdc_filters
         COMMAND ${RP6502_PYTHON}
-            ${RP6502_SRC}/host/pocket/gen/sdc_gate.py
-            --sdc ${RP6502_SRC}/core/sys/wiring.sdc
+            ${RP6502_SRC}/host/fpga/gen/sdc_gate.py
+            --sdc ${RP6502_RTL_SDC}
             --sdc ${RP6502_SRC}/host/pocket/quartus/pocket.sdc
             ${SDC_GATE_RTL})
     set_tests_properties(sdc_filters PROPERTIES LABELS "gate;host.pocket")

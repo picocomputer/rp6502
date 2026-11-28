@@ -11,21 +11,24 @@ from pathlib import Path
 # The design maps to about 15,000 registers, and this limit is twice that.
 MAX_REGISTERS = 30000
 
-# The Cyclone V 5CEBA4 has 308 M10K blocks.
-MAX_M10K = 308
+# A Cyclone V M10K block holds 10,240 bits. Synthesis reports the bits its
+# memories need, not the blocks: how they pack into blocks is the fitter's,
+# so this rail catches only memories that could not fit at any packing.
+M10K_BITS = 10240
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("map_rpt")
     ap.add_argument("--max-registers", type=int, default=MAX_REGISTERS)
-    ap.add_argument("--max-m10k", type=int, default=MAX_M10K)
+    ap.add_argument("--max-m10k", type=int, required=True,
+                    help="the device's M10K blocks")
     a = ap.parse_args()
 
     text = Path(a.map_rpt).read_text(errors="replace")
     bad = []
 
-    m = re.search(r"Total registers\s*;\s*([\d,]+)", text)
+    m = re.search(r"^; Total registers\s*;\s*([\d,]+)", text, re.M)
     if not m:
         bad.append("no Total registers line in the map report")
     else:
@@ -36,11 +39,14 @@ def main() -> int:
                 f"has fallen out of BRAM inference -- look for an array "
                 f"with two write ports or a read the RAM cannot serve")
 
-    m = re.search(r"M10K blocks\s*;\s*([\d,]+)", text)
-    if m:
-        m10k = int(m.group(1).replace(",", ""))
-        if m10k > a.max_m10k:
-            bad.append(f"{m10k} M10K blocks over the device's {a.max_m10k}")
+    m = re.search(r"^; Total block memory bits\s*;\s*([\d,]+)", text, re.M)
+    if not m:
+        bad.append("no Total block memory bits line in the map report")
+    else:
+        bits = int(m.group(1).replace(",", ""))
+        if bits > a.max_m10k * M10K_BITS:
+            bad.append(f"{bits} block memory bits over the device's "
+                       f"{a.max_m10k} M10K blocks")
 
     if bad:
         print("map_gate: the synthesis result cannot fit; "
@@ -49,7 +55,7 @@ def main() -> int:
             print(f"  {line}")
         return 1
 
-    print(f"map ok: registers and memory inside the rails")
+    print("map ok: registers and memory inside the rails")
     return 0
 
 

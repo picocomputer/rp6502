@@ -38,6 +38,20 @@ def fragments(filter_text):
                 yield word
 
 
+def commands(text):
+    """Each Tcl command with the number of its first line. A line that ends
+    in a backslash continues on the next, so a filter split across lines is
+    read whole."""
+    start, parts = 1, []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        parts.append(line.removesuffix("\\"))
+        if not line.endswith("\\"):
+            yield start, " ".join(parts)
+            start, parts = lineno + 1, []
+    if parts:
+        yield start, " ".join(parts)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sdc", action="append", required=True, type=Path)
@@ -61,7 +75,7 @@ def main():
     for sdc in args.sdc:
         if not sdc.exists():
             sys.exit(f"sdc_gate: {sdc} does not exist")
-        for lineno, line in enumerate(sdc.read_text().splitlines(), 1):
+        for lineno, line in commands(sdc.read_text()):
             if line.lstrip().startswith("#"):
                 continue
             for match in FILTER.finditer(line):

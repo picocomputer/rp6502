@@ -2,12 +2,15 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-project_open rp6502
+# quartus_sta -t sta_paths.tcl <project> writes
+# output_files/<project>.paths.rpt, the worst paths of every corner.
+set project [lindex $quartus(args) 0]
+project_open $project
 create_timing_netlist
 read_sdc
 update_timing_netlist
 
-set out output_files/rp6502.paths.rpt
+set out output_files/$project.paths.rpt
 file delete $out
 
 foreach_in_collection oc [get_available_operating_conditions] {
