@@ -5,6 +5,75 @@ bars, `mister_bars`, a test card in the shape of the machine's pixel
 stream, through `core/mister_video.sv`, the path the machine's picture
 will take. The OSD's Test canvas option picks the canvas.
 
+## Video
+
+`core/mister_video.sv` hands `sys/` each canvas as it is, and MiSTer's
+scaler, shaders and scanline filters do the rest. The rules:
+
+- **Native pixels.** A canvas goes out at its own width and height, with
+  no letterbox, no pillarbox, and no pixel or line doubling. A 320x240
+  canvas is 320 pixels on 240 lines.
+- **True aspect.** Pixels are square, so `VIDEO_ARX:ARY` is the canvas's
+  own shape: 4:3 for 640x480, 320x240 and the console, 16:10 for
+  640x400 and 320x200, 16:9 for 640x360 and 320x180.
+- **The machine's 60 Hz.** Every frame is 840000 clk_sys, the machine's
+  800x525 frame at 25.2 MHz, so `vsync_adjust` can lock to it.
+  Progressive; `VGA_F1` and `VGA_SL` are 0.
+- **A new canvas may resync HDMI.** Main re-programs HDMI when what it
+  measures changes and `vsync_adjust` is 1 or 2.
+- **The same canvas never does.** Programs select the canvas they have
+  to clear the scanline table between scenes. Nothing Main measures may
+  change then, not for one frame.
+
+Main reads the video through `UIO_GET_VRES` and `UIO_GET_FB_PAR`
+(`Main_MiSTer/video.cpp`, `get_video_info`), and resyncs on a new
+`nres` or a new aspect. `sys/hps_io.sv`'s `video_calc` measures the
+core's CE_PIXEL, DE, HS and VS after `sys_top.v`'s `sync_fix` and
+`scanlines`, which change none of their timing. At each fall of VS it
+compares the DE pixels of the first line and the DE lines of the frame,
+and `new_vmode`, with the last frame's, and any change bumps `nres`
+about 15 frames later. It also keeps the clocks from HS to DE (de_h),
+the lines from VS to DE (de_v), the clocks between strobes (pixrep),
+the DE clocks of a line, and the frame's clocks; the clk_100 timers
+keep the HS and VS periods.
+
+| canvas | line clocks | lines | CE | DE lines | VS lines | de_h | de_v | ARX:ARY |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 640x480, console | 1600 | 525 | every 2nd | 0-479 | 490-491 | 96 | 33 | 4:3 |
+| 640x400 | 1600 | 525 | every 2nd | 0-399 | 450-451 | 96 | 73 | 16:10 |
+| 640x360 | 1600 | 525 | every 2nd | 0-359 | 430-431 | 96 | 93 | 16:9 |
+| 320x240 | 3206, line 261 3234 | 262 | every 8th | 1-240 | 244-246 | 326 | 16 | 4:3 |
+| 320x200 | 3206, line 261 3234 | 262 | every 8th | 1-200 | 224-226 | 326 | 36 | 16:10 |
+| 320x180 | 3206, line 261 3234 | 262 | every 8th | 1-180 | 214-216 | 326 | 46 | 16:9 |
+
+A line is active, front porch, HS, back porch; HS is pixels 656-751 of
+the 640 raster and 330-359 of the 320 one. The 320 raster is 240p at
+15.7 kHz with its picture 80% of a line, as the 640 one has. No 262
+equal lines make 840000 clocks, so one line in the back porch is 28
+clocks longer. VS sits in the middle of the lines below the picture, so
+a CRT centres it.
+
+How the same canvas keeps all of it:
+
+- Everything but the colour is a function of the raster's counters and
+  of the canvas's width and height, and the canvas is taken only at the
+  end of a frame from the machine's, which changes only when a program
+  writes a different one. The console and 640x480 decode alike, so a
+  program's exit back to the console changes nothing.
+- The raster never stops. vid_frame only sets its phase, and both
+  rasters are as long as the machine's frame, so after the first frame
+  it finds the raster already there. A new canvas starts a whole frame.
+- A cleared table, a frame with no rows, a held or reset machine: these
+  reach only the colour. Black is the colour, never DE dropped.
+- `new_vmode` is tied low.
+
+The firmware's `vga_canvas_select` clears the table even for the same
+canvas; that is what the call is for, so it has no same-canvas check.
+
+A 320 wide canvas is 15 kHz, so `VGA_SCALER` follows MiSTer.ini's
+`forced_scandoubler`, unless `direct_video`: a 31 kHz-only analog
+monitor gets the scaler's picture and a 15 kHz CRT the core's own.
+
 ## The tree
 
 MiSTer's maintainers rebuild a core from its repository with Quartus
@@ -90,7 +159,11 @@ hardware: the fitter sets the PLL's counters for the qsf's device.
 
 In tests/rtl, under the label `host.mister`:
 
-- `mvideo`: `mister_bars` into `mister_video`, every canvas.
+- `mvideo`: `mister_bars` into `mister_video`. Every clock against a
+  model of the table above, and `hps_io.sv`'s `video_calc` copied into
+  the test to measure it as `sys/` does: every canvas, a change of
+  canvas, and the same canvas selected again, which may change only
+  the colour.
 - `sdc_filters_mister`: `RP6502.sdc` and `wiring.sdc` name only what the
   MiSTer RTL has.
 - `sys_sdc_names`: none of `sys_top.sdc`'s bare name patterns can match

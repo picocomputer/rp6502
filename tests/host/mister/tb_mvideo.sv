@@ -5,13 +5,17 @@
  *
  * mister_bars into mister_video, as RP6502.sv joins them for M1.
  * frame_en low hides vid_frame from mister_video, a machine that never
- * starts a frame.
+ * starts a frame. rows_en low hides vid_de, a frame with no rows, and
+ * blank sends every pixel black, a cleared scanline table. tb_mvideo_frame
+ * is the vid_frame mister_video sees.
  */
 
 module tb_mvideo (
     input logic clk_sys,
     input logic [2:0] canvas,
     input logic frame_en,
+    input logic rows_en,
+    input logic blank,
 
     output logic tb_mvideo_ce,
     output logic [7:0] tb_mvideo_r,
@@ -21,7 +25,8 @@ module tb_mvideo (
     output logic tb_mvideo_vs,
     output logic tb_mvideo_de,
     output logic [12:0] tb_mvideo_arx,
-    output logic [12:0] tb_mvideo_ary
+    output logic [12:0] tb_mvideo_ary,
+    output logic tb_mvideo_frame
 );
 
     logic [15:0] pixel;
@@ -35,12 +40,13 @@ module tb_mvideo (
         .mister_bars_frame(frame),
         .mister_bars_canvas(cv)
     );
+    always_comb tb_mvideo_frame = frame && frame_en;
 
     mister_video video (
         .clk_sys(clk_sys),
-        .vid_pixel(pixel),
-        .vid_de(de),
-        .vid_frame(frame && frame_en),
+        .vid_pixel(blank ? '0 : pixel),
+        .vid_de(de && rows_en),
+        .vid_frame(tb_mvideo_frame),
         .vid_canvas(cv),
         .mister_video_ce(tb_mvideo_ce),
         .mister_video_r(tb_mvideo_r),

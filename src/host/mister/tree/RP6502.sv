@@ -10,6 +10,11 @@
  * For now the picture is a test card in the shape of the machine's pixel
  * stream, mister_bars, through mister_video, the path the machine's own
  * picture takes. The OSD picks its canvas.
+ *
+ * The video is each canvas at its own size and aspect, 60 Hz, progressive
+ * (README.md's Video). A 320 wide canvas is 15 kHz, so an analog monitor
+ * that takes only 31 kHz, forced_scandoubler in MiSTer.ini, gets the
+ * scaler's picture; direct_video and 15 kHz CRTs get the core's own.
  */
 
 module emu
@@ -28,7 +33,6 @@ module emu
 
     assign VGA_SL = '0;
     assign VGA_F1 = 1'b0;
-    assign VGA_SCALER = 1'b0;
     assign VGA_DISABLE = 1'b0;
     assign HDMI_FREEZE = 1'b0;
     assign HDMI_BLACKOUT = 1'b0;
@@ -66,16 +70,23 @@ module emu
         "V,v", `BUILD_DATE
     };
 
+    /* new_vmode is tied low: Main is told of a new mode only by what it
+     * measures, and the same canvas measures the same. */
     wire [1:0] buttons;
     wire [127:0] status;
+    wire forced_scandoubler, direct_video;
     hps_io #(.CONF_STR(CONF_STR), .F12KEYMOD(1)) hps_io (
         .clk_sys(clk_sys),
         .HPS_BUS(HPS_BUS),
         .EXT_BUS(),
         .gamma_bus(),
+        .forced_scandoubler(forced_scandoubler),
+        .direct_video(direct_video),
+        .new_vmode(1'b0),
         .buttons(buttons),
         .status(status)
     );
+    assign VGA_SCALER = forced_scandoubler & ~direct_video;
 
     /* Nothing is reset yet; the LED shows that the reset arrives. */
     wire reset = RESET | status[0] | buttons[1];

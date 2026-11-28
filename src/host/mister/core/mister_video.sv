@@ -3,22 +3,41 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The machine's pixel stream to sys/'s video input. CLK_VIDEO is clk_sys
- * and CE_PIXEL comes every other clock, so nothing crosses a clock.
+ * The machine's pixel stream to sys/'s video input, each canvas at its
+ * own size: a 320x240 canvas is 320 pixels on 240 lines, and the scaler,
+ * the shaders and the scanline filters of MiSTer do the rest. CLK_VIDEO
+ * is clk_sys, so nothing crosses a clock.
  *
- * The output raster is 640x480 at 60 Hz, 1600 clocks by 525 lines, and
- * it never stops: sync runs while the machine is held in reset or has no
- * firmware. vid_frame only sets its phase. The machine sends pixel i of
- * the screen's line Y on the clock 2i + 2 after that line starts, and
- * vid_frame on the first clock of line 0. The raster runs 3 clocks
- * behind, the least that has each pixel written a clock before it is
- * read, so a line is read out of the one line buffer just behind its
- * writer. The phase is the same on every frame, so the raster is set
- * once and from then on vid_frame finds it already there.
+ * Every frame is 840000 clocks, the machine's 60 Hz, in either raster:
  *
- * A 320 wide canvas sends a row on every odd line, as wiring.sv says, so
- * row k shows on lines 2k + 1 and 2k + 2, each pixel twice. The picture
- * is black unless a frame started in the last frame period.
+ *  - 640 wide: 1600 clocks by 525 lines, CE_PIXEL every 2nd clock.
+ *  - 320 wide: 262 lines of 3206 clocks, the last one 3234, CE_PIXEL on
+ *    every 8th clock of a line. That is 240p at 15.7 kHz; no 262 equal
+ *    lines make 840000, so the one long line is in the back porch.
+ *
+ * A line is active, front porch, HS, back porch. The picture is on lines
+ * 0 to h-1 of the 640 raster and 1 to h of the 320 one, and VS sits in
+ * the middle of what is left, so the picture is centred on a CRT.
+ *
+ * sys/ measures the raster and Main resyncs HDMI when what it measures
+ * changes, so all but the colour is a function of the counters and the
+ * canvas only, and the canvas is taken only at the end of a frame. A
+ * program that selects the canvas it already has changes nothing but
+ * the colour. The raster never stops: sync runs while the machine is
+ * held in reset or has no firmware. vid_frame only sets its phase, and
+ * since both rasters are as long as the machine's frame, it finds the
+ * raster already there on every frame but the first.
+ *
+ * The machine sends pixel i of the screen's line Y on the clock 2i + 2
+ * after that line starts, and vid_frame on the first clock of line 0.
+ * The raster runs 3 clocks behind. A 640 wide line is read out of the
+ * line buffer just behind its writer. A 320 wide canvas sends row k on
+ * line 2k + 1, a row every 3200 clocks, and it is shown on line k + 1 of
+ * the 320 raster, a row every 3206: the buffer's two halves take the
+ * rows in turn, and a row is read at least 1613 clocks after it is
+ * written and at least 1439 before the row after next overwrites it.
+ *
+ * The picture is black unless a frame started in the last frame period.
  */
 
 module mister_video
@@ -41,36 +60,35 @@ module mister_video
     output logic [12:0] mister_video_ary
 );
 
-    /* The writer counts a line's pixels, which come every other clock,
-     * and starts over after two clocks with none, which only the gap
-     * between lines has. Bit 5, alpha, is not kept. */
+    /* The writer goes round the buffer, which a frame starts over. A
+     * 640 wide row fills it and a 320 wide one half of it. Bit 5, alpha,
+     * is not kept. */
     logic [14:0] line_buf[640];
-    logic [9:0] wr_col;
-    logic wr_de_q;
-    initial begin
-        wr_col = '0;
-        wr_de_q = 1'b0;
-    end
-    always_ff @(posedge clk_sys) begin
-        wr_de_q <= vid_de;
-        if (vid_de) begin
-            line_buf[wr_col] <= {vid_pixel[15:6], vid_pixel[4:0]};
-            wr_col <= wr_col + 10'd1;
-        end else if (!wr_de_q)
-            wr_col <= '0;
-    end
+    logic [9:0] wp;
+    initial wp = '0;
+    always_ff @(posedge clk_sys)
+        if (vid_frame)
+            wp <= '0;
+        else if (vid_de) begin
+            line_buf[wp] <= {vid_pixel[15:6], vid_pixel[4:0]};
+            wp <= wp == 10'd639 ? '0 : wp + 10'd1;
+        end
 
     /* h counts clocks and v lines. The last clock of a frame takes the
      * canvas, which the machine changed a line earlier, and decides
-     * whether the next frame is shown. */
-    logic [10:0] h;
+     * whether the next frame is shown. vid_frame puts the raster two
+     * clocks before the end of a frame, so a new canvas starts a whole
+     * frame. */
+    logic [11:0] h;
     logic [9:0] v;
     logic [2:0] cv;
     logic seen, live;
-    logic last_h, last;
+    logic dbl, last_h, last;
     always_comb begin
-        last_h = h == 11'd1599;
-        last = last_h && v == 10'd524;
+        dbl = canvas_w(cv) == 10'd320;
+        last_h = h == (dbl ? (v == 10'd261 ? 12'd3233 : 12'd3205)
+                           : 12'd1599);
+        last = last_h && v == (dbl ? 10'd261 : 10'd524);
     end
     initial begin
         h = '0;
@@ -81,13 +99,13 @@ module mister_video
     end
     always_ff @(posedge clk_sys) begin
         if (vid_frame) begin
-            h <= 11'd1598;
-            v <= 10'd524;
+            h <= dbl ? 12'd3232 : 12'd1598;
+            v <= dbl ? 10'd261 : 10'd524;
         end else if (last_h) begin
             h <= '0;
-            v <= v == 10'd524 ? '0 : v + 10'd1;
+            v <= last ? '0 : v + 10'd1;
         end else
-            h <= h + 11'd1;
+            h <= h + 12'd1;
         if (vid_frame)
             seen <= 1'b1;
         else if (last) begin
@@ -97,22 +115,26 @@ module mister_video
         end
     end
 
-    logic dbl;
-    logic [9:0] x, rows;
+    /* A pixel is the clocks up to its strobe. The 320 raster's row k is
+     * on line k + 1, its even rows in the buffer's first half. */
+    logic pix, de_px, hs_px, vs_px;
+    logic [9:0] x, ch, vs_top;
     always_comb begin
-        dbl = canvas_w(cv) == 10'd320;
-        rows = dbl ? 10'(canvas_h(cv) << 1) : canvas_h(cv);
-        x = h[10:1];
+        ch = canvas_h(cv);
+        pix = dbl ? &h[2:0] : h[0];
+        x = dbl ? 10'(h[11:3]) : h[10:1];
+        de_px = x < canvas_w(cv) && v - 10'(dbl) < ch;
+        hs_px = dbl ? x >= 10'd330 && x < 10'd360
+                    : x >= 10'd656 && x < 10'd752;
+        vs_top = (dbl ? 10'd124 : 10'd250) + (ch >> 1);
+        vs_px = v >= vs_top && v < vs_top + (dbl ? 10'd3 : 10'd2);
     end
 
-    /* The read is on pixel x's even clock and the outputs are set on its
-     * odd one, to show for the two clocks after. */
+    /* The read is on every clock and the outputs are set on the strobe,
+     * to show until the next one. */
     logic [14:0] rd_q;
     always_ff @(posedge clk_sys)
-        rd_q <= line_buf[dbl ? 10'(h[10:2]) : x];
-
-    logic de_px;
-    always_comb de_px = x < 10'd640 && v - 10'(dbl) < rows;
+        rd_q <= line_buf[dbl && !v[0] ? x + 10'd320 : x];
 
     initial begin
         mister_video_ce = 1'b0;
@@ -126,30 +148,31 @@ module mister_video
         mister_video_ary = '0;
     end
     always_ff @(posedge clk_sys) begin
-        mister_video_ce <= h[0];
-        if (h[0]) begin
+        mister_video_ce <= pix;
+        if (pix) begin
             mister_video_de <= de_px;
-            mister_video_hs <= x >= 10'd656 && x < 10'd752;
-            mister_video_vs <= v == 10'd490 || v == 10'd491;
+            mister_video_hs <= hs_px;
+            mister_video_vs <= vs_px;
             mister_video_r <= live && de_px ? {rd_q[4:0], rd_q[4:2]} : '0;
             mister_video_g <= live && de_px ? {rd_q[9:5], rd_q[9:7]} : '0;
             mister_video_b <= live && de_px
                 ? {rd_q[14:10], rd_q[14:12]} : '0;
-            unique case (canvas_h(cv))
-                10'd360, 10'd180: begin
-                    mister_video_arx <= 13'd16;
-                    mister_video_ary <= 13'd9;
-                end
-                10'd400, 10'd200: begin
-                    mister_video_arx <= 13'd16;
-                    mister_video_ary <= 13'd10;
-                end
-                default: begin
-                    mister_video_arx <= 13'd4;
-                    mister_video_ary <= 13'd3;
-                end
-            endcase
         end
+        /* The aspect follows the canvas from the frame's first clock. */
+        unique case (ch)
+            10'd360, 10'd180: begin
+                mister_video_arx <= 13'd16;
+                mister_video_ary <= 13'd9;
+            end
+            10'd400, 10'd200: begin
+                mister_video_arx <= 13'd16;
+                mister_video_ary <= 13'd10;
+            end
+            default: begin
+                mister_video_arx <= 13'd4;
+                mister_video_ary <= 13'd3;
+            end
+        endcase
     end
 
     /* verilator lint_off UNUSEDSIGNAL */
