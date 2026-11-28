@@ -167,17 +167,12 @@ audio engines. The blob is about 230 KB. The size the host is given is
 `sst_save`, so the sleep tests fail in CI before it can ship. A load writes the blob at the start of
 the window.
 
-**A bitstream runs only the firmware built for it.** The register layout
-version covers the registers and the memory map. It is written once, in
-`gen/version.py`, which makes a package for the RTL and a header for the
-firmware. The bitstream shows it at 0x80030000, and `firmware.bin`
-carries its own in the word after its reset jump. `ver_check` compares
-them before the firmware uses any other register, so that address never
-moves. When they differ the firmware stops there and touches nothing
-more. The 6502 stays in reset and the screen stays black. Raise the
-version when a register the firmware uses moves, changes meaning or is
-added, or when the memory map in `mmio.h`, `mem_pkg.sv` or `link.ld`
-changes.
+**A bitstream runs only the firmware built for it.** The register
+layout version and the check that stops a firmware of another version
+are described in `src/host/fpga/README.md`. The Pocket's id is 0x50,
+`P`, and its own field is `HOST_VERSION` in `gen/version.py`, which
+covers `pocket_core`'s host window at 0x80000000 and the bridge and
+staging layouts in `sw/mmio.h`.
 
 A blob from a firmware whose rows differ is refused by core's manifest,
 a sum over every row's id, version and size.

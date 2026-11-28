@@ -301,9 +301,10 @@ module pocket_core
                 default: set_rdata <= '0;
             endcase
     end
-    /* The register layout this bitstream shares with its firmware,
-     * which gen/version.py states, at 0x80030000. The firmware reads it
-     * before it uses any other register, so this address never moves. */
+    /* The register layout this bitstream shares with its firmware, at
+     * 0x80030000. gen/version.py composes it from the machine's version
+     * and the Pocket's own. The firmware reads it before it uses any
+     * other register, so this address never moves. */
     logic [31:0] ver_rdata;
     initial ver_rdata = '0;
     always_ff @(posedge clk_sys)

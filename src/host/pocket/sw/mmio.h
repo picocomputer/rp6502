@@ -13,10 +13,11 @@
  * build these sources too, where a pointer is wider than the soft CPU's 32
  * bits. */
 
-/* The bitstream's register layout version, which gen/version.py states.
- * ver_check reads it before the firmware uses any other register and
- * goes no further when it is not this firmware's own. So this address
- * never moves, whatever else in this file does. */
+/* The bitstream's register layout version, which the host's
+ * gen/version.py composes with src/host/fpga/gen/version.py. ver_check
+ * reads it before the firmware uses any other register and goes no
+ * further when it is not this firmware's own. So this address never
+ * moves, whatever else in this file does. */
 #define VER_REG (*(volatile const uint32_t *)(uintptr_t)0x80030000u)
 
 #define MMIO_CONSOLE (*(volatile uint32_t *)(uintptr_t)0xF0000000u)
