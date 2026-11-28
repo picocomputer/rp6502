@@ -8,10 +8,22 @@ what every FPGA host needs and no board decides:
 - `gen/`: the Quartus gates, and `version.py`, the machine's half of the
   register layout version. The gates fail the build on an SDC filter that
   matches no RTL, before a fit, and on a timing, resource, design-rule or
-  dropped-constraint problem in a fit's reports.
+  dropped-constraint problem in a fit's reports, on an assignment that
+  reaches nothing, and on a source file read from outside a project that
+  must build from its own folder. They have been run on the reports of
+  Quartus 17.0.2 and 25.1; CI fits the Pocket with 21.1.
 - `quartus/sta_paths.tcl`: writes the worst paths of every corner beside
-  the fit's reports.
-- `quartus.cmake`: finds the Quartus tools.
+  the fit's reports, and the names report: how many registers each of
+  the machine SDC's collections matches, and how many nodes each instance
+  assignment's target does.
+- `quartus.cmake`: two functions. `rp6502_quartus_tools()` finds one
+  Quartus's tools, from a folder a host hints at or the PATH, and can
+  insist on a version. `rp6502_quartus_gates()` compiles a host's project
+  with the commands it gives, a stock flow or one in steps, and runs every
+  gate on the reports. Its comment lists them; a host gives the device's
+  limits and its baselines: the design-rule findings it accepts, the size
+  of each SDC collection, and the assignments it cannot avoid leaving
+  unapplied.
 - `sw/`: the soft CPU's firmware, all but the host's own units. `mmio.h`
   is the machine's map as the soft CPU sees it, and `link.ld` places the
   image.
@@ -66,9 +78,12 @@ one PLL:
 - `clk_ph`, 50.4 MHz, period 19.841 ns, with waveform {12.400 22.321}.
   `xram.sv` samples it as data to tell the two clk_a2 edges apart.
 
-A phase shift is a whole number of eighths of the VCO's period, so the
-VCO runs at 1209.6 MHz, where a step is 103.3 ps and both shifts are
-whole steps. `src/host/pocket/core/pocket_pll.v` is an example.
+A phase shift is a whole number of eighths of the VCO's period. Both
+shifts are whole eighths of 2480 ps, the period of 403.2 MHz, 8 times
+clk_sys: 8990 ps is 29 and 12400 ps is 40. So the VCO runs at a whole
+multiple of 403.2 MHz. `src/host/pocket/core/pocket_pll.v` is an
+example: from the Pocket's 74.25 MHz it runs at 806.4 MHz, where a step
+is 155 ps.
 
 ## A bitstream runs only the firmware built for it
 

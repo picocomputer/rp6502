@@ -3,6 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
+import argparse
 import re
 import sys
 from pathlib import Path
@@ -39,15 +40,55 @@ def print_paths(report: Path) -> None:
             print(ln, file=sys.stderr)
 
 
+# The machine's SDC applies its multicycles to whatever registers its
+# wildcards match, so a register renamed into or out of one, or a host's
+# instance whose name happens to end in cpu, changes a constraint without
+# any warning. sta_paths.tcl writes the size of each collection to the
+# names report, and each host keeps the sizes its fit should have.
+def check_counts(names: Path, counts: Path) -> list[str]:
+    found: dict[str, int] = {}
+    for line in names.read_text(errors="replace").splitlines():
+        kind, *cells = line.split(";")
+        if kind == "collection":
+            found[cells[1]] = int(cells[0])
+    want: dict[str, int] = {}
+    for line in counts.read_text().splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            n, pattern = line.split(None, 1)
+            want[pattern] = int(n)
+    bad = []
+    for pattern, n in found.items():
+        if pattern not in want:
+            bad.append(f"{{{pattern}}} matches {n} registers and"
+                       f" {counts.name} has no count for it")
+        elif n != want[pattern]:
+            bad.append(f"{{{pattern}}} matches {n} registers, not"
+                       f" {want[pattern]}")
+    for pattern in want.keys() - found.keys():
+        bad.append(f"{{{pattern}}} is in {counts.name} but in no SDC"
+                   " collection")
+    return bad
+
+
 def main() -> int:
-    if len(sys.argv) not in (2, 3):
-        print("usage: sta_gate.py <project.sta.rpt> [project.paths.rpt]",
-              file=sys.stderr)
-        return 2
-    path = Path(sys.argv[1])
-    if not path.exists():
-        print(f"sta_gate: {path} missing — did the fit run?", file=sys.stderr)
-        return 1
+    ap = argparse.ArgumentParser()
+    ap.add_argument("sta_rpt")
+    ap.add_argument("paths_rpt", nargs="?",
+                    help="sta_paths.tcl's worst paths, shown on a failure")
+    ap.add_argument("--names", type=Path,
+                    help="sta_paths.tcl's names report")
+    ap.add_argument("--counts", type=Path,
+                    help="the register count each SDC collection must match")
+    a = ap.parse_args()
+    if bool(a.names) != bool(a.counts):
+        ap.error("--names and --counts go together")
+    for path in [Path(a.sta_rpt)] + ([a.names, a.counts] if a.names else []):
+        if not path.exists():
+            print(f"sta_gate: {path} missing — did the fit run?",
+                  file=sys.stderr)
+            return 1
+    path = Path(a.sta_rpt)
     text = path.read_text(errors="replace")
 
     dropped = DROPPED.findall(text)
@@ -102,15 +143,23 @@ def main() -> int:
     if bad:
         print("\nsta_gate: " + ", ".join(f"{n} {v:+.3f}" for n, v in bad)
               + " — the bitstream is not closed", file=sys.stderr)
-        if len(sys.argv) == 3:
-            print_paths(Path(sys.argv[2]))
+        if a.paths_rpt:
+            print_paths(Path(a.paths_rpt))
     if dropped:
         print(file=sys.stderr)
         for line in dropped:
             print(line.strip(), file=sys.stderr)
         print(f"sta_gate: {len(dropped)} constraint(s) dropped — an SDC"
               " file or a filter Quartus could not apply", file=sys.stderr)
-    if bad or dropped:
+    moved = check_counts(a.names, a.counts) if a.names else []
+    if moved:
+        print(file=sys.stderr)
+        for line in moved:
+            print(f"sta_gate: {line}", file=sys.stderr)
+        print(f"sta_gate: a constraint now covers other registers than"
+              f" it did; check the SDC against the RTL, then set"
+              f" {a.counts.name} to what the fit matches", file=sys.stderr)
+    if bad or dropped or moved:
         return 1
     print("\nsta_gate: closed on " + ("every corner" if row else
                                       "the analysed corner"))

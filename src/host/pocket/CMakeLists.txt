@@ -13,6 +13,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/machine.cmake)
 include(${RP6502_SRC}/core/rtl.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/sw.cmake)
 include(${RP6502_SRC}/host/fpga/quartus.cmake)
+rp6502_quartus_tools(QUARTUS HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
 
 if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     set(POCKET_DIR ${CMAKE_BINARY_DIR}/bitstream)
@@ -113,38 +114,16 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # The firmware is not in the bitstream. The host loads it into the SDRAM
     # as a data slot, so nothing here depends on it and a firmware change
     # reaches the package without a Quartus tool running.
-    add_custom_command(OUTPUT ${POCKET_DIR}/fit.stamp
-        COMMAND ${QUARTUS_MAP} rp6502
+    rp6502_quartus_gates(NAME Pocket DIR ${POCKET_DIR} PROJECT rp6502
+        TOOLS QUARTUS
         # the 5CEBA4F23C8 has 308 M10K blocks
-        COMMAND ${RP6502_PYTHON} ${RP6502_SRC}/host/fpga/gen/map_gate.py
-            ${POCKET_DIR}/output_files/rp6502.map.rpt --max-m10k 308
-        COMMAND ${QUARTUS_FIT} rp6502
-        COMMAND ${QUARTUS_STA} rp6502
-        COMMAND ${QUARTUS_STA} -t
-            ${RP6502_SRC}/host/fpga/quartus/sta_paths.tcl rp6502
-        COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/fit.stamp
-        WORKING_DIRECTORY ${POCKET_DIR}
-        DEPENDS ${BS_SOURCES}
-            ${RP6502_SRC}/host/fpga/gen/map_gate.py
-            ${RP6502_SRC}/host/fpga/quartus/sta_paths.tcl
-        COMMENT "Fitting the Pocket core"
-        VERBATIM)
-
-    add_custom_command(OUTPUT ${POCKET_DIR}/signoff.stamp
-        COMMAND ${RP6502_PYTHON} ${RP6502_SRC}/host/fpga/gen/sta_gate.py
-            ${POCKET_DIR}/output_files/rp6502.sta.rpt
-            ${POCKET_DIR}/output_files/rp6502.paths.rpt
-        COMMAND ${QUARTUS_DRC} rp6502
-        COMMAND ${RP6502_PYTHON} ${RP6502_SRC}/host/fpga/gen/drc_gate.py
-            ${POCKET_DIR}/output_files/rp6502.drc.rpt
-            ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
-        COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/signoff.stamp
-        WORKING_DIRECTORY ${POCKET_DIR}
-        DEPENDS ${POCKET_DIR}/fit.stamp
-            ${RP6502_SRC}/host/fpga/gen/sta_gate.py ${RP6502_SRC}/host/fpga/gen/drc_gate.py
-            ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
-        COMMENT "Signing off the Pocket fit"
-        VERBATIM)
+        MAX_M10K 308
+        DRC_BASELINE ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
+        COUNTS ${RP6502_SRC}/host/pocket/quartus/wiring_sdc_counts.txt
+        FLOW COMMAND ${QUARTUS_MAP} rp6502
+        FIT COMMAND ${QUARTUS_FIT} rp6502
+            COMMAND ${QUARTUS_STA} rp6502
+        DEPENDS ${BS_SOURCES})
 
     add_custom_command(OUTPUT ${POCKET_DIR}/core.bin
         COMMAND ${QUARTUS_ASM} rp6502
@@ -155,6 +134,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         DEPENDS ${POCKET_DIR}/signoff.stamp
             ${RP6502_SRC}/host/pocket/gen/rbf_r_gen.py
         COMMENT "Assembling the Pocket bitstream"
+        JOB_POOL quartus
         VERBATIM)
 
     set(PKG_DIR ${CMAKE_BINARY_DIR}/package)
