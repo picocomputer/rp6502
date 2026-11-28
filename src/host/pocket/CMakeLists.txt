@@ -61,7 +61,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name SDC_FILE ${APF}/apf/apf_constraints.sdc"
         "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_SRC}/host/pocket/core/core_top.sv"
         "set_global_assignment -name VERILOG_FILE ${RP6502_SRC}/host/pocket/core/pocket_pll.v"
-        "set_global_assignment -name SDC_FILE ${RP6502_SDC}"
+        "set_global_assignment -name SDC_FILE ${RP6502_RTL_SDC}"
         "set_global_assignment -name SDC_FILE ${RP6502_SRC}/host/pocket/quartus/pocket.sdc"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
@@ -101,7 +101,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         ${APF}/core/pin_ddio_clk.v
         ${APF}/apf/apf_constraints.sdc
         ${APF}/ap_core.qsf
-        ${RP6502_SDC}
+        ${RP6502_RTL_SDC}
         ${RP6502_SRC}/host/pocket/quartus/pocket.sdc
         ${RP6502_SRC}/host/pocket/quartus/core_constraints.sdc
         ${CMAKE_CURRENT_LIST_FILE}

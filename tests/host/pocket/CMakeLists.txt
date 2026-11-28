@@ -173,7 +173,7 @@ if(RP6502_HAVE_APF_RTL)
     add_test(NAME sdc_filters
         COMMAND ${RP6502_PYTHON}
             ${RP6502_SRC}/host/pocket/gen/sdc_gate.py
-            --sdc ${RP6502_SRC}/host/pocket/quartus/wiring.sdc
+            --sdc ${RP6502_SRC}/core/sys/wiring.sdc
             --sdc ${RP6502_SRC}/host/pocket/quartus/pocket.sdc
             ${SDC_GATE_RTL})
     set_tests_properties(sdc_filters PROPERTIES LABELS "gate;host.pocket")

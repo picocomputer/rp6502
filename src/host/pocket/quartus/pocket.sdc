@@ -1,7 +1,45 @@
 # Copyright (c) 2026 Rumbledethumps
 #
 # SPDX-License-Identifier: BSD-3-Clause
-#
+
+# The host creates the clocks, so the clock policy is the host's too.
+# apf_constraints.sdc only derives the PLL's clocks, and this is the
+# project's one call.
+derive_clock_uncertainty
+
+# dram_clk is clk_dram forwarded through a DDR output cell, and clk_dram
+# runs half a clk_sys period behind clk_sys. The SDRAM samples its inputs
+# on dram_clk as it arrives at the chip, so the generated clock is
+# declared at the pad.
+if {[get_collection_size [get_ports -nowarn {dram_clk}]] > 0} {
+    create_generated_clock -name dram_clk_pin \
+        -source [get_pins {ic|pll|pll|general[2].gpll~PLL_OUTPUT_COUNTER|divclk}] \
+        [get_ports {dram_clk}]
+
+    set dram_out [get_ports {dram_a[*] dram_ba[*] dram_dq[*] dram_dqm[*] \
+        dram_cke dram_ras_n dram_cas_n dram_we_n}]
+    set_output_delay -clock dram_clk_pin -max  2.0 $dram_out
+    set_output_delay -clock dram_clk_pin -min -1.0 $dram_out
+    set_input_delay  -clock dram_clk_pin -max  6.0 [get_ports {dram_dq[*]}]
+    set_input_delay  -clock dram_clk_pin -min  2.5 [get_ports {dram_dq[*]}]
+
+    # pocket_sdram's dq_cap takes dram_dq on every falling edge of
+    # clk_sys, and nothing else is fed by the pins. The falling edge of
+    # clk_sys is the rising edge of dram_clk, so a word that one
+    # dram_clk_pin edge launches is latched on the next, a full period
+    # later: 19.84 ns, less the 6.0 ns input delay and the time dram_clk
+    # takes to reach its pad. The PLL's shift is 9920 ps where half a
+    # period is 9920.6, so on paper a falling edge of clk_sys comes
+    # 1 ps after the launch and the analyzer would time the capture
+    # against that one. The setup multicycle of two names the edge a
+    # period later. No hold multicycle goes with it: the hold check is
+    # then the edge before the capture, which is the 1 ps edge, so the
+    # word must not change until 1 ps after its own launch. The chip
+    # holds it 2.5 ns, the minimum input delay.
+    set_multicycle_path -setup -from [get_ports {dram_dq[*]}] \
+        -to [get_registers {*pocket_sdram*dq_cap*}] 2
+}
+
 # pocket_fifo passes its read and write pointers between clocks in gray
 # code through two-flop synchronizers. No clock group separates the PLL's
 # outputs from clk_74a or from each other, so the analyzer times every

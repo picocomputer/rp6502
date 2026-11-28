@@ -53,7 +53,9 @@ set(RP6502_RTL_SOURCES
     ${RP6502_SRC}/core/vga/scan/sprite.sv
     ${RP6502_SRC}/core/vga/prog.sv
     ${RP6502_SRC}/core/vga/mode/mode0.sv
-    ${RP6502_SRC}/core/vga/scan/compose.sv)
+    ${RP6502_SRC}/core/vga/scan/compose.sv
+    ${RP6502_SRC}/core/sys/wiring.sv)
+set(RP6502_RTL_SDC ${RP6502_SRC}/core/sys/wiring.sdc)
 rp6502_submodule(vendor/hazard3 SENTINEL hdl/hazard3_core.v
     WANTS "the soft CPU")
 set(RP6502_RTL_VERILATOR_ARGS

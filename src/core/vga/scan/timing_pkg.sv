@@ -5,7 +5,7 @@
  *
  * A package rather than localparams inside timing.sv because SCANLINE_W
  * is derived from V_TOTAL and sets a port width in another module
- * (host/pocket/core/wiring.sv).
+ * (core/sys/wiring.sv).
  */
 
 package timing_pkg;

@@ -14,8 +14,8 @@
  * a row there has 3,200 clocks and room to spare.
  *
  * An enabled slot in mode 0 runs no fill. It marks the plane whose
- * pixels come from the terminal engine instead; host/pocket/core/
- * wiring.sv selects on sched_term. When the sweep finds one, it starts
+ * pixels come from the terminal engine instead; core/sys/wiring.sv
+ * selects on sched_term. When the sweep finds one, it starts
  * mode0.sv on the row with sched_term_go and hands it the slot's config,
  * the scanline the terminal begins at.
  */

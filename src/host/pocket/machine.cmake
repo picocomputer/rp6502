@@ -10,5 +10,4 @@ include(${RP6502_SRC}/core/rtl.cmake)
 
 set(RP6502_MACHINE_SOURCES
     ${RP6502_RTL_SOURCES}
-    ${RP6502_ASSETS}/pocket_version_pkg.sv
-    ${RP6502_POCKET_CORE}/wiring.sv)
+    ${RP6502_ASSETS}/pocket_version_pkg.sv)
