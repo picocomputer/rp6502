@@ -232,7 +232,7 @@ static void idle_for(int n)
 UTEST(psdram, sporadic_asset_reads)
 {
     std::map<uint32_t, uint16_t> ref;
-    const uint32_t rom = 0x000000u;  /* STAGE+0, bank 0: the ROM image */
+    const uint32_t rom = 0x100000u;  /* byte 0x200000, bank 0: the ROM image */
     const uint32_t oem = 0x1FE8000u; /* byte 0x3FD0000, bank 3 */
     for (uint32_t i = 0; i < 48; i++)
     {

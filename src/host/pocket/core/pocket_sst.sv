@@ -68,9 +68,9 @@
 
 module pocket_sst #(
     /* BLOB_BASE and BLOB_WINDOW are core_top's savestate_addr and
-     * savestate_maxloadsize. The window is the last thing in the SDRAM
-     * and runs to its end, 64 MB. */
-    parameter logic [31:0] BLOB_BASE = 32'h03EC_1000,
+     * savestate_maxloadsize. The window is the last thing in the bottom
+     * 2 MB of the SDRAM and runs to the ROM slot's start. */
+    parameter logic [31:0] BLOB_BASE = 32'h000C_1000,
     parameter logic [31:0] BLOB_WINDOW = 32'h0013_F000
 ) (
     input logic clk_sys,

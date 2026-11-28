@@ -17,16 +17,17 @@ FILE_SLOT_COUNT = 8
 
 FIRMWARE_FILE = "firmware.bin"
 
-# The Pocket's SDRAM is 64 MB. The ROM slot is its first 62 MB, a limit of
-# the system: a whole ROM has to load into it, so nothing takes from it.
-# Everything else is in the 2 MB above, in this order: the soft CPU's
-# memory, which is the cache's window and holds its ROM and RAM blocks with
-# room for them to grow, then the file windows, the Get File scratch and
-# last the savestate window, which runs to the end of the SDRAM, so the
-# savestate can grow into its free end. A load writes the savestate at the
-# window's start with nothing around it (measured on a Pocket).
+# The Pocket's SDRAM is 64 MB. Its bottom 2 MB holds, in this order: the
+# soft CPU's memory at 0, which is the cache's window and holds its ROM and
+# RAM blocks with room for them to grow, then the file windows, the Get
+# File scratch and last the savestate window. A load writes the savestate
+# at the window's start with nothing around it (measured on a Pocket). The
+# ROM slot is everything above, 62 MB, a limit of the system: a whole ROM
+# has to load into it, so nothing takes from it. A hot reload writes
+# through the first data.json record, so the ROM is that record, slot 0.
 SDRAM_BYTES = 0x04000000
-ROM_SLOT_BYTES = 0x03E00000
+LOW_BYTES = 0x00200000
+ROM_SLOT_BYTES = SDRAM_BYTES - LOW_BYTES
 
 
 def defines(path: Path) -> dict:
@@ -43,9 +44,9 @@ def defines(path: Path) -> dict:
     return out
 
 
-def slots(path: Path) -> dict:
+def slots(path: Path) -> list:
     doc = json.loads(path.read_text(encoding="utf-8"))
-    return {int(s["id"]): s for s in doc["data"]["data_slots"]}
+    return doc["data"]["data_slots"]
 
 
 def main() -> int:
@@ -63,7 +64,8 @@ def main() -> int:
     ap.add_argument("--version", help="gen/version.py")
     a = ap.parse_args()
 
-    ds = slots(Path(a.data))
+    records = slots(Path(a.data))
+    ds = {int(s["id"]): s for s in records}
     bad = []
     mm = {}
     for path in a.mmio:
@@ -79,17 +81,20 @@ def main() -> int:
     def addr(slot_id):
         return int(ds[slot_id]["address"], 0)
 
-    want("slot 0 address", addr(0), 0)
+    if int(records[0]["id"]) != 0:
+        bad.append("the ROM, slot 0, is not the first data.json record")
+    want("slot 0 address", addr(0), LOW_BYTES)
     want("slot 0 size_maximum", int(ds[0]["size_maximum"], 0),
          ROM_SLOT_BYTES)
     want("ROM base", mm["ROM_BRIDGE"], addr(0))
     want("ROM ceiling", mm["ROM_MAX"], ROM_SLOT_BYTES)
+    want("ROM slot's end", mm["ROM_BRIDGE"] + mm["ROM_MAX"], SDRAM_BYTES)
 
-    # The top 2 MB, in order. The soft CPU's memory is first, MEM_MAX
-    # bytes at MEM_BRIDGE: the cache's window, a power of two at a multiple
-    # of its size, with the ROM block at its start, the RAM block after it,
-    # and nothing else in it.
-    want("memory base", mm["MEM_BRIDGE"], mm["ROM_MAX"])
+    # The bottom 2 MB, in order. The soft CPU's memory is first, MEM_MAX
+    # bytes at MEM_BRIDGE, 0: the cache's window, a power of two at a
+    # multiple of its size, with the ROM block at its start, the RAM block
+    # after it, and nothing else in it.
+    want("memory base", mm["MEM_BRIDGE"], 0)
     want("RAM block base", mm["MEM_RAM"], mm["MEM_ROM_MAX"])
     if mm["MEM_RAM"] + mm["MEM_RAM_MAX"] > mm["MEM_MAX"]:
         bad.append("the RAM block runs off the cache's window")
@@ -119,7 +124,7 @@ def main() -> int:
     want("savestate window", mm["SST_BLOB_BRIDGE"],
          mm["GETFILE_BRIDGE"] + mm["GETFILE_MAX"])
     want("savestate window's end",
-         mm["SST_BLOB_BRIDGE"] + mm["SST_BLOB_MAX"], SDRAM_BYTES)
+         mm["SST_BLOB_BRIDGE"] + mm["SST_BLOB_MAX"], mm["ROM_BRIDGE"])
     want("savestate window in the staging store",
          mm["SST_BLOB"], STAGE_BASE + mm["SST_BLOB_BRIDGE"])
 
@@ -197,8 +202,6 @@ def main() -> int:
             want(what, got, expect)
 
     if a.core:
-        want_sv(a.core, r"localparam logic \[31:0\] MEM_BASE",
-                "pocket_core memory base", mm["MEM_BRIDGE"])
         want_sv(a.core, r"localparam logic \[31:0\] SST_BASE",
                 "pocket_core savestate window", mm["SST_BLOB_BRIDGE"])
         want_sv(a.core, r"localparam logic \[31:0\] SST_WINDOW",
@@ -210,13 +213,16 @@ def main() -> int:
         want_sv(a.core, r"localparam logic \[31:0\] MEM_BYTES",
                 "pocket_core's ROM and RAM blocks",
                 mm["MEM_RAM"] + mm["MEM_RAM_MAX"])
-        if not re.search(r"\.MEM_BASE\(MEM_BASE\),\s*"
-                         r"\.MEM_BYTES\(MEM_BYTES\)", core):
+        if not re.search(r"pocket_bridge #\(\s*\.MEM_BYTES\(MEM_BYTES\)\s*\)",
+                         core):
             bad.append("pocket_core does not give pocket_bridge the ROM "
                        "and RAM blocks")
+        # The soft CPU's memory is at SDRAM 0, so the cache's line
+        # address goes to the SDRAM zero-extended.
+        if not re.search(r"\.line_addr\(22'\(line_addr\)\)", core):
+            bad.append("pocket_core does not zero-extend the cache's line "
+                       "address")
     if a.bridge:
-        want_sv(a.bridge, r"parameter logic \[31:0\] MEM_BASE",
-                "pocket_bridge memory base", mm["MEM_BRIDGE"])
         want_sv(a.bridge, r"parameter logic \[31:0\] MEM_BYTES",
                 "pocket_bridge's ROM and RAM blocks",
                 mm["MEM_RAM"] + mm["MEM_RAM_MAX"])
@@ -272,6 +278,23 @@ def main() -> int:
             want("host max load size", int(m.group(1)), mm["SST_BLOB_MAX"])
         want_sv(a.top, "savestate_addr", "host blob address",
                 mm["SST_BLOB_BRIDGE"])
+        # core_top's bridge read decode routes the savestate window's
+        # reads to pocket_core. Its first pattern must cover the window.
+        m = re.search(r"casex\(bridge_addr\)\s*default:.*?end\s*"
+                      r"32'b([01x_]{39}):\s*begin\s*"
+                      r"bridge_rd_data <= file_bridge_rd_data;", src, re.S)
+        if not m:
+            bad.append("core_top has no read decode for the savestate "
+                       "window")
+        else:
+            pat = m.group(1).replace("_", "")
+            care = int(pat.replace("0", "1").replace("x", "0"), 2)
+            value = int(pat.replace("x", "0"), 2)
+            lo = mm["SST_BLOB_BRIDGE"]
+            hi = lo + mm["SST_BLOB_MAX"] - 1
+            if lo & care != value or hi & care != value:
+                bad.append(f"core_top's read decode {m.group(1)} does not "
+                           "cover the savestate window")
 
     if bad:
         raise SystemExit("stage_map_gate: the staging map disagrees\n"

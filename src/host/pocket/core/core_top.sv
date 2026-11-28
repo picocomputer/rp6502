@@ -206,8 +206,8 @@ assign aux_scl = 1'bZ;
 assign vpll_feed = 1'bZ;
 
 
-// The first pattern is the top 2 MB of the SDRAM, where the blob window,
-// savestate_maxloadsize bytes at savestate_addr, runs to the end. For reads
+// The first pattern is the bottom 2 MB of the SDRAM, where the blob window,
+// savestate_maxloadsize bytes at savestate_addr, is last. For reads
 // inside the window pocket_core returns pocket_sst's data on
 // file_bridge_rd_data.
 always @(*) begin
@@ -215,7 +215,7 @@ always @(*) begin
     default: begin
         bridge_rd_data <= 0;
     end
-    32'b0000_0011_111x_xxxx_xxxx_xxxx_xxxx_xxxx: begin
+    32'b0000_0000_000x_xxxx_xxxx_xxxx_xxxx_xxxx: begin
         bridge_rd_data <= file_bridge_rd_data;
     end
     32'h20xxxxxx: begin
@@ -257,14 +257,14 @@ end
 
     // savestate_size is gen/version.py's SST_BYTES, which the firmware's
     // savestate fits in. savestate_maxloadsize is the whole blob window,
-    // from savestate_addr to the end of the SDRAM, rather than the
+    // from savestate_addr to the ROM slot's start, rather than the
     // savestate's size. A load writes the savestate at savestate_addr with
     // nothing in front (measured on a Pocket). The Memories file on the
     // card has a header and a thumbnail around it, which do not come to
     // the core. stage_map_gate.py checks the address and the load size
     // against sw/bridge.h, and that the size fits in the window.
     wire            savestate_supported = 1'b1;
-    wire    [31:0]  savestate_addr = 32'h03EC_1000;
+    wire    [31:0]  savestate_addr = 32'h000C_1000;
     wire    [31:0]  savestate_size = pocket_version_pkg::SST_BYTES;
     wire    [31:0]  savestate_maxloadsize = 32'd1306624;
 

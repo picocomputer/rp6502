@@ -86,17 +86,17 @@ module pocket_core
     output logic pocket_core_rv_halted
 );
 
-    /* The soft CPU's memory starts at this byte address, after the ROM
-     * slot: the ROM block, where the host loads firmware.bin as a data
-     * slot, and the RAM block after it, MEM_BYTES in all. They are the
-     * only SDRAM its cache holds. The file windows and the Get File scratch follow them, and
-     * the savestate window, SST_WINDOW bytes at SST_BASE, is last and runs
-     * to the end of the SDRAM. The soft CPU reaches all three through the
-     * staging store. stage_map_gate.py checks these against data.json,
+    /* The soft CPU's memory is the bottom of the SDRAM, so its address
+     * is the SDRAM's byte address: the ROM block, where the host loads
+     * firmware.bin as a data slot, and the RAM block after it, MEM_BYTES
+     * in all. They are the only SDRAM its cache holds. The file windows
+     * and the Get File scratch follow them, and the savestate window,
+     * SST_WINDOW bytes at SST_BASE, is last in the bottom 2 MB, where the
+     * ROM slot starts. The soft CPU reaches all three through the staging
+     * store. stage_map_gate.py checks these against data.json,
      * src/host/fpga/sw/mmio.h and sw/bridge.h. */
-    localparam logic [31:0] MEM_BASE = 32'h03E0_0000;
     localparam logic [31:0] MEM_BYTES = 32'h0005_0000;
-    localparam logic [31:0] SST_BASE = 32'h03EC_1000;
+    localparam logic [31:0] SST_BASE = 32'h000C_1000;
     localparam logic [31:0] SST_WINDOW = 32'h0013_F000;
 
     logic run;
@@ -132,7 +132,6 @@ module pocket_core
         ? file_dt_addr : bridge_dt_addr;
 
     pocket_bridge #(
-        .MEM_BASE(MEM_BASE),
         .MEM_BYTES(MEM_BYTES)
     ) bridge (
         .clk_74a(clk_74a),
@@ -260,7 +259,7 @@ module pocket_core
         .pocket_sdram_wtake(w_take),
         .line_pend(line_pend),
         .line_we(line_we),
-        .line_addr({MEM_BASE[25:MEM_AW+2], line_addr}),
+        .line_addr(22'(line_addr)),
         .line_wdata(line_wdata),
         .pocket_sdram_line_rdata(line_rdata),
         .pocket_sdram_line_done(line_done),

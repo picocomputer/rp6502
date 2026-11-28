@@ -53,8 +53,9 @@
  * everything else in the store is reached here. */
 #define STAGE ((volatile const uint8_t *)(uintptr_t)0x60000000u)
 
-/* The soft CPU's memory, which it sees at address 0 and the host keeps
- * in its staging store: the first MEM_ROM_MAX bytes are the ROM block,
+/* The soft CPU's memory, which it sees at address 0 and every host keeps
+ * at the start of its staging store, so STAGE + n is the soft CPU's n:
+ * the first MEM_ROM_MAX bytes are the ROM block,
  * which the host loads as firmware.bin, and the MEM_RAM_MAX bytes at
  * MEM_RAM are the RAM block. MEM_MAX is the cache's window, a power of
  * two, and the soft CPU's alone: the two blocks can grow in it. The

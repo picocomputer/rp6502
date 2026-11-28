@@ -15,28 +15,28 @@
 
 /* These addresses must agree with the slots in data.json.
  * stage_map_gate.py checks every one of them against it and against the
- * hardware. ROM_MAX is the ROM slot's size_maximum. Everything else is
- * packed above it in this order. The soft CPU's memory, mmio.h's
- * MEM_MAX bytes, is at MEM_BRIDGE. The eight file windows follow it,
- * then the Get File scratch. The savestate window is last, SST_BLOB_MAX
- * bytes at SST_BLOB_BRIDGE that run to the end of the SDRAM, where the
- * host reads a save and writes a load, both at the window's start.
- * SST_BLOB is the window in the staging store, where the firmware writes
- * a save and reads a load. */
-#define ROM_IMG ((volatile const uint8_t *)(uintptr_t)0x60000000u)
-#define ROM_BRIDGE 0x00000000u
+ * hardware. The bottom 2 MB of the SDRAM holds, in this order: the soft
+ * CPU's memory, mmio.h's MEM_MAX bytes at MEM_BRIDGE, which is 0 so the
+ * soft CPU's address is the SDRAM's; the eight file windows; the Get File
+ * scratch; and last the savestate window, SST_BLOB_MAX bytes at
+ * SST_BLOB_BRIDGE, where the host reads a save and writes a load, both at
+ * the window's start. The ROM slot is everything above, ROM_MAX bytes at
+ * ROM_BRIDGE to the end of the SDRAM. SST_BLOB is the window in the
+ * staging store, where the firmware writes a save and reads a load. */
+#define ROM_IMG ((volatile const uint8_t *)(uintptr_t)0x60200000u)
+#define ROM_BRIDGE 0x00200000u
 #define ROM_MAX 0x03E00000u
-#define MEM_BRIDGE 0x03E00000u
+#define MEM_BRIDGE 0x00000000u
 #define SLOT_WIN_SIZE 0x8000u
-#define SLOT_WIN_BASE ((volatile const uint8_t *)(uintptr_t)0x63E80000u)
+#define SLOT_WIN_BASE ((volatile const uint8_t *)(uintptr_t)0x60080000u)
 #define SLOT_WIN(d) (SLOT_WIN_BASE + (uint32_t)(d) * SLOT_WIN_SIZE)
-#define SLOT_WIN_BRIDGE(d) (0x03E80000u + (uint32_t)(d) * SLOT_WIN_SIZE)
+#define SLOT_WIN_BRIDGE(d) (0x00080000u + (uint32_t)(d) * SLOT_WIN_SIZE)
 #define FILE_XFER_MAX SLOT_WIN_SIZE
-#define GETFILE_WIN ((volatile const uint8_t *)(uintptr_t)0x63EC0000u)
-#define GETFILE_BRIDGE 0x03EC0000u
+#define GETFILE_WIN ((volatile const uint8_t *)(uintptr_t)0x600C0000u)
+#define GETFILE_BRIDGE 0x000C0000u
 #define GETFILE_MAX 0x1000u
-#define SST_BLOB_BRIDGE 0x03EC1000u
-#define SST_BLOB ((uint8_t *)0x63EC1000u)
+#define SST_BLOB_BRIDGE 0x000C1000u
+#define SST_BLOB ((uint8_t *)0x600C1000u)
 #define SST_BLOB_MAX 0x0013F000u
 
 /* FILE_WIN is the write port of a dual-port RAM in pocket_file.sv. The

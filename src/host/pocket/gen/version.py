@@ -28,7 +28,7 @@ import build
 fpga = build.load_module(build.ROOT / "src/host/fpga/gen/version.py",
                          "fpga_version")
 
-HOST_VERSION = 2
+HOST_VERSION = 3
 REG_VERSION = fpga.reg_version(fpga.POCKET, HOST_VERSION)
 SST_BYTES = 0x60000
 

@@ -129,7 +129,7 @@ module tb_psst (
         .rtc_time_bcd(),
         .rtc_valid(),
         .savestate_supported(1'b1),
-        .savestate_addr(32'h03EC_1000),
+        .savestate_addr(32'h000C_1000),
         .savestate_size(pocket_version_pkg::SST_BYTES),
         .savestate_maxloadsize(32'd1306624),
         .osnotify_inmenu(),
