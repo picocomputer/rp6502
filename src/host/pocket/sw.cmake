@@ -30,7 +30,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/sys/crc32.c
         ${RP6502_SRC}/core/sys/sst.c
         ${SW_SRC}/dir.c ${SW_SRC}/fs.c
-        ${SW_SRC}/proc.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
+        ${SW_SRC}/proc.c ${SW_SRC}/rom.c ${SW_SRC}/time.c ${SW_SRC}/clip.c
         ${SW_SRC}/trap.c ${RP6502_SW_LOG} ${SW_SRC}/vga.c ${SW_SRC}/vid.c
         ${RP6502_SRC}/core/aud/pcm.c
         ${RP6502_SRC}/core/aud/bel.c
@@ -61,13 +61,17 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/str/unicode.c
         ${RP6502_GEN}/unicode_oem.c
         ${RP6502_SRC}/core/hid/hid.c
+        ${RP6502_SRC}/core/hid/hostkey.c
+        ${RP6502_SRC}/core/sys/event.c
+        ${RP6502_SRC}/core/sys/event_pointer.c
+        ${RP6502_SRC}/core/sys/event_pads.c
         ${RP6502_SRC}/core/hid/keyboard.c
         ${RP6502_SRC}/core/hid/key.c
         ${RP6502_SRC}/core/hid/layout.c
         ${RP6502_GEN}/layout_db.c
         ${RP6502_SRC}/core/hid/keymap.c
         ${RP6502_SRC}/core/hid/typed.c
-        ${RP6502_SRC}/core/hid/clip_byte.c
+        ${RP6502_SRC}/core/hid/clip_codepage.c
         ${RP6502_SRC}/core/hid/vtkey.c
         ${RP6502_SRC}/core/hid/vtmouse.c
         ${RP6502_SRC}/core/hid/mouse.c

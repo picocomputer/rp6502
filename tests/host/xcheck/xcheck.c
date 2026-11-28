@@ -64,8 +64,6 @@ void com_reply(const char *s, size_t n) { (void)s, (void)n; }
 void bel_term(void) {}
 void draw_reset(void) {}
 void draw_job_started(void) {}
-bool host_minimized(void) { return false; }
-bool host_focusable(void) { return true; }
 void vterm_mouse_track(int func, int col, int row, int first, int last)
 {
     (void)func, (void)col, (void)row, (void)first, (void)last;
@@ -588,6 +586,8 @@ int main(int argc, char **argv)
     if (argc > 4)
         xc_want = strtol(argv[4], NULL, 0);
     vterm_init(xc_cells);
+    /* Compared with xterm's, which can lose the focus. */
+    vterm_set_focusable();
     if (fuzz)
         xc_fuzz((unsigned)strtoul(argv[3], NULL, 0));
     else

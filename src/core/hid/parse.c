@@ -219,7 +219,8 @@ static void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_fie
 
 /* Which report each driver reads. A device may put its keyboard on one report
  * and its mouse on another, so each driver takes the first report carrying a
- * field it can use, and for the mouse that is a relative X. A digitizer
+ * field it can use: for the mouse a relative X, and for the tablet an
+ * absolute X or Y or a digitizer's tip or In Range. A digitizer
  * outranks a bare X and Y, so that a pen or touch panel offering a
  * mouse-compatibility collection as well is decoded as the absolute device it
  * is. */
@@ -248,7 +249,8 @@ static bool hid_choose_field(const hid_field_t *f, void *context)
         hid_choose(&c->gamepad, f->report_id);
     if (f->usage_page == 0x01 && f->usage == 0x30 && (f->input_flags & 0x04))
         hid_choose(&c->mouse, f->report_id);
-    if ((f->usage_page == 0x01 && (f->usage == 0x30 || f->usage == 0x31)) || button ||
+    if ((f->usage_page == 0x01 && (f->usage == 0x30 || f->usage == 0x31) &&
+         !(f->input_flags & 0x04)) ||
         (f->usage_page == 0x0D && (f->usage == 0x42 || f->usage == 0x32)))
         hid_choose(&c->tablet, f->report_id);
     if (f->app_usage == HID_APP_DIGITIZER || f->app_usage == HID_APP_PEN ||
@@ -372,12 +374,15 @@ static void hid_fill_tablet(tablet_connection_t *tablet, const hid_field_t *f)
         hid_locate(&tablet->pan_offset, &tablet->pan_size, f);
     if (f->usage_page != 0x01)
         return;
+    /* A relative X or Y is a mouse's, which is the mouse driver's alone. A
+     * wheel is relative on a tablet too. */
+    if ((f->usage == 0x30 || f->usage == 0x31) && (f->input_flags & 0x04))
+        return;
     switch (f->usage)
     {
     case 0x30:
         if (!tablet->x_size)
         {
-            tablet->x_relative = (f->input_flags & 0x04) != 0;
             tablet->touchscreen = f->app_usage == HID_APP_TOUCH ||
                                   f->app_usage == HID_APP_MOUSE ||
                                   f->app_usage == HID_APP_POINTER;
@@ -489,11 +494,10 @@ void hid_parse(const uint8_t *desc, uint16_t desc_len, hid_parsed_t *out)
 
     out->mouse.valid = out->mouse.x_size > 0 && out->mouse.x_relative;
 
-    /* A tablet is a relative mouse, a digitizer with a tip or In Range, or an
-     * absolute device that says it is a mouse, a pointer or a touch screen. */
+    /* A tablet is a digitizer with a tip or In Range, or an absolute device
+     * that says it is a mouse, a pointer or a touch screen. */
     out->tablet.valid = out->tablet.x_size > 0 && out->tablet.y_size > 0 &&
-                     (out->tablet.x_relative || out->tablet.touchscreen ||
-                      out->tablet.tip_offset != HID_ABSENT ||
+                     (out->tablet.touchscreen || out->tablet.tip_offset != HID_ABSENT ||
                       out->tablet.inrange_offset != HID_ABSENT);
 
     /* A gamepad that doesn't say it is one has buttons and an absolute X, and

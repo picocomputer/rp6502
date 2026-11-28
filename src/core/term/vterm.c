@@ -25,6 +25,10 @@ uint16_t vterm_palette[VTERM_PALETTE];
 uint16_t vterm_specials[VTERM_SPECIALS];
 bool vterm_palette_changed;
 static uint16_t vterm_code_page;
+/* What the host last said of its window: that it can lose the focus, and
+ * that it is minimized. */
+static bool vterm_focusable_now;
+static bool vterm_minimized_now;
 
 /* draw.c's CELL chunk saves the terminal, both sizes, the smooth scroll,
  * where mode 0 sits, the selection, the palette and the special colors, and
@@ -42,7 +46,9 @@ static uint16_t vterm_code_page;
     X(SKIP, vterm_specials, "draw.c's CELL chunk saves it")      \
     X(SKIP, vterm_palette_changed, "draw.c follows every color " \
                                    "after a load")               \
-    X(SKIP, vterm_code_page, "font.c's FONT chunk saves it")
+    X(SKIP, vterm_code_page, "font.c's FONT chunk saves it")     \
+    X(SKIP, vterm_focusable_now, "the host's, kept across a load") \
+    X(SKIP, vterm_minimized_now, "the host's, kept across a load")
 SST_TABLE(vterm, VTERM_SST)
 
 /* The terminal a console with no VGA is taken to be on the UART. */
@@ -352,4 +358,24 @@ void vterm_reset(term_t *t)
     vterm_smoothing.grid = NULL;
     vterm_reset_colors(t);
     draw_reset();
+}
+
+void vterm_set_focusable(void)
+{
+    vterm_focusable_now = true;
+}
+
+bool vterm_focusable(void)
+{
+    return vterm_focusable_now;
+}
+
+void vterm_minimize(bool minimized)
+{
+    vterm_minimized_now = minimized;
+}
+
+bool vterm_minimized(void)
+{
+    return vterm_minimized_now;
 }

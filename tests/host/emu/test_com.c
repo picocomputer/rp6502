@@ -682,16 +682,16 @@ UTEST(com, a_paste_asks_the_host_s_clipboard_as_its_turn_comes)
 {
     com_rx_clear();
     show("\33[?2004h");
-    ASSERT_TRUE(host_clipboard_set("old"));
+    host_clipboard_set("old");
     typed_push("k", 1);
     clip_paste(CLIP_CLIPBOARD);
     static char big[TYPED_QUEUE_SIZE * 3 + 1];
     memset(big, 'p', sizeof big - 1);
-    ASSERT_TRUE(host_clipboard_set(big));
+    host_clipboard_set(big);
     static char out[sizeof big + 16];
     ASSERT_EQ(keyboard_all(out, 11), (size_t)11);
     ASSERT_EQ(memcmp(out, "k\33[200~pppp", 11), 0);
-    ASSERT_TRUE(host_clipboard_set("new"));
+    host_clipboard_set("new");
     ASSERT_EQ(keyboard_all(out, sizeof out), sizeof big - 5 + 6);
     ASSERT_EQ(out[sizeof big - 6], 'p');
     ASSERT_EQ(memcmp(out + sizeof big - 5, "\33[201~", 6), 0);
@@ -704,10 +704,10 @@ UTEST(com, a_paste_asks_the_host_s_clipboard_as_its_turn_comes)
 UTEST(com, text_handed_over_is_typed_as_it_was)
 {
     com_rx_clear();
-    ASSERT_TRUE(host_clipboard_set("old"));
+    host_clipboard_set("old");
     typed_push("k", 1);
     paste_start("handed over");
-    ASSERT_TRUE(host_clipboard_set("new"));
+    host_clipboard_set("new");
     char buf[16] = {0};
     ASSERT_EQ(keyboard_all(buf, sizeof buf - 1), (size_t)12);
     ASSERT_STREQ(buf, "khanded over");

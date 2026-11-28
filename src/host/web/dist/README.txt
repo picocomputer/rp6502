@@ -19,6 +19,10 @@ Publish
    run "python3 -m http.server 8000" in this folder and open
    http://localhost:8000.
 
+   Serve it over https. A browser gives a page served over plain http
+   (other than localhost) no AudioWorklet, which the player's sound needs,
+   so there the player has no sound.
+
 
 Updating
 --------

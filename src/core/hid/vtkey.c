@@ -326,7 +326,7 @@ bool HOST_IN_RAM_FUNC vtkey_repeats(void)
     return vterm.autorepeat;
 }
 
-uint8_t vtkey_modifiers(uint8_t modifier)
+uint8_t HOST_IN_RAM_FUNC vtkey_modifiers(uint8_t modifier)
 {
     return (uint8_t)(
         ((modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT)) ? VTKEY_SHIFT : 0) |

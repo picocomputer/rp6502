@@ -22,4 +22,7 @@ struct sapp_event;
  * a click on it, which opens it in the user's browser and is consumed. */
 bool prompt_event(const struct sapp_event *e);
 
+/* The dropped ROM booted, and the card comes down. */
+void prompt_booted(void);
+
 #endif /* _HOST_SOKOL_APP_PROMPT_H_ */

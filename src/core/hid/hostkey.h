@@ -15,9 +15,10 @@
 #define _CORE_HID_HOSTKEY_H_
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
-/* What hostkey_press did with a key. */
+/* What hostkey_type, or hostkey_press, did with a key. */
 typedef enum
 {
     HOSTKEY_NONE,  /* the key sends nothing */
@@ -35,6 +36,29 @@ typedef enum
  * chord. The character is then a US keyboard's, by Shift and Caps Lock.
  * Otherwise the host delivers the text through hostkey_char. */
 hostkey_result_t hostkey_press(uint8_t usage, uint8_t modifier, bool repeat, bool guess);
+
+/* The press itself, for a caller that knows the key's character: ch is
+ * typed where the terminal's encoding is a character, and 0 types nothing
+ * there, for a host that delivers its text through hostkey_char. meta says
+ * Alt goes with the character as Meta, ESC before it; otherwise Alt is taken
+ * to have chosen the character, as AltGr does. hostkey_press is this with a
+ * guessed character, and Alt always Meta. */
+hostkey_result_t hostkey_type(uint8_t usage, uint8_t modifier, bool repeat, char ch, bool meta);
+
+/* A US keyboard's character for a key, by Shift and Caps Lock, for a press
+ * the host's system gives no text for, such as a Ctrl or Alt chord. */
+char hostkey_guess(uint8_t usage, uint8_t modifier, bool capslock);
+
+/* Where typed bytes go: type a key's bytes, and cut a cut key's behind its
+ * mark (core/hid/typed.h). The typed queue's own, unless a machine's
+ * keyboard driver composes them first, as keymap.c does its dead keys. NULL
+ * puts back the queue's. */
+typedef struct
+{
+    void (*type)(const char *seq, size_t n);
+    void (*cut)(const char *seq, size_t n);
+} hostkey_typer_t;
+void hostkey_set_typer(const hostkey_typer_t *typer);
 
 /* The character a key has on a US keyboard, or 0, and the key and Shift that
  * type a character there, or 0. */

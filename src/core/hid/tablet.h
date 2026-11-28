@@ -8,9 +8,11 @@
 #define _CORE_HID_TABLET_H_
 
 /* The absolute pointer, called a tablet here. It reports a position on the
- * canvas rather than relative motion: a relative mouse is integrated and
- * clamped to the canvas, and an absolute digitizer or pen is scaled to it. The
- * XRAM block is laid out in tablet.c.
+ * canvas rather than relative motion, and every pointer there is moves it: a
+ * host's own tablet (its uncaptured pointer, a touchscreen, a pen) is placed
+ * on the canvas, a USB digitizer or pen is scaled to it, and a mouse's motion
+ * is integrated and clamped to it. It is never off: a program that maps the
+ * mouse too still has it. The XRAM block is laid out in tablet.c.
  */
 
 #include <stddef.h>
@@ -45,6 +47,8 @@
 #define TABLET_FLAG_BTN4 0x08
 #define TABLET_FLAG_BTN5 0x10
 #define TABLET_FLAG_HOVER 0x80
+#define TABLET_FLAG_BUTTONS (TABLET_FLAG_LEFT | TABLET_FLAG_RIGHT | TABLET_FLAG_MIDDLE | \
+                             TABLET_FLAG_BTN4 | TABLET_FLAG_BTN5)
 
 /* control (program to firmware): the cursor shape the program asks for. The
  * host draws it where it has a cursor of its own, and the system draws it
@@ -65,10 +69,13 @@ enum
     TABLET_CURSOR_COUNT,
 };
 
+/* One contact of a host's tablet: where on the canvas, in canvas pixels,
+ * and its TABLET_FLAG_ buttons and hover. */
 typedef struct
 {
-    int16_t x, y; /* canvas pixels */
-} tablet_point_t;
+    int16_t x, y;
+    uint8_t flags;
+} tablet_contact_t;
 
 #define TABLET_MAX_MICE 4
 
@@ -78,7 +85,6 @@ typedef struct tablet_connection
     int slot;
     uint8_t report_id;
     uint16_t button_offsets[5]; // buttons 1 to 5, HID_ABSENT if absent
-    bool x_relative;            // true for a relative mouse
     uint16_t x_offset;
     uint8_t x_size;
     int32_t x_min, x_max;
@@ -113,11 +119,10 @@ bool tablet_is_mapped(void);
  * shared. It runs from RAM, so the owner can read it as a change comes. */
 bool tablet_shared(void);
 
-/* Whether the tablet wants the host's pointer: the host delivers pointer
- * events, shows the shape from tablet_shape, and keeps the pointer out of
- * the browser's hands. A program has mapped it, or its owner claims it. A
- * host that captures its pointer for the mouse still does so for a program
- * that maps the mouse and not the tablet, which is not on the tablet. */
+/* Whether the tablet wants the host's pointer: a program has mapped it, or
+ * its owner claims it. The host shows the shape from tablet_shape over the
+ * canvas, and keeps the pointer out of the browser's hands. The tablet takes
+ * the pointer whether or not it wants it. */
 bool tablet_wanted(void);
 
 /* Whether the tablet wants the host's wheel and sideways scrolling: a
@@ -132,30 +137,36 @@ bool tablet_umount(int slot);
 
 void tablet_report(int slot, uint8_t const *report, size_t size);
 
-/* A hovering pointer at x,y in canvas pixels, which is what the block carries,
- * with a bitmap of TABLET_FLAG_ buttons, taking contact 0. host_cursor says
+/* The host's own tablet as it is now: n contacts on the canvas, the first
+ * being the pointer that every device moves, and none for nothing on the
+ * canvas. An uncaptured pointer is one contact that hovers, with its
+ * buttons; a touch is a contact per finger, tip down and not hovering; a pen
+ * hovers in range and has its tip down on the surface. host_cursor says
  * whether this host draws the cursor itself; where it does not, the system
  * draws it over the canvas. */
-void tablet_host_pointer(int x, int y, uint8_t buttons, bool host_cursor);
+void tablet_host_contacts(const tablet_contact_t *at, int n, bool host_cursor);
 
-/* n touch contacts in canvas pixels, tip down and not hovering. The rest go
- * inactive. */
-void tablet_host_touch(const tablet_point_t *pts, int n);
+/* One hovering pointer, and nothing on the canvas. */
+static inline void tablet_host_pointer(int x, int y, uint8_t buttons, bool host_cursor)
+{
+    const tablet_contact_t c = {(int16_t)x, (int16_t)y, (uint8_t)(buttons | TABLET_FLAG_HOVER)};
+    tablet_host_contacts(&c, 1, host_cursor);
+}
+static inline void tablet_host_clear(void)
+{
+    tablet_host_contacts(NULL, 0, false);
+}
+
+/* A mouse's motion in Q16.16 counts of the mouse's block (core/hid/mouse.h)
+ * and its buttons, in HID order, of which the tablet has five, which move the pointer from wherever it is and hover it,
+ * the system drawing its cursor. And the mouse gone: captured no more, or
+ * unplugged, so it holds no button and no longer hovers. */
+void tablet_host_mouse(int32_t dx, int32_t dy, uint8_t buttons);
+void tablet_host_mouse_gone(void);
 
 /* The wheel and pan bytes are counters a program reads by subtracting the
  * value it saw last, so these add to them and wrap, as the mouse's do. */
 void tablet_host_wheel(int dwheel, int dpan);
-
-/* The pointer left the window, or every contact was released. */
-void tablet_host_clear(void);
-
-/* A host says on every poll whether it gives its pointer to the tablet. As
- * it stops, the pointer is let go (tablet_host_clear), so no button is left
- * held on the tablet; while it does not give it, nothing is cleared, so the
- * tablet keeps whatever else puts a contact there. The last answer is saved
- * with the machine, so the edge holds across a state load, runahead's
- * included. */
-void tablet_host_give(bool given);
 
 /* The cursor shape over the canvas: the one the program asked for, one of
  * TABLET_CURSOR_ or, with the program's own pointers, any up to 255. With

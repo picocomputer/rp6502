@@ -271,8 +271,8 @@ jobs:
         uses: ./.github/actions/apt-install
         with:
           packages: >-
-            build-essential cmake ninja-build libgl-dev libx11-dev
-            libxi-dev libxcursor-dev libpulse-dev
+            build-essential cmake ninja-build libegl-dev libgles-dev libx11-dev
+            libxi-dev libxcursor-dev libpulse-dev libpipewire-0.3-dev
 
       - name: Configure & build emulator (Release)
         run: |
@@ -376,7 +376,9 @@ jobs:
   # libretro-windows: the same core with MSVC, and the same suite — the bench
   # opens the .dll the way a frontend does, so what passes is the artifact.
   # dumpbin is the dev shell's nm, which is why the export check enters the
-  # shell a second time.
+  # shell a second time. No arm64 core: the libretro buildbot has no Windows
+  # arm64 template, so RetroArch could never offer one, and the targets here
+  # are the buildbot's (libretro_targets_gate.py).
   # ---------------------------------------------------------------------------
   libretro-windows:
     name: libretro-${{ matrix.target }}
@@ -714,17 +716,25 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # windows: build the D3D11 emu with MSVC + Ninja, run the CTest suite,
-  # ship rp6502-emu.exe.
+  # ship rp6502-emu.exe, for x64 and for Windows on Arm. arm64 builds on an
+  # arm64 runner, so its suite runs on the processor it is for.
   # ---------------------------------------------------------------------------
   windows:
+    name: windows-${{ matrix.arch }}
     needs: [version]
-    runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64, runner: windows-2025, zip: windows-x64 }
+          - { arch: arm64, runner: windows-11-arm, zip: windows-arm64 }
+    runs-on: ${{ matrix.runner }}
     env:
-      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-windows.zip
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-${{ matrix.zip }}.zip
     steps:
       - uses: actions/checkout@v7
 
-      # Set up the MSVC x64 toolchain via the runner's own Visual Studio (no
+      # Set up the MSVC toolchain via the runner's own Visual Studio (no
       # third-party action), then build in the same step so the dev-shell env
       # (cl.exe, INCLUDE/LIB) is in scope. ctest below only runs the built exes.
       - name: Configure & build emulator (Release)
@@ -734,7 +744,7 @@ jobs:
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vsPath = & $vswhere -latest -property installationPath
           Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
-          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -no_logo'
+          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=${{ matrix.arch }} -host_arch=${{ matrix.arch }} -no_logo'
           cd src/host/sokol
           cmake --preset windows-release -DRP6502_STRICT_SUBMODULES=ON `
             "-DRP6502_VERSION=${{ needs.version.outputs.fwver }}" `
@@ -968,7 +978,7 @@ jobs:
           # checking it here is what makes a missing one a failed release rather
           # than a quiet gap in it.
           assets=()
-          for w in pico.zip windows.zip macos.zip \
+          for w in pico.zip windows-x64.zip windows-arm64.zip macos.zip \
                    linux-x86_64.tar.gz linux-aarch64.tar.gz \
                    libretro.zip \
                    pocket.zip web.zip; do
@@ -997,7 +1007,8 @@ jobs:
           name: ${{ steps.title.outputs.name }}
           files: |
             dist/rp6502-${{ needs.version.outputs.version }}-pico.zip
-            dist/rp6502-${{ needs.version.outputs.version }}-windows.zip
+            dist/rp6502-${{ needs.version.outputs.version }}-windows-x64.zip
+            dist/rp6502-${{ needs.version.outputs.version }}-windows-arm64.zip
             dist/rp6502-${{ needs.version.outputs.version }}-macos.zip
             dist/rp6502-${{ needs.version.outputs.version }}-linux-x86_64.tar.gz
             dist/rp6502-${{ needs.version.outputs.version }}-linux-aarch64.tar.gz

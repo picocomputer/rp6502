@@ -10,32 +10,9 @@
  * could mark anything in it.
  */
 
-#include "core/hid/gamepad.h"
 #include "sokol/sokol_app.h"
 #include <emscripten.h>
 #include <stdint.h>
-
-/* The page polls the browser's Gamepad API only while this reports true, so it
- * touches no controller until a program has mapped the report block into
- * XRAM. */
-EMSCRIPTEN_KEEPALIVE int gamepad_mapped(void)
-{
-    return gamepad_is_mapped() ? 1 : 0;
-}
-
-EMSCRIPTEN_KEEPALIVE void gamepad_host(int player, int dpad, int button0, int button1,
-                                       int lx, int ly, int rx, int ry, int lt, int rt,
-                                   int type, int sticks)
-{
-    gamepad_connect(player, true, (uint8_t)type, sticks != 0);
-    gamepad_host_report(player, (uint8_t)dpad, (uint8_t)button0, (uint8_t)button1,
-                    lx, ly, rx, ry, lt, rt);
-}
-
-EMSCRIPTEN_KEEPALIVE void gamepad_disconnect(int player)
-{
-    gamepad_connect(player, false, GAMEPAD_TYPE_UNKNOWN, false);
-}
 
 /* destroy() in page.js stops the sokol frame loop through sapp_quit(),
  * because JavaScript has no handle on that loop. */

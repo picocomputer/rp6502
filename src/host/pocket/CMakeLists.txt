@@ -143,7 +143,6 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
         COMMENT "Signing off the Pocket fit"
         VERBATIM)
-    add_custom_target(pocket-fit DEPENDS ${POCKET_DIR}/signoff.stamp)
 
     add_custom_command(OUTPUT ${POCKET_DIR}/core.bin
         COMMAND ${QUARTUS_ASM} rp6502
@@ -155,7 +154,6 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${RP6502_SRC}/host/pocket/gen/rbf_r_gen.py
         COMMENT "Assembling the Pocket bitstream"
         VERBATIM)
-    add_custom_target(pocket-bitstream DEPENDS ${POCKET_DIR}/core.bin)
 
     set(PKG_DIR ${CMAKE_BINARY_DIR}/package)
     set(PKG_DIST ${CMAKE_CURRENT_LIST_DIR}/dist)
@@ -181,6 +179,11 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${CMAKE_CURRENT_LIST_DIR}/stamp_core_json.cmake ${RP6502_STAMP_SCRIPT}
         COMMENT "Assembling the Pocket core package"
         VERBATIM)
+    # The one Pocket target, which always ends with the package. There is no
+    # target that stops after the fit or the bitstream: the fit takes about
+    # ten minutes (608 s on 2026-11-27), and the sign-off, the bitstream and
+    # the package after it about fifteen seconds together, so stopping early
+    # saves nothing and leaves no package to load on a Pocket.
     add_custom_target(pocket ALL DEPENDS ${POCKET_DIR}/package.stamp)
 
     elseif(NOT RP6502_HAVE_APF)

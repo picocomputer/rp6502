@@ -4,8 +4,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The sound on Linux, through PulseAudio's own API, which PipeWire also
- * serves (entry.h).
+/* The sound on Linux (entry.h): through PipeWire's own API (pipewire.c)
+ * when the Pulse server is PipeWire, else through PulseAudio's.
+ *
+ * The Pulse server the stream would play on is asked what it is, so that
+ * what is installed beside it never decides: PipeWire's Pulse protocol adds
+ * 16 ms that its own API does not, and a PipeWire installed beside a real
+ * PulseAudio, or with no sound card, as under WSLg, is not where the sound
+ * goes. With no Pulse server, PipeWire is tried, and if PipeWire will not
+ * play, Pulse is, waiting for a server to come.
  *
  * The stream asks the server for AUDIO_TARGET of latency, 512 frames at
  * 48 kHz, 10.7 ms, and lets the server size the sink's own latency to suit
@@ -18,7 +25,9 @@
  * When the server goes away, as it does when it restarts, the thread
  * connects again once a second. */
 
+#include "core/sys/debug_log.h"
 #include "host/sokol/app/entry.h"
+#include "host/sokol/linux/pipewire.h"
 #include <pulse/pulseaudio.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -37,6 +46,7 @@ static struct
     pa_stream *stream;
     pa_time_event *retry;
     bool stopping;
+    bool pipewire;
     float stereo[AUDIO_MOST * 2];
 } audio;
 
@@ -171,9 +181,8 @@ static void audio_connect(bool first)
         audio_lost();
 }
 
-bool host_audio_open(void (*render)(float *dst, int frames, uint32_t rate))
+static bool audio_pulse_open(void)
 {
-    audio.render = render;
     audio.loop = pa_threaded_mainloop_new();
     if (!audio.loop)
         return false;
@@ -189,8 +198,74 @@ bool host_audio_open(void (*render)(float *dst, int frames, uint32_t rate))
     return started;
 }
 
+static void audio_server_info(pa_context *c, const pa_server_info *info, void *user)
+{
+    (void)c;
+    /* libpulse calls back with no info when the request fails, which is no
+     * answer. */
+    if (!info || !info->server_name)
+        return;
+    RP6502_LOG(audio, INFO, "Pulse server is %s", info->server_name);
+    *(int *)user = strstr(info->server_name, "PipeWire") ? 1 : 0;
+}
+
+/* Whether the Pulse server is PipeWire: 1 if it is, 0 if it is not, -1 if
+ * none answers. Asked on a mainloop of its own, ahead of the driver's, and
+ * the way the driver first connects, so a server that one would start, this
+ * starts. */
+static int audio_server_is_pipewire(void)
+{
+    int is = -1;
+    pa_mainloop *loop = pa_mainloop_new();
+    pa_context *c = pa_context_new(pa_mainloop_get_api(loop), "Picocomputer 6502");
+    pa_operation *op = NULL;
+    pa_context_connect(c, NULL, PA_CONTEXT_NOFLAGS, NULL);
+    for (;;)
+    {
+        const pa_context_state_t state = pa_context_get_state(c);
+        if (!PA_CONTEXT_IS_GOOD(state))
+            break;
+        if (state == PA_CONTEXT_READY && !op)
+            op = pa_context_get_server_info(c, audio_server_info, &is);
+        if (op && pa_operation_get_state(op) != PA_OPERATION_RUNNING)
+            break;
+        pa_mainloop_iterate(loop, 1, NULL);
+    }
+    if (op)
+        pa_operation_unref(op);
+    pa_context_disconnect(c);
+    pa_context_unref(c);
+    pa_mainloop_free(loop);
+    return is;
+}
+
+bool host_audio_open(void (*render)(float *dst, int frames, uint32_t rate))
+{
+    audio.render = render;
+    const int is = audio_server_is_pipewire();
+    if (is)
+    {
+        audio.pipewire = pipewire_open(render);
+        if (audio.pipewire)
+        {
+            RP6502_LOG(audio, INFO, "PipeWire, %s",
+                       is > 0 ? "the Pulse server's own" : "with no Pulse server");
+            return true;
+        }
+        RP6502_LOG(audio, WARN, "PipeWire would not play, so Pulse");
+    }
+    else
+        RP6502_LOG(audio, INFO, "PulseAudio, the Pulse server");
+    return audio_pulse_open();
+}
+
 void host_audio_close(void)
 {
+    if (audio.pipewire)
+    {
+        pipewire_close();
+        return;
+    }
     if (!audio.loop)
         return;
     pa_threaded_mainloop_lock(audio.loop);

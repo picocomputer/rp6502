@@ -56,25 +56,32 @@ the Pocket loads from `firmware.bin` and nothing writes afterwards: a
 store to it is dropped. The RAM block is 64 KB of data, heap and stack.
 The startup code copies the data's first values from the ROM block and
 clears the rest. In front of both is one 8 KB cache in block memory,
-in `cache.sv`: four ways of 128 sets, with lines of 16 bytes. A hit
-answers in one clock, as block memory would. A miss holds the soft CPU
+in `cache.sv`: eight ways of 64 sets, with lines of 16 bytes, the least
+recently used way replaced first. A hit answers in one clock, as block
+memory would. A miss holds the soft CPU
 while the SDRAM controller reads the line, eight words back to back,
 after writing out the line it replaces if the soft CPU stored to that
 one. The rest of the block memory is XRAM, the video and the audio.
 
-The cache's shape was measured with the firmware in simulation: the share
-of the soft CPU's clocks spent waiting on it. A miss costs about 35
-clocks.
+Measured in the simulation of `tests/host/pocket/test_psleep.cpp`, the
+share of the soft CPU's clocks spent with the cache busy on a miss:
 
-| Work | 8 KB 4-way | 8 KB 2-way | 4 KB 4-way | 4 KB 2-way |
-|---|---|---|---|---|
-| Reset Exit to the 6502 starting | 23-34% | 24-35% | 35-39% | 35-39% |
-| A program calling the API in a loop | 16% | 21% | 41% | 58% |
-| The main loop idle, audio playing | 0.05% | 21% | 38% | 46% |
-| Heavy file work | 12% | 20% | 40% | 45% |
+| Work | 8 KB 8-way, least recently used | 8 KB 4-way, a pointer round the ways |
+|---|---|---|
+| Reset to the 6502 starting | 10.6% | 11.6% |
+| A program calling the API in a loop | 10.0% | 14.4% |
+| A program playing the audio engines | 4.8% | 11.6% |
+| A program reading a file | 33.3% | 44.3% |
 
-Every smaller shape waits several points more, and two ways cannot hold
-the idle main loop. 8 KB 2-way would use the same 9 blocks.
+The 4-way cache came first. A pointer that went round each set's ways
+remembered every miss the set ever had, so a savestate could leave the
+API loop in a slower state for good: the program's clock ran 5% slower
+after a sleep. Least recently used at four ways was steady but no
+faster, because some sets of the API loop need more than four ways.
+Eight ways cost about 300 ALMs and one block more than four, and still
+meet timing. Smaller shapes, measured before with the pointer, waited
+more on every work: 4 KB, or two ways, which also could not hold the
+idle main loop.
 
 **The rest of the SDRAM**, the ROM image, the savestate window, the
 file windows and the Get File scratch, the soft CPU reads and writes
@@ -288,7 +295,7 @@ register, and `set_tz_minutes` in `mmio.h` combines the three into
 minutes east of UTC.
 
 **`input.json` lists no controllers.** The core passes every controller
-slot to the firmware as a HID report, buttons and axes, so there is no
+slot to the firmware as its registers, buttons and axes, so there is no
 fixed button mapping to list.
 
 **A hot reload goes through the first slot, whichever slot the request
@@ -301,28 +308,33 @@ access all complete. When this `0x008F` arrives while the core is
 running, the new size is posted to the firmware, which stops the
 program and loads the new image.
 
-## The dock, as HID
+## The dock
 
 The core receives three registers, key, joy and trig, for each of APF's
 four controller slots. The top nibble of a slot's key word gives the
 device in it: none, the Pocket's own buttons, a docked controller with
 or without analog sticks, the docked keyboard, or the docked mouse.
 
-The firmware has no input drivers of its own for the dock. `apf.c`
-mounts each slot with connection structs written by hand, which is the
-form `src/core/hid/parse.c` produces from a HID report descriptor, and
-passes the registers to the HID drivers as the report those structs
-describe. `src/host/pico/ria/usb/xin.c` does the same for XInput, which
-has no report descriptor. The drivers in `src/core/hid` then provide the
-layouts, dead keys, key repeat and terminal escape sequences. The mouse
-is mounted as a tablet as well as a mouse, and the d-pad is reported as
-a d-pad rather than as the left stick.
+The firmware has no input drivers of its own for the dock. The docked
+keyboard and mouse are mounted with connection structs written by hand,
+which is the form `src/core/hid/parse.c` produces from a HID report
+descriptor, and `apf.c` passes their registers to the HID drivers as the
+report those structs describe. `src/host/pico/ria/usb/xin.c` does the same
+for XInput, which has no report descriptor. The drivers in `src/core/hid`
+then provide the layouts, dead keys, key repeat and terminal escape
+sequences. The mouse is a mouse only, and moves the tablet's pointer as
+every mouse does (`src/core/sys/event.h`).
 
-The connection structs in `apf.c` hold the whole mapping, so a wrong one
-still builds and boots, and the fault appears only when a controller is
-used. `tests/host/pocket/test_apf.c` feeds register values through
-`apf.c` into the real HID drivers and checks the XRAM records they
-produce.
+A controller is no HID device. Each APF slot is its player, as each port
+is on libretro: `apf.c` makes the slot's registers into a
+`gamepad_host_t` and raises `event_gamepads` for all four slots as they
+change. The d-pad is reported as a d-pad rather than as the left stick.
+
+The connection structs and the controllers' bit table in `apf.c` hold the
+whole mapping, so a wrong one still builds and boots, and the fault
+appears only when a device is used. `tests/host/pocket/test_apf.c` feeds
+register values through `apf.c` into the real drivers and checks the
+XRAM records they produce.
 
 There is no monitor, so `sys_break` in `main.c` returns false and
 Ctrl-Alt-Del is passed to the program as an ordinary keystroke. Alt-F4
@@ -590,8 +602,7 @@ unless something fails, and this is among the failures it reports:
 From this directory, `cmake --preset release` then
 `cmake --build --preset release` assembles the card tree into
 `build/pocket/package`. Zip the contents of `build/pocket/package` with
-its directories at the archive root. The `pocket-bitstream` target stops
-one step earlier, at `build/pocket/bitstream/core.bin`.
+its directories at the archive root.
 
 That tree needs Quartus, `gcc-riscv64-unknown-elf` and
 `picolibc-riscv64-unknown-elf`, and it needs neither Verilator nor the

@@ -7,6 +7,7 @@
 /* term.c, the console's terminal, fed through the console and read through
  * its view. The console canvas holds the 80-column terminal, 30 rows. */
 
+#include "core/sys/event.h"
 #include "core/api/xreg.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
@@ -65,6 +66,8 @@ static const char *ask(const char *q)
 static void fresh(void)
 {
     sys_init();
+    /* The bench is a host with a window, which can lose the focus. */
+    event_focusable();
     /* No frames run, so the console's line keeps no pace. */
     manifold_set_paced(false);
     feed("\30\33c");

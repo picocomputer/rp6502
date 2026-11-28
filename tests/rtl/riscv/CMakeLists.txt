@@ -4,10 +4,10 @@ rp6502_add_machine_test(ram TIMEOUT 120)
 
 rp6502_add_machine_test(hold TIMEOUT 600)
 
-# cache.sv alone, at the size the machine uses, with two ways, and with so
-# few sets that nearly every miss replaces a line.
-foreach(_cache IN ITEMS "cache 128 4" "cache128x2 128 2"
-        "cache4x4 4 4" "cache2x2 2 2")
+# cache.sv alone, at the size the machine uses, at the same size with four
+# and two ways, and with so few sets that nearly every miss replaces a line.
+foreach(_cache IN ITEMS "cache 64 8" "cache128x4 128 4" "cache128x2 128 2"
+        "cache2x8 2 8" "cache4x4 4 4" "cache2x2 2 2")
     separate_arguments(_cache)
     list(GET _cache 0 _name)
     list(GET _cache 1 _sets)

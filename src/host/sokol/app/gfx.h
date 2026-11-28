@@ -21,9 +21,9 @@ void gfx_set_bgcolor(uint8_t r, uint8_t g, uint8_t b);
  *   GFX_FILTER_NEAREST  point sampling, so pixels stay crisp but their widths
  *                       come out uneven at a non-integer window scale
  *   GFX_FILTER_LINEAR   plain bilinear, smooth but blurry
- *   GFX_FILTER_SHARP    point-prescale to the largest integer multiple that
- *                       fits, then bilinear down to the rest, which keeps
- *                       pixels crisp and motion smooth at any window size
+ *   GFX_FILTER_SHARP    each pixel a solid block, blended only across the
+ *                       one window pixel where two meet, which keeps pixels
+ *                       crisp and even at any window size
  * Takes effect on the next frame. The headless --screenshot path renders at
  * native resolution, so the filter does nothing there. */
 typedef enum

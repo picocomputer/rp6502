@@ -52,6 +52,8 @@ rp6502_osal_posix(emu_core TRANSPORT aio)
 target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c)
 
 target_include_directories(emu_core PUBLIC ${RP6502_ROOT}/src/host/sokol)
+# The desktop machine's, as its tests run it.
+target_sources(emu_core PRIVATE ${RP6502_SRC}/core/hid/clip_utf8.c)
 
 enable_testing()
 

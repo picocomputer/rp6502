@@ -22,17 +22,7 @@ const char *host_save_dir(void)
     return NULL;
 }
 
-bool host_minimized(void)
-{
-    return false;
-}
 
-/* The test bench's host is a desktop's window, which gains and loses
- * focus, so every walk of vttest answers ?1004 as xterm does. */
-bool host_focusable(void)
-{
-    return true;
-}
 
 /* The test bench's host is a Mac when a test says so (tb_seed.h). */
 bool tb_mac_keys;
@@ -48,8 +38,6 @@ bool host_mac_keys(void)
  * cannot be asked for, as a web page's cannot, which a test reads with
  * tb_clipboard_text. */
 static char *tb_clipboard;
-bool tb_no_clipboard;
-bool tb_clipboard_unasked;
 
 const char *tb_clipboard_text(void)
 {
@@ -58,18 +46,13 @@ const char *tb_clipboard_text(void)
 
 const char *host_clipboard_get(void)
 {
-    if (tb_no_clipboard || tb_clipboard_unasked)
-        return NULL;
     return tb_clipboard_text();
 }
 
-bool host_clipboard_set(const char *utf8)
+void host_clipboard_set(const char *utf8)
 {
-    if (tb_no_clipboard)
-        return false;
     const size_t n = strlen(utf8) + 1;
     free(tb_clipboard);
     tb_clipboard = malloc(n);
     memcpy(tb_clipboard, utf8, n);
-    return true;
 }

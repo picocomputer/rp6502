@@ -4,11 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The key chords every machine shares, which act instead of typing. Both
- * keyboard paths ask here before a key is encoded: core/hid/keymap.c where
- * the firmware decodes keys, and core/hid/hostkey.c where a host's OS has.
- * A chord only a keyboard driver has, such as GUI-Space for the next layout
- * or a lock key, stays with that driver. */
+/* The key chords every machine shares, which act instead of typing. Every
+ * key is typed through core/hid/hostkey.c, which asks here before the key is
+ * encoded, whether the firmware's layout gave its character
+ * (core/hid/keymap.c) or a host's OS did. A chord only a keyboard driver
+ * has, such as GUI-Space for the next layout or a lock key, stays with that
+ * driver. */
 
 #ifndef _CORE_HID_KEY_H_
 #define _CORE_HID_KEY_H_

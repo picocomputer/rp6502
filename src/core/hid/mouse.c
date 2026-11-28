@@ -6,6 +6,7 @@
 
 #include "core/hid/hid.h"
 #include "core/hid/mouse.h"
+#include "core/sys/event.h"
 #include "core/sys/debug_log.h"
 #include "core/sys/xram.h"
 #include "machine.h"
@@ -19,12 +20,14 @@ static struct
     uint8_t wheel;
     uint8_t pan;
 } mouse_state;
-/* Raw device counts. The block carries these shifted down by one, so it
- * advances one unit for every two counts the mouse reports. */
+/* The block's position doubled; the block carries these shifted down by
+ * one. All motion, a USB mouse's or a host's, comes through mouse_host_move
+ * in whole block units, so these move in steps of two. */
 static uint16_t mouse_x;
 static uint16_t mouse_y;
 
-/* The fraction of a count a host's motion leaves over, in Q16.16. */
+/* The fraction of a block unit that motion leaves over, in Q16.16 (a USB
+ * mouse's count is MOUSE_ONE / 2). */
 static int32_t mouse_acc_x, mouse_acc_y;
 
 static uint16_t mouse_xram;
@@ -64,6 +67,16 @@ static mouse_connection_t *HOST_IN_RAM_FUNC mouse_get_connection_by_slot(int slo
     return NULL;
 }
 
+/* Every mouse's buttons together. */
+static uint8_t HOST_IN_RAM_FUNC mouse_merged(void)
+{
+    uint8_t merged = 0;
+    for (int i = 0; i < MOUSE_MAX_MICE; ++i)
+        if (mouse_connections[i].valid)
+            merged |= mouse_connections[i].buttons;
+    return merged;
+}
+
 void HOST_IN_FLASH_FUNC mouse_init(void)
 {
     mouse_stop();
@@ -98,8 +111,12 @@ bool mouse_mount(int slot, const mouse_connection_t *desc)
             continue;
         mouse_connections[i] = *desc;
         mouse_connections[i].slot = slot;
+        mouse_connections[i].buttons = 0;
         RP6502_LOG(hid, INFO, "mouse mount slot=%d, report_id=%d, x=%d/%d rel=%d", slot,
                    desc->report_id, desc->x_offset, desc->x_size, desc->x_relative);
+        /* A mouse is there from the moment it is plugged in, before it
+         * moves, so the tablet's pointer hovers at once. */
+        event_mouse(&(event_mouse_t){.buttons = mouse_merged()});
         return true;
     }
     return false;
@@ -112,13 +129,12 @@ bool mouse_umount(int slot)
         return false;
     RP6502_LOG(hid, INFO, "mouse umount slot=%d, valid=%d, report_id=%d", slot, conn->valid, conn->report_id);
     conn->valid = false;
-    uint8_t merged = 0;
+    /* A button held at unplug is let go at once, and the mice still plugged
+     * in keep theirs. The last one gone, there is no mouse. */
+    bool any = false;
     for (int i = 0; i < MOUSE_MAX_MICE; ++i)
-        if (mouse_connections[i].valid)
-            merged |= mouse_connections[i].buttons;
-    mouse_state.buttons = merged;
-    if (mouse_xram != 0xFFFF)
-        memcpy((uint8_t *)&xram[mouse_xram], &mouse_state, sizeof(mouse_state));
+        any |= mouse_connections[i].valid;
+    event_mouse(&(event_mouse_t){.buttons = mouse_merged(), .gone = !any});
     return true;
 }
 
@@ -151,27 +167,26 @@ void HOST_IN_RAM_FUNC mouse_report(int slot, uint8_t const *data, size_t size)
         }
     }
     conn->buttons = buttons;
-    uint8_t merged = 0;
-    for (int i = 0; i < MOUSE_MAX_MICE; ++i)
-        if (mouse_connections[i].valid)
-            merged |= mouse_connections[i].buttons;
-    mouse_state.buttons = merged;
 
-    mouse_x += hid_extract_signed(report_data, report_data_len,
-                                  conn->x_offset, conn->x_size);
-    mouse_state.x = mouse_x >> 1;
-    if (conn->y_size > 0)
-        mouse_y += hid_extract_signed(report_data, report_data_len,
-                                      conn->y_offset, conn->y_size);
-    mouse_state.y = mouse_y >> 1;
-    if (conn->wheel_size > 0)
-        mouse_state.wheel += hid_extract_signed(report_data, report_data_len,
-                                                conn->wheel_offset, conn->wheel_size);
-    if (conn->pan_size > 0)
-        mouse_state.pan += hid_extract_signed(report_data, report_data_len,
-                                              conn->pan_offset, conn->pan_size);
-
-    mouse_write_xram();
+    /* What every mouse together did, raised as the event a host raises
+     * (core/sys/event.h), which drives the block and the tablet. A report's
+     * count is half the block's, so a USB mouse moves as far as a host's for
+     * the same motion on screen. */
+    const int32_t dx = hid_extract_signed(report_data, report_data_len,
+                                          conn->x_offset, conn->x_size);
+    const int32_t dy = conn->y_size > 0 ? hid_extract_signed(report_data, report_data_len,
+                                                              conn->y_offset, conn->y_size)
+                                        : 0;
+    const int16_t wheel = conn->wheel_size > 0
+                              ? (int16_t)hid_extract_signed(report_data, report_data_len,
+                                                            conn->wheel_offset, conn->wheel_size)
+                              : 0;
+    const int16_t pan = conn->pan_size > 0
+                            ? (int16_t)hid_extract_signed(report_data, report_data_len,
+                                                          conn->pan_offset, conn->pan_size)
+                            : 0;
+    event_mouse(&(event_mouse_t){.dx = dx * (MOUSE_ONE / 2), .dy = dy * (MOUSE_ONE / 2),
+                                 .wheel = wheel, .pan = pan, .buttons = mouse_merged()});
 }
 
 bool mouse_is_mapped(void)
@@ -179,9 +194,9 @@ bool mouse_is_mapped(void)
     return mouse_xram != 0xFFFF;
 }
 
-/* A host count is already in the block's units, and the counters behind the
- * block run at twice that, so host motion is doubled on the way in. */
-void mouse_host_move(int32_t dx, int32_t dy)
+/* Motion in Q16.16 block units, a host's or a USB report's (half a unit per
+ * count). Whole units reach the counters doubled. */
+void HOST_IN_RAM_FUNC mouse_host_move(int32_t dx, int32_t dy)
 {
     mouse_acc_x += dx;
     mouse_acc_y += dy;
@@ -198,7 +213,7 @@ void mouse_host_move(int32_t dx, int32_t dy)
     mouse_write_xram();
 }
 
-void mouse_host_wheel(int dwheel, int dpan)
+void HOST_IN_RAM_FUNC mouse_host_wheel(int dwheel, int dpan)
 {
     if (dwheel == 0 && dpan == 0)
         return;
@@ -207,7 +222,7 @@ void mouse_host_wheel(int dwheel, int dpan)
     mouse_write_xram();
 }
 
-void mouse_host_buttons(uint8_t buttons)
+void HOST_IN_RAM_FUNC mouse_host_buttons(uint8_t buttons)
 {
     if (buttons == mouse_state.buttons)
         return;

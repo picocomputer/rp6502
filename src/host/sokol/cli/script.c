@@ -25,6 +25,7 @@
 #include "core/hid/paste_host.h"
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
+#include "core/sys/event.h"
 #include "core/hid/tablet.h"
 #include "core/com/manifold.h"
 #include "core/com/rln.h"
@@ -1045,13 +1046,28 @@ void script_listen(void)
     script_wav_frames += (uint32_t)n;
 }
 
-static void script_gamepad_publish(int player)
+/* The script's controllers, each at its own player (event_gamepads,
+ * fixed). */
+static void script_gamepad_publish(void)
 {
-    gamepad_connect(player, true, script_gamepad[player].type, script_gamepad[player].sticks);
-    gamepad_host_report(player, script_gamepad[player].dpad, script_gamepad[player].button0,
-                        script_gamepad[player].button1, script_gamepad[player].lx, script_gamepad[player].ly,
-                    script_gamepad[player].rx, script_gamepad[player].ry, script_gamepad[player].lt,
-                    script_gamepad[player].rt);
+    event_gamepads_t pads = {.n = GAMEPAD_PLAYERS, .opened = true, .fixed = true};
+    for (int player = 0; player < GAMEPAD_PLAYERS; player++)
+        if (script_gamepad[player].connected)
+            pads.pad[player] = (gamepad_host_t){
+                .id = (uint64_t)player + 1,
+                .dpad = script_gamepad[player].dpad,
+                .button0 = script_gamepad[player].button0,
+                .button1 = script_gamepad[player].button1,
+                .lx = (int8_t)script_gamepad[player].lx,
+                .ly = (int8_t)script_gamepad[player].ly,
+                .rx = (int8_t)script_gamepad[player].rx,
+                .ry = (int8_t)script_gamepad[player].ry,
+                .lt = (uint8_t)script_gamepad[player].lt,
+                .rt = (uint8_t)script_gamepad[player].rt,
+                .type = script_gamepad[player].type,
+                .sticks = script_gamepad[player].sticks,
+            };
+    event_gamepads(&pads);
 }
 
 static const struct
@@ -1124,10 +1140,7 @@ static bool script_cmd_gamepad(char *p)
         }
         if (!script_end(p))
             return false;
-        if (connect)
-            script_gamepad_publish((int)player);
-        else
-            gamepad_connect((int)player, false, GAMEPAD_TYPE_UNKNOWN, false);
+        script_gamepad_publish();
         return true;
     }
     if (!script_gamepad[player].connected)
@@ -1175,9 +1188,12 @@ static bool script_cmd_gamepad(char *p)
     }
     else
         return script_error("unknown pad verb '%s'", verb);
-    script_gamepad_publish((int)player);
+    script_gamepad_publish();
     return true;
 }
+
+/* The script's mouse buttons, which every report of its mouse carries. */
+static uint8_t script_mouse_buttons;
 
 static bool script_cmd_mouse(char *p)
 {
@@ -1189,7 +1205,8 @@ static bool script_cmd_mouse(char *p)
             return script_error("mouse move wants dx dy");
         if (!script_end(p))
             return false;
-        mouse_host_move(dx * MOUSE_ONE, dy * MOUSE_ONE);
+        event_mouse(&(event_mouse_t){.dx = (int32_t)dx * MOUSE_ONE, .dy = (int32_t)dy * MOUSE_ONE,
+                                     .buttons = script_mouse_buttons});
         return true;
     }
     if (verb && !strcasecmp(verb, "wheel"))
@@ -1201,7 +1218,8 @@ static bool script_cmd_mouse(char *p)
             return script_error("mouse wheel wants a pan count");
         if (!script_end(p))
             return false;
-        mouse_host_wheel((int)wheel, (int)pan);
+        event_mouse(&(event_mouse_t){.wheel = (int16_t)wheel, .pan = (int16_t)pan,
+                                     .buttons = script_mouse_buttons});
         return true;
     }
     if (verb && !strcasecmp(verb, "buttons"))
@@ -1211,7 +1229,8 @@ static bool script_cmd_mouse(char *p)
             return script_error("mouse buttons wants a bitmap 0..255");
         if (!script_end(p))
             return false;
-        mouse_host_buttons((uint8_t)mask);
+        script_mouse_buttons = (uint8_t)mask;
+        event_mouse(&(event_mouse_t){.buttons = script_mouse_buttons});
         return true;
     }
     return script_error("mouse wants move, wheel or buttons");
@@ -1229,17 +1248,20 @@ static bool script_cmd_tablet(char *p)
             return script_error("tablet at wants a button bitmap 0..255");
         if (!script_end(p))
             return false;
-        tablet_host_pointer((int)x, (int)y, (uint8_t)buttons, true);
+        event_tablet(&(event_tablet_t){
+            .n = 1,
+            .host_cursor = true,
+            .at = {{(int16_t)x, (int16_t)y, (uint8_t)(buttons | TABLET_FLAG_HOVER)}}});
         return true;
     }
     if (verb && !strcasecmp(verb, "touch"))
     {
-        tablet_point_t points[TABLET_MAX_CONTACTS];
+        event_tablet_t touch = {0};
         int count = 0;
         char *word;
         while ((word = script_word(&p)) != NULL)
         {
-            if (count == TABLET_MAX_CONTACTS)
+            if (count == EVENT_CONTACTS)
                 return script_error("tablet touch takes at most %d contacts", TABLET_MAX_CONTACTS);
             char *comma = script_outside(word, ",");
             if (!*comma)
@@ -1249,11 +1271,13 @@ static bool script_cmd_tablet(char *p)
             long x, y;
             if (!script_number(&xs, &x) || !script_number(&ys, &y))
                 return script_error("tablet touch wants x,y pairs");
-            points[count].x = (int16_t)x;
-            points[count].y = (int16_t)y;
+            touch.at[count].x = (int16_t)x;
+            touch.at[count].y = (int16_t)y;
+            touch.at[count].flags = TABLET_FLAG_LEFT; /* tip down, no hover */
             count++;
         }
-        tablet_host_touch(points, count);
+        touch.n = (uint8_t)count;
+        event_tablet(&touch);
         return true;
     }
     if (verb && !strcasecmp(verb, "wheel"))
@@ -1265,14 +1289,14 @@ static bool script_cmd_tablet(char *p)
             return script_error("tablet wheel wants a pan count");
         if (!script_end(p))
             return false;
-        tablet_host_wheel((int)wheel, (int)pan);
+        event_wheel(&(event_wheel_t){.wheel = (int16_t)wheel, .pan = (int16_t)pan});
         return true;
     }
     if (verb && !strcasecmp(verb, "clear"))
     {
         if (!script_end(p))
             return false;
-        tablet_host_clear();
+        event_tablet(&(event_tablet_t){0});
         return true;
     }
     return script_error("tablet wants at, touch, wheel or clear");
@@ -1514,10 +1538,8 @@ static bool script_command(const char *line)
             if (!script_end(p))
                 return false;
             /* A script runs with no window, where the clipboard is one
-             * the emulator keeps (app.c). */
+             * the emulator keeps (app/clip.c). */
             const char *got = host_clipboard_get();
-            if (!got)
-                return script_error("this host has no clipboard");
             script_printable(shown, sizeof shown, text, strlen(text));
             if (want && strcmp(got, text))
             {
@@ -1626,8 +1648,7 @@ static bool script_command(const char *line)
             return script_error("clip set wants a quoted string");
         if (!script_end(p))
             return false;
-        if (!host_clipboard_set(text))
-            return script_error("this host has no clipboard");
+        host_clipboard_set(text);
         return true;
     }
 
@@ -1686,7 +1707,9 @@ static bool script_command(const char *line)
                     return script_error("unknown key '%s'", name);
                 hid = (uint8_t)usage;
             }
-            keyboard_set_key(hid, down);
+            /* The key goes into the keyboard's bitmap only; text is typed
+             * with type. */
+            event_key(&(event_key_t){.usage = hid, .down = down});
             count++;
         }
         if (!count)
@@ -1706,7 +1729,7 @@ static bool script_command(const char *line)
             locks &= (uint8_t)~bit;
         if (!script_end(p))
             return false;
-        keyboard_set_locks(locks);
+        event_locks(locks);
         return true;
     }
 
@@ -2129,9 +2152,7 @@ static bool script_settle(void)
  * every frame. */
 static void script_gamepads_restate(void)
 {
-    for (int i = 0; i < 4; i++)
-        if (script_gamepad[i].connected)
-            script_gamepad_publish(i);
+    script_gamepad_publish();
 }
 
 void script_task(void)
@@ -2232,6 +2253,7 @@ void script_usage(FILE *out)
 bool script_load(const char *path, const char *rom)
 {
     char why[SCRIPT_LINE_MAX];
+    script_mouse_buttons = 0;
     script_names_clear(&script_vars);
     if (!script_symbols(rom, why, sizeof why))
     {

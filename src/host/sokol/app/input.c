@@ -11,14 +11,10 @@
 #include "host/sokol/app/entry.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
-#include "core/hid/vtkey.h"
-#include "core/hid/hostkey.h"
 #include "core/hid/key.h"
+#include "core/hid/hostkey.h"
 #include "core/hid/mouse.h"
-#include "core/hid/paste_host.h"
 #include "core/hid/tablet.h"
-#include "core/vga/mode/mode6.h"
-#include "core/vga/vga_emu.h"
 #ifdef EMU_WITH_DEBUGGER
 #include "host/sokol/dbg/dbgui.h"
 #include "core/dap/dbg.h"
@@ -27,13 +23,23 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 
-static bool suppress_char;
+_Static_assert(EVENT_CONTACTS == SAPP_MAX_TOUCHPOINTS, "a touch message holds every contact");
 
-/* Set from a chord that acted until its key comes up. Windows follows Alt-F4
- * with a close request, which is cancelled while this is set. Repeats of the
- * chord's key are core/hid/key.h's to drop. */
-static bool input_chord_held;
+/* What the machine last told the window. Until it has, nothing is mapped and
+ * nothing is the tablet's. */
+static evq_status_t input_told;
+
+void input_set_status(const evq_status_t *s)
+{
+    input_told = *s;
+}
+
+const evq_status_t *input_status(void)
+{
+    return &input_told;
+}
 
 /* A sokol keycode as a USB HID keyboard usage id, for the keyboard bitmap.
  * 0 means the key has no usage id and is not reported. */
@@ -122,6 +128,26 @@ static uint8_t input_modifier(const sapp_event *e)
                      ((e->modifiers & SAPP_MODIFIER_SUPER) ? KEYBOARD_MODIFIER_LEFTGUI : 0));
 }
 
+/* Whether sokol could not give the clipboard's text, too big for its
+ * buffer, since the last read: it hands back the text it last had then, so
+ * there is none. */
+static bool input_too_big;
+
+void input_clipboard_too_big(void)
+{
+    input_too_big = true;
+}
+
+#if !defined(__EMSCRIPTEN__)
+/* The desktop's clipboard as it is now, pasted in a paste key's place. */
+static void input_paste_clipboard(void)
+{
+    input_too_big = false;
+    const char *text = sapp_get_clipboard_string();
+    evq_text_to_machine(EVQ_PASTE, input_too_big ? "" : text);
+}
+#endif
+
 bool input_paste_key(const sapp_event *e)
 {
     return e->type == SAPP_EVENTTYPE_KEY_DOWN && !e->key_repeat &&
@@ -140,23 +166,34 @@ bool input_key_withheld(const sapp_event *e)
            (hid == HID_KEY_V && input_modifier(e) == KEYBOARD_MODIFIER_LEFTCTRL);
 }
 
-/* What the window asks the OS for, read without the machine's lock, and asks
- * of it in return once the lock is let go. */
-static uint8_t input_host_locks;
-/* The pointer's capture to take (1) or let go (0), or nothing (-1). */
+/* What the window asks of the OS once it has taken an event: the pointer's
+ * capture to take (1) or let go (0), or nothing (-1), and the cursor to show,
+ * or -1 for none to set. */
 static int input_capture = -1;
-/* The cursor to show, or -1 for none to set. */
 static int input_cursor = -1;
 static bool input_cursor_shown = true;
-
-void input_read_locks(void)
-{
-    input_host_locks = host_locks();
-}
+static int input_sent_locks = -1;
+/* The captured mouse's buttons as the host has them. */
+static uint8_t host_mouse_buttons;
+/* Whether the pointer was captured as the window last looked. */
+static bool input_was_captured;
+/* The button whose click asked for the capture (TABLET_FLAG_), which is
+ * spent on it: the system takes a while to capture, and until it has, the
+ * pointer is still the tablet's, with that button held. */
+static uint8_t input_spent;
+/* Whether the host pointer is over the drawn canvas. The tablet's cursor
+ * applies only there, and the system cursor shows in the letterbox. True so
+ * that a freshly mapped tablet shows its cursor before the pointer has moved
+ * once. */
+static bool pointer_on_canvas = true;
 
 void input_locks(void)
 {
-    keyboard_set_locks(input_host_locks);
+    const uint8_t locks = host_locks();
+    if (locks == input_sent_locks)
+        return;
+    input_sent_locks = locks;
+    evq_to_machine(EVQ_LOCKS, &locks, 1);
 }
 
 void input_apply(void)
@@ -172,87 +209,80 @@ void input_apply(void)
     input_cursor = -1;
 }
 
-/* A capture or a release, for input_apply. */
-static void input_capture_mouse(bool on)
-{
-    input_capture = on;
-}
-
 static void input_set_cursor(sapp_mouse_cursor cursor, bool shown)
 {
     input_cursor = cursor;
     input_cursor_shown = shown;
 }
 
+bool input_pointer_to_tablet(void)
+{
+    return input_told.event.flags & EVENT_TO_TABLET;
+}
+
+bool input_wheel_to_tablet(void)
+{
+    return input_told.event.flags & EVENT_WHEEL_TO_TABLET;
+}
+
+static bool input_mouse_mapped(void)
+{
+    return input_told.event.flags & EVENT_MOUSE_MAPPED;
+}
+
 static void input_key(const sapp_event *e)
 {
-    /* The host repeats a held key and its character; the terminal says
-     * whether they are typed (DECARM). */
-    if (e->key_repeat && !vtkey_repeats())
-        return;
-    if (e->type == SAPP_EVENTTYPE_KEY_DOWN || e->type == SAPP_EVENTTYPE_KEY_UP)
+    if (e->type == SAPP_EVENTTYPE_CHAR)
     {
-        uint8_t hid = sokol_to_hid(e->key_code);
-        if (hid)
-            keyboard_set_key(hid, e->type == SAPP_EVENTTYPE_KEY_DOWN);
-    }
-    switch (e->type)
-    {
-    case SAPP_EVENTTYPE_CHAR:
         /* Printable characters only. The control codes below 32, DEL, and the
-         * Ctrl and Alt chords are all emitted by the KEY_DOWN case below, and a
-         * host that also fires a CHAR for them would double-inject. macOS fires
-         * a CHAR for a Cmd chord too, so without the Super test Cmd+V would type
-         * a 'v' before the pasted text arrived. Where the host reports AltGr as
-         * Ctrl+Alt, the character it composed is typed, which is what the
-         * firmware's right-Alt does. */
-        if (suppress_char)
-            suppress_char = false;
-        else if (e->char_code >= 32 && e->char_code != 127 &&
-                 !(e->modifiers & SAPP_MODIFIER_SUPER) &&
-                 (!(e->modifiers & (SAPP_MODIFIER_CTRL | SAPP_MODIFIER_ALT)) ||
-                  (ALTGR_IS_CTRL_ALT &&
-                   (e->modifiers & SAPP_MODIFIER_CTRL) && (e->modifiers & SAPP_MODIFIER_ALT))))
+         * Ctrl and Alt chords are all typed from the key going down, and a
+         * host that also fires a CHAR for them would type them twice. macOS
+         * fires a CHAR for a Cmd chord too, so without the Super test Cmd+V
+         * would type a 'v' before the pasted text arrived. Where the host
+         * reports AltGr as Ctrl+Alt, the character it composed is typed,
+         * which is what the firmware's right-Alt does. */
+        if (e->char_code >= 32 && e->char_code != 127 &&
+            !(e->modifiers & SAPP_MODIFIER_SUPER) &&
+            (!(e->modifiers & (SAPP_MODIFIER_CTRL | SAPP_MODIFIER_ALT)) ||
+             (ALTGR_IS_CTRL_ALT &&
+              (e->modifiers & SAPP_MODIFIER_CTRL) && (e->modifiers & SAPP_MODIFIER_ALT))))
         {
-            hostkey_char(e->char_code);
+            const event_char_t c = {.codepoint = e->char_code, .repeat = e->key_repeat};
+            evq_to_machine(EVQ_CHAR, &c, sizeof c);
         }
-        break;
-    case SAPP_EVENTTYPE_KEY_DOWN:
-    {
-        bool ctrl = (e->modifiers & SAPP_MODIFIER_CTRL) != 0;
-        bool alt = (e->modifiers & SAPP_MODIFIER_ALT) != 0;
-        uint8_t hid = sokol_to_hid(e->key_code);
-        uint8_t modifier = input_modifier(e);
-        suppress_char = false;
-        /* The system gives no text for a Ctrl or Alt chord, so its
-         * character is guessed. Any other key's text arrives through the
-         * CHAR case above. Plain Ctrl+V is the program's, and types 0x16 as
-         * Ctrl+C types 0x03: the paste keys are others (core/hid/key.h).
-         * Ctrl+Alt is excluded only where it means AltGr, whose composed
-         * character arrives through the CHAR case above. */
-        const bool guess = (ctrl && !alt) || (alt && !(ALTGR_IS_CTRL_ALT && ctrl));
-#if defined(__EMSCRIPTEN__)
-        /* A page reads the clipboard only in the paste event that a paste
-         * key makes, so a paste key is left to the browser (entry.c), and
-         * the paste event that follows pastes. */
-        if (key_clip(hid, modifier) == KEY_CLIP_PASTE)
-            break;
+        return;
+    }
+    const bool ctrl = (e->modifiers & SAPP_MODIFIER_CTRL) != 0;
+    const bool alt = (e->modifiers & SAPP_MODIFIER_ALT) != 0;
+    /* The system gives no text for a Ctrl or Alt chord, so its character is
+     * guessed, a US keyboard's. Any other key's text arrives as a CHAR. Plain
+     * Ctrl+V is the program's, and types 0x16 as Ctrl+C types 0x03: the paste
+     * keys are others (core/hid/key.h). Ctrl+Alt is excluded only where it
+     * means AltGr, whose composed character arrives as a CHAR. */
+    const bool guess = (ctrl && !alt) || (alt && !(ALTGR_IS_CTRL_ALT && ctrl));
+    const uint8_t usage = sokol_to_hid(e->key_code), modifier = input_modifier(e);
+    event_key_t k = {
+        .usage = usage,
+        .modifier = modifier,
+        .ch = guess ? hostkey_guess(usage, modifier, input_sent_locks > 0 && (input_sent_locks & KEYBOARD_LED_CAPSLOCK)) : 0,
+        .down = e->type == SAPP_EVENTTYPE_KEY_DOWN,
+        .repeat = e->key_repeat,
+        .meta = true,
+        .acts = true,
+    };
+    /* A paste key pastes what is on the clipboard as it goes down, which
+     * is what the user meant, so the machine never pastes for it: the key
+     * goes only into the keyboard's bitmap, and its text follows in its
+     * place (event_paste). A page reads its clipboard only in the paste
+     * event the key makes, so there the key is left to the browser
+     * (entry.c), and that event follows (CLIPBOARD_PASTED below). */
+    if (key_clip(k.usage, k.modifier) == KEY_CLIP_PASTE)
+        k.acts = false;
+    evq_to_machine(EVQ_KEY, &k, sizeof k);
+#if !defined(__EMSCRIPTEN__)
+    if (input_paste_key(e))
+        input_paste_clipboard();
 #endif
-        hostkey_result_t result = hostkey_press(hid, modifier, e->key_repeat, guess);
-        if (result == HOSTKEY_CHORD)
-            input_chord_held = true;
-        /* A key that typed with no character from here must not type
-         * the system's character too. */
-        else if (result == HOSTKEY_TYPED && !guess)
-            suppress_char = true;
-        break;
-    }
-    case SAPP_EVENTTYPE_KEY_UP:
-        input_chord_held = false;
-        break;
-    default:
-        break;
-    }
 }
 
 /* One mouse count is one pixel on a 640-wide canvas and half a pixel on a
@@ -261,18 +291,54 @@ static void input_key(const sapp_event *e)
  * then 640 counts whatever the canvas resolution and the window size are. */
 #define INPUT_MOUSE_REF_WIDTH 640.0f
 
-/* The event's motion, measured against a canvas onscreen_w wide in the
- * motion's own units. */
-static void input_mouse_move(const sapp_event *e, float onscreen_w)
+/* The event's motion in mouse counts, measured against a canvas onscreen_w
+ * wide in the motion's own units. */
+static void input_mouse_counts(const sapp_event *e, float onscreen_w, int32_t *dx, int32_t *dy)
 {
+    *dx = *dy = 0;
     if (onscreen_w <= 0.0f)
         return;
     const float gain = INPUT_MOUSE_REF_WIDTH / onscreen_w;
-    mouse_host_move((int32_t)lrintf(e->mouse_dx * gain * (float)MOUSE_ONE),
-                    (int32_t)lrintf(e->mouse_dy * gain * (float)MOUSE_ONE));
+    *dx = (int32_t)lrintf(e->mouse_dx * gain * (float)MOUSE_ONE);
+    *dy = (int32_t)lrintf(e->mouse_dy * gain * (float)MOUSE_ONE);
 }
 
-static uint8_t host_mouse_buttons;
+static void input_mouse_send(int32_t dx, int32_t dy, int wheel, int pan)
+{
+    const event_mouse_t m = {.dx = dx, .dy = dy, .wheel = (int16_t)wheel, .pan = (int16_t)pan,
+                             .buttons = host_mouse_buttons};
+    evq_to_machine(EVQ_MOUSE, &m, sizeof m);
+}
+
+static void input_tablet_clear(void)
+{
+    const event_tablet_t t = {0};
+    evq_to_machine(EVQ_TABLET, &t, sizeof t);
+}
+
+/* The host's mouse is the pointer captured, and only while it is: as the
+ * capture comes it is there, hovering the tablet's pointer where the tablet
+ * had it, and as it goes, however it went (Esc, the system, the page), it
+ * is gone, and the pointer is the tablet's again from its next event. */
+static void input_watch_capture(void)
+{
+    const bool captured = input_mouse_locked();
+    if (captured == input_was_captured)
+        return;
+    input_was_captured = captured;
+    host_mouse_buttons = 0;
+    input_spent = 0;
+    if (captured)
+    {
+        input_tablet_clear();
+        input_mouse_send(0, 0, 0, 0);
+    }
+    else
+    {
+        const event_mouse_t m = {.gone = true};
+        evq_to_machine(EVQ_MOUSE, &m, sizeof m);
+    }
+}
 
 static void set_host_mouse_button(int btn, bool down)
 {
@@ -282,7 +348,7 @@ static void set_host_mouse_button(int btn, bool down)
         host_mouse_buttons |= (uint8_t)(1u << btn);
     else
         host_mouse_buttons &= (uint8_t)~(1u << btn);
-    mouse_host_buttons(host_mouse_buttons);
+    input_mouse_send(0, 0, 0, 0);
 }
 
 static uint8_t host_mouse_button_bit(sapp_mousebutton mb)
@@ -328,19 +394,21 @@ static int input_notches(float *rest, float delta)
     return (int)whole;
 }
 
-static void input_wheel_notches(const sapp_event *e, int *wheel, int *pan)
+/* sokol's scroll_x, like GLFW's, is positive to the left, and pan, like HID
+ * AC Pan, is positive to the right. */
+static int input_wheel_notches(const sapp_event *e)
 {
-    /* sokol's scroll_x, like GLFW's, is positive to the left, and pan, like
-     * HID AC Pan, is positive to the right. */
-    *wheel = input_notches(&input_wheel_rest, e->scroll_y);
-    *pan = input_notches(&input_pan_rest, -e->scroll_x);
+    return input_notches(&input_wheel_rest, e->scroll_y);
 }
 
-/* Route a host pointer or touch event to the tablet, which is an absolute canvas
- * position and never captures. Because nothing is captured while the tablet has
- * the pointer, a mouse the program mapped is fed from here as well: the one
- * physical pointer drives both blocks, as it would on hardware. True when the
- * event was consumed. */
+static int input_pan_notches(const sapp_event *e)
+{
+    return input_notches(&input_pan_rest, -e->scroll_x);
+}
+
+/* A host pointer or touch event while the pointer is not captured, which is
+ * the host's tablet: an absolute canvas position, and the wheel. True when
+ * the event was the tablet's. */
 static bool input_tablet(const sapp_event *e)
 {
     int cx, cy;
@@ -350,59 +418,55 @@ static bool input_tablet(const sapp_event *e)
     case SAPP_EVENTTYPE_MOUSE_UP:
     case SAPP_EVENTTYPE_MOUSE_MOVE:
     {
-        bool inside = gfx_canvas_from_fb(e->mouse_x, e->mouse_y, &cx, &cy);
-        input_set_pointer_on_canvas(inside);
-        uint8_t buttons = pointer_buttons(e);
+        /* Off the canvas, in the letterbox, the pointer is on no part of
+         * the tablet. */
+        const bool inside = gfx_canvas_from_fb(e->mouse_x, e->mouse_y, &cx, &cy);
+        pointer_on_canvas = inside;
+        event_tablet_t t = {.host_cursor = true};
+        if (e->type == SAPP_EVENTTYPE_MOUSE_UP)
+            input_spent &= (uint8_t)~host_mouse_button_bit(e->mouse_button);
         if (inside)
-            tablet_host_pointer(cx, cy, buttons, true);
-        else
-            tablet_host_clear();
-        if (mouse_is_mapped())
         {
-            mouse_host_buttons(buttons);
-            if (e->type == SAPP_EVENTTYPE_MOUSE_MOVE)
-                input_mouse_move(e, gfx_canvas_width());
+            const uint8_t buttons = pointer_buttons(e) & (uint8_t)~input_spent;
+            t.n = 1;
+            t.at[0] = (tablet_contact_t){(int16_t)cx, (int16_t)cy,
+                                         (uint8_t)(buttons | TABLET_FLAG_HOVER)};
         }
+        evq_to_machine(EVQ_TABLET, &t, sizeof t);
         return true;
     }
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
-        /* A wheel the tablet does not use is not consumed. It falls to the
-         * mouse, which takes it only while captured, so it is either used here
-         * or left whole to the page, as the web build cancels it. */
-        if (!input_wheel_to_tablet())
-            return false;
-        {
-            int wheel, pan;
-            input_wheel_notches(e, &wheel, &pan);
-            tablet_host_wheel(wheel, pan);
-            if (mouse_is_mapped())
-                mouse_host_wheel(wheel, pan);
-        }
+    {
+        /* The web build leaves a wheel the tablet does not want to the page
+         * (entry.c), which scrolls with it as well. */
+        const event_wheel_t w = {.wheel = (int16_t)input_wheel_notches(e),
+                                 .pan = (int16_t)input_pan_notches(e)};
+        evq_to_machine(EVQ_WHEEL, &w, sizeof w);
         return true;
+    }
     case SAPP_EVENTTYPE_MOUSE_LEAVE:
-        input_set_pointer_on_canvas(false);
-        tablet_host_clear();
+        pointer_on_canvas = false;
+        input_tablet_clear();
         return true;
     case SAPP_EVENTTYPE_TOUCHES_BEGAN:
     case SAPP_EVENTTYPE_TOUCHES_MOVED:
     case SAPP_EVENTTYPE_TOUCHES_ENDED:
     case SAPP_EVENTTYPE_TOUCHES_CANCELLED:
     {
-        bool ending = e->type == SAPP_EVENTTYPE_TOUCHES_ENDED ||
-                      e->type == SAPP_EVENTTYPE_TOUCHES_CANCELLED;
-        tablet_point_t pts[SAPP_MAX_TOUCHPOINTS];
-        int n = 0;
-        for (int i = 0; i < e->num_touches && n < SAPP_MAX_TOUCHPOINTS; ++i)
+        const bool ending = e->type == SAPP_EVENTTYPE_TOUCHES_ENDED ||
+                            e->type == SAPP_EVENTTYPE_TOUCHES_CANCELLED;
+        event_tablet_t t = {0};
+        for (int i = 0; i < e->num_touches && t.n < EVENT_CONTACTS; ++i)
         {
             if (ending && e->touches[i].changed)
                 continue; /* the finger this event lifts is no longer a contact */
             if (!gfx_canvas_from_fb(e->touches[i].pos_x, e->touches[i].pos_y, &cx, &cy))
                 continue;
-            pts[n].x = (int16_t)cx;
-            pts[n].y = (int16_t)cy;
-            n++;
+            /* A finger is tip down and does not hover. */
+            t.at[t.n] = (tablet_contact_t){(int16_t)cx, (int16_t)cy, TABLET_FLAG_LEFT};
+            t.n++;
         }
-        tablet_host_touch(pts, n);
+        evq_to_machine(EVQ_TABLET, &t, sizeof t);
         return true;
     }
     default:
@@ -419,30 +483,30 @@ bool input_mouse_locked(void)
 #endif
 }
 
-bool input_pointer_to_tablet(void)
-{
-    return tablet_is_mapped() || (tablet_wanted() && !mouse_is_mapped());
-}
-
-bool input_wheel_to_tablet(void)
-{
-    return input_pointer_to_tablet() && tablet_wheel_wanted();
-}
-
 void input_pointer_task(void)
 {
-    const bool to_tablet = input_pointer_to_tablet();
-    /* The absolute tablet never captures the pointer, and a program that has
-     * unmapped the mouse no longer wants it. */
-    if (input_mouse_locked() && (!mouse_is_mapped() || to_tablet))
-        input_capture_mouse(false);
-    tablet_host_give(to_tablet);
+    /* A program that has unmapped the mouse no longer wants it captured. */
+    input_watch_capture();
+    if (input_mouse_locked() && !input_mouse_mapped())
+        input_capture = 0;
 }
 
 void input_event(const sapp_event *e)
 {
-    if (input_pointer_to_tablet() && input_tablet(e))
-        return;
+    input_watch_capture();
+    if (!input_mouse_locked())
+    {
+        /* The first click captures the pointer, and only once a program has
+         * mapped the mouse. That click is spent on the capture. */
+        if (e->type == SAPP_EVENTTYPE_MOUSE_DOWN && input_mouse_mapped())
+        {
+            input_capture = 1;
+            input_spent |= host_mouse_button_bit(e->mouse_button);
+            return;
+        }
+        if (input_tablet(e))
+            return;
+    }
 
     switch (e->type)
     {
@@ -451,10 +515,9 @@ void input_event(const sapp_event *e)
          * browser leaves pointer lock. */
         if (e->key_code == SAPP_KEYCODE_ESCAPE && input_mouse_locked())
         {
-            input_capture_mouse(false);
+            input_capture = 0;
             break;
         }
-        /* A key is typed by the locks the system has as it goes down. */
         input_locks();
         input_key(e);
         break;
@@ -463,14 +526,7 @@ void input_event(const sapp_event *e)
         input_key(e);
         break;
     case SAPP_EVENTTYPE_MOUSE_DOWN:
-        if (!input_mouse_locked())
-        {
-            /* The first click captures the pointer, and only once a program has
-             * mapped the mouse. That click is spent on the capture. */
-            if (mouse_is_mapped())
-                input_capture_mouse(true);
-        }
-        else
+        if (input_mouse_locked())
             set_host_mouse_button(e->mouse_button, true);
         break;
     case SAPP_EVENTTYPE_MOUSE_UP:
@@ -481,40 +537,34 @@ void input_event(const sapp_event *e)
         if (input_mouse_locked())
         {
             float onscreen_w = gfx_canvas_width();
-#if defined(__APPLE__)
-            /* AppKit reports a captured pointer's motion in points, and a point
-             * is dpi_scale framebuffer pixels under high_dpi, so the canvas is
-             * measured in points too. */
+#if defined(__APPLE__) || defined(__EMSCRIPTEN__)
+            /* AppKit reports a captured pointer's motion in points, and a
+             * browser in the page's pixels, and either is dpi_scale
+             * framebuffer pixels under high_dpi, so the canvas is measured
+             * in them too. */
             onscreen_w /= sapp_dpi_scale();
 #endif
-            input_mouse_move(e, onscreen_w);
+            int32_t dx, dy;
+            input_mouse_counts(e, onscreen_w, &dx, &dy);
+            input_mouse_send(dx, dy, 0, 0);
         }
         break;
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
         if (input_mouse_locked())
-        {
-            int wheel, pan;
-            input_wheel_notches(e, &wheel, &pan);
-            mouse_host_wheel(wheel, pan);
-        }
+            input_mouse_send(0, 0, input_wheel_notches(e), input_pan_notches(e));
         break;
     case SAPP_EVENTTYPE_CLIPBOARD_PASTED:
 #if defined(__EMSCRIPTEN__)
         /* The page's paste event, which a paste key left to the browser
          * made, or the browser's own menu. The browser hands the
-         * clipboard's text over only here, so it is copied now and pasted
+         * clipboard's text over only here, so it is sent now and pasted
          * in its place among the keys (paste_host.h). Plain Ctrl+V, which
          * typed 0x16, makes none (input_key_withheld). */
-        paste_start(sapp_get_clipboard_string());
+        evq_text_to_machine(EVQ_PASTE, sapp_get_clipboard_string());
 #endif
-        /* On the desktop the paste keys are chords (core/hid/key.h) that
-         * paste the desktop's clipboard themselves, asking for it as the
-         * paste's turn comes, so the paste sokol makes of Ctrl+V or Cmd+V
-         * is no paste. */
-        break;
-    case SAPP_EVENTTYPE_QUIT_REQUESTED:
-        if (input_chord_held)
-            sapp_cancel_quit();
+        /* On the desktop a paste key reads the clipboard itself as it
+         * goes down (input_paste_clipboard), so the paste sokol makes of
+         * Ctrl+V or Cmd+V is no paste. */
         break;
     default:
         break;
@@ -539,18 +589,10 @@ static sapp_mouse_cursor tablet_cursor_to_sokol(uint8_t shape)
     }
 }
 
-/* True so that a freshly mapped tablet shows its cursor before the pointer has
- * moved once. */
-static bool pointer_on_canvas = true;
-
-void input_set_pointer_on_canvas(bool on)
-{
-    pointer_on_canvas = on;
-}
+static bool had_tablet;
 
 void input_cursor_task(void)
 {
-    static bool had_tablet;
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active() && dbgui_wants_mouse())
     {
@@ -563,17 +605,27 @@ void input_cursor_task(void)
     if (input_pointer_to_tablet() && pointer_on_canvas)
     {
         had_tablet = true;
-        /* The VGA draws the program's own pointers, and a shape the system
-         * has none of is no pointer. */
-        const uint8_t shape = tablet_shape();
-        if (shape == TABLET_CURSOR_OFF || shape >= TABLET_CURSOR_COUNT || mode6_custom())
+        if (input_told.event.cursor == TABLET_CURSOR_OFF)
             input_set_cursor(SAPP_MOUSECURSOR_DEFAULT, false);
         else
-            input_set_cursor(tablet_cursor_to_sokol(shape), true);
+            input_set_cursor(tablet_cursor_to_sokol(input_told.event.cursor), true);
     }
     else if (had_tablet)
     {
         had_tablet = false;
         input_set_cursor(SAPP_MOUSECURSOR_DEFAULT, true);
     }
+}
+
+void input_reset(void)
+{
+    memset(&input_told, 0, sizeof input_told);
+    input_capture = input_cursor = input_sent_locks = -1;
+    input_cursor_shown = pointer_on_canvas = true;
+    had_tablet = false;
+    host_mouse_buttons = 0;
+    input_too_big = false;
+    input_was_captured = false;
+    input_spent = 0;
+    input_wheel_rest = input_pan_rest = 0;
 }
