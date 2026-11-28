@@ -43,6 +43,8 @@ target_include_directories(emu_core PUBLIC ${RP6502_SRC}/host/sokol)
 include(${RP6502_SRC}/osal/posix/posix.cmake)
 rp6502_osal_posix(emu_core TRANSPORT sync)
 target_sources(emu_core PRIVATE ${RP6502_OSAL}/os.c)
+# The web page's clipboard is its own (app/clip.c).
+target_sources(emu_core PRIVATE ${RP6502_SRC}/core/hid/clip_utf8.c)
 # console.c is named here rather than by posix.cmake because it installs
 # process-wide signal handlers, which a machine that is a guest in someone
 # else's process must not do.
@@ -59,10 +61,12 @@ add_executable(rp6502-emu
     ${RP6502_SRC}/host/sokol/cli/log.c
     ${CMAKE_CURRENT_LIST_DIR}/webapi.c
     ${RP6502_EMU_WINDOW}
+    ${RP6502_SRC}/host/sokol/app/gamepad.c
     ${CMAKE_CURRENT_LIST_DIR}/audio.c
+    ${CMAKE_CURRENT_LIST_DIR}/link.c
     ${CMAKE_CURRENT_LIST_DIR}/entry.c)
 target_link_libraries(rp6502-emu PRIVATE emu_core)
-target_compile_definitions(rp6502-emu PRIVATE SOKOL_NO_ENTRY SOKOL_GLES3)
+target_compile_definitions(rp6502-emu PRIVATE SOKOL_NO_ENTRY SOKOL_GLES3 RP6502_PAD_HOST)
 
 # A browser that backs growable wasm memory with a resizable ArrayBuffer may
 # still reject a resizable view at TextDecoder or WebGL, so the classic heap
@@ -74,7 +78,7 @@ target_compile_definitions(rp6502-emu PRIVATE SOKOL_NO_ENTRY SOKOL_GLES3)
 # UMD export does not register rp6502.js with a RequireJS loader on the page.
 target_link_options(rp6502-emu PRIVATE
     "-sUSE_WEBGL2=1"
-    "-sENVIRONMENT=web"
+    "-sENVIRONMENT=web,worker"
     "-sALLOW_MEMORY_GROWTH=1"
     "-sGROWABLE_ARRAYBUFFERS=0"
     "-sSTACK_SIZE=512KB"

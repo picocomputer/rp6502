@@ -666,7 +666,7 @@ static void term_out_window(term_t *t)
         TERM_REPLY("\33[3;1;1t");
         break;
     case 11: // minimized? only an emulator's window can be
-        if (host_minimized())
+        if (vterm_minimized())
             TERM_REPLY("\33[2t");
         else
             TERM_REPLY("\33[1t");
@@ -774,7 +774,7 @@ static void term_out_DECRQM(term_t *t, bool private)
             pm = t->bracketed_paste ? 1 : 2;
             break;
         case 1004: // focus events, where the window can lose focus
-            pm = !host_focusable() ? 4 : t->focus_events ? 1 : 2;
+            pm = !vterm_focusable() ? 4 : t->focus_events ? 1 : 2;
             break;
         case 1007: // alternate scroll
             pm = t->alt_scroll ? 1 : 2;
@@ -1366,7 +1366,7 @@ static void term_out_DECSET(term_t *t, bool set)
             break;
         case 1004: // focus events, which a host that never loses focus
                    // keeps reset, as DECRQM answers
-            t->focus_events = set && host_focusable();
+            t->focus_events = set && vterm_focusable();
             break;
         case 1007: // alternate scroll
             t->alt_scroll = set;

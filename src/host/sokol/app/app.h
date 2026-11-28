@@ -40,20 +40,6 @@ int app_exit_code(void);
  * as a browser tab, installs neither and ends the run by closing its window. */
 void app_set_break(bool (*asked)(void), void (*leave)(void));
 
-/* The name to boot a ROM file by, from its host path in UTF-8, allocated for
- * the caller to free, or NULL. A path that has a drive path in the code page
- * becomes that drive path. A program could not open any other path, so that
- * file is installed on the null drive and the result is its ":name". */
-char *app_rom_path(const char *host);
-
-/* Boot a .rp6502, true on success. The path is the host path from the OS,
- * converted for the boot by app_rom_path. It returns false without
- * booting while a DAP client controls the machine. A failed load leaves the
- * machine stopped, because rom_load streams records into live RAM before it
- * can fail, as on hardware where a failed LOAD leaves the CPU stopped in the
- * monitor. */
-bool app_boot_rom(const char *path);
-
 /* sokol's logger, for every .logger.func. Its lines are the sokol log category,
  * and a panic (level 0) does not return. */
 void app_log(const char *tag, uint32_t log_level, uint32_t log_item_id,

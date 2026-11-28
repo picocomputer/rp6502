@@ -13,15 +13,8 @@
  * test sets it. */
 extern bool tb_mac_keys;
 
-/* Whether the test bench's host has no clipboard (host_clipboard_get), as
- * the RIA has none, false until a test sets it. */
-extern bool tb_no_clipboard;
-
-/* Whether the test bench's host has a clipboard the machine can set and
- * cannot ask for, as a web page's is, which hands its text over in a paste
- * event (paste_start): false until a test sets it. What was put there is
- * tb_clipboard_text. */
-extern bool tb_clipboard_unasked;
+/* The test bench's host has a clipboard of its own, as a desktop's is, and
+ * this is what was put there. */
 const char *tb_clipboard_text(void);
 
 #endif /* _TESTS_BENCH_TB_SEED_H_ */

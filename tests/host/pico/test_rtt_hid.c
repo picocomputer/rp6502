@@ -189,12 +189,13 @@ UTEST(rtt_hid, a_keyboard_mounts_reports_and_unmounts)
     ASSERT_FALSE(key_down(HID_KEY_A));
 }
 
-/* A mouse is the mouse driver's and the tablet's, as a USB mouse is. */
+/* A mouse is the mouse driver's, which moves the tablet's pointer too
+ * (core/sys/event.h). */
 UTEST(rtt_hid, a_mouse_moves_the_mouse_and_the_tablet)
 {
     start();
     send(VERB_MOUNT, 0, mouse_desc, sizeof mouse_desc);
-    ASSERT_EQ(seat_claims(0), HID_CLAIM_MOUSE | HID_CLAIM_TABLET);
+    ASSERT_EQ(seat_claims(0), HID_CLAIM_MOUSE);
 
     uint8_t before[5];
     memcpy(before, (uint8_t *)&xram[AT_MOUSE], sizeof before);

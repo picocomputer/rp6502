@@ -21,6 +21,7 @@
 #include "core/hid/vtmouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
+#include "core/hid/mouse.h"
 #include "core/com/rln.h"
 #include "core/term/vterm.h"
 #include "core/term/vterm_mouse.h"
@@ -623,14 +624,12 @@ static uint8_t tablet_contact_flags(void)
  * so the first move back up moves the pointer up. */
 UTEST(tablet, a_mouse_leaves_the_bottom_of_a_wide_canvas_at_once)
 {
-    static const tablet_connection_t mouse = {
+    static const mouse_connection_t mouse = {
         .valid = true,
-        .button_offsets = {HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT},
+        .button_offsets = {HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT},
         .x_relative = true,
         .x_offset = 0, .x_size = 8,
         .y_offset = 8, .y_size = 8,
-        .tip_offset = HID_ABSENT,
-        .inrange_offset = HID_ABSENT,
     };
     /* On an SXGA display, 512 lines tall, whose bottom rows a reference
      * space of 480 lines once left out of reach. Its 32-row console is the
@@ -640,7 +639,7 @@ UTEST(tablet, a_mouse_leaves_the_bottom_of_a_wide_canvas_at_once)
                                         vga_canvas_640_400, vga_canvas_320_200};
     sys_init();
     vga_set_console_size(640, 512);
-    ASSERT_TRUE(tablet_mount(7, &mouse));
+    ASSERT_TRUE(mouse_mount(7, &mouse));
     ASSERT_TRUE(xreg0(0, 3, 0xFF00)); /* xreg_ria_tablet(0xFF00) */
     for (size_t i = 0; i < sizeof canvases / sizeof canvases[0]; i++)
     {
@@ -650,22 +649,22 @@ UTEST(tablet, a_mouse_leaves_the_bottom_of_a_wide_canvas_at_once)
         /* 126 counts are 63 reference pixels with nothing left over. */
         const uint8_t down[] = {0, 126};
         for (int n = 0; n < 20; n++)
-            tablet_report(7, down, sizeof down);
+            mouse_report(7, down, sizeof down);
         ASSERT_EQ(tablet_contact_y(), h - 1);
         /* 4 counts are 2 reference pixels, at least a pixel of any of
          * these canvases. */
         const uint8_t up[] = {0, (uint8_t)-4};
-        tablet_report(7, up, sizeof up);
+        mouse_report(7, up, sizeof up);
         ASSERT_LT(tablet_contact_y(), h - 1);
         const uint8_t right[] = {126, 0};
         for (int n = 0; n < 20; n++)
-            tablet_report(7, right, sizeof right);
+            mouse_report(7, right, sizeof right);
         ASSERT_EQ(tablet_contact_x(), w - 1);
         const uint8_t left[] = {(uint8_t)-4, 0};
-        tablet_report(7, left, sizeof left);
+        mouse_report(7, left, sizeof left);
         ASSERT_LT(tablet_contact_x(), w - 1);
     }
-    ASSERT_TRUE(tablet_umount(7));
+    ASSERT_TRUE(mouse_umount(7));
     ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
     vga_set_console_size(640, 480);
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
@@ -675,29 +674,27 @@ UTEST(tablet, a_mouse_leaves_the_bottom_of_a_wide_canvas_at_once)
  * is, and a new canvas puts it on that canvas, in the same place. */
 UTEST(tablet, a_program_finds_the_mouse_where_it_is)
 {
-    static const tablet_connection_t mouse = {
+    static const mouse_connection_t mouse = {
         .valid = true,
-        .button_offsets = {HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT},
+        .button_offsets = {HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT},
         .x_relative = true,
         .x_offset = 0, .x_size = 8,
         .y_offset = 8, .y_size = 8,
-        .tip_offset = HID_ABSENT,
-        .inrange_offset = HID_ABSENT,
     };
     sys_init();
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_480));
     ASSERT_TRUE(xreg0(0, 3, 0xFF00));
-    ASSERT_TRUE(tablet_mount(7, &mouse));
+    ASSERT_TRUE(mouse_mount(7, &mouse));
     ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER); /* before it moves */
     ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
     /* Home in the corner, then 200 counts right and 100 down: 100 and 50
      * reference pixels. */
     const uint8_t home[] = {(uint8_t)-128, (uint8_t)-128};
     for (int n = 0; n < 20; n++)
-        tablet_report(7, home, sizeof home);
+        mouse_report(7, home, sizeof home);
     const uint8_t move[] = {100, 50};
-    tablet_report(7, move, sizeof move);
-    tablet_report(7, move, sizeof move);
+    mouse_report(7, move, sizeof move);
+    mouse_report(7, move, sizeof move);
     tablet_task();
 
     ASSERT_TRUE(xreg0(0, 3, 0xFF00));
@@ -719,7 +716,7 @@ UTEST(tablet, a_program_finds_the_mouse_where_it_is)
     tablet_task();
     const uint8_t down[] = {0, 126}; /* 63 reference lines */
     for (int n = 0; n < 5; n++)
-        tablet_report(7, down, sizeof down);
+        mouse_report(7, down, sizeof down);
     ASSERT_EQ(tablet_contact_y(), 50 + 5 * 63);
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
     tablet_task();
@@ -730,7 +727,7 @@ UTEST(tablet, a_program_finds_the_mouse_where_it_is)
     ASSERT_EQ(tablet_contact_y(), 50 + 5 * 63);
     vga_set_console_size(640, 480);
 
-    ASSERT_TRUE(tablet_umount(7));
+    ASSERT_TRUE(mouse_umount(7));
     ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
     ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
 }
@@ -872,28 +869,26 @@ UTEST(tablet, an_absolute_mouse_points_and_hovers)
  * unplugged. */
 UTEST(tablet, buttons_of_two_mice_merge)
 {
-    static const tablet_connection_t mouse = {
+    static const mouse_connection_t mouse = {
         .valid = true,
-        .button_offsets = {0, 1, 2, HID_ABSENT, HID_ABSENT},
+        .button_offsets = {0, 1, 2, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT},
         .x_relative = true,
         .x_offset = 8, .x_size = 8,
         .y_offset = 16, .y_size = 8,
-        .tip_offset = HID_ABSENT,
-        .inrange_offset = HID_ABSENT,
     };
     sys_init();
     ASSERT_TRUE(xreg0(0, 3, 0xFF00));
-    ASSERT_TRUE(tablet_mount(5, &mouse));
-    ASSERT_TRUE(tablet_mount(6, &mouse));
+    ASSERT_TRUE(mouse_mount(5, &mouse));
+    ASSERT_TRUE(mouse_mount(6, &mouse));
     const uint8_t left[] = {TABLET_FLAG_LEFT, 0, 0};
     const uint8_t move[] = {0, 4, 4};
-    tablet_report(5, left, sizeof left);
+    mouse_report(5, left, sizeof left);
     ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_LEFT | TABLET_FLAG_HOVER);
-    tablet_report(6, move, sizeof move);
+    mouse_report(6, move, sizeof move);
     ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_LEFT | TABLET_FLAG_HOVER);
-    ASSERT_TRUE(tablet_umount(5));
+    ASSERT_TRUE(mouse_umount(5));
     ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER);
-    ASSERT_TRUE(tablet_umount(6));
+    ASSERT_TRUE(mouse_umount(6));
     ASSERT_EQ(tablet_contact_flags(), 0);
     ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
 }
@@ -902,14 +897,12 @@ UTEST(tablet, buttons_of_two_mice_merge)
  * writes it, and the program's 0 holds until the tablet is mapped again. */
 UTEST(tablet, the_share_bit_is_the_programs)
 {
-    static const tablet_connection_t mouse = {
+    static const mouse_connection_t mouse = {
         .valid = true,
-        .button_offsets = {0, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT},
+        .button_offsets = {0, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT},
         .x_relative = true,
         .x_offset = 8, .x_size = 8,
         .y_offset = 16, .y_size = 8,
-        .tip_offset = HID_ABSENT,
-        .inrange_offset = HID_ABSENT,
     };
     sys_init();
     ASSERT_TRUE(tablet_shared());
@@ -919,17 +912,17 @@ UTEST(tablet, the_share_bit_is_the_programs)
 
     xram[0xFF00 + TABLET_OFF_STATUS] = 0;
     ASSERT_FALSE(tablet_shared());
-    ASSERT_TRUE(tablet_mount(7, &mouse));
+    ASSERT_TRUE(mouse_mount(7, &mouse));
     const uint8_t press[] = {1, 4, 4};
-    tablet_report(7, press, sizeof press);
+    mouse_report(7, press, sizeof press);
     tablet_host_pointer(100, 50, TABLET_FLAG_RIGHT, false);
     tablet_host_wheel(1, 0);
-    const tablet_point_t pt = {10, 10};
-    tablet_host_touch(&pt, 1);
+    const tablet_contact_t pt = {10, 10, TABLET_FLAG_LEFT};
+    tablet_host_contacts(&pt, 1, false);
     tablet_host_clear();
     ASSERT_EQ(xram[0xFF00 + TABLET_OFF_STATUS], 0);
     ASSERT_FALSE(tablet_shared());
-    ASSERT_TRUE(tablet_umount(7));
+    ASSERT_TRUE(mouse_umount(7));
 
     ASSERT_TRUE(xreg0(0, 3, 0xFF00));
     ASSERT_EQ(xram[0xFF00 + TABLET_OFF_STATUS], TABLET_STATUS_SHARED);
@@ -937,35 +930,56 @@ UTEST(tablet, the_share_bit_is_the_programs)
     ASSERT_TRUE(tablet_shared());
 }
 
-/* A host that stops giving the tablet its pointer lets it go once, at the
- * edge: a contact put there while it does not give it is kept. The edge is
- * saved, so a load from before it lets go again. */
-UTEST(tablet, a_host_lets_go_of_its_pointer_at_the_edge)
+/* A mouse moves the tablet's pointer from where the host's tablet left it,
+ * the system drawing the cursor, and hovers it until the mouse is gone; the
+ * host's tablet then places it again. What each holds is saved, so a load
+ * puts back the buttons of each. */
+UTEST(tablet, a_mouse_carries_on_from_the_hosts_tablet)
 {
     sys_init();
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_640_480));
     ASSERT_TRUE(xreg0(0, 3, 0xFF00));
-    tablet_host_give(true);
-    tablet_host_pointer(10, 10, TABLET_FLAG_LEFT, true);
-    tablet_host_give(true);
+    tablet_host_pointer(100, 50, 0, true);
+    ASSERT_TRUE(tablet_host_cursor_shown());
+    tablet_host_clear();
+    ASSERT_EQ(tablet_contact_flags(), 0);
+    tablet_host_mouse(10 * MOUSE_ONE + MOUSE_ONE / 2, 20 * MOUSE_ONE, TABLET_FLAG_LEFT);
+    ASSERT_EQ(tablet_contact_x(), 110);
+    ASSERT_EQ(tablet_contact_y(), 70);
     ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER | TABLET_FLAG_LEFT);
+    ASSERT_FALSE(tablet_host_cursor_shown());
+    tablet_host_mouse(MOUSE_ONE / 2, 0, TABLET_FLAG_LEFT); /* the halves add up */
+    ASSERT_EQ(tablet_contact_x(), 111);
 
     uint8_t blob[256];
     ASSERT_LE((size_t)tablet_sst.size, sizeof blob);
     sst_cursor_t c = {blob, blob + tablet_sst.size, false, NULL};
     tablet_sst.save(&c, 0);
 
-    tablet_host_give(false);
+    tablet_host_mouse_gone();
     ASSERT_EQ(tablet_contact_flags(), 0);
-    tablet_host_pointer(20, 10, TABLET_FLAG_LEFT, true);
-    tablet_host_give(false);
-    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER | TABLET_FLAG_LEFT);
+    ASSERT_EQ(tablet_contact_x(), 111);
+    tablet_host_mouse(300 * MOUSE_ONE, 0, 0);
+    ASSERT_EQ(tablet_contact_x(), 411);
+    tablet_host_pointer(20, 10, TABLET_FLAG_RIGHT, true);
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER | TABLET_FLAG_RIGHT);
 
     c = (sst_cursor_t){blob, blob + tablet_sst.size, false, NULL};
     ASSERT_TRUE(tablet_sst.load(&c, 0));
+    tablet_host_clear(); /* the loaded mouse still holds its button */
     ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER | TABLET_FLAG_LEFT);
-    tablet_host_give(false);
+    /* and moves on from where it was saved, half a pixel carried */
+    tablet_host_mouse(MOUSE_ONE / 2, 0, TABLET_FLAG_LEFT);
+    ASSERT_EQ(tablet_contact_x(), 111);
+    tablet_host_mouse(MOUSE_ONE / 2, 0, TABLET_FLAG_LEFT);
+    ASSERT_EQ(tablet_contact_x(), 112);
+    /* A mouse's sixth to eighth buttons are none of the tablet's. */
+    tablet_host_mouse(0, 0, 0xE0);
+    ASSERT_EQ(tablet_contact_flags(), TABLET_FLAG_HOVER);
+    tablet_host_mouse_gone();
     ASSERT_EQ(tablet_contact_flags(), 0);
     ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
+    ASSERT_TRUE(xreg1(0, 0, vga_canvas_console));
 }
 
 /* ---- the console's mouse (core/term/vterm_mouse.c) ---------------------- */
@@ -1028,26 +1042,24 @@ UTEST(vterm_mouse, a_press_and_release_in_one_burst_give_both_edges)
 /* The same from a HID mouse's reports. */
 UTEST(vterm_mouse, a_press_and_release_in_hid_reports_give_both_edges)
 {
-    static const tablet_connection_t mouse = {
+    static const mouse_connection_t mouse = {
         .valid = true,
-        .button_offsets = {0, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT},
+        .button_offsets = {0, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT},
         .x_relative = true,
         .x_offset = 8, .x_size = 8,
         .y_offset = 16, .y_size = 8,
-        .tip_offset = HID_ABSENT,
-        .inrange_offset = HID_ABSENT,
     };
     mouse_start();
-    ASSERT_TRUE(tablet_mount(7, &mouse));
+    ASSERT_TRUE(mouse_mount(7, &mouse));
     vterm_mouse_task();
     const uint8_t press[] = {1, 0, 0}, release[] = {0, 0, 0};
-    tablet_report(7, press, sizeof press);
-    tablet_report(7, release, sizeof release);
+    mouse_report(7, press, sizeof press);
+    mouse_report(7, release, sizeof release);
     ASSERT_EQ(mouse_queued(), 2u);
     ASSERT_EQ(mouse_change(0)->flags, TABLET_FLAG_HOVER | TABLET_FLAG_LEFT);
     ASSERT_EQ(mouse_change(1)->flags, TABLET_FLAG_HOVER);
     ASSERT_TRUE(mouse_change(1)->edge);
-    ASSERT_TRUE(tablet_umount(7));
+    ASSERT_TRUE(mouse_umount(7));
     vterm_mouse_task();
 }
 
@@ -1097,8 +1109,8 @@ UTEST(vterm_mouse, the_wheel_is_deltas_not_counters)
 UTEST(vterm_mouse, a_touch_is_the_left_button)
 {
     mouse_start();
-    const tablet_point_t pt = {30, 20};
-    tablet_host_touch(&pt, 1);
+    const tablet_contact_t pt = {30, 20, TABLET_FLAG_LEFT};
+    tablet_host_contacts(&pt, 1, false);
     ASSERT_EQ(mouse_queued(), 1u);
     ASSERT_EQ(mouse_change(0)->flags, TABLET_FLAG_LEFT);
     ASSERT_EQ(mouse_change(0)->x, 30);
@@ -1113,29 +1125,27 @@ UTEST(vterm_mouse, a_touch_is_the_left_button)
  * are the same change. */
 UTEST(vterm_mouse, the_hid_and_host_paths_agree)
 {
-    static const tablet_connection_t mouse = {
+    static const mouse_connection_t mouse = {
         .valid = true,
-        .button_offsets = {0, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT},
+        .button_offsets = {0, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT, HID_ABSENT},
         .x_relative = true,
         .x_offset = 8, .x_size = 8,
         .y_offset = 16, .y_size = 8,
-        .tip_offset = HID_ABSENT,
-        .inrange_offset = HID_ABSENT,
     };
     mouse_start();
-    ASSERT_TRUE(tablet_mount(7, &mouse));
+    ASSERT_TRUE(mouse_mount(7, &mouse));
     /* Home in the corner, then 200 counts right and 100 down: 100 and 50
      * pixels of the 640-wide console. */
     const uint8_t home[] = {0, (uint8_t)-128, (uint8_t)-128};
     for (int n = 0; n < 20; n++)
-        tablet_report(7, home, sizeof home);
+        mouse_report(7, home, sizeof home);
     const uint8_t move[] = {0, 100, 50};
-    tablet_report(7, move, sizeof move);
-    tablet_report(7, move, sizeof move);
+    mouse_report(7, move, sizeof move);
+    mouse_report(7, move, sizeof move);
     const uint8_t press[] = {1, 0, 0};
-    tablet_report(7, press, sizeof press);
+    mouse_report(7, press, sizeof press);
     const vterm_mouse_event_t hid = *mouse_change(mouse_queued() - 1);
-    ASSERT_TRUE(tablet_umount(7));
+    ASSERT_TRUE(mouse_umount(7));
     tablet_host_clear();
     vterm_mouse_task();
 
@@ -1313,8 +1323,8 @@ UTEST(vterm_mouse, a_contact_that_has_gone_goes_nowhere)
     vterm_mouse_task();
     ASSERT_FALSE(vterm_mouse_acts());
 
-    const tablet_point_t pt = {100, 100};
-    tablet_host_touch(&pt, 1);
+    const tablet_contact_t pt = {100, 100, TABLET_FLAG_LEFT};
+    tablet_host_contacts(&pt, 1, false);
     vterm_mouse_task();
     ASSERT_TRUE(vterm_mouse_acts());
     tablet_host_clear();

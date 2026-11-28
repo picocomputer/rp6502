@@ -31,9 +31,9 @@ The Pi Pico VS Code Extension may need this additional software:
 $ sudo apt install python3 git tar build-essential gdb-multiarch pkg-config libftdi1-dev libhidapi-hidraw0
 ```
 
-For the emulator, install the GL/X11/PulseAudio dev headers:
+For the emulator, install the EGL/GLES/X11/PulseAudio/PipeWire dev headers:
 ```
-$ sudo apt install libgl-dev libx11-dev libxi-dev libxcursor-dev libpulse-dev
+$ sudo apt install libegl-dev libgles-dev libx11-dev libxi-dev libxcursor-dev libpulse-dev libpipewire-0.3-dev
 ```
 
 For the FPGA core, install Verilator and the RISC-V toolchain the soft CPU's
@@ -145,9 +145,8 @@ to fetch a ROM or stream the wasm. `python3 -m http.server 8000` in
 `build/web/bundle` is enough to try it.
 
 To build the Pocket core, select Folder:pocket. F7 assembles the SD card tree
-into `build/pocket/package`; `pocket-bitstream` and `pocket-fit` are targets
-in the build-target selector if you want to stop earlier. It needs Quartus and
-`gcc-riscv64-unknown-elf` and nothing else.
+into `build/pocket/package`. It needs Quartus and `gcc-riscv64-unknown-elf`
+and nothing else.
 
 ## Testing
 

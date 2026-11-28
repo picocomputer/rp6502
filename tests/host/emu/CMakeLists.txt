@@ -217,11 +217,15 @@ rp6502_add_test(mix SPLIT LIBS emu_core TIMEOUT 300
     DEFS AUD_ROM_OPL_SPREAD="${OPL_SPREAD_ROM}" AUD_ROM_OPL_FLAT="${OPL_FLAT_ROM}"
     DEPENDS aud_roms)
 
+# The window's side of each, the event queue, the machine's end of it, and the events.
+set(EVQ_SOURCES ${RP6502_SRC}/host/sokol/app/evq.c ${RP6502_SRC}/host/sokol/app/evq_machine.c)
+
 rp6502_add_test(gamepad_input LIBS emu_core
-    SOURCES test_gamepad_input.c ${RP6502_SRC}/host/sokol/app/gamepad.c)
+    SOURCES test_gamepad_input.c ${RP6502_SRC}/host/sokol/app/gamepad.c ${EVQ_SOURCES}
+    INCLUDES ${RP6502_VENDOR})
 
 rp6502_add_test(input LIBS emu_core
-    SOURCES test_input.c ${RP6502_SRC}/host/sokol/app/input.c
+    SOURCES test_input.c ${RP6502_SRC}/host/sokol/app/input.c ${EVQ_SOURCES}
     INCLUDES ${RP6502_VENDOR})
 
 rp6502_add_test(dbg LIBS emu_core ROM ${ADVENTURE_ROM} TIMEOUT 60)

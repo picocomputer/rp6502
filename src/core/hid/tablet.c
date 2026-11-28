@@ -7,6 +7,7 @@
 #include "core/hid/hid.h"
 #include "core/sys/div64.h"
 #include "core/hid/tablet.h"
+#include "core/hid/mouse.h"
 #include "core/sys/debug_log.h"
 #include "core/sys/xram.h"
 #include "core/vga/vga.h"
@@ -17,13 +18,13 @@
  * bytes are counters read by subtracting the previous value, as the mouse's
  * are. The program owns the control and status bytes, and they lead the
  * block so that everything the firmware writes back is one contiguous run. */
-/* A relative mouse counts far finer than a canvas pixel, so it is tracked in a
- * fixed reference resolution at the same rate mouse.c reports at and then
- * scaled to the canvas. The program then reads an absolute position that moves
- * at the same speed whatever the canvas width is. The reference space is
- * always this wide, and as tall as the canvas's shape makes it. */
+/* A mouse counts far finer than a canvas pixel, so the pointer it moves is
+ * tracked in a fixed reference resolution, one pixel of it to one count of
+ * the mouse's block (core/hid/mouse.h), and then scaled to the canvas. The
+ * program then reads an absolute position that moves at the same speed
+ * whatever the canvas width is. The reference space is always this wide,
+ * and as tall as the canvas's shape makes it. */
 #define TABLET_REF_WIDTH 640
-#define TABLET_MOUSE_DIV 2 /* counts per reference pixel, matching mouse.c */
 
 static uint8_t tablet_state[TABLET_BLOCK_SIZE];
 static uint16_t tablet_xram;
@@ -31,21 +32,22 @@ static uint16_t tablet_xram;
 /* Whether the host draws the cursor, so the system draws none. */
 static bool tablet_host_cursor;
 
-/* Whether the host gave the tablet its pointer at its last poll
- * (tablet_host_give). It is saved, so the edge it makes is the machine's
- * and a load puts it back with the contacts it let in. */
-static bool tablet_host_given;
+/* Contact 0's buttons and hover as the host's own tablet has them
+ * (tablet_host_contacts), and as the mouse has them (tablet_host_mouse).
+ * They are merged with each digitizer's (tablet_merge_flags). */
+static uint8_t tablet_host_flags;
+static uint8_t tablet_mouse_flags;
 
 /* The pointer in canvas pixels, which is what is written to XRAM. */
 static int16_t tablet_x;
 static int16_t tablet_y;
 
-/* A relative mouse's pointer in the TABLET_REF space, with the fraction of a
- * reference pixel carried between reports so that slow motion is not lost. */
+/* The pointer in the TABLET_REF space, with the fraction of a reference
+ * pixel a mouse's motion leaves over, so that slow motion is not lost. */
 static int16_t tablet_ref_x;
 static int16_t tablet_ref_y;
-static int16_t tablet_sub_x;
-static int16_t tablet_sub_y;
+static int32_t tablet_sub_x; /* Q16.16, as mouse_host_move takes */
+static int32_t tablet_sub_y;
 
 static tablet_connection_t tablet_connections[TABLET_MAX_MICE];
 
@@ -70,23 +72,26 @@ static bool tablet_sst_valid(sst_cursor_t *c)
     return true;
 }
 
-/* The whole block is saved, control byte included. The six counters behind
- * it are not, because only tablet_report writes them and no machine that
- * saves state has a report to give it. */
+/* The whole block is saved, control byte included, and the pointer in the
+ * reference space with its carry and the canvas it was placed on, which a
+ * host's mouse moves on from (tablet_host_mouse), as the mouse saves its
+ * own carry. The place on the canvas is rebuilt from them at the next
+ * move. */
 #define TABLET_SST(X)                                              \
     X(U16, tablet_xram)                                            \
     X(BYTES, tablet_state)                                         \
     X(SKIP, tablet_host_cursor, "set by every host pointer event") \
-    X(BOOL, tablet_host_given)                                     \
+    X(U8, tablet_host_flags)                                       \
+    X(U8, tablet_mouse_flags)                                      \
     X(VALIDATE, tablet_sst_valid)                                  \
-    X(SKIP, tablet_x)                                              \
-    X(SKIP, tablet_y)                                              \
-    X(SKIP, tablet_ref_x)                                          \
-    X(SKIP, tablet_ref_y)                                          \
-    X(SKIP, tablet_sub_x)                                          \
-    X(SKIP, tablet_sub_y)                                          \
-    X(SKIP, tablet_cw)                                             \
-    X(SKIP, tablet_ch)                                             \
+    X(SKIP, tablet_x, "rebuilt from the reference space")         \
+    X(SKIP, tablet_y, "rebuilt from the reference space")         \
+    X(I16, tablet_ref_x)                                           \
+    X(I16, tablet_ref_y)                                           \
+    X(I32, tablet_sub_x)                                           \
+    X(I32, tablet_sub_y)                                           \
+    X(I16, tablet_cw)                                              \
+    X(I16, tablet_ch)                                              \
     X(SKIP, tablet_committed, "rebuilt from tablet_state")         \
     X(SKIP, tablet_connections, "nothing mounts on a machine that saves")
 SST_TABLE(tablet, TABLET_SST)
@@ -163,7 +168,7 @@ static void HOST_IN_RAM_FUNC tablet_commit(bool by_user)
 
 void HOST_IN_FLASH_FUNC tablet_init(void)
 {
-    tablet_host_given = false;
+    tablet_host_flags = tablet_mouse_flags = 0;
     tablet_stop();
 }
 
@@ -191,7 +196,7 @@ bool HOST_IN_FLASH_FUNC tablet_xreg(uint16_t word)
  * buttons and hover of all of them, as the mouse merges its buttons. */
 static void HOST_IN_RAM_FUNC tablet_merge_flags(void)
 {
-    uint8_t merged = 0;
+    uint8_t merged = tablet_host_flags | tablet_mouse_flags;
     for (int i = 0; i < TABLET_MAX_MICE; ++i)
         if (tablet_connections[i].valid)
             merged |= tablet_connections[i].flags;
@@ -208,15 +213,13 @@ bool tablet_mount(int slot, const tablet_connection_t *desc)
             continue;
         tablet_connections[i] = *desc;
         tablet_connections[i].slot = slot;
-        /* A mouse hovers from the moment it is plugged in, before it moves,
-         * as does an absolute one with no tip or In Range to say otherwise. */
-        const bool hover = desc->x_relative ||
-                           (desc->tip_offset == HID_ABSENT && desc->inrange_offset == HID_ABSENT);
+        /* An absolute mouse hovers from the moment it is plugged in, before
+         * it moves, having no tip or In Range to say otherwise. */
+        const bool hover = desc->tip_offset == HID_ABSENT && desc->inrange_offset == HID_ABSENT;
         tablet_connections[i].flags = hover ? TABLET_FLAG_HOVER : 0;
         tablet_merge_flags();
         tablet_commit(true);
-        RP6502_LOG(hid, INFO, "tablet mount slot=%d, x_rel=%d, tip=%d", slot, desc->x_relative,
-                   desc->tip_offset != HID_ABSENT);
+        RP6502_LOG(hid, INFO, "tablet mount slot=%d, tip=%d", slot, desc->tip_offset != HID_ABSENT);
         return true;
     }
     return false;
@@ -328,9 +331,9 @@ static void HOST_IN_RAM_FUNC tablet_from_ref(int cw, int ch)
     tablet_ch = (int16_t)ch;
 }
 
-/* An absolute device puts the pointer straight on the canvas, so the
- * reference space is put back in step with it. A mouse moved afterwards then
- * carries on from here instead of snapping back to where it left off. */
+/* A tablet puts the pointer straight on the canvas, so the reference space
+ * is put back in step with it. A mouse moved afterwards then carries on from
+ * here instead of snapping back to where it left off. */
 static void HOST_IN_RAM_FUNC tablet_to_ref(int cw, int ch)
 {
     tablet_ref_x = (int16_t)((int32_t)tablet_x * TABLET_REF_WIDTH / cw);
@@ -362,25 +365,9 @@ void HOST_IN_RAM_FUNC tablet_report(int slot, uint8_t const *data, size_t size)
 
     /* A touch off the canvas, on the band of a touchscreen's display the
      * canvas does not fill, is no touch at all. */
-    bool on_canvas = true;
-    if (conn->x_relative)
-    {
-        tablet_sub_x += (int16_t)hid_extract_signed(report_data, report_data_len, conn->x_offset, conn->x_size);
-        tablet_sub_y += (int16_t)hid_extract_signed(report_data, report_data_len, conn->y_offset, conn->y_size);
-        int sx = tablet_sub_x / TABLET_MOUSE_DIV;
-        int sy = tablet_sub_y / TABLET_MOUSE_DIV;
-        tablet_sub_x -= (int16_t)(sx * TABLET_MOUSE_DIV);
-        tablet_sub_y -= (int16_t)(sy * TABLET_MOUSE_DIV);
-        tablet_ref_x += (int16_t)sx;
-        tablet_ref_y += (int16_t)sy;
-        tablet_from_ref(cw, ch);
-    }
-    else
-    {
-        int32_t rx = tablet_axis_value(report_data, report_data_len, conn->x_offset, conn->x_size, conn->x_min);
-        int32_t ry = tablet_axis_value(report_data, report_data_len, conn->y_offset, conn->y_size, conn->y_min);
-        on_canvas = tablet_place(conn, rx, ry, cw, ch);
-    }
+    int32_t rx = tablet_axis_value(report_data, report_data_len, conn->x_offset, conn->x_size, conn->x_min);
+    int32_t ry = tablet_axis_value(report_data, report_data_len, conn->y_offset, conn->y_size, conn->y_min);
+    const bool on_canvas = tablet_place(conn, rx, ry, cw, ch);
     if (!on_canvas)
     {
         conn->flags = 0;
@@ -388,17 +375,7 @@ void HOST_IN_RAM_FUNC tablet_report(int slot, uint8_t const *data, size_t size)
         tablet_commit(true);
         return;
     }
-    if (tablet_x < 0)
-        tablet_x = 0;
-    else if (tablet_x > cw - 1)
-        tablet_x = cw - 1;
-    if (tablet_y < 0)
-        tablet_y = 0;
-    else if (tablet_y > ch - 1)
-        tablet_y = ch - 1;
-
-    if (!conn->x_relative)
-        tablet_to_ref(cw, ch);
+    tablet_to_ref(cw, ch);
 
     // A digitizer's Tip Switch is the primary button.
     uint8_t buttons = 0;
@@ -410,11 +387,11 @@ void HOST_IN_RAM_FUNC tablet_report(int slot, uint8_t const *data, size_t size)
         if (hid_extract_bits(report_data, report_data_len, conn->tip_offset, 1))
             buttons |= TABLET_FLAG_LEFT;
 
-    /* A mouse always hovers, and so does an absolute one, which has no tip. An
-     * absolute pen hovers while it is In Range, and a touchscreen that reports
-     * a tip and no In Range never hovers. */
-    bool hover = conn->x_relative || conn->tip_offset == 0xFFFF;
-    if (!conn->x_relative && conn->inrange_offset != 0xFFFF)
+    /* An absolute mouse always hovers, having no tip. A pen hovers while it
+     * is In Range, and a touchscreen that reports a tip and no In Range never
+     * hovers. */
+    bool hover = conn->tip_offset == 0xFFFF;
+    if (conn->inrange_offset != 0xFFFF)
         hover = hid_extract_bits(report_data, report_data_len, conn->inrange_offset, 1) != 0;
 
     if (conn->wheel_size > 0)
@@ -450,47 +427,61 @@ bool tablet_wheel_wanted(void)
     return tablet_is_mapped() || tablet_wheel_claimed();
 }
 
-void tablet_host_pointer(int x, int y, uint8_t buttons, bool host_cursor)
+void HOST_IN_RAM_FUNC tablet_host_contacts(const tablet_contact_t *at, int n, bool host_cursor)
 {
-    int cw, ch;
-    vga_canvas_size(&cw, &ch);
-    tablet_x = (int16_t)(x < 0 ? 0 : x > cw - 1 ? cw - 1 : x);
-    tablet_y = (int16_t)(y < 0 ? 0 : y > ch - 1 ? ch - 1 : y);
-    tablet_to_ref(cw, ch);
-    tablet_host_cursor = host_cursor;
-    tablet_put_contact(0, (uint8_t)(buttons | TABLET_FLAG_HOVER), tablet_x, tablet_y);
-    for (int i = 1; i < TABLET_MAX_CONTACTS; ++i)
-        tablet_clear_contact(i);
-    tablet_commit(true);
-}
-
-void tablet_host_touch(const tablet_point_t *pts, int n)
-{
-    tablet_host_cursor = false; // a finger has no cursor
     if (n > TABLET_MAX_CONTACTS)
         n = TABLET_MAX_CONTACTS;
+    int cw, ch;
+    vga_canvas_size(&cw, &ch);
     for (int i = 0; i < n; ++i)
-        tablet_put_contact(i, TABLET_FLAG_LEFT, pts[i].x, pts[i].y); // tip down, no hover
+    {
+        const int x = at[i].x < 0 ? 0 : at[i].x > cw - 1 ? cw - 1 : at[i].x;
+        const int y = at[i].y < 0 ? 0 : at[i].y > ch - 1 ? ch - 1 : at[i].y;
+        tablet_put_contact(i, at[i].flags, x, y);
+        if (i == 0)
+        {
+            tablet_x = (int16_t)x;
+            tablet_y = (int16_t)y;
+            tablet_to_ref(cw, ch);
+        }
+    }
     for (int i = n; i < TABLET_MAX_CONTACTS; ++i)
         tablet_clear_contact(i);
+    if (n > 0)
+        tablet_host_cursor = host_cursor;
+    tablet_host_flags = n > 0 ? at[0].flags : 0;
+    tablet_merge_flags();
     tablet_commit(true);
 }
 
-void tablet_host_clear(void)
+void HOST_IN_RAM_FUNC tablet_host_mouse(int32_t dx, int32_t dy, uint8_t buttons)
 {
-    for (int i = 0; i < TABLET_MAX_CONTACTS; ++i)
-        tablet_clear_contact(i);
+    tablet_sub_x += dx;
+    tablet_sub_y += dy;
+    const int ix = tablet_sub_x / MOUSE_ONE;
+    const int iy = tablet_sub_y / MOUSE_ONE;
+    tablet_sub_x -= ix * MOUSE_ONE;
+    tablet_sub_y -= iy * MOUSE_ONE;
+    tablet_ref_x = (int16_t)(tablet_ref_x + ix);
+    tablet_ref_y = (int16_t)(tablet_ref_y + iy);
+    int cw, ch;
+    vga_canvas_size(&cw, &ch);
+    tablet_from_ref(cw, ch);
+    tablet_host_cursor = false;
+    tablet_mouse_flags = (uint8_t)((buttons & TABLET_FLAG_BUTTONS) | TABLET_FLAG_HOVER);
+    tablet_put_contact(0, 0, tablet_x, tablet_y);
+    tablet_merge_flags();
     tablet_commit(true);
 }
 
-void tablet_host_give(bool given)
+void HOST_IN_RAM_FUNC tablet_host_mouse_gone(void)
 {
-    if (tablet_host_given && !given)
-        tablet_host_clear();
-    tablet_host_given = given;
+    tablet_mouse_flags = 0;
+    tablet_merge_flags();
+    tablet_commit(true);
 }
 
-void tablet_host_wheel(int dwheel, int dpan)
+void HOST_IN_RAM_FUNC tablet_host_wheel(int dwheel, int dpan)
 {
     if (dwheel == 0 && dpan == 0)
         return;

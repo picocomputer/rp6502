@@ -89,8 +89,9 @@ rp6502_add_test(rtt_hid
 # chords through key.c, built as the RIA's machine.h builds it.
 rp6502_add_test(ria_paste
     SOURCES test_paste.c
-        ${RP6502_SRC}/core/hid/clip_byte.c
+        ${RP6502_SRC}/core/hid/clip_codepage.c ${RP6502_SRC}/host/pico/clip.c
         ${RP6502_SRC}/core/hid/typed.c ${RP6502_SRC}/core/hid/keymap.c
+        ${RP6502_SRC}/core/hid/hostkey.c ${RP6502_SRC}/core/sys/event.c
         ${RP6502_SRC}/core/hid/key.c ${RP6502_SRC}/core/hid/vtkey.c
         ${RP6502_SRC}/core/sys/ring.c
         ${RP6502_SRC}/core/term/term.c ${RP6502_SRC}/core/term/grid.c
@@ -102,7 +103,8 @@ rp6502_add_test(ria_paste
     INCLUDES ${CMAKE_CURRENT_LIST_DIR}/stub ${RP6502_SRC}/host/pico/ria
         ${RP6502_SRC}/host/pico ${RP6502_SRC} ${RP6502_GEN}
     DEFS PICO_PROGRAM_NAME="RP6502-RIA" RP6502_LOCALE=EN
-        TERM_MAX_HEIGHT=32 TERM_ALT_SCREEN=1 TERM_CELL_TEXT=1 TYPED_QUEUE_SIZE=32)
+        TERM_MAX_HEIGHT=32 TERM_ALT_SCREEN=1 TERM_CELL_TEXT=1 TYPED_QUEUE_SIZE=32
+        CLIP_CODEPAGE=1)
 add_dependencies(test_ria_paste rp6502_gen_c)
 
 # The messages the VGA answers and a 6502 program's xreg burst, vga.c and

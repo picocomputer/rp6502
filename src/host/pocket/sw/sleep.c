@@ -37,6 +37,7 @@
 
 #include "core/api/std.h"
 #include "core/sys/debug_log.h"
+#include "core/sys/event.h"
 #include "core/sys/sst.h"
 #include "core/sys/sys.h"
 #include "pocket_version.h"
@@ -103,6 +104,9 @@ void sleep_load(void)
                (unsigned long)((UPTIME_LO - started) / 1000u),
                (unsigned long)(fs_failed_count() - failed));
     }
+    /* The loaded machine has the players it saved, so the controllers are
+     * told again, each port its player or none. */
+    event_state_loaded();
     apf_refresh();
     MACH_HOLD = 0;
 }

@@ -12,9 +12,9 @@
  * entry_argv_utf8, and only the web entry_canvas_locked.
  * Only the desktop builds implement host_window_resize, because the debugger's
  * Window Scale menu, which asks for it (gfx_canvas_changed carries it out), is
- * built only for the desktop emulator.
- * The same goes for the three host_gamepad_ functions at the bottom and
- * app/gamepad.c, which calls them.
+ * built only for the desktop emulator. Every platform implements the three
+ * host_gamepad_ functions at the bottom, the web from the page's Gamepad API,
+ * and app/gamepad.c calls them.
  */
 
 #ifndef _HOST_SOKOL_APP_ENTRY_H_
@@ -22,6 +22,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "core/sys/event.h"
 
 /* Open a sokol window and run the machine until it closes. sys_init has already
  * been called; a ROM has not necessarily been booted, because the window opens
@@ -57,15 +58,16 @@ void host_window_init(void);
 
 /* True while a platform overlay is up, such as a desktop's drop-a-ROM prompt.
  * The canvas is not drawn while it is, and a halted program is not treated as
- * a program exiting. The machine asks from its own thread. */
+ * a program exiting, which the machine learns from EVQ_MENU and keeps its
+ * own mirror of (machine_menu_up). */
 bool host_window_menu_active(void);
 
 /* Draw that overlay into the current swapchain pass. */
 void host_window_menu_draw(void);
 
-/* A file was dropped on the window. Desktop platforms pass the path to
- * app_boot_rom; the web does not enable drag and drop, so nothing calls this
- * there. */
+/* A file was dropped on the window. Desktop platforms send its path to the
+ * machine (EVQ_BOOT), which boots it; the web does not enable drag and
+ * drop, so nothing calls this there. */
 void host_window_files_dropped(void);
 
 /* Open a URL in the user's default browser, for the docs link under the
@@ -84,6 +86,9 @@ uint8_t host_locks(void);
  * The result lasts for the whole run. */
 char **entry_argv_utf8(int *argc);
 
+/* Writes the browser's clipboard, on the web. */
+void entry_clipboard_write(const char *utf8);
+
 /* True while the pointer lock is on Module.canvas. On the web,
  * sapp_mouse_locked() is true while the lock is on any canvas in the page. */
 bool entry_canvas_locked(void);
@@ -93,23 +98,11 @@ bool entry_canvas_locked(void);
  * is given each time, since it changes when the default device does. Opened
  * from the init callback and closed from cleanup. False when there is no
  * sound to be had. Each desktop's driver is its audio.c: WASAPI on Windows,
- * PulseAudio on Linux, the default output AudioUnit on macOS. */
+ * PipeWire's own API on Linux where the Pulse server is PipeWire and
+ * PulseAudio otherwise, the default output AudioUnit on macOS. */
 bool host_audio_open(void (*render)(float *dst, int frames, uint32_t rate));
 void host_audio_close(void);
 
-/* One host controller, in the units gamepad_host_report takes. Each backend
- * does the scaling, because the range of each axis comes from the platform's
- * controller API. A backend sets type only when it has identified the
- * face-button labels, and sets sticks only when it found both. */
-typedef struct
-{
-    uint64_t id; /* stable while plugged, so a player keeps its number */
-    uint8_t dpad, button0, button1;
-    int8_t lx, ly, rx, ry;
-    uint8_t lt, rt;
-    uint8_t type; /* GAMEPAD_TYPE_ */
-    bool sticks;
-} gamepad_host_t;
 
 /* Start reading controllers. Called on the first frame a program has the
  * gamepad block mapped and not before, because the emulator must not open an

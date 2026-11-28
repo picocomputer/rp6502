@@ -51,6 +51,7 @@
  * the program has been quiet a moment, then the next step of VTKEYS is
  * typed, steps between |, words as a test's answer takes them. */
 
+#include "core/sys/event.h"
 #include "core/com/com.h"
 #include "core/com/manifold.h"
 #include "core/hid/hostkey.h"
@@ -282,8 +283,10 @@ static void vt_term_write(const char *buf, size_t n)
 static void vt_term_init(void)
 {
     /* No framebuffer: the screens are judged by their cells, and the frames
-     * the walk runs go by without drawing. vt_save draws the one it keeps. */
+     * the walk runs go by without drawing. vt_save draws the one it keeps.
+     * The host is a window, which can lose the focus, as xterm's is. */
     sys_init();
+    event_focusable();
     for (int i = 0; i < 120; i++)
         vga_run_frame();
     /* The monitor's banner goes, and the run starts on a blank screen. */

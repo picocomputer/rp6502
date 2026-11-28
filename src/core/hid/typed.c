@@ -56,8 +56,6 @@ static void HOST_IN_RAM_FUNC typed_front(void)
             continue;
         }
         const uint8_t source = clip_paste_source(e & TYPED_PASTE_SOURCE);
-        if (source == CLIP_LATER)
-            return;
         RING_SKIP(&typed_queue, 1);
         if (!clip_size(source))
             continue;

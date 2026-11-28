@@ -93,22 +93,34 @@ UTEST(parse, an_absolute_mouse_is_a_tablet)
         hid_parse(descs[i], sizeof mouse, &out);
         ASSERT_FALSE(out.mouse.valid);
         ASSERT_TRUE(out.tablet.valid);
-        ASSERT_FALSE(out.tablet.x_relative);
         ASSERT_TRUE(out.tablet.touchscreen);
         ASSERT_EQ(out.tablet.x_max, 32767);
         ASSERT_FALSE(out.gamepad.valid);
     }
 }
 
-UTEST(parse, a_relative_mouse_is_a_mouse_and_a_tablet)
+/* A relative mouse is the mouse's alone: the tablet takes its motion from
+ * the mouse's events (core/sys/event.h), not from its report. */
+UTEST(parse, a_relative_mouse_is_a_mouse_and_not_a_tablet)
 {
     static const uint8_t desc[] = {REL_MOUSE(1)};
     hid_parsed_t out;
     hid_parse(desc, sizeof desc, &out);
     ASSERT_TRUE(out.mouse.valid);
-    ASSERT_TRUE(out.tablet.valid);
-    ASSERT_TRUE(out.tablet.x_relative);
+    ASSERT_FALSE(out.tablet.valid);
     ASSERT_FALSE(out.gamepad.valid);
+}
+
+/* The same with the relative report first. */
+UTEST(parse, a_kvm_sending_the_relative_report_first_gives_each_its_own)
+{
+    static const uint8_t desc[] = {REL_MOUSE(1), ABS_MOUSE(0x02, 2)};
+    hid_parsed_t out;
+    hid_parse(desc, sizeof desc, &out);
+    ASSERT_TRUE(out.mouse.valid);
+    ASSERT_TRUE(out.tablet.valid);
+    ASSERT_EQ(out.mouse.report_id, 1);
+    ASSERT_EQ(out.tablet.report_id, 2);
 }
 
 /* A KVM may send both. The mouse takes the relative report even when the

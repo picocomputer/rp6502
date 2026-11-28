@@ -9,48 +9,26 @@
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/prompt.h"
 #include "host/sokol/app/input.h"
+#include "host/sokol/app/evq.h"
+#include "core/hid/gamepad.h"
 #include "core/hid/usage.h"
-#include "core/hid/mouse.h"
-#include "core/term/vterm_mouse.h"
 #include "host/host.h"
-#include "host/web/audio.h"
 #include "sokol/sokol_app.h"
 #include <emscripten.h>
 #include <emscripten/html5.h>
 #include <stdint.h>
 
-/* Firefox and Safari slow animation frames for a hidden or offscreen page
- * rather than stopping them. */
-#define LIVE_MS 250.0
-
-static int32_t away, pointer;
-static double callback_ms;
+/* The page is the player's window; its machine is the worker's (link.h),
+ * which runs on its own clock whether or not the page is shown. */
+static int32_t pointer;
 static bool inited;
+static int focused = -1;
 
-/* A cross-origin frame cannot read the page around it, but an
- * IntersectionObserver with no root measures the canvas against the top-level
- * viewport from inside any frame. While the page is away the machine does not
- * run and no sound is made, which the sound's queue rides out (audio.c). */
-EM_JS(void, js_away_setup, (int32_t *away), {
-    const signal = Module.rp6502.signal;
-    if (signal.aborted)
-        return;
-    let inView = true;
-    const update = () => { HEAP32[away >> 2] = document.hidden || !inView; };
-    document.addEventListener('visibilitychange', update, {signal});
-    const io = new IntersectionObserver((entries) => {
-        inView = entries[entries.length - 1].isIntersecting;
-        update();
-    });
-    io.observe(Module.canvas);
-    signal.addEventListener('abort', () => io.disconnect());
-    update();
-});
-
-/* pointer is 1 while the program maps the mouse, 2 while the tablet has
+/* pointer is 1 while the program maps the mouse, 2 while the tablet wants
  * the pointer (input_pointer_to_tablet): a program maps it, or the console's
- * terminal claims it with no mouse mapped, and 4 while the tablet also uses
- * the wheel (input_wheel_to_tablet). An event that nothing uses is not
+ * terminal claims it, whatever the mouse is doing, and 4 while the tablet
+ * also wants the wheel (input_wheel_to_tablet). The tablet is sent the
+ * pointer either way. An event that nothing uses is not
  * cancelled, so the page scrolls, zooms and shows its context menu. The wheel
  * is cancelled for a mouse program only while the pointer is locked.
  * sokol_app has no callback for contextmenu or for buttons above 3, so those
@@ -176,7 +154,6 @@ static void entry_init(void)
     if (js_destroyed())
         return;
     app_init();
-    web_audio_setup();
     inited = true;
 }
 
@@ -190,18 +167,19 @@ static void entry_frame(void)
 {
     if (!inited || js_destroyed())
         return;
-    const double now = emscripten_performance_now();
-    const double gap = now - callback_ms;
-    callback_ms = now;
-    if (away || gap >= LIVE_MS)
-        return;
     /* The player's own focus, which the page keeps for each player on it,
      * is told to a program that asks (?1004) as it changes. */
-    vterm_focus(js_focused());
+    const int focus = js_focused();
+    if (focus != focused)
+    {
+        focused = focus;
+        const uint8_t b = (uint8_t)focus;
+        evq_to_machine(EVQ_FOCUS, &b, 1);
+    }
     app_frame();
-    web_audio_frame();
-    const int32_t used = (mouse_is_mapped() ? 1 : 0) | (input_pointer_to_tablet() ? 2 : 0) |
-                         (input_wheel_to_tablet() ? 4 : 0);
+    const uint8_t told = input_status()->event.flags;
+    const int32_t used = ((told & EVENT_MOUSE_MAPPED) ? 1 : 0) | ((told & EVENT_TO_TABLET) ? 2 : 0) |
+                         ((told & EVENT_WHEEL_TO_TABLET) ? 4 : 0);
     if (used != pointer)
     {
         pointer = used;
@@ -218,7 +196,6 @@ void host_window_set_aspect(int w, int h, bool refit)
 
 void host_window_init(void)
 {
-    js_away_setup(&away);
     js_pointer_setup(&pointer);
 }
 bool host_window_menu_active(void) { return false; }
@@ -228,28 +205,56 @@ void host_window_open_url(const char *url) { (void)url; }
 bool entry_wait_for_rom(void) { return false; }
 
 /* The clipboard is the browser's. A page cannot ask for it: the browser
- * hands its text over only in a paste event, where input.c pastes it. So
- * there is none to give here. A copy writes it. */
-const char *host_clipboard_get(void)
-{
-    return NULL;
-}
-
+ * hands its text over only in a paste event, which input.c sends on. A copy
+ * the machine made is written here (app.c). */
 EM_JS_DEPS(entry_clipboard, "$UTF8ToString");
-EM_JS(int, js_clipboard_write, (const char *utf8), {
-    if (!navigator.clipboard)
-        return 0;
-    navigator.clipboard.writeText(UTF8ToString(utf8)).catch(() => {});
-    return 1;
+EM_JS(void, js_clipboard_write, (const char *utf8), {
+    navigator.clipboard?.writeText(UTF8ToString(utf8)).catch(() => {});
 });
 
-/* A page served without a secure context, as over plain http, has no
- * clipboard to write: then this is false, and the copy goes to the
- * machine's buffer (clip.h), though a paste key still pastes the browser's
- * clipboard. */
-bool host_clipboard_set(const char *utf8)
+void entry_clipboard_write(const char *utf8) { js_clipboard_write(utf8); }
+
+/* The page's controllers (gamepad.c), as page.js reads them from the
+ * Gamepad API: none while the player does not have the keys. Each is a row of
+ * twelve numbers, its id first. */
+EM_JS(int, js_gamepads, (int32_t *rows, int max), {
+    return Module.rp6502.gamepads(HEAP32, rows >> 2, max);
+});
+
+bool host_gamepad_open(void)
 {
-    return js_clipboard_write(utf8) != 0;
+    return true;
+}
+
+void host_gamepad_close(void)
+{
+}
+
+int host_gamepad_poll(gamepad_host_t *gamepads, int max)
+{
+    int32_t rows[GAMEPAD_PLAYERS][12];
+    if (max > GAMEPAD_PLAYERS)
+        max = GAMEPAD_PLAYERS;
+    const int n = js_gamepads(&rows[0][0], max);
+    for (int i = 0; i < n; i++)
+    {
+        const int32_t *r = rows[i];
+        gamepads[i] = (gamepad_host_t){
+            .id = (uint64_t)r[0],
+            .dpad = (uint8_t)r[1],
+            .button0 = (uint8_t)r[2],
+            .button1 = (uint8_t)r[3],
+            .lx = (int8_t)r[4],
+            .ly = (int8_t)r[5],
+            .rx = (int8_t)r[6],
+            .ry = (int8_t)r[7],
+            .lt = (uint8_t)r[8],
+            .rt = (uint8_t)r[9],
+            .type = (uint8_t)r[10],
+            .sticks = r[11] != 0,
+        };
+    }
+    return n;
 }
 
 /* The browser's platform: a Mac, or an iPhone or iPad with a keyboard. */
@@ -278,6 +283,11 @@ int entry_run(uint32_t *fb, double scale, bool have_scale, bool exit_on_halt)
         .cleanup_cb = entry_cleanup,
         .width = win_w,
         .height = win_h,
+        /* The canvas's bitmap at the display's own pixels, as a desktop's
+         * window has it (app.c). Without it the browser draws the canvas
+         * at the page's pixels and stretches the picture on a scaled
+         * display, smearing it over the scaling the filter already did. */
+        .high_dpi = true,
         .swap_interval = 1,
         .enable_clipboard = true,
         .clipboard_size = 65536,

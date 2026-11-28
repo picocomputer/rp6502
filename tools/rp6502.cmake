@@ -920,7 +920,11 @@ function(_rp6502_release tool version file_var version_var repo_var)
         if(tool STREQUAL "WEB")
             set(name "rp6502-@-web.zip")
         else()
-            set(name "rp6502-@-${RP6502_HOST_SUFFIX}")
+            # The emulator's names, in the order this host prefers them.
+            set(name)
+            foreach(suffix IN LISTS RP6502_HOST_SUFFIX)
+                list(APPEND name "rp6502-@-${suffix}")
+            endforeach()
         endif()
     endif()
     set(required TRUE)
@@ -935,9 +939,14 @@ function(_rp6502_release tool version file_var version_var repo_var)
         endif()
     endif()
     if(version STREQUAL "")
-        string(REPLACE "." "\\." pattern "${name}")
-        string(REPLACE "@" "(.+)" pattern "^${pattern}(\\.unsupported)?$")
-        _rp6502_newest("${pattern}" version)
+        foreach(each IN LISTS name)
+            string(REPLACE "." "\\." pattern "${each}")
+            string(REPLACE "@" "(.+)" pattern "^${pattern}(\\.unsupported)?$")
+            _rp6502_newest("${pattern}" newest)
+            if(version STREQUAL "" OR newest VERSION_GREATER version)
+                set(version "${newest}")
+            endif()
+        endforeach()
     endif()
     if(version STREQUAL "")
         _rp6502_latest("${repo}" "${versions}" ${required} version)
@@ -1005,16 +1014,22 @@ function(_rp6502_latest repo regex required out_var)
 endfunction()
 
 # Sets <out_var> to tools/<name> of release v<version> of <repo>, fetched
-# when tools/ lacks it. A release without the file stops configure for a
-# <required> file, and otherwise writes tools/<name>.unsupported.
-function(_rp6502_fetch_release repo version name required out_var)
-    set(file "${RP6502_TOOLS_DIR}/${name}")
-    set(record "${file}.unsupported")
+# when tools/ lacks it. <names> is the name, or several in the order they
+# are preferred: the first that tools/ has, else the first the release has,
+# as a Windows on Arm machine prefers the arm64 emulator and takes the x64
+# one from a release that has no other. A release with none of them stops
+# configure for a <required> file, and otherwise writes
+# tools/<first name>.unsupported.
+function(_rp6502_fetch_release repo version names required out_var)
+    list(GET names 0 name)
+    set(record "${RP6502_TOOLS_DIR}/${name}.unsupported")
     set(${out_var} "" PARENT_SCOPE)
-    if(EXISTS "${file}")
-        set(${out_var} "${file}" PARENT_SCOPE)
-        return()
-    endif()
+    foreach(each IN LISTS names)
+        if(EXISTS "${RP6502_TOOLS_DIR}/${each}")
+            set(${out_var} "${RP6502_TOOLS_DIR}/${each}" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
     if(EXISTS "${record}")
         file(READ "${record}" text)
         message(NOTICE "No emulator: ${text}")
@@ -1031,10 +1046,14 @@ function(_rp6502_fetch_release repo version name required out_var)
     if(result STREQUAL "ok")
         _rp6502_read_sums("${sums}" assets)
         file(REMOVE "${sums}")
-        foreach(asset IN LISTS assets)
-            if(asset MATCHES "^(.+)=([0-9a-fA-F]+)$" AND CMAKE_MATCH_1 STREQUAL name)
-                set(hash "${CMAKE_MATCH_2}")
-            endif()
+        foreach(each IN LISTS names)
+            foreach(asset IN LISTS assets)
+                if(hash STREQUAL "" AND asset MATCHES "^(.+)=([0-9a-fA-F]+)$"
+                        AND CMAKE_MATCH_1 STREQUAL each)
+                    set(hash "${CMAKE_MATCH_2}")
+                    set(name "${each}")
+                endif()
+            endforeach()
         endforeach()
         if(hash STREQUAL "")
             set(text "release v${version} of ${repo} has no ${name}.")
@@ -1045,6 +1064,7 @@ function(_rp6502_fetch_release repo version name required out_var)
             message(NOTICE "No emulator: ${text}")
             return()
         endif()
+        set(file "${RP6502_TOOLS_DIR}/${name}")
         message(STATUS "Fetching tools/${name}")
         _rp6502_download("${base}/${name}" "${file}.tmp" "${hash}" result text)
     endif()
@@ -1292,8 +1312,16 @@ function(_rp6502_read_sums file out_var)
 endfunction()
 
 # Sets RP6502_HOST_SUFFIX to the end of the name of the file that holds
-# the emulator for this host, RP6502_HOST_MEMBER to the emulator in that
-# file, and RP6502_EMU_NAME to the name of the links to the emulator.
+# the emulator for this host, or several in the order they are preferred,
+# RP6502_HOST_MEMBER to the emulator in that file, and RP6502_EMU_NAME to
+# the name of the links to the emulator.
+#
+# A Windows on Arm machine prefers the arm64 build, and takes the x64 one,
+# which Windows runs by emulation, from a release that has no arm64 build.
+# Releases before the arm64 build named the x64 one windows.zip.
+# Windows is asked for the machine's processor in the registry, because a
+# CMake built for x64 sees AMD64 everywhere else on that machine. WSL on
+# such a machine is aarch64 Linux, and runs the Windows build by interop.
 function(_rp6502_host)
     set(suffix)
     set(member "rp6502-emu")
@@ -1301,7 +1329,13 @@ function(_rp6502_host)
     # Windows and Apple hosts are tested with CMAKE_HOST_WIN32 and
     # CMAKE_HOST_APPLE, because OS_NAME is macOS on a Mac and not Darwin.
     if(CMAKE_HOST_WIN32)
-        set(suffix "windows.zip")
+        cmake_host_system_information(RESULT arch QUERY WINDOWS_REGISTRY
+            "HKLM/SYSTEM/CurrentControlSet/Control/Session Manager/Environment"
+            VALUE PROCESSOR_ARCHITECTURE)
+        set(suffix "windows-x64.zip;windows.zip")
+        if(arch STREQUAL "ARM64")
+            set(suffix "windows-arm64.zip;windows-x64.zip;windows.zip")
+        endif()
         set(member "rp6502-emu.exe")
         set(exe "rp6502-emu.exe")
     elseif(CMAKE_HOST_APPLE)
@@ -1315,7 +1349,10 @@ function(_rp6502_host)
             # WSL runs the Windows build through interop, which finds a
             # Windows program by its contents and not by .exe.
             if(release MATCHES "[Mm]icrosoft")
-                set(suffix "windows.zip")
+                set(suffix "windows-x64.zip;windows.zip")
+                if(machine STREQUAL "aarch64")
+                    set(suffix "windows-arm64.zip;windows-x64.zip;windows.zip")
+                endif()
                 set(member "rp6502-emu.exe")
             else()
                 set(suffix "linux-${machine}.tar.gz")
@@ -1382,17 +1419,23 @@ function(_rp6502_update)
     if(RP6502_HOST_SUFFIX)
         # An .unsupported record counts too, so the update tries the latest
         # release for this host again.
-        file(GLOB emu
-            "${RP6502_TOOLS_DIR}/rp6502-*-${RP6502_HOST_SUFFIX}"
-            "${RP6502_TOOLS_DIR}/rp6502-*-${RP6502_HOST_SUFFIX}.unsupported")
+        foreach(suffix IN LISTS RP6502_HOST_SUFFIX)
+            file(GLOB found
+                "${RP6502_TOOLS_DIR}/rp6502-*-${suffix}"
+                "${RP6502_TOOLS_DIR}/rp6502-*-${suffix}.unsupported")
+            list(APPEND emu ${found})
+        endforeach()
     endif()
     file(GLOB web "${RP6502_TOOLS_DIR}/rp6502-*-web.zip")
     if(emu OR web)
         _rp6502_latest("${RP6502_TOOLS_REPO}" "^rp6502-(.+)-web\\.zip$" TRUE version)
     endif()
     if(emu)
-        _rp6502_fetch_release("${RP6502_TOOLS_REPO}" "${version}"
-            "rp6502-${version}-${RP6502_HOST_SUFFIX}" FALSE file)
+        set(names)
+        foreach(suffix IN LISTS RP6502_HOST_SUFFIX)
+            list(APPEND names "rp6502-${version}-${suffix}")
+        endforeach()
+        _rp6502_fetch_release("${RP6502_TOOLS_REPO}" "${version}" "${names}" FALSE file)
     endif()
     if(web)
         _rp6502_fetch_release("${RP6502_TOOLS_REPO}" "${version}"

@@ -880,7 +880,7 @@ class HidMouse(HidDevice):
     a program and, as a USB mouse does, the pointer of the tablet and the
     console. Two counts are one of the mouse block of a program."""
 
-    CLAIMS = RttHid.MOUSE | RttHid.TABLET
+    CLAIMS = RttHid.MOUSE
     LEFT, RIGHT, MIDDLE, BACK, FORWARD = 1, 2, 4, 8, 16
 
     DESCRIPTOR = bytes([

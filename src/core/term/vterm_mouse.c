@@ -71,8 +71,7 @@ static bool vterm_focus_now = true;
 static bool vterm_focus_told = true;
 
 /* The buttons, which make a press: hover alone is none. */
-#define VTERM_MOUSE_BUTTONS (TABLET_FLAG_LEFT | TABLET_FLAG_RIGHT | TABLET_FLAG_MIDDLE | \
-                             TABLET_FLAG_BTN4 | TABLET_FLAG_BTN5)
+#define VTERM_MOUSE_BUTTONS TABLET_FLAG_BUTTONS
 
 /* A contact is there while it hovers or presses; one with neither has gone,
  * as a pointer that left or a finger lifted. */
