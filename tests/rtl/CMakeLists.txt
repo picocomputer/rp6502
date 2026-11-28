@@ -28,7 +28,11 @@ include(${RP6502_ROOT}/version.cmake)
 find_package(verilator CONFIG REQUIRED
     HINTS $ENV{VERILATOR_ROOT} /usr/share/verilator)
 
+# The machine's firmware tests boot the reference FPGA host's firmware,
+# which tests/bench/tb_host.h models: the Pocket's. Every host's
+# machine.cmake comes before rtl.cmake.
 include(${RP6502_SRC}/host/pocket/machine.cmake)
+include(${RP6502_SRC}/core/rtl.cmake)
 set(RP6502_SW_LOG ${CMAKE_CURRENT_LIST_DIR}/pocket/log.c)
 include(${RP6502_SRC}/host/pocket/sw.cmake)
 
@@ -60,10 +64,6 @@ enable_testing()
 add_test(NAME w65c02_gen
     COMMAND ${RP6502_PYTHON} ${RP6502_SRC}/core/wdc/cpu.py --report)
 set_tests_properties(w65c02_gen PROPERTIES LABELS "gate;rtl")
-add_test(NAME rbf_r
-    COMMAND ${RP6502_PYTHON}
-        ${RP6502_SRC}/host/pocket/gen/rbf_r_gen.py --check)
-set_tests_properties(rbf_r PROPERTIES LABELS "gate;rtl")
 
 include(${RP6502_ROOT}/tests/rp6502_tests.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/rp6502_verilate.cmake)

@@ -37,6 +37,7 @@ rp6502_add_test(pproc
 
 set(POCKET_TB ${CMAKE_CURRENT_LIST_DIR})
 set(POCKET_STACK
+    ${RP6502_ASSETS}/pocket_version_pkg.sv
     ${RP6502_POCKET_CORE}/pocket_fifo.sv
     ${RP6502_POCKET_CORE}/pocket_video.sv
     ${RP6502_POCKET_CORE}/pocket_i2s.sv
@@ -139,6 +140,11 @@ if(RP6502_SOFT_CPU)
         LABELS "gate;host.pocket")
 endif()
 
+add_test(NAME rbf_r
+    COMMAND ${RP6502_PYTHON}
+        ${RP6502_SRC}/host/pocket/gen/rbf_r_gen.py --check)
+set_tests_properties(rbf_r PROPERTIES LABELS "gate;host.pocket")
+
 set(POCKET_CORE_JSON ${RP6502_SRC}/host/pocket/dist/Cores/Rumbledethumps.RP6502)
 add_test(NAME layout_json
     COMMAND ${RP6502_PYTHON} ${RP6502_SRC}/core/hid/layout.py
@@ -163,7 +169,7 @@ rp6502_submodule(vendor/openfpga SENTINEL src/fpga/ap_core.qsf
     WANTS "the timing constraint gate" OPTIONAL RESULT RP6502_HAVE_APF_RTL)
 if(RP6502_HAVE_APF_RTL)
     set(SDC_GATE_RTL)
-    foreach(src ${RP6502_MACHINE_SOURCES})
+    foreach(src ${RP6502_RTL_SOURCES})
         list(APPEND SDC_GATE_RTL --rtl ${src})
     endforeach()
     list(APPEND SDC_GATE_RTL

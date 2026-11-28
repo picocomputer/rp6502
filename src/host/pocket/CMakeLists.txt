@@ -10,6 +10,7 @@ set(RP6502_LOG_LEVEL ERROR CACHE STRING
     "What every log category says: NONE, ERROR, WARN, INFO, DEBUG")
 
 include(${CMAKE_CURRENT_LIST_DIR}/machine.cmake)
+include(${RP6502_SRC}/core/rtl.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/sw.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/quartus.cmake)
 
@@ -66,7 +67,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
         "set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION OFF")
-    foreach(src ${RP6502_MACHINE_SOURCES})
+    foreach(src ${RP6502_RTL_SOURCES} ${RP6502_ASSETS}/pocket_version_pkg.sv)
         if(src MATCHES "\\.sv$")
             list(APPEND BS_LINES
                 "set_global_assignment -name SYSTEMVERILOG_FILE ${src}")

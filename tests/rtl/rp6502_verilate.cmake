@@ -1,5 +1,6 @@
-list(PREPEND RP6502_MACHINE_SOURCES
-    ${RP6502_BENCH}/hazard3.vlt ${RP6502_BENCH}/machine.vlt)
+set(RP6502_MACHINE_SOURCES
+    ${RP6502_BENCH}/hazard3.vlt ${RP6502_BENCH}/machine.vlt
+    ${RP6502_RTL_SOURCES})
 
 function(rp6502_model out)
     cmake_parse_arguments(V "TRACE" "TOP;PREFIX" "RTL;ARGS;INCLUDE_DIRS;DEPENDS" ${ARGN})
