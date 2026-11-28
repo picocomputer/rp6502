@@ -11,6 +11,7 @@
         "${workspaceFolder}/src/host/sokol",
         "${workspaceFolder}/src/host/libretro",
         "${workspaceFolder}/src/host/pocket",
+        "${workspaceFolder}/src/host/mister",
         "${workspaceFolder}/src/host/web",
         "${workspaceFolder}/tests/rtl"
     ],

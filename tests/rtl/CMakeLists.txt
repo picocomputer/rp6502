@@ -32,6 +32,7 @@ find_package(verilator CONFIG REQUIRED
 # which tests/bench/tb_host.h models: the Pocket's. Every host's
 # machine.cmake comes before rtl.cmake.
 include(${RP6502_SRC}/host/pocket/machine.cmake)
+include(${RP6502_SRC}/host/mister/machine.cmake)
 include(${RP6502_SRC}/core/rtl.cmake)
 set(RP6502_SW_LOG ${RP6502_ROOT}/tests/bench/sw_log.c)
 include(${RP6502_SRC}/host/pocket/sw.cmake)
@@ -78,3 +79,4 @@ add_subdirectory(ria)
 add_subdirectory(riscv)
 add_subdirectory(wdc)
 add_subdirectory(${RP6502_ROOT}/tests/host/pocket host/pocket)
+add_subdirectory(${RP6502_ROOT}/tests/host/mister host/mister)
