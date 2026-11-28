@@ -1,0 +1,12 @@
+# sta_gate.py in src/host/fpga/gen fails the build on an SDC filter Quartus
+# ignored because it matched nothing, but for those listed here, one
+# "<sdc file> ; <filter>" a line. Each is sys/'s own, and matches registers
+# that exist only when a core uses the sys/ feature they belong to, so an
+# empty filter leaves nothing untimed.
+#
+# sys_top.sdc's false path from arc* covers the custom aspect ratios
+# (arc1x, arc1y, arc2x, arc2y), which sys_top.v reads only when the core
+# sets ARX to 1 or 2 with ARY 0, the OSD's [ARC1] and [ARC2]. Every canvas
+# has square pixels, so its size gives its aspect ratio and the core offers
+# no aspect ratio option; Quartus removes the registers.
+sys_top.sdc ; arc*

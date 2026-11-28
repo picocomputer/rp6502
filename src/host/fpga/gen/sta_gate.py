@@ -25,6 +25,20 @@ ROW = re.compile(r"^; Worst-case Slack\s*;(.*);\s*$", re.M)
 # it could not read (332012), and only warns.
 DROPPED = re.compile(
     r"^\s*(?:Critical )?Warning \((?:332049|332174|332012)\):.*$", re.M)
+# A filter Quartus ignored names its SDC file and the filter itself.
+IGNORED_FILTER = re.compile(r"Ignored filter at ([^(\s]+)\(\d+\): (\S+) ")
+
+
+def accepted(path: Path) -> set[tuple[str, str]]:
+    """The "<sdc file> ; <filter>" lines of a host's list of filters that
+    may match nothing."""
+    out = set()
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            sdc, _, flt = line.partition(";")
+            out.add((sdc.strip(), flt.strip()))
+    return out
 
 
 def print_paths(report: Path) -> None:
@@ -80,6 +94,8 @@ def main() -> int:
                     help="sta_paths.tcl's names report")
     ap.add_argument("--counts", type=Path,
                     help="the register count each SDC collection must match")
+    ap.add_argument("--accepted", type=Path,
+                    help="filters that may match nothing, with the reason")
     a = ap.parse_args()
     if bool(a.names) != bool(a.counts):
         ap.error("--names and --counts go together")
@@ -92,6 +108,11 @@ def main() -> int:
     text = path.read_text(errors="replace")
 
     dropped = DROPPED.findall(text)
+    if a.accepted:
+        ok = accepted(a.accepted)
+        dropped = [d for d in dropped
+                   if (m := IGNORED_FILTER.search(d)) is None
+                   or m.groups() not in ok]
 
     slack: dict[str, list[float]] = {}
     tables: dict[str, int] = {}

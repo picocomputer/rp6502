@@ -147,6 +147,7 @@ foreach(v 17 25)
         DRC_BASELINE ${baseline}
         COUNTS ${CMAKE_CURRENT_LIST_DIR}/quartus/wiring_sdc_counts.txt
         IGNORED ${CMAKE_CURRENT_LIST_DIR}/quartus/sys_ignored.txt
+        ACCEPTED ${CMAKE_CURRENT_LIST_DIR}/quartus/sys_filters.txt
         FLOW COMMAND ${CMAKE_COMMAND} -E copy_directory ${E} ${dir}
             ${shim}
             COMMAND ${Q${v}_SH} --flow compile RP6502
