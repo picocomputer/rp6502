@@ -1,0 +1,7 @@
+# The MiSTer framework this core builds with: sys/ of Template_MiSTer,
+# never edited. tree is the git id of sys/ at commit; CMake takes sys/
+# from the rp6502 branch mister, or from RP6502_MISTER_SYS_REPO at commit,
+# and uses it only if its id is tree.
+url https://github.com/MiSTer-devel/Template_MiSTer.git
+commit d6324f239f43d3b357ddcd82326e10533e32af6e
+tree 890cc311faee46020a5d7475da3520e7c4e5b417

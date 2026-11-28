@@ -79,7 +79,7 @@ static bool load_rom(const char *path)
     if (!tb_firmware(SW_BIN))
         return false;
     tb_reset(dut);
-    dut->rootp->wiring__DOT__soc__DOT__mmio_slot_len = (uint32_t)rom.size();
+    dut->rootp->wiring__DOT__soc__DOT__mmio_rom_len = (uint32_t)rom.size();
     g_valids = g_energy = 0;
     g_peak = 0;
     g_cross = 0;

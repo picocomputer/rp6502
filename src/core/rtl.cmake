@@ -53,9 +53,33 @@ set(RP6502_RTL_SOURCES
     ${RP6502_SRC}/core/vga/scan/sprite.sv
     ${RP6502_SRC}/core/vga/prog.sv
     ${RP6502_SRC}/core/vga/mode/mode0.sv
-    ${RP6502_SRC}/core/vga/scan/compose.sv)
+    ${RP6502_SRC}/core/vga/scan/compose.sv
+    ${RP6502_SRC}/core/sys/wiring.sv)
+set(RP6502_RTL_SDC ${RP6502_SRC}/core/sys/wiring.sdc)
 rp6502_submodule(vendor/hazard3 SENTINEL hdl/hazard3_core.v
     WANTS "the soft CPU")
+# The rest of the soft CPU: the hazard3 modules that RP6502_RTL_SOURCES does
+# not override, and the headers they and the overrides include. A Quartus
+# project can list these instead of searching hazard3's folders, so that
+# every file it reads is one it was given.
+set(RP6502_RTL_HAZARD3
+    ${RP6502_VENDOR}/hazard3/hdl/hazard3_cpu_1port.v
+    ${RP6502_VENDOR}/hazard3/hdl/hazard3_csr.v
+    ${RP6502_VENDOR}/hazard3/hdl/hazard3_power_ctrl.v
+    ${RP6502_VENDOR}/hazard3/hdl/arith/hazard3_alu.v
+    ${RP6502_VENDOR}/hazard3/hdl/arith/hazard3_shift_barrel.v
+    ${RP6502_VENDOR}/hazard3/hdl/arith/hazard3_priority_encode.v
+    ${RP6502_VENDOR}/hazard3/hdl/arith/hazard3_onehot_priority.v
+    ${RP6502_VENDOR}/hazard3/hdl/arith/hazard3_onehot_encode.v
+    ${RP6502_VENDOR}/hazard3/hdl/arith/hazard3_muldiv_seq.v
+    ${RP6502_VENDOR}/hazard3/hdl/arith/hazard3_branchcmp.v)
+set(RP6502_RTL_INCLUDES
+    ${RP6502_VENDOR}/hazard3/hdl/hazard3_config.vh
+    ${RP6502_VENDOR}/hazard3/hdl/hazard3_config_inst.vh
+    ${RP6502_VENDOR}/hazard3/hdl/hazard3_csr_addr.vh
+    ${RP6502_VENDOR}/hazard3/hdl/hazard3_ops.vh
+    ${RP6502_VENDOR}/hazard3/hdl/hazard3_width_const.vh
+    ${RP6502_VENDOR}/hazard3/hdl/rv_opcodes.vh)
 set(RP6502_RTL_VERILATOR_ARGS
     -y ${RP6502_VENDOR}/hazard3/hdl
     -y ${RP6502_VENDOR}/hazard3/hdl/arith

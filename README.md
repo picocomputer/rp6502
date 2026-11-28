@@ -91,10 +91,15 @@ settings.
 | `src/host/web` | the web bundle | `build/web` |
 | `src/host/libretro` | the libretro core, and its test suite | `build/libretro/{debug,release}` |
 | `src/host/pocket` | the Analogue Pocket card package | `build/pocket` |
+| `src/host/mister` | the MiSTer core, as a Template-shaped Quartus tree and its release | `build/mister` |
 | `tests/rtl` | the verilated machine and its suite | `build/rtl` |
 
-Adding MiSTer is a directory beside `src/host/pocket` and one more line in that
-list; nothing else changes.
+`src/host/fpga` is not a root of its own. It holds what every FPGA host
+shares: the soft CPU's firmware, the Quartus tools and the gates every
+fit passes, and the host seam each one provides
+(`src/host/fpga/README.md`). `src/host/pocket` and `src/host/mister` each
+put a board around the machine on top of it. A part moves there from a
+host when a second host needs it.
 
 To build firmware, select Folder:rp6502. Select either the Debug or Release
 variant, and `-DPICO_BOARD=pico2` for a RIA without the radio (the Pico
@@ -147,6 +152,9 @@ to fetch a ROM or stream the wasm. `python3 -m http.server 8000` in
 To build the Pocket core, select Folder:pocket. F7 assembles the SD card tree
 into `build/pocket/package`. It needs Quartus and `gcc-riscv64-unknown-elf`
 and nothing else.
+
+To build the MiSTer core, select Folder:mister. It needs Quartus 17.0.2 and
+25.1, and a Template_MiSTer clone for `sys/` (`src/host/mister/README.md`).
 
 ## Testing
 
@@ -203,11 +211,12 @@ runs its host tests, the machine's, and the RTL's:
     cd tests/rtl                     # needs Verilator, and
     cmake --preset release           # gcc-riscv64-unknown-elf for the soft CPU
     cmake --build --preset release
-    ctest --preset release           # host/pocket + cpu + rtl
+    ctest --preset release           # host/pocket, host/mister + cpu + rtl
 
-`ctest -L cpu`, `-L rtl`, `-L host.emu` and `-L host.pocket` pick out a slice
-by what is claimed. `-L sim` cuts the other way — everything the simulator
-runs, wherever it lives, which is the slow half of the fpga build.
+`ctest -L cpu`, `-L rtl`, `-L host.emu`, `-L host.pocket` and `-L host.mister`
+pick out a slice by what is claimed. `-L sim` cuts the other way —
+everything the simulator runs, wherever it lives, which is the slow half of
+the fpga build.
 
 ## General Linux and WSL notes
 

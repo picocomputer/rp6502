@@ -14,7 +14,7 @@ static Vphi2 *dut;
 
 static const int SYS_KHZ = 50400;
 
-/* The four-clock multicycles in src/host/pocket/quartus/wiring.sdc, on
+/* The four-clock multicycles in src/core/sys/wiring.sdc, on
  * paths from and to the 6502 and the VIA, require consecutive enables to
  * be at least four system clocks apart. */
 static const int SDC_MULTICYCLE = 4;

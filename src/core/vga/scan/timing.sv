@@ -11,7 +11,7 @@
  * The beam is the machine's, as the C renderer's is: on line N the
  * engines draw line N, the frame starts on line 0, and the VSYNC comes on
  * the last line drawn. What reaches the screen trails it by a line, and
- * host/pocket/core/wiring.sv keeps that line's count.
+ * core/sys/wiring.sv keeps that line's count.
  *
  * timing_line_start and timing_frame_start fire on a pixel's first clock.
  */

@@ -12,16 +12,16 @@
 #include <map>
 #include <vector>
 
-/* stage_map_gate.py checks these against the firmware's mmio.h and the
- * Pocket core's data.json. */
-#define TB_STAGE_ROM_BASE 0x00000000u
+/* stage_map_gate.py checks these against the firmware's mmio.h and
+ * bridge.h and the Pocket core's data.json. */
+#define TB_STAGE_ROM_BASE 0x00200000u
 /* The soft CPU's memory. Its ROM block is first, where the host loads
  * the firmware, and its RAM block follows. */
-#define TB_STAGE_MEM_BASE 0x03E00000u
+#define TB_STAGE_MEM_BASE 0x00000000u
 #define TB_STAGE_MEM_SIZE 0x00080000u
 #define TB_STAGE_MEM_ROM_SIZE 0x00040000u
 #define TB_STAGE_MEM_RAM_SIZE 0x00010000u
-#define TB_STAGE_WIN_BASE 0x03E80000u
+#define TB_STAGE_WIN_BASE 0x00080000u
 #define TB_STAGE_WIN_SIZE 0x00008000u
 
 static const std::vector<uint8_t> &tb_stage_load(const char *path,

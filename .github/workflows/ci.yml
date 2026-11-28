@@ -859,8 +859,8 @@ jobs:
       # Each shim is a docker run over the same workspace mounted at the same
       # path, which is what lets the absolute paths in the generated .qsf mean
       # the same thing on both sides of the mount. find_program() in
-      # quartus.cmake takes them off PATH like any other binary — its HINTS
-      # name a local install that a runner does not have.
+      # src/host/fpga/quartus.cmake takes them off PATH like any other
+      # binary — its HINTS name a local install that a runner does not have.
       #
       # --user keeps what Quartus writes owned by the runner, so the host side
       # of the build can still write into the directories it created.

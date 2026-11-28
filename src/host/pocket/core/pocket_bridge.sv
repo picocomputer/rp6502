@@ -26,9 +26,7 @@
 
 module pocket_bridge #(
     /* The soft CPU's ROM block and RAM block, which its cache holds:
-     * MEM_BYTES at the SDRAM byte address MEM_BASE. pocket_core sets
-     * both. */
-    parameter logic [31:0] MEM_BASE = 32'h03E0_0000,
+     * the first MEM_BYTES of the SDRAM. pocket_core sets it. */
     parameter logic [31:0] MEM_BYTES = 32'h0005_0000
 ) (
     input logic clk_74a,
@@ -211,12 +209,10 @@ module pocket_bridge #(
      * reaches the SDRAM. The host is not known to rewrite the firmware slot
      * when it reloads a ROM into a running machine; if it does, this
      * is where it stops. */
-    localparam logic [24:0] HELD_LO = MEM_BASE[25:1];
-    localparam logic [24:0] HELD_HI = 25'((MEM_BASE + MEM_BYTES) >> 1);
+    localparam logic [24:0] HELD_HI = 25'(MEM_BYTES >> 1);
     logic w_drop;
     always_comb begin
         w_drop = !wf_empty && pocket_bridge_run
-            && pocket_bridge_w_addr >= HELD_LO
             && pocket_bridge_w_addr < HELD_HI;
         pocket_bridge_w_avail = !wf_empty && !w_drop;
         pocket_bridge_w_queued = !wf_empty;
@@ -306,8 +302,8 @@ module pocket_bridge #(
         rom_t1 <= rom_t;
         rom_t2 <= rom_t1;
         rom_t3 <= rom_t2;
-        /* It ends when the new image's size is posted, the same clock the
-         * firmware's slot register takes it. */
+        /* It ends when the new image's size is posted, the same clock
+         * soc's mmio_rom_len takes it. */
         if (rom_t2 != rom_t3)
             pocket_bridge_rom_coming <= 1'b1;
         else if (pocket_bridge_slot_set)

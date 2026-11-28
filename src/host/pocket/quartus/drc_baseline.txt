@@ -1,4 +1,4 @@
-# drc_gate.py in src/host/pocket/gen fails the build when its count of
+# drc_gate.py in src/host/fpga/gen fails the build when its count of
 # findings for a rule in the Design Assistant report is above the number
 # given here. The fitter can copy a register, and the report names the
 # copy with a ~DUPLICATE suffix. The gate counts the copy and the

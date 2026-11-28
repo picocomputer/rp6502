@@ -42,21 +42,21 @@ static std::vector<uint8_t> make_rom()
     return rom;
 }
 
-static void run_staged(int *utest_result, bool slot_by_port,
+static void run_staged(int *utest_result, bool rom_by_port,
                        int stall_cycles)
 {
     std::vector<uint8_t> rom = make_rom();
 
     tb_reset(dut);
-    if (slot_by_port)
+    if (rom_by_port)
     {
-        dut->slot_len = (uint32_t)rom.size();
-        dut->slot_set = 1;
+        dut->rom_len = (uint32_t)rom.size();
+        dut->rom_set = 1;
         tb_clock(dut);
-        dut->slot_set = 0;
+        dut->rom_set = 0;
     }
     else
-        dut->rootp->wiring__DOT__soc__DOT__mmio_slot_len =
+        dut->rootp->wiring__DOT__soc__DOT__mmio_rom_len =
             (uint32_t)rom.size();
 
     std::string rv_out, cpu_out;
@@ -107,7 +107,7 @@ UTEST(rom, staged_rom_boots)
     run_staged(utest_result, false, 0);
 }
 
-UTEST(rom, slot_posted_by_port)
+UTEST(rom, rom_posted_by_port)
 {
     ASSERT_TRUE(tb_firmware(SW_BIN));
     run_staged(utest_result, true, 0);

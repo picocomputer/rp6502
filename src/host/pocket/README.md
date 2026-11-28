@@ -95,28 +95,29 @@ Pocket's or the soft CPU's, throws the line away, and a read waits for
 the soft CPU's last write to land, so the firmware has no rule to
 remember.
 
-**The SDRAM's map.** The ROM slot is the first 62 MB and stays 62 MB,
-because a whole ROM has to load into it. Everything else is packed into
-the 2 MB above, and the savestate window is last, running to the end of
-the SDRAM. Whatever the Pocket OS puts around a savestate grows into
-the window's free end.
+**The SDRAM's map.** Everything but the ROM is packed into the bottom
+2 MB, with the soft CPU's memory at 0 and the savestate window last. The
+ROM slot is everything above the 2 MB block, 62 MB, because a whole ROM
+has to load into it.
 
 | Address | Size | Use |
 |---|---|---|
-| 0x00000000 | 62 MB | The ROM slot |
-| 0x03E00000 | 256 KB | The soft CPU's ROM block, `firmware.bin` |
-| 0x03E40000 | 64 KB | The soft CPU's RAM block |
-| 0x03E50000 | 192 KB | Free, for the two blocks to grow |
-| 0x03E80000 | 256 KB | Eight file windows of 32 KB |
-| 0x03EC0000 | 4 KB | Get File scratch |
-| 0x03EC1000 | 1276 KB | The savestate window, to 0x04000000 |
+| 0x00000000 | 256 KB | The soft CPU's ROM block, `firmware.bin` |
+| 0x00040000 | 64 KB | The soft CPU's RAM block |
+| 0x00050000 | 192 KB | Free, for the two blocks to grow |
+| 0x00080000 | 256 KB | Eight file windows of 32 KB |
+| 0x000C0000 | 4 KB | Get File scratch |
+| 0x000C1000 | 1276 KB | The savestate window, to 0x00200000 |
+| 0x00200000 | 62 MB | The ROM slot, to 0x04000000 |
 
-The two blocks are the soft CPU's addresses 0 to 0x4FFFF. The 512 KB
-from 0x03E00000 is the soft CPU's alone and the cache's window, a power
-of two, so the blocks can grow in it. The bridge drops a host write into the
-two blocks while the machine runs. `stage_map_gate.py` checks every
-place that states this map against the others, checks the order, and
-fails if the ROM slot is anything but 62 MB.
+The two blocks are the soft CPU's addresses 0 to 0x4FFFF, which are
+also their SDRAM addresses. The 512 KB from 0 is the soft CPU's alone
+and the cache's window, a power of two, so the blocks can grow in it.
+The bridge drops a host write into the two blocks while the machine
+runs. `stage_map_gate.py` checks every place that states this map
+against the others, checks the order, and fails unless the ROM slot is
+the first `data.json` record and runs from 0x00200000 to the end of the
+SDRAM.
 
 The controller decodes the SDRAM as 4 banks × 8192 rows × 1024 columns
 × 16 bits, so a row is **2 KB**. The datasheet requires 8192 auto
@@ -159,25 +160,20 @@ wake's load was still unanswered while the firmware ran, so that 0x00A4
 came after Reset Exit.
 
 The savestate is core's, made by `core/sys/sst.c` as on the emulators.
-The firmware builds it, and its driver list carries
-the rows. Two rows are this machine's own: `FAB_`, in `sw/fab.c`, holds
-what only the bitstream keeps, and `AUD_`, in `sw/aud.c`, holds the
-audio engines. The blob is about 230 KB. The size the host is given is
-`SST_BYTES` in `gen/version.py`. A blob that outgrows it is refused by
-`sst_save`, so the sleep tests fail in CI before it can ship. A load writes the blob at the start of
-the window.
+The firmware builds it, and its driver list carries the rows. Two rows
+are the FPGA machine's own: `FAB_`, in `src/host/fpga/sw/fab.c`, holds
+what only the bitstream keeps, and `AUD_`, in `src/host/fpga/sw/aud.c`,
+holds the audio engines. The blob is about 230 KB. The size the host is
+given is `SST_BYTES` in `gen/version.py`. A blob that outgrows it is
+refused by `sst_save`, so the sleep tests fail in CI before it can ship.
+A load writes the blob at the start of the window.
 
-**A bitstream runs only the firmware built for it.** The register layout
-version covers the registers and the memory map. It is written once, in
-`gen/version.py`, which makes a package for the RTL and a header for the
-firmware. The bitstream shows it at 0x80030000, and `firmware.bin`
-carries its own in the word after its reset jump. `ver_check` compares
-them before the firmware uses any other register, so that address never
-moves. When they differ the firmware stops there and touches nothing
-more. The 6502 stays in reset and the screen stays black. Raise the
-version when a register the firmware uses moves, changes meaning or is
-added, or when the memory map in `mmio.h`, `mem_pkg.sv` or `link.ld`
-changes.
+**A bitstream runs only the firmware built for it.** The register
+layout version and the check that stops a firmware of another version
+are described in `src/host/fpga/README.md`. The Pocket's id is 0x50,
+`P`, and its own field is `HOST_VERSION` in `gen/version.py`, which
+covers `pocket_core`'s host window at 0x80000000, the bridge registers
+and staging layout in `sw/bridge.h`, and `fpga_host.h`.
 
 A blob from a firmware whose rows differ is refused by core's manifest,
 a sum over every row's id, version and size.
@@ -291,8 +287,9 @@ time with no time zone, so the offset has to be set by hand, and it
 cannot be one entry. A list holds at most sixteen options and the
 offset spans twenty-seven whole hours, so it is a side (east or west),
 an hour (0 to 14) and a quarter hour. Each entry writes a separate
-register, and `set_tz_minutes` in `mmio.h` combines the three into
-minutes east of UTC.
+register, and `set_tz_minutes` in `sw/bridge.h` combines the three into
+minutes east of UTC, which the shared firmware reads through
+`fpga_host.h`.
 
 **`input.json` lists no controllers.** The core passes every controller
 slot to the firmware as its registers, buttons and axes, so there is no
@@ -301,7 +298,7 @@ fixed button mapping to list.
 **A hot reload goes through the first slot, whichever slot the request
 names.** Picking a new file from this menu makes the host write the
 image through the first slot record in `data.json`, so the ROM is the
-first slot, at address zero. The ROM slot is not a deferload slot,
+first slot record. The ROM slot is not a deferload slot,
 and the host sends `0x008A` only for one, so a hot reload of the ROM is
 a request write, the image, its data table entry and a second `0x008F`,
 access all complete. When this `0x008F` arrives while the core is
@@ -561,8 +558,8 @@ that the build makes:
 - `Assets/rp6502/common/firmware.bin` is the soft CPU's firmware,
   `sw.bin` from the build tree's `assets` directory. It is the image of
   the ROM block: the code, the constants and the data's first values.
-  The host loads it at 0x03E00000, which the soft CPU sees as address
-  zero, and it may be as large as the 256 KB there. It is the only file
+  The host loads it at 0x00000000, which the soft CPU sees as address
+  zero too, and it may be as large as the 256 KB there. It is the only file
   the build puts in `Assets/rp6502/common/`. The fonts, the code page
   tables and the keyboard layouts are constants in it. The bitstream
   holds no glyphs, so the firmware builds the fonts on the video device

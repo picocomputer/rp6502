@@ -37,6 +37,7 @@ rp6502_add_test(pproc
 
 set(POCKET_TB ${CMAKE_CURRENT_LIST_DIR})
 set(POCKET_STACK
+    ${RP6502_ASSETS}/pocket_version_pkg.sv
     ${RP6502_POCKET_CORE}/pocket_fifo.sv
     ${RP6502_POCKET_CORE}/pocket_video.sv
     ${RP6502_POCKET_CORE}/pocket_i2s.sv
@@ -130,7 +131,7 @@ endif()
 
 # Every static and global of the firmware's units is in a row of its unit's
 # savestate table, and every table that saves state is in the Pocket's
-# driver list. src/host/pocket/sw.cmake writes sw_units.json.
+# driver list. src/host/fpga/sw.cmake writes sw_units.json.
 if(RP6502_SOFT_CPU)
     add_test(NAME sst_inventory_pocket
         COMMAND ${RP6502_PYTHON} ${RP6502_ROOT}/tests/sst_inventory.py
@@ -138,6 +139,11 @@ if(RP6502_SOFT_CPU)
     set_tests_properties(sst_inventory_pocket PROPERTIES
         LABELS "gate;host.pocket")
 endif()
+
+add_test(NAME rbf_r
+    COMMAND ${RP6502_PYTHON}
+        ${RP6502_SRC}/host/pocket/gen/rbf_r_gen.py --check)
+set_tests_properties(rbf_r PROPERTIES LABELS "gate;host.pocket")
 
 set(POCKET_CORE_JSON ${RP6502_SRC}/host/pocket/dist/Cores/Rumbledethumps.RP6502)
 add_test(NAME layout_json
@@ -148,14 +154,15 @@ add_test(NAME stage_map
     COMMAND ${RP6502_PYTHON}
         ${RP6502_SRC}/host/pocket/gen/stage_map_gate.py
         --data ${POCKET_CORE_JSON}/data.json
-        --mmio ${RP6502_SRC}/host/pocket/sw/mmio.h
+        --mmio ${RP6502_SRC}/host/fpga/sw/mmio.h
+        --mmio ${RP6502_SRC}/host/pocket/sw/bridge.h
         --bench ${RP6502_ROOT}/tests/bench/tb_stage.h
         --mem ${RP6502_SRC}/core/riscv/mem_pkg.sv
         --sst ${RP6502_POCKET_CORE}/pocket_sst.sv
         --top ${RP6502_SRC}/host/pocket/core/core_top.sv
         --core ${RP6502_POCKET_CORE}/pocket_core.sv
         --bridge ${RP6502_POCKET_CORE}/pocket_bridge.sv
-        --link ${RP6502_SRC}/host/pocket/sw/link.ld
+        --link ${RP6502_SRC}/host/fpga/sw/link.ld
         --version ${RP6502_SRC}/host/pocket/gen/version.py)
 set_tests_properties(stage_map PROPERTIES LABELS "gate;host.pocket")
 
@@ -163,7 +170,7 @@ rp6502_submodule(vendor/openfpga SENTINEL src/fpga/ap_core.qsf
     WANTS "the timing constraint gate" OPTIONAL RESULT RP6502_HAVE_APF_RTL)
 if(RP6502_HAVE_APF_RTL)
     set(SDC_GATE_RTL)
-    foreach(src ${RP6502_MACHINE_SOURCES})
+    foreach(src ${RP6502_RTL_SOURCES})
         list(APPEND SDC_GATE_RTL --rtl ${src})
     endforeach()
     list(APPEND SDC_GATE_RTL
@@ -172,8 +179,8 @@ if(RP6502_HAVE_APF_RTL)
         --rtl-dir ${RP6502_VENDOR}/openfpga/src/fpga)
     add_test(NAME sdc_filters
         COMMAND ${RP6502_PYTHON}
-            ${RP6502_SRC}/host/pocket/gen/sdc_gate.py
-            --sdc ${RP6502_SRC}/host/pocket/quartus/wiring.sdc
+            ${RP6502_SRC}/host/fpga/gen/sdc_gate.py
+            --sdc ${RP6502_RTL_SDC}
             --sdc ${RP6502_SRC}/host/pocket/quartus/pocket.sdc
             ${SDC_GATE_RTL})
     set_tests_properties(sdc_filters PROPERTIES LABELS "gate;host.pocket")

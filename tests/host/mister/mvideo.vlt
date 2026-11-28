@@ -1,0 +1,6 @@
+// Copyright (c) 2026 Rumbledethumps
+// SPDX-License-Identifier: BSD-3-Clause
+// mister_bars takes timing without the scanline port that SCANLINE_W sizes
+// in wiring.sv.
+`verilator_config
+lint_off -rule UNUSEDPARAM -file "*src/core/vga/scan/timing_pkg.sv"

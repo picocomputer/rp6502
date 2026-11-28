@@ -19,7 +19,7 @@ static bool tb_quiet(Dut *dut, Cycle cycle, long frame_limit = 20)
      * so a load that prints nothing across two frame edges would
      * otherwise pass for a finished run. main_stage clears the staging
      * length only after the load succeeds or fails. */
-    bool had_image = dut->rootp->wiring__DOT__soc__DOT__mmio_slot_len != 0;
+    bool had_image = dut->rootp->wiring__DOT__soc__DOT__mmio_rom_len != 0;
     bool pending = had_image;
     uint16_t prev = dut->wiring_scanline;
     while (frames < frame_limit && budget-- > 0)
@@ -31,7 +31,7 @@ static bool tb_quiet(Dut *dut, Cycle cycle, long frame_limit = 20)
             moved = true;
         if (dut->rootp->wiring__DOT__resb)
             ran = true;
-        if (pending && !dut->rootp->wiring__DOT__soc__DOT__mmio_slot_len)
+        if (pending && !dut->rootp->wiring__DOT__soc__DOT__mmio_rom_len)
             pending = false;
         uint16_t sl = dut->wiring_scanline;
         bool frame_edge = sl == 0 && prev != 0;

@@ -90,7 +90,7 @@ static bool tb_boot_each(Dut *dut, const std::vector<uint8_t> &rom,
     if (!tb_firmware(SW_BIN))
         return false;
     tb_reset(dut);
-    dut->rootp->wiring__DOT__soc__DOT__mmio_slot_len = (uint32_t)rom.size();
+    dut->rootp->wiring__DOT__soc__DOT__mmio_rom_len = (uint32_t)rom.size();
     return tb_run(dut, rom, console, each);
 }
 

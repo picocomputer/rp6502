@@ -364,7 +364,7 @@ UTEST(pbridge, the_machine_waits_for_the_write_queue)
 
     /* 400 idle clocks puts the SDRAM in self refresh. */
     advance_to(s_next + 330L * 400);
-    const uint32_t MEM = 0x03E00000u;
+    const uint32_t MEM = 0x00000000u;
     for (uint32_t i = 0; i < 3; i++)
         host_word(MEM + i * 4, 0xC0DE0000u + i, 1);
     dut->reset_n = 1;
@@ -395,14 +395,15 @@ UTEST(pbridge, the_machine_waits_for_the_write_queue)
 UTEST(pbridge, a_write_to_the_firmware_is_dropped_while_the_machine_runs)
 {
     static const uint32_t at[] = {
-        0x03DFFFFCu, /* the ROM slot's last word */
-        0x03E00000u, /* the ROM block's first */
-        0x03E3FFFCu, /* the ROM block's last */
-        0x03E40000u, /* the RAM block's first */
-        0x03E4FFFCu, /* the RAM block's last */
-        0x03E80000u, /* the first file window's first */
+        0x00000000u, /* the ROM block's first */
+        0x0003FFFCu, /* the ROM block's last */
+        0x00040000u, /* the RAM block's first */
+        0x0004FFFCu, /* the RAM block's last */
+        0x00050000u, /* the free space's first */
+        0x00080000u, /* the first file window's first */
+        0x00200000u, /* the ROM slot's first */
     };
-    static const bool mem[] = {false, true, true, true, true, false};
+    static const bool mem[] = {true, true, true, true, false, false, false};
     const int n = (int)(sizeof at / sizeof *at);
 
     power_up(utest_result);
@@ -442,7 +443,7 @@ UTEST(pbridge, a_write_to_the_firmware_is_dropped_while_the_machine_runs)
 UTEST(pbridge, a_host_write_throws_the_held_line_away)
 {
     power_up(utest_result);
-    const uint32_t WIN = 0x03E80000u;
+    const uint32_t WIN = 0x00080000u;
     for (uint32_t i = 0; i < 12; i++)
         host_word(WIN + i * 4, 0x11110000u + i, 88);
     a_cycles(60);
@@ -565,7 +566,7 @@ static void flood_sys(void)
         /* Half are reads of a line written before, once there is one. */
         bool we = f.lines.empty() || (flood_rnd() & 1);
         /* A line of the ROM or the RAM block. */
-        uint32_t line = 0x3E0000u + flood_rnd() % 0x5000u;
+        uint32_t line = flood_rnd() % 0x5000u;
         if (!we)
         {
             auto it = f.lines.begin();
@@ -605,7 +606,7 @@ UTEST(pbridge, a_flood_of_writes_loses_nothing_to_reads_and_lines)
          * order. The soft CPU's ROM and RAM blocks, which the bridge
          * drops while the machine runs, are left out. */
         uint32_t at = ((i * 0x9E3779B1u) & 0xFFFFFFu) << 2;
-        if (at >= 0x03E00000u && at < 0x03E50000u)
+        if (at < 0x00050000u)
             continue;
         uint32_t word = flood_rnd();
         host_word(at, word, 87);

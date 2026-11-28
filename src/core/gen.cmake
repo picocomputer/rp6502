@@ -16,6 +16,16 @@ set(RP6502_GENERATORS
     wdc/cpu.py)
 list(TRANSFORM RP6502_GENERATORS PREPEND ${CMAKE_CURRENT_LIST_DIR}/)
 
+# A generator outside core joins the list before anything makes the targets.
+function(rp6502_add_generator gen)
+    if(TARGET rp6502_gen_c OR TARGET rp6502_gen_assets)
+        message(FATAL_ERROR "${gen} came after the generated targets were "
+            "made; register every generator before including rtl.cmake, "
+            "emu.cmake, rp6502_tests.cmake or a host's sw.cmake")
+    endif()
+    set(RP6502_GENERATORS ${RP6502_GENERATORS} ${gen} PARENT_SCOPE)
+endfunction()
+
 include(${RP6502_ROOT}/submodules.cmake)
 
 # The C files, made at build time.

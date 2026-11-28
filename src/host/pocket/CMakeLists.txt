@@ -10,8 +10,10 @@ set(RP6502_LOG_LEVEL ERROR CACHE STRING
     "What every log category says: NONE, ERROR, WARN, INFO, DEBUG")
 
 include(${CMAKE_CURRENT_LIST_DIR}/machine.cmake)
+include(${RP6502_SRC}/core/rtl.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/sw.cmake)
-include(${CMAKE_CURRENT_LIST_DIR}/quartus.cmake)
+include(${RP6502_SRC}/host/fpga/quartus.cmake)
+rp6502_quartus_tools(QUARTUS HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
 
 if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     set(POCKET_DIR ${CMAKE_BINARY_DIR}/bitstream)
@@ -61,12 +63,12 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name SDC_FILE ${APF}/apf/apf_constraints.sdc"
         "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_SRC}/host/pocket/core/core_top.sv"
         "set_global_assignment -name VERILOG_FILE ${RP6502_SRC}/host/pocket/core/pocket_pll.v"
-        "set_global_assignment -name SDC_FILE ${RP6502_SDC}"
+        "set_global_assignment -name SDC_FILE ${RP6502_RTL_SDC}"
         "set_global_assignment -name SDC_FILE ${RP6502_SRC}/host/pocket/quartus/pocket.sdc"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
         "set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION OFF")
-    foreach(src ${RP6502_MACHINE_SOURCES})
+    foreach(src ${RP6502_RTL_SOURCES} ${RP6502_ASSETS}/pocket_version_pkg.sv)
         if(src MATCHES "\\.sv$")
             list(APPEND BS_LINES
                 "set_global_assignment -name SYSTEMVERILOG_FILE ${src}")
@@ -101,48 +103,27 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         ${APF}/core/pin_ddio_clk.v
         ${APF}/apf/apf_constraints.sdc
         ${APF}/ap_core.qsf
-        ${RP6502_SDC}
+        ${RP6502_RTL_SDC}
         ${RP6502_SRC}/host/pocket/quartus/pocket.sdc
         ${RP6502_SRC}/host/pocket/quartus/core_constraints.sdc
         ${CMAKE_CURRENT_LIST_FILE}
         ${RP6502_SRC}/core/rtl.cmake
         ${RP6502_SRC}/core/gen.cmake
-        ${CMAKE_CURRENT_LIST_DIR}/quartus.cmake)
+        ${RP6502_SRC}/host/fpga/quartus.cmake)
 
     # The firmware is not in the bitstream. The host loads it into the SDRAM
     # as a data slot, so nothing here depends on it and a firmware change
     # reaches the package without a Quartus tool running.
-    add_custom_command(OUTPUT ${POCKET_DIR}/fit.stamp
-        COMMAND ${QUARTUS_MAP} rp6502
-        COMMAND ${RP6502_PYTHON} ${RP6502_SRC}/host/pocket/gen/map_gate.py
-            ${POCKET_DIR}/output_files/rp6502.map.rpt
-        COMMAND ${QUARTUS_FIT} rp6502
-        COMMAND ${QUARTUS_STA} rp6502
-        COMMAND ${QUARTUS_STA} -t
-            ${RP6502_SRC}/host/pocket/quartus/sta_paths.tcl
-        COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/fit.stamp
-        WORKING_DIRECTORY ${POCKET_DIR}
-        DEPENDS ${BS_SOURCES}
-            ${RP6502_SRC}/host/pocket/gen/map_gate.py
-            ${RP6502_SRC}/host/pocket/quartus/sta_paths.tcl
-        COMMENT "Fitting the Pocket core"
-        VERBATIM)
-
-    add_custom_command(OUTPUT ${POCKET_DIR}/signoff.stamp
-        COMMAND ${RP6502_PYTHON} ${RP6502_SRC}/host/pocket/gen/sta_gate.py
-            ${POCKET_DIR}/output_files/rp6502.sta.rpt
-            ${POCKET_DIR}/output_files/rp6502.paths.rpt
-        COMMAND ${QUARTUS_DRC} rp6502
-        COMMAND ${RP6502_PYTHON} ${RP6502_SRC}/host/pocket/gen/drc_gate.py
-            ${POCKET_DIR}/output_files/rp6502.drc.rpt
-            ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
-        COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/signoff.stamp
-        WORKING_DIRECTORY ${POCKET_DIR}
-        DEPENDS ${POCKET_DIR}/fit.stamp
-            ${RP6502_SRC}/host/pocket/gen/sta_gate.py ${RP6502_SRC}/host/pocket/gen/drc_gate.py
-            ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
-        COMMENT "Signing off the Pocket fit"
-        VERBATIM)
+    rp6502_quartus_gates(NAME Pocket DIR ${POCKET_DIR} PROJECT rp6502
+        TOOLS QUARTUS
+        # the 5CEBA4F23C8 has 308 M10K blocks
+        MAX_M10K 308
+        DRC_BASELINE ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
+        COUNTS ${RP6502_SRC}/host/pocket/quartus/wiring_sdc_counts.txt
+        FLOW COMMAND ${QUARTUS_MAP} rp6502
+        FIT COMMAND ${QUARTUS_FIT} rp6502
+            COMMAND ${QUARTUS_STA} rp6502
+        DEPENDS ${BS_SOURCES})
 
     add_custom_command(OUTPUT ${POCKET_DIR}/core.bin
         COMMAND ${QUARTUS_ASM} rp6502
@@ -153,6 +134,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         DEPENDS ${POCKET_DIR}/signoff.stamp
             ${RP6502_SRC}/host/pocket/gen/rbf_r_gen.py
         COMMENT "Assembling the Pocket bitstream"
+        JOB_POOL quartus
         VERBATIM)
 
     set(PKG_DIR ${CMAKE_BINARY_DIR}/package)

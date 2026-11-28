@@ -86,17 +86,17 @@ module pocket_core
     output logic pocket_core_rv_halted
 );
 
-    /* The soft CPU's memory starts at this byte address, after the ROM
-     * slot: the ROM block, where the host loads firmware.bin as a data
-     * slot, and the RAM block after it, MEM_BYTES in all. They are the
-     * only SDRAM its cache holds. The file windows and the Get File scratch follow them, and
-     * the savestate window, SST_WINDOW bytes at SST_BASE, is last and runs
-     * to the end of the SDRAM. The soft CPU reaches all three through the
-     * staging store. stage_map_gate.py checks these against data.json and
-     * mmio.h. */
-    localparam logic [31:0] MEM_BASE = 32'h03E0_0000;
+    /* The soft CPU's memory is the bottom of the SDRAM, so its address
+     * is the SDRAM's byte address: the ROM block, where the host loads
+     * firmware.bin as a data slot, and the RAM block after it, MEM_BYTES
+     * in all. They are the only SDRAM its cache holds. The file windows
+     * and the Get File scratch follow them, and the savestate window,
+     * SST_WINDOW bytes at SST_BASE, is last in the bottom 2 MB, where the
+     * ROM slot starts. The soft CPU reaches all three through the staging
+     * store. stage_map_gate.py checks these against data.json,
+     * src/host/fpga/sw/mmio.h and sw/bridge.h. */
     localparam logic [31:0] MEM_BYTES = 32'h0005_0000;
-    localparam logic [31:0] SST_BASE = 32'h03EC_1000;
+    localparam logic [31:0] SST_BASE = 32'h000C_1000;
     localparam logic [31:0] SST_WINDOW = 32'h0013_F000;
 
     logic run;
@@ -118,7 +118,6 @@ module pocket_core
     logic slot_set;
     logic [7:0] upd_n;
     logic rom_coming;
-    logic key_pending;
     logic [3:0][31:0] cont_key_sys, cont_joy_sys;
     logic [3:0][15:0] cont_trig_sys;
     logic [31:0] slot_len;
@@ -133,7 +132,6 @@ module pocket_core
         ? file_dt_addr : bridge_dt_addr;
 
     pocket_bridge #(
-        .MEM_BASE(MEM_BASE),
         .MEM_BYTES(MEM_BYTES)
     ) bridge (
         .clk_74a(clk_74a),
@@ -261,7 +259,7 @@ module pocket_core
         .pocket_sdram_wtake(w_take),
         .line_pend(line_pend),
         .line_we(line_we),
-        .line_addr({MEM_BASE[25:MEM_AW+2], line_addr}),
+        .line_addr(22'(line_addr)),
         .line_wdata(line_wdata),
         .pocket_sdram_line_rdata(line_rdata),
         .pocket_sdram_line_done(line_done),
@@ -290,20 +288,33 @@ module pocket_core
     initial set_rdata = '0;
     always_ff @(posedge clk_sys) begin
         if (host_stb)
-            case (host_addr[4:2])
-                3'd0: set_rdata <= set_kb;
-                3'd2: set_rdata <= set_tz;
-                3'd3: set_rdata <= rtc_epoch_sys;
-                3'd4: set_rdata <= {31'd0, rtc_valid_sys};
-                3'd5: set_rdata <= set_tz_min;
-                3'd6: set_rdata <= set_tz_sign;
-                3'd7: set_rdata <= {31'd0, rom_coming};
+            case (host_addr[6:2])
+                5'd0: set_rdata <= set_kb;
+                5'd2: set_rdata <= set_tz;
+                5'd3: set_rdata <= rtc_epoch_sys;
+                5'd4: set_rdata <= {31'd0, rtc_valid_sys};
+                5'd5: set_rdata <= set_tz_min;
+                5'd6: set_rdata <= set_tz_sign;
+                /* The controllers, at 0x40 + 12 * slot. */
+                5'd16: set_rdata <= cont_key_sys[0];
+                5'd17: set_rdata <= cont_joy_sys[0];
+                5'd18: set_rdata <= {16'd0, cont_trig_sys[0]};
+                5'd19: set_rdata <= cont_key_sys[1];
+                5'd20: set_rdata <= cont_joy_sys[1];
+                5'd21: set_rdata <= {16'd0, cont_trig_sys[1]};
+                5'd22: set_rdata <= cont_key_sys[2];
+                5'd23: set_rdata <= cont_joy_sys[2];
+                5'd24: set_rdata <= {16'd0, cont_trig_sys[2]};
+                5'd25: set_rdata <= cont_key_sys[3];
+                5'd26: set_rdata <= cont_joy_sys[3];
+                5'd27: set_rdata <= {16'd0, cont_trig_sys[3]};
                 default: set_rdata <= '0;
             endcase
     end
-    /* The register layout this bitstream shares with its firmware,
-     * which gen/version.py states, at 0x80030000. The firmware reads it
-     * before it uses any other register, so this address never moves. */
+    /* The register layout this bitstream shares with its firmware, at
+     * 0x80030000. gen/version.py composes it from the machine's version
+     * and the Pocket's own. The firmware reads it before it uses any
+     * other register, so this address never moves. */
     logic [31:0] ver_rdata;
     initial ver_rdata = '0;
     always_ff @(posedge clk_sys)
@@ -369,15 +380,9 @@ module pocket_core
         .wiring_host_we(host_we),
         .wiring_host_wdata(host_wdata),
         .host_rdata(host_rdata),
-        .slot_set(slot_set),
-        .slot_len(slot_len),
-        .upd_n(upd_n),
-        .key_set(1'b0),
-        .key_code(9'd0),
-        .cont_key(cont_key_sys),
-        .cont_joy(cont_joy_sys),
-        .cont_trig(cont_trig_sys),
-        .wiring_key_pending(key_pending),
+        .rom_set(slot_set),
+        .rom_len(slot_len),
+        .rom_upd(upd_n),
         .wiring_vid_pixel(vid_pixel),
         .wiring_vid_de(vid_de),
         .wiring_vid_canvas(vid_canvas),
@@ -486,8 +491,6 @@ module pocket_core
     );
 
     /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_pocket_core_key;
-    always_comb unused_pocket_core_key = key_pending;
     logic unused_pocket_core;
     always_comb unused_pocket_core = ^{rx_taken, rv_exit_code, scanline,
                                        stage_addr[27:26], stage_addr[1:0]};

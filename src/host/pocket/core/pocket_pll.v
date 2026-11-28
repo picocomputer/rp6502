@@ -37,8 +37,9 @@ module pocket_pll (
      * shift puts each edge of that clock in the middle of a half-period
      * data window. */
     localparam VID_SHIFT = "9921 ps";
-    /* A phase shift is a whole number of eighths of the VCO's 827 ps
-     * period, 103.3 ps. 8990 ps, 87 of them, puts clk_a2's edges 9.0 and
+    /* A phase shift is a whole number of eighths of the VCO's period.
+     * The fitter runs it at 806.4 MHz, so a step is 155 ps, an eighth of
+     * 1240 ps. 8990 ps, 58 of them, puts clk_a2's edges 9.0 and
      * 18.9 ns after each clk_sys edge, where XRAM's registered addresses
      * and its outgoing words have equal margins. 12400 ps of clk_sys's
      * period puts clk_ph's rise 6.5 ns before the second of those edges

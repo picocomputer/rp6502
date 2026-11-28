@@ -8,7 +8,7 @@
  * XRAM, and the system's shape. scan/sprite.sv draws it, with mode 5's
  * engine, as a sprite over every plane.
  *
- * The soft CPU writes these and reads nothing back; host/pocket/sw/vga.c
+ * The soft CPU writes these and reads nothing back; host/fpga/sw/vga.c
  * keeps its own copy. At 0x50200000:
  *   word 0 shape {copy[8], shape[7:0]}, 0 for none;
  *   word 1 where {y[31:16], x[15:0]}, the hot spot in canvas pixels;

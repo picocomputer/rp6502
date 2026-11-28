@@ -1,0 +1,20 @@
+# assignment_gate.py in src/host/fpga/gen fails the build on an assignment
+# Quartus ignored or that matches nothing, but for those listed here, one
+# "<name> ; <target>" a line. These are sys/'s own (sys.tcl, pll_hdmi),
+# and stock Template_MiSTer at sys/ 890cc311 leaves the same ones unapplied
+# on 17.0.2 and 25.1.
+#
+# sys.tcl asks for the SDRAM pins' registers in their I/O cells, and that
+# no SDRAM_* register use a synchronous control signal. A core that leaves
+# the SDRAM pins at 'Z, as the colour bars and Template.sv do, gives them
+# no registers to apply to.
+Fast Input Register ; SDRAM_DQ[*]
+Fast Output Register ; SDRAM_*
+Fast Output Enable Register ; SDRAM_DQ[*]
+ALLOW_SYNCH_CTRL_USAGE ; *|SDRAM_*
+# sys.tcl asks the same of HDMI_TX_CLK, which sys_top.v drives from a DDIO
+# output (altddio_out), not from a register.
+Fast Output Register ; HDMI_TX_CLK
+# pll_hdmi/pll_hdmi_0002.qip, as its wizard wrote it; the fitter lists it
+# as ignored.
+Unforce Merging of PLL Output Counter ; *pll_hdmi_0002*|altera_pll:altera_pll_i*|*

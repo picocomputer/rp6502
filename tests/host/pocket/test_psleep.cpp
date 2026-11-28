@@ -81,7 +81,7 @@ static const int ANSWER_LOAD = RES_BUSY;
 static const int ANSWER_LOAD_IN_RESET = RES_OK;
 
 /* core_top's savestate_addr and savestate_size. */
-#define BLOB_BRIDGE 0x03EC1000u
+#define BLOB_BRIDGE 0x000C1000u
 #define BLOB_BYTES POCKET_SST_BYTES
 
 enum { REQ_NONE = 0, REQ_OPEN, REQ_GETFILE, REQ_READ, REQ_WRITE };

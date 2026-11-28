@@ -1,0 +1,12 @@
+# sta_gate.py in src/host/fpga/gen fails the build when a register
+# collection in src/core/sys/wiring.sdc matches a number of registers other
+# than the one given here, so a rename that moves a register into or out of
+# a multicycle cannot pass unseen. Each line is the count and then the
+# collection as the SDC writes it. The counts are the fit's registers less
+# the copies the fitter makes for placement (~DUPLICATE), which come and go
+# from one fit to the next. An RTL change that should move a count changes
+# it here.
+64 *xram:xram|xram_f_rdata[*] *xram:xram|xram_s_rdata[*]
+148 *cpu:*
+195 *via:*
+2580 *regs:*
