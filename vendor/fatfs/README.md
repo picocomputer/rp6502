@@ -5,6 +5,31 @@ From: http://elm-chan.org/fsw/ff
 This copy is FatFs R0.16 with patches 1 and 2 to ff.c, and with the
 ffunicode.c of August 3, 2025, from http://elm-chan.org/fsw/ff/patches.html.
 
+## The upstream distribution
+
+These files are the upstream release this copy is built from, kept as
+downloaded, so an upgrade can be made against them even if the site
+changes:
+
+| File | From | SHA-256 |
+| --- | --- | --- |
+| `ff16.zip` | http://elm-chan.org/fsw/ff/arc/ff16.zip | `99f7dc1f7e095356e4a9e3dbe29959090d8b948afe2bbc5441e52fdf4b85449e` |
+| `ff16p1.diff` | http://elm-chan.org/fsw/ff/patch/ff16p1.diff | `7996ddc3135f3d534a8153f7d75d587030e5c8551b003c3b7ee823ffb7fc64bf` |
+| `ff16p2.diff` | http://elm-chan.org/fsw/ff/patch/ff16p2.diff | `5cd39f1fc299f0f1dec9fa1ce544dc0bc048b2f6eb3b8161476ed20f9cf1e290` |
+| `ffunicode.zip` | http://elm-chan.org/fsw/ff/patch/ffunicode.zip | `94ee9c278b100abca9375436757b40abf7782cde0a8ba4c2e7189083b5b9dbc3` |
+
+`source/` in `ff16.zip`, with CRLF line ends turned to LF, then
+`ff16p1.diff` and `ff16p2.diff` applied to `ff.c` in that order, and the
+`ffunicode.c` from `ffunicode.zip`, gives the base. This copy differs from
+that base only by the changes below and by the blank line at the end of
+ffsystem.c, diskio.c, and 00readme.txt, which this copy removes. Patch 2 fixes CVE-2026-6682,
+CVE-2026-6683, and CVE-2026-6687.
+
+When FatFs has a new release, replace these files with it and update this
+table.
+
+## Changes in this copy
+
 Each change in ff.c, ff.h, and ffunicode.c has a comment that contains
 "RP6502". After an upgrade of FatFs, apply each change again.
 
