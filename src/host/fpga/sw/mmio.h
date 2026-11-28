@@ -30,12 +30,18 @@
  * MTIME_HI puts the two in together, so the low half is written first. */
 #define MTIME_LO (*(volatile uint32_t *)(uintptr_t)0xF0000010u)
 #define MTIME_HI (*(volatile uint32_t *)(uintptr_t)0xF0000014u)
-#define MMIO_SLOT (*(volatile uint32_t *)(uintptr_t)0xF0000018u)
+/* The host's ROM landing. MMIO_ROM_LEN is the size of the image the host
+ * has staged, loaded with each landing and cleared by the firmware once it
+ * has handled it. MMIO_ROM_STOP is 1 from the host's request to write a
+ * new ROM until its size is in MMIO_ROM_LEN, and the bitstream holds the
+ * 6502 in reset meanwhile. MMIO_ROM_UPD counts the host's ROM loads. */
+#define MMIO_ROM_LEN (*(volatile uint32_t *)(uintptr_t)0xF0000018u)
+#define MMIO_ROM_STOP (*(volatile const uint32_t *)(uintptr_t)0xF000001Cu)
 /* Microseconds from configuration. Nothing stops or writes it, so it goes
  * on through a hold, when mtime stands still. */
 #define UPTIME_LO (*(volatile const uint32_t *)(uintptr_t)0xF0000020u)
 #define UPTIME_HI (*(volatile const uint32_t *)(uintptr_t)0xF0000024u)
-#define MMIO_UPD_N (*(volatile uint32_t *)(uintptr_t)0xF000004Cu)
+#define MMIO_ROM_UPD (*(volatile const uint32_t *)(uintptr_t)0xF000004Cu)
 
 #define SRAM ((volatile uint8_t *)(uintptr_t)0x10000000u)
 #define XRAM_WIN ((volatile uint8_t *)(uintptr_t)0x30000000u)

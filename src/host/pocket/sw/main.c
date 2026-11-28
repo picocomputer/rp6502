@@ -11,7 +11,6 @@
 #include "apf.h"
 #include "host/fpga/sw/cfg.h"
 #include "host/fpga/sw/tim.h"
-#include "bridge.h"
 #include "host/fpga/sw/mmio.h"
 #include "fs.h"
 #include "proc.h"
@@ -77,10 +76,10 @@ static void main_stage(void)
     bool staged = fd >= 0;
     bool ok = staged && rom_load_fd(fd);
     proc_restage();
-    /* MMIO_SLOT is cleared only after the load has succeeded or failed,
+    /* MMIO_ROM_LEN is cleared only after the load has succeeded or failed,
      * because tb_quiet in tests/bench/tb_quiet.h does not count a run with
-     * an image as quiet until the register behind MMIO_SLOT reads zero. */
-    MMIO_SLOT = 0;
+     * an image as quiet until MMIO_ROM_LEN reads zero. */
+    MMIO_ROM_LEN = 0;
     if (ok)
         sys_run();
     else if (staged)
@@ -91,7 +90,7 @@ int main(void)
 {
     sys_init();
 
-    main_upd_seen = (uint8_t)MMIO_UPD_N;
+    main_upd_seen = (uint8_t)MMIO_ROM_UPD;
     main_restaging = true;
 
     for (;;)
@@ -110,16 +109,16 @@ int main(void)
         sys_task();
 
         /* The host asks for a start by loading a ROM, which changes
-         * MMIO_UPD_N and MMIO_SLOT. The host of a wake sets both as well,
+         * MMIO_ROM_UPD and MMIO_ROM_LEN. The host of a wake sets both as well,
          * so neither is acted on while a load is on its way, and a load
          * that lands marks both as handled. */
         bool wake = sleep_waking();
         /* A new ROM is being written over the old one's file. The bitstream
          * already holds the 6502; the program stops here and nothing
-         * starts until the image has landed and MMIO_SLOT says so. */
-        bool coming = ROM_COMING != 0;
-        uint8_t upd = (uint8_t)MMIO_UPD_N;
-        if (!wake && (MMIO_SLOT != 0 || upd != main_upd_seen))
+         * starts until the image has landed and MMIO_ROM_LEN says so. */
+        bool coming = MMIO_ROM_STOP != 0;
+        uint8_t upd = (uint8_t)MMIO_ROM_UPD;
+        if (!wake && (MMIO_ROM_LEN != 0 || upd != main_upd_seen))
         {
             main_upd_seen = upd;
             main_restaging = true;
@@ -135,8 +134,8 @@ int main(void)
             /* The wake's ROM is handled here, before the load is answered,
              * and not after it is made: a load that fails can print for
              * long enough that the host has loaded the next ROM by then. */
-            main_upd_seen = (uint8_t)MMIO_UPD_N;
-            MMIO_SLOT = 0;
+            main_upd_seen = (uint8_t)MMIO_ROM_UPD;
+            MMIO_ROM_LEN = 0;
             main_restaging = false;
             sleep_load();
             continue;

@@ -13,15 +13,13 @@ module soc
     input logic clk,
     input logic rst_n,
 
-    input logic slot_set,
-    input logic [31:0] slot_len,
-    input logic [7:0] upd_n,
-    input logic key_set,
-    input logic [8:0] key_code,
-    input logic [3:0][31:0] cont_key,
-    input logic [3:0][31:0] cont_joy,
-    input logic [3:0][15:0] cont_trig,
-    output logic soc_key_pending,
+    /* The host's ROM landing: rom_set loads rom_len, the length of the
+     * image it has staged; rom_upd counts its loads; rom_stop is high
+     * while a load is in progress. */
+    input logic rom_set,
+    input logic [31:0] rom_len,
+    input logic [7:0] rom_upd,
+    input logic rom_stop,
 
     output logic [7:0] soc_tx_data,
     output logic soc_tx_valid,
@@ -218,20 +216,12 @@ module soc
         soc_bus_wstrb = dph_strb;
     end
 
-    logic [7:0] mmio_kbd_data /*verilator public_flat_rw*/;
-    logic mmio_kbd_valid /*verilator public_flat_rw*/;
-    logic [8:0] mmio_key_data /*verilator public_flat_rw*/;
-    logic mmio_key_valid /*verilator public_flat_rw*/;
-    always_comb soc_key_pending = mmio_key_valid;
-    logic [31:0] mmio_slot_len /*verilator public_flat_rw*/;
+    logic [31:0] mmio_rom_len /*verilator public_flat_rw*/;
 
     /* An MMIO write, data phase and all, is done on the clock its data
-     * phase ends, and the side effect of a read is taken there too. */
-    logic mmio_we, mmio_re;
-    always_comb begin
-        mmio_we = dph_active && dph_write && dph_mmio && hready;
-        mmio_re = dph_active && !dph_write && dph_mmio && hready;
-    end
+     * phase ends. */
+    logic mmio_we;
+    always_comb mmio_we = dph_active && dph_write && dph_mmio && hready;
 
     /* mtime is the machine's clock, which a savestate carries, so it
      * counts only while mtime_hold is low. It is written as two halves,
@@ -289,27 +279,14 @@ module soc
             hrdata = bus_rdata;
         else if (dph_mmio)
             case (mmio_reg)
-                7'h08: hrdata = {23'd0, mmio_kbd_valid, mmio_kbd_data};
                 7'h0C: hrdata = {16'd0, soc_phi2_khz};
                 7'h10: hrdata = mtime_us[31:0];
                 7'h14: hrdata = mtime_us[63:32];
-                7'h18: hrdata = mmio_slot_len;
+                7'h18: hrdata = mmio_rom_len;
+                7'h1C: hrdata = {31'd0, rom_stop};
                 7'h20: hrdata = uptime_us[31:0];
                 7'h24: hrdata = uptime_us[63:32];
-                7'h4C: hrdata = {24'd0, upd_n};
-                7'h1C: hrdata = {22'd0, mmio_key_valid, mmio_key_data};
-                7'h50: hrdata = cont_key[0];
-                7'h54: hrdata = cont_joy[0];
-                7'h58: hrdata = {16'd0, cont_trig[0]};
-                7'h5C: hrdata = cont_key[1];
-                7'h60: hrdata = cont_joy[1];
-                7'h64: hrdata = {16'd0, cont_trig[1]};
-                7'h68: hrdata = cont_key[2];
-                7'h6C: hrdata = cont_joy[2];
-                7'h70: hrdata = {16'd0, cont_trig[2]};
-                7'h74: hrdata = cont_key[3];
-                7'h78: hrdata = cont_joy[3];
-                7'h7C: hrdata = {16'd0, cont_trig[3]};
+                7'h4C: hrdata = {24'd0, rom_upd};
                 default: hrdata = 32'h0;
             endcase
         else
@@ -321,25 +298,13 @@ module soc
         soc_tx_valid = 1'b0;
         soc_halted = 1'b0;
         soc_exit_code = 32'h0;
-        mmio_kbd_valid = 1'b0;
-        mmio_kbd_data = 8'h00;
-        mmio_key_valid = 1'b0;
-        mmio_key_data = 9'h000;
-        mmio_slot_len = 32'h0;
+        mmio_rom_len = 32'h0;
         soc_phi2_khz = 16'd8000;
     end
     always_ff @(posedge clk) begin
             soc_tx_valid <= 1'b0;
-            if (mmio_re && mmio_reg == 7'h08)
-                mmio_kbd_valid <= 1'b0;
-            if (mmio_re && mmio_reg == 7'h1C)
-                mmio_key_valid <= 1'b0;
-            if (slot_set)
-                mmio_slot_len <= slot_len;
-            if (key_set) begin
-                mmio_key_data <= key_code;
-                mmio_key_valid <= 1'b1;
-            end
+            if (rom_set)
+                mmio_rom_len <= rom_len;
             if (mmio_we) begin
                 case (mmio_reg)
                     7'h00: begin
@@ -351,7 +316,7 @@ module soc
                         soc_exit_code <= hwdata;
                     end
                     7'h0C: soc_phi2_khz <= hwdata[15:0];
-                    7'h18: mmio_slot_len <= hwdata;
+                    7'h18: mmio_rom_len <= hwdata;
                     default: ;
                 endcase
             end

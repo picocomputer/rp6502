@@ -306,8 +306,8 @@ module pocket_bridge #(
         rom_t1 <= rom_t;
         rom_t2 <= rom_t1;
         rom_t3 <= rom_t2;
-        /* It ends when the new image's size is posted, the same clock the
-         * firmware's slot register takes it. */
+        /* It ends when the new image's size is posted, the same clock
+         * soc's mmio_rom_len takes it. */
         if (rom_t2 != rom_t3)
             pocket_bridge_rom_coming <= 1'b1;
         else if (pocket_bridge_slot_set)

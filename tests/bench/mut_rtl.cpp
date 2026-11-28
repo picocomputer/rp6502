@@ -246,6 +246,7 @@ bool mut_boot(const char *rom)
     delete dut;
     dut = new Vwiring;
     mut_mouse_on = false;
+    tb_host_get().set_cont(0, 0, 0, 0);
 
     bool ever_ran = false;
     bool quiet = tb_boot_each(dut, mut_rom, nullptr, [&] {
@@ -280,10 +281,11 @@ const uint32_t *mut_frame(int w, int h)
 }
 
 /* The pointer is a mouse in the dock's first slot, as host/pocket/sw/apf.c
- * reads one: a report is the slot's registers with a new count, its
- * movement relative, each 16-bit field's low byte in the high half of its
- * halfword. The firmware takes the latest report when it looks, so each is
- * given two frames to be seen. The tablet tracks a mouse in a space 640
+ * reads one through the host window (tests/bench/tb_host.h): a report is
+ * the slot's registers with a new count, its movement relative, each
+ * 16-bit field's low byte in the high half of its halfword. The firmware
+ * takes the latest report when it looks, so each is given two frames to be
+ * seen. The tablet tracks a mouse in a space 640
  * wide at two counts a pixel (core/hid/tablet.c), so a move far up and
  * left first puts the pointer at 0,0, and the moves after are counted from
  * there. The dock's mouse draws no cursor of its own, so the system's
@@ -300,10 +302,9 @@ static void mut_mouse(int dx, int dy, uint8_t buttons)
 {
     const uint32_t mouse = 5;  // APF_TYPE_MOUSE
     mut_mouse_count++;
-    dut->cont_key[0] = mouse << 28 | mut_swap16(mut_mouse_count);
-    dut->cont_joy[0] = (uint32_t)buttons << 16 | mut_swap16(dx & 0xFFFF);
-    /* The four slots' triggers are one 64-bit port, slot 0 the low 16. */
-    dut->cont_trig = (dut->cont_trig & ~(uint64_t)0xFFFF) | mut_swap16(dy & 0xFFFF);
+    tb_host_get().set_cont(0, mouse << 28 | mut_swap16(mut_mouse_count),
+                           (uint32_t)buttons << 16 | mut_swap16(dx & 0xFFFF),
+                           (uint16_t)mut_swap16(dy & 0xFFFF));
     for (int i = 0; i < 2; i++)
     {
         tb_frame_start(dut, mut_rom);
@@ -335,9 +336,7 @@ void mut_pointer(int x, int y, uint8_t buttons, int w, int h)
 
 void mut_pointer_gone(void)
 {
-    dut->cont_key[0] = 0;
-    dut->cont_joy[0] = 0;
-    dut->cont_trig &= ~(uint64_t)0xFFFF;
+    tb_host_get().set_cont(0, 0, 0, 0);
     mut_mouse_on = false;
     for (int i = 0; i < 2; i++)
     {

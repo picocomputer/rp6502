@@ -13,12 +13,6 @@
 
 #include <stdint.h>
 
-/* The controllers' registers, at soc addresses for now. */
-#define MMIO_CONT_KEY(s) (*(volatile uint32_t *)(uintptr_t)(0xF0000050u + (s) * 12u))
-#define MMIO_CONT_JOY(s) (*(volatile uint32_t *)(uintptr_t)(0xF0000054u + (s) * 12u))
-#define MMIO_CONT_TRIG(s) (*(volatile uint32_t *)(uintptr_t)(0xF0000058u + (s) * 12u))
-#define MMIO_CONT_SLOTS 4
-
 /* These addresses must agree with the slots in data.json.
  * stage_map_gate.py checks every one of them against it and against the
  * hardware. ROM_MAX is the ROM slot's size_maximum. Everything else is
@@ -92,9 +86,12 @@
 #define RTC_VALID (*(volatile uint32_t *)(uintptr_t)0x80010010u)
 #define SET_TZ_MIN (*(volatile uint32_t *)(uintptr_t)0x80010014u)
 #define SET_TZ_WEST (*(volatile uint32_t *)(uintptr_t)0x80010018u)
-/* 1 from the host's request to write the ROM slot until the new image's
- * size is in MMIO_SLOT. The bitstream holds the 6502 in reset meanwhile. */
-#define ROM_COMING (*(volatile const uint32_t *)(uintptr_t)0x8001001Cu)
+/* The controllers' registers, APF's key, joystick and trigger words for
+ * each of its slots. */
+#define MMIO_CONT_KEY(s) (*(volatile const uint32_t *)(uintptr_t)(0x80010040u + (s) * 12u))
+#define MMIO_CONT_JOY(s) (*(volatile const uint32_t *)(uintptr_t)(0x80010044u + (s) * 12u))
+#define MMIO_CONT_TRIG(s) (*(volatile const uint32_t *)(uintptr_t)(0x80010048u + (s) * 12u))
+#define MMIO_CONT_SLOTS 4
 
 static inline int32_t set_tz_minutes(void)
 {

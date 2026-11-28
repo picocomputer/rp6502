@@ -73,16 +73,16 @@ set_max_delay -from [get_registers {*pocket_bridge*|slot_size[*]}] \
 set_min_delay -from [get_registers {*pocket_bridge*|slot_size[*]}] \
     -to [get_registers {*pocket_bridge*|pocket_bridge_slot_len[*]}] 0
 
-# soc loads mmio_slot_len from pocket_bridge_slot_len only while its
-# slot_set input is high. pocket_bridge raises pocket_bridge_slot_set
-# four clk_sys clocks after each load of pocket_bridge_slot_len made
-# while pocket_bridge_run is high, and five clk_sys clocks after
-# pocket_bridge_run rises, so a load of mmio_slot_len on an edge where
-# pocket_bridge_slot_len changes is followed by another pulse of
-# pocket_bridge_slot_set once pocket_bridge_run is high.
+# soc loads mmio_rom_len from pocket_bridge_slot_len only while its
+# rom_set input, pocket_bridge_slot_set, is high. pocket_bridge raises
+# pocket_bridge_slot_set four clk_sys clocks after each load of
+# pocket_bridge_slot_len made while pocket_bridge_run is high, and five
+# clk_sys clocks after pocket_bridge_run rises, so a load of mmio_rom_len
+# on an edge where pocket_bridge_slot_len changes is followed by another
+# pulse of pocket_bridge_slot_set once pocket_bridge_run is high.
 set_false_path -hold \
     -from [get_registers {*pocket_bridge*|pocket_bridge_slot_len[*]}] \
-    -to [get_registers {*|mmio_slot_len[*]}]
+    -to [get_registers {*|mmio_rom_len[*]}]
 
 # pocket_file's command parameters and r_op are read on clk_74a only
 # after go_t has passed two synchronizer flops, and r_op changes on the

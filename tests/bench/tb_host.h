@@ -5,7 +5,8 @@
  */
 
 /* The Pocket's file host behind the firmware's host registers, enough to
- * boot a ROM. Where its behaviour comes from:
+ * boot a ROM, and the dock's controller words. Where its behaviour comes
+ * from:
  * - The commands and their results: Analogue's docs,
  *   https://www.analogue.co/developer/docs/openfpga/host-target-commands
  * - Get File writing the whole response struct, and an empty name for an
@@ -42,6 +43,11 @@
 #define TB_HOST_SST_WQ_EMPTY 0x08u
 #define TB_HOST_VER_REG 0x30000u
 
+/* The controllers' key, joystick and trigger words, at 0x10040 + 12 * slot
+ * in the settings block. */
+#define TB_HOST_CONT 0x10040u
+#define TB_HOST_CONT_SLOTS 4u
+
 class tb_host
 {
 public:
@@ -61,6 +67,14 @@ public:
         dut->host_rdata = read(dut->wiring_host_addr & 0x0FFFFFFFu);
     }
 
+    /* A controller slot's words as APF sends them. */
+    void set_cont(uint32_t slot, uint32_t key, uint32_t joy, uint16_t trig)
+    {
+        cont_[slot][0] = key;
+        cont_[slot][1] = joy;
+        cont_[slot][2] = trig;
+    }
+
 private:
     const uint8_t *data_ = nullptr;
     size_t size_ = 0;
@@ -68,6 +82,7 @@ private:
     uint32_t id_ = 0, off_ = 0, len_ = 0, bridge_ = 0, result_ = 0;
     uint32_t err_ = 0;
     uint8_t open_name_[TB_HOST_OPEN_NAME] = {};
+    uint32_t cont_[TB_HOST_CONT_SLOTS][3] = {};
 
     uint32_t slot_size(uint32_t slot) const
     {
@@ -123,6 +138,12 @@ private:
             return TB_HOST_SST_WQ_EMPTY;
         if (addr == TB_HOST_VER_REG)
             return POCKET_REG_VERSION;
+        if (addr >= TB_HOST_CONT
+            && addr < TB_HOST_CONT + TB_HOST_CONT_SLOTS * 12u)
+        {
+            uint32_t w = (addr - TB_HOST_CONT) / 4u;
+            return cont_[w / 3u][w % 3u];
+        }
         return 0;
     }
 
@@ -179,10 +200,17 @@ private:
 
 const std::string tb_host::empty_;
 
+/* The one host a test's machine talks to. */
+static inline tb_host &tb_host_get()
+{
+    static tb_host host;
+    return host;
+}
+
 template <class DUT>
 static void tb_host_tick(DUT *dut, const std::vector<uint8_t> &rom)
 {
-    static tb_host host;
+    tb_host &host = tb_host_get();
     host.bind(rom);
     host.tick(dut);
 }

@@ -11,7 +11,8 @@ module wiring
 ) (
     input logic clk_sys,
     /* The host is writing a new ROM: the 6502 goes into reset and stays
-     * there while this is high. */
+     * there while this is high. soc.sv also shows it to the soft CPU, with
+     * the ROM landing below. */
     input logic rom_stop,
     /* XRAM's render port runs at twice clk_sys; xram.sv says how, and
      * why clk_ph rides with it. */
@@ -69,15 +70,10 @@ module wiring
     output logic [31:0] wiring_host_wdata,
     input logic [31:0] host_rdata,
 
-    input logic slot_set,
-    input logic [31:0] slot_len,
-    input logic [7:0] upd_n,
-    input logic key_set,
-    input logic [8:0] key_code,
-    input logic [3:0][31:0] cont_key,
-    input logic [3:0][31:0] cont_joy,
-    input logic [3:0][15:0] cont_trig,
-    output logic wiring_key_pending,
+    /* The ROM landing that soc.sv shows the soft CPU. */
+    input logic rom_set,
+    input logic [31:0] rom_len,
+    input logic [7:0] rom_upd,
 
     output logic [15:0] wiring_vid_pixel,
     output logic wiring_vid_de,
@@ -326,15 +322,10 @@ module wiring
         .soc_tx_valid(wiring_rv_tx_valid),
         .soc_halted(wiring_rv_halted),
         .soc_exit_code(wiring_rv_exit_code),
-        .slot_set(slot_set),
-        .slot_len(slot_len),
-        .upd_n(upd_n),
-        .key_set(key_set),
-        .cont_key(cont_key),
-        .cont_joy(cont_joy),
-        .cont_trig(cont_trig),
-        .key_code(key_code),
-        .soc_key_pending(wiring_key_pending),
+        .rom_set(rom_set),
+        .rom_len(rom_len),
+        .rom_upd(rom_upd),
+        .rom_stop(rom_stop),
         .bus_taken(soc_taken),
         .soc_bus_pend(soc_pend),
         .soc_bus_we(soc_we),

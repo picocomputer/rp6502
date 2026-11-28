@@ -11,7 +11,7 @@
 # src/host/fpga/sw/link.ld. Raise it when any of those changes
 # in a way the firmware sees. Every host's version changes with it.
 
-MACHINE_VERSION = 1
+MACHINE_VERSION = 2
 
 # Each host's id is the high byte of its version, so a firmware built for
 # one host stops on another's bitstream. A new host takes its own initial.
