@@ -139,6 +139,8 @@ The gates read these, in `quartus/`:
   `src/core/sys/wiring.sdc` matches. The bars have no machine, so
   `files.qip` leaves `wiring.sdc` out and each count is 0.
 - `sys_ignored.txt`: the assignments of `sys/` Quartus leaves unapplied.
+- `sys_corners.txt`: the clocks of `sys/` judged at one corner, as
+  MiSTer's own builds judge every clock.
 - `sys_filters.txt`: the filters of `sys/`'s SDC that match nothing in
   this core, because they belong to a `sys/` feature it does not use.
 

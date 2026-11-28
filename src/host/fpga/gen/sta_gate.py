@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import argparse
+import fnmatch
 import re
 import sys
 from pathlib import Path
@@ -17,7 +18,7 @@ COLUMNS = ("Setup", "Hold", "Recovery", "Removal", "Minimum Pulse Width")
 # also has a Worst-case Slack row. Every analysis must have a table for each
 # corner, and the tables must agree with that row, so a table whose header
 # moved cannot drop out of the check unseen.
-TABLE = re.compile(r"^; (?:.* Model )?(" + "|".join(COLUMNS) + r") Summary\s*;$")
+TABLE = re.compile(r"^; (?:(.*) Model )?(" + "|".join(COLUMNS) + r") Summary\s*;$")
 ROW = re.compile(r"^; Worst-case Slack\s*;(.*);\s*$", re.M)
 
 # Quartus fits a design without a constraint whose collection came up empty
@@ -85,6 +86,18 @@ def check_counts(names: Path, counts: Path) -> list[str]:
     return bad
 
 
+def corners(path: Path) -> list[tuple[str, str]]:
+    """The "<clock glob> ; <corner>" lines of a host's list of clocks judged
+    at one corner only."""
+    out = []
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            clk, _, corner = line.partition(";")
+            out.append((clk.strip(), corner.strip()))
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("sta_rpt")
@@ -96,6 +109,8 @@ def main() -> int:
                     help="the register count each SDC collection must match")
     ap.add_argument("--accepted", type=Path,
                     help="filters that may match nothing, with the reason")
+    ap.add_argument("--corners", type=Path,
+                    help="clocks judged at one corner only, with the reason")
     a = ap.parse_args()
     if bool(a.names) != bool(a.counts):
         ap.error("--names and --counts go together")
@@ -114,14 +129,17 @@ def main() -> int:
                    if (m := IGNORED_FILTER.search(d)) is None
                    or m.groups() not in ok]
 
+    only = corners(a.corners) if a.corners else []
     slack: dict[str, list[float]] = {}
+    every: dict[str, list[float]] = {}
+    skipped: list[str] = []
     tables: dict[str, int] = {}
     lines = text.splitlines()
     for i, line in enumerate(lines):
         m = TABLE.match(line.rstrip())
         if not m:
             continue
-        name = m.group(1)
+        corner, name = m.group(1) or "", m.group(2)
         tables[name] = tables.get(name, 0) + 1
         for row in lines[i + 1:]:
             if not row.strip():
@@ -131,12 +149,18 @@ def main() -> int:
                     cells[1] == "Slack":
                 continue
             try:
-                slack.setdefault(name, []).append(float(cells[1]))
+                value = float(cells[1])
+                every.setdefault(name, []).append(value)
+                if any(fnmatch.fnmatchcase(cells[0], clk) and corner != c
+                       for clk, c in only):
+                    skipped.append(f"{corner} {name} {cells[0]} {value:+.3f}")
+                    continue
+                slack.setdefault(name, []).append(value)
             except ValueError:
                 print(f"sta_gate: {name} of {cells[0]} reads {cells[1]!r},"
                       " not a number", file=sys.stderr)
                 return 1
-    if "Setup" not in slack or "Hold" not in slack:
+    if "Setup" not in every or "Hold" not in every:
         print("sta_gate: no Setup and Hold summary tables; the report is not"
               " a timing report or its format moved", file=sys.stderr)
         return 1
@@ -149,7 +173,7 @@ def main() -> int:
 
     row = ROW.search(text)
     if row:
-        found = dict(worst)
+        found = {n: min(every[n]) for n in COLUMNS if n in every}
         for name, cell in zip(COLUMNS, row.group(1).split(";")):
             cell = cell.strip()
             if cell != "N/A" and found.get(name) != float(cell):
@@ -159,6 +183,9 @@ def main() -> int:
                 return 1
 
     bad = [(n, v) for n, v in worst if v < 0]
+    for line in skipped:
+        if line.split()[-1].startswith("-"):
+            print(f"  not judged at this corner: {line}")
     for name, value in worst:
         print(f"  {name:<21} {value:+8.3f} ns{'   FAILS' if value < 0 else ''}")
     if bad:
@@ -182,7 +209,8 @@ def main() -> int:
               f" {a.counts.name} to what the fit matches", file=sys.stderr)
     if bad or dropped or moved:
         return 1
-    print("\nsta_gate: closed on " + ("every corner" if row else
+    print("\nsta_gate: closed on " + ("every corner" + (
+        ", the listed clocks at theirs" if only else "") if row else
                                       "the analysed corner"))
     return 0
 

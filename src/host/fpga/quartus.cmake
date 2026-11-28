@@ -45,6 +45,7 @@ endfunction()
 # rp6502_quartus_gates(NAME <name> DIR <dir> PROJECT <project> TOOLS <prefix>
 #     MAX_M10K <blocks> [MAX_REGISTERS <n>] [ROOT <dir>]
 #     DRC_BASELINE <file> COUNTS <file> [IGNORED <file>] [ACCEPTED <file>]
+#     [CORNERS <file>]
 #     FLOW COMMAND ... [FIT COMMAND ...] DEPENDS ...)
 #
 # Compiles the Quartus project <project> in <dir> with the commands a host
@@ -65,14 +66,15 @@ endfunction()
 # - sta_paths.tcl: the worst paths of every corner, and what the netlist
 #   matches for each instance assignment and each register collection in
 #   the machine's SDC;
-# - sta_gate: every corner's slack, no dropped constraint but the
-#   filters ACCEPTED lists, and the collections' sizes against COUNTS;
+# - sta_gate: every corner's slack, but at one corner for the clocks
+#   CORNERS lists, no dropped constraint but the filters ACCEPTED lists,
+#   and the collections' sizes against COUNTS;
 # - drc_gate: the Design Assistant's findings against DRC_BASELINE;
 # - assignment_gate: no assignment Quartus ignored or that matches nothing,
 #   but those IGNORED lists.
 function(rp6502_quartus_gates)
     cmake_parse_arguments(PARSE_ARGV 0 G ""
-        "NAME;DIR;PROJECT;TOOLS;MAX_M10K;MAX_REGISTERS;ROOT;DRC_BASELINE;COUNTS;IGNORED;ACCEPTED"
+        "NAME;DIR;PROJECT;TOOLS;MAX_M10K;MAX_REGISTERS;ROOT;DRC_BASELINE;COUNTS;IGNORED;ACCEPTED;CORNERS"
         "FLOW;FIT;DEPENDS")
     set(gen ${RP6502_SRC}/host/fpga/gen)
     set(tcl ${RP6502_SRC}/host/fpga/quartus/sta_paths.tcl)
@@ -91,6 +93,9 @@ function(rp6502_quartus_gates)
     set(accepted_args)
     if(G_ACCEPTED)
         set(accepted_args --accepted ${G_ACCEPTED})
+    endif()
+    if(G_CORNERS)
+        list(APPEND accepted_args --corners ${G_CORNERS})
     endif()
 
     add_custom_command(OUTPUT ${G_DIR}/fit.stamp
@@ -119,7 +124,7 @@ function(rp6502_quartus_gates)
         WORKING_DIRECTORY ${G_DIR}
         DEPENDS ${G_DIR}/fit.stamp ${gen}/sta_gate.py ${gen}/drc_gate.py
             ${gen}/assignment_gate.py ${G_DRC_BASELINE} ${G_COUNTS}
-            ${G_IGNORED} ${G_ACCEPTED}
+            ${G_IGNORED} ${G_ACCEPTED} ${G_CORNERS}
         COMMENT "Signing off the ${G_NAME} fit"
         JOB_POOL quartus
         VERBATIM)

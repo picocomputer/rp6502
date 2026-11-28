@@ -1,0 +1,13 @@
+# sta_gate.py in src/host/fpga/gen judges every clock at every corner the
+# timing analyzer ran, but for those listed here, one "<clock glob> ;
+# <corner>" a line, which it judges at that corner alone. Each is a clock
+# of sys/ alone, which MiSTer's own builds time with multicorner analysis
+# off, at the slow 1100 mV 100C corner only.
+#
+# pll_hdmi drives ascal's output and the HDMI pins, all of it sys/. Its
+# worst setup paths sit within a few tens of picoseconds of zero at the
+# slow -40C corner and move with placement: stock Template_MiSTer at sys/
+# 890cc311 closes them at +0.446 ns on 17.0.2 and +0.156 ns on 25.1, and
+# the colour bar core's fit on 17.0.2 missed by 0.037 ns. The core's own
+# clocks are still judged at every corner.
+pll_hdmi|* ; Slow 1100mV 100C

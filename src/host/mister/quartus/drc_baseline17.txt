@@ -82,15 +82,16 @@ C105 1
 #       fit has 17 of the same, its act_cnt blinker on LED_USER.
 D101 556
 #
-# D102  sys/ 9, ours 0. Multi-bit crossings that are synchronized but
+# D102  sys/ 8 or 9, ours 0. Multi-bit crossings that are synchronized but
 #       may land misaligned:
 #         FB_STRIDE to ascal|o_stride; FB_FMT to pal_req
 #         ascal|o_hsize and o_vsize to i_ohsize and i_ovsize
 #         acx to the IIR filter's out_m and out_r
-#         osd|rot to osd_de and osd_pixel; osd_h and osd_w to osd_de
-#           (25.1 does not list rot)
+#         osd_h and osd_w to osd_de
 #         cfg_custom_p2 to adj_data
-#       Settings, as in D101.
+#         osd|rot to osd_de and osd_pixel, which either version lists on
+#           some fits and not on others
+#       Settings, as in D101. The count holds the higher of the two.
 D102 9
 #
 # D103  sys/ 114, ours 0. Bits taken through a synchronizer that the
