@@ -7,6 +7,14 @@
 # list the copy, named with a ~DUPLICATE suffix, as a separate structure,
 # so pocket_file_id[7] and pocket_file_id[7]~DUPLICATE appear as two Rule
 # D101 structures for one clock-domain crossing.
+#
+# A finding whose first row names a node is about that node, and the
+# report can list it twice, once for the register and once for its copy,
+# with the source rows only under one of them: Rule S104 names
+# pll_hdmi_adj|i_delay[9] with its source, cfg_done, and
+# i_delay[9]~DUPLICATE alone. Such a finding is counted by its folded
+# first node. A Structure finding has no first node and is counted by
+# the folded set of all its nodes.
 
 import re
 import sys
@@ -41,11 +49,12 @@ def fold(node: str) -> str:
 def parse_findings(text: str) -> dict[str, int]:
     findings: dict[str, set[frozenset[str]]] = defaultdict(set)
     rule = None
+    head = None
     names: set[str] | None = None
 
     def close() -> None:
         if rule and names is not None:
-            findings[rule].add(frozenset(names))
+            findings[rule].add(frozenset({head} if head else names))
 
     for line in text.splitlines():
         m = RULE_ROW.match(line)
@@ -55,7 +64,8 @@ def parse_findings(text: str) -> dict[str, int]:
             if node == "On" or (not node and "- Structure" not in desc):
                 rule, names = None, None
                 continue
-            names = {fold(node)} if node else set()
+            head = fold(node) if node else None
+            names = {head} if head else set()
             continue
         m = NODE_ROW.match(line)
         if m and names is not None:

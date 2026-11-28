@@ -1,0 +1,138 @@
+# drc_gate.py in src/host/fpga/gen fails the build when its count of
+# findings for a rule in the Design Assistant report is above the number
+# given here. The fitter can copy a register, and the report names the
+# copy with a ~DUPLICATE suffix. The gate counts the copy and the
+# register as one node, so a number here can be lower than the structure
+# count in the report.
+#
+# These are the findings of Quartus 25.1's fit. drc_baseline17.txt has
+# 17.0.2's, and differs only in D102. Each rule gives its count split
+# between sys/, the framework pinned in sys.pin (tree 890cc311), which
+# is upstream and never edited, and ours: RP6502.sv, mister_video,
+# mister_bars and rtl/pll. Template's own fit, Template_MiSTer at the
+# same tree built with 25.1, reports the same sys/ findings, rule for
+# rule.
+#
+# sys_top.sdc puts clk_sys, the HDMI PLL's clock, the audio PLL's clock,
+# FPGA_CLK1_50, FPGA_CLK2_50 and FPGA_CLK3_50 in exclusive clock groups,
+# so the timing analyzer times none of the crossings below. clk_sys
+# is outclk_0 of rtl/pll, which the report names
+# emu:emu|pll:pll|...|general[0].gpll~FRACTIONAL_PLL_O_VCOPH0. CLK_VIDEO
+# is clk_sys, so mister_video and mister_bars run on sys_top's clk_vid,
+# and nothing of ours crosses a clock but the reset to LED_USER, in D101.
+#
+# C101  sys/ 2, ours 0. Gated clocks in sys_top.v:
+#         hdmi_tx_clk  the output of the cyclonev_clkselect hdmi_clk_sw,
+#                      which picks clk_vid or the HDMI PLL's clock; it
+#                      clocks the HDMI output registers d, de, hs, vs
+#         comb~0       pll_hdmi_adj's i_clk, ascal's i_clk passed out on
+#                      lltune[6] and ANDed with cfg_done
+#       Both are sys/'s design.
+C101 2
+#
+# C104  sys/ 3, ours 0. A clock source drives a port that is not a
+#       clock input:
+#         FPGA_CLK1_50  the HDMI PLL's reference
+#         FPGA_CLK2_50  rtl/pll's reference, through emu's CLK_50M
+#         clk_sys       through clk_vid, the inputs of the clkselects
+#                       that make hdmi_tx_clk and vga_tx_clk, and ascal's
+#                       lltune[6] into comb~0 of C101
+#       Two name our PLL, but sys_top.v wires every port in them, and
+#       Template's fit has the same two with its PLL.
+C104 3
+#
+# C105  sys/ 1, ours 0. comb~0 of C101 is on local routing, not a
+#       global clock network.
+C105 1
+#
+# D101  sys/ 554, ours 2. Every finding but ours is a setting that the
+#       HPS writes into sys_top over the clk_sys bus, read in another
+#       clock domain without a synchronizer, or one of ascal's own
+#       crossings:
+#
+#         163  the audio filter and volume: acx, acy, aflt_rate,
+#              areset, vol_att, vol_boost; into clk_audio
+#          98  the frame buffer and crop: FB_*, LFB_*, hmin, hmax, vmin,
+#              vmax; into ascal's output side, on the HDMI clock
+#          96  the HDMI timing: WIDTH, HFP, HS, HBP, HEIGHT, VFP, VS,
+#              VBP; into ascal's output side
+#          80  ascal's input and output sides, i_* and o_* sizes, the
+#              end-of-frame flags and o_vss, and ascal|o_vs to old_vs1
+#              on clk_audio
+#          54  the OSD's settings, osd:hdmi_osd, into the HDMI clock
+#          45  the HDMI PLL's settings and handshake: cfg_custom_p1,
+#              cfg_custom_p2, cfg_custom_t, cfg_done, cfg_got,
+#              cfg_ready, lowlat, vrr_mode, and pll_hdmi_adj's
+#              i_vss_delay; into FPGA_CLK1_50
+#          11  shadowmask:HDMI_shadowmask's settings
+#           4  scaler_flt and scaler_out
+#           1  reset_req, from FPGA_CLK2_50 into alsa, pll_cfg_hdmi and
+#              pll_hdmi_adj
+#           1  mcp23009's flg_present, into the audio outputs
+#           1  sys_top's cfg
+#
+#       Each setting changes only when the HPS writes a new mode or the
+#       OSD changes it, and sys_top.sdc false-paths most of them by name
+#       (the timing, FB_BASE, FB_WIDTH, FB_HEIGHT, LFB_*, acx*, acy*,
+#       aflt_*, vol_att, scaler_flt, cfg, the OSD's, ascal|o_*).
+#
+#       Ours are hps_io's status[0] and cfg[1], which are buttons[1].
+#       RP6502.sv ORs them with RESET into LED_USER, and sys_top.v hands
+#       led_user to mcp23009, on FPGA_CLK2_50, which sends it over I2C
+#       to the I/O board's LED. A level that drives an LED. Template's
+#       fit has 17 of the same, its act_cnt blinker on LED_USER.
+D101 556
+#
+# D102  sys/ 8, ours 0. Multi-bit crossings that are synchronized but
+#       may land misaligned:
+#         FB_STRIDE to ascal|o_stride; FB_FMT to pal_req
+#         ascal|o_hsize and o_vsize to i_ohsize and i_ovsize
+#         acx to the IIR filter's out_m and out_r
+#         osd_h and osd_w to osd_de
+#           (17.0.2 also lists osd|rot to osd_de and osd_pixel)
+#         cfg_custom_p2 to adj_data
+#       Settings, as in D101.
+D102 8
+#
+# D103  sys/ 114, ours 0. Bits taken through a synchronizer that the
+#       rule does not accept:
+#          40  acx into the IIR filter
+#          33  cfg_custom_p2 and cfg_done into the HDMI PLL's adjuster
+#          18  the OSD's osd_w, osd_h, rot and info, and its hs_out,
+#              vs_out and de_out into the HDMI output registers
+#          18  FB_STRIDE, FB_FMT and FB_EN into ascal
+#           2  ascal|o_v_poly_adaptive and o_vss
+#           2  csync_hdmi's csync_hs and csync_vs
+#           1  reset_req into alsa, sysmem and pll_hdmi_adj
+#       The OSD and csync_hdmi run on the HDMI PLL's clock, and the
+#       report takes hdmi_tx_clk, the output registers' clock, as
+#       clk_vid, an input of hdmi_clk_sw. Without direct video
+#       hdmi_clk_sw picks the HDMI PLL's clock, so the two are one
+#       clock; with it the registers take hdmi_dv_*, not the OSD. The
+#       rest are settings, as in D101.
+D103 114
+#
+# R101  sys/ 2, ours 0. Combinational resets: ~mcp_en & ~av_dis on
+#       the aclr of vgaclk_ddr, the VGA clock's DDIO, and audio_out's
+#       reset on sigma_delta_dac sd_r.
+R101 2
+#
+# R105  sys/ 1, ours 0. reset_req, on FPGA_CLK2_50, resets ascal on
+#       clk_vid and the HDMI clock, and pll_hdmi_adj and pll_cfg_hdmi on
+#       FPGA_CLK1_50. ascal registers it in each domain (i_reset_na,
+#       o_reset_na) and pll_cfg_hdmi through altera_std_synchronizer.
+R105 1
+#
+# S102  sys/ 6, ours 0. reset_req drives the asynchronous and a
+#       synchronous port of pll_hdmi_adj's state register, six of its
+#       one-hot states.
+S102 6
+#
+# S104  sys/ 68, ours 0. A source drives a register's clock and another
+#       of its ports:
+#         41  pll_hdmi_adj's i_delay, i_line, i_linecpt, i_de2, i_vss2
+#             and i_vss_delay, on comb~0 of C101, where cfg_done
+#             gates the clock and is ANDed into lltune, the data
+#         27  the HDMI output registers d[23:0], de, hs and vs, on
+#             hdmi_tx_clk, whose select also steers their data
+S104 68
