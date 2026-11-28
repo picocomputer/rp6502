@@ -1,6 +1,51 @@
     // The end of the function that player-pre.js opens.
     const create = rp6502;
+
+    // In a player's worker, this file is the machine's half (page.js): the
+    // page sends the settings and the compiled WebAssembly, and what else it
+    // sends before the machine is up waits for it.
+    if (typeof document === 'undefined') {
+        const early = [];
+        onmessage = (e) => {
+            if (!e.data.init) {
+                early.push(e);
+                return;
+            }
+            const {init, module} = e.data;
+            onmessage = (later) => early.push(later);
+            create({
+                rp6502: {role: 'machine', settings: init.settings, origin: init.origin, early},
+                instantiateWasm(imports, done) {
+                    WebAssembly.instantiate(module, imports).then((instance) => done(instance, module),
+                        (err) => postMessage({fail: 'Emulator failed to start: ' + err.message}));
+                    return {};
+                },
+            }).catch((err) => postMessage({fail: 'Emulator crashed: ' + err.message}));
+        };
+        return;
+    }
+
+    const script = document.currentScript?.src;
     const nonce = document.currentScript?.nonce || '';
+    // rp6502.wasm is beside rp6502.js, compiled once for every player and
+    // both halves of each.
+    let compiled = null;
+    const compile = () => compiled ??= (() => {
+        const url = new URL('rp6502.wasm', script).href;
+        // A server that does not say application/wasm cannot be streamed.
+        return WebAssembly.compileStreaming(fetch(url))
+            .catch(() => fetch(url).then((r) => r.arrayBuffer()).then((b) => WebAssembly.compile(b)));
+    })();
+    // The machine's half runs this same file in a worker. A worker started
+    // from a script on another origin is refused, so it starts from a script
+    // of its own that loads this one.
+    const spawn = () => {
+        const url = URL.createObjectURL(new Blob([`importScripts(${JSON.stringify(script)});`],
+                                                 {type: 'text/javascript'}));
+        const worker = new Worker(url);
+        URL.revokeObjectURL(url);
+        return worker;
+    };
     const roots = new WeakSet();
     const styles = new WeakMap();
     let active = null, title = null;
@@ -73,6 +118,7 @@
         const player = {
             root,
             settings,
+            spawn,
             style: () => style(root),
             isActive: () => active === player && root.isConnected,
             activate() {
@@ -85,7 +131,17 @@
             active = player;
         // A throw in preRun, or a trap in main() before sokol starts, rejects
         // the factory promise with no call to onAbort.
-        create({rp6502: player}).catch((e) => player.fail?.('Emulator crashed: ' + e.message));
+        create({
+            rp6502: player,
+            instantiateWasm(imports, done) {
+                compile().then((module) => {
+                    player.module = module;
+                    return WebAssembly.instantiate(module, imports);
+                }).then((instance) => done(instance, player.module),
+                        (e) => player.fail?.('Emulator failed to start: ' + e.message));
+                return {};
+            },
+        }).catch((e) => player.fail?.('Emulator crashed: ' + e.message));
         let held = player, done = null;
         return {
             element: root,

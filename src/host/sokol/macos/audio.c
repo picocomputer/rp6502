@@ -15,8 +15,8 @@
  *
  * Here the device's thread is CoreAudio's real-time IO thread, which calls
  * audio_cb for each IO buffer. The IO buffer of the device that is the
- * default when the sound opens is set to AUDIO_FRAMES, 512 of its frames,
- * 10.7 ms at 48 kHz, the period the other desktops run at, where
+ * default when the sound opens is set to AUDIO_FRAMES, 480 of its frames,
+ * 10 ms at 48 kHz, the period the other desktops run at, where
  * sokol_audio's AudioQueue held two buffers of 512, 21 ms, before the
  * device's own; a device that becomes the default later keeps its own size,
  * 512 on most. The default output unit follows the default device as it
@@ -40,7 +40,10 @@
 #include <string.h>
 
 #define AUDIO_RATE 48000
-#define AUDIO_FRAMES 512
+/* NOT YET TUNED: waiting on someone with a Mac to measure it. 480 frames,
+ * 10 ms, the period the other desktops run at; lower it only once underruns
+ * have been counted on real hardware. */
+#define AUDIO_FRAMES 480
 /* The most frames CoreAudio asks for at once, which an IO buffer of
  * AUDIO_FRAMES never comes near. */
 #define AUDIO_MOST 4096

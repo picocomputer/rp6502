@@ -258,4 +258,17 @@ void vterm_reset_colors(term_t *t);
 // and 19 with a "?").
 uint16_t vterm_get_color(const term_t *t, unsigned which);
 
+/* The host's window can lose the focus, which a host with one says once,
+ * as it starts (event_focusable). Until it does, the console answers ?1004
+ * as permanently reset, and never sets it: a machine with a display of its
+ * own has no focus to lose. Neither a reset nor a load changes it. */
+void vterm_set_focusable(void);
+bool vterm_focusable(void);
+
+/* The host's window was minimized (true) or brought back, for the
+ * console's answer to CSI 11 t. Only a host with a window says so
+ * (event_minimized). */
+void vterm_minimize(bool minimized);
+bool vterm_minimized(void);
+
 #endif /* _CORE_TERM_VTERM_H_ */

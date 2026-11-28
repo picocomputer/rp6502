@@ -29,7 +29,7 @@ void paste_start(const char *utf8);
  * with nothing typed, when the queue has no room for it. */
 bool typed_text(const char *utf8);
 
-/* What clip_text.c asks for the keyboard's queue (clip.h). A paste's turn
+/* What clip_utf8.c asks for the keyboard's queue (clip.h). A paste's turn
  * has come: the text it types is utf8, the host's clipboard as it is now,
  * or with none given, the text handed over that has waited longest. Then
  * that text's length and its byte i. paste_host_end lets that text go.

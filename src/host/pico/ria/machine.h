@@ -40,6 +40,9 @@
 
 /* The console's terminal follows the VGA's, which is this tall. */
 #define TERM_MAX_HEIGHT 32
+/* The host has no clipboard of its own, so it keeps the clipboard's code
+ * page bytes for the machine, which builds core/hid/clip_codepage.c. */
+#define CLIP_CODEPAGE 1
 
 /* It keeps the console's text, and draws nothing: text cells. */
 #define TERM_CELL_TEXT 1

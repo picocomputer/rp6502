@@ -26,7 +26,6 @@
 #include "core/com/console.h"
 #include "core/com/tty.h"
 #include "core/hid/keyboard.h"
-#include "core/hid/mouse.h"
 #include "osal/os.h"
 
 #include "libretro.h"
@@ -413,11 +412,12 @@ void retro_set_controller_port_device(unsigned port, unsigned device)
     input_set_port_device(port, device);
 }
 
-/* A frontend binds the keyboard to its own gamepad and hotkeys and keeps the
- * mouse for its own cursor, so on a machine that is a computer both look
- * broken until the player turns that off, which RetroArch calls Game Focus.
- * A core can neither turn it on nor ask whether it is on, so the only thing
- * left is to say so on screen the first time a program wants either device. */
+/* A frontend binds the keyboard to its own gamepad and hotkeys, so on a
+ * machine that is a computer the keyboard looks broken until the player
+ * turns that off, which RetroArch calls Game Focus. A core can neither turn
+ * it on nor ask whether it is on, so the only thing left is to say so on
+ * screen the first time a program wants the keyboard. The mouse is no
+ * reason: this core gives a program no mouse (input.c). */
 static void say_how_to_type(void)
 {
     if (hint_shown || !environ_cb)
@@ -425,7 +425,7 @@ static void say_how_to_type(void)
     hint_shown = true;
 
     static const char text[] =
-        "Enable Game Focus for Keyboard and Mouse.";
+        "Enable Game Focus for the keyboard.";
 
     unsigned version = 0;
     if (environ_cb(RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION, &version) &&
@@ -466,16 +466,7 @@ const char *host_save_dir(void)
     return save_dir;
 }
 
-/* A frontend does not say what its window is doing. */
-bool host_minimized(void)
-{
-    return false;
-}
 
-bool host_focusable(void)
-{
-    return false;
-}
 
 /* A core built for macOS runs on a Mac. */
 bool host_mac_keys(void)
@@ -487,17 +478,7 @@ bool host_mac_keys(void)
 #endif
 }
 
-/* libretro gives a core no clipboard, so the machine keeps its own. */
-const char *host_clipboard_get(void)
-{
-    return NULL;
-}
 
-bool host_clipboard_set(const char *utf8)
-{
-    (void)utf8;
-    return false;
-}
 
 /* The first load cold-boots the machine; every load after it refills RAM, so
  * no data from the last program remains in memory. The content path is
@@ -662,10 +643,8 @@ void retro_run(void)
     input_poll_cb();
     input_poll(input_state_cb);
     /* Not the gamepad or the tablet: a frontend polls pads and the pointer
-     * with Game Focus on or off, and withholds only the keyboard and the
-     * mouse. */
-    if (!hint_shown && (console_asked() || tty_asked() || keyboard_is_mapped() ||
-                        mouse_is_mapped()))
+     * with Game Focus on or off, and withholds only the keyboard. */
+    if (!hint_shown && (console_asked() || tty_asked() || keyboard_is_mapped()))
         say_how_to_type();
 
     /* What the frontend will actually use this frame. A frontend without the

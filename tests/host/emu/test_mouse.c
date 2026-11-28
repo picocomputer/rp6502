@@ -404,11 +404,11 @@ UTEST(mouse, a_touch_selects)
 {
     start();
     show(TEXT);
-    tablet_point_t pt = {6 * 8, 7};
-    tablet_host_touch(&pt, 1);
+    tablet_contact_t pt = {6 * 8, 7, TABLET_FLAG_LEFT};
+    tablet_host_contacts(&pt, 1, false);
     vterm_mouse_task();
     pt.x = 11 * 8;
-    tablet_host_touch(&pt, 1);
+    tablet_host_contacts(&pt, 1, false);
     vterm_mouse_task();
     tablet_host_clear();
     vterm_mouse_task();
@@ -669,20 +669,20 @@ UTEST(mouse, a_copy_key_copies_the_highlight_at_the_press)
     drag(6, 0, 11, 0);
     typed_push("abc", 3);
     ria_get_sigint();
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     ASSERT_EQ(chord(HID_KEY_C, CTRL | SHIFT), HOSTKEY_CHORD);
     ASSERT_FALSE(ria_get_sigint());
     ASSERT_STREQ(host_clipboard_get(), "world");
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
     ASSERT_STREQ(host_clipboard_get(), "world");
     tb_mac_keys = true;
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     ASSERT_EQ(chord(HID_KEY_C, GUI), HOSTKEY_CHORD);
     tb_mac_keys = false;
     ASSERT_STREQ(host_clipboard_get(), "world");
     /* A held chord acts once. */
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     ASSERT_EQ(hostkey_press(HID_KEY_C, GUI, true, true), HOSTKEY_CHORD);
     ASSERT_STREQ(host_clipboard_get(), "");
     ASSERT_EQ(typed_free(), (size_t)TYPED_QUEUE_SIZE - 3);
@@ -703,7 +703,7 @@ UTEST(mouse, a_copy_key_copies_what_a_drag_still_held_shows)
     edge(6, 0, 0);
     edge(6, 0, TABLET_FLAG_LEFT);
     edge(9, 0, TABLET_FLAG_LEFT);
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
     ASSERT_STREQ(host_clipboard_get(), "wor");
     edge(9, 0, 0);
@@ -720,7 +720,7 @@ UTEST(mouse, a_copy_key_with_no_highlight_and_no_line_is_dropped)
     drag(6, 0, 11, 0);
     show("\33[H\33[2J");
     ASSERT_FALSE(vterm_selection.shows);
-    ASSERT_TRUE(host_clipboard_set("kept"));
+    host_clipboard_set("kept");
     ria_get_sigint();
     ASSERT_EQ(chord(HID_KEY_C, CTRL | SHIFT), HOSTKEY_CHORD);
     ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
@@ -740,7 +740,7 @@ UTEST(mouse, a_cut_key_with_no_line_read_types_its_bytes)
     start();
     show(TEXT);
     drag(6, 0, 11, 0);
-    ASSERT_TRUE(host_clipboard_set("kept"));
+    host_clipboard_set("kept");
     ASSERT_EQ(chord(HID_KEY_DELETE, SHIFT), HOSTKEY_CHORD);
     ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, true, true), HOSTKEY_CHORD);
     ASSERT_STREQ(typed(), "\33[3;2~");
@@ -770,7 +770,7 @@ UTEST(mouse, a_cut_key_with_no_line_read_types_its_bytes)
 UTEST(mouse, the_paste_keys_paste_the_clipboard)
 {
     start();
-    ASSERT_TRUE(host_clipboard_set("text"));
+    host_clipboard_set("text");
     ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
     ASSERT_STREQ(typed(), "text");
     show("\33[?2004h");
@@ -797,7 +797,7 @@ UTEST(mouse, two_paste_keys_both_paste)
 {
     start();
     show("\33[?2004h");
-    ASSERT_TRUE(host_clipboard_set("text"));
+    host_clipboard_set("text");
     ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
     typed_push("k", 1);
     ASSERT_EQ(chord(HID_KEY_INSERT, SHIFT), HOSTKEY_CHORD);
@@ -1356,7 +1356,7 @@ UTEST(mouse, a_drag_ends_with_its_read)
 UTEST(mouse, the_copy_keys_copy_the_line_s_selection)
 {
     editing();
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     ARROW_LEFT(SHIFT);
     ARROW_LEFT(SHIFT);
     ASSERT_EQ(chord(HID_KEY_C, CTRL | SHIFT), HOSTKEY_CHORD);
@@ -1365,7 +1365,7 @@ UTEST(mouse, the_copy_keys_copy_the_line_s_selection)
     ASSERT_STREQ(host_clipboard_get(), "ef");
     ASSERT_TRUE(selected(7, 2, 9, 2));
     ASSERT_TRUE(hl(7, 2) && hl(8, 2));
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
     loop();
     ASSERT_STREQ(host_clipboard_get(), "ef");
@@ -1384,7 +1384,7 @@ UTEST(mouse, the_copy_keys_copy_the_line_s_selection)
 UTEST(mouse, a_copy_of_nothing_in_the_line_keeps_the_clipboard)
 {
     editing();
-    ASSERT_TRUE(host_clipboard_set("kept"));
+    host_clipboard_set("kept");
     ASSERT_EQ(chord(HID_KEY_C, CTRL | SHIFT), HOSTKEY_CHORD);
     typed_push("X\r", 2);
     loop();
@@ -1404,7 +1404,7 @@ UTEST(mouse, a_copy_key_takes_the_screen_s_highlight_over_the_line)
     drag(0, 1, 6, 1);
     loop();
     ASSERT_FALSE(rln_selected());
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     ARROW_LEFT(SHIFT);
     ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
     ASSERT_STREQ(host_clipboard_get(), "second");
@@ -1420,7 +1420,7 @@ UTEST(mouse, a_copy_key_takes_the_screen_s_highlight_over_the_line)
 UTEST(mouse, shift_delete_cuts_the_line_s_selection)
 {
     editing();
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     ARROW_LEFT(SHIFT);
     ARROW_LEFT(SHIFT);
     loop();
@@ -1445,7 +1445,7 @@ UTEST(mouse, shift_delete_cuts_the_line_s_selection)
 UTEST(mouse, a_cut_follows_the_key_that_selects)
 {
     editing();
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     ARROW_LEFT(SHIFT);
     ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
     loop();
@@ -1463,7 +1463,7 @@ UTEST(mouse, a_cut_follows_the_key_that_selects)
 UTEST(mouse, a_key_typed_after_a_cut_or_a_copy_follows_it)
 {
     editing();
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     ARROW_LEFT(SHIFT);
     ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
     typed_push("x", 1);
@@ -1472,7 +1472,7 @@ UTEST(mouse, a_key_typed_after_a_cut_or_a_copy_follows_it)
     ASSERT_STREQ(host_clipboard_get(), "f");
     ASSERT_STREQ(line_got, "abc dex");
     editing();
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     ARROW_LEFT(SHIFT);
     ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
     typed_push("x", 1);
@@ -1482,47 +1482,40 @@ UTEST(mouse, a_key_typed_after_a_cut_or_a_copy_follows_it)
     ASSERT_STREQ(line_got, "abc dex");
 }
 
-/* A paste pressed right behind a cut or a copy pastes what that put in
- * the clipboard: each is taken in its turn, and the paste reads the
- * clipboard when its turn comes. So it is with the host's clipboard, and
- * on a machine with its own. */
+/* A paste chord pressed right behind a cut or a copy, where the machine
+ * pastes for it, as with no window, pastes what that put in the clipboard:
+ * each is taken in its turn, and the paste reads the clipboard when its
+ * turn comes. */
 UTEST(mouse, a_paste_behind_a_cut_or_a_copy_pastes_what_it_took)
 {
-    for (int own = 0; own < 2; own++)
-    {
-        tb_no_clipboard = own;
-        editing();
-        if (!own)
-            ASSERT_TRUE(host_clipboard_set("old"));
-        ARROW_LEFT(SHIFT);
-        ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
-        ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
-        hostkey_press(HID_KEY_ENTER, 0, false, true);
-        loop();
-        ASSERT_STREQ(line_got, "abc def");
-        editing();
-        ARROW_LEFT(SHIFT);
-        ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
-        hostkey_press(HID_KEY_END, 0, false, true);
-        ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
-        hostkey_press(HID_KEY_ENTER, 0, false, true);
-        loop();
-        ASSERT_STREQ(line_got, "abc deff");
-    }
-    tb_no_clipboard = false;
+    editing();
+    host_clipboard_set("old");
+    ARROW_LEFT(SHIFT);
+    ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
+    ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_STREQ(line_got, "abc def");
+    editing();
+    ARROW_LEFT(SHIFT);
+    ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
+    hostkey_press(HID_KEY_END, 0, false, true);
+    ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
+    hostkey_press(HID_KEY_ENTER, 0, false, true);
+    loop();
+    ASSERT_STREQ(line_got, "abc deff");
     ASSERT_STREQ(host_clipboard_get(), "f");
 }
 
-/* A web page's clipboard cannot be asked for: its text comes with the
- * paste event, and is typed as it was handed over, in the event's place
- * among the keys. So a paste pressed right behind a cut pastes what the
- * clipboard held at the press, not what the cut put there after, which
- * still reaches the page's clipboard. */
-UTEST(mouse, a_web_page_s_paste_types_what_its_event_handed_over)
+/* A window's paste key hands over the clipboard as it goes down, and it is
+ * typed as it was handed over, in the key's place among the keys. So a
+ * paste pressed right behind a cut pastes what the clipboard held at the
+ * press, not what the cut put there after, which still reaches the
+ * window's clipboard. */
+UTEST(mouse, a_window_s_paste_types_what_its_key_handed_over)
 {
-    tb_clipboard_unasked = true;
     editing();
-    ASSERT_TRUE(host_clipboard_set("old"));
+    host_clipboard_set("old");
     typed_push("g", 1);
     ARROW_LEFT(SHIFT);
     ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
@@ -1530,7 +1523,6 @@ UTEST(mouse, a_web_page_s_paste_types_what_its_event_handed_over)
     typed_push("h", 1);
     hostkey_press(HID_KEY_ENTER, 0, false, true);
     loop();
-    tb_clipboard_unasked = false;
     ASSERT_STREQ(line_got, "abc defoldh");
     ASSERT_STREQ(host_clipboard_get(), "g");
 }
@@ -1542,7 +1534,7 @@ UTEST(mouse, a_cut_pressed_in_a_paste_waits_for_it)
     editing();
     ARROW_LEFT(SHIFT);
     loop();
-    ASSERT_TRUE(host_clipboard_set("XY"));
+    host_clipboard_set("XY");
     ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
     ARROW_LEFT(SHIFT);
     ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
@@ -1591,7 +1583,7 @@ UTEST(mouse, a_key_typed_after_a_drag_replaces_what_it_selected)
 UTEST(mouse, a_read_s_end_lets_the_keys_behind_it_go)
 {
     editing();
-    ASSERT_TRUE(host_clipboard_set("kept"));
+    host_clipboard_set("kept");
     hostkey_press(HID_KEY_ENTER, 0, false, true);
     ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
     ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
@@ -1660,7 +1652,7 @@ UTEST(mouse, a_selection_on_the_screen_takes_back_the_line_s_still_to_take)
 UTEST(mouse, a_copy_and_a_cut_each_act_in_turn)
 {
     editing();
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     ARROW_LEFT(SHIFT);
     ASSERT_EQ(chord(HID_KEY_INSERT, CTRL), HOSTKEY_CHORD);
     ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
@@ -1680,7 +1672,7 @@ UTEST(mouse, a_copy_and_a_cut_each_act_in_turn)
 UTEST(mouse, the_cut_and_copy_keys_work_in_vt52_mode)
 {
     editing();
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     ARROW_LEFT(SHIFT);
     ARROW_LEFT(SHIFT);
     loop();
@@ -1719,7 +1711,7 @@ UTEST(mouse, the_mouse_and_a_cut_start_the_kills_again)
     loop();
     ASSERT_STREQ(line_got, "abc ");
     editing();
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     typed_push("\27", 1);
     ARROW_LEFT(SHIFT);
     ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
@@ -1769,7 +1761,7 @@ UTEST(mouse, a_double_click_takes_a_file_s_name)
 UTEST(mouse, ctrl_shift_x_and_cmd_x_cut_the_line_s_selection)
 {
     editing();
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     ARROW_LEFT(SHIFT);
     ARROW_LEFT(SHIFT);
     loop();
@@ -1792,7 +1784,7 @@ UTEST(mouse, ctrl_shift_x_and_cmd_x_cut_the_line_s_selection)
     loop();
     ASSERT_STREQ(line_got, "abc de");
     editing();
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     ASSERT_EQ(chord(HID_KEY_X, CTRL | SHIFT), HOSTKEY_CHORD);
     loop();
     ASSERT_STREQ(host_clipboard_get(), "");
@@ -1810,7 +1802,7 @@ UTEST(mouse, ctrl_shift_x_and_cmd_x_cut_the_line_s_selection)
 UTEST(mouse, the_paste_keys_replace_the_line_s_selection)
 {
     editing();
-    ASSERT_TRUE(host_clipboard_set("XY"));
+    host_clipboard_set("XY");
     ARROW_LEFT(SHIFT);
     ARROW_LEFT(SHIFT);
     loop();
@@ -1828,7 +1820,7 @@ UTEST(mouse, the_paste_keys_replace_the_line_s_selection)
 UTEST(mouse, a_cut_and_a_paste_follow_the_keys_before_them)
 {
     editing();
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     ARROW_LEFT(SHIFT);
     ARROW_LEFT(SHIFT);
     loop();
@@ -1840,7 +1832,7 @@ UTEST(mouse, a_cut_and_a_paste_follow_the_keys_before_them)
     ARROW_LEFT(SHIFT);
     ARROW_LEFT(SHIFT);
     loop();
-    ASSERT_TRUE(host_clipboard_set("XY"));
+    host_clipboard_set("XY");
     ARROW_LEFT(SHIFT);
     ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
     loop();
@@ -1855,7 +1847,7 @@ UTEST(mouse, a_cut_and_a_paste_follow_the_keys_before_them)
 UTEST(mouse, a_paste_is_typed_between_the_keys_round_it)
 {
     editing();
-    ASSERT_TRUE(host_clipboard_set("XY"));
+    host_clipboard_set("XY");
     typed_push("g", 1);
     ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
     typed_push("h", 1);
@@ -1876,7 +1868,7 @@ UTEST(mouse, a_paste_is_typed_between_the_keys_round_it)
 UTEST(mouse, a_paste_goes_after_an_enter_typed_before_it)
 {
     editing();
-    ASSERT_TRUE(host_clipboard_set("XY"));
+    host_clipboard_set("XY");
     ARROW_LEFT(SHIFT);
     loop();
     hostkey_press(HID_KEY_ENTER, 0, false, true);
@@ -1904,7 +1896,7 @@ UTEST(mouse, a_paste_key_waits_for_a_slow_echo)
     typed_push("x", 1);
     loop();
     drag(4, 2, 6, 2);
-    ASSERT_TRUE(host_clipboard_set("XY"));
+    host_clipboard_set("XY");
     ASSERT_EQ(chord(HID_KEY_V, CTRL | SHIFT), HOSTKEY_CHORD);
     loop();
     ASSERT_TRUE(rln_replying());
@@ -2665,7 +2657,7 @@ static uint8_t blob[1 << 20];
 static void round_trip(int *utest_result)
 {
     ASSERT_EQ(sst_save(blob, sizeof blob, 0), (const char *)NULL);
-    ASSERT_TRUE(host_clipboard_set("later"));
+    host_clipboard_set("later");
     vterm_mouse_reset();
     vterm_unselect();
     clip_reset();
@@ -2687,7 +2679,7 @@ UTEST(mouse, a_load_keeps_a_cut_in_its_place)
     loop();
     typed_push("abc def", 7);
     loop();
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     ARROW_LEFT(SHIFT);
     ASSERT_EQ(hostkey_press(HID_KEY_DELETE, SHIFT, false, true), HOSTKEY_CHORD);
     typed_push("x", 1);

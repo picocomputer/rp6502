@@ -4,266 +4,83 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The web player's sound, on the page's AudioContext (page.js makes it and
- * resumes it on a click).
+/* The web player's sound, made by the worker's machine (link.h) and played by
+ * an AudioWorklet on the page's AudioContext, which page.js makes and resumes
+ * on a click. The two talk over a port of their own, so the sound never waits
+ * on the page.
  *
- * The machine runs on the page's thread, so the sound is made there too:
- * after each display callback the frames' sound is taken (aud_render, the
- * mixer's pull mode) and posted to an AudioWorklet on the browser's audio
- * thread, which plays from a queue of its own. The worklet never waits on
- * the page, and the queue covers the page's callbacks coming late. The page
- * keeps the queue at WEB_AUDIO_TARGET by stretching the sound a fraction of
- * a percent (aud_set_stretch), in proportion to how far it is off: the
- * dynamic rate control of RetroArch, with no integral to wind up.
+ * After each step that ran frames, their sound is taken (aud_render, the
+ * mixer's pull mode) and posted to the worklet, which plays from a queue of
+ * its own on the browser's audio thread. The worklet tells the worker how
+ * much it holds after every quantum it plays, so the worker knows the queue
+ * as it is rather than guessing it from the clock. The queue's least over
+ * half a second is kept at WEB_AUDIO_FLOOR by stretching the sound a fraction
+ * of a percent (aud_set_stretch), in proportion to how far it is off: the
+ * dynamic rate control of RetroArch, with no integral to wind up. The least
+ * is what matters: it is what is left just before the next frame's sound
+ * comes, so it is the margin against a frame that comes late.
  *
- * A queue that runs dry, as it does while the page is hidden and the
- * machine stops, ramps to silence over what is left of a quantum, and plays
- * again only once it holds the target, ramping in over its first quantum,
- * since a step clicks. One that grows past four times the target, after the
- * page stalled and caught up, lets its oldest sound go. Nothing is queued
- * while the context is suspended.
- *
- * A page without a secure context has no AudioWorklet, and plays from a
- * ScriptProcessorNode on the page's own thread instead, from the same queue,
- * in blocks of WEB_AUDIO_SCRIPT frames. */
+ * A queue that runs dry ramps to silence over what is left of a quantum, and
+ * plays again once it holds the floor, ramping in over its first quantum,
+ * since a step clicks. One that grows past WEB_AUDIO_MOST, after the machine
+ * caught up on a stall, lets its oldest sound go. Nothing is queued while the
+ * context is not running. */
 
 #include "host/web/audio.h"
 #include "core/aud/mix.h"
+#include "osal/os.h"
 #include <emscripten.h>
 #include <stdbool.h>
 #include <stdint.h>
 
-/* What the queue is kept at as a frame's sound comes, its least, and the
- * block a ScriptProcessorNode plays in, in the context's frames at 48 kHz:
- * 12.5 ms, which covers the page's callbacks coming late, and 21 ms. */
-#define WEB_AUDIO_TARGET 600
-#define WEB_AUDIO_SCRIPT 1024
+/* The queue's least and its most, in the context's frames at 48 kHz: 8 ms,
+ * which covers a frame's sound coming a little late, and 100 ms. A browser
+ * plays a device's period at a time, 10 ms on Windows, and the least is
+ * measured after that, so the floor needs no room for it. Measured on the
+ * bench with Bad Apple, 5.3 ms ran dry about twice a song in Firefox. */
+#define WEB_AUDIO_FLOOR 384
+#define WEB_AUDIO_MOST 4800
 
-/* The most the stretch is, and the fill off the target that takes it. */
+/* The most the stretch is, and how far off the floor, in frames, takes it. */
 #define WEB_AUDIO_STRETCH 0.005
+#define WEB_AUDIO_SPAN 512.0
+
+/* How long each least is taken over. */
+#define WEB_AUDIO_WINDOW_NS 500000000ull
 
 /* A frame or a few of sound at the context's rate, as the pull mode takes
  * it. */
 #define WEB_AUDIO_MAX 4096
 static float web_audio_buf[WEB_AUDIO_MAX * 2];
 static bool web_audio_on;
-static double web_audio_fill = -1;
+static int web_audio_least = -1;
+static uint64_t web_audio_since;
 
-EM_JS(int, js_audio_setup, (int target, int script), {
-    const ctx = Module.rp6502.audio;
-    if (!ctx)
-        return 0;
-    const signal = Module.rp6502.signal;
-    const a = Module.rp6502.sound = {
-        ctx, port: null, pushed: 0, played: 0, dry: 0, playing: false, t: 0, target, script,
-        stats: { at: performance.now(), dry: 0 },
-    };
-    // The worklet's source, as one function's text, so the player needs no
-    // file of its own beside it.
-    const source = () => {
-        class Out extends AudioWorkletProcessor {
-            constructor(options) {
-                super();
-                this.chunks = [];
-                this.at = 0;
-                this.queued = 0;
-                this.played = 0;
-                this.dry = 0;
-                this.target = options.processorOptions.target;
-                this.playing = false;
-                this.rising = false;
-                this.last = [0, 0];
-                this.quanta = 0;
-                // Past four times the target the oldest goes, so the sound is
-                // never far behind the machine; what goes counts as played.
-                this.port.onmessage = (e) => {
-                    this.chunks.push(e.data);
-                    this.queued += e.data.length / 2;
-                    while (this.queued - (this.chunks[0].length - this.at) / 2 >= 4 * this.target) {
-                        const gone = (this.chunks.shift().length - this.at) / 2;
-                        this.queued -= gone;
-                        this.played += gone;
-                        this.at = 0;
-                    }
-                };
-            }
-            process(inputs, outputs) {
-                const out = outputs[0];
-                const L = out[0], R = out[1] || out[0], n = L.length;
-                if (!this.playing && this.queued >= this.target)
-                    this.playing = this.rising = true;
-                let i = 0;
-                if (this.playing) {
-                    while (i < n && this.chunks.length) {
-                        const c = this.chunks[0];
-                        for (; i < n && this.at < c.length; this.at += 2, i++) {
-                            L[i] = c[this.at];
-                            R[i] = c[this.at + 1];
-                        }
-                        if (this.at >= c.length) {
-                            this.chunks.shift();
-                            this.at = 0;
-                        }
-                    }
-                    if (this.rising)
-                        for (let k = 0; k < i; k++) {
-                            L[k] *= k / n;
-                            R[k] *= k / n;
-                        }
-                    this.rising = false;
-                    this.queued -= i;
-                    this.played += i;
-                    if (i) {
-                        this.last[0] = L[i - 1];
-                        this.last[1] = R[i - 1];
-                    }
-                }
-                if (i < n) {
-                    const m = n - i;
-                    for (let k = 0; k < m; k++) {
-                        const g = (m - 1 - k) / m;
-                        L[i + k] = this.last[0] * g;
-                        R[i + k] = this.last[1] * g;
-                    }
-                    if (this.playing)
-                        this.dry++;
-                    this.last[0] = this.last[1] = 0;
-                    this.playing = false;
-                }
-                // What has played goes back to the page every 8 quanta,
-                // about 21 ms.
-                if (++this.quanta % 8 === 0)
-                    this.port.postMessage([this.played, this.dry, this.playing, currentTime]);
-                return true;
-            }
-        }
-        registerProcessor('rp6502-out', Out);
-    };
-    // What the worklet had played at the context's time t, and whether it is
-    // playing, so the page can count on from there.
-    const heard = (e) => {
-        [a.played, a.dry, a.playing, a.t] = e.data;
-    };
-    if (ctx.audioWorklet && typeof AudioWorkletNode === 'function') {
-        const url = URL.createObjectURL(new Blob(['(' + source + ')()'], {type: 'text/javascript'}));
-        ctx.audioWorklet.addModule(url).then(() => {
-            URL.revokeObjectURL(url);
-            if (signal.aborted)
-                return;
-            const node = new AudioWorkletNode(ctx, 'rp6502-out', {
-                numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2],
-                processorOptions: {target},
-            });
-            node.port.onmessage = heard;
-            node.connect(ctx.destination);
-            a.port = node.port;
-            signal.addEventListener('abort', () => node.disconnect(), {once: true});
-        }).catch((err) => console.error('rp6502: no AudioWorklet:', err));
-    } else {
-        // The same queue, played from the page's thread.
-        const node = ctx.createScriptProcessor(script, 0, 2);
-        const q = {chunks: [], at: 0, queued: 0, playing: false, rising: false, last: [0, 0]};
-        a.port = {
-            postMessage: (chunk) => {
-                q.chunks.push(chunk);
-                q.queued += chunk.length / 2;
-                while (q.queued - (q.chunks[0].length - q.at) / 2 >= 4 * target) {
-                    const gone = (q.chunks.shift().length - q.at) / 2;
-                    q.queued -= gone;
-                    a.played += gone;
-                    q.at = 0;
-                }
-            },
-        };
-        node.onaudioprocess = (e) => {
-            const L = e.outputBuffer.getChannelData(0), R = e.outputBuffer.getChannelData(1);
-            const n = L.length;
-            if (!q.playing && q.queued >= target)
-                q.playing = q.rising = true;
-            let i = 0;
-            if (q.playing) {
-                while (i < n && q.chunks.length) {
-                    const c = q.chunks[0];
-                    for (; i < n && q.at < c.length; q.at += 2, i++) {
-                        L[i] = c[q.at];
-                        R[i] = c[q.at + 1];
-                    }
-                    if (q.at >= c.length) {
-                        q.chunks.shift();
-                        q.at = 0;
-                    }
-                }
-                if (q.rising)
-                    for (let k = 0; k < i; k++) {
-                        L[k] *= k / n;
-                        R[k] *= k / n;
-                    }
-                q.rising = false;
-                q.queued -= i;
-                a.played += i;
-                a.t = ctx.currentTime;
-                if (i) {
-                    q.last[0] = L[i - 1];
-                    q.last[1] = R[i - 1];
-                }
-            }
-            if (i < n) {
-                const m = n - i;
-                for (let k = 0; k < m; k++) {
-                    const g = (m - 1 - k) / m;
-                    L[i + k] = q.last[0] * g;
-                    R[i + k] = q.last[1] * g;
-                }
-                if (q.playing)
-                    a.dry++;
-                q.last[0] = q.last[1] = 0;
-                q.playing = false;
-            }
-            a.playing = q.playing;
-        };
-        node.connect(ctx.destination);
-        signal.addEventListener('abort', () => node.disconnect(), {once: true});
-    }
-    return ctx.sampleRate;
+/* The context's rate, which page.js gave the worker in its settings, or 0
+ * for a page with no sound. */
+EM_JS(int, js_audio_rate, (void), {
+    return Module.rp6502.sound?.rate || 0;
 });
 
-/* The frames' sound, posted; and how many frames the queue holds now. */
+/* The frames' sound, posted to the worklet while its context runs; and the
+ * queue's least since the last call, or -1 when the worklet has not said or
+ * its context is not running. */
 EM_JS(int, js_audio_push, (const float *buf, int frames), {
-    const a = Module.rp6502.sound;
-    if (!a || !a.port)
+    const s = Module.rp6502.sound;
+    if (!s.running)
         return -1;
-    // A context not yet resumed, or suspended, plays nothing, and nothing is
-    // queued for it.
-    if (a.ctx.state !== 'running') {
-        a.pushed = a.played;
-        a.playing = false;
-        return -1;
-    }
-    // The queue as it stands before this frame's sound: what was posted less
-    // what had played at the last word from the player, and what a playing
-    // player has played since.
-    const since = a.playing ? Math.max(0, a.ctx.currentTime - a.t) * a.ctx.sampleRate : 0;
-    const fill = Math.max(0, Math.round(a.pushed - a.played - since));
-    if (frames > 0) {
-        a.port.postMessage(HEAPF32.slice(buf >> 2, (buf >> 2) + frames * 2));
-        a.pushed += frames;
-    }
-    // A page that wants to watch the queue, as the developer's run page does
-    // (.vscode/run.py), is told once a second.
-    const now = performance.now();
-    if (typeof globalThis.rp6502_audio_stats === 'function' && now - a.stats.at >= 1000) {
-        globalThis.rp6502_audio_stats({fill, dry: a.dry, rate: a.ctx.sampleRate,
-                                       target: a.target, worklet: !!a.ctx.audioWorklet});
-        a.stats.at = now;
-    }
-    return fill;
+    if (frames > 0)
+        s.push(HEAPF32.subarray(buf >> 2, (buf >> 2) + frames * 2), frames);
+    const low = s.low;
+    s.low = -1;
+    return low;
 });
 
 void web_audio_setup(void)
 {
     if (!aud_enabled())
         return;
-    const int rate = js_audio_setup(WEB_AUDIO_TARGET, WEB_AUDIO_SCRIPT);
+    const int rate = js_audio_rate();
     if (!rate)
         return;
     aud_set_sink_rate((uint32_t)rate);
@@ -276,16 +93,30 @@ void web_audio_frame(void)
     if (!web_audio_on)
         return;
     const int made = aud_render(web_audio_buf, WEB_AUDIO_MAX);
-    const int fill = js_audio_push(web_audio_buf, made);
-    if (fill < 0)
+    const int low = js_audio_push(web_audio_buf, made);
+    if (low < 0)
         return;
-    /* The queue rises a frame's worth at each post and falls between, so the
-     * fill the stretch goes by is smoothed over about a second. */
-    web_audio_fill = web_audio_fill < 0 ? fill : web_audio_fill + (fill - web_audio_fill) / 60;
-    double off = (web_audio_fill - WEB_AUDIO_TARGET) / WEB_AUDIO_TARGET;
+    if (web_audio_least < 0 || low < web_audio_least)
+        web_audio_least = low;
+    const uint64_t now = os_mono_ns();
+    if (now - web_audio_since < WEB_AUDIO_WINDOW_NS)
+        return;
+    web_audio_since = now;
+    double off = (web_audio_least - WEB_AUDIO_FLOOR) / WEB_AUDIO_SPAN;
+    web_audio_least = -1;
     if (off > 1)
         off = 1;
     if (off < -1)
         off = -1;
     aud_set_stretch(off * WEB_AUDIO_STRETCH);
+}
+
+EMSCRIPTEN_KEEPALIVE int web_audio_floor(void)
+{
+    return WEB_AUDIO_FLOOR;
+}
+
+EMSCRIPTEN_KEEPALIVE int web_audio_most(void)
+{
+    return WEB_AUDIO_MOST;
 }

@@ -8,137 +8,48 @@
 #include "core/hid/gamepad.h"
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/gamepad.h"
-#include <string.h>
+#include "host/sokol/app/input.h"
+#include "host/sokol/app/evq.h"
 
 /* Frames between attempts to open the host's controllers. The counter is
  * reloaded on the frame that attempts an open and decremented on each of the
  * next fifteen, so attempts are sixteen frames apart, about 267 ms at 60 Hz.
- * That is close to the 250 ms interval the web shell watches its own mapping
- * on. A program that has mapped the block with nothing plugged in should not
+ * A program that has mapped the block with nothing plugged in should not
  * have the emulator scanning the host's devices every frame. */
 #define GAMEPAD_INPUT_RETRY 15
 
 static bool gamepad_input_opened;
 static int gamepad_input_retry;
 
-/* Whether a program had the block mapped when the machine was last asked,
- * after its last frames, which is what the next poll goes by. */
-static bool gamepad_input_mapped;
-
-/* What the last poll found, for the next gamepad_input_report. */
-static gamepad_host_t gamepad_input_found[GAMEPAD_PLAYERS];
-static int gamepad_input_count;
-
-/* Which host controller each player is, 0 for none. Keyed on the backend's id
- * rather than its position, so unplugging one controller does not renumber the
- * remaining players' slots. */
-static uint64_t gamepad_input_player[GAMEPAD_PLAYERS];
-
-static void gamepad_input_close(void)
+void gamepad_input_stop(void)
 {
     if (gamepad_input_opened)
     {
         host_gamepad_close();
         gamepad_input_opened = false;
     }
-    gamepad_input_count = 0;
     gamepad_input_retry = 0;
 }
 
 void gamepad_input_poll(void)
 {
-    if (!gamepad_input_mapped)
+    if (!(input_status()->event.flags & EVENT_PADS_MAPPED))
     {
-        gamepad_input_close();
+        gamepad_input_stop();
         return;
     }
-    if (!gamepad_input_opened)
+    event_gamepads_t g = {0};
+    if (!gamepad_input_opened && gamepad_input_retry > 0)
+        gamepad_input_retry--;
+    else if (!gamepad_input_opened)
     {
-        if (gamepad_input_retry > 0)
-        {
-            gamepad_input_retry--;
-            return;
-        }
         gamepad_input_retry = GAMEPAD_INPUT_RETRY;
-        if (!host_gamepad_open())
-            return;
-        gamepad_input_opened = true;
+        gamepad_input_opened = host_gamepad_open();
     }
-    gamepad_input_count = host_gamepad_poll(gamepad_input_found, GAMEPAD_PLAYERS);
-}
-
-/* Every player blanked. */
-static void gamepad_input_unplug(void)
-{
-    for (int player = 0; player < GAMEPAD_PLAYERS; player++)
-        if (gamepad_input_player[player])
-        {
-            gamepad_connect(player, false, GAMEPAD_TYPE_UNKNOWN, false);
-            gamepad_input_player[player] = 0;
-        }
-}
-
-void gamepad_input_stop(void)
-{
-    gamepad_input_close();
-    gamepad_input_unplug();
-    gamepad_input_mapped = false;
-}
-
-void gamepad_input_watch(void)
-{
-    gamepad_input_mapped = gamepad_is_mapped();
-}
-
-void gamepad_input_report(void)
-{
-    gamepad_input_watch();
-    if (!gamepad_input_mapped || !gamepad_input_opened)
+    if (gamepad_input_opened)
     {
-        gamepad_input_unplug();
-        return;
+        g.opened = true;
+        g.n = (uint8_t)host_gamepad_poll(g.pad, GAMEPAD_PLAYERS);
     }
-
-    const gamepad_host_t *gamepads = gamepad_input_found;
-    const int count = gamepad_input_count;
-
-    for (int player = 0; player < GAMEPAD_PLAYERS; player++)
-    {
-        if (!gamepad_input_player[player])
-            continue;
-        bool still_here = false;
-        for (int i = 0; i < count; i++)
-            if (gamepads[i].id == gamepad_input_player[player])
-                still_here = true;
-        if (!still_here)
-        {
-            gamepad_connect(player, false, GAMEPAD_TYPE_UNKNOWN, false);
-            gamepad_input_player[player] = 0;
-        }
-    }
-
-    for (int i = 0; i < count; i++)
-    {
-        const gamepad_host_t *gamepad = &gamepads[i];
-        if (!gamepad->id)
-            continue;
-        int player = -1;
-        for (int p = 0; p < GAMEPAD_PLAYERS; p++)
-            if (gamepad_input_player[p] == gamepad->id)
-                player = p;
-        if (player < 0)
-            for (int p = 0; p < GAMEPAD_PLAYERS && player < 0; p++)
-                if (!gamepad_input_player[p])
-                {
-                    gamepad_input_player[p] = gamepad->id;
-                    player = p;
-                }
-        if (player < 0)
-            continue; /* more controllers than the machine has players */
-        /* A backend may become sure of the face-button labels only after a
-         * poll or two, so what it claims is restated with every report. */
-        gamepad_connect(player, true, gamepad->type, gamepad->sticks);
-        gamepad_host_report(player, gamepad->dpad, gamepad->button0, gamepad->button1,
-                            gamepad->lx, gamepad->ly, gamepad->rx, gamepad->ry, gamepad->lt, gamepad->rt);
-    }
+    evq_to_machine(EVQ_GAMEPADS, &g, sizeof g);
 }

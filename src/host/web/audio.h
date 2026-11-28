@@ -7,10 +7,8 @@
 #ifndef _HOST_WEB_AUDIO_H_
 #define _HOST_WEB_AUDIO_H_
 
-/* The web player's sound (audio.c). Set up once the app is, and given the
- * frames' sound after each display callback that ran the machine. While the
- * page is away the machine does not run, nothing is given, and the sound
- * runs dry and goes quiet. */
+/* The web player's sound (audio.c), made by the worker's machine. Set up as
+ * the machine starts, and given the frames' sound after each step. */
 void web_audio_setup(void);
 void web_audio_frame(void);
 

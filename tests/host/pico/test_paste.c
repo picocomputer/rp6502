@@ -77,6 +77,9 @@ void keyboard_set_locks(uint8_t locks) { (void)locks; }
 static uint8_t held_modifier, held_key;
 uint8_t keyboard_get_modifier(void) { return held_modifier; }
 bool keyboard_key_down(uint8_t keycode) { return keycode == held_key; }
+/* The RIA's keyboard driver keeps the bitmap itself, so a key event never
+ * sets it, but the key events are linked whole. */
+void keyboard_set_key(uint8_t keycode, bool down) { (void)keycode; (void)down; }
 uint16_t oem_get_code_page_run(void) { return 437; }
 timer_deadline_t timer_in_us(uint64_t us) { return us; }
 bool timer_passed(timer_deadline_t d)

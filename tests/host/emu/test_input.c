@@ -5,6 +5,8 @@
  */
 
 #include "host/sokol/app/input.h"
+#include "host/sokol/app/evq_machine.h"
+#include "host/sokol/app/evq.h"
 #include "host/sokol/app/entry.h"
 #include "host/sokol/app/gfx.h"
 #include "core/com/com.h"
@@ -21,6 +23,7 @@
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/sys/sys.h"
+#include "core/sys/xram.h"
 #include "core/vga/vga.h"
 #include "sokol/sokol_app.h"
 
@@ -43,7 +46,8 @@ static bool shown;
 void sapp_lock_mouse(bool lock) { captured = lock; }
 bool sapp_mouse_locked(void) { return captured; }
 sapp_desc sapp_query_desc(void) { return (sapp_desc){0}; }
-const char *sapp_get_clipboard_string(void) { return ""; }
+/* The desktop's clipboard is the bench's (tb_seed.h). */
+const char *sapp_get_clipboard_string(void) { return tb_clipboard_text(); }
 void sapp_cancel_quit(void) {}
 void sapp_set_mouse_cursor(sapp_mouse_cursor cursor) { shown_cursor = cursor; }
 void sapp_show_mouse(bool show) { shown = show; }
@@ -69,28 +73,62 @@ bool gfx_canvas_from_fb(float fx, float fy, int *cx, int *cy)
     return true;
 }
 
-/* An event as the window hands it over (app.c): the locks a key goes down
- * with read first, and what the event asks of the OS done after. */
-static void event(const sapp_event *e)
+/* What crossed the event queue, both ways, as the two threads would take it: the
+ * machine takes what the window sent and says what changed, and the window
+ * takes that. */
+static void pump(void)
 {
-    if (e->type == SAPP_EVENTTYPE_KEY_DOWN)
-        input_read_locks();
-    input_event(e);
-    input_apply();
+    evq_msg_t m;
+    while (evq_machine_take(&m))
+        machine_take(&m);
+    machine_status(false, 0);
+    while (evq_window_take(&m))
+        if (m.kind == EVQ_STATUS)
+            input_set_status(m.body);
 }
 
-/* The window's locks, as a frame reads and hands them over. */
+/* An event as the window hands it over (app.c), and what it asks of the OS
+ * done after. */
+static void event(const sapp_event *e)
+{
+    pump();
+    input_event(e);
+    input_apply();
+    pump();
+}
+
+/* The window's locks, as a frame reads and sends them. */
 static void frame_locks(void)
 {
-    input_read_locks();
     input_locks();
+    pump();
 }
 
 /* The cursor, as a frame chooses and sets it. */
 static void frame_cursor(void)
 {
+    pump();
     input_cursor_task();
     input_apply();
+}
+
+/* The capture a frame lets go, as the machine last said. */
+static void frame_pointer(void)
+{
+    pump();
+    input_pointer_task();
+}
+
+static bool to_tablet(void)
+{
+    pump();
+    return input_pointer_to_tablet();
+}
+
+static bool wheel_to_tablet(void)
+{
+    pump();
+    return input_wheel_to_tablet();
 }
 
 /* A key going down and up, with the character the system sends for it
@@ -271,19 +309,19 @@ static void sokol_pasted(void)
 UTEST(input, ctrl_v_types_syn)
 {
     start(0);
-    ASSERT_TRUE(host_clipboard_set("text"));
+    host_clipboard_set("text");
     key(SAPP_KEYCODE_V, SAPP_MODIFIER_CTRL, 0);
     sokol_pasted();
     ASSERT_STREQ(pasted(), "\x16");
 }
 
-/* The paste keys paste the clipboard, asked for as the paste's turn
- * comes; on a Mac, Cmd+V's paste from sokol after it pastes nothing more. */
+/* The paste keys paste the clipboard, read as the key goes down; on a Mac,
+ * Cmd+V's paste from sokol after it pastes nothing more. */
 UTEST(input, the_paste_keys_paste_the_clipboard)
 {
     start(0);
     tb_mac_keys = true;
-    ASSERT_TRUE(host_clipboard_set("text"));
+    host_clipboard_set("text");
     key(SAPP_KEYCODE_V, SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT, 0);
     ASSERT_STREQ(pasted(), "text");
     key(SAPP_KEYCODE_INSERT, SAPP_MODIFIER_SHIFT, 0);
@@ -305,7 +343,7 @@ UTEST(input, the_paste_keys_paste_the_clipboard)
 UTEST(input, a_held_paste_key_pastes_once)
 {
     start(0);
-    ASSERT_TRUE(host_clipboard_set("text"));
+    host_clipboard_set("text");
     sapp_event e = {.type = SAPP_EVENTTYPE_KEY_DOWN, .key_code = SAPP_KEYCODE_INSERT,
                     .modifiers = SAPP_MODIFIER_SHIFT};
     event(&e);
@@ -478,15 +516,15 @@ UTEST(input, the_copy_keys_set_the_clipboard)
 {
     line_start("copied");
     key(SAPP_KEYCODE_HOME, SAPP_MODIFIER_SHIFT, 0);
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     key(SAPP_KEYCODE_C, SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT, 0);
     line_loop();
     ASSERT_STREQ(host_clipboard_get(), "copied");
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     key(SAPP_KEYCODE_INSERT, SAPP_MODIFIER_CTRL, 0);
     line_loop();
     ASSERT_STREQ(host_clipboard_get(), "copied");
-    ASSERT_TRUE(host_clipboard_set(""));
+    host_clipboard_set("");
     tb_mac_keys = true;
     key(SAPP_KEYCODE_C, SAPP_MODIFIER_SUPER, 'c');
     tb_mac_keys = false;
@@ -502,7 +540,7 @@ UTEST(input, a_copy_key_with_no_line_read_is_dropped)
 {
     sys_init();
     start(0);
-    ASSERT_TRUE(host_clipboard_set("kept"));
+    host_clipboard_set("kept");
     key(SAPP_KEYCODE_C, SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT, 0);
     key(SAPP_KEYCODE_A, 0, 'a');
     ASSERT_STREQ(pasted(), "a");
@@ -516,8 +554,9 @@ static void pointer_to(float x, float y)
 }
 
 /* With no program on the tablet, the console's terminal has the pointer
- * over the console, as the arrow; a canvas with no mode 0 on it takes no
- * pointer, and the window's own shows. */
+ * over the console, as the arrow. A canvas with no mode 0 on it does not
+ * want the pointer, so the window's own cursor shows, but the tablet still
+ * has it. */
 UTEST(input, unmapped_over_the_console_the_pointer_feeds_the_tablet)
 {
     sys_init();
@@ -530,17 +569,26 @@ UTEST(input, unmapped_over_the_console_the_pointer_feeds_the_tablet)
     frame_cursor();
     ASSERT_TRUE(shown);
     ASSERT_EQ(shown_cursor, SAPP_MOUSECURSOR_ARROW);
-    /* The terminal does nothing with the wheel, so a page keeps it, and
-     * nothing of it reaches the tablet. */
-    ASSERT_TRUE(input_pointer_to_tablet());
-    ASSERT_FALSE(input_wheel_to_tablet());
+    /* The terminal does nothing with the wheel, so a page keeps it, and the
+     * tablet has it too, as it has every pointer. */
+    ASSERT_TRUE(to_tablet());
+    ASSERT_FALSE(wheel_to_tablet());
     sapp_event w = {.type = SAPP_EVENTTYPE_MOUSE_SCROLL, .scroll_y = 1.0f};
     event(&w);
-    ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 0u);
+    ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 1u);
+    ASSERT_EQ(RING_AT(&vterm_mouse_queue, 0)->wheel, 1);
+    vterm_mouse_task();
 
+    /* A canvas with no mode 0 on it does not want the pointer, and the
+     * tablet still has it. */
     ASSERT_TRUE(vga_canvas_select(vga_canvas_320_240));
+    frame_pointer();
+    vterm_mouse_task();
+    ASSERT_FALSE(to_tablet());
     pointer_to(50, 50);
-    ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 0u);
+    ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 1u);
+    ASSERT_EQ(RING_AT(&vterm_mouse_queue, 0)->x, 50);
+    vterm_mouse_task();
     frame_cursor();
     ASSERT_TRUE(shown);
     ASSERT_EQ(shown_cursor, SAPP_MOUSECURSOR_DEFAULT);
@@ -594,6 +642,9 @@ UTEST(input, the_focus_is_told_while_a_program_asks)
 {
     sys_init();
     start(0);
+    /* As the window says when it starts (app_init). */
+    evq_to_machine(EVQ_FOCUSABLE, NULL, 0);
+    pump();
     vterm_focus(false);
     vterm_mouse_task();
     vterm_focus(true);
@@ -633,7 +684,7 @@ UTEST(input, small_scrolls_add_up)
     manifold_write_to(COM_TERM_SCREEN, "\33[?1000h", 8);
     pointer_to(100, 100);
     vterm_mouse_task();
-    ASSERT_TRUE(input_wheel_to_tablet());
+    ASSERT_TRUE(wheel_to_tablet());
     sapp_event w = {.type = SAPP_EVENTTYPE_MOUSE_SCROLL, .scroll_y = 0.4f};
     event(&w);
     vterm_mouse_task();
@@ -652,76 +703,110 @@ UTEST(input, small_scrolls_add_up)
     vterm_mouse_task();
 }
 
-/* A program that maps only the mouse is not on the tablet, even over the
- * console: the pointer is the mouse's, captured by the first click, and the
- * terminal has none of it. A program that maps the tablet too has it
- * uncaptured, and the terminal shares it. */
-UTEST(input, a_program_that_maps_only_the_mouse_captures_it)
+/* The pointer uncaptured is the host's tablet, and captured, as for a
+ * first-person game, its mouse. A program that maps the mouse has the first
+ * click capture it, whatever else it maps, and the click is spent on that.
+ * Captured, the mouse moves the mouse's block and the tablet's pointer both,
+ * from where the tablet had it. Let go, the mouse is gone, and the pointer
+ * is the tablet's again where the system has it. */
+UTEST(input, a_click_captures_the_mouse_for_a_program_that_maps_it)
 {
     sys_init();
     captured = false;
     pointer_to(100, 100);
-    input_pointer_task();
+    frame_pointer();
     input_apply();
     vterm_mouse_task();
-    ASSERT_TRUE(input_pointer_to_tablet());
+    ASSERT_TRUE(to_tablet());
 
-    /* A press held over the console as the mouse is mapped is let go on the
-     * tablet, so the terminal is not left in a drag. */
+    /* With no mouse mapped, a click is the tablet's. */
     sapp_event e = {.type = SAPP_EVENTTYPE_MOUSE_DOWN, .mouse_button = SAPP_MOUSEBUTTON_LEFT,
                     .mouse_x = 100, .mouse_y = 100};
     event(&e);
-    vterm_mouse_task();
-    ASSERT_TRUE(vterm_mouse_acts());
-    ASSERT_TRUE(mouse_xreg(0xFE00));
-    ASSERT_FALSE(input_pointer_to_tablet());
-    input_pointer_task();
-    input_apply();
-    ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 1u);
-    ASSERT_EQ(RING_AT(&vterm_mouse_queue, 0)->flags, 0);
-    vterm_mouse_task();
-    /* It is an edge: once let go, the tablet is left to whatever else puts
-     * a contact there, as a script does. */
-    tablet_host_pointer(100, 100, TABLET_FLAG_LEFT, true);
-    input_pointer_task();
-    input_apply();
+    ASSERT_FALSE(captured);
     ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 1u);
     ASSERT_EQ(RING_AT(&vterm_mouse_queue, 0)->flags, TABLET_FLAG_HOVER | TABLET_FLAG_LEFT);
-    tablet_host_clear();
-    vterm_mouse_task();
-    frame_cursor();
-    ASSERT_TRUE(shown);
-    ASSERT_EQ(shown_cursor, SAPP_MOUSECURSOR_DEFAULT);
-
-    /* The first click only captures. */
     e.type = SAPP_EVENTTYPE_MOUSE_UP;
     event(&e);
-    pointer_to(120, 100);
-    ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 0u);
-    ASSERT_FALSE(captured);
+    vterm_mouse_task();
+
+    /* Mapped, with the tablet mapped too, the first click only captures. */
+    ASSERT_TRUE(mouse_xreg(0xFE00));
+    ASSERT_TRUE(tablet_xreg(0xFF00));
+    frame_pointer();
+    input_apply();
+    ASSERT_TRUE(to_tablet());
     e.type = SAPP_EVENTTYPE_MOUSE_DOWN;
     event(&e);
     ASSERT_TRUE(captured);
     ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 0u);
-    input_pointer_task();
+    e.type = SAPP_EVENTTYPE_MOUSE_UP;
+    event(&e);
+
+    /* The system takes a while to capture, and until it has, the pointer is
+     * the tablet's, the spent click still held: it presses nothing there. */
+    captured = false; /* the system let it go */
+    frame_pointer();
+    input_apply();
+    pump();
+    vterm_mouse_task();
+    pump();
+    e.type = SAPP_EVENTTYPE_MOUSE_DOWN;
+    input_event(&e); /* not yet applied: the capture is still to come */
+    sapp_event held = {.type = SAPP_EVENTTYPE_MOUSE_MOVE, .mouse_x = 104, .mouse_y = 100,
+                       .modifiers = SAPP_MODIFIER_LMB};
+    input_event(&held);
+    pump();
+    ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 1u);
+    ASSERT_EQ(RING_AT(&vterm_mouse_queue, 0)->flags, TABLET_FLAG_HOVER);
+    vterm_mouse_task();
     input_apply();
     ASSERT_TRUE(captured);
+    e.type = SAPP_EVENTTYPE_MOUSE_UP;
+    event(&e);
 
-    /* Mapping the tablet as well lets the capture go and feeds the tablet,
-     * the wheel included. */
-    ASSERT_TRUE(tablet_xreg(0xFF00));
-    ASSERT_TRUE(input_pointer_to_tablet());
-    ASSERT_TRUE(input_wheel_to_tablet());
-    input_pointer_task();
-    input_apply();
+    /* Captured, the pointer stops being the system's and moves as a mouse,
+     * the system drawing it. 20 pixels of a 640-wide canvas are 20 counts. */
+    const uint8_t mx = xram[0xFE00 + 1];
+    sapp_event m = {.type = SAPP_EVENTTYPE_MOUSE_MOVE, .mouse_dx = 20.0f};
+    event(&m);
+    ASSERT_EQ((uint8_t)(xram[0xFE00 + 1] - mx), 20);
+    ASSERT_GE(RING_LEN(&vterm_mouse_queue), 1u);
+    const vterm_mouse_event_t *last = RING_AT(&vterm_mouse_queue, RING_LEN(&vterm_mouse_queue) - 1);
+    ASSERT_EQ(last->x, 124);
+    ASSERT_EQ(last->y, 100);
+    ASSERT_EQ(last->flags, TABLET_FLAG_HOVER);
+    ASSERT_FALSE(tablet_host_cursor_shown());
+    vterm_mouse_task();
+    e.type = SAPP_EVENTTYPE_MOUSE_DOWN;
+    event(&e);
+    ASSERT_EQ(xram[0xFE00], 0x01);
+    ASSERT_EQ(RING_AT(&vterm_mouse_queue, 0)->flags, TABLET_FLAG_HOVER | TABLET_FLAG_LEFT);
+    vterm_mouse_task();
+
+    /* Esc lets it go, and the held button with it. */
+    key(SAPP_KEYCODE_ESCAPE, 0, 0);
     ASSERT_FALSE(captured);
     pointer_to(130, 100);
-    ASSERT_EQ(RING_LEN(&vterm_mouse_queue), 1u);
+    ASSERT_EQ(xram[0xFE00], 0);
+    last = RING_AT(&vterm_mouse_queue, RING_LEN(&vterm_mouse_queue) - 1);
+    ASSERT_EQ(last->x, 130);
+    ASSERT_EQ(last->flags, TABLET_FLAG_HOVER);
+    ASSERT_TRUE(tablet_host_cursor_shown());
+    vterm_mouse_task();
+
+    /* A program that unmaps the mouse lets the capture go. */
+    e.type = SAPP_EVENTTYPE_MOUSE_DOWN;
+    event(&e);
+    ASSERT_TRUE(captured);
+    ASSERT_TRUE(mouse_xreg(0xFFFF));
+    frame_pointer();
+    input_apply();
+    ASSERT_FALSE(captured);
 
     ASSERT_TRUE(tablet_xreg(0xFFFF));
-    ASSERT_TRUE(mouse_xreg(0xFFFF));
     tablet_host_clear();
-    input_pointer_task();
+    frame_pointer();
     input_apply();
     vterm_mouse_task();
 }

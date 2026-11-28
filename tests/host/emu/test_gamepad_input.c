@@ -13,9 +13,20 @@
 
 #include "utest.h"
 
+#include "host/sokol/app/input.h"
+#include "host/sokol/app/evq_machine.h"
+#include "host/sokol/app/evq.h"
 #include <string.h>
 
 #define AT_PAD 0xFF00
+
+/* What the machine last told the window, which gamepad.c polls by. */
+static evq_status_t told;
+
+const evq_status_t *input_status(void)
+{
+    return &told;
+}
 
 static bool fake_open_result = true;
 static int fake_opens, fake_closes;
@@ -49,6 +60,9 @@ int host_gamepad_poll(gamepad_host_t *gamepads, int max)
 static void fake_reset(void)
 {
     gamepad_input_stop();
+    evq_reset();
+    machine_reset();
+    memset(&told, 0, sizeof told);
     fake_open_result = true;
     fake_opens = fake_closes = 0;
     fake_is_open = false;
@@ -72,15 +86,28 @@ static const uint8_t *rec(int player)
     return (uint8_t *)&xram[AT_PAD + player * 10];
 }
 
+/* What crossed the event queue, both ways: the machine takes what the window sent
+ * and says what changed, and the window takes that. */
+static void pump(void)
+{
+    evq_msg_t m;
+    while (evq_machine_take(&m))
+        machine_take(&m);
+    machine_status(false, 0);
+    while (evq_window_take(&m))
+        if (m.kind == EVQ_STATUS)
+            told = *(const evq_status_t *)m.body;
+}
+
 static void run_frames(int frames)
 {
-    /* As the window does each frame: the mapping the machine's last frames
-     * left noted, the OS asked, and the machine told. */
+    /* As the window and the machine do each frame: the mapping the machine
+     * last told the window, the OS asked, and the machine told. */
     for (int i = 0; i < frames; i++)
     {
-        gamepad_input_watch();
+        pump();
         gamepad_input_poll();
-        gamepad_input_report();
+        pump();
     }
 }
 

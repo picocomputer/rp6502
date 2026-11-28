@@ -46,32 +46,14 @@ uint32_t HOST_IN_RAM_FUNC host_seed(void)
     return seed;
 }
 
-bool host_minimized(void)
-{
-    return false;
-}
 
-bool host_focusable(void)
-{
-    return false;
-}
 
 bool host_mac_keys(void)
 {
     return false;
 }
 
-/* The machine keeps its own clipboard. */
-const char *host_clipboard_get(void)
-{
-    return NULL;
-}
 
-bool host_clipboard_set(const char *utf8)
-{
-    (void)utf8;
-    return false;
-}
 
 uint32_t host_crc32(uint32_t crc, const void *buf, size_t len)
 {
